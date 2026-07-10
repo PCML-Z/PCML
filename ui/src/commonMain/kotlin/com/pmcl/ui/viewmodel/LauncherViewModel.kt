@@ -125,6 +125,17 @@ class LauncherViewModel {
     private val _popularLoading = MutableStateFlow(false)
     val popularLoading: StateFlow<Boolean> = _popularLoading.asStateFlow()
 
+    // 分类推荐（用户选择分类标签后加载该分类下的热门项目）
+    private val _categoryResults = MutableStateFlow<List<ModProject>>(emptyList())
+    val categoryResults: StateFlow<List<ModProject>> = _categoryResults.asStateFlow()
+
+    private val _categoryLoading = MutableStateFlow(false)
+    val categoryLoading: StateFlow<Boolean> = _categoryLoading.asStateFlow()
+
+    // 当前选中的分类 slug（空字符串表示未选择，显示热门推荐）
+    private val _selectedCategory = MutableStateFlow("")
+    val selectedCategory: StateFlow<String> = _selectedCategory.asStateFlow()
+
     // 点击卡片进入的详情项目（null 表示未选中，显示热门网格）
     private val _detailProject = MutableStateFlow<ModProject?>(null)
     val detailProject: StateFlow<ModProject?> = _detailProject.asStateFlow()
@@ -735,13 +746,18 @@ class LauncherViewModel {
 
     // ============ 模组市场 ============
 
-    fun searchMods(query: String, gameVersion: String? = null, loader: String? = null) {
+    fun searchMods(query: String, gameVersion: String? = null, loader: String? = null,
+                   category: String? = null) {
         scope.launch {
             _marketLoading.value = true
             _status.value = "搜索: $query"
             try {
                 val list = withContext(Dispatchers.IO) {
-                    core.modMarket().search(query, gameVersion, loader, 30).join()
+                    if (category != null && category.isNotEmpty()) {
+                        core.modMarket().search(query, gameVersion, loader, category, 30).join()
+                    } else {
+                        core.modMarket().search(query, gameVersion, loader, 30).join()
+                    }
                 }
                 _marketResults.value = list
                 _status.value = "找到 ${list.size} 个模组（CurseForge ${if (core.modMarket().hasCurseForge()) "已启用" else "未启用"}）"
@@ -805,6 +821,43 @@ class LauncherViewModel {
                 _popularLoading.value = false
             }
         }
+    }
+
+    /**
+     * 按分类加载推荐模组（用户点击分类标签后调用）。
+     * 使用 Modrinth + CurseForge 聚合，按下载量排序。
+     * category 为空字符串时等同于 loadPopularMods。
+     */
+    fun loadCategoryMods(category: String, gameVersion: String? = null, loader: String? = null) {
+        _selectedCategory.value = category
+        if (category.isEmpty()) {
+            // 取消分类选择：清空分类结果，回到热门推荐
+            _categoryResults.value = emptyList()
+            return
+        }
+        // 切换到分类浏览模式：清除关键字搜索结果，使分类网格立即可见
+        _marketResults.value = emptyList()
+        scope.launch {
+            _categoryLoading.value = true
+            _status.value = "加载分类：$category"
+            try {
+                val list = withContext(Dispatchers.IO) {
+                    core.modMarket().searchByCategory(category, gameVersion, loader, 24).join()
+                }
+                _categoryResults.value = list
+                _status.value = "已加载 ${list.size} 个分类模组"
+            } catch (e: Throwable) {
+                _status.value = "加载分类失败：${e.message}"
+            } finally {
+                _categoryLoading.value = false
+            }
+        }
+    }
+
+    /** 清除分类选择，回到热门推荐视图 */
+    fun clearCategory() {
+        _selectedCategory.value = ""
+        _categoryResults.value = emptyList()
     }
 
     /**

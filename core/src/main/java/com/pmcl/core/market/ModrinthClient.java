@@ -59,7 +59,26 @@ public final class ModrinthClient implements ModMarketClient {
     @Override
     public CompletableFuture<List<ModProject>> search(String query, String gameVersion,
                                                      String loader, int limit) {
-        return doSearch(query, gameVersion, loader, limit, null);
+        return doSearch(query, gameVersion, loader, null, limit, null);
+    }
+
+    /**
+     * 带分类过滤的关键字搜索：关键字与分类同时生效（AND 关系）。
+     */
+    @Override
+    public CompletableFuture<List<ModProject>> search(String query, String gameVersion,
+                                                     String loader, String category, int limit) {
+        return doSearch(query, gameVersion, loader, category, limit, null);
+    }
+
+    /**
+     * 按分类浏览项目（无关键字，按下载量排序）。
+     * 用于「分类推荐」功能：用户点击分类标签后加载该分类下的热门项目。
+     */
+    @Override
+    public CompletableFuture<List<ModProject>> searchByCategory(String category, String gameVersion,
+                                                                 String loader, int limit) {
+        return doSearch("", gameVersion, loader, category, limit, "downloads");
     }
 
     /**
@@ -68,22 +87,24 @@ public final class ModrinthClient implements ModMarketClient {
      */
     @Override
     public CompletableFuture<List<ModProject>> popular(String gameVersion, String loader, int limit) {
-        return doSearch("", gameVersion, loader, limit, "downloads");
+        return doSearch("", gameVersion, loader, null, limit, "downloads");
     }
 
     /**
-     * 通用搜索：可指定排序方式。
+     * 通用搜索：可指定排序方式与分类过滤。
      *
      * @param query       关键字，空字符串表示无关键字（仅按 sort 排序）
+     * @param category    可选分类（如 "performance"/"technology"），null 表示不按分类过滤
      * @param sort        排序方式（relevance/downloads/updated/newest/follows），null 表示默认
      */
     private CompletableFuture<List<ModProject>> doSearch(String query, String gameVersion,
-                                                        String loader, int limit, String sort) {
+                                                        String loader, String category,
+                                                        int limit, String sort) {
         return CompletableFuture.supplyAsync(() -> {
             HttpUrl.Builder ub = HttpUrl.parse(BASE + "/search").newBuilder()
                     .addQueryParameter("query", query == null ? "" : query)
                     .addQueryParameter("limit", String.valueOf(limit))
-                    .addQueryParameter("facets", buildFacets(gameVersion, loader));
+                    .addQueryParameter("facets", buildFacets(gameVersion, loader, category));
             if (sort != null && !sort.isEmpty()) {
                 ub.addQueryParameter("sort", sort);
             }
@@ -175,10 +196,11 @@ public final class ModrinthClient implements ModMarketClient {
     }
 
     /**
-     * Modrinth facets 数组字符串：[["project_type:mod"],["versions:1.20.4"],["categories:fabric"]]
+     * Modrinth facets 数组字符串：[["project_type:mod"],["versions:1.20.4"],["categories:fabric"],["categories:performance"]]
      * 每个条件是一个独立的子数组，子数组之间是 AND 关系。
+     * loader 与 category 都通过 categories 字段过滤（Modrinth 把加载器和功能分类统一归类为 category）。
      */
-    private String buildFacets(String gameVersion, String loader) {
+    private String buildFacets(String gameVersion, String loader, String category) {
         List<String> groups = new ArrayList<>();
         groups.add("[\"project_type:mod\"]");
         if (gameVersion != null && !gameVersion.isEmpty()) {
@@ -186,6 +208,9 @@ public final class ModrinthClient implements ModMarketClient {
         }
         if (loader != null && !loader.isEmpty()) {
             groups.add("[\"categories:" + loader + "\"]");
+        }
+        if (category != null && !category.isEmpty()) {
+            groups.add("[\"categories:" + category + "\"]");
         }
         return "[" + String.join(",", groups) + "]";
     }

@@ -76,6 +76,33 @@ public final class ModMarketManager {
     }
 
     /**
+     * 跨平台聚合搜索（带分类过滤）：关键字 + 分类 AND 关系。
+     * 不支持分类的平台会忽略 category（仅按关键字搜索）。
+     */
+    public CompletableFuture<List<ModProject>> search(String query, String gameVersion,
+                                                     String loader, String category, int limit) {
+        if (category == null || category.isEmpty()) {
+            return search(query, gameVersion, loader, limit);
+        }
+        List<CompletableFuture<List<ModProject>>> futures = new ArrayList<>();
+        for (ModMarketClient c : clients) {
+            futures.add(c.search(query, gameVersion, loader, category, limit));
+        }
+        return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+                .thenApply(v -> {
+                    List<ModProject> merged = new ArrayList<>();
+                    for (CompletableFuture<List<ModProject>> f : futures) {
+                        try {
+                            merged.addAll(f.join());
+                        } catch (RuntimeException ignored) {
+                            // 某个源失败不影响其他源
+                        }
+                    }
+                    return merged;
+                });
+    }
+
+    /**
      * 跨平台聚合获取热门项目：并发查询所有客户端，合并结果。
      * 用于「热门推荐」卡片网格展示。
      */
@@ -83,6 +110,34 @@ public final class ModMarketManager {
         List<CompletableFuture<List<ModProject>>> futures = new ArrayList<>();
         for (ModMarketClient c : clients) {
             futures.add(c.popular(gameVersion, loader, limit));
+        }
+        return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+                .thenApply(v -> {
+                    List<ModProject> merged = new ArrayList<>();
+                    for (CompletableFuture<List<ModProject>> f : futures) {
+                        try {
+                            merged.addAll(f.join());
+                        } catch (RuntimeException ignored) {
+                            // 某个源失败不影响其他源
+                        }
+                    }
+                    return merged;
+                });
+    }
+
+    /**
+     * 跨平台聚合按分类浏览：并发查询所有客户端，合并结果。
+     * 用于「分类推荐」功能：用户点击分类标签后加载该分类下的热门项目。
+     * 不支持分类浏览的平台（如 CurseForge）会返回空列表，不影响其他源。
+     */
+    public CompletableFuture<List<ModProject>> searchByCategory(String category, String gameVersion,
+                                                                 String loader, int limit) {
+        if (category == null || category.isEmpty()) {
+            return popular(gameVersion, loader, limit);
+        }
+        List<CompletableFuture<List<ModProject>>> futures = new ArrayList<>();
+        for (ModMarketClient c : clients) {
+            futures.add(c.searchByCategory(category, gameVersion, loader, limit));
         }
         return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
                 .thenApply(v -> {

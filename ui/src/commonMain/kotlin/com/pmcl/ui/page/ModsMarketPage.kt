@@ -3,13 +3,17 @@ package com.pmcl.ui.page
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.outlined.Translate
@@ -23,6 +27,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.market.ModProject
@@ -42,6 +47,9 @@ fun ModsMarketPage(vm: LauncherViewModel) {
     val installedMods by vm.installedMods.collectAsState()
     val popularMods by vm.popularMods.collectAsState()
     val popularLoading by vm.popularLoading.collectAsState()
+    val categoryResults by vm.categoryResults.collectAsState()
+    val categoryLoading by vm.categoryLoading.collectAsState()
+    val selectedCategory by vm.selectedCategory.collectAsState()
     val detailProject by vm.detailProject.collectAsState()
     val currentModFiles by vm.currentModFiles.collectAsState()
     val translationCache by vm.translationCache.collectAsState()
@@ -69,7 +77,7 @@ fun ModsMarketPage(vm: LauncherViewModel) {
                 onClick = {
                     translateEnabled = !translateEnabled
                     if (translateEnabled) {
-                        val texts = (popularMods + results).flatMap {
+                        val texts = (popularMods + categoryResults + results).flatMap {
                             listOfNotNull(it.getName(), it.getSummary())
                         }.distinct()
                         vm.translateBatch(texts)
@@ -100,7 +108,15 @@ fun ModsMarketPage(vm: LauncherViewModel) {
             OutlinedTextField(
                 value = query, onValueChange = { query = it },
                 label = { Text("搜索模组（回车搜索）") }, singleLine = true,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(
+                    onSearch = {
+                        if (query.isNotBlank() && !loading) {
+                            vm.searchMods(query, gameVersion, loader, selectedCategory)
+                        }
+                    }
+                )
             )
             Spacer(Modifier.width(12.dp))
             OutlinedTextField(
@@ -112,13 +128,27 @@ fun ModsMarketPage(vm: LauncherViewModel) {
             LoaderDropdown(loader) { loader = it }
             Spacer(Modifier.width(12.dp))
             Button(onClick = {
-                vm.searchMods(query, gameVersion, loader)
+                vm.searchMods(query, gameVersion, loader, selectedCategory)
             }, enabled = !loading && query.isNotBlank()) {
                 Text(if (loading) "搜索中…" else "搜索")
             }
         }
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(12.dp))
+
+        // 分类推荐标签栏（横向滚动）
+        CategoryBar(
+            selectedCategory = selectedCategory,
+            onSelect = { cat ->
+                if (cat.isEmpty()) {
+                    vm.clearCategory()
+                } else {
+                    vm.loadCategoryMods(cat, gameVersion, loader)
+                }
+            }
+        )
+
+        Spacer(Modifier.height(12.dp))
 
         when {
             // 详情视图：点击卡片后进入
@@ -151,6 +181,52 @@ fun ModsMarketPage(vm: LauncherViewModel) {
                             translateEnabled = translateEnabled,
                             translationCache = translationCache
                         )
+                    }
+                }
+            }
+            // 分类推荐网格（用户选择分类标签后）
+            selectedCategory.isNotEmpty() -> {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("分类推荐：${categoryLabel(selectedCategory)}",
+                         style = MaterialTheme.typography.titleMedium,
+                         fontWeight = FontWeight.SemiBold,
+                         modifier = Modifier.weight(1f))
+                    if (categoryLoading) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                    } else {
+                        TextButton(onClick = {
+                            vm.loadCategoryMods(selectedCategory, gameVersion, loader)
+                        }) { Text("刷新") }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                if (categoryResults.isEmpty() && !categoryLoading) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth().weight(1f)
+                    ) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text("该分类下暂无模组，点击刷新重试",
+                                 color = MaterialTheme.colorScheme.outline)
+                        }
+                    }
+                } else {
+                    LazyVerticalGrid(
+                        columns = GridCells.Adaptive(220.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        itemsIndexed(categoryResults,
+                                key = { _, p -> p.getSource() + "/" + p.getId() }) { _, project ->
+                            PopularCard(
+                                project = project,
+                                onClick = { vm.openModDetail(project) },
+                                translateEnabled = translateEnabled,
+                                translationCache = translationCache
+                            )
+                        }
                     }
                 }
             }
@@ -541,6 +617,60 @@ private fun LoaderDropdown(selected: String, onSelect: (String) -> Unit) {
                     onClick = { onSelect(opt); expanded = false }
                 )
             }
+        }
+    }
+}
+
+/**
+ * 模组分类列表：中文标签 → Modrinth 原生 category slug。
+ * slug 已通过 https://api.modrinth.com/v2/tag/category 校验为有效分类。
+ * 「全部」对应空字符串，表示不按分类过滤（显示热门推荐）。
+ */
+private val MOD_CATEGORIES: List<Pair<String, String>> = listOf(
+    "全部" to "",
+    "性能优化" to "optimization",
+    "科技" to "technology",
+    "魔法" to "magic",
+    "冒险" to "adventure",
+    "装饰" to "decoration",
+    "实用" to "utility",
+    "生物" to "mobs",
+    "食物" to "food",
+    "世界生成" to "worldgen",
+    "存储" to "storage",
+    "装备" to "equipment",
+    "运输" to "transportation",
+    "社交" to "social",
+    "游戏机制" to "game-mechanics"
+)
+
+/** 根据 slug 反查中文标签（用于分类网格标题）。 */
+private fun categoryLabel(slug: String): String {
+    return MOD_CATEGORIES.firstOrNull { it.second == slug }?.first ?: slug
+}
+
+/**
+ * 分类推荐标签栏：横向滚动的 FilterChip 行。
+ * 点击「全部」回到热门推荐；点击具体分类加载该分类下的热门模组。
+ */
+@Composable
+private fun CategoryBar(
+    selectedCategory: String,
+    onSelect: (String) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        MOD_CATEGORIES.forEach { (label, slug) ->
+            FilterChip(
+                selected = selectedCategory == slug,
+                onClick = { onSelect(slug) },
+                label = { Text(label) }
+            )
         }
     }
 }
