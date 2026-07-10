@@ -47,8 +47,9 @@ public final class FabricInstaller implements ModLoaderInstaller {
                     result.add(new ModLoaderVersion(
                             ModLoader.FABRIC,
                             gameVersion,
-                            loader.get("version").getAsString(),
-                            loader.get("stable").getAsBoolean()
+                            loader.has("version") ? loader.get("version").getAsString() : "",
+                            loader.has("stable") && !loader.get("stable").isJsonNull()
+                                    ? loader.get("stable").getAsBoolean() : true
                     ));
                 }
                 return result;
