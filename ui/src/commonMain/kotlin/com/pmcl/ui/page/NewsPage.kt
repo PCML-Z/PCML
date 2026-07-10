@@ -80,15 +80,49 @@ fun NewsPage(vm: LauncherViewModel) {
 
     // 文章详情视图优先显示
     if (article != null || articleLoading || articleError.isNotEmpty()) {
+        val currentArticle = article
+        // 进入文章详情时，如果翻译已开启，自动翻译正文文本块
+        LaunchedEffect(currentArticle, translateEnabled) {
+            if (translateEnabled && currentArticle != null) {
+                val blocks = parseHtmlToBlocks(currentArticle.getBodyHtml())
+                val texts = blocks.mapNotNull { block ->
+                    when (block) {
+                        is HtmlBlock.Paragraph -> block.text
+                        is HtmlBlock.Heading -> block.text
+                        is HtmlBlock.ListItem -> block.text
+                        else -> null
+                    }
+                }.filter { it.isNotBlank() }
+                if (texts.isNotEmpty()) vm.translateBatch(texts)
+            }
+        }
+
         ArticleDetailView(
-            article = article,
+            article = currentArticle,
             loading = articleLoading,
             error = articleError,
             translateEnabled = translateEnabled,
             translationCache = translationCache,
             onTranslate = { text -> vm.translateText(text) },
+            translating = translating,
+            onToggleTranslate = {
+                translateEnabled = !translateEnabled
+                val art = currentArticle
+                if (translateEnabled && art != null) {
+                    val blocks = parseHtmlToBlocks(art.getBodyHtml())
+                    val texts = blocks.mapNotNull { block ->
+                        when (block) {
+                            is HtmlBlock.Paragraph -> block.text
+                            is HtmlBlock.Heading -> block.text
+                            is HtmlBlock.ListItem -> block.text
+                            else -> null
+                        }
+                    }.filter { it.isNotBlank() }
+                    if (texts.isNotEmpty()) vm.translateBatch(texts)
+                }
+            },
             onBack = { vm.clearArticle() },
-            onOpenInBrowser = { article?.getUrl()?.let { vm.openNewsLink(it) } }
+            onOpenInBrowser = { currentArticle?.getUrl()?.let { vm.openNewsLink(it) } }
         )
         return
     }
@@ -205,6 +239,9 @@ private fun ArticleDetailView(
     translateEnabled: Boolean = false,
     translationCache: Map<String, String> = emptyMap(),
     onTranslate: (String) -> Unit = {},
+    onTranslateBatch: (List<String>) -> Unit = {},
+    translating: Boolean = false,
+    onToggleTranslate: () -> Unit = {},
     onBack: () -> Unit,
     onOpenInBrowser: () -> Unit
 ) {
@@ -219,6 +256,23 @@ private fun ArticleDetailView(
             }
             Spacer(Modifier.weight(1f))
             if (article != null) {
+                // 翻译开关
+                FilterChip(
+                    selected = translateEnabled,
+                    onClick = onToggleTranslate,
+                    label = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                if (translateEnabled) Icons.Filled.Translate else Icons.Outlined.Translate,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(if (translating) "翻译中…" else "翻译")
+                        }
+                    }
+                )
+                Spacer(Modifier.width(8.dp))
                 TextButton(onClick = onOpenInBrowser) {
                     Icon(Icons.Filled.Search, contentDescription = null,
                          modifier = Modifier.size(16.dp))
@@ -315,7 +369,7 @@ private fun ArticleBody(
 
         // 正文块
         items(blocks) { block ->
-            RenderHtmlBlock(block)
+            RenderHtmlBlock(block, translateEnabled, translationCache)
         }
 
         // 底部链接
@@ -449,11 +503,18 @@ private fun extractAttr(tag: String, attr: String): String {
  * 渲染单个 HTML 块。
  */
 @Composable
-private fun RenderHtmlBlock(block: HtmlBlock) {
+private fun RenderHtmlBlock(
+    block: HtmlBlock,
+    translateEnabled: Boolean = false,
+    translationCache: Map<String, String> = emptyMap()
+) {
+    fun tr(text: String): String =
+        if (translateEnabled && translationCache.containsKey(text)) translationCache[text]!! else text
+
     when (block) {
         is HtmlBlock.Paragraph -> {
             Text(
-                block.text,
+                tr(block.text),
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = if (block.bold) FontWeight.Bold else FontWeight.Normal,
                 fontStyle = if (block.italic) FontStyle.Italic else FontStyle.Normal,
@@ -463,7 +524,7 @@ private fun RenderHtmlBlock(block: HtmlBlock) {
         is HtmlBlock.Heading -> {
             Spacer(Modifier.height(4.dp))
             Text(
-                block.text,
+                tr(block.text),
                 style = if (block.level == 2) MaterialTheme.typography.titleMedium
                         else MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold
@@ -497,7 +558,7 @@ private fun RenderHtmlBlock(block: HtmlBlock) {
                 Text(if (block.ordered) "• " else "·  ",
                      style = MaterialTheme.typography.bodyMedium,
                      color = MaterialTheme.colorScheme.primary)
-                Text(block.text,
+                Text(tr(block.text),
                      style = MaterialTheme.typography.bodyMedium,
                      color = MaterialTheme.colorScheme.onSurface)
             }
