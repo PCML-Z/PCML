@@ -5,8 +5,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
@@ -19,25 +21,30 @@ import androidx.compose.ui.unit.dp
 import com.pmcl.core.gamecontent.ShaderPackManager
 import com.pmcl.ui.animation.StaggeredAppear
 import com.pmcl.ui.viewmodel.LauncherViewModel
-import kotlinx.coroutines.launch
 
 @Composable
 fun ShaderPacksPage(vm: LauncherViewModel) {
-    val scope = rememberCoroutineScope()
     val packs by vm.shaderPacks.collectAsState()
     val status by vm.status.collectAsState()
     var query by remember { mutableStateOf("") }
+    var sortExpanded by remember { mutableStateOf(false) }
+    var sortBy by remember { mutableStateOf(ShaderSort.NAME) }
 
     LaunchedEffect(Unit) { vm.refreshShaderPacks() }
 
-    val filtered = remember(packs, query) {
-        if (query.isBlank()) packs
+    val filtered = remember(packs, query, sortBy) {
+        var list = if (query.isBlank()) packs
         else packs.filter { it.name.contains(query, ignoreCase = true) }
+        when (sortBy) {
+            ShaderSort.NAME -> list.sortedBy { it.name.lowercase() }
+            ShaderSort.SIZE_DESC -> list.sortedByDescending { it.size }
+            ShaderSort.SIZE_ASC -> list.sortedBy { it.size }
+            ShaderSort.ACTIVE -> list.sortedByDescending { it.isActive }
+        }
     }
     val activeCount = packs.count { it.isActive }
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
-        // === 标题栏（与 ModsPage 统一） ===
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("光影包", style = MaterialTheme.typography.headlineSmall,
                  fontWeight = FontWeight.Bold)
@@ -57,7 +64,6 @@ fun ShaderPacksPage(vm: LauncherViewModel) {
              style = MaterialTheme.typography.labelSmall,
              color = MaterialTheme.colorScheme.outline)
 
-        // === 搜索框 ===
         Spacer(Modifier.height(12.dp))
         OutlinedTextField(
             value = query,
@@ -69,12 +75,31 @@ fun ShaderPacksPage(vm: LauncherViewModel) {
             shape = RoundedCornerShape(12.dp)
         )
 
-        // === 统计 ===
+        // === 排序 ===
         Spacer(Modifier.height(8.dp))
-        Text("共 ${packs.size} 个光影包（当前应用 $activeCount）" +
-             if (query.isNotBlank() && filtered.size != packs.size) " · 搜索结果 ${filtered.size}" else "",
-             style = MaterialTheme.typography.titleMedium,
-             fontWeight = FontWeight.SemiBold)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("共 ${packs.size} 个光影包（当前应用 $activeCount）" +
+                 if (query.isNotBlank() && filtered.size != packs.size) " · 搜索结果 ${filtered.size}" else "",
+                 style = MaterialTheme.typography.titleMedium,
+                 fontWeight = FontWeight.SemiBold,
+                 modifier = Modifier.weight(1f))
+            Box {
+                OutlinedButton(onClick = { sortExpanded = true }) {
+                    Icon(Icons.AutoMirrored.Filled.Sort, null, Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(sortBy.label)
+                    Icon(Icons.Filled.ArrowDropDown, null, Modifier.size(16.dp))
+                }
+                DropdownMenu(expanded = sortExpanded, onDismissRequest = { sortExpanded = false }) {
+                    ShaderSort.entries.forEach { s ->
+                        DropdownMenuItem(
+                            text = { Text(s.label) },
+                            onClick = { sortBy = s; sortExpanded = false }
+                        )
+                    }
+                }
+            }
+        }
 
         Spacer(Modifier.height(12.dp))
 
@@ -109,6 +134,19 @@ fun ShaderPacksPage(vm: LauncherViewModel) {
     }
 }
 
+enum class ShaderSort(val label: String) {
+    NAME("按名称"), SIZE_DESC("大小 ↓"), SIZE_ASC("大小 ↑"), ACTIVE("已应用优先")
+}
+
+/** 人类可读文件大小 */
+fun formatFileSize(bytes: Long): String {
+    if (bytes < 1024) return "$bytes B"
+    val kb = bytes / 1024.0
+    if (kb < 1024) return "%.1f KB".format(kb)
+    val mb = kb / 1024.0
+    return "%.1f MB".format(mb)
+}
+
 @Composable
 private fun ShaderPackRow(
     pack: ShaderPackManager.ShaderPack,
@@ -135,7 +173,7 @@ private fun ShaderPackRow(
                     )
                     Spacer(Modifier.width(8.dp))
                 }
-                Text("${pack.size / 1024} KB",
+                Text(formatFileSize(pack.size),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
             }
@@ -145,7 +183,6 @@ private fun ShaderPackRow(
                  color = if (pack.isValid) MaterialTheme.colorScheme.outline
                          else MaterialTheme.colorScheme.error)
 
-            // === 操作按钮 ===
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (!isActive) {

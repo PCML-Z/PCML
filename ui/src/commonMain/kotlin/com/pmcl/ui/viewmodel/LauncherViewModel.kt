@@ -1679,6 +1679,12 @@ class LauncherViewModel {
         refreshDatapacks(world.dir)
     }
 
+    /** 清除选中的世界，返回世界列表视图 */
+    fun clearDatapackWorld() {
+        _selectedDatapackWorld.value = null
+        _datapacks.value = emptyList()
+    }
+
     /** 打开指定世界的 datapacks 目录 */
     fun openDatapacksDir(world: WorldManager.WorldInfo) {
         openDir(world.dir.resolve("datapacks").toFile())

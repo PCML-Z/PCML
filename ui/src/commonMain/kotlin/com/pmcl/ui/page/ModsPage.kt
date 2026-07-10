@@ -5,17 +5,19 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.mods.ModConflictChecker
+import com.pmcl.core.mods.ModMeta
 import com.pmcl.ui.animation.StaggeredAppear
 import com.pmcl.ui.viewmodel.LauncherViewModel
 
@@ -25,15 +27,33 @@ fun ModsPage(vm: LauncherViewModel) {
     val conflicts by vm.modConflicts.collectAsState()
     val status by vm.status.collectAsState()
     var query by remember { mutableStateOf("") }
+    var selectedLoader by remember { mutableStateOf<String?>(null) }
+    var sortExpanded by remember { mutableStateOf(false) }
+    var sortBy by remember { mutableStateOf(ModSort.NAME) }
 
     LaunchedEffect(Unit) { vm.refreshInstalledMods() }
 
-    val filteredMods = remember(installedMods, query) {
-        if (query.isBlank()) installedMods
+    // 提取所有加载器类型（用于筛选 chips）
+    val loaders = remember(installedMods) {
+        installedMods.map { it.getLoader() }.distinct().sorted()
+    }
+
+    // 搜索 + 加载器筛选 + 排序
+    val processedMods = remember(installedMods, query, selectedLoader, sortBy) {
+        var list = if (query.isBlank()) installedMods
         else installedMods.filter {
             it.getName().contains(query, ignoreCase = true) ||
             it.getModId().contains(query, ignoreCase = true) ||
             it.getLoader().contains(query, ignoreCase = true)
+        }
+        if (selectedLoader != null) {
+            list = list.filter { it.getLoader() == selectedLoader }
+        }
+        when (sortBy) {
+            ModSort.NAME -> list.sortedBy { it.getName().lowercase() }
+            ModSort.VERSION -> list.sortedBy { it.getVersion().lowercase() }
+            ModSort.LOADER -> list.sortedBy { it.getLoader().lowercase() }
+            ModSort.STATUS -> list.sortedByDescending { it.isDisabled() } // 启用在前
         }
     }
 
@@ -42,7 +62,6 @@ fun ModsPage(vm: LauncherViewModel) {
             Text("模组管理", style = MaterialTheme.typography.headlineSmall,
                  fontWeight = FontWeight.Bold)
             Spacer(Modifier.weight(1f))
-            // 打开 mods 目录
             OutlinedButton(onClick = { vm.openModsDir() }) {
                 Text("打开目录")
             }
@@ -71,7 +90,45 @@ fun ModsPage(vm: LauncherViewModel) {
             shape = RoundedCornerShape(12.dp)
         )
 
-        Spacer(Modifier.height(16.dp))
+        // === 加载器筛选 + 排序 ===
+        Spacer(Modifier.height(8.dp))
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            FilterChip(
+                selected = selectedLoader == null,
+                onClick = { selectedLoader = null },
+                label = { Text("全部") }
+            )
+            loaders.forEach { loader ->
+                FilterChip(
+                    selected = selectedLoader == loader,
+                    onClick = { selectedLoader = if (selectedLoader == loader) null else loader },
+                    label = { Text(loader) }
+                )
+            }
+            Spacer(Modifier.weight(1f))
+            // 排序下拉
+            Box {
+                OutlinedButton(onClick = { sortExpanded = true }) {
+                    Icon(Icons.AutoMirrored.Filled.Sort, null, Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(sortBy.label)
+                    Icon(Icons.Filled.ArrowDropDown, null, Modifier.size(16.dp))
+                }
+                DropdownMenu(expanded = sortExpanded, onDismissRequest = { sortExpanded = false }) {
+                    ModSort.entries.forEach { s ->
+                        DropdownMenuItem(
+                            text = { Text(s.label) },
+                            onClick = { sortBy = s; sortExpanded = false }
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
 
         // 冲突报告
         if (conflicts != null && conflicts!!.hasIssues()) {
@@ -83,12 +140,12 @@ fun ModsPage(vm: LauncherViewModel) {
         val enabledCount = installedMods.count { !it.isDisabled() }
         val disabledCount = installedMods.size - enabledCount
         Text("已安装（${installedMods.size}：启用 $enabledCount / 禁用 $disabledCount）" +
-             if (query.isNotBlank() && filteredMods.size != installedMods.size)
-                 " · 搜索结果 ${filteredMods.size}" else "",
+             if (query.isNotBlank() || selectedLoader != null)
+                 " · 当前显示 ${processedMods.size}" else "",
              style = MaterialTheme.typography.titleMedium,
              fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(8.dp))
-        if (filteredMods.isEmpty()) {
+        if (processedMods.isEmpty()) {
             Surface(
                 color = MaterialTheme.colorScheme.surfaceVariant,
                 shape = RoundedCornerShape(8.dp),
@@ -105,7 +162,7 @@ fun ModsPage(vm: LauncherViewModel) {
                 verticalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier.weight(1f)
             ) {
-                itemsIndexed(filteredMods, key = { _, m -> m.getJarFile() }) { index, m ->
+                itemsIndexed(processedMods, key = { _, m -> m.getJarFile() }) { index, m ->
                     StaggeredAppear(index) {
                         ModRow(m, vm)
                     }
@@ -118,9 +175,12 @@ fun ModsPage(vm: LauncherViewModel) {
     }
 }
 
+enum class ModSort(val label: String) {
+    NAME("按名称"), VERSION("按版本"), LOADER("按加载器"), STATUS("按状态")
+}
+
 @Composable
-private fun ModRow(m: com.pmcl.core.mods.ModMeta, vm: LauncherViewModel) {
-    // 删除确认对话框
+private fun ModRow(m: ModMeta, vm: LauncherViewModel) {
     var showDeleteDialog by remember { mutableStateOf(false) }
 
     Surface(
@@ -138,7 +198,6 @@ private fun ModRow(m: com.pmcl.core.mods.ModMeta, vm: LauncherViewModel) {
                     color = if (m.isDisabled()) MaterialTheme.colorScheme.outline
                             else MaterialTheme.colorScheme.onSurface
                 )
-                // loader 标签
                 AssistChip(onClick = {}, label = { Text(m.getLoader()) })
                 Spacer(Modifier.width(8.dp))
                 Text("v${m.getVersion()}", style = MaterialTheme.typography.labelSmall)
@@ -160,18 +219,15 @@ private fun ModRow(m: com.pmcl.core.mods.ModMeta, vm: LauncherViewModel) {
                      color = MaterialTheme.colorScheme.outline)
             }
 
-            // 操作按钮
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (m.isDisabled()) {
-                    // 启用按钮
                     TextButton(onClick = { vm.enableMod(m.getJarFile()) }) {
                         Text("▶")
                         Spacer(Modifier.width(4.dp))
                         Text("启用")
                     }
                 } else {
-                    // 禁用按钮
                     TextButton(onClick = { vm.disableMod(m.getJarFile()) }) {
                         Text("⏸")
                         Spacer(Modifier.width(4.dp))
@@ -179,7 +235,6 @@ private fun ModRow(m: com.pmcl.core.mods.ModMeta, vm: LauncherViewModel) {
                     }
                 }
                 Spacer(Modifier.width(8.dp))
-                // 删除按钮
                 TextButton(
                     onClick = { showDeleteDialog = true },
                     colors = ButtonDefaults.textButtonColors(
@@ -195,7 +250,6 @@ private fun ModRow(m: com.pmcl.core.mods.ModMeta, vm: LauncherViewModel) {
         }
     }
 
-    // 删除确认对话框
     if (showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },

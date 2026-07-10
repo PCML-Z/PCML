@@ -6,6 +6,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -86,6 +87,12 @@ fun DatapacksPage(vm: LauncherViewModel) {
                         Icon(Icons.Filled.Refresh, null, Modifier.size(14.dp))
                         Spacer(Modifier.width(4.dp))
                         Text("重新扫描")
+                    }
+                    Spacer(Modifier.width(4.dp))
+                    OutlinedButton(onClick = { vm.clearDatapackWorld() }) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, null, Modifier.size(14.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("返回世界列表")
                     }
                 }
             }

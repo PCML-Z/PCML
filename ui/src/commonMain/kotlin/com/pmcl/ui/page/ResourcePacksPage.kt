@@ -5,7 +5,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
@@ -24,12 +26,20 @@ fun ResourcePacksPage(vm: LauncherViewModel) {
     val packs by vm.resourcePacks.collectAsState()
     val status by vm.status.collectAsState()
     var query by remember { mutableStateOf("") }
+    var sortExpanded by remember { mutableStateOf(false) }
+    var sortBy by remember { mutableStateOf(ResourceSort.NAME) }
 
     LaunchedEffect(Unit) { vm.refreshResourcePacks() }
 
-    val filtered = remember(packs, query) {
-        if (query.isBlank()) packs
+    val filtered = remember(packs, query, sortBy) {
+        var list = if (query.isBlank()) packs
         else packs.filter { it.name.contains(query, ignoreCase = true) }
+        when (sortBy) {
+            ResourceSort.NAME -> list.sortedBy { it.name.lowercase() }
+            ResourceSort.FORMAT_ASC -> list.sortedBy { it.packFormat }
+            ResourceSort.FORMAT_DESC -> list.sortedByDescending { it.packFormat }
+            ResourceSort.TYPE -> list.sortedBy { if (it.isZip) 0 else 1 }
+        }
     }
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
@@ -65,12 +75,31 @@ fun ResourcePacksPage(vm: LauncherViewModel) {
             shape = RoundedCornerShape(12.dp)
         )
 
-        // === 统计 ===
+        // === 统计 + 排序 ===
         Spacer(Modifier.height(8.dp))
-        Text("共 ${packs.size} 个资源包" +
-             if (query.isNotBlank() && filtered.size != packs.size) " · 搜索结果 ${filtered.size}" else "",
-             style = MaterialTheme.typography.titleMedium,
-             fontWeight = FontWeight.SemiBold)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("共 ${packs.size} 个资源包" +
+                 if (query.isNotBlank() && filtered.size != packs.size) " · 搜索结果 ${filtered.size}" else "",
+                 style = MaterialTheme.typography.titleMedium,
+                 fontWeight = FontWeight.SemiBold,
+                 modifier = Modifier.weight(1f))
+            Box {
+                OutlinedButton(onClick = { sortExpanded = true }) {
+                    Icon(Icons.AutoMirrored.Filled.Sort, null, Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(sortBy.label)
+                    Icon(Icons.Filled.ArrowDropDown, null, Modifier.size(16.dp))
+                }
+                DropdownMenu(expanded = sortExpanded, onDismissRequest = { sortExpanded = false }) {
+                    ResourceSort.entries.forEach { s ->
+                        DropdownMenuItem(
+                            text = { Text(s.label) },
+                            onClick = { sortBy = s; sortExpanded = false }
+                        )
+                    }
+                }
+            }
+        }
 
         Spacer(Modifier.height(12.dp))
 
@@ -105,11 +134,14 @@ fun ResourcePacksPage(vm: LauncherViewModel) {
     }
 }
 
+enum class ResourceSort(val label: String) {
+    NAME("按名称"), FORMAT_ASC("版本 ↑"), FORMAT_DESC("版本 ↓"), TYPE("类型")
+}
+
 @Composable
 private fun ResourcePackRow(pack: ResourcePackManager.Pack, vm: LauncherViewModel) {
     var showDeleteDialog by remember { mutableStateOf(false) }
 
-    // pack_format 兼容性提示（粗略映射）
     val formatHint = when (pack.packFormat) {
         in 1..3 -> "旧版（1.6-1.16）"
         in 4..6 -> "1.13-1.16"
