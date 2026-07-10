@@ -24,6 +24,9 @@ import com.pmcl.core.preferences.Preferences
 import java.awt.Frame
 import java.awt.MouseInfo
 import java.awt.Point
+import java.awt.event.ComponentAdapter
+import java.awt.event.ComponentEvent
+import java.awt.geom.RoundRectangle2D
 import java.nio.file.Paths
 
 /**
@@ -51,6 +54,24 @@ fun main() = application {
         undecorated = borderless
     ) {
         if (borderless) {
+            // 无边框窗口用 AWT shape 裁剪出圆角（最大化时用直角填满屏幕）
+            DisposableEffect(Unit) {
+                val updateShape = {
+                    val arc = if (window.extendedState == Frame.MAXIMIZED_BOTH) 0.0 else 12.0
+                    window.shape = RoundRectangle2D.Double(
+                        0.0, 0.0,
+                        window.width.toDouble(), window.height.toDouble(),
+                        arc, arc
+                    )
+                }
+                updateShape()
+                val listener = object : ComponentAdapter() {
+                    override fun componentResized(e: ComponentEvent?) { updateShape() }
+                    override fun componentMoved(e: ComponentEvent?) { updateShape() }
+                }
+                window.addComponentListener(listener)
+                onDispose { window.removeComponentListener(listener) }
+            }
             Column(Modifier.fillMaxSize()) {
                 // 无边框模式下使用自定义标题栏
                 val isDark = pref.isUseDarkTheme()
