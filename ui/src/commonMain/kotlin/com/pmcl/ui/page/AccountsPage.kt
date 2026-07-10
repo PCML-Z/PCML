@@ -51,12 +51,11 @@ fun AccountsPage(vm: LauncherViewModel) {
 
                 if (account != null) {
                     val acc = account!!
-                    // 皮肤预览区
+                    // 账号信息行（头像 + 文字）
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        // 头像
                         val avatarUrl = acc.getAvatarUrl()
                         if (avatarUrl.isNotEmpty()) {
                             SkinImage(avatarUrl, 64)
@@ -70,26 +69,29 @@ fun AccountsPage(vm: LauncherViewModel) {
                                      modifier = Modifier.padding(16.dp))
                             }
                         }
-                        // 全身渲染（微软账号）
-                        if (acc.getType() == Account.AccountType.MICROSOFT) {
-                            SkinImage(acc.getBodyRenderUrl(), 128)
-                        }
-                        // 信息列
                         Column(Modifier.weight(1f)) {
                             Text("用户名：${acc.getUsername()}", fontWeight = FontWeight.SemiBold)
                             Text("UUID：${acc.getUuid()}", style = MaterialTheme.typography.labelSmall,
                                  color = MaterialTheme.colorScheme.outline)
                             Text("类型：${acc.getType()}")
                             if (acc.getSkinUrl().isNotEmpty()) {
-                                Text("皮肤：${acc.getSkinUrl().take(40)}…",
-                                     style = MaterialTheme.typography.labelSmall,
-                                     color = MaterialTheme.colorScheme.outline)
                                 Text("模型：${acc.getSkinModel()}",
                                      style = MaterialTheme.typography.labelSmall,
                                      color = MaterialTheme.colorScheme.outline)
                             }
                         }
                     }
+                    Spacer(Modifier.height(12.dp))
+                    // 3D 皮肤模型预览（拖拽可旋转）
+                    Text("3D 皮肤预览（拖拽旋转）",
+                         style = MaterialTheme.typography.labelMedium,
+                         color = MaterialTheme.colorScheme.outline)
+                    Spacer(Modifier.height(4.dp))
+                    SkinViewer3D(
+                        skinUrl = acc.getSkinUrl(),
+                        skinModel = acc.getSkinModel(),
+                        modifier = Modifier.fillMaxWidth().height(280.dp)
+                    )
                     Spacer(Modifier.height(12.dp))
                     OutlinedButton(onClick = vm::logout) {
                         Text("退出登录")
