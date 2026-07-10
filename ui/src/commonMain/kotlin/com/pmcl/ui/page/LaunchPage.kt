@@ -892,27 +892,24 @@ fun ModLoaderInstallPromptDialog(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
-                // 加载器类型选择
+                // 加载器类型选择（流体滑动指示器）
                 val loaderOptions = listOf(
                     ModLoader.FABRIC to "Fabric",
                     ModLoader.FORGE to "Forge",
                     ModLoader.QUILT to "Quilt",
                     ModLoader.NEOFORGE to "NeoForge"
                 )
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    loaderOptions.forEach { (loader, label) ->
-                        val isSelected = selectedLoader == loader
-                        FilterChip(
-                            selected = isSelected,
-                            onClick = { selectedLoader = loader },
-                            label = { Text(label) },
-                            enabled = !installing
-                        )
-                    }
-                }
+                val loaderLabels = loaderOptions.map { it.second }
+                val loaderIndex = loaderOptions.indexOfFirst { it.first == selectedLoader }.coerceAtLeast(0)
+                com.pmcl.ui.animation.AnimatedSegmentedSelector(
+                    items = loaderLabels,
+                    selectedIndex = loaderIndex,
+                    onSelect = { i ->
+                        if (!installing) selectedLoader = loaderOptions[i].first
+                    },
+                    fillWidth = true,
+                    height = 34.dp
+                )
 
                 // 版本列表（选择加载器后显示）
                 if (selectedLoader != null) {
