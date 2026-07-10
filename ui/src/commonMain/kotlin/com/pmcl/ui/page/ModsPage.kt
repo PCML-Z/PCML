@@ -35,24 +35,24 @@ fun ModsPage(vm: LauncherViewModel) {
 
     // 提取所有加载器类型（用于筛选 chips）
     val loaders = remember(installedMods) {
-        installedMods.map { it.getLoader() }.distinct().sorted()
+        installedMods.map { it.getLoader() ?: "unknown" }.distinct().sorted()
     }
 
     // 搜索 + 加载器筛选 + 排序
     val processedMods = remember(installedMods, query, selectedLoader, sortBy) {
         var list = if (query.isBlank()) installedMods
         else installedMods.filter {
-            it.getName().contains(query, ignoreCase = true) ||
-            it.getModId().contains(query, ignoreCase = true) ||
-            it.getLoader().contains(query, ignoreCase = true)
+            (it.getName() ?: "").contains(query, ignoreCase = true) ||
+            (it.getModId() ?: "").contains(query, ignoreCase = true) ||
+            (it.getLoader() ?: "").contains(query, ignoreCase = true)
         }
         if (selectedLoader != null) {
-            list = list.filter { it.getLoader() == selectedLoader }
+            list = list.filter { (it.getLoader() ?: "unknown") == selectedLoader }
         }
         when (sortBy) {
-            ModSort.NAME -> list.sortedBy { it.getName().lowercase() }
-            ModSort.VERSION -> list.sortedBy { it.getVersion().lowercase() }
-            ModSort.LOADER -> list.sortedBy { it.getLoader().lowercase() }
+            ModSort.NAME -> list.sortedBy { (it.getName() ?: "").lowercase() }
+            ModSort.VERSION -> list.sortedBy { (it.getVersion() ?: "").lowercase() }
+            ModSort.LOADER -> list.sortedBy { (it.getLoader() ?: "").lowercase() }
             ModSort.STATUS -> list.sortedByDescending { it.isDisabled() } // 启用在前
         }
     }
@@ -192,29 +192,31 @@ private fun ModRow(m: ModMeta, vm: LauncherViewModel) {
         Column(Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    m.getName() + if (m.isDisabled()) "（已禁用）" else "",
+                    (m.getName() ?: m.getJarFile() ?: "未知") + if (m.isDisabled()) "（已禁用）" else "",
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f),
                     color = if (m.isDisabled()) MaterialTheme.colorScheme.outline
                             else MaterialTheme.colorScheme.onSurface
                 )
-                AssistChip(onClick = {}, label = { Text(m.getLoader()) })
+                AssistChip(onClick = {}, label = { Text(m.getLoader() ?: "unknown") })
                 Spacer(Modifier.width(8.dp))
-                Text("v${m.getVersion()}", style = MaterialTheme.typography.labelSmall)
+                Text("v${m.getVersion() ?: "?"}", style = MaterialTheme.typography.labelSmall)
             }
-            if (m.getDescription().isNotEmpty()) {
+            val desc = m.getDescription()
+            if (!desc.isNullOrEmpty()) {
                 Spacer(Modifier.height(4.dp))
-                Text(m.getDescription(),
+                Text(desc,
                      style = MaterialTheme.typography.bodySmall,
                      color = MaterialTheme.colorScheme.onSurfaceVariant,
                      maxLines = 2)
             }
             Spacer(Modifier.height(4.dp))
-            Text("${m.getJarFile()}  ·  ${m.getModId()}",
+            Text("${m.getJarFile() ?: "?"}  ·  ${m.getModId() ?: "?"}",
                  style = MaterialTheme.typography.labelSmall,
                  color = MaterialTheme.colorScheme.outline)
-            if (m.getAuthors().isNotEmpty()) {
-                Text("作者：${m.getAuthors()}",
+            val authors = m.getAuthors()
+            if (!authors.isNullOrEmpty()) {
+                Text("作者：$authors",
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
             }
