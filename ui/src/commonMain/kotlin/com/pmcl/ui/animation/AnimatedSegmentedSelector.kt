@@ -104,9 +104,14 @@ fun AnimatedSegmentedSelector(
         Row(modifier = Modifier.fillMaxSize()) {
             items.forEachIndexed { i, label ->
                 val isSelected = i == safeIndex
+                // 自适应模式下不能用 weight(0f)（会抛异常），改用 wrapContentWidth
+                val itemModifier = if (fillWidth) {
+                    Modifier.weight(1f)
+                } else {
+                    Modifier.wrapContentWidth(unbounded = false)
+                }
                 Box(
-                    modifier = Modifier
-                        .weight(if (fillWidth) 1f else 0f)
+                    modifier = itemModifier
                         .onGloballyPositioned { itemWidths[i] = it.size.width.toFloat() }
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
