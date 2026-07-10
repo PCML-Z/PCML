@@ -76,15 +76,13 @@ fun SettingsPage(vm: LauncherViewModel) {
 
                 Text("GC 类型", style = MaterialTheme.typography.labelMedium)
                 Spacer(Modifier.height(4.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("G1GC", "ZGC", "ShenandoahGC", "ParallelGC").forEach { gc ->
-                        FilterChip(
-                            selected = gcType == gc,
-                            onClick = { gcType = gc; pref.setGcType(gc) },
-                            label = { Text(gc) }
-                        )
-                    }
-                }
+                val gcItems = listOf("G1GC", "ZGC", "ShenandoahGC", "ParallelGC")
+                com.pmcl.ui.animation.AnimatedSegmentedSelector(
+                    items = gcItems,
+                    selectedIndex = gcItems.indexOf(gcType).coerceAtLeast(0),
+                    onSelect = { gcType = gcItems[it]; pref.setGcType(gcItems[it]) },
+                    fillWidth = true
+                )
 
                 Spacer(Modifier.height(12.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -174,18 +172,16 @@ fun SettingsPage(vm: LauncherViewModel) {
 
                 Text("语言 / Language", style = MaterialTheme.typography.labelMedium)
                 Spacer(Modifier.height(4.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("zh_CN" to "简体中文", "en_US" to "English").forEach { (id, label) ->
-                        FilterChip(
-                            selected = language == id,
-                            onClick = {
-                                language = id
-                                vm.setLanguage(id)
-                            },
-                            label = { Text(label) }
-                        )
-                    }
-                }
+                val langItems = listOf("zh_CN" to "简体中文", "en_US" to "English")
+                com.pmcl.ui.animation.AnimatedSegmentedSelector(
+                    items = langItems.map { it.second },
+                    selectedIndex = langItems.indexOfFirst { it.first == language }.coerceAtLeast(0),
+                    onSelect = {
+                        language = langItems[it].first
+                        vm.setLanguage(langItems[it].first)
+                    },
+                    fillWidth = true
+                )
                 Text("切换语言后部分界面需重启 UI 完全生效",
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
@@ -349,18 +345,16 @@ private fun GameBehaviorCard(pref: com.pmcl.core.preferences.Preferences) {
             Spacer(Modifier.height(12.dp))
             Text("渲染器", style = MaterialTheme.typography.labelMedium)
             Spacer(Modifier.height(4.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("AUTO" to "自动", "OPENGL" to "OpenGL", "VULKAN" to "Vulkan").forEach { (id, label) ->
-                    FilterChip(
-                        selected = renderer == id,
-                        onClick = {
-                            renderer = id
-                            pref.setGameRenderer(id)
-                        },
-                        label = { Text(label) }
-                    )
-                }
-            }
+            val rendererItems = listOf("AUTO" to "自动", "OPENGL" to "OpenGL", "VULKAN" to "Vulkan")
+            com.pmcl.ui.animation.AnimatedSegmentedSelector(
+                items = rendererItems.map { it.second },
+                selectedIndex = rendererItems.indexOfFirst { it.first == renderer }.coerceAtLeast(0),
+                onSelect = {
+                    renderer = rendererItems[it].first
+                    pref.setGameRenderer(rendererItems[it].first)
+                },
+                fillWidth = true
+            )
             Text("对应 --renderer；Vulkan 仅 MC 1.21+ 实验性支持，需配合兼容驱动",
                  style = MaterialTheme.typography.labelSmall,
                  color = MaterialTheme.colorScheme.outline)
@@ -443,19 +437,17 @@ private fun NetworkConfigCard(vm: LauncherViewModel, pref: com.pmcl.core.prefere
 
             Text("下载镜像源", style = MaterialTheme.typography.labelMedium)
             Spacer(Modifier.height(4.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("OFFICIAL" to "官方", "BMCLAPI" to "BMCLAPI", "CUSTOM" to "自定义").forEach { (id, label) ->
-                    FilterChip(
-                        selected = mirrorType == id,
-                        onClick = {
-                            mirrorType = id
-                            pref.setMirrorType(id)
-                            vm.applyNetworkPreferences()
-                        },
-                        label = { Text(label) }
-                    )
-                }
-            }
+            val mirrorItems = listOf("OFFICIAL" to "官方", "BMCLAPI" to "BMCLAPI", "CUSTOM" to "自定义")
+            com.pmcl.ui.animation.AnimatedSegmentedSelector(
+                items = mirrorItems.map { it.second },
+                selectedIndex = mirrorItems.indexOfFirst { it.first == mirrorType }.coerceAtLeast(0),
+                onSelect = {
+                    mirrorType = mirrorItems[it].first
+                    pref.setMirrorType(mirrorItems[it].first)
+                    vm.applyNetworkPreferences()
+                },
+                fillWidth = true
+            )
             if (mirrorType == "CUSTOM") {
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(

@@ -104,18 +104,15 @@ fun DownloadPage(vm: LauncherViewModel) {
         // 列表
         if (tab == 0) {
             // Vanilla 列表：分类筛选 + 搜索
-            // 分类筛选 FilterChip 行
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically) {
-                val categories = listOf("全部", "正式版", "快照", "旧版Beta", "旧版Alpha")
-                categories.forEachIndexed { i, label ->
-                    FilterChip(
-                        selected = versionCategory == i,
-                        onClick = { versionCategory = i },
-                        label = { Text(label, style = MaterialTheme.typography.labelMedium) }
-                    )
-                }
-            }
+            // 分类滑动选择器
+            val categories = listOf("全部", "正式版", "快照", "旧版Beta", "旧版Alpha")
+            com.pmcl.ui.animation.AnimatedSegmentedSelector(
+                items = categories,
+                selectedIndex = versionCategory,
+                onSelect = { versionCategory = it },
+                fillWidth = true,
+                height = 32.dp
+            )
 
             Spacer(Modifier.height(8.dp))
 

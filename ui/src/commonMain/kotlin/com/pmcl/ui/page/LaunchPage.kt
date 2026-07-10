@@ -361,18 +361,15 @@ fun LaunchPage(vm: LauncherViewModel) {
                 var searchQuery by remember { mutableStateOf("") }
 
                 Column {
-                    // 分类 FilterChip
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        val categories = listOf("全部", "正式版", "快照", "旧版Beta", "旧版Alpha")
-                        categories.forEachIndexed { i, label ->
-                            FilterChip(
-                                selected = versionCategory == i,
-                                onClick = { versionCategory = i },
-                                label = { Text(label, style = MaterialTheme.typography.labelSmall) }
-                            )
-                        }
-                    }
+                    // 分类滑动选择器
+                    val categories = listOf("全部", "正式版", "快照", "旧版Beta", "旧版Alpha")
+                    com.pmcl.ui.animation.AnimatedSegmentedSelector(
+                        items = categories,
+                        selectedIndex = versionCategory,
+                        onSelect = { versionCategory = it },
+                        fillWidth = true,
+                        height = 32.dp
+                    )
                     Spacer(Modifier.height(6.dp))
                     // 搜索框
                     OutlinedTextField(

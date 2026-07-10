@@ -128,31 +128,17 @@ fun MultiplayerPage(vm: LauncherViewModel) {
                     Text("联机后端", style = MaterialTheme.typography.labelMedium,
                          color = MaterialTheme.colorScheme.outline)
                     Spacer(Modifier.height(6.dp))
-                    Row(Modifier.fillMaxWidth()) {
-                        // Terracotta 按钮（默认推荐）
-                        FilterChip(
-                            selected = vm.mpBackend == MultiplayerManager.Backend.TERRACOTTA,
-                            onClick = { vm.setMpBackend(MultiplayerManager.Backend.TERRACOTTA) },
-                            label = { Text("Terracotta（官方）") },
-                            modifier = Modifier.weight(1f)
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        // EasyTier 按钮
-                        FilterChip(
-                            selected = vm.mpBackend == MultiplayerManager.Backend.EASYTIER,
-                            onClick = { vm.setMpBackend(MultiplayerManager.Backend.EASYTIER) },
-                            label = { Text("EasyTier") },
-                            modifier = Modifier.weight(1f)
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        // ConnectX 按钮
-                        FilterChip(
-                            selected = isConnectX,
-                            onClick = { vm.setMpBackend(MultiplayerManager.Backend.CONNECTX) },
-                            label = { Text("ConnectX") },
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
+                    val backendList = listOf(
+                        Triple("Terracotta（官方）", MultiplayerManager.Backend.TERRACOTTA, 0),
+                        Triple("EasyTier", MultiplayerManager.Backend.EASYTIER, 1),
+                        Triple("ConnectX", MultiplayerManager.Backend.CONNECTX, 2)
+                    )
+                    com.pmcl.ui.animation.AnimatedSegmentedSelector(
+                        items = backendList.map { it.first },
+                        selectedIndex = backendList.indexOfFirst { it.second == vm.mpBackend }.coerceAtLeast(0),
+                        onSelect = { vm.setMpBackend(backendList[it].second) },
+                        fillWidth = true
+                    )
                     if (isConnectX) {
                         Spacer(Modifier.height(8.dp))
                         Text("ConnectX 需要配置客户端二进制和服务器地址（点击右上角设置按钮）",

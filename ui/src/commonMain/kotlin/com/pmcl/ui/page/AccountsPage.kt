@@ -121,19 +121,14 @@ fun AccountsPage(vm: LauncherViewModel) {
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(Modifier.height(8.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        FilterChip(
-                            selected = skinModel == "classic",
-                            onClick = { skinModel = "classic" },
-                            label = { Text("Classic") }
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        FilterChip(
-                            selected = skinModel == "slim",
-                            onClick = { skinModel = "slim" },
-                            label = { Text("Slim") }
-                        )
-                    }
+                    Text("皮肤模型", style = MaterialTheme.typography.labelMedium,
+                         color = MaterialTheme.colorScheme.outline)
+                    Spacer(Modifier.height(4.dp))
+                    com.pmcl.ui.animation.AnimatedSegmentedSelector(
+                        items = listOf("Classic", "Slim"),
+                        selectedIndex = if (skinModel == "slim") 1 else 0,
+                        onSelect = { skinModel = if (it == 1) "slim" else "classic" }
+                    )
                     Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = { vm.setOfflineSkin(customSkinUrl, skinModel) }) {
