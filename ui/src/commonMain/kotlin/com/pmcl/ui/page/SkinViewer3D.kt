@@ -22,13 +22,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.jetbrains.skia.Image as SkiaImage
 import java.awt.image.BufferedImage
 import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.net.URL
 import javax.imageio.ImageIO
 import kotlin.math.cos
@@ -51,8 +58,8 @@ private data class V3(val x: Float, val y: Float, val z: Float) {
 // ======================== Model Definition ========================
 
 /**
- * One face of the player model: 4 vertices (CCW from outside) + UV region + fallback color.
- * UV coordinates are in pixel space of a 64x64 (or 64x32) Minecraft skin texture.
+ * One face of the player model: 4 vertices + UV region (in skin pixel coords) + fallback color.
+ * Vertex order maps to UV corners: (u0,v1) -> (u1,v1) -> (u1,v0) -> (u0,v0)
  */
 private data class ModelFace(
     val vertices: List<V3>,
@@ -61,12 +68,8 @@ private data class ModelFace(
 )
 
 /**
- * Build a box (rectangular cuboid) and return its 6 textured faces.
- *
- * @param cx cy cz  center position
- * @param w  h  d   width / height / depth
- * @param uv 6 UV regions: [top, bottom, right, front, left, back], each floatArrayOf(u0,v0,u1,v1)
- * @param fallback solid color when no texture is available
+ * Build a box and return its 6 textured faces.
+ * UV vertex order: bottom-left, bottom-right, top-right, top-left (in UV space).
  */
 private fun buildBox(
     cx: Float, cy: Float, cz: Float,
@@ -80,17 +83,17 @@ private fun buildBox(
     fun f(v: List<V3>, u: FloatArray) = ModelFace(v, u[0], u[1], u[2], u[3], fallback)
 
     return listOf(
-        // Top (+Y)
+        // Top (+Y) — view from above: x left→right, z front→back
         f(listOf(V3(x0, y1, z1), V3(x1, y1, z1), V3(x1, y1, z0), V3(x0, y1, z0)), uv[0]),
         // Bottom (-Y)
         f(listOf(V3(x0, y0, z0), V3(x1, y0, z0), V3(x1, y0, z1), V3(x0, y0, z1)), uv[1]),
-        // Right (-X, player's right)
-        f(listOf(V3(x0, y0, z0), V3(x0, y0, z1), V3(x0, y1, z1), V3(x0, y1, z0)), uv[2]),
-        // Front (+Z)
+        // Right (-X): z front→back maps to u left→right
+        f(listOf(V3(x0, y0, z1), V3(x0, y0, z0), V3(x0, y1, z0), V3(x0, y1, z1)), uv[2]),
+        // Front (+Z): x left→right
         f(listOf(V3(x0, y0, z1), V3(x1, y0, z1), V3(x1, y1, z1), V3(x0, y1, z1)), uv[3]),
-        // Left (+X, player's left)
-        f(listOf(V3(x1, y0, z1), V3(x1, y0, z0), V3(x1, y1, z0), V3(x1, y1, z1)), uv[4]),
-        // Back (-Z)
+        // Left (+X): z back→front
+        f(listOf(V3(x1, y0, z0), V3(x1, y0, z1), V3(x1, y1, z1), V3(x1, y1, z0)), uv[4]),
+        // Back (-Z): x right→left
         f(listOf(V3(x1, y0, z0), V3(x0, y0, z0), V3(x0, y1, z0), V3(x1, y1, z0)), uv[5])
     )
 }
@@ -101,12 +104,12 @@ private fun buildPlayerModel(slim: Boolean, hasLeftLayer: Boolean): List<ModelFa
 
     // === Head (8x8x8) at (0, 28, 0) ===
     faces.addAll(buildBox(0f, 28f, 0f, 8f, 8f, 8f, listOf(
-        floatArrayOf(8f, 0f, 16f, 8f),    // top
-        floatArrayOf(16f, 0f, 24f, 8f),   // bottom
-        floatArrayOf(0f, 8f, 8f, 16f),    // right
-        floatArrayOf(8f, 8f, 16f, 16f),   // front
-        floatArrayOf(16f, 8f, 24f, 16f),  // left
-        floatArrayOf(24f, 8f, 32f, 16f)   // back
+        floatArrayOf(8f, 0f, 16f, 8f),
+        floatArrayOf(16f, 0f, 24f, 8f),
+        floatArrayOf(0f, 8f, 8f, 16f),
+        floatArrayOf(8f, 8f, 16f, 16f),
+        floatArrayOf(16f, 8f, 24f, 16f),
+        floatArrayOf(24f, 8f, 32f, 16f)
     ), Color(0xFFB88160)))
 
     // === Body (8x12x4) at (0, 18, 0) ===
@@ -157,7 +160,6 @@ private fun buildPlayerModel(slim: Boolean, hasLeftLayer: Boolean): List<ModelFa
         )
         faces.addAll(buildBox(6f, 18f, 0f, armW, 12f, 4f, leftArmUV, Color(0xFFB88160)))
     } else {
-        // 64x32 old format: reuse right arm UVs
         faces.addAll(buildBox(6f, 18f, 0f, armW, 12f, 4f, armUV, Color(0xFFB88160)))
     }
 
@@ -189,43 +191,36 @@ private fun buildPlayerModel(slim: Boolean, hasLeftLayer: Boolean): List<ModelFa
     return faces
 }
 
-// ======================== Texture Sampling ========================
+// ======================== Texture Helpers ========================
 
-/** Sample the average color from a UV region of the skin texture. */
-private fun sampleAvgColor(
-    img: BufferedImage,
-    u0: Float, v0: Float, u1: Float, v1: Float
-): Color {
-    var r = 0; var g = 0; var b = 0; var count = 0
-    val x0 = u0.toInt().coerceIn(0, img.width - 1)
-    val x1 = u1.toInt().coerceIn(1, img.width)
-    val y0 = v0.toInt().coerceIn(0, img.height - 1)
-    val y1 = v1.toInt().coerceIn(1, img.height)
-    for (y in y0 until y1) {
-        for (x in x0 until x1) {
-            val argb = img.getRGB(x, y)
-            val alpha = (argb ushr 24) and 0xFF
-            if (alpha > 25) {
-                r += (argb ushr 16) and 0xFF
-                g += (argb ushr 8) and 0xFF
-                b += argb and 0xFF
-                count++
-            }
-        }
-    }
-    return if (count > 0) Color(r / count / 255f, g / count / 255f, b / count / 255f) else Color.Gray
+/**
+ * Extract a sub-region of the skin texture as an ImageBitmap for rendering.
+ * Returns null if the source image is null.
+ */
+private fun extractRegion(img: BufferedImage?, u0: Float, v0: Float, u1: Float, v1: Float): ImageBitmap? {
+    if (img == null) return null
+    val x = u0.toInt().coerceIn(0, img.width)
+    val y = v0.toInt().coerceIn(0, img.height)
+    val w = (u1 - u0).toInt().coerceIn(1, img.width - x)
+    val h = (v1 - v0).toInt().coerceIn(1, img.height - y)
+    val sub = img.getSubimage(x, y, w, h)
+    // Encode sub-image to PNG bytes, then decode via Skia for Compose ImageBitmap
+    val baos = ByteArrayOutputStream()
+    ImageIO.write(sub, "png", baos)
+    val skiaImage = SkiaImage.makeFromEncoded(baos.toByteArray())
+    return skiaImage.toComposeImageBitmap()
 }
 
 // ======================== 3D Renderer ========================
 
 /**
- * Real-time 3D Minecraft skin model viewer.
+ * Real-time 3D Minecraft skin model viewer with real texture mapping.
  *
- * - Auto-rotates around Y axis
+ * - Auto-rotates around Y axis (8s/revolution)
  * - Drag to rotate manually (X and Y axes)
- * - Samples average color per face from the skin texture for a blocky 3D look
- * - Uses painter's algorithm (back-to-front depth sorting) for face rendering
- * - Applies simple directional lighting for depth perception
+ * - Real UV texture mapping via clipped drawImage with affine transform
+ * - Backface culling + painter's algorithm depth sorting
+ * - Directional lighting for depth perception
  * - Falls back to solid Steve-like colors when no texture is available
  */
 @Composable
@@ -238,7 +233,6 @@ fun SkinViewer3D(
     var dragAngleX by remember { mutableStateOf(-8f) }
     var dragAngleY by remember { mutableStateOf(0f) }
 
-    // Load skin texture asynchronously
     LaunchedEffect(skinUrl) {
         skinImg = null
         if (skinUrl.isNotEmpty()) {
@@ -253,7 +247,6 @@ fun SkinViewer3D(
         }
     }
 
-    // Auto-rotation animation (8 seconds per revolution)
     val transition = rememberInfiniteTransition(label = "skin3d")
     val autoRotY by transition.animateFloat(
         initialValue = 0f,
@@ -265,23 +258,18 @@ fun SkinViewer3D(
         label = "rotY"
     )
 
-    // Build model and sample colors (only when texture/model changes)
-    val modelAndColors = remember(skinImg, skinModel) {
+    // Pre-extract texture regions for each face (only when texture/model changes)
+    val modelAndTextures = remember(skinImg, skinModel) {
         val hasLeftLayer = (skinImg?.height ?: 64) >= 64
         val slim = skinModel == "slim"
         val model = buildPlayerModel(slim, hasLeftLayer)
-        val colors = if (skinImg != null) {
-            model.map { face ->
-                sampleAvgColor(skinImg!!, face.u0, face.v0, face.u1, face.v1)
-            }
-        } else {
-            model.map { it.fallback }
+        val textures = model.map { face ->
+            extractRegion(skinImg, face.u0, face.v0, face.u1, face.v1)
         }
-        model to colors
+        model to textures
     }
-    val (model, faceColors) = modelAndColors
+    val (model, faceTextures) = modelAndTextures
 
-    // Light direction (from camera-left-top towards model, normalized)
     val lightDir = V3(-0.4f, 0.7f, -0.6f).normalized()
 
     Box(
@@ -311,18 +299,14 @@ fun SkinViewer3D(
             val cosX = cos(totalRotX * PI / 180f)
             val sinX = sin(totalRotX * PI / 180f)
 
-            // Rotate a vertex: first X, then Y
             fun rotate(v: V3): V3 {
-                // X rotation (pitch)
                 val y1 = v.y * cosX - v.z * sinX
                 val z1 = v.y * sinX + v.z * cosX
-                // Y rotation (yaw)
                 val x2 = v.x * cosY + z1 * sinY
                 val z2 = -v.x * sinY + z1 * cosY
                 return V3(x2, y1, z2)
             }
 
-            // Project to 2D (simple perspective)
             val focal = 40f
             fun project(v: V3): Offset {
                 val z = v.z + focal
@@ -333,11 +317,12 @@ fun SkinViewer3D(
                 )
             }
 
-            // Collect renderable faces: (depth, projected vertices, shaded color)
             data class RenderFace(
                 val depth: Float,
                 val points: List<Offset>,
-                val color: Color
+                val texture: ImageBitmap?,
+                val fallback: Color,
+                val brightness: Float
             )
 
             val renderFaces = mutableListOf<RenderFace>()
@@ -346,51 +331,154 @@ fun SkinViewer3D(
                 val face = model[i]
                 val rotated = face.vertices.map { rotate(it) }
 
-                // Face normal from rotated vertices
                 val e1 = rotated[1] - rotated[0]
                 val e2 = rotated[2] - rotated[0]
                 val normal = e1.cross(e2).normalized()
 
-                // Backface culling: camera is at -Z looking towards +Z.
-                // Keep faces whose normal points towards camera (normal.z < 0).
+                // Backface culling: camera at -Z, keep faces with normal.z < 0
                 if (normal.z >= 0f) continue
 
-                // Project vertices
                 val projected = rotated.map { project(it) }
-
-                // Average depth for sorting
                 val avgZ = (rotated[0].z + rotated[1].z + rotated[2].z + rotated[3].z) / 4f
+                val brightness = maxOf(0.45f, normal.dot(lightDir))
 
-                // Lighting: brightness from dot(normal, lightDir)
-                val brightness = maxOf(0.35f, normal.dot(lightDir))
-                val baseColor = faceColors[i]
-                val shaded = Color(
-                    red = (baseColor.red * brightness).coerceIn(0f, 1f),
-                    green = (baseColor.green * brightness).coerceIn(0f, 1f),
-                    blue = (baseColor.blue * brightness).coerceIn(0f, 1f),
-                    alpha = 1f
-                )
-
-                renderFaces.add(RenderFace(avgZ, projected, shaded))
+                renderFaces.add(RenderFace(avgZ, projected, faceTextures[i], face.fallback, brightness))
             }
 
-            // Sort back-to-front (painter's algorithm)
             renderFaces.sortByDescending { it.depth }
 
-            // Draw faces
             for (rf in renderFaces) {
-                val path = Path()
-                path.moveTo(rf.points[0].x, rf.points[0].y)
-                for (k in 1 until rf.points.size) {
-                    path.lineTo(rf.points[k].x, rf.points[k].y)
-                }
-                path.close()
-                drawPath(path, color = rf.color)
-                // Subtle outline for definition
-                drawPath(path, color = Color.Black.copy(alpha = 0.15f), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 0.5f))
+                drawTexturedQuad(rf.points, rf.texture, rf.fallback, rf.brightness)
             }
         }
     }
+}
+
+/**
+ * Draw a textured quad. Splits into 2 triangles and uses affine texture mapping
+ * (clip path + drawImage with computed transform) for real UV texture rendering.
+ * Falls back to solid color when no texture is available.
+ */
+private fun DrawScope.drawTexturedQuad(
+    points: List<Offset>,
+    texture: ImageBitmap?,
+    fallback: Color,
+    brightness: Float
+) {
+    if (points.size < 4) return
+
+    val shadedFallback = Color(
+        red = (fallback.red * brightness).coerceIn(0f, 1f),
+        green = (fallback.green * brightness).coerceIn(0f, 1f),
+        blue = (fallback.blue * brightness).coerceIn(0f, 1f),
+        alpha = 1f
+    )
+
+    if (texture == null) {
+        // No texture: fill with shaded fallback color
+        val path = pathOf(points)
+        drawPath(path, color = shadedFallback)
+        drawPath(path, color = Color.Black.copy(alpha = 0.15f), style = Stroke(width = 0.5f))
+        return
+    }
+
+    // Textured: split quad into 2 triangles and draw each with affine mapping
+    // Triangle 1: points[0], points[1], points[2]
+    // Triangle 2: points[0], points[2], points[3]
+    val texW = texture.width.toFloat()
+    val texH = texture.height.toFloat()
+
+    drawTexturedTriangle(
+        points[0], points[1], points[2],
+        Offset(0f, texH), Offset(texW, texH), Offset(texW, 0f),
+        texture, shadedFallback, brightness
+    )
+    drawTexturedTriangle(
+        points[0], points[2], points[3],
+        Offset(0f, texH), Offset(texW, 0f), Offset(0f, 0f),
+        texture, shadedFallback, brightness
+    )
+
+    // Outline for definition
+    val path = pathOf(points)
+    drawPath(path, color = Color.Black.copy(alpha = 0.1f), style = Stroke(width = 0.5f))
+}
+
+/**
+ * Draw a textured triangle using affine transformation.
+ * Maps texture triangle (t0,t1,t2) to screen triangle (s0,s1,s2).
+ *
+ * Affine mapping: screen = M * tex, where M is a 2x3 matrix.
+ * Solved from the 3 point correspondences.
+ */
+private fun DrawScope.drawTexturedTriangle(
+    s0: Offset, s1: Offset, s2: Offset,
+    t0: Offset, t1: Offset, t2: Offset,
+    texture: ImageBitmap,
+    fallback: Color,
+    brightness: Float
+) {
+    // Compute affine matrix mapping texture coords to screen coords
+    // [s0x s0y] = [a b] [t0x] + [e]
+    // [s1x s1y]   [c d] [t0y]
+    // Solve: dx = a*tx + b*ty + e, dy = c*tx + d*ty + f
+    val dtx = t1.x - t0.x
+    val dty = t1.y - t0.y
+    val dsx = s1.x - s0.x
+    val dsy = s1.y - s0.y
+    val dux = t2.x - t0.x
+    val duy = t2.y - t0.y
+    val dvx = s2.x - s0.x
+    val dvy = s2.y - s0.y
+
+    val det = dtx * duy - dty * dux
+    if (kotlin.math.abs(det) < 0.001f) return
+
+    // a, b (for x); c, d (for y)
+    val a = (dsx * duy - dvx * dty) / det
+    val b = (dvx * dtx - dsx * dux) / det
+    val c = (dsy * duy - dvy * dty) / det
+    val d = (dvy * dtx - dsy * dux) / det
+    val e = s0.x - a * t0.x - b * t0.y
+    val f = s0.y - c * t0.x - d * t0.y
+
+    // Clip to triangle path and apply affine transform, then draw the texture
+    val clipPath = Path().apply {
+        moveTo(s0.x, s0.y)
+        lineTo(s1.x, s1.y)
+        lineTo(s2.x, s2.y)
+        close()
+    }
+
+    // Affine matrix (row-major 4x4 for Compose):
+    // screenX = a*tx + b*ty + e
+    // screenY = c*tx + d*ty + f
+    val matrix = androidx.compose.ui.graphics.Matrix(floatArrayOf(
+        a, c, 0f, 0f,
+        b, d, 0f, 0f,
+        0f, 0f, 1f, 0f,
+        e, f, 0f, 1f
+    ))
+
+    withTransform({
+        clipPath(clipPath)
+        transform(matrix)
+    }) {
+        drawImage(
+            image = texture,
+            srcOffset = androidx.compose.ui.unit.IntOffset(0, 0),
+            srcSize = androidx.compose.ui.unit.IntSize(texture.width, texture.height),
+            dstOffset = androidx.compose.ui.unit.IntOffset(0, 0),
+            dstSize = androidx.compose.ui.unit.IntSize(texture.width, texture.height),
+            alpha = brightness
+        )
+    }
+}
+
+private fun pathOf(points: List<Offset>): Path = Path().apply {
+    moveTo(points[0].x, points[0].y)
+    for (i in 1 until points.size) lineTo(points[i].x, points[i].y)
+    close()
 }
 
 private const val PI = 3.14159265358979323846f
