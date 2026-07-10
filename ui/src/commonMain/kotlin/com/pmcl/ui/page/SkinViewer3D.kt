@@ -417,8 +417,9 @@ fun SkinViewer3D(
 }
 
 /**
- * Draw a textured quad. Splits into 2 triangles and uses affine texture mapping
- * (clip path + drawImage with computed transform) for real UV texture rendering.
+ * Draw a textured quad using clipped drawImage with affine transform.
+ * Computes bounding box of the projected quad, draws the texture scaled
+ * to fit, clipped to the quad's path. Uses withTransform for clip + matrix.
  * Falls back to solid color when no texture is available.
  */
 private fun DrawScope.drawTexturedQuad(
@@ -436,94 +437,65 @@ private fun DrawScope.drawTexturedQuad(
         alpha = 1f
     )
 
+    val path = pathOf(points)
+
     if (texture == null) {
-        // No texture: fill with shaded fallback color
-        val path = pathOf(points)
         drawPath(path, color = shadedFallback)
         drawPath(path, color = Color.Black.copy(alpha = 0.15f), style = Stroke(width = 0.5f))
         return
     }
 
-    // Textured: split quad into 2 triangles and draw each with affine mapping
-    // Triangle 1: points[0], points[1], points[2]
-    // Triangle 2: points[0], points[2], points[3]
+    // Compute affine transform from texture space to screen space.
+    // Quad vertices: v0=bottom-left, v1=bottom-right, v2=top-right, v3=top-left
+    // Texture coords: v0->(0,texH), v1->(texW,texH), v2->(texW,0), v3->(0,0)
+    // Use v0, v1, v2 to solve affine matrix.
     val texW = texture.width.toFloat()
     val texH = texture.height.toFloat()
 
-    drawTexturedTriangle(
-        points[0], points[1], points[2],
-        Offset(0f, texH), Offset(texW, texH), Offset(texW, 0f),
-        texture, shadedFallback, brightness
-    )
-    drawTexturedTriangle(
-        points[0], points[2], points[3],
-        Offset(0f, texH), Offset(texW, 0f), Offset(0f, 0f),
-        texture, shadedFallback, brightness
-    )
+    val s0 = points[0]; val s1 = points[1]; val s2 = points[2]
+    // Texture triangle: (0,texH), (texW,texH), (texW,0)
+    val t0x = 0f; val t0y = texH
+    val t1x = texW; val t1y = texH
+    val t2x = texW; val t2y = 0f
 
-    // Outline for definition
-    val path = pathOf(points)
-    drawPath(path, color = Color.Black.copy(alpha = 0.1f), style = Stroke(width = 0.5f))
-}
-
-/**
- * Draw a textured triangle using affine transformation.
- * Maps texture triangle (t0,t1,t2) to screen triangle (s0,s1,s2).
- *
- * Affine mapping: screen = M * tex, where M is a 2x3 matrix.
- * Solved from the 3 point correspondences.
- */
-private fun DrawScope.drawTexturedTriangle(
-    s0: Offset, s1: Offset, s2: Offset,
-    t0: Offset, t1: Offset, t2: Offset,
-    texture: ImageBitmap,
-    fallback: Color,
-    brightness: Float
-) {
-    // Compute affine matrix mapping texture coords to screen coords
-    // [s0x s0y] = [a b] [t0x] + [e]
-    // [s1x s1y]   [c d] [t0y]
-    // Solve: dx = a*tx + b*ty + e, dy = c*tx + d*ty + f
-    val dtx = t1.x - t0.x
-    val dty = t1.y - t0.y
+    val dtx = t1x - t0x
+    val dty = t1y - t0y
+    val dux = t2x - t0x
+    val duy = t2y - t0y
     val dsx = s1.x - s0.x
     val dsy = s1.y - s0.y
-    val dux = t2.x - t0.x
-    val duy = t2.y - t0.y
     val dvx = s2.x - s0.x
     val dvy = s2.y - s0.y
 
     val det = dtx * duy - dty * dux
-    if (kotlin.math.abs(det) < 0.001f) return
+    if (kotlin.math.abs(det) < 0.001f) {
+        // Degenerate: fill with fallback
+        drawPath(path, color = shadedFallback)
+        drawPath(path, color = Color.Black.copy(alpha = 0.1f), style = Stroke(width = 0.5f))
+        return
+    }
 
-    // a, b (for x); c, d (for y)
     val a = (dsx * duy - dvx * dty) / det
     val b = (dvx * dtx - dsx * dux) / det
     val c = (dsy * duy - dvy * dty) / det
     val d = (dvy * dtx - dsy * dux) / det
-    val e = s0.x - a * t0.x - b * t0.y
-    val f = s0.y - c * t0.x - d * t0.y
+    val e = s0.x - a * t0x - b * t0y
+    val f = s0.y - c * t0x - d * t0y
 
-    // Clip to triangle path and apply affine transform, then draw the texture
-    val clipPath = Path().apply {
-        moveTo(s0.x, s0.y)
-        lineTo(s1.x, s1.y)
-        lineTo(s2.x, s2.y)
-        close()
-    }
-
-    // Affine matrix (row-major 4x4 for Compose):
-    // screenX = a*tx + b*ty + e
-    // screenY = c*tx + d*ty + f
+    // Compose Matrix is column-major 4x4:
+    // [a c 0 e]
+    // [b d 0 f]
+    // [0 0 1 0]
+    // [0 0 0 1]
     val matrix = androidx.compose.ui.graphics.Matrix(floatArrayOf(
-        a, c, 0f, 0f,
-        b, d, 0f, 0f,
+        a, b, 0f, 0f,
+        c, d, 0f, 0f,
         0f, 0f, 1f, 0f,
         e, f, 0f, 1f
     ))
 
     withTransform({
-        clipPath(clipPath)
+        clipPath(path)
         transform(matrix)
     }) {
         drawImage(
@@ -535,6 +507,9 @@ private fun DrawScope.drawTexturedTriangle(
             alpha = brightness
         )
     }
+
+    // Outline for definition
+    drawPath(path, color = Color.Black.copy(alpha = 0.1f), style = Stroke(width = 0.5f))
 }
 
 private fun pathOf(points: List<Offset>): Path = Path().apply {
