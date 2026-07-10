@@ -26,6 +26,7 @@ fun SettingsPage(vm: LauncherViewModel) {
     var useAikar by remember { mutableStateOf(pref.isUseAikarFlags()) }
     var customArgs by remember { mutableStateOf(pref.getCustomJvmArgs()) }
     var language by remember { mutableStateOf(pref.getLanguage()) }
+    var borderless by remember { mutableStateOf(pref.isBorderlessWindow()) }
 
     Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
         Text("设置", style = MaterialTheme.typography.headlineSmall,
@@ -183,6 +184,27 @@ fun SettingsPage(vm: LauncherViewModel) {
                     fillWidth = true
                 )
                 Text("切换语言后部分界面需重启 UI 完全生效",
+                     style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.outline)
+
+                Spacer(Modifier.height(12.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(12.dp))
+
+                // 无边框窗口模式
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = borderless,
+                        onCheckedChange = { v ->
+                            borderless = v
+                            pref.setBorderlessWindow(v)
+                        }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("无边框窗口", fontWeight = FontWeight.Medium)
+                }
+                Spacer(Modifier.height(4.dp))
+                Text("开启后使用自定义标题栏，重启启动器后生效",
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
             }

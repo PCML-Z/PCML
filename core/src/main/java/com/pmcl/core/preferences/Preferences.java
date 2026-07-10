@@ -23,6 +23,7 @@ public final class Preferences {
     // 默认值
     private boolean useDarkTheme = false;
     private boolean dynamicColor = false; // 莫奈取色：主题颜色跟随桌面壁纸
+    private boolean borderlessWindow = false; // 无边框窗口模式（自定义标题栏）
     private String language = "zh_CN";             // zh_CN / en_US
     private boolean firstLaunchCompleted = false;  // 是否完成首次启动欢迎流程
     private java.util.List<String> pinnedVersions = new java.util.ArrayList<>();
@@ -75,6 +76,9 @@ public final class Preferences {
     public void setUseDarkTheme(boolean v) { useDarkTheme = v; save(); }
     public boolean isDynamicColor() { return dynamicColor; }
     public void setDynamicColor(boolean v) { dynamicColor = v; save(); }
+
+    public boolean isBorderlessWindow() { return borderlessWindow; }
+    public void setBorderlessWindow(boolean v) { borderlessWindow = v; save(); }
 
     public String getLanguage() { return language; }
     public void setLanguage(String v) { language = v; save(); }
@@ -299,6 +303,7 @@ public final class Preferences {
             JsonObject o = JsonParser.parseString(Files.readString(file)).getAsJsonObject();
             if (o.has("useDarkTheme")) useDarkTheme = o.get("useDarkTheme").getAsBoolean();
             if (o.has("dynamicColor")) dynamicColor = o.get("dynamicColor").getAsBoolean();
+            if (o.has("borderlessWindow")) borderlessWindow = o.get("borderlessWindow").getAsBoolean();
             if (o.has("language")) language = o.get("language").getAsString();
             if (o.has("firstLaunchCompleted")) firstLaunchCompleted = o.get("firstLaunchCompleted").getAsBoolean();
             if (o.has("pinnedVersions")) {
@@ -373,6 +378,7 @@ public final class Preferences {
             JsonObject o = new JsonObject();
             o.addProperty("useDarkTheme", useDarkTheme);
             o.addProperty("dynamicColor", dynamicColor);
+            o.addProperty("borderlessWindow", borderlessWindow);
             o.addProperty("language", language);
             o.addProperty("firstLaunchCompleted", firstLaunchCompleted);
             com.google.gson.JsonArray pinArr = new com.google.gson.JsonArray();
