@@ -3,14 +3,12 @@ package com.pmcl.ui.page
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -650,29 +648,25 @@ private fun categoryLabel(slug: String): String {
 }
 
 /**
- * 分类推荐标签栏：横向滚动的 FilterChip 行。
+ * 分类推荐标签栏：横向滚动的流体滑动指示器选择器。
  * 点击「全部」回到热门推荐；点击具体分类加载该分类下的热门模组。
+ * 分类较多时启用横向滚动，指示器随之滚动保持对齐。
  */
 @Composable
 private fun CategoryBar(
     selectedCategory: String,
     onSelect: (String) -> Unit
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        MOD_CATEGORIES.forEach { (label, slug) ->
-            FilterChip(
-                selected = selectedCategory == slug,
-                onClick = { onSelect(slug) },
-                label = { Text(label) }
-            )
-        }
-    }
+    val labels = MOD_CATEGORIES.map { it.first }
+    val selectedIndex = MOD_CATEGORIES.indexOfFirst { it.second == selectedCategory }.coerceAtLeast(0)
+    com.pmcl.ui.animation.AnimatedSegmentedSelector(
+        items = labels,
+        selectedIndex = selectedIndex,
+        onSelect = { i -> onSelect(MOD_CATEGORIES[i].second) },
+        modifier = Modifier.fillMaxWidth(),
+        scrollable = true,
+        height = 36.dp
+    )
 }
 
 /**

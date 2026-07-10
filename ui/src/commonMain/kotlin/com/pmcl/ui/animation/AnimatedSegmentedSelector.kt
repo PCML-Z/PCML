@@ -4,8 +4,10 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -29,6 +31,10 @@ import androidx.compose.ui.unit.sp
  *
  * 用于互斥单选场景，选中项之间有一个滑动的白色高亮背景块，
  * 切换时以 300ms 强调缓动曲线流畅过渡。
+ *
+ * @param scrollable 当选项过多时启用横向滚动（如模组分类标签栏）。
+ *                   启用后按钮行按内容宽度排列，超出可视区域可横向滑动，
+ *                   指示器随之滚动保持对齐。背景固定不随滚动移动。
  */
 @Composable
 fun AnimatedSegmentedSelector(
@@ -37,6 +43,7 @@ fun AnimatedSegmentedSelector(
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier,
     fillWidth: Boolean = false,
+    scrollable: Boolean = false,
     shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(10.dp),
     height: androidx.compose.ui.unit.Dp = 36.dp,
     indicatorPadding: androidx.compose.ui.unit.Dp = 3.dp
@@ -47,6 +54,7 @@ fun AnimatedSegmentedSelector(
     val safeIndex = selectedIndex.coerceIn(0, items.lastIndex)
     val itemWidths = remember { mutableStateListOf<Float>().apply { repeat(items.size) { add(0f) } } }
     var containerWidth by remember { mutableStateOf(0f) }
+    val scrollState = rememberScrollState()
 
     // 指示器内缩量（px），让滑动块在轨道内有呼吸感
     val padPx = with(density) { indicatorPadding.toPx() }
@@ -86,6 +94,7 @@ fun AnimatedSegmentedSelector(
             .height(height)
             .clip(shape)
             .background(MaterialTheme.colorScheme.surfaceVariant)
+            .then(if (scrollable) Modifier.horizontalScroll(scrollState) else Modifier)
     ) {
         // 滑动指示器：使用 shadow + surface 提升层次感
         if (animatedWidth > 0f) {
@@ -100,12 +109,17 @@ fun AnimatedSegmentedSelector(
             ) {}
         }
 
-        // 按钮行
-        Row(modifier = Modifier.fillMaxSize()) {
+        // 按钮行：滚动模式下按内容宽度排列，否则填满容器
+        val rowModifier = if (scrollable) {
+            Modifier.wrapContentWidth(unbounded = false).fillMaxHeight()
+        } else {
+            Modifier.fillMaxSize()
+        }
+        Row(modifier = rowModifier) {
             items.forEachIndexed { i, label ->
                 val isSelected = i == safeIndex
                 // 自适应模式下不能用 weight(0f)（会抛异常），改用 wrapContentWidth
-                val itemModifier = if (fillWidth) {
+                val itemModifier = if (fillWidth && !scrollable) {
                     Modifier.weight(1f)
                 } else {
                     Modifier.wrapContentWidth(unbounded = false)
