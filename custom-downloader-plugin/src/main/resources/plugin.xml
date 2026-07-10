@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<pmcl-plugin-package
+    xmlns="https://pmcl.dev/plugin"
+    format-version="1.0">
+
+    <info>
+        <id>custom-downloader</id>
+        <name>Custom Downloader</name>
+        <version>1.1.0</version>
+        <author>PMCL User</author>
+        <description>Download any URL content via PMCL's download manager — CLI commands + GUI page with text preview, file download, and history</description>
+        <api-version>1.0</api-version>
+        <main-class>com.pmcl.downloader.CustomDownloaderPlugin</main-class>
+        <license>MIT</license>
+    </info>
+
+    <sources>
+        <kotlin>
+            <file path="src/kt/com/pmcl/downloader/CustomDownloaderPlugin.kt" main="true"/>
+            <file path="src/kt/com/pmcl/downloader/DownloaderPageContent.kt"/>
+        </kotlin>
+        <java>
+            <file path="src/java/com/pmcl/downloader/UrlValidator.java"/>
+            <file path="src/java/com/pmcl/downloader/FileHelper.java"/>
+        </java>
+    </sources>
+
+    <versions>
+        <version number="1.1.0" date="2026-07-10" author="PMCL User">
+            Added GUI page with Compose UI: URL input, mode selector (text/file),
+            download progress, and history list.
+        </version>
+        <version number="1.0.0" date="2026-07-10" author="PMCL User">
+            Initial release. CLI commands for text download, file download, and mirror status.
+        </version>
+    </versions>
+
+</pmcl-plugin-package>

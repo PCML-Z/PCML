@@ -1,0 +1,17 @@
+#!/bin/bash
+# PMCL Shell 模式启动脚本
+# 用法: ./pmcl-cli [命令 ...]
+#   ./pmcl-cli                    # 进入交互式 REPL
+#   ./pmcl-cli versions           # 执行单条命令
+#   ./pmcl-cli launch 1.21.1      # 启动指定版本
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+JAR_PATH="$SCRIPT_DIR/cli/build/libs/cli.jar"
+
+if [ ! -f "$JAR_PATH" ]; then
+    echo "错误: 未找到 pmcl-cli.jar"
+    echo "请先运行: ./gradlew :cli:jar"
+    exit 1
+fi
+
+java -jar "$JAR_PATH" "$@"

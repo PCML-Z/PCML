@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<pmcl-plugin-package
+    xmlns="https://pmcl.dev/plugin"
+    format-version="1.0">
+
+    <info>
+        <id>demo-plugin</id>
+        <name>Demo Plugin Package</name>
+        <version>1.0.0</version>
+        <author>PMCL Team</author>
+        <description>A demonstration plugin package with Kotlin main + Java helper</description>
+        <api-version>1.0</api-version>
+        <main-class>com.example.demo.DemoPlugin</main-class>
+        <website>https://github.com/pmcl/demo-plugin</website>
+        <license>MIT</license>
+    </info>
+
+    <sources>
+        <kotlin>
+            <file path="src/kt/com/example/demo/DemoPlugin.kt" main="true"/>
+            <file path="src/kt/com/example/demo/Util.kt"/>
+        </kotlin>
+        <java>
+            <file path="src/java/com/example/demo/MathHelper.java"/>
+        </java>
+    </sources>
+
+    <versions>
+        <version number="1.0.0" date="2026-07-10" author="PMCL Team">
+            Initial release of the demo plugin package.
+            Includes Kotlin main class, Kotlin utility, and Java math helper.
+        </version>
+    </versions>
+
+    <resources>
+        <resource path="resources/config.json"/>
+    </resources>
+
+</pmcl-plugin-package>

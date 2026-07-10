@@ -1,0 +1,5 @@
+{
+  "greeting": "Hello from demo plugin!",
+  "maxRetries": 3,
+  "features": ["greet", "calc"]
+}

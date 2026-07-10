@@ -1,0 +1,59 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+# Kotlin
+.kotlin/
+
+# IDE - IntelliJ IDEA
+.idea/
+*.iws
+*.iml
+*.ipr
+out/
+
+# IDE - VS Code
+.vscode/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# HMCL runtime data (generated at runtime)
+.hmcl/
+
+# PMCL runtime data (generated at runtime)
+.pmcl/
+
+# Logs
+*.log
+*.log.xz
+
+# Build outputs
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+!**/lib/*.jar
+!**/src/**/*.jar
+
+# Compose Desktop packaging
+ui/compose/
+
+# Native libraries
+*.dylib
+*.so
+*.dll
+
+# Runtime images
+ui/build/compose/binaries/main/main/runtime/
+
+# Misc
+*.png
+!**/src/**/*.png
+!**/resources/**/*.png
+
+# Screenshot
+截屏*.png

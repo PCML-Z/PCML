@@ -1,0 +1,590 @@
+package com.pmcl.ui.page
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.pmcl.core.news.NewsItem
+import com.pmcl.ui.viewmodel.LauncherViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.jetbrains.skia.Image as SkiaImage
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.toComposeImageBitmap
+import java.net.URL
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+/**
+ * Minecraft 新闻页：拉取 Minecraft.net 官方 RSS 并以卡片列表展示。
+ *
+ * - 进入页面时自动加载一次
+ * - 点击卡片在 PMCL 内部加载并显示文章正文
+ * - 支持手动刷新
+ */
+@Composable
+fun NewsPage(vm: LauncherViewModel) {
+    val news by vm.newsItems.collectAsState()
+    val loading by vm.newsLoading.collectAsState()
+    val status by vm.status.collectAsState()
+    val article by vm.articleContent.collectAsState()
+    val articleLoading by vm.articleLoading.collectAsState()
+    val articleError by vm.articleError.collectAsState()
+    val format = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
+
+    // 解析 RSS pubDate（RFC-822，含 "Z" UTC 后缀）→ millis，失败返回 0
+    fun parsePubDate(raw: String): Long {
+        if (raw.isEmpty()) return 0L
+        val patterns = listOf(
+            "EEE, dd MMM yyyy HH:mm:ss zzz",
+            "EEE, dd MMM yyyy HH:mm:ss Z",
+            "EEE, dd MMM yyyy HH:mm zzz",
+            "dd MMM yyyy HH:mm:ss zzz"
+        )
+        for (p in patterns) {
+            try {
+                val sdf = SimpleDateFormat(p, Locale.ENGLISH)
+                val parsed = sdf.parse(raw)
+                if (parsed != null) return parsed.time
+            } catch (_: Exception) { continue }
+        }
+        return 0L
+    }
+
+    LaunchedEffect(Unit) {
+        if (news.isEmpty()) vm.refreshNews()
+    }
+
+    // 文章详情视图优先显示
+    if (article != null || articleLoading || articleError.isNotEmpty()) {
+        ArticleDetailView(
+            article = article,
+            loading = articleLoading,
+            error = articleError,
+            onBack = { vm.clearArticle() },
+            onOpenInBrowser = { article?.getUrl()?.let { vm.openNewsLink(it) } }
+        )
+        return
+    }
+
+    Column(Modifier.fillMaxSize().padding(16.dp)) {
+        // 标题栏
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Minecraft 新闻",
+                 style = MaterialTheme.typography.headlineSmall,
+                 fontWeight = FontWeight.Bold,
+                 modifier = Modifier.weight(1f))
+            OutlinedButton(
+                onClick = { vm.refreshNews() },
+                enabled = !loading
+            ) {
+                Text(if (loading) "加载中…" else "刷新")
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "来自 Minecraft.net 官方 RSS · 点击卡片查看全文",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.outline
+        )
+        Spacer(Modifier.height(12.dp))
+
+        when {
+            loading && news.isEmpty() -> {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator()
+                        Spacer(Modifier.height(12.dp))
+                        Text("正在拉取最新新闻…",
+                             style = MaterialTheme.typography.bodySmall,
+                             color = MaterialTheme.colorScheme.outline)
+                    }
+                }
+            }
+            !loading && news.isEmpty() -> {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("📰", style = MaterialTheme.typography.displaySmall)
+                        Spacer(Modifier.height(12.dp))
+                        Text("暂无新闻",
+                             style = MaterialTheme.typography.titleMedium,
+                             fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.height(4.dp))
+                        Text(status,
+                             style = MaterialTheme.typography.bodySmall,
+                             color = MaterialTheme.colorScheme.outline)
+                        Spacer(Modifier.height(12.dp))
+                        OutlinedButton(onClick = { vm.refreshNews() }) {
+                            Icon(Icons.Filled.Refresh, null, Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("重试")
+                        }
+                    }
+                }
+            }
+            else -> {
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(bottom = 16.dp)
+                ) {
+                    itemsIndexed(news, key = { _, item -> item.getLink() }) { _, item ->
+                        NewsCard(
+                            item = item,
+                            format = format,
+                            parsePubDate = ::parsePubDate,
+                            onClick = { vm.loadArticle(item.getLink()) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 文章详情视图：在 PMCL 内部显示新闻正文。
+ */
+@Composable
+private fun ArticleDetailView(
+    article: com.pmcl.core.news.ArticleContent?,
+    loading: Boolean,
+    error: String,
+    onBack: () -> Unit,
+    onOpenInBrowser: () -> Unit
+) {
+    Column(Modifier.fillMaxSize().padding(16.dp)) {
+        // 顶部导航栏
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回",
+                     modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("返回列表")
+            }
+            Spacer(Modifier.weight(1f))
+            if (article != null) {
+                TextButton(onClick = onOpenInBrowser) {
+                    Icon(Icons.Filled.Search, contentDescription = null,
+                         modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("在浏览器打开")
+                }
+            }
+        }
+
+        when {
+            loading -> {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator()
+                        Spacer(Modifier.height(12.dp))
+                        Text("正在加载文章…",
+                             style = MaterialTheme.typography.bodySmall,
+                             color = MaterialTheme.colorScheme.outline)
+                    }
+                }
+            }
+            error.isNotEmpty() -> {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("加载失败",
+                             style = MaterialTheme.typography.titleMedium,
+                             fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.height(8.dp))
+                        Text(error,
+                             style = MaterialTheme.typography.bodySmall,
+                             color = MaterialTheme.colorScheme.outline)
+                    }
+                }
+            }
+            article != null -> {
+                ArticleBody(article)
+            }
+        }
+    }
+}
+
+/**
+ * 文章正文渲染：标题、封面图、HTML 正文解析为可读文本块。
+ */
+@Composable
+private fun ArticleBody(article: com.pmcl.core.news.ArticleContent) {
+    val blocks = remember(article.getBodyHtml()) { parseHtmlToBlocks(article.getBodyHtml()) }
+
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(bottom = 24.dp)
+    ) {
+        // 封面图
+        if (article.getCoverImage().isNotEmpty()) {
+            item {
+                val cover = rememberUrlImage(article.getCoverImage())
+                Box(
+                    modifier = Modifier.fillMaxWidth().height(200.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.surface),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (cover != null) {
+                        androidx.compose.foundation.Image(
+                            bitmap = cover,
+                            contentDescription = article.getTitle(),
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        Text("📰", style = MaterialTheme.typography.displaySmall)
+                    }
+                }
+            }
+        }
+
+        // 标题
+        item {
+            Text(article.getTitle(),
+                 style = MaterialTheme.typography.headlineSmall,
+                 fontWeight = FontWeight.Bold)
+        }
+
+        // 正文块
+        items(blocks) { block ->
+            RenderHtmlBlock(block)
+        }
+
+        // 底部链接
+        item {
+            Spacer(Modifier.height(16.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(8.dp))
+            Text("原文链接：${article.getUrl()}",
+                 style = MaterialTheme.typography.labelSmall,
+                 color = MaterialTheme.colorScheme.outline)
+        }
+    }
+}
+
+/**
+ * HTML 正文块类型。
+ */
+private sealed class HtmlBlock {
+    data class Paragraph(val text: String, val bold: Boolean = false, val italic: Boolean = false) : HtmlBlock()
+    data class Heading(val text: String, val level: Int = 2) : HtmlBlock()
+    data class Image(val url: String, val alt: String = "") : HtmlBlock()
+    data class ListItem(val text: String, val ordered: Boolean = false) : HtmlBlock()
+}
+
+/**
+ * 简易 HTML → 块解析器。
+ * 识别 <p>、<h2>、<h3>、<ul>/<ol>/<li>、<img>，其余标签剥除为纯文本。
+ */
+private fun parseHtmlToBlocks(html: String): List<HtmlBlock> {
+    val blocks = mutableListOf<HtmlBlock>()
+    if (html.isEmpty()) return blocks
+
+    val tagPattern = Regex("<(/?)(p|h2|h3|ul|ol|li|img|strong|b|em|i|br)[^>]*>", RegexOption.IGNORE_CASE)
+
+    var inList = false
+    var listOrdered = false
+    var currentBold = false
+    var currentItalic = false
+
+    // 逐段处理：(标签间文本, 标签)
+    val segments = mutableListOf<Pair<String, String>>()
+    var textStart = 0
+    for (m in tagPattern.findAll(html)) {
+        val between = html.substring(textStart, m.range.first)
+        val tag = m.value.lowercase()
+        segments.add(Pair(between, tag))
+        textStart = m.range.last + 1
+    }
+    segments.add(Pair(html.substring(textStart), ""))
+
+    for ((text, tag) in segments) {
+        val cleanText = stripTags(text).trim()
+        if (tag.isEmpty()) {
+            // 末尾文本
+            if (cleanText.isNotEmpty() && !inList) {
+                blocks.add(HtmlBlock.Paragraph(cleanText, currentBold, currentItalic))
+            }
+            continue
+        }
+
+        when {
+            tag.startsWith("<p") || tag.startsWith("<p ") -> {
+                if (cleanText.isNotEmpty()) {
+                    blocks.add(HtmlBlock.Paragraph(cleanText, currentBold, currentItalic))
+                }
+            }
+            tag.startsWith("<h2") -> {
+                // h2 标签后的文本在下一个 segment
+            }
+            tag.startsWith("<h3") -> { }
+            tag.startsWith("<ul") -> { inList = true; listOrdered = false }
+            tag.startsWith("<ol") -> { inList = true; listOrdered = true }
+            tag.startsWith("<li") -> {
+                if (cleanText.isNotEmpty()) {
+                    blocks.add(HtmlBlock.ListItem(cleanText, listOrdered))
+                }
+            }
+            tag.startsWith("<img") -> {
+                val src = extractAttr(tag, "src")
+                if (src.isNotEmpty()) {
+                    val fullSrc = if (src.startsWith("/")) "https://www.minecraft.net$src" else src
+                    blocks.add(HtmlBlock.Image(fullSrc, extractAttr(tag, "alt")))
+                }
+            }
+            tag.startsWith("<strong") || tag.startsWith("<b") -> currentBold = true
+            tag.startsWith("</strong") || tag.startsWith("</b") -> currentBold = false
+            tag.startsWith("<em") || tag.startsWith("<i") -> currentItalic = true
+            tag.startsWith("</em") || tag.startsWith("</i") -> currentItalic = false
+            tag.startsWith("</ul") || tag.startsWith("</ol") -> inList = false
+            tag.startsWith("</h2") || tag.startsWith("</h3") -> { }
+            tag.startsWith("</p") || tag.startsWith("</li") -> { }
+        }
+    }
+
+    // 如果没有解析出块，把整个 HTML 作为纯文本
+    if (blocks.isEmpty()) {
+        val plain = stripTags(html).trim()
+        if (plain.isNotEmpty()) {
+            // 按换行分段
+            for (para in plain.split("\n\n")) {
+                val t = para.trim()
+                if (t.isNotEmpty()) blocks.add(HtmlBlock.Paragraph(t))
+            }
+        }
+    }
+
+    return blocks
+}
+
+/** 剥除所有 HTML 标签，解码实体 */
+private fun stripTags(html: String): String {
+    return html
+        .replace("&nbsp;", " ")
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace(Regex("<[^>]+>"), "")
+        .replace(Regex("\\s+"), " ")
+        .trim()
+}
+
+/** 从 HTML 标签中提取属性值 */
+private fun extractAttr(tag: String, attr: String): String {
+    val m = Regex("$attr\\s*=\\s*[\"']([^\"']*)[\"']", RegexOption.IGNORE_CASE).find(tag)
+    return m?.groupValues?.get(1) ?: ""
+}
+
+/**
+ * 渲染单个 HTML 块。
+ */
+@Composable
+private fun RenderHtmlBlock(block: HtmlBlock) {
+    when (block) {
+        is HtmlBlock.Paragraph -> {
+            Text(
+                block.text,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = if (block.bold) FontWeight.Bold else FontWeight.Normal,
+                fontStyle = if (block.italic) FontStyle.Italic else FontStyle.Normal,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        }
+        is HtmlBlock.Heading -> {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                block.text,
+                style = if (block.level == 2) MaterialTheme.typography.titleMedium
+                        else MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        is HtmlBlock.Image -> {
+            val img = rememberUrlImage(block.url)
+            Box(
+                modifier = Modifier.fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.surface),
+                contentAlignment = Alignment.Center
+            ) {
+                if (img != null) {
+                    androidx.compose.foundation.Image(
+                        bitmap = img,
+                        contentDescription = block.alt,
+                        contentScale = ContentScale.FillWidth,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                } else {
+                    Box(Modifier.fillMaxWidth().height(120.dp),
+                        contentAlignment = Alignment.Center) {
+                        Text("🖼️", style = MaterialTheme.typography.displaySmall)
+                    }
+                }
+            }
+        }
+        is HtmlBlock.ListItem -> {
+            Row {
+                Text(if (block.ordered) "• " else "·  ",
+                     style = MaterialTheme.typography.bodyMedium,
+                     color = MaterialTheme.colorScheme.primary)
+                Text(block.text,
+                     style = MaterialTheme.typography.bodyMedium,
+                     color = MaterialTheme.colorScheme.onSurface)
+            }
+        }
+    }
+}
+
+/**
+ * 单条新闻卡片：左侧封面图（无图用占位 emoji），右侧标题/摘要/日期/分类。
+ */
+@Composable
+private fun NewsCard(
+    item: NewsItem,
+    format: SimpleDateFormat,
+    parsePubDate: (String) -> Long,
+    onClick: () -> Unit
+) {
+    val image = rememberUrlImage(item.getImageUrl())
+    val pubMillis = remember(item.getPubDate()) { parsePubDate(item.getPubDate()) }
+
+    Surface(
+        onClick = onClick,
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = RoundedCornerShape(10.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            Modifier.padding(10.dp).height(110.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // 左侧封面图
+            Box(
+                modifier = Modifier.size(90.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.surface),
+                contentAlignment = Alignment.Center
+            ) {
+                if (image != null) {
+                    androidx.compose.foundation.Image(
+                        bitmap = image,
+                        contentDescription = item.getTitle(),
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Text("📰", style = MaterialTheme.typography.headlineMedium)
+                }
+            }
+            Spacer(Modifier.width(12.dp))
+
+            // 右侧文本
+            Column(Modifier.fillMaxHeight().weight(1f)) {
+                Text(item.getTitle(),
+                     style = MaterialTheme.typography.titleSmall,
+                     fontWeight = FontWeight.SemiBold,
+                     maxLines = 2,
+                     overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(4.dp))
+                if (item.getDescription().isNotEmpty()) {
+                    Text(item.getDescription(),
+                         style = MaterialTheme.typography.bodySmall,
+                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                         maxLines = 2,
+                         overflow = TextOverflow.Ellipsis,
+                         modifier = Modifier.weight(1f))
+                } else {
+                    Spacer(Modifier.weight(1f))
+                }
+                Spacer(Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (item.getCategory().isNotEmpty()) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Text(item.getCategory(),
+                                 style = MaterialTheme.typography.labelSmall,
+                                 color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp))
+                        }
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    if (pubMillis > 0) {
+                        Text(format.format(Date(pubMillis)),
+                             style = MaterialTheme.typography.labelSmall,
+                             color = MaterialTheme.colorScheme.outline,
+                             modifier = Modifier.weight(1f))
+                    } else {
+                        Spacer(Modifier.weight(1f))
+                    }
+                    Text("查看全文 →",
+                         style = MaterialTheme.typography.labelSmall,
+                         color = MaterialTheme.colorScheme.primary,
+                         fontSize = 11.sp)
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 图片内存缓存：URL → ImageBitmap。避免滚动时重复下载与解码。
+ */
+private val newsImageCache = java.util.concurrent.ConcurrentHashMap<String, ImageBitmap?>()
+
+/**
+ * 异步从 URL 加载图片，返回 Skia 解码的 ImageBitmap。
+ * 带内存缓存，滚动时不会重复下载。失败返回 null（UI 层用占位图）。
+ */
+@Composable
+private fun rememberUrlImage(url: String): ImageBitmap? {
+    val cached = newsImageCache[url]
+    if (cached != null) return cached
+    if (url.isEmpty()) return null
+
+    var image by remember(url) { mutableStateOf<ImageBitmap?>(newsImageCache[url]) }
+    LaunchedEffect(url) {
+        if (url.isEmpty()) {
+            image = null
+            return@LaunchedEffect
+        }
+        if (newsImageCache.containsKey(url)) {
+            image = newsImageCache[url]
+            return@LaunchedEffect
+        }
+        withContext(Dispatchers.IO) {
+            try {
+                val bytes = URL(url).readBytes()
+                val bmp = SkiaImage.makeFromEncoded(bytes).toComposeImageBitmap()
+                newsImageCache[url] = bmp
+                image = bmp
+            } catch (_: Exception) {
+                newsImageCache[url] = null
+                image = null
+            }
+        }
+    }
+    return image
+}

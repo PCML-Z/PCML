@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<pmcl-plugin-package
+    xmlns="https://pmcl.dev/plugin"
+    format-version="1.0">
+
+    <info>
+        <id>hmcl-embed</id>
+        <name>HMCL Embed</name>
+        <version>1.0.0</version>
+        <author>PMCL User</author>
+        <description>Embeds HMCL 3.15.2 JavaFX UI into PMCL Compose Desktop via JFXPanel + SwingPanel interop</description>
+        <api-version>1.0</api-version>
+        <main-class>com.pmcl.hmcl.HmclPlugin</main-class>
+        <license>GPL-3.0</license>
+    </info>
+
+    <sources>
+        <kotlin>
+            <file path="src/kt/com/pmcl/hmcl/HmclPlugin.kt" main="true"/>
+            <file path="src/kt/com/pmcl/hmcl/HmclEmbedder.kt"/>
+            <file path="src/kt/com/pmcl/hmcl/HmclPageContent.kt"/>
+        </kotlin>
+    </sources>
+
+    <libraries>
+        <library path="lib/HMCL-3.15.2.jar"/>
+        <library path="lib/javafx-base-25-mac-aarch64.jar"/>
+        <library path="lib/javafx-graphics-25-mac-aarch64.jar"/>
+        <library path="lib/javafx-controls-25-mac-aarch64.jar"/>
+        <library path="lib/javafx-fxml-25-mac-aarch64.jar"/>
+        <library path="lib/javafx-swing-25-mac-aarch64.jar"/>
+    </libraries>
+
+    <versions>
+        <version number="1.0.0" date="2026-07-10" author="PMCL User">
+            Initial release. Embeds HMCL 3.15.2 JavaFX UI into PMCL Compose Desktop
+            using JFXPanel (JavaFX-Swing bridge) wrapped in Compose SwingPanel.
+            Bundles JavaFX 25 runtime for macOS arm64.
+        </version>
+    </versions>
+
+</pmcl-plugin-package>

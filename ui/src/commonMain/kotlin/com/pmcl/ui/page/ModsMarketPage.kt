@@ -1,0 +1,521 @@
+package com.pmcl.ui.page
+
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import com.pmcl.core.market.ModProject
+import com.pmcl.ui.viewmodel.LauncherViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.jetbrains.skia.Image as SkiaImage
+import java.awt.Desktop
+import java.net.URI
+import java.net.URL
+
+@Composable
+fun ModsMarketPage(vm: LauncherViewModel) {
+    val results by vm.marketResults.collectAsState()
+    val loading by vm.marketLoading.collectAsState()
+    val status by vm.status.collectAsState()
+    val installedMods by vm.installedMods.collectAsState()
+    val popularMods by vm.popularMods.collectAsState()
+    val popularLoading by vm.popularLoading.collectAsState()
+    val detailProject by vm.detailProject.collectAsState()
+    val currentModFiles by vm.currentModFiles.collectAsState()
+
+    var query by remember { mutableStateOf("") }
+    var gameVersion by remember { mutableStateOf("1.20.4") }
+    var loader by remember { mutableStateOf("fabric") }
+
+    // 首次进入自动加载热门推荐
+    LaunchedEffect(Unit) {
+        if (popularMods.isEmpty() && !popularLoading) {
+            vm.loadPopularMods()
+        }
+    }
+
+    Column(Modifier.fillMaxSize().padding(16.dp)) {
+        Text("模组市场", style = MaterialTheme.typography.headlineSmall,
+             fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(8.dp))
+        Text("聚合 Modrinth + CurseForge。CurseForge 需配置 CURSEFORGE_API_KEY 环境变量。",
+             style = MaterialTheme.typography.labelSmall,
+             color = MaterialTheme.colorScheme.outline)
+
+        Spacer(Modifier.height(16.dp))
+
+        // 搜索栏
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = query, onValueChange = { query = it },
+                label = { Text("搜索模组（回车搜索）") }, singleLine = true,
+                modifier = Modifier.weight(1f)
+            )
+            Spacer(Modifier.width(12.dp))
+            OutlinedTextField(
+                value = gameVersion, onValueChange = { gameVersion = it },
+                label = { Text("目标版本") }, singleLine = true,
+                modifier = Modifier.width(120.dp)
+            )
+            Spacer(Modifier.width(12.dp))
+            LoaderDropdown(loader) { loader = it }
+            Spacer(Modifier.width(12.dp))
+            Button(onClick = {
+                vm.searchMods(query, gameVersion, loader)
+            }, enabled = !loading && query.isNotBlank()) {
+                Text(if (loading) "搜索中…" else "搜索")
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        when {
+            // 详情视图：点击卡片后进入
+            detailProject != null -> {
+                ModDetailView(
+                    project = detailProject!!,
+                    vm = vm,
+                    searchGameVersion = gameVersion,
+                    onBack = { vm.closeModDetail() }
+                )
+            }
+            // 搜索结果视图（用户主动搜索后）
+            results.isNotEmpty() -> {
+                Text("搜索结果（${results.size}）",
+                     style = MaterialTheme.typography.titleMedium,
+                     fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(8.dp))
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    items(results, key = { p -> p.getSource() + "/" + p.getId() }) { project ->
+                        SearchResultCard(
+                            project = project,
+                            vm = vm,
+                            searchGameVersion = gameVersion,
+                            installedModIds = installedMods.map { it.getModId() }.toSet()
+                        )
+                    }
+                }
+            }
+            // 热门推荐网格（默认视图）
+            else -> {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("🔥 热门推荐",
+                         style = MaterialTheme.typography.titleMedium,
+                         fontWeight = FontWeight.SemiBold,
+                         modifier = Modifier.weight(1f))
+                    if (popularLoading) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                    } else {
+                        TextButton(onClick = { vm.loadPopularMods(gameVersion, loader) }) {
+                            Text("刷新")
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                if (popularMods.isEmpty() && !popularLoading) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth().weight(1f)
+                    ) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text("加载失败或无数据，点击刷新重试",
+                                 color = MaterialTheme.colorScheme.outline)
+                        }
+                    }
+                } else {
+                    LazyVerticalGrid(
+                        columns = GridCells.Adaptive(220.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        itemsIndexed(popularMods,
+                                key = { _, p -> p.getSource() + "/" + p.getId() }) { _, project ->
+                            PopularCard(
+                                project = project,
+                                onClick = { vm.openModDetail(project) }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+        Text("状态：$status", style = MaterialTheme.typography.labelSmall,
+             color = MaterialTheme.colorScheme.outline)
+    }
+}
+
+/**
+ * 热门推荐卡片：图标 + 名字 + 简介 + 来源标签 + 下载量。
+ * 点击整个卡片进入详情界面。
+ */
+@Composable
+private fun PopularCard(project: ModProject, onClick: () -> Unit) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = RoundedCornerShape(10.dp),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)
+    ) {
+        Column(Modifier.padding(10.dp)) {
+            // 图标
+            val image = rememberUrlImage(project.getIconUrl())
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(120.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(MaterialTheme.colorScheme.surface),
+                contentAlignment = Alignment.Center
+            ) {
+                if (image != null) {
+                    Image(
+                        bitmap = image,
+                        contentDescription = project.getName(),
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else if (project.getIconUrl().isNotEmpty()) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                } else {
+                    Text("🎮", style = MaterialTheme.typography.headlineMedium)
+                }
+            }
+            Spacer(Modifier.height(6.dp))
+            Text(project.getName(),
+                 fontWeight = FontWeight.SemiBold,
+                 maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Spacer(Modifier.height(2.dp))
+            Text(project.getSummary(),
+                 style = MaterialTheme.typography.bodySmall,
+                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                 maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Spacer(Modifier.height(4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                AssistChip(onClick = {}, label = { Text(project.getSource()) })
+                Spacer(Modifier.width(6.dp))
+                Text("↓ ${formatCount(project.getDownloadCount())}",
+                     style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.outline)
+            }
+        }
+    }
+}
+
+/**
+ * Mod 详情界面：顶部信息卡 + 下载到指定游戏版本 + 版本文件列表。
+ * 作为 ColumnScope 扩展以使用 weight 修饰符。
+ */
+@Composable
+private fun ColumnScope.ModDetailView(
+    project: ModProject,
+    vm: LauncherViewModel,
+    searchGameVersion: String,
+    onBack: () -> Unit
+) {
+    var targetGameVersion by remember { mutableStateOf(searchGameVersion) }
+    var showAllFiles by remember { mutableStateOf(false) }
+    val files by vm.currentModFiles.collectAsState()
+
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth().weight(1f)
+    ) {
+        // 顶部：返回按钮 + 项目信息
+        item {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = onBack) { Text("← 返回热门") }
+            }
+        }
+        item {
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(Modifier.padding(12.dp)) {
+                    // 图标
+                    val image = rememberUrlImage(project.getIconUrl())
+                    Box(
+                        modifier = Modifier.size(80.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(MaterialTheme.colorScheme.surface),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (image != null) {
+                            Image(image, project.getName(),
+                                  contentScale = ContentScale.Fit,
+                                  modifier = Modifier.fillMaxSize())
+                        } else {
+                            Text("🎮")
+                        }
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(project.getName(),
+                             style = MaterialTheme.typography.titleMedium,
+                             fontWeight = FontWeight.SemiBold)
+                        Text(project.getSummary(),
+                             style = MaterialTheme.typography.bodySmall,
+                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                             maxLines = 3)
+                        Spacer(Modifier.height(4.dp))
+                        Text("${project.getAuthor()}  ·  ↓${formatCount(project.getDownloadCount())}  ·  ${project.getSource()}",
+                             style = MaterialTheme.typography.labelSmall,
+                             color = MaterialTheme.colorScheme.outline)
+                    }
+                }
+            }
+        }
+        // 操作按钮：网页 + 刷新版本
+        item {
+            Row {
+                TextButton(onClick = {
+                    try {
+                        if (Desktop.isDesktopSupported()) {
+                            Desktop.getDesktop().browse(URI(project.getWebsiteUrl()))
+                        }
+                    } catch (_: Exception) {}
+                }) { Text("🔗 打开网页") }
+                Spacer(Modifier.width(8.dp))
+                TextButton(onClick = { vm.listProjectFiles(project) }) {
+                    Text("🔄 刷新版本列表")
+                }
+            }
+        }
+        // 下载目标游戏版本选择
+        item {
+            Surface(
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(Modifier.padding(10.dp)) {
+                    Text("下载到游戏版本",
+                         style = MaterialTheme.typography.titleSmall,
+                         fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(6.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            value = targetGameVersion,
+                            onValueChange = { targetGameVersion = it },
+                            label = { Text("目标 MC 版本（mods 子目录）") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    Text("文件将下载到 mods/$targetGameVersion/ 目录",
+                         style = MaterialTheme.typography.labelSmall,
+                         color = MaterialTheme.colorScheme.outline)
+                }
+            }
+        }
+        // 版本文件列表
+        item {
+            Text("版本文件（${files.size}）",
+                 style = MaterialTheme.typography.titleSmall,
+                 fontWeight = FontWeight.SemiBold)
+        }
+        if (files.isEmpty()) {
+            item {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    shape = RoundedCornerShape(6.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
+                        Text("加载中…", color = MaterialTheme.colorScheme.outline)
+                    }
+                }
+            }
+        } else {
+            val displayFiles = if (showAllFiles) files else files.take(15)
+            items(displayFiles, key = { f -> f.getSource() + "/" + f.getFileId() }) { f ->
+                FileRow(f, targetGameVersion, vm)
+            }
+            if (files.size > 15) {
+                item {
+                    TextButton(onClick = { showAllFiles = !showAllFiles }) {
+                        Text(if (showAllFiles) "收起（共 ${files.size}）"
+                             else "查看全部（${files.size}）")
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 搜索结果卡片（用于主动搜索后的列表展示），点击也可进入详情。
+ */
+@Composable
+private fun SearchResultCard(
+    project: ModProject,
+    vm: LauncherViewModel,
+    searchGameVersion: String,
+    installedModIds: Set<String>
+) {
+    val isInstalled = installedModIds.contains(project.getSlug())
+            || installedModIds.contains(project.getId())
+
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = RoundedCornerShape(8.dp),
+        modifier = Modifier.fillMaxWidth().clickable { vm.openModDetail(project) }
+    ) {
+        Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            // 小图标
+            val image = rememberUrlImage(project.getIconUrl())
+            Box(
+                modifier = Modifier.size(48.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(MaterialTheme.colorScheme.surface),
+                contentAlignment = Alignment.Center
+            ) {
+                if (image != null) {
+                    Image(image, project.getName(),
+                          contentScale = ContentScale.Fit,
+                          modifier = Modifier.fillMaxSize())
+                } else {
+                    Text("🎮", style = MaterialTheme.typography.titleMedium)
+                }
+            }
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(project.getName(), fontWeight = FontWeight.SemiBold, maxLines = 1)
+                    if (isInstalled) {
+                        Spacer(Modifier.width(6.dp))
+                        Text("✓ 已安装",
+                             style = MaterialTheme.typography.labelSmall,
+                             color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+                Text(project.getSummary(),
+                     style = MaterialTheme.typography.bodySmall,
+                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                     maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text("${project.getAuthor()}  ·  ↓${formatCount(project.getDownloadCount())}  ·  ${project.getSource()}",
+                     style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.outline)
+            }
+            Text("›", style = MaterialTheme.typography.titleLarge,
+                 color = MaterialTheme.colorScheme.outline)
+        }
+    }
+}
+
+@Composable
+private fun FileRow(
+    f: com.pmcl.core.market.ModFile,
+    targetGameVersion: String,
+    vm: LauncherViewModel
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(6.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(f.getFileName(),
+                     style = MaterialTheme.typography.bodySmall,
+                     maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    "${f.getGameVersions().joinToString(",")} · ${f.getLoaders().joinToString(",")} · ${f.getReleaseType()}" +
+                    if (f.getFileSize() > 0) " · ${f.getFileSize() / 1024}KB" else "",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
+            }
+            Button(onClick = {
+                vm.installMod(f, targetGameVersion.ifBlank {
+                    f.getGameVersions().firstOrNull() ?: ""
+                })
+            }) { Text("下载") }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LoaderDropdown(selected: String, onSelect: (String) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    val options = listOf("fabric", "forge", "quilt", "neoforge", "")
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+        OutlinedTextField(
+            value = if (selected.isEmpty()) "全部" else selected,
+            onValueChange = {},
+            readOnly = true,
+            label = { Text("加载器") },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            modifier = Modifier.menuAnchor().width(120.dp)
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            options.forEach { opt ->
+                DropdownMenuItem(
+                    text = { Text(if (opt.isEmpty()) "全部" else opt) },
+                    onClick = { onSelect(opt); expanded = false }
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 异步加载网络图片为 ImageBitmap（基于 Skia）。
+ * 失败或空 URL 返回 null。
+ */
+@Composable
+private fun rememberUrlImage(url: String): ImageBitmap? {
+    var image by remember(url) { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(url) {
+        if (url.isEmpty()) {
+            image = null
+            return@LaunchedEffect
+        }
+        withContext(Dispatchers.IO) {
+            try {
+                val bytes = URL(url).readBytes()
+                image = SkiaImage.makeFromEncoded(bytes).toComposeImageBitmap()
+            } catch (_: Exception) {
+                image = null
+            }
+        }
+    }
+    return image
+}
+
+/** 格式化下载量：1000 → 1k，1000000 → 1M */
+private fun formatCount(n: Long): String {
+    return when {
+        n >= 1_000_000 -> String.format("%.1fM", n / 1_000_000.0)
+        n >= 1_000 -> String.format("%.1fk", n / 1_000.0)
+        else -> n.toString()
+    }
+}
