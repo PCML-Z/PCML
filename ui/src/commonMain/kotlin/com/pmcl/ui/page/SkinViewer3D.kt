@@ -281,8 +281,8 @@ fun SkinViewer3D(
     }
     val (model, faceColors) = modelAndColors
 
-    // Light direction (normalized)
-    val lightDir = V3(0.4f, 0.7f, 0.6f).normalized()
+    // Light direction (from camera-left-top towards model, normalized)
+    val lightDir = V3(-0.4f, 0.7f, -0.6f).normalized()
 
     Box(
         modifier
@@ -351,8 +351,9 @@ fun SkinViewer3D(
                 val e2 = rotated[2] - rotated[0]
                 val normal = e1.cross(e2).normalized()
 
-                // Backface culling: skip faces pointing away from camera (camera at +Z)
-                if (normal.dot(V3(0f, 0f, 1f)) <= 0f) continue
+                // Backface culling: camera is at -Z looking towards +Z.
+                // Keep faces whose normal points towards camera (normal.z < 0).
+                if (normal.z >= 0f) continue
 
                 // Project vertices
                 val projected = rotated.map { project(it) }
