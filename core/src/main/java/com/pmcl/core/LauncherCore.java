@@ -15,6 +15,7 @@ import com.pmcl.core.plugin.PluginManager;
 import com.pmcl.core.preferences.Preferences;
 import com.pmcl.core.runtime.JavaRuntimeDownloader;
 import com.pmcl.core.runtime.RuntimeManager;
+import com.pmcl.core.translate.TranslateClient;
 import com.pmcl.core.update.SelfUpdater;
 import com.pmcl.core.version.VersionManager;
 import com.pmcl.core.gamecontent.WorldManager;
@@ -66,6 +67,7 @@ public final class LauncherCore {
     private final MultiplayerManager multiplayerManager;
     private final MigrationManager migrationManager;
     private final PluginManager pluginManager;
+    private final TranslateClient translateClient;
 
     public LauncherCore() {
         this(new LauncherConfig());
@@ -107,6 +109,8 @@ public final class LauncherCore {
         // Inject plugin manager into launch manager for hooks/events
         this.launchManager.setPluginManager(pluginManager);
 
+        this.translateClient = new TranslateClient(downloadManager);
+
         // 应用持久化的语言偏好
         applyLanguage(preferences.getLanguage());
     }
@@ -132,6 +136,7 @@ public final class LauncherCore {
         OkHttpClient http = downloadManager.httpClient();
         newsClient.updateHttpClient(http);
         modMarketManager.updateHttpClients(http);
+        translateClient.updateHttpClient(http);
     }
 
     public AuthService auth() { return authService; }
@@ -159,6 +164,8 @@ public final class LauncherCore {
     public SelfUpdater selfUpdater() { return selfUpdater; }
 
     public NewsClient news() { return newsClient; }
+
+    public TranslateClient translate() { return translateClient; }
 
     public MultiplayerManager multiplayer() { return multiplayerManager; }
 

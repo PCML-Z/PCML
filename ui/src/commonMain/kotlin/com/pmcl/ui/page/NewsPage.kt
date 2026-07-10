@@ -10,6 +10,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.outlined.Translate
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -48,6 +50,9 @@ fun NewsPage(vm: LauncherViewModel) {
     val article by vm.articleContent.collectAsState()
     val articleLoading by vm.articleLoading.collectAsState()
     val articleError by vm.articleError.collectAsState()
+    val translationCache by vm.translationCache.collectAsState()
+    val translating by vm.translating.collectAsState()
+    var translateEnabled by remember { mutableStateOf(false) }
     val format = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
 
     // 解析 RSS pubDate（RFC-822，含 "Z" UTC 后缀）→ millis，失败返回 0
@@ -79,6 +84,9 @@ fun NewsPage(vm: LauncherViewModel) {
             article = article,
             loading = articleLoading,
             error = articleError,
+            translateEnabled = translateEnabled,
+            translationCache = translationCache,
+            onTranslate = { text -> vm.translateText(text) },
             onBack = { vm.clearArticle() },
             onOpenInBrowser = { article?.getUrl()?.let { vm.openNewsLink(it) } }
         )
@@ -92,6 +100,31 @@ fun NewsPage(vm: LauncherViewModel) {
                  style = MaterialTheme.typography.headlineSmall,
                  fontWeight = FontWeight.Bold,
                  modifier = Modifier.weight(1f))
+            // 翻译开关
+            FilterChip(
+                selected = translateEnabled,
+                onClick = {
+                    translateEnabled = !translateEnabled
+                    if (translateEnabled) {
+                        val texts = news.flatMap {
+                            listOfNotNull(it.getTitle(), it.getDescription())
+                        }.distinct()
+                        vm.translateBatch(texts)
+                    }
+                },
+                label = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            if (translateEnabled) Icons.Filled.Translate else Icons.Outlined.Translate,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(if (translating) "翻译中…" else "翻译")
+                    }
+                }
+            )
+            Spacer(Modifier.width(8.dp))
             OutlinedButton(
                 onClick = { vm.refreshNews() },
                 enabled = !loading
@@ -150,6 +183,8 @@ fun NewsPage(vm: LauncherViewModel) {
                             item = item,
                             format = format,
                             parsePubDate = ::parsePubDate,
+                            translateEnabled = translateEnabled,
+                            translationCache = translationCache,
                             onClick = { vm.loadArticle(item.getLink()) }
                         )
                     }
@@ -167,6 +202,9 @@ private fun ArticleDetailView(
     article: com.pmcl.core.news.ArticleContent?,
     loading: Boolean,
     error: String,
+    translateEnabled: Boolean = false,
+    translationCache: Map<String, String> = emptyMap(),
+    onTranslate: (String) -> Unit = {},
     onBack: () -> Unit,
     onOpenInBrowser: () -> Unit
 ) {
@@ -216,7 +254,11 @@ private fun ArticleDetailView(
                 }
             }
             article != null -> {
-                ArticleBody(article)
+                ArticleBody(
+                    article = article,
+                    translateEnabled = translateEnabled,
+                    translationCache = translationCache
+                )
             }
         }
     }
@@ -226,7 +268,11 @@ private fun ArticleDetailView(
  * 文章正文渲染：标题、封面图、HTML 正文解析为可读文本块。
  */
 @Composable
-private fun ArticleBody(article: com.pmcl.core.news.ArticleContent) {
+private fun ArticleBody(
+    article: com.pmcl.core.news.ArticleContent,
+    translateEnabled: Boolean = false,
+    translationCache: Map<String, String> = emptyMap()
+) {
     val blocks = remember(article.getBodyHtml()) { parseHtmlToBlocks(article.getBodyHtml()) }
 
     LazyColumn(
@@ -259,7 +305,10 @@ private fun ArticleBody(article: com.pmcl.core.news.ArticleContent) {
 
         // 标题
         item {
-            Text(article.getTitle(),
+            val rawTitle = article.getTitle() ?: ""
+            val displayTitle = if (translateEnabled && translationCache.containsKey(rawTitle))
+                translationCache[rawTitle]!! else rawTitle
+            Text(displayTitle,
                  style = MaterialTheme.typography.headlineSmall,
                  fontWeight = FontWeight.Bold)
         }
@@ -464,10 +513,17 @@ private fun NewsCard(
     item: NewsItem,
     format: SimpleDateFormat,
     parsePubDate: (String) -> Long,
+    translateEnabled: Boolean = false,
+    translationCache: Map<String, String> = emptyMap(),
     onClick: () -> Unit
 ) {
     val image = rememberUrlImage(item.getImageUrl())
     val pubMillis = remember(item.getPubDate()) { parsePubDate(item.getPubDate()) }
+
+    val displayTitle = if (translateEnabled && translationCache.containsKey(item.getTitle()))
+        translationCache[item.getTitle()]!! else item.getTitle()
+    val displayDesc = if (translateEnabled && translationCache.containsKey(item.getDescription()))
+        translationCache[item.getDescription()]!! else item.getDescription()
 
     Surface(
         onClick = onClick,
@@ -501,14 +557,14 @@ private fun NewsCard(
 
             // 右侧文本
             Column(Modifier.fillMaxHeight().weight(1f)) {
-                Text(item.getTitle(),
+                Text(displayTitle,
                      style = MaterialTheme.typography.titleSmall,
                      fontWeight = FontWeight.SemiBold,
                      maxLines = 2,
                      overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.height(4.dp))
-                if (item.getDescription().isNotEmpty()) {
-                    Text(item.getDescription(),
+                if (displayDesc.isNotEmpty()) {
+                    Text(displayDesc,
                          style = MaterialTheme.typography.bodySmall,
                          color = MaterialTheme.colorScheme.onSurfaceVariant,
                          maxLines = 2,

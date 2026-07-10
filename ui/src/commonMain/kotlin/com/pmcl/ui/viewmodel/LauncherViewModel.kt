@@ -222,6 +222,13 @@ class LauncherViewModel {
     private val _articleError = MutableStateFlow("")
     val articleError: StateFlow<String> = _articleError.asStateFlow()
 
+    // ===== 翻译缓存（key = 原文，value = 译文）=====
+    private val _translationCache = MutableStateFlow<Map<String, String>>(emptyMap())
+    val translationCache: StateFlow<Map<String, String>> = _translationCache.asStateFlow()
+
+    private val _translating = MutableStateFlow(false)
+    val translating: StateFlow<Boolean> = _translating.asStateFlow()
+
     // ===== 多人联机 =====
     private val _mpState = MutableStateFlow<com.pmcl.core.multiplayer.MultiplayerManager.State>(
         com.pmcl.core.multiplayer.MultiplayerManager.State.IDLE
@@ -1849,6 +1856,73 @@ class LauncherViewModel {
     fun clearArticle() {
         _articleContent.value = null
         _articleError.value = ""
+    }
+
+    // ============ 翻译 ============
+
+    /**
+     * 翻译单段文本（带缓存）。
+     * 如果已翻译过则直接返回缓存，否则调用 TranslateClient。
+     * UI 层通过 [translationCache] 观察翻译结果。
+     */
+    fun translateText(text: String) {
+        if (text.isBlank()) return
+        // 已缓存：跳过
+        if (_translationCache.value.containsKey(text)) return
+        if (_translating.value) return
+
+        scope.launch {
+            _translating.value = true
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    core.translate().translate(text)
+                }
+                _translationCache.value = _translationCache.value + (text to result)
+            } catch (_: Throwable) {
+                // 翻译失败：不阻断 UI
+            } finally {
+                _translating.value = false
+            }
+        }
+    }
+
+    /**
+     * 批量翻译（带缓存，跳过已翻译的）。
+     * @param texts 待翻译文本列表
+     */
+    fun translateBatch(texts: List<String>) {
+        val pending = texts.filter { it.isNotBlank() && !_translationCache.value.containsKey(it) }
+        if (pending.isEmpty() || _translating.value) return
+
+        scope.launch {
+            _translating.value = true
+            try {
+                val results = withContext(Dispatchers.IO) {
+                    core.translate().translateBatchAsync(pending).join()
+                }
+                val newMap = _translationCache.value.toMutableMap()
+                for (i in pending.indices) {
+                    newMap[pending[i]] = results[i]
+                }
+                _translationCache.value = newMap
+            } catch (_: Throwable) {
+            } finally {
+                _translating.value = false
+            }
+        }
+    }
+
+    /** 获取翻译文本（无缓存则返回原文） */
+    fun translated(original: String): String =
+        _translationCache.value[original] ?: original
+
+    /** 是否已翻译 */
+    fun isTranslated(original: String): Boolean =
+        _translationCache.value.containsKey(original)
+
+    /** 清除翻译缓存 */
+    fun clearTranslations() {
+        _translationCache.value = emptyMap()
     }
 
     // ============ 多人联机（陶瓦联机） ============

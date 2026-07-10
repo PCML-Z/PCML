@@ -13,6 +13,8 @@ import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.outlined.Translate
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -29,6 +31,9 @@ fun ModsPage(vm: LauncherViewModel) {
     val installedMods by vm.installedMods.collectAsState()
     val conflicts by vm.modConflicts.collectAsState()
     val status by vm.status.collectAsState()
+    val translationCache by vm.translationCache.collectAsState()
+    val translating by vm.translating.collectAsState()
+    var translateEnabled by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
     var selectedLoader by remember { mutableStateOf<String?>(null) }
     var selectedSource by remember { mutableStateOf<String?>(null) }
@@ -73,6 +78,32 @@ fun ModsPage(vm: LauncherViewModel) {
             Text("模组管理", style = MaterialTheme.typography.headlineSmall,
                  fontWeight = FontWeight.Bold)
             Spacer(Modifier.weight(1f))
+            // 翻译开关
+            FilterChip(
+                selected = translateEnabled,
+                onClick = {
+                    translateEnabled = !translateEnabled
+                    if (translateEnabled) {
+                        // 收集所有 name + description 并批量翻译
+                        val texts = installedMods.flatMap {
+                            listOfNotNull(it.getName(), it.getDescription())
+                        }.distinct()
+                        vm.translateBatch(texts)
+                    }
+                },
+                label = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            if (translateEnabled) Icons.Filled.Translate else Icons.Outlined.Translate,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(if (translating) "翻译中…" else "翻译")
+                    }
+                }
+            )
+            Spacer(Modifier.width(8.dp))
             OutlinedButton(onClick = { vm.openModsDir() }) {
                 Text("打开目录")
             }
@@ -193,7 +224,7 @@ fun ModsPage(vm: LauncherViewModel) {
             ) {
                 itemsIndexed(processedMods, key = { _, m -> System.identityHashCode(m) }) { index, m ->
                     StaggeredAppear(index) {
-                        ModRow(m, vm)
+                        ModRow(m, vm, translateEnabled, translationCache)
                     }
                 }
             }
@@ -209,8 +240,20 @@ enum class ModSort(val label: String) {
 }
 
 @Composable
-private fun ModRow(m: ModMeta, vm: LauncherViewModel) {
+private fun ModRow(
+    m: ModMeta,
+    vm: LauncherViewModel,
+    translateEnabled: Boolean = false,
+    translationCache: Map<String, String> = emptyMap()
+) {
     var showDeleteDialog by remember { mutableStateOf(false) }
+
+    val rawName = m.getName() ?: m.getJarFile() ?: "未知"
+    val displayName = if (translateEnabled && translationCache.containsKey(rawName))
+        translationCache[rawName]!! else rawName
+    val rawDesc = m.getDescription()
+    val displayDesc = if (translateEnabled && rawDesc != null && translationCache.containsKey(rawDesc))
+        translationCache[rawDesc]!! else rawDesc
 
     Surface(
         color = if (m.isDisabled()) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
@@ -221,7 +264,7 @@ private fun ModRow(m: ModMeta, vm: LauncherViewModel) {
         Column(Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    (m.getName() ?: m.getJarFile() ?: "未知") + if (m.isDisabled()) "（已禁用）" else "",
+                    displayName + if (m.isDisabled()) "（已禁用）" else "",
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f),
                     color = if (m.isDisabled()) MaterialTheme.colorScheme.outline
@@ -239,10 +282,9 @@ private fun ModRow(m: ModMeta, vm: LauncherViewModel) {
                 Spacer(Modifier.width(8.dp))
                 Text("v${m.getVersion() ?: "?"}", style = MaterialTheme.typography.labelSmall)
             }
-            val desc = m.getDescription()
-            if (!desc.isNullOrEmpty()) {
+            if (!displayDesc.isNullOrEmpty()) {
                 Spacer(Modifier.height(4.dp))
-                Text(desc,
+                Text(displayDesc,
                      style = MaterialTheme.typography.bodySmall,
                      color = MaterialTheme.colorScheme.onSurfaceVariant,
                      maxLines = 2)

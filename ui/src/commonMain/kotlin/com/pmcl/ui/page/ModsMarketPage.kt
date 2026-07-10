@@ -10,6 +10,9 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.outlined.Translate
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -41,6 +44,9 @@ fun ModsMarketPage(vm: LauncherViewModel) {
     val popularLoading by vm.popularLoading.collectAsState()
     val detailProject by vm.detailProject.collectAsState()
     val currentModFiles by vm.currentModFiles.collectAsState()
+    val translationCache by vm.translationCache.collectAsState()
+    val translating by vm.translating.collectAsState()
+    var translateEnabled by remember { mutableStateOf(false) }
 
     var query by remember { mutableStateOf("") }
     var gameVersion by remember { mutableStateOf("1.20.4") }
@@ -54,8 +60,34 @@ fun ModsMarketPage(vm: LauncherViewModel) {
     }
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
-        Text("模组市场", style = MaterialTheme.typography.headlineSmall,
-             fontWeight = FontWeight.Bold)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("模组市场", style = MaterialTheme.typography.headlineSmall,
+                 fontWeight = FontWeight.Bold)
+            Spacer(Modifier.weight(1f))
+            FilterChip(
+                selected = translateEnabled,
+                onClick = {
+                    translateEnabled = !translateEnabled
+                    if (translateEnabled) {
+                        val texts = (popularMods + results).flatMap {
+                            listOfNotNull(it.getName(), it.getSummary())
+                        }.distinct()
+                        vm.translateBatch(texts)
+                    }
+                },
+                label = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            if (translateEnabled) Icons.Filled.Translate else Icons.Outlined.Translate,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(if (translating) "翻译中…" else "翻译")
+                    }
+                }
+            )
+        }
         Spacer(Modifier.height(8.dp))
         Text("聚合 Modrinth + CurseForge。CurseForge 需配置 CURSEFORGE_API_KEY 环境变量。",
              style = MaterialTheme.typography.labelSmall,
@@ -95,6 +127,8 @@ fun ModsMarketPage(vm: LauncherViewModel) {
                     project = detailProject!!,
                     vm = vm,
                     searchGameVersion = gameVersion,
+                    translateEnabled = translateEnabled,
+                    translationCache = translationCache,
                     onBack = { vm.closeModDetail() }
                 )
             }
@@ -113,7 +147,9 @@ fun ModsMarketPage(vm: LauncherViewModel) {
                             project = project,
                             vm = vm,
                             searchGameVersion = gameVersion,
-                            installedModIds = installedMods.map { it.getModId() }.toSet()
+                            installedModIds = installedMods.map { it.getModId() }.toSet(),
+                            translateEnabled = translateEnabled,
+                            translationCache = translationCache
                         )
                     }
                 }
@@ -156,7 +192,9 @@ fun ModsMarketPage(vm: LauncherViewModel) {
                                 key = { _, p -> p.getSource() + "/" + p.getId() }) { _, project ->
                             PopularCard(
                                 project = project,
-                                onClick = { vm.openModDetail(project) }
+                                onClick = { vm.openModDetail(project) },
+                                translateEnabled = translateEnabled,
+                                translationCache = translationCache
                             )
                         }
                     }
@@ -175,7 +213,17 @@ fun ModsMarketPage(vm: LauncherViewModel) {
  * 点击整个卡片进入详情界面。
  */
 @Composable
-private fun PopularCard(project: ModProject, onClick: () -> Unit) {
+private fun PopularCard(
+    project: ModProject,
+    onClick: () -> Unit,
+    translateEnabled: Boolean = false,
+    translationCache: Map<String, String> = emptyMap()
+) {
+    val displayName = if (translateEnabled && translationCache.containsKey(project.getName()))
+        translationCache[project.getName()]!! else project.getName()
+    val displaySummary = if (translateEnabled && translationCache.containsKey(project.getSummary()))
+        translationCache[project.getSummary()]!! else project.getSummary()
+
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant,
         shape = RoundedCornerShape(10.dp),
@@ -195,7 +243,7 @@ private fun PopularCard(project: ModProject, onClick: () -> Unit) {
                 if (image != null) {
                     Image(
                         bitmap = image,
-                        contentDescription = project.getName(),
+                        contentDescription = displayName,
                         contentScale = ContentScale.Fit,
                         modifier = Modifier.fillMaxSize()
                     )
@@ -206,11 +254,11 @@ private fun PopularCard(project: ModProject, onClick: () -> Unit) {
                 }
             }
             Spacer(Modifier.height(6.dp))
-            Text(project.getName(),
+            Text(displayName,
                  fontWeight = FontWeight.SemiBold,
                  maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(2.dp))
-            Text(project.getSummary(),
+            Text(displaySummary,
                  style = MaterialTheme.typography.bodySmall,
                  color = MaterialTheme.colorScheme.onSurfaceVariant,
                  maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -235,11 +283,18 @@ private fun ColumnScope.ModDetailView(
     project: ModProject,
     vm: LauncherViewModel,
     searchGameVersion: String,
+    translateEnabled: Boolean = false,
+    translationCache: Map<String, String> = emptyMap(),
     onBack: () -> Unit
 ) {
     var targetGameVersion by remember { mutableStateOf(searchGameVersion) }
     var showAllFiles by remember { mutableStateOf(false) }
     val files by vm.currentModFiles.collectAsState()
+
+    val displayName = if (translateEnabled && translationCache.containsKey(project.getName()))
+        translationCache[project.getName()]!! else project.getName()
+    val displaySummary = if (translateEnabled && translationCache.containsKey(project.getSummary()))
+        translationCache[project.getSummary()]!! else project.getSummary()
 
     LazyColumn(
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -276,10 +331,10 @@ private fun ColumnScope.ModDetailView(
                     }
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(project.getName(),
+                        Text(displayName,
                              style = MaterialTheme.typography.titleMedium,
                              fontWeight = FontWeight.SemiBold)
-                        Text(project.getSummary(),
+                        Text(displaySummary,
                              style = MaterialTheme.typography.bodySmall,
                              color = MaterialTheme.colorScheme.onSurfaceVariant,
                              maxLines = 3)
@@ -378,10 +433,17 @@ private fun SearchResultCard(
     project: ModProject,
     vm: LauncherViewModel,
     searchGameVersion: String,
-    installedModIds: Set<String>
+    installedModIds: Set<String>,
+    translateEnabled: Boolean = false,
+    translationCache: Map<String, String> = emptyMap()
 ) {
     val isInstalled = installedModIds.contains(project.getSlug())
             || installedModIds.contains(project.getId())
+
+    val displayName = if (translateEnabled && translationCache.containsKey(project.getName()))
+        translationCache[project.getName()]!! else project.getName()
+    val displaySummary = if (translateEnabled && translationCache.containsKey(project.getSummary()))
+        translationCache[project.getSummary()]!! else project.getSummary()
 
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant,
@@ -398,7 +460,7 @@ private fun SearchResultCard(
                 contentAlignment = Alignment.Center
             ) {
                 if (image != null) {
-                    Image(image, project.getName(),
+                    Image(image, displayName,
                           contentScale = ContentScale.Fit,
                           modifier = Modifier.fillMaxSize())
                 } else {
@@ -408,7 +470,7 @@ private fun SearchResultCard(
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(project.getName(), fontWeight = FontWeight.SemiBold, maxLines = 1)
+                    Text(displayName, fontWeight = FontWeight.SemiBold, maxLines = 1)
                     if (isInstalled) {
                         Spacer(Modifier.width(6.dp))
                         Text("✓ 已安装",
@@ -416,7 +478,7 @@ private fun SearchResultCard(
                              color = MaterialTheme.colorScheme.primary)
                     }
                 }
-                Text(project.getSummary(),
+                Text(displaySummary,
                      style = MaterialTheme.typography.bodySmall,
                      color = MaterialTheme.colorScheme.onSurfaceVariant,
                      maxLines = 2, overflow = TextOverflow.Ellipsis)
