@@ -211,6 +211,49 @@ private fun extractRegion(img: BufferedImage?, u0: Float, v0: Float, u1: Float, 
     return skiaImage.toComposeImageBitmap()
 }
 
+// Steve 默认皮肤配色（ARGB int）
+private const val STEVE_SKIN   = 0xFFB88160.toInt() // 肤色
+private const val STEVE_HAIR   = 0xFF2D2D2D.toInt() // 头发
+private const val STEVE_SHIRT  = 0xFF129087.toInt() // 青色衫
+private const val STEVE_SLEEVE = 0xFF0E6B64.toInt() // 袖子
+private const val STEVE_PANTS  = 0xFF3C3C9C.toInt() // 蓝色裤
+private const val STEVE_SHOE   = 0xFF2A2A5C.toInt() // 鞋
+
+/**
+ * 生成 64x64 的 Steve 默认皮肤纹理（离线账号或加载失败时使用）。
+ * 仅绘制模型实际使用的 UV 区域，其余保持透明。
+ */
+private fun createSteveSkin(): BufferedImage {
+    val img = BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB)
+    // Head
+    fillRect(img, 0, 0, 32, 16, STEVE_SKIN)
+    // Hair overlay on top of head front/sides/back
+    fillRect(img, 0, 8, 32, 8, STEVE_HAIR)  // 简化：整个头部区域加深色头发底
+    fillRect(img, 8, 8, 16, 16, STEVE_SKIN)  // 脸部
+    // Body
+    fillRect(img, 16, 20, 24, 32, STEVE_SHIRT)
+    fillRect(img, 20, 20, 28, 32, STEVE_SHIRT)
+    // Right arm (40-56, 16-32)
+    fillRect(img, 40, 16, 56, 20, STEVE_SLEEVE)
+    fillRect(img, 40, 20, 56, 32, STEVE_SKIN)
+    // Left arm (32-48, 48-64) — 64x64 format
+    fillRect(img, 32, 48, 48, 52, STEVE_SLEEVE)
+    fillRect(img, 32, 52, 48, 64, STEVE_SKIN)
+    // Right leg (0-16, 16-32)
+    fillRect(img, 0, 20, 16, 32, STEVE_PANTS)
+    // Left leg (16-32, 48-64) — 64x64 format
+    fillRect(img, 16, 52, 32, 64, STEVE_PANTS)
+    return img
+}
+
+private fun fillRect(img: BufferedImage, x0: Int, y0: Int, x1: Int, y1: Int, argb: Int) {
+    for (y in y0 until y1.coerceAtMost(img.height)) {
+        for (x in x0 until x1.coerceAtMost(img.width)) {
+            img.setRGB(x, y, argb)
+        }
+    }
+}
+
 // ======================== 3D Renderer ========================
 
 /**
@@ -235,14 +278,21 @@ fun SkinViewer3D(
 
     LaunchedEffect(skinUrl) {
         skinImg = null
-        if (skinUrl.isNotEmpty()) {
-            withContext(Dispatchers.IO) {
+        withContext(Dispatchers.IO) {
+            if (skinUrl.isNotEmpty()) {
                 try {
                     val bytes = URL(skinUrl).readBytes()
-                    skinImg = ImageIO.read(ByteArrayInputStream(bytes))
+                    val loaded = ImageIO.read(ByteArrayInputStream(bytes))
+                    // 校验皮肤尺寸：必须为 64x32 或 64x64
+                    skinImg = if (loaded != null && (loaded.width == 64) &&
+                                 (loaded.height == 32 || loaded.height == 64)) loaded
+                              else createSteveSkin()
                 } catch (_: Throwable) {
-                    skinImg = null
+                    skinImg = createSteveSkin()
                 }
+            } else {
+                // 离线账号无皮肤 URL：使用 Steve 默认皮肤
+                skinImg = createSteveSkin()
             }
         }
     }
