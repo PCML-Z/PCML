@@ -186,4 +186,15 @@ private fun MainWindowContent(vm: LauncherViewModel) {
             }
         }
     }
+
+    // ===== 全局：游戏安装完成弹窗（询问是否安装模组加载器）=====
+    // 放在全局层级，无论用户在哪个页面安装游戏都会触发弹窗，且避免多页面重复弹窗
+    val installCompleteEvent by vm.installCompleteEvent.collectAsState()
+    installCompleteEvent?.let { ev ->
+        com.pmcl.ui.page.ModLoaderInstallPromptDialog(
+            versionId = ev.versionId,
+            vm = vm,
+            onDismiss = { vm.clearInstallCompleteEvent() }
+        )
+    }
 }

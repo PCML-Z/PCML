@@ -41,6 +41,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pmcl.core.version.VersionManager
+import com.pmcl.core.modloader.ModLoader
+import com.pmcl.core.modloader.ModLoaderVersion
 import com.pmcl.ui.animation.StaggeredAppear
 import com.pmcl.ui.animation.pressScale
 import com.pmcl.ui.viewmodel.LauncherViewModel
@@ -822,6 +824,179 @@ private fun CrashReportDialog(
         dismissButton = {
             OutlinedButton(onClick = { showLogs = !showLogs }) {
                 Text(if (showLogs) "隐藏日志" else "查看日志")
+            }
+        }
+    )
+}
+
+/**
+ * 游戏安装完成后的模组加载器安装询问对话框。
+ *
+ * 流程：
+ * 1. 显示"是否安装模组加载器？"询问
+ * 2. 用户选择加载器类型（Fabric/Forge/Quilt/NeoForge）
+ * 3. 自动加载该加载器的可用版本列表
+ * 4. 用户选择具体版本后点击"安装"
+ *
+ * 点击"跳过"或对话框外区域则关闭，不再提醒。
+ * 此对话框为 public，由 App.kt 全局监听 installCompleteEvent 统一弹出，
+ * 避免多页面重复弹窗。
+ */
+@Composable
+fun ModLoaderInstallPromptDialog(
+    versionId: String,
+    vm: LauncherViewModel,
+    onDismiss: () -> Unit
+) {
+    // 从 versionId 提取游戏版本（如 "1.20.4" 或 "1.20.4-forge" → "1.20.4"）
+    // versionId 可能是 "1.20.4" 或 "b1.7.3" 等格式，取原始值作为 gameVersion
+    val gameVersion = remember(versionId) {
+        // 去除可能的 loader 后缀（如 "1.20.4-fabric" → "1.20.4"）
+        val dashIdx = versionId.indexOf('-')
+        if (dashIdx > 0) versionId.substring(0, dashIdx) else versionId
+    }
+
+    val modLoaderVersions by vm.modLoaderVersions.collectAsState()
+    val installing by vm.installing.collectAsState()
+
+    // 当前选中的加载器类型（null 表示尚未选择）
+    var selectedLoader by remember { mutableStateOf<ModLoader?>(null) }
+    // 当前选中的加载器版本
+    var selectedLoaderVersion by remember { mutableStateOf<String?>(null) }
+
+    // 选择加载器时自动拉取版本列表
+    LaunchedEffect(selectedLoader) {
+        if (selectedLoader != null) {
+            selectedLoaderVersion = null
+            vm.listModLoaderVersions(selectedLoader!!, gameVersion)
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = {
+            // 安装进行中不允许外部点击关闭
+            if (!installing) onDismiss()
+        },
+        title = {
+            Text(
+                if (selectedLoader == null) "安装完成 - 是否安装模组加载器？"
+                else "选择 ${selectedLoader!!.name} 版本"
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "Minecraft $gameVersion 已安装成功。\n" +
+                    "安装模组加载器后可以运行各类模组，选择你需要的加载器：",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                // 加载器类型选择
+                val loaderOptions = listOf(
+                    ModLoader.FABRIC to "Fabric",
+                    ModLoader.FORGE to "Forge",
+                    ModLoader.QUILT to "Quilt",
+                    ModLoader.NEOFORGE to "NeoForge"
+                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    loaderOptions.forEach { (loader, label) ->
+                        val isSelected = selectedLoader == loader
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { selectedLoader = loader },
+                            label = { Text(label) },
+                            enabled = !installing
+                        )
+                    }
+                }
+
+                // 版本列表（选择加载器后显示）
+                if (selectedLoader != null) {
+                    if (modLoaderVersions.isEmpty()) {
+                        Box(
+                            modifier = Modifier.fillMaxWidth().padding(8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        }
+                    } else {
+                        Text(
+                            "可用版本（${modLoaderVersions.size}）",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                        // 版本列表（限制高度，可滚动）
+                        LazyColumn(
+                            modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            items(modLoaderVersions.take(20), key = { it.getLoaderVersion() }) { lv ->
+                                val isSelected = selectedLoaderVersion == lv.getLoaderVersion()
+                                Surface(
+                                    onClick = {
+                                        if (!installing) selectedLoaderVersion = lv.getLoaderVersion()
+                                    },
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = if (isSelected) MaterialTheme.colorScheme.primaryContainer
+                                            else MaterialTheme.colorScheme.surfaceVariant,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        Modifier.padding(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(Modifier.weight(1f)) {
+                                            Text(
+                                                lv.getLoaderVersion(),
+                                                style = MaterialTheme.typography.bodySmall,
+                                                fontWeight = if (isSelected) FontWeight.Bold
+                                                             else FontWeight.Normal
+                                            )
+                                            Text(
+                                                "MC ${lv.getGameVersion()} · " +
+                                                if (lv.isStable()) "稳定版" else "不稳定",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.outline
+                                            )
+                                        }
+                                        if (isSelected) {
+                                            Icon(
+                                                Icons.Filled.Check,
+                                                contentDescription = "已选",
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val loader = selectedLoader
+                    val lv = selectedLoaderVersion
+                    if (loader != null && lv != null && !installing) {
+                        vm.installModLoader(loader, gameVersion, lv)
+                        // 安装完成后关闭弹窗（installModLoader 内部会刷新版本列表）
+                        onDismiss()
+                    }
+                },
+                enabled = selectedLoader != null && selectedLoaderVersion != null && !installing
+            ) {
+                Text(if (installing) "安装中…" else "安装")
+            }
+        },
+        dismissButton = {
+            OutlinedButton(onClick = onDismiss, enabled = !installing) {
+                Text("跳过")
             }
         }
     )

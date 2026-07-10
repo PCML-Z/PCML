@@ -216,6 +216,21 @@ class LauncherViewModel {
     /** 清除崩溃事件（UI 关闭弹窗时调用） */
     fun clearCrashEvent() { _crashEvent.value = null }
 
+    // ===== 游戏安装完成事件（用于弹窗询问是否安装模组加载器）=====
+    /**
+     * Vanilla 游戏版本安装成功后触发的事件。
+     * UI 监听此流弹出模组加载器安装询问对话框。
+     * null 表示无事件（已清除或未触发）。
+     */
+    data class InstallCompleteEvent(
+        val versionId: String
+    )
+    private val _installCompleteEvent = MutableStateFlow<InstallCompleteEvent?>(null)
+    val installCompleteEvent: StateFlow<InstallCompleteEvent?> = _installCompleteEvent.asStateFlow()
+
+    /** 清除安装完成事件（UI 关闭弹窗时调用） */
+    fun clearInstallCompleteEvent() { _installCompleteEvent.value = null }
+
     // ===== 新闻 =====
     private val _newsItems = MutableStateFlow<List<com.pmcl.core.news.NewsItem>>(emptyList())
     val newsItems: StateFlow<List<com.pmcl.core.news.NewsItem>> = _newsItems.asStateFlow()
@@ -681,6 +696,8 @@ class LauncherViewModel {
                 }
                 refreshLocalVersions()
                 _status.value = "安装完成：$versionId"
+                // 触发安装完成事件，UI 监听后弹窗询问是否安装模组加载器
+                _installCompleteEvent.value = InstallCompleteEvent(versionId)
             } catch (e: Throwable) {
                 _status.value = "安装失败：${e.message}"
             } finally {
