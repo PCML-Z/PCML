@@ -143,14 +143,14 @@ public final class ModrinthClient implements ModMarketClient {
             JsonObject o = e.getAsJsonObject();
             result.add(new ModProject(
                     "modrinth",
-                    o.get("project_id").getAsString(),
+                    safeStr(o, "project_id"),
                     o.has("slug") ? o.get("slug").getAsString() : "",
-                    o.get("title").getAsString(),
+                    safeStr(o, "title"),
                     o.has("description") ? o.get("description").getAsString() : "",
                     o.has("author") ? o.get("author").getAsString() : "",
                     o.has("downloads") ? o.get("downloads").getAsLong() : 0,
                     o.has("icon_url") ? o.get("icon_url").getAsString() : "",
-                    "https://modrinth.com/project/" + (o.has("slug") ? o.get("slug").getAsString() : o.get("project_id").getAsString())
+                    "https://modrinth.com/project/" + (o.has("slug") ? o.get("slug").getAsString() : safeStr(o, "project_id"))
             ));
         }
         return result;
@@ -208,8 +208,8 @@ public final class ModrinthClient implements ModMarketClient {
                     List<ModFile> result = new ArrayList<>();
                     for (JsonElement e : versions) {
                         JsonObject v = e.getAsJsonObject();
-                        String versionId = v.get("id").getAsString();
-                        String name = v.get("name").getAsString();
+                        String versionId = safeStr(v, "id");
+                        String name = safeStr(v, "name");
                         String versionType = v.has("version_type") ? v.get("version_type").getAsString() : "release";
                         List<String> gameVersions = jsonArrToStrings(v, "game_versions");
                         List<String> loaders = jsonArrToStrings(v, "loaders");
@@ -220,9 +220,9 @@ public final class ModrinthClient implements ModMarketClient {
                                 JsonObject fo = f.getAsJsonObject();
                                 result.add(new ModFile(
                                         "modrinth", projectId, versionId,
-                                        fo.get("filename").getAsString(),
+                                        safeStr(fo, "filename"),
                                         fo.has("size") ? fo.get("size").getAsLong() : 0,
-                                        fo.get("url").getAsString(),
+                                        safeStr(fo, "url"),
                                         gameVersions, loaders, versionType
                                 ));
                             }
@@ -251,5 +251,9 @@ public final class ModrinthClient implements ModMarketClient {
         List<String> list = new ArrayList<>();
         for (JsonElement e : o.getAsJsonArray(key)) list.add(e.getAsString());
         return list;
+    }
+
+    private static String safeStr(JsonObject o, String key) {
+        return o.has(key) && !o.get(key).isJsonNull() ? o.get(key).getAsString() : "";
     }
 }

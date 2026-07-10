@@ -127,7 +127,9 @@ public class TranslateClient {
         try {
             JsonElement root = JsonParser.parseString(body);
             if (!root.isJsonArray()) return fallback;
-            var segments = root.getAsJsonArray().get(0);
+            var arr = root.getAsJsonArray();
+            if (arr.isEmpty()) return fallback;
+            var segments = arr.get(0);
             if (!segments.isJsonArray()) return fallback;
 
             StringBuilder sb = new StringBuilder();

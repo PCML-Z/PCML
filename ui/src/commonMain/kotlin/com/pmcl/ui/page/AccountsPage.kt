@@ -57,7 +57,7 @@ fun AccountsPage(vm: LauncherViewModel) {
                         horizontalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         // 头像
-                        val avatarUrl = acc.getAvatarUrl()
+                        val avatarUrl = acc.getAvatarUrl() ?: ""
                         if (avatarUrl.isNotEmpty()) {
                             SkinImage(avatarUrl, 64)
                         } else {
@@ -72,7 +72,7 @@ fun AccountsPage(vm: LauncherViewModel) {
                         }
                         // 全身渲染（微软账号）
                         if (acc.getType() == Account.AccountType.MICROSOFT) {
-                            SkinImage(acc.getBodyRenderUrl(), 128)
+                            SkinImage(acc.getBodyRenderUrl() ?: "", 128)
                         }
                         // 信息列
                         Column(Modifier.weight(1f)) {
@@ -80,8 +80,8 @@ fun AccountsPage(vm: LauncherViewModel) {
                             Text("UUID：${acc.getUuid()}", style = MaterialTheme.typography.labelSmall,
                                  color = MaterialTheme.colorScheme.outline)
                             Text("类型：${acc.getType()}")
-                            if (acc.getSkinUrl().isNotEmpty()) {
-                                Text("皮肤：${acc.getSkinUrl().take(40)}…",
+                            if ((acc.getSkinUrl() ?: "").isNotEmpty()) {
+                                Text("皮肤：${(acc.getSkinUrl() ?: "").take(40)}…",
                                      style = MaterialTheme.typography.labelSmall,
                                      color = MaterialTheme.colorScheme.outline)
                                 Text("模型：${acc.getSkinModel()}",
@@ -230,8 +230,9 @@ private fun SkinImage(url: String, sizePx: Int) {
                 val bytes = URL(url).readBytes()
                 val bmp = SkiaImage.makeFromEncoded(bytes).toComposeImageBitmap()
                 skinImageCache[url] = bmp
+                if (skinImageCache.size > 50) skinImageCache.clear()
                 image = bmp
-            } catch (_: Exception) {
+            } catch (_: Throwable) {
                 skinImageCache[url] = null
                 image = null
             }

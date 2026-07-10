@@ -249,11 +249,9 @@ private fun ModRow(
     var showDeleteDialog by remember { mutableStateOf(false) }
 
     val rawName = m.getName() ?: m.getJarFile() ?: "未知"
-    val displayName = if (translateEnabled && translationCache.containsKey(rawName))
-        translationCache[rawName]!! else rawName
+    val displayName = if (translateEnabled) translationCache[rawName] ?: rawName else rawName
     val rawDesc = m.getDescription()
-    val displayDesc = if (translateEnabled && rawDesc != null && translationCache.containsKey(rawDesc))
-        translationCache[rawDesc]!! else rawDesc
+    val displayDesc = if (translateEnabled) translationCache[rawDesc] ?: rawDesc else rawDesc
 
     Surface(
         color = if (m.isDisabled()) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)

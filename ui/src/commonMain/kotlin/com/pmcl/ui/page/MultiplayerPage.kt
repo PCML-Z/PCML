@@ -41,8 +41,8 @@ fun MultiplayerPage(vm: LauncherViewModel) {
 
     var joinCode by remember { mutableStateOf("") }
     var showConnectXSettings by remember { mutableStateOf(false) }
-    var connectxBinPath by remember { mutableStateOf(vm.preferences.getConnectxBinaryPath()) }
-    var connectxServer by remember { mutableStateOf(vm.preferences.getConnectxServerAddress()) }
+    var connectxBinPath by remember { mutableStateOf(vm.preferences.getConnectxBinaryPath() ?: "") }
+    var connectxServer by remember { mutableStateOf(vm.preferences.getConnectxServerAddress() ?: "") }
     var connectxPort by remember { mutableStateOf(vm.preferences.getConnectxServerPort().toString()) }
     val scroll = rememberScrollState()
 

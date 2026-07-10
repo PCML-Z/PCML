@@ -49,9 +49,10 @@ public final class VersionManager {
                     String body = resp.body().string();
                     return parseManifest(body);
                 }
-            } catch (IOException e) {
+            } catch (Throwable e) {
                 // SSL 握手失败：fallback 到 curl
-                if (com.pmcl.core.download.CurlFallback.isSslHandshakeFailure(e)
+                if (e instanceof IOException
+                        && com.pmcl.core.download.CurlFallback.isSslHandshakeFailure((IOException) e)
                         && com.pmcl.core.download.CurlFallback.isAvailable()) {
                     try {
                         String body = com.pmcl.core.download.CurlFallback.getString(VERSION_MANIFEST_URL);
@@ -202,7 +203,7 @@ public final class VersionManager {
             String assets = null;
             if (hasJson) {
                 try {
-                    JsonObject root = JsonParser.parseString(Files.readString(json)).getAsJsonObject();
+                    JsonObject root = JsonParser.parseString(Files.readString(json, java.nio.charset.StandardCharsets.UTF_8)).getAsJsonObject();
                     if (root.has("inheritsFrom"))
                         inheritsFrom = root.get("inheritsFrom").getAsString();
                     if (root.has("mainClass"))

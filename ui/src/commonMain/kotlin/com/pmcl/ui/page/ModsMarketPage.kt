@@ -219,10 +219,8 @@ private fun PopularCard(
     translateEnabled: Boolean = false,
     translationCache: Map<String, String> = emptyMap()
 ) {
-    val displayName = if (translateEnabled && translationCache.containsKey(project.getName()))
-        translationCache[project.getName()]!! else project.getName()
-    val displaySummary = if (translateEnabled && translationCache.containsKey(project.getSummary()))
-        translationCache[project.getSummary()]!! else project.getSummary()
+    val displayName = if (translateEnabled) translationCache[project.getName()] ?: project.getName() else project.getName()
+    val displaySummary = if (translateEnabled) translationCache[project.getSummary()] ?: project.getSummary() else project.getSummary()
 
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant,
@@ -291,10 +289,8 @@ private fun ColumnScope.ModDetailView(
     var showAllFiles by remember { mutableStateOf(false) }
     val files by vm.currentModFiles.collectAsState()
 
-    val displayName = if (translateEnabled && translationCache.containsKey(project.getName()))
-        translationCache[project.getName()]!! else project.getName()
-    val displaySummary = if (translateEnabled && translationCache.containsKey(project.getSummary()))
-        translationCache[project.getSummary()]!! else project.getSummary()
+    val displayName = if (translateEnabled) translationCache[project.getName()] ?: project.getName() else project.getName()
+    val displaySummary = if (translateEnabled) translationCache[project.getSummary()] ?: project.getSummary() else project.getSummary()
 
     LazyColumn(
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -354,7 +350,9 @@ private fun ColumnScope.ModDetailView(
                         if (Desktop.isDesktopSupported()) {
                             Desktop.getDesktop().browse(URI(project.getWebsiteUrl()))
                         }
-                    } catch (_: Exception) {}
+                    } catch (_: Exception) {
+                        // 浏览器打开失败，忽略
+                    }
                 }) { Text("🔗 打开网页") }
                 Spacer(Modifier.width(8.dp))
                 TextButton(onClick = { vm.listProjectFiles(project) }) {
@@ -440,10 +438,8 @@ private fun SearchResultCard(
     val isInstalled = installedModIds.contains(project.getSlug())
             || installedModIds.contains(project.getId())
 
-    val displayName = if (translateEnabled && translationCache.containsKey(project.getName()))
-        translationCache[project.getName()]!! else project.getName()
-    val displaySummary = if (translateEnabled && translationCache.containsKey(project.getSummary()))
-        translationCache[project.getSummary()]!! else project.getSummary()
+    val displayName = if (translateEnabled) translationCache[project.getName()] ?: project.getName() else project.getName()
+    val displaySummary = if (translateEnabled) translationCache[project.getSummary()] ?: project.getSummary() else project.getSummary()
 
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant,
@@ -565,7 +561,7 @@ private fun rememberUrlImage(url: String): ImageBitmap? {
             try {
                 val bytes = URL(url).readBytes()
                 image = SkiaImage.makeFromEncoded(bytes).toComposeImageBitmap()
-            } catch (_: Exception) {
+            } catch (_: Throwable) {
                 image = null
             }
         }

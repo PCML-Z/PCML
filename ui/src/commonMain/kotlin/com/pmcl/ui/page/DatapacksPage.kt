@@ -29,6 +29,7 @@ import com.pmcl.ui.viewmodel.LauncherViewModel
 fun DatapacksPage(vm: LauncherViewModel) {
     val worlds by vm.worlds.collectAsState()
     val selectedWorld by vm.selectedDatapackWorld.collectAsState()
+    val sw = selectedWorld
     val datapacks by vm.datapacks.collectAsState()
     val status by vm.status.collectAsState()
     var worldQuery by remember { mutableStateOf("") }
@@ -51,8 +52,8 @@ fun DatapacksPage(vm: LauncherViewModel) {
             Text("数据包", style = MaterialTheme.typography.headlineSmall,
                  fontWeight = FontWeight.Bold)
             Spacer(Modifier.weight(1f))
-            if (selectedWorld != null) {
-                OutlinedButton(onClick = { vm.openDatapacksDir(selectedWorld!!) }) {
+            if (sw != null) {
+                OutlinedButton(onClick = { vm.openDatapacksDir(sw) }) {
                     Text("打开目录")
                 }
                 Spacer(Modifier.width(8.dp))
@@ -69,7 +70,7 @@ fun DatapacksPage(vm: LauncherViewModel) {
              color = MaterialTheme.colorScheme.outline)
 
         // === 当前选中的世界 ===
-        if (selectedWorld != null) {
+        if (sw != null) {
             Spacer(Modifier.height(8.dp))
             Surface(
                 color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
@@ -77,13 +78,13 @@ fun DatapacksPage(vm: LauncherViewModel) {
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("当前世界：${selectedWorld!!.name}",
+                    Text("当前世界：${sw.name}",
                          fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                    Text("来源：${selectedWorld!!.source}",
+                    Text("来源：${sw.source}",
                          style = MaterialTheme.typography.labelSmall,
                          color = MaterialTheme.colorScheme.outline)
                     Spacer(Modifier.width(8.dp))
-                    TextButton(onClick = { vm.selectDatapackWorld(selectedWorld!!) }) {
+                    TextButton(onClick = { vm.selectDatapackWorld(sw) }) {
                         Icon(Icons.Filled.Refresh, null, Modifier.size(14.dp))
                         Spacer(Modifier.width(4.dp))
                         Text("重新扫描")
@@ -99,7 +100,7 @@ fun DatapacksPage(vm: LauncherViewModel) {
         }
 
         // === 世界列表（未选世界时显示） ===
-        if (selectedWorld == null) {
+        if (sw == null) {
             Spacer(Modifier.height(12.dp))
             OutlinedTextField(
                 value = worldQuery,
@@ -240,9 +241,9 @@ private fun DatapackRow(pack: DatapackManager.Datapack, vm: LauncherViewModel) {
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
             }
-            if (pack.getDescription().isNotEmpty()) {
+            if ((pack.getDescription() ?: "").isNotEmpty()) {
                 Spacer(Modifier.height(4.dp))
-                Text(pack.getDescription().take(120),
+                Text((pack.getDescription() ?: "").take(120),
                      style = MaterialTheme.typography.bodySmall,
                      color = MaterialTheme.colorScheme.onSurfaceVariant,
                      maxLines = 2)

@@ -20,7 +20,7 @@ public final class ModMarketManager {
 
     private final LauncherConfig config;
     private final DownloadManager downloads;
-    private final List<ModMarketClient> clients = new ArrayList<>();
+    private final List<ModMarketClient> clients = new java.util.concurrent.CopyOnWriteArrayList<>();
 
     public ModMarketManager(LauncherConfig config, DownloadManager downloads) {
         this.config = config;

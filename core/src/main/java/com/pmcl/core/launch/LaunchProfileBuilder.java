@@ -645,7 +645,11 @@ public final class LaunchProfileBuilder {
             Path target = versionsDir.resolve(versionId).resolve(fileId);
             if (!java.nio.file.Files.exists(target) || java.nio.file.Files.size(target) == 0) {
                 // 下载
-                okhttp3.OkHttpClient http = new okhttp3.OkHttpClient();
+                okhttp3.OkHttpClient http = downloadManager != null ? downloadManager.httpClient()
+                    : new okhttp3.OkHttpClient.Builder()
+                        .connectTimeout(java.time.Duration.ofSeconds(10))
+                        .readTimeout(java.time.Duration.ofSeconds(30))
+                        .build();
                 okhttp3.Request req = new okhttp3.Request.Builder().url(url).get().build();
                 try (okhttp3.Response resp = http.newCall(req).execute()) {
                     if (!resp.isSuccessful()) return null;

@@ -654,8 +654,15 @@ public final class TerracottaManager {
     /** SHA256 校验 */
     private static String sha256(Path file) throws IOException {
         try {
-            byte[] data = Files.readAllBytes(file);
-            byte[] hash = java.security.MessageDigest.getInstance("SHA-256").digest(data);
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+            try (java.io.InputStream is = Files.newInputStream(file)) {
+                byte[] buffer = new byte[8192];
+                int n;
+                while ((n = is.read(buffer)) != -1) {
+                    md.update(buffer, 0, n);
+                }
+            }
+            byte[] hash = md.digest();
             StringBuilder sb = new StringBuilder();
             for (byte b : hash) sb.append(String.format("%02x", b));
             return sb.toString();

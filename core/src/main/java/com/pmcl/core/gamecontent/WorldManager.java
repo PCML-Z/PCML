@@ -112,7 +112,10 @@ public final class WorldManager {
         try (ZipInputStream zis = new ZipInputStream(Files.newInputStream(zipFile))) {
             ZipEntry e;
             while ((e = zis.getNextEntry()) != null) {
-                Path out = target.resolve(e.getName());
+                Path out = target.resolve(e.getName()).normalize();
+                if (!out.startsWith(target)) {
+                    throw new IOException("ZIP SLIP detected: " + e.getName());
+                }
                 if (e.isDirectory()) {
                     Files.createDirectories(out);
                 } else {

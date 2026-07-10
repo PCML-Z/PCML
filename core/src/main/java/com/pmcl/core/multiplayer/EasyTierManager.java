@@ -536,9 +536,15 @@ public final class EasyTierManager {
                         }
                     }
                     // 校验下载内容是有效 zip（魔数 PK\x03\x04），避免镜像返回 200 但内容是 HTML 错误页
-                    byte[] magic = Files.readAllBytes(target);
-                    if (magic.length < 4 ||
-                        magic[0] != 0x50 || magic[1] != 0x4B ||
+                    byte[] magic = new byte[4];
+                    try (java.io.InputStream is = Files.newInputStream(target)) {
+                        int read = is.read(magic);
+                        if (read < 4) {
+                            Files.deleteIfExists(target);
+                            throw new IOException("下载内容不是有效 zip（可能是镜像错误页）");
+                        }
+                    }
+                    if (magic[0] != 0x50 || magic[1] != 0x4B ||
                         magic[2] != 0x03 || magic[3] != 0x04) {
                         Files.deleteIfExists(target);
                         throw new IOException("下载内容不是有效 zip（可能是镜像错误页）");

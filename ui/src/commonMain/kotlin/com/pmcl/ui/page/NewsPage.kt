@@ -360,15 +360,14 @@ private fun ArticleBody(
         // 标题
         item {
             val rawTitle = article.getTitle() ?: ""
-            val displayTitle = if (translateEnabled && translationCache.containsKey(rawTitle))
-                translationCache[rawTitle]!! else rawTitle
+            val displayTitle = if (translateEnabled) translationCache[rawTitle] ?: rawTitle else rawTitle
             Text(displayTitle,
                  style = MaterialTheme.typography.headlineSmall,
                  fontWeight = FontWeight.Bold)
         }
 
         // 正文块
-        items(blocks) { block ->
+        items(blocks, key = { it.hashCode() }) { block ->
             RenderHtmlBlock(block, translateEnabled, translationCache)
         }
 
@@ -509,7 +508,7 @@ private fun RenderHtmlBlock(
     translationCache: Map<String, String> = emptyMap()
 ) {
     fun tr(text: String): String =
-        if (translateEnabled && translationCache.containsKey(text)) translationCache[text]!! else text
+        if (translateEnabled) translationCache[text] ?: text else text
 
     when (block) {
         is HtmlBlock.Paragraph -> {
@@ -581,10 +580,8 @@ private fun NewsCard(
     val image = rememberUrlImage(item.getImageUrl())
     val pubMillis = remember(item.getPubDate()) { parsePubDate(item.getPubDate()) }
 
-    val displayTitle = if (translateEnabled && translationCache.containsKey(item.getTitle()))
-        translationCache[item.getTitle()]!! else item.getTitle()
-    val displayDesc = if (translateEnabled && translationCache.containsKey(item.getDescription()))
-        translationCache[item.getDescription()]!! else item.getDescription()
+    val displayTitle = if (translateEnabled) translationCache[item.getTitle()] ?: item.getTitle() else item.getTitle()
+    val displayDesc = if (translateEnabled) translationCache[item.getDescription()] ?: item.getDescription() else item.getDescription()
 
     Surface(
         onClick = onClick,
@@ -696,8 +693,9 @@ private fun rememberUrlImage(url: String): ImageBitmap? {
                 val bytes = URL(url).readBytes()
                 val bmp = SkiaImage.makeFromEncoded(bytes).toComposeImageBitmap()
                 newsImageCache[url] = bmp
+                if (newsImageCache.size > 50) newsImageCache.clear()
                 image = bmp
-            } catch (_: Exception) {
+            } catch (_: Throwable) {
                 newsImageCache[url] = null
                 image = null
             }

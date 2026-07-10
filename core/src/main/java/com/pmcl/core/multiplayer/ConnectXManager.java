@@ -117,7 +117,10 @@ public final class ConnectXManager {
                             }
                             parseOutputLine(line, connectedFuture);
                         }
-                    } catch (IOException ignored) {}
+                    } catch (IOException e) {
+                        // 进程输出读取线程异常退出，记录但不中断
+                        System.err.println("[ConnectX] Output reader error: " + e.getMessage());
+                    }
                     // 进程结束
                     serverConnected.set(false);
                     if (!connectedFuture.isDone()) {
@@ -228,11 +231,13 @@ public final class ConnectXManager {
     private CompletableFuture<Void> sendCommand(String cmd) {
         return CompletableFuture.runAsync(() -> {
             try {
-                BufferedWriter w = stdin;
-                if (w == null) throw new IllegalStateException("stdin 不可用");
-                w.write(cmd);
-                w.newLine();
-                w.flush();
+                synchronized (this) {
+                    BufferedWriter w = stdin;
+                    if (w == null) throw new IllegalStateException("stdin 不可用");
+                    w.write(cmd);
+                    w.newLine();
+                    w.flush();
+                }
             } catch (IOException e) {
                 throw new RuntimeException("发送命令失败：" + e.getMessage(), e);
             }
@@ -241,12 +246,13 @@ public final class ConnectXManager {
 
     /** 写入 appsettings.json */
     private void writeAppSettings(String serverAddr, int serverPort) throws IOException {
+        String escapedAddr = serverAddr.replace("\\", "\\\\").replace("\"", "\\\"");
         String json = String.format(
                 "{\"Serilog\":{\"Using\":[\"Serilog.Sinks.File\",\"Serilog.Sinks.Console\"],\"WriteTo\":[" +
                 "{\"Name\":\"Console\",\"Args\":{\"outputTemplate\":\"[{Timestamp:yy-MM-dd HH:mm:ss} {Level:u3}]: {Message:lj}{NewLine}{Exception}\"}}]," +
                 "\"MinimumLevel\":{\"Default\":\"Information\",\"Override\":{\"Microsoft\":\"Warning\",\"System\":\"Warning\"}}}," +
                 "\"Server\":{\"ListenPort\":%d,\"ListenAddress\":\"%s\"}}",
-                serverPort, serverAddr);
+                serverPort, escapedAddr);
         Files.write(workDir.resolve("appsettings.json"), json.getBytes(StandardCharsets.UTF_8));
     }
 

@@ -39,7 +39,7 @@ fun PluginPage(vm: LauncherViewModel) {
     LaunchedEffect(Unit) {
         try {
             pm.discoverAndLoadAll()
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             // Non-fatal
         }
         plugins = pm.getLoadedPlugins()
@@ -137,7 +137,7 @@ fun PluginPage(vm: LauncherViewModel) {
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(plugins) { entry ->
+                items(plugins, key = { it.info.id }) { entry ->
                     PluginCard(
                         entry = entry,
                         isSelected = selectedPlugin == entry.info.id,
@@ -162,7 +162,7 @@ fun PluginPage(vm: LauncherViewModel) {
                                     withContext(Dispatchers.IO) { pm.reloadPlugin(entry.info.id) }
                                     plugins = pm.getLoadedPlugins()
                                     statusMessage = "Reloaded: ${entry.info.name}"
-                                } catch (e: Exception) {
+                                } catch (e: Throwable) {
                                     statusMessage = "Reload failed: ${e.message}"
                                 }
                             }
@@ -174,7 +174,7 @@ fun PluginPage(vm: LauncherViewModel) {
                                     plugins = pm.getLoadedPlugins()
                                     selectedPlugin = null
                                     statusMessage = "Uninstalled: ${entry.info.name}"
-                                } catch (e: Exception) {
+                                } catch (e: Throwable) {
                                     statusMessage = "Uninstall failed: ${e.message}"
                                 }
                             }
@@ -203,7 +203,7 @@ fun PluginPage(vm: LauncherViewModel) {
                         plugins = pm.getLoadedPlugins()
                         statusMessage = "Plugin installed successfully"
                         showInstallDialog = false
-                    } catch (e: Exception) {
+                    } catch (e: Throwable) {
                         statusMessage = "Install failed: ${e.message}"
                         showInstallDialog = false
                     }

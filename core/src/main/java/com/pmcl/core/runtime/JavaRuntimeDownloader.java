@@ -90,13 +90,13 @@ public final class JavaRuntimeDownloader {
                     RuntimeEntry entry = new RuntimeEntry(
                             o.has("version") ? o.get("version").getAsString() : type.name(),
                             o.has("version") ? o.get("version").getAsString() : "?",
-                            man.get("url").getAsString(),
+                            man.has("url") ? man.get("url").getAsString() : "",
                             man.has("sha1") ? man.get("sha1").getAsString() : "",
                             man.has("size") ? man.get("size").getAsLong() : 0L);
                     result.add(entry);
                 }
                 return result;
-            } catch (IOException e) {
+            } catch (Throwable e) {
                 throw new RuntimeException("拉取 Java 运行时清单失败", e);
             }
         });

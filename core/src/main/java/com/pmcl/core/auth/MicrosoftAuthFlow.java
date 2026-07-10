@@ -1,6 +1,7 @@
 package com.pmcl.core.auth;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -73,7 +74,7 @@ public final class MicrosoftAuthFlow {
                         MediaType.get("application/x-www-form-urlencoded")))
                 .build();
         try (Response resp = http.newCall(req).execute()) {
-            String json = resp.body().string();
+            String json = resp.body() != null ? resp.body().string() : "";
             JsonObject o = JsonParser.parseString(json).getAsJsonObject();
             return new DeviceCode(
                     o.get("device_code").getAsString(),
@@ -83,6 +84,8 @@ public final class MicrosoftAuthFlow {
                     o.get("interval").getAsInt(),
                     o.get("message").getAsString()
             );
+        } catch (IOException e) {
+            throw new RuntimeException("网络错误", e);
         }
     }
 
@@ -109,7 +112,7 @@ public final class MicrosoftAuthFlow {
                         MediaType.get("application/x-www-form-urlencoded")))
                 .build();
         try (Response resp = http.newCall(req).execute()) {
-            String json = resp.body().string();
+            String json = resp.body() != null ? resp.body().string() : "";
             JsonObject o = JsonParser.parseString(json).getAsJsonObject();
             String error = o.has("error") ? o.get("error").getAsString() : null;
             if (error == null) {
@@ -135,7 +138,7 @@ public final class MicrosoftAuthFlow {
                     future.completeExceptionally(new RuntimeException("登录失败: " + error));
                     return;
             }
-        } catch (IOException e) {
+        } catch (Throwable e) {
             future.completeExceptionally(new RuntimeException("网络错误", e));
             return;
         }
@@ -159,10 +162,14 @@ public final class MicrosoftAuthFlow {
         payload.addProperty("TokenType", "JWT");
 
         JsonObject resp = postJson(XBL_URL, payload);
-        String userToken = resp.get("Token").getAsString();
-        String userHash = resp.getAsJsonObject("DisplayClaims")
-                .getAsJsonArray("xui").get(0).getAsJsonObject()
-                .get("uhs").getAsString();
+        String userToken = safeStr(resp, "Token");
+        String userHash = "";
+        if (resp.has("DisplayClaims") && resp.getAsJsonObject("DisplayClaims").has("xui")) {
+            JsonArray xui = resp.getAsJsonObject("DisplayClaims").getAsJsonArray("xui");
+            if (xui.size() > 0 && xui.get(0).getAsJsonObject().has("uhs")) {
+                userHash = xui.get(0).getAsJsonObject().get("uhs").getAsString();
+            }
+        }
         return new String[]{userToken, userHash};
     }
 
@@ -181,7 +188,7 @@ public final class MicrosoftAuthFlow {
         payload.addProperty("TokenType", "JWT");
 
         JsonObject resp = postJson(XSTS_URL, payload);
-        return resp.get("Token").getAsString();
+        return safeStr(resp, "Token");
     }
 
     /**
@@ -191,7 +198,7 @@ public final class MicrosoftAuthFlow {
         JsonObject payload = new JsonObject();
         payload.addProperty("identityToken", "XBL3.0 x=" + userHash + ";" + xstsToken);
         JsonObject resp = postJson(MC_LOGIN_URL, payload);
-        return resp.get("access_token").getAsString();
+        return safeStr(resp, "access_token");
     }
 
     /**
@@ -207,9 +214,10 @@ public final class MicrosoftAuthFlow {
             if (!resp.isSuccessful()) {
                 throw new IOException("获取档案失败 code=" + resp.code());
             }
-            JsonObject o = JsonParser.parseString(resp.body().string()).getAsJsonObject();
-            String name = o.get("name").getAsString();
-            String uuid = o.get("id").getAsString();
+            String profileJson = resp.body() != null ? resp.body().string() : "";
+            JsonObject o = JsonParser.parseString(profileJson).getAsJsonObject();
+            String name = safeStr(o, "name");
+            String uuid = safeStr(o, "id");
             // 提取皮肤数据：skins 数组中 state=ACTIVE 的条目
             String skinUrl = "";
             String skinModel = "classic";
@@ -260,11 +268,15 @@ public final class MicrosoftAuthFlow {
                 .post(RequestBody.create(gson.toJson(payload), JSON))
                 .build();
         try (Response resp = http.newCall(req).execute()) {
-            String body = resp.body().string();
+            String body = resp.body() != null ? resp.body().string() : "";
             if (!resp.isSuccessful()) {
                 throw new IOException("请求失败 " + url + " code=" + resp.code() + " body=" + body);
             }
             return JsonParser.parseString(body).getAsJsonObject();
         }
+    }
+
+    private static String safeStr(JsonObject o, String key) {
+        return o.has(key) && !o.get(key).isJsonNull() ? o.get(key).getAsString() : "";
     }
 }

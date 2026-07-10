@@ -167,9 +167,9 @@ private fun ResourcePackRow(pack: ResourcePackManager.Pack, vm: LauncherViewMode
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
             }
-            if (pack.getDescription().isNotEmpty()) {
+            if ((pack.getDescription() ?: "").isNotEmpty()) {
                 Spacer(Modifier.height(4.dp))
-                Text(pack.getDescription().take(120),
+                Text((pack.getDescription() ?: "").take(120),
                      style = MaterialTheme.typography.bodySmall,
                      color = MaterialTheme.colorScheme.onSurfaceVariant,
                      maxLines = 2)

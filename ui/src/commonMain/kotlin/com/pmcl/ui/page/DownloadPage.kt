@@ -63,7 +63,7 @@ fun DownloadPage(vm: LauncherViewModel) {
             val p = progress!!
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp)) {
-                    Text(p.getMessage(), style = MaterialTheme.typography.bodySmall)
+                    Text(p.getMessage() ?: "", style = MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.height(8.dp))
                     LinearProgressIndicator(
                         progress = { (p.percent() / 100f).toFloat() },
@@ -140,7 +140,7 @@ fun DownloadPage(vm: LauncherViewModel) {
                     list = list.filter { it.getType() == typeFilter }
                 }
                 if (searchQuery.isNotEmpty()) {
-                    list = list.filter { it.getId().contains(searchQuery, ignoreCase = true) }
+                    list = list.filter { (it.getId() ?: "").contains(searchQuery, ignoreCase = true) }
                 }
                 list
             }
@@ -155,11 +155,11 @@ fun DownloadPage(vm: LauncherViewModel) {
             )
 
             LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                itemsIndexed(filtered) { index, v ->
+                itemsIndexed(filtered, key = { _, v -> v.getId() }) { index, v ->
                     StaggeredAppear(index) {
                     DownloadRow(
                         title = v.getId(),
-                        subtitle = "${typeLabel(v.getType())} · ${v.getReleaseTime().take(10)}",
+                        subtitle = "${typeLabel(v.getType())} · ${(v.getReleaseTime() ?: "").take(10)}",
                         buttonText = "安装",
                         installing = installing,
                         onAction = { vm.installVersion(v.getId()) }
@@ -170,7 +170,7 @@ fun DownloadPage(vm: LauncherViewModel) {
         } else {
             // 加载器列表
             LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                itemsIndexed(modLoaderVersions) { index, lv ->
+                itemsIndexed(modLoaderVersions, key = { _, lv -> lv.getLoaderVersion() }) { index, lv ->
                     StaggeredAppear(index) {
                     DownloadRow(
                         title = lv.getLoaderVersion(),

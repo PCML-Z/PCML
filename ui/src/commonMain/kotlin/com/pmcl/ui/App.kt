@@ -108,7 +108,7 @@ private fun MainWindowContent(vm: LauncherViewModel) {
         // Discover and load plugins on startup
         try {
             vm.core.plugins().discoverAndLoadAll()
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             // Non-fatal: plugins are optional
         }
         pluginPages = vm.core.plugins().getCustomPages()

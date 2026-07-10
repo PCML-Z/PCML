@@ -514,39 +514,40 @@ fun LaunchPage(vm: LauncherViewModel) {
             }
 
             // 下载进度条
-            if (installing && isDownloadMode && installProgress != null) {
-                val p = installProgress!!
-                val fraction = if (p.getTotal() > 0) (p.getCompleted().toFloat() / p.getTotal()).coerceIn(0f, 1f) else 0f
-                Spacer(Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        "${p.getStage()} · ${p.getMessage()}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.tertiary,
-                        modifier = Modifier.weight(1f),
-                        maxLines = 1
-                    )
-                    if (p.getTotal() > 0) {
-                        Text("${(fraction * 100).toInt()}%",
-                             style = MaterialTheme.typography.labelSmall,
-                             color = MaterialTheme.colorScheme.tertiary,
-                             fontWeight = FontWeight.SemiBold)
+            if (installing && isDownloadMode) {
+                installProgress?.let { p ->
+                    val fraction = if (p.getTotal() > 0) (p.getCompleted().toFloat() / p.getTotal()).coerceIn(0f, 1f) else 0f
+                    Spacer(Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "${p.getStage()} · ${p.getMessage()}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.tertiary,
+                            modifier = Modifier.weight(1f),
+                            maxLines = 1
+                        )
+                        if (p.getTotal() > 0) {
+                            Text("${(fraction * 100).toInt()}%",
+                                 style = MaterialTheme.typography.labelSmall,
+                                 color = MaterialTheme.colorScheme.tertiary,
+                                 fontWeight = FontWeight.SemiBold)
+                        }
                     }
-                }
-                Spacer(Modifier.height(4.dp))
-                if (p.getTotal() > 0) {
-                    LinearProgressIndicator(
-                        progress = { fraction },
-                        modifier = Modifier.fillMaxWidth().height(6.dp),
-                        color = MaterialTheme.colorScheme.tertiary,
-                        trackColor = MaterialTheme.colorScheme.surfaceVariant,
-                    )
-                } else {
-                    LinearProgressIndicator(
-                        modifier = Modifier.fillMaxWidth().height(6.dp),
-                        color = MaterialTheme.colorScheme.tertiary,
-                        trackColor = MaterialTheme.colorScheme.surfaceVariant,
-                    )
+                    Spacer(Modifier.height(4.dp))
+                    if (p.getTotal() > 0) {
+                        LinearProgressIndicator(
+                            progress = { fraction },
+                            modifier = Modifier.fillMaxWidth().height(6.dp),
+                            color = MaterialTheme.colorScheme.tertiary,
+                            trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                        )
+                    } else {
+                        LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth().height(6.dp),
+                            color = MaterialTheme.colorScheme.tertiary,
+                            trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                        )
+                    }
                 }
             } else if (isDownloadMode && !installing && selected != null) {
                 Spacer(Modifier.height(6.dp))
@@ -1094,9 +1095,10 @@ private fun LocalVersionRow(
                     Text("${if (info.isHasJar()) "✓jar" else "✗jar"}  ${if (info.isHasJson()) "✓json" else "✗json"}",
                          style = MaterialTheme.typography.labelSmall,
                          color = MaterialTheme.colorScheme.outline)
-                    if (info.getMainClass() != null) {
+                    val mainClass = info.getMainClass()
+                    if (mainClass != null) {
                         Spacer(Modifier.width(8.dp))
-                        Text(info.getMainClass().substringAfterLast('.'),
+                        Text(mainClass.substringAfterLast('.'),
                              style = MaterialTheme.typography.labelSmall,
                              color = MaterialTheme.colorScheme.outline)
                     }
@@ -1165,7 +1167,7 @@ private fun AccountCard(account: com.pmcl.core.auth.Account?, vm: LauncherViewMo
             if (account != null) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     // 头像
-                    val avatarUrl = account.getAvatarUrl()
+                    val avatarUrl = account.getAvatarUrl() ?: ""
                     if (avatarUrl.isNotEmpty()) {
                         AvatarImage(avatarUrl)
                     } else {
@@ -1180,7 +1182,7 @@ private fun AccountCard(account: com.pmcl.core.auth.Account?, vm: LauncherViewMo
                     Spacer(Modifier.width(12.dp))
                     Column {
                         Text(account.getUsername(), fontWeight = FontWeight.SemiBold)
-                        Text(account.getType().toString(),
+                        Text((account.getType()?.toString()) ?: "",
                              style = MaterialTheme.typography.labelSmall,
                              color = MaterialTheme.colorScheme.outline)
                     }
@@ -1221,16 +1223,18 @@ private fun AvatarImage(url: String) {
                 val bytes = URL(url).readBytes()
                 val bmp = SkiaImage.makeFromEncoded(bytes).toComposeImageBitmap()
                 launchAvatarCache[url] = bmp
+                if (launchAvatarCache.size > 50) launchAvatarCache.clear()
                 image = bmp
-            } catch (_: Exception) {
+            } catch (_: Throwable) {
                 launchAvatarCache[url] = null
                 image = null
             }
         }
     }
-    if (image != null) {
+    val bmp = image
+    if (bmp != null) {
         Image(
-            bitmap = image!!,
+            bitmap = bmp,
             contentDescription = "头像",
             modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp))
         )

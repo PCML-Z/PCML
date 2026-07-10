@@ -139,7 +139,7 @@ public final class MigrationManager {
     private Path parseLauncherXGamePath(Path configFile) {
         if (!Files.isRegularFile(configFile)) return null;
         try {
-            String json = Files.readString(configFile);
+            String json = Files.readString(configFile, java.nio.charset.StandardCharsets.UTF_8);
             // 用正则提取 "Path": "..." —— 避免引入完整 JSON 库的依赖
             java.util.regex.Matcher m = java.util.regex.Pattern
                     .compile("\"Path\"\\s*:\\s*\"([^\"]+)\"")

@@ -131,12 +131,14 @@ public final class CurseForgeClient implements ModMarketClient {
                     }
                     result.add(new ModProject(
                             "curseforge",
-                            o.get("id").getAsString(),
+                            safeStr(o, "id"),
                             o.has("slug") ? o.get("slug").getAsString() : "",
-                            o.get("name").getAsString(),
+                            safeStr(o, "name"),
                             o.has("summary") ? o.get("summary").getAsString() : "",
                             o.has("authors") && o.getAsJsonArray("authors").size() > 0
-                                    ? o.getAsJsonArray("authors").get(0).getAsJsonObject().get("name").getAsString()
+                                    ? (o.getAsJsonArray("authors").get(0).getAsJsonObject().has("name")
+                                        ? o.getAsJsonArray("authors").get(0).getAsJsonObject().get("name").getAsString()
+                                        : "")
                                     : "",
                             downloads,
                             iconUrl,
@@ -212,10 +214,10 @@ public final class CurseForgeClient implements ModMarketClient {
                                 ? cfReleaseType(o.get("releaseType").getAsInt()) : "release";
                         result.add(new ModFile(
                                 "curseforge", projectId,
-                                o.get("id").getAsString(),
-                                o.get("fileName").getAsString(),
+                                safeStr(o, "id"),
+                                safeStr(o, "fileName"),
                                 o.has("fileLength") ? o.get("fileLength").getAsLong() : 0,
-                                o.get("downloadUrl").getAsString(),
+                                safeStr(o, "downloadUrl"),
                                 gameVersions, loaders, releaseType
                         ));
                     }
@@ -255,5 +257,9 @@ public final class CurseForgeClient implements ModMarketClient {
     private static String capitalize(String s) {
         if (s == null || s.isEmpty()) return s;
         return Character.toUpperCase(s.charAt(0)) + s.substring(1).toLowerCase();
+    }
+
+    private static String safeStr(JsonObject o, String key) {
+        return o.has(key) && !o.get(key).isJsonNull() ? o.get(key).getAsString() : "";
     }
 }
