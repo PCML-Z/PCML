@@ -29,7 +29,7 @@ public final class GameLogger {
 
     public GameLogger(Path logFile) throws IOException {
         this.logFile = logFile;
-        Files.createDirectories(logFile.getParent());
+        if (logFile.getParent() != null) Files.createDirectories(logFile.getParent());
         this.writer = Files.newBufferedWriter(logFile,
                 StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
     }

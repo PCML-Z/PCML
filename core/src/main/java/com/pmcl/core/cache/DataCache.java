@@ -147,8 +147,8 @@ public final class DataCache {
     /** 清除所有缓存 */
     public static void clearAll() {
         memCache.clear();
-        try {
-            Files.list(CACHE_DIR).forEach(f -> {
+        try (var stream = Files.list(CACHE_DIR)) {
+            stream.forEach(f -> {
                 try { Files.deleteIfExists(f); } catch (IOException ignored) {}
             });
         } catch (IOException ignored) {}

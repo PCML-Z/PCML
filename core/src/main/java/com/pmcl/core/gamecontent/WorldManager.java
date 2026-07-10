@@ -119,7 +119,7 @@ public final class WorldManager {
                 if (e.isDirectory()) {
                     Files.createDirectories(out);
                 } else {
-                    Files.createDirectories(out.getParent());
+                    if (out.getParent() != null) Files.createDirectories(out.getParent());
                     Files.copy(zis, out, StandardCopyOption.REPLACE_EXISTING);
                 }
             }

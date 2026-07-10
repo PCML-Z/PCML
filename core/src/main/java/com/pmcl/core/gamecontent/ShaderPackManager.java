@@ -94,11 +94,11 @@ public final class ShaderPackManager {
      */
     private void writeOption(String key, String value) throws IOException {
         if (!Files.exists(optionsFile)) {
-            Files.createDirectories(optionsFile.getParent());
+            if (optionsFile.getParent() != null) Files.createDirectories(optionsFile.getParent());
             Files.writeString(optionsFile, key + ":" + value + "\n");
             return;
         }
-        List<String> lines = new ArrayList<>(Files.readAllLines(optionsFile));
+        List<String> lines = new ArrayList<>(Files.readAllLines(optionsFile, java.nio.charset.StandardCharsets.UTF_8));
         boolean found = false;
         for (int i = 0; i < lines.size(); i++) {
             if (lines.get(i).startsWith(key + ":")) {
@@ -108,7 +108,7 @@ public final class ShaderPackManager {
             }
         }
         if (!found) lines.add(key + ":" + value);
-        Files.writeString(optionsFile, String.join("\n", lines) + "\n");
+        Files.writeString(optionsFile, String.join("\n", lines) + "\n", java.nio.charset.StandardCharsets.UTF_8);
     }
 
     /** 校验 zip 内是否含 shaders/ 目录 */
@@ -125,7 +125,7 @@ public final class ShaderPackManager {
     private String readActiveShaderPack() {
         if (!Files.exists(optionsFile)) return null;
         try {
-            for (String line : Files.readAllLines(optionsFile)) {
+            for (String line : Files.readAllLines(optionsFile, java.nio.charset.StandardCharsets.UTF_8)) {
                 if (line.startsWith("shaderPack:")) {
                     String[] parts = line.split(":", 2);
                     if (parts.length == 2) return parts[1].trim();

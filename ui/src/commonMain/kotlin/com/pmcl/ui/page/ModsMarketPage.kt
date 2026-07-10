@@ -151,8 +151,9 @@ fun ModsMarketPage(vm: LauncherViewModel) {
         when {
             // 详情视图：点击卡片后进入
             detailProject != null -> {
+                val dp = detailProject ?: return@Column
                 ModDetailView(
-                    project = detailProject!!,
+                    project = dp,
                     vm = vm,
                     searchGameVersion = gameVersion,
                     translateEnabled = translateEnabled,
@@ -424,7 +425,7 @@ private fun ColumnScope.ModDetailView(
                         if (Desktop.isDesktopSupported()) {
                             Desktop.getDesktop().browse(URI(project.getWebsiteUrl()))
                         }
-                    } catch (_: Exception) {
+                    } catch (_: Throwable) {
                         // 浏览器打开失败，忽略
                     }
                 }) { Text("🔗 打开网页") }

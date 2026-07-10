@@ -42,7 +42,7 @@ public final class NewsClient {
     private static final Pattern IMG_PATTERN =
             Pattern.compile("<img[^>]+src\\s*=\\s*[\"']([^\"']+)[\"']", Pattern.CASE_INSENSITIVE);
 
-    private OkHttpClient http;
+    private volatile OkHttpClient http;
 
     /** 默认构造：自建客户端（无代理，仅用于无 DownloadManager 的场景） */
     public NewsClient() {

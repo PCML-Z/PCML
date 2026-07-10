@@ -33,6 +33,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.nio.file.Path
@@ -1118,7 +1119,7 @@ class LauncherViewModel {
                 ?: candidates.firstOrNull { it.isDirectory }
                 ?: config.getWorkDir().resolve("mods").toFile().also { it.mkdirs() }
             openDir(modsDir)
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             _status.value = "打开目录失败：${e.message}"
         }
     }
@@ -1134,7 +1135,7 @@ class LauncherViewModel {
                 else -> listOf("xdg-open", dir.absolutePath)
             }
             ProcessBuilder(cmd).start()
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             _status.value = "打开目录失败：${e.message}"
         }
     }
@@ -1182,7 +1183,7 @@ class LauncherViewModel {
                 // 先读取版本要求的 Java 版本，用于选择合适的 Java 运行时
                 // alpha/beta/1.7- 无 javaVersion 字段返回 0，按旧版本处理（需 Java 8）
                 val requiredJavaVer = withContext(Dispatchers.IO) {
-                    try { core.profileBuilder().getRequiredJavaVersion(versionId) } catch (e: Exception) { 0 }
+                    try { core.profileBuilder().getRequiredJavaVersion(versionId) } catch (e: Throwable) { 0 }
                 }
                 val javaExe = withContext(Dispatchers.IO) {
                     val customPath = preferences.getJavaPath()
@@ -1263,7 +1264,7 @@ class LauncherViewModel {
                                 } else {
                                     java.awt.Desktop.getDesktop().browse(java.net.URI(url))
                                 }
-                            } catch (e: Exception) {
+                            } catch (e: Throwable) {
                                 _status.value = "无法打开浏览器: ${e.message}"
                             }
                         }
@@ -1280,7 +1281,7 @@ class LauncherViewModel {
                 // 创建/复用 GameLogger 持久化日志
                 val logFile = config.getWorkDir().resolve("logs").resolve("latest.log")
                 gameLogger = withContext(Dispatchers.IO) {
-                    try { GameLogger(logFile) } catch (e: Exception) { null }
+                    try { GameLogger(logFile) } catch (e: Throwable) { null }
                 }
 
                 _gameLogs.value = if (usingCompatLayer) {
@@ -1312,7 +1313,7 @@ class LauncherViewModel {
                 // launchAsync 返回 CompletableFuture，需等待进程退出，否则 gameRunning 会立即被 finally 重置
                 val future = core.launch().launchAsync(
                     profile, javaExe,
-                    { line -> _gameLogs.value = _gameLogs.value + line },
+                    { line -> _gameLogs.update { old -> (old + line).takeLast(2000) } },
                     gameLogger
                 )
                 val exitCode = withContext(Dispatchers.IO) { future.join() }
@@ -1363,7 +1364,7 @@ class LauncherViewModel {
             val custom = preferences.getJavaPath()
             if (custom.isNotEmpty()) custom
             else JavaRuntimeFinder.findJavaExecutable(config.getRuntimesDir())
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             "未找到"
         }
     }
@@ -1387,7 +1388,7 @@ class LauncherViewModel {
                 }
                 val logFile = config.getWorkDir().resolve("logs").resolve("latest.log")
                 gameLogger = withContext(Dispatchers.IO) {
-                    try { GameLogger(logFile) } catch (e: Exception) { null }
+                    try { GameLogger(logFile) } catch (e: Throwable) { null }
                 }
                 _gameLogs.value = listOf(
                     "[PMCL] 使用外部 Java 启动: $javaPath",
@@ -1398,13 +1399,13 @@ class LauncherViewModel {
                 _status.value = "启动中… java=$javaPath (Java $javaMajorVer $javaArch) version=$versionId"
                 val future = core.launch().launchAsync(
                     profile, javaPath,
-                    { line -> _gameLogs.value = _gameLogs.value + line },
+                    { line -> _gameLogs.update { old -> (old + line).takeLast(2000) } },
                     gameLogger
                 )
                 val exitCode = withContext(Dispatchers.IO) { future.join() }
                 _status.value = "游戏已退出（code=$exitCode）"
                 _gameRunning.value = false
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 _status.value = "启动失败: ${e.message}"
                 _gameLogs.value = (_gameLogs.value + "启动失败: ${e.message}")
             }
@@ -1437,7 +1438,7 @@ class LauncherViewModel {
                     ProcessBuilder(cmd).directory(workDir).start()
                 }
                 _status.value = "已打开 ${launcher.name}，请在 ${launcher.name} 中启动 $versionId"
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 _status.value = "打开 ${launcher.name} 失败: ${e.message}"
                 _gameLogs.value = listOf("打开 ${launcher.name} 失败: ${e.message}")
             }

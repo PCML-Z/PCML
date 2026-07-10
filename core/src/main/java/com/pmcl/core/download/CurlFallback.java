@@ -124,6 +124,8 @@ public final class CurlFallback {
             Thread.currentThread().interrupt();
             p.destroyForcibly();
             throw new IOException("curl 被中断: " + url, e);
+        } finally {
+            p.destroyForcibly();
         }
     }
 
@@ -190,27 +192,31 @@ public final class CurlFallback {
             cmd.add(url);
 
             Process p = new ProcessBuilder(cmd).start();
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-            try (InputStream in = p.getInputStream()) {
-                byte[] buf = new byte[4096];
-                int n;
-                while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
-            }
-            boolean done = p.waitFor(15, TimeUnit.SECONDS);
-            if (!done) {
-                p.destroyForcibly();
-                return -1;
-            }
-            String resp = out.toString(java.nio.charset.StandardCharsets.UTF_8);
-            // 解析 Content-Length 头
-            for (String line : resp.split("\n")) {
-                line = line.trim();
-                if (line.toLowerCase().startsWith("content-length:")) {
-                    String val = line.substring(15).trim();
-                    return Long.parseLong(val);
+            try {
+                ByteArrayOutputStream out = new ByteArrayOutputStream();
+                try (InputStream in = p.getInputStream()) {
+                    byte[] buf = new byte[4096];
+                    int n;
+                    while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
                 }
+                boolean done = p.waitFor(15, TimeUnit.SECONDS);
+                if (!done) {
+                    p.destroyForcibly();
+                    return -1;
+                }
+                String resp = out.toString(java.nio.charset.StandardCharsets.UTF_8);
+                // 解析 Content-Length 头
+                for (String line : resp.split("\n")) {
+                    line = line.trim();
+                    if (line.toLowerCase().startsWith("content-length:")) {
+                        String val = line.substring(15).trim();
+                        return Long.parseLong(val);
+                    }
+                }
+                return -1;
+            } finally {
+                p.destroyForcibly();
             }
-            return -1;
         } catch (Exception e) {
             return -1;
         }

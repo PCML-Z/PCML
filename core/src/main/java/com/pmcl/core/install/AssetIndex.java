@@ -27,8 +27,9 @@ public final class AssetIndex {
         if (root.has("objects")) {
             for (Map.Entry<String, JsonElement> e : root.getAsJsonObject("objects").entrySet()) {
                 JsonObject o = e.getValue().getAsJsonObject();
+                if (!o.has("hash") || o.get("hash").isJsonNull()) continue;
                 String hash = o.get("hash").getAsString();
-                long size = o.get("size").getAsLong();
+                long size = o.has("size") && !o.get("size").isJsonNull() ? o.get("size").getAsLong() : 0;
                 idx.assets.put(e.getKey(), new Asset(hash, size));
             }
         }
@@ -52,6 +53,7 @@ public final class AssetIndex {
 
         /** 资产存放路径：前两位 hash / hash */
         public String getPath() {
+            if (hash == null || hash.length() < 2) return hash;
             return hash.substring(0, 2) + "/" + hash;
         }
     }

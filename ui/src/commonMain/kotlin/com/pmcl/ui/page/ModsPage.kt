@@ -191,8 +191,9 @@ fun ModsPage(vm: LauncherViewModel) {
         Spacer(Modifier.height(12.dp))
 
         // 冲突报告
-        if (conflicts != null && conflicts!!.hasIssues()) {
-            ConflictCard(conflicts!!)
+        val conflictsData = conflicts
+        if (conflictsData != null && conflictsData.hasIssues()) {
+            ConflictCard(conflictsData)
             Spacer(Modifier.height(12.dp))
         }
 

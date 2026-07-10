@@ -98,7 +98,15 @@ public final class ChunkedDownloader {
                 throw new IOException("HEAD 失败 code=" + resp.code() + " url=" + url);
             }
             String len = resp.header("Content-Length");
-            size = len != null ? Long.parseLong(len) : -1L;
+            if (len != null) {
+                try {
+                    size = Long.parseLong(len);
+                } catch (NumberFormatException ex) {
+                    size = -1L;
+                }
+            } else {
+                size = -1L;
+            }
             String ar = resp.header("Accept-Ranges");
             acceptRanges = ar != null && ar.equalsIgnoreCase("bytes");
         }
@@ -206,6 +214,7 @@ public final class ChunkedDownloader {
             if (resp.code() != 206 && resp.code() != 200) {
                 throw new IOException("分片 " + idx + " code=" + resp.code());
             }
+            if (resp.body() == null) throw new IOException("响应体为空: " + url);
             try (var in = resp.body().byteStream();
                  RandomAccessFile raf = new RandomAccessFile(partFile.toFile(), "rw")) {
                 raf.seek(start);

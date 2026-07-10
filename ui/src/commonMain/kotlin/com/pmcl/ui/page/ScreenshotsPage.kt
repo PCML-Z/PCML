@@ -50,7 +50,7 @@ fun ScreenshotsPage(vm: LauncherViewModel) {
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(shots, key = { it.name }) { shot ->
+                items(shots, key = { it.getPath().toString() }) { shot ->
                     Card(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(8.dp)) {
                             Text(shot.name, fontWeight = FontWeight.SemiBold,

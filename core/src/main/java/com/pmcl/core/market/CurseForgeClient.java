@@ -39,7 +39,7 @@ public final class CurseForgeClient implements ModMarketClient {
     /** 重试基础间隔（毫秒），实际为 base * 2^attempt */
     private static final long RETRY_BASE_MS = 1000L;
 
-    private OkHttpClient http;
+    private volatile OkHttpClient http;
     private final String apiKey;
     private final DownloadManager downloads;
 
@@ -72,7 +72,9 @@ public final class CurseForgeClient implements ModMarketClient {
     @Override
     public CompletableFuture<List<ModProject>> popular(String gameVersion, String loader, int limit) {
         return CompletableFuture.supplyAsync(() -> {
-            HttpUrl.Builder ub = HttpUrl.parse(BASE + "/mods/search").newBuilder()
+            HttpUrl parsed = HttpUrl.parse(BASE + "/mods/search");
+            if (parsed == null) throw new RuntimeException("无效的 URL: " + BASE + "/mods/search");
+            HttpUrl.Builder ub = parsed.newBuilder()
                     .addQueryParameter("gameId", String.valueOf(MINECRAFT_GAME_ID))
                     .addQueryParameter("pageSize", String.valueOf(limit))
                     .addQueryParameter("sort", "Popularity");
@@ -89,7 +91,9 @@ public final class CurseForgeClient implements ModMarketClient {
     private CompletableFuture<List<ModProject>> doSearch(String query, String gameVersion,
                                                         String loader, int limit) {
         return CompletableFuture.supplyAsync(() -> {
-            HttpUrl.Builder ub = HttpUrl.parse(BASE + "/mods/search").newBuilder()
+            HttpUrl parsed = HttpUrl.parse(BASE + "/mods/search");
+            if (parsed == null) throw new RuntimeException("无效的 URL: " + BASE + "/mods/search");
+            HttpUrl.Builder ub = parsed.newBuilder()
                     .addQueryParameter("gameId", String.valueOf(MINECRAFT_GAME_ID))
                     .addQueryParameter("searchFilter", query == null ? "" : query)
                     .addQueryParameter("pageSize", String.valueOf(limit));
@@ -110,7 +114,7 @@ public final class CurseForgeClient implements ModMarketClient {
                 .header("X-API-Key", apiKey)
                 .header("User-Agent", "PMCL/1.0")
                 .get().build();
-        Exception last = null;
+        Throwable last = null;
         for (int attempt = 0; attempt <= RETRY; attempt++) {
             try (Response resp = http.newCall(req).execute()) {
                 String body = resp.body() != null ? resp.body().string() : "{}";
@@ -146,7 +150,7 @@ public final class CurseForgeClient implements ModMarketClient {
                     ));
                 }
                 return result;
-            } catch (Exception e) {
+            } catch (Throwable e) {
                 last = e;
                 if (attempt < RETRY) {
                     try {

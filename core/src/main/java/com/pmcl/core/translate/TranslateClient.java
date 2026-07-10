@@ -27,7 +27,7 @@ public class TranslateClient {
     private static final int RETRY = 2;
     private static final long RETRY_BASE_MS = 500L;
 
-    private OkHttpClient http;
+    private volatile OkHttpClient http;
 
     public TranslateClient(DownloadManager downloads) {
         this.http = downloads.httpClient();
@@ -114,6 +114,7 @@ public class TranslateClient {
             if (!resp.isSuccessful()) {
                 throw new IOException("翻译请求失败 code=" + resp.code());
             }
+            if (resp.body() == null) throw new IOException("翻译响应体为空");
             return resp.body().string();
         }
     }
@@ -135,7 +136,9 @@ public class TranslateClient {
             StringBuilder sb = new StringBuilder();
             for (JsonElement seg : segments.getAsJsonArray()) {
                 if (seg.isJsonArray() && seg.getAsJsonArray().size() > 0) {
-                    String translated = seg.getAsJsonArray().get(0).getAsString();
+                    JsonElement first = seg.getAsJsonArray().get(0);
+                    if (first.isJsonNull() || !first.isJsonPrimitive()) continue;
+                    String translated = first.getAsString();
                     sb.append(translated);
                 }
             }

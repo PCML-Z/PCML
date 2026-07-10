@@ -46,6 +46,7 @@ public final class VersionManager {
                     if (!resp.isSuccessful()) {
                         throw new IOException("Unexpected code " + resp.code());
                     }
+                    if (resp.body() == null) throw new IOException("响应体为空");
                     String body = resp.body().string();
                     return parseManifest(body);
                 }
@@ -68,15 +69,16 @@ public final class VersionManager {
 
     private List<McVersion> parseManifest(String json) {
         JsonObject root = JsonParser.parseString(json).getAsJsonObject();
-        JsonArray versions = root.getAsJsonArray("versions");
+        JsonArray versions = root.has("versions") ? root.getAsJsonArray("versions") : null;
+        if (versions == null) return new ArrayList<>();
         List<McVersion> result = new ArrayList<>(versions.size());
         for (JsonElement e : versions) {
             JsonObject v = e.getAsJsonObject();
             result.add(new McVersion(
-                    v.get("id").getAsString(),
-                    v.get("type").getAsString(),
-                    v.has("releaseTime") ? v.get("releaseTime").getAsString() : "",
-                    v.get("url").getAsString()
+                    v.has("id") && !v.get("id").isJsonNull() ? v.get("id").getAsString() : "",
+                    v.has("type") && !v.get("type").isJsonNull() ? v.get("type").getAsString() : "",
+                    v.has("releaseTime") && !v.get("releaseTime").isJsonNull() ? v.get("releaseTime").getAsString() : "",
+                    v.has("url") && !v.get("url").isJsonNull() ? v.get("url").getAsString() : ""
             ));
         }
         return result;

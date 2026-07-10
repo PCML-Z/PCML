@@ -60,7 +60,7 @@ fun DownloadPage(vm: LauncherViewModel) {
 
         // 进度条
         if (installing && progress != null) {
-            val p = progress!!
+            val p = progress ?: return@Column
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp)) {
                     Text(p.getMessage() ?: "", style = MaterialTheme.typography.bodySmall)
@@ -89,6 +89,8 @@ fun DownloadPage(vm: LauncherViewModel) {
                     val loader = when (tab) {
                         1 -> ModLoader.FABRIC
                         2 -> ModLoader.QUILT
+                        3 -> ModLoader.FORGE
+                        4 -> ModLoader.NEOFORGE
                         else -> ModLoader.FORGE
                     }
                     vm.listModLoaderVersions(loader, selectedGameVersion)

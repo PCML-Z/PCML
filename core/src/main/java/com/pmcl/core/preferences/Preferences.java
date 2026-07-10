@@ -363,7 +363,7 @@ public final class Preferences {
             if (o.has("connectxServerAddress")) connectxServerAddress = o.get("connectxServerAddress").getAsString();
             if (o.has("connectxServerPort")) connectxServerPort = o.get("connectxServerPort").getAsInt();
             if (o.has("connectxBinaryPath")) connectxBinaryPath = o.get("connectxBinaryPath").getAsString();
-        } catch (IOException ignored) {
+        } catch (Throwable ignored) {
         }
     }
 
@@ -425,7 +425,7 @@ public final class Preferences {
             o.addProperty("connectxBinaryPath", connectxBinaryPath);
             Files.createDirectories(file.getParent());
             Files.writeString(file, gson.toJson(o));
-        } catch (IOException ignored) {
+        } catch (Throwable ignored) {
         }
     }
 }

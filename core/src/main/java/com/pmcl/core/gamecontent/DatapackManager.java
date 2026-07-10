@@ -83,8 +83,10 @@ public final class DatapackManager {
             var entry = zip.getEntry("pack.mcmeta");
             String name = stripZipSuffix(zipPath.getFileName().toString());
             if (entry == null) return new Datapack(name, zipPath, 0, "", true);
-            String meta = new String(zip.getInputStream(entry).readAllBytes(),
-                    java.nio.charset.StandardCharsets.UTF_8);
+            String meta;
+            try (var in = zip.getInputStream(entry)) {
+                meta = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            }
             return build(name, zipPath, meta, true);
         } catch (IOException e) {
             return null;
@@ -109,8 +111,10 @@ public final class DatapackManager {
             JsonObject root = JsonParser.parseString(mcmeta).getAsJsonObject();
             if (root.has("pack")) {
                 JsonObject pack = root.getAsJsonObject("pack");
-                if (pack.has("pack_format")) packFormat = pack.get("pack_format").getAsInt();
-                if (pack.has("description")) description = pack.get("description").getAsString();
+                if (pack.has("pack_format") && pack.get("pack_format").isJsonPrimitive())
+                    packFormat = pack.get("pack_format").getAsInt();
+                if (pack.has("description") && pack.get("description").isJsonPrimitive())
+                    description = pack.get("description").getAsString();
             }
         } catch (Exception ignored) {}
         return new Datapack(name, path, packFormat, description, isZip);

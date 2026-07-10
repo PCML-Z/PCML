@@ -52,7 +52,7 @@ fun AnimatedSegmentedSelector(
 
     val density = LocalDensity.current
     val safeIndex = selectedIndex.coerceIn(0, items.lastIndex)
-    val itemWidths = remember { mutableStateListOf<Float>().apply { repeat(items.size) { add(0f) } } }
+    val itemWidths = remember(items.size) { mutableStateListOf<Float>().apply { repeat(items.size) { add(0f) } } }
     var containerWidth by remember { mutableStateOf(0f) }
     val scrollState = rememberScrollState()
 

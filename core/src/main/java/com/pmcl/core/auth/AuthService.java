@@ -73,18 +73,30 @@ public final class AuthService {
      */
     public AccountStore loadStore(Path file) throws IOException {
         if (!Files.exists(file)) return new AccountStore(new ArrayList<>(), null);
-        JsonObject root = JsonParser.parseString(Files.readString(file)).getAsJsonObject();
+        JsonObject root;
+        try {
+            root = JsonParser.parseString(Files.readString(file)).getAsJsonObject();
+        } catch (Throwable t) {
+            return new AccountStore(new ArrayList<>(), null);
+        }
         List<Account> accounts = new ArrayList<>();
         if (root.has("accounts")) {
             for (JsonElement e : root.getAsJsonArray("accounts")) {
                 JsonObject o = e.getAsJsonObject();
+                Account.AccountType accountType;
+                try {
+                    accountType = Account.AccountType.valueOf(
+                            o.has("type") && !o.get("type").isJsonNull() ? o.get("type").getAsString() : "OFFLINE");
+                } catch (IllegalArgumentException ex) {
+                    accountType = Account.AccountType.OFFLINE;
+                }
                 accounts.add(new Account(
-                        o.get("username").getAsString(),
-                        o.get("uuid").getAsString(),
-                        o.has("accessToken") ? o.get("accessToken").getAsString() : "",
-                        Account.AccountType.valueOf(o.get("type").getAsString()),
-                        o.has("skinUrl") ? o.get("skinUrl").getAsString() : "",
-                        o.has("skinModel") ? o.get("skinModel").getAsString() : "classic"
+                        o.has("username") && !o.get("username").isJsonNull() ? o.get("username").getAsString() : "",
+                        o.has("uuid") && !o.get("uuid").isJsonNull() ? o.get("uuid").getAsString() : "",
+                        o.has("accessToken") && !o.get("accessToken").isJsonNull() ? o.get("accessToken").getAsString() : "",
+                        accountType,
+                        o.has("skinUrl") && !o.get("skinUrl").isJsonNull() ? o.get("skinUrl").getAsString() : "",
+                        o.has("skinModel") && !o.get("skinModel").isJsonNull() ? o.get("skinModel").getAsString() : "classic"
                 ));
             }
         }

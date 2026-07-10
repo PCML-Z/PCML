@@ -638,8 +638,8 @@ public final class LaunchProfileBuilder {
             JsonObject client = logging.getAsJsonObject("client");
             if (!client.has("file")) return null;
             JsonObject file = client.getAsJsonObject("file");
-            String fileId = file.get("id").getAsString();
-            String url = file.get("url").getAsString();
+            String fileId = file.has("id") && !file.get("id").isJsonNull() ? file.get("id").getAsString() : "";
+            String url = file.has("url") && !file.get("url").isJsonNull() ? file.get("url").getAsString() : "";
 
             // 存储到 versions/{id}/{fileId}（如 client-1.12.xml）
             Path target = versionsDir.resolve(versionId).resolve(fileId);
@@ -653,6 +653,7 @@ public final class LaunchProfileBuilder {
                 okhttp3.Request req = new okhttp3.Request.Builder().url(url).get().build();
                 try (okhttp3.Response resp = http.newCall(req).execute()) {
                     if (!resp.isSuccessful()) return null;
+                    if (resp.body() == null) return null;
                     java.nio.file.Files.createDirectories(target.getParent());
                     try (java.io.InputStream is = resp.body().byteStream();
                          java.io.OutputStream os = java.nio.file.Files.newOutputStream(target)) {
@@ -745,12 +746,17 @@ public final class LaunchProfileBuilder {
             if (childObj.has("libraries")) {
                 for (var e : childObj.getAsJsonArray("libraries")) {
                     merged.add(e);
-                    childNames.add(e.getAsJsonObject().get("name").getAsString());
+                    JsonObject libObj = e.getAsJsonObject();
+                    if (libObj.has("name") && !libObj.get("name").isJsonNull()) {
+                        childNames.add(libObj.get("name").getAsString());
+                    }
                 }
             }
             if (parent.getRawJson().has("libraries")) {
                 for (var e : parent.getRawJson().getAsJsonArray("libraries")) {
-                    String name = e.getAsJsonObject().get("name").getAsString();
+                    JsonObject libObj = e.getAsJsonObject();
+                    if (!libObj.has("name") || libObj.get("name").isJsonNull()) continue;
+                    String name = libObj.get("name").getAsString();
                     if (!childNames.contains(name)) merged.add(e);
                 }
             }

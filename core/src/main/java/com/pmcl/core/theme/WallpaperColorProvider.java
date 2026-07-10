@@ -111,6 +111,7 @@ public final class WallpaperColorProvider {
             }
         }
         int[] agg = buckets.get(bestKey);
+        if (agg == null) return 0;
         int r = agg[0] / agg[3];
         int g = agg[1] / agg[3];
         int b = agg[2] / agg[3];
@@ -189,9 +190,13 @@ public final class WallpaperColorProvider {
         diag("extractDominantColor: buckets=" + buckets.size() + " skipped=" + skipped + "/" + (w*h));
 
         if (buckets.isEmpty()) {
-            int center = scaled.getRGB(w / 2, h / 2) & 0xFFFFFF;
-            diag("extractDominantColor: all skipped, center=#" + Integer.toHexString(center));
-            return center;
+            if (w > 0 && h > 0) {
+                int center = scaled.getRGB(w / 2, h / 2) & 0xFFFFFF;
+                diag("extractDominantColor: all skipped, center=#" + Integer.toHexString(center));
+                return center;
+            }
+            diag("extractDominantColor: all skipped, zero-size image");
+            return 0;
         }
 
         int bestKey = -1;

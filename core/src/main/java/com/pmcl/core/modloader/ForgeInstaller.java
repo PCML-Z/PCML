@@ -11,6 +11,7 @@ import com.pmcl.core.install.InstallProgress;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -65,12 +66,14 @@ public final class ForgeInstaller implements ModLoaderInstaller {
                     result.add(new ModLoaderVersion(
                             neoForge ? ModLoader.NEOFORGE : ModLoader.FORGE,
                             gameVersion,
-                            o.get("version").getAsString(),
-                            !o.has("branch") || "null".equals(o.get("branch").getAsString())
+                            o.has("version") && !o.get("version").isJsonNull()
+                                    ? o.get("version").getAsString() : "",
+                            !o.has("branch") || o.get("branch").isJsonNull()
+                                    || "null".equals(o.get("branch").getAsString())
                     ));
                 }
                 return result;
-            } catch (IOException ex) {
+            } catch (Throwable ex) {
                 throw new RuntimeException("拉取 Forge 版本失败", ex);
             }
         });
@@ -103,7 +106,8 @@ public final class ForgeInstaller implements ModLoaderInstaller {
                 } else {
                     versionJson = profile;
                 }
-                versionId = versionJson.get("id").getAsString();
+                versionId = versionJson.has("id") && !versionJson.get("id").isJsonNull()
+                        ? versionJson.get("id").getAsString() : "";
 
                 // 3. 写入 versions/{id}/{id}.json
                 Path versionDir = config.getVersionsDir().resolve(versionId);
@@ -154,7 +158,7 @@ public final class ForgeInstaller implements ModLoaderInstaller {
                 throw new IOException("installer.jar 中找不到 install_profile.json");
             }
             try (InputStream in = zip.getInputStream(entry)) {
-                return JsonParser.parseString(new String(in.readAllBytes(), "UTF-8"))
+                return JsonParser.parseString(new String(in.readAllBytes(), StandardCharsets.UTF_8))
                         .getAsJsonObject();
             }
         }
@@ -180,7 +184,9 @@ public final class ForgeInstaller implements ModLoaderInstaller {
                     String relPath = name.startsWith("maven/") ? name.substring("maven/".length())
                                                                 : name.substring("libraries/".length());
                     if (relPath.isEmpty()) continue;
-                    Path target = librariesDir.resolve(relPath);
+                    Path target = librariesDir.resolve(relPath).normalize();
+                    // ZIP SLIP 防护：确保目标路径仍在 librariesDir 内
+                    if (!target.startsWith(librariesDir.normalize())) continue;
                     Files.createDirectories(target.getParent());
                     try (InputStream in = zip.getInputStream(e)) {
                         Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
@@ -198,7 +204,7 @@ public final class ForgeInstaller implements ModLoaderInstaller {
             if (entry == null) entry = zip.getEntry("install_profile");
             if (entry != null) {
                 try (InputStream in = zip.getInputStream(entry)) {
-                    JsonObject profile = JsonParser.parseString(new String(in.readAllBytes(), "UTF-8"))
+                    JsonObject profile = JsonParser.parseString(new String(in.readAllBytes(), StandardCharsets.UTF_8))
                             .getAsJsonObject();
                     JsonObject versionJson = profile.has("versionInfo")
                             ? profile.getAsJsonObject("versionInfo")
@@ -206,13 +212,14 @@ public final class ForgeInstaller implements ModLoaderInstaller {
                     if (versionJson.has("libraries")) {
                         for (JsonElement e : versionJson.getAsJsonArray("libraries")) {
                             JsonObject lib = e.getAsJsonObject();
+                            if (!lib.has("name") || lib.get("name").isJsonNull()) continue;
                             String name = lib.get("name").getAsString();
                             String path = mavenToPath(name);
                             if (!embeddedPaths.contains(path)) {
                                 // 优先 BMCLAPI 镜像
                                 String url = BMCLAPI_MAVEN + path;
-                                // 若 lib 自带 url 字段，用其原 url
-                                if (lib.has("url")) {
+                                // 若 lib 自带 url 字段且非 null，用其原 url
+                                if (lib.has("url") && !lib.get("url").isJsonNull()) {
                                     url = lib.get("url").getAsString() + path;
                                 }
                                 remoteLibs.add(new DownloadTask(url, "", 0, "libraries/" + path));

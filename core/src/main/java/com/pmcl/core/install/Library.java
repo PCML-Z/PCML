@@ -45,7 +45,8 @@ public final class Library {
     }
 
     public static Library parse(JsonObject o) {
-        String name = o.get("name").getAsString();
+        String name = o.has("name") && !o.get("name").isJsonNull()
+                ? o.get("name").getAsString() : "";
         // 解析 name 中的第四段 classifier（如 "org.lwjgl:lwjgl:3.3.3:natives-macos"）
         String[] parts = name.split(":");
         String nameCls = parts.length >= 4 ? parts[3] : null;
@@ -122,7 +123,8 @@ public final class Library {
         String osName = currentOsName();
         for (JsonElement e : rules) {
             JsonObject rule = e.getAsJsonObject();
-            String action = rule.get("action").getAsString();
+            String action = rule.has("action") && !rule.get("action").isJsonNull()
+                    ? rule.get("action").getAsString() : "";
             if (rule.has("os")) {
                 String ruleOs = rule.getAsJsonObject("os").get("name").getAsString();
                 if (!ruleOs.equals(osName)) continue;
@@ -194,6 +196,7 @@ public final class Library {
 
     private static String mavenPath(String coords, String classifier) {
         String[] parts = coords.split(":");
+        if (parts.length < 3) return coords;
         String groupPath = parts[0].replace('.', '/');
         String artifactId = parts[1];
         String version = parts[2];

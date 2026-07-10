@@ -84,7 +84,10 @@ public final class ResourcePackManager {
             var entry = zip.getEntry("pack.mcmeta");
             if (entry == null) return new Pack(stripZipSuffix(zipPath.getFileName().toString()),
                     zipPath, 0, "", true);
-            String meta = readAll(zip.getInputStream(entry));
+            String meta;
+            try (var in = zip.getInputStream(entry)) {
+                meta = readAll(in);
+            }
             return buildPack(zipPath.getFileName().toString(), zipPath, meta, true);
         } catch (IOException e) {
             return null;
@@ -111,8 +114,10 @@ public final class ResourcePackManager {
             JsonObject root = JsonParser.parseString(mcmeta).getAsJsonObject();
             if (root.has("pack")) {
                 JsonObject pack = root.getAsJsonObject("pack");
-                if (pack.has("pack_format")) packFormat = pack.get("pack_format").getAsInt();
-                if (pack.has("description")) description = pack.get("description").getAsString();
+                if (pack.has("pack_format") && pack.get("pack_format").isJsonPrimitive())
+                    packFormat = pack.get("pack_format").getAsInt();
+                if (pack.has("description") && pack.get("description").isJsonPrimitive())
+                    description = pack.get("description").getAsString();
             }
         } catch (Exception ignored) {}
         String name = isZip ? stripZipSuffix(fileName) : fileName;

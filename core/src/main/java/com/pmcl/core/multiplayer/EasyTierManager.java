@@ -531,6 +531,7 @@ public final class EasyTierManager {
                         if (!resp.isSuccessful()) {
                             throw new IOException("HTTP " + resp.code());
                         }
+                        if (resp.body() == null) throw new IOException("响应体为空");
                         try (InputStream in = resp.body().byteStream()) {
                             Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
                         }

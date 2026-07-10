@@ -625,6 +625,7 @@ public final class TerracottaManager {
                 Request req = new Request.Builder().url(url).header("User-Agent", "PMCL/1.0").get().build();
                 try (Response resp = http.newCall(req).execute()) {
                     if (!resp.isSuccessful()) throw new IOException("HTTP " + resp.code());
+                    if (resp.body() == null) throw new IOException("响应体为空");
                     try (InputStream in = resp.body().byteStream()) {
                         Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
                     }

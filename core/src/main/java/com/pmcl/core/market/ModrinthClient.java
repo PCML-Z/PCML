@@ -38,7 +38,7 @@ public final class ModrinthClient implements ModMarketClient {
     /** 重试基础间隔（毫秒），实际为 base * 2^attempt */
     private static final long RETRY_BASE_MS = 1000L;
 
-    private OkHttpClient http;
+    private volatile OkHttpClient http;
     private final DownloadManager downloads;
 
     public ModrinthClient(DownloadManager downloads) {
@@ -101,7 +101,9 @@ public final class ModrinthClient implements ModMarketClient {
                                                         String loader, String category,
                                                         int limit, String sort) {
         return CompletableFuture.supplyAsync(() -> {
-            HttpUrl.Builder ub = HttpUrl.parse(BASE + "/search").newBuilder()
+            HttpUrl parsed = HttpUrl.parse(BASE + "/search");
+            if (parsed == null) throw new RuntimeException("无效的 URL: " + BASE + "/search");
+            HttpUrl.Builder ub = parsed.newBuilder()
                     .addQueryParameter("query", query == null ? "" : query)
                     .addQueryParameter("limit", String.valueOf(limit))
                     .addQueryParameter("facets", buildFacets(gameVersion, loader, category));

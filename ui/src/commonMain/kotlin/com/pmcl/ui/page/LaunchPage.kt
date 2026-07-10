@@ -867,9 +867,10 @@ fun ModLoaderInstallPromptDialog(
 
     // 选择加载器时自动拉取版本列表
     LaunchedEffect(selectedLoader) {
-        if (selectedLoader != null) {
+        val loader = selectedLoader
+        if (loader != null) {
             selectedLoaderVersion = null
-            vm.listModLoaderVersions(selectedLoader!!, gameVersion)
+            vm.listModLoaderVersions(loader, gameVersion)
         }
     }
 
@@ -880,8 +881,8 @@ fun ModLoaderInstallPromptDialog(
         },
         title = {
             Text(
-                if (selectedLoader == null) "安装 Minecraft - 是否安装模组加载器？"
-                else "选择 ${selectedLoader!!.name} 版本"
+                selectedLoader?.let { "选择 ${it.name} 版本" }
+                    ?: "安装 Minecraft - 是否安装模组加载器？"
             )
         },
         text = {

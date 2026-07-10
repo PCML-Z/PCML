@@ -307,10 +307,14 @@ private suspend fun executeCommand(
                         line.contains("not found") || line.contains("Unknown"))
                         LineType.ERROR else LineType.OUTPUT
                     lines.add(TerminalLine(line, type))
+                    // 限制终端行数，防止 OOM
+                    if (lines.size > 5000) {
+                        lines.removeAt(0)
+                    }
                 }
             }
         }
-    } catch (e: Exception) {
+    } catch (e: Throwable) {
         lines.add(TerminalLine("Error: ${e.message}", LineType.ERROR))
     } finally {
         setExecuting(false)

@@ -65,14 +65,14 @@ public final class SelfUpdater {
             try {
                 String json = downloadManager.downloadString(manifestUrl);
                 JsonObject o = JsonParser.parseString(json).getAsJsonObject();
-                String ver = o.has("version") ? o.get("version").getAsString() : "";
+                String ver = o.has("version") && !o.get("version").isJsonNull() ? o.get("version").getAsString() : "";
                 if (ver.isEmpty() || ver.equals(currentVersion)) return null;
                 return new UpdateInfo(
                         ver,
-                        o.has("url") ? o.get("url").getAsString() : "",
-                        o.has("sha1") ? o.get("sha1").getAsString() : "",
-                        o.has("size") ? o.get("size").getAsLong() : 0L,
-                        o.has("notes") ? o.get("notes").getAsString() : "");
+                        o.has("url") && !o.get("url").isJsonNull() ? o.get("url").getAsString() : "",
+                        o.has("sha1") && !o.get("sha1").isJsonNull() ? o.get("sha1").getAsString() : "",
+                        o.has("size") && !o.get("size").isJsonNull() ? o.get("size").getAsLong() : 0L,
+                        o.has("notes") && !o.get("notes").isJsonNull() ? o.get("notes").getAsString() : "");
             } catch (IOException e) {
                 throw new RuntimeException("检查更新失败: " + e.getMessage(), e);
             }

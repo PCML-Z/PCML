@@ -50,7 +50,7 @@ public final class VersionInstaller {
         return CompletableFuture.runAsync(() -> {
             try {
                 doInstall(versionId, onProgress);
-            } catch (IOException e) {
+            } catch (Throwable e) {
                 if (onProgress != null)
                     onProgress.accept(new InstallProgress(
                             InstallProgress.Stage.FAILED, 0, 0, e.getMessage()));
@@ -180,7 +180,9 @@ public final class VersionInstaller {
                     String name = entry.getName();
                     // 跳过签名文件与元数据
                     if (name.startsWith("META-INF/")) continue;
-                    Path target = nativesDir.resolve(name);
+                    Path target = nativesDir.resolve(name).normalize();
+                    // ZIP SLIP 防护：确保目标路径仍在 nativesDir 内
+                    if (!target.startsWith(nativesDir.normalize())) continue;
                     Files.createDirectories(target.getParent());
                     try (var in = zip.getInputStream(entry)) {
                         Files.copy(in, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
@@ -223,6 +225,7 @@ public final class VersionInstaller {
             if (v.getId().equals(parentId)) { parent = v; break; }
         }
         if (parent == null) return child;
+        if (parent.getUrl() == null) return child;
 
         String parentJson = downloadManager.downloadString(parent.getUrl());
         // 简单合并：将父版本的 libraries 与子版本合并（去重）
@@ -249,11 +252,16 @@ public final class VersionInstaller {
             if (childObj.has("libraries")) {
                 for (var e : childObj.getAsJsonArray("libraries")) {
                     merged.add(e);
-                    childNames.add(e.getAsJsonObject().get("name").getAsString());
+                    JsonObject libObj = e.getAsJsonObject();
+                    if (libObj.has("name") && !libObj.get("name").isJsonNull()) {
+                        childNames.add(libObj.get("name").getAsString());
+                    }
                 }
             }
             for (var e : parentObj.getAsJsonArray("libraries")) {
-                String name = e.getAsJsonObject().get("name").getAsString();
+                JsonObject libObj = e.getAsJsonObject();
+                if (!libObj.has("name") || libObj.get("name").isJsonNull()) continue;
+                String name = libObj.get("name").getAsString();
                 if (!childNames.contains(name)) merged.add(e);
             }
             childObj.add("libraries", merged);

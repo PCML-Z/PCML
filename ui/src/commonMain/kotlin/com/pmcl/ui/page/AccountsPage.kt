@@ -50,7 +50,8 @@ fun AccountsPage(vm: LauncherViewModel) {
                 Spacer(Modifier.height(8.dp))
 
                 if (account != null) {
-                    val acc = account!!
+                    val acc = account
+                    if (acc == null) return@Column
                     // 皮肤预览区
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -103,7 +104,7 @@ fun AccountsPage(vm: LauncherViewModel) {
         Spacer(Modifier.height(16.dp))
 
         // 自定义皮肤（仅离线账号）
-        if (account != null && account!!.getType() == Account.AccountType.OFFLINE) {
+        if (account?.getType() == Account.AccountType.OFFLINE) {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp)) {
                     Text("自定义皮肤", style = MaterialTheme.typography.titleSmall,
@@ -179,7 +180,8 @@ fun AccountsPage(vm: LauncherViewModel) {
                 Spacer(Modifier.height(12.dp))
 
                 if (deviceCode != null) {
-                    val dc = deviceCode!!
+                    val dc = deviceCode
+                    if (dc == null) return@Column
                     Surface(
                         color = MaterialTheme.colorScheme.primaryContainer,
                         shape = RoundedCornerShape(8.dp),
@@ -239,8 +241,10 @@ private fun SkinImage(url: String, sizePx: Int) {
         }
     }
     if (image != null) {
+        val bmp = image
+        if (bmp == null) return
         Image(
-            bitmap = image!!,
+            bitmap = bmp,
             contentDescription = "皮肤预览",
             modifier = Modifier.size(sizePx.dp).clip(RoundedCornerShape(8.dp))
         )

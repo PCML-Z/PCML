@@ -87,6 +87,7 @@ public final class JavaRuntimeDownloader {
                 for (JsonElement e : arr) {
                     JsonObject o = e.getAsJsonObject();
                     JsonObject man = o.getAsJsonObject("manifest");
+                    if (man == null) continue;
                     RuntimeEntry entry = new RuntimeEntry(
                             o.has("version") ? o.get("version").getAsString() : type.name(),
                             o.has("version") ? o.get("version").getAsString() : "?",

@@ -61,14 +61,14 @@ public final class DownloadManager {
 
     private final LauncherConfig config;
     private final MirrorManager mirror = new MirrorManager();
-    private OkHttpClient http;
+    private volatile OkHttpClient http;
     private final ExecutorService pool;
     /** 校验专用线程池（不占用下载线程） */
     private final ExecutorService verifyPool = Executors.newFixedThreadPool(2);
     /** 批量下载背压信号量：限制同时进行中的下载数，避免一次性提交撑爆队列 */
     private final Semaphore downloadLimiter;
     /** 分片下载器（复用线程池，避免每次创建） */
-    private ChunkedDownloader chunked;
+    private volatile ChunkedDownloader chunked;
 
     // 网络参数（由 reconfigure 设置）
     private int speedLimitBytesPerSec = 0;     // 0 = 不限速
@@ -286,6 +286,7 @@ public final class DownloadManager {
                 Files.deleteIfExists(partFile);
             }
 
+            if (resp.body() == null) throw new IOException("响应体为空: " + url);
             try (InputStream in = resp.body().byteStream();
                  RandomAccessFile raf = new RandomAccessFile(partFile.toFile(), "rw")) {
                 raf.seek(startPos);
@@ -344,6 +345,7 @@ public final class DownloadManager {
                 if (!resp.isSuccessful()) {
                     throw new IOException("下载失败 code=" + resp.code() + " url=" + url);
                 }
+                if (resp.body() == null) throw new IOException("响应体为空: " + url);
                 return resp.body().string();
             } catch (IOException e) {
                 last = e;
@@ -396,6 +398,7 @@ public final class DownloadManager {
                     throw new IOException("下载失败 code=" + resp.code() + " url=" + url);
                 }
                 // 用 Files.copy 写入临时文件（自动截断/创建），再用 InputStream 逐块读取做进度回调
+                if (resp.body() == null) throw new IOException("响应体为空: " + url);
                 try (InputStream in = resp.body().byteStream()) {
                     if (onProgress == null) {
                         Files.copy(in, tmp, StandardCopyOption.REPLACE_EXISTING);

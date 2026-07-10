@@ -69,7 +69,7 @@ fun NewsPage(vm: LauncherViewModel) {
                 val sdf = SimpleDateFormat(p, Locale.ENGLISH)
                 val parsed = sdf.parse(raw)
                 if (parsed != null) return parsed.time
-            } catch (_: Exception) { continue }
+            } catch (_: Throwable) { continue }
         }
         return 0L
     }
@@ -367,7 +367,7 @@ private fun ArticleBody(
         }
 
         // 正文块
-        items(blocks, key = { it.hashCode() }) { block ->
+        itemsIndexed(blocks, key = { index, _ -> "block-$index" }) { _, block ->
             RenderHtmlBlock(block, translateEnabled, translationCache)
         }
 

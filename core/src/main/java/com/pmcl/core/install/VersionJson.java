@@ -140,7 +140,7 @@ public final class VersionJson {
                     }
                 }
             }
-        } else if (rawJson.has("minecraftArguments")) {
+        } else if (rawJson.has("minecraftArguments") && !rawJson.get("minecraftArguments").isJsonNull()) {
             // 旧版本空格分隔
             String[] parts = rawJson.get("minecraftArguments").getAsString().split(" ");
             Collections.addAll(result, parts);
@@ -158,7 +158,8 @@ public final class VersionJson {
         String osArch = System.getProperty("os.arch", "").toLowerCase();
         for (JsonElement e : rules) {
             JsonObject rule = e.getAsJsonObject();
-            String action = rule.get("action").getAsString();
+            String action = rule.has("action") && !rule.get("action").isJsonNull()
+                    ? rule.get("action").getAsString() : "";
             if (rule.has("os")) {
                 JsonObject osObj = rule.getAsJsonObject("os");
                 if (osObj.has("name")) {
@@ -203,9 +204,9 @@ public final class VersionJson {
 
         public static Artifact parse(JsonObject o) {
             return new Artifact(
-                    o.get("url").getAsString(),
-                    o.has("sha1") ? o.get("sha1").getAsString() : "",
-                    o.has("size") ? o.get("size").getAsLong() : 0
+                    o.has("url") && !o.get("url").isJsonNull() ? o.get("url").getAsString() : "",
+                    o.has("sha1") && !o.get("sha1").isJsonNull() ? o.get("sha1").getAsString() : "",
+                    o.has("size") && !o.get("size").isJsonNull() ? o.get("size").getAsLong() : 0
             );
         }
 

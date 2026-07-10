@@ -302,7 +302,16 @@ public final class MultiplayerManager {
             String shortId = parts[2];
             // 如果邀请码中不含服务器地址，使用传入的配置
             String addr = parts[0].isEmpty() ? serverAddr : parts[0];
-            int port = parts[1].equals("0") ? serverPort : Integer.parseInt(parts[1]);
+            int port;
+            if (parts[1].equals("0")) {
+                port = serverPort;
+            } else {
+                try {
+                    port = Integer.parseInt(parts[1]);
+                } catch (NumberFormatException ex) {
+                    port = serverPort;
+                }
+            }
             backend = Backend.CONNECTX;
             state = State.CONNECTING;
             lastError = "";

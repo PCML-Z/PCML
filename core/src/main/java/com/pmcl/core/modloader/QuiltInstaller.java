@@ -44,16 +44,18 @@ public final class QuiltInstaller implements ModLoaderInstaller {
                 for (JsonElement e : arr) {
                     JsonObject o = e.getAsJsonObject();
                     JsonObject loader = o.getAsJsonObject("loader");
+                    if (loader == null) continue;
                     result.add(new ModLoaderVersion(
                             ModLoader.QUILT,
                             gameVersion,
-                            loader.has("version") ? loader.get("version").getAsString() : "",
+                            loader.has("version") && !loader.get("version").isJsonNull()
+                                    ? loader.get("version").getAsString() : "",
                             loader.has("stable") && !loader.get("stable").isJsonNull()
                                     ? loader.get("stable").getAsBoolean() : true
                     ));
                 }
                 return result;
-            } catch (IOException ex) {
+            } catch (Throwable ex) {
                 throw new RuntimeException("拉取 Quilt 版本失败", ex);
             }
         });
@@ -71,7 +73,8 @@ public final class QuiltInstaller implements ModLoaderInstaller {
                 String profileJson = downloads.downloadString(url);
 
                 JsonObject profile = JsonParser.parseString(profileJson).getAsJsonObject();
-                String id = profile.get("id").getAsString();
+                String id = profile.has("id") && !profile.get("id").isJsonNull()
+                        ? profile.get("id").getAsString() : "";
 
                 Path versionDir = config.getVersionsDir().resolve(id);
                 Files.createDirectories(versionDir);

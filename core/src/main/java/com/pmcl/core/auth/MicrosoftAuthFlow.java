@@ -77,12 +77,12 @@ public final class MicrosoftAuthFlow {
             String json = resp.body() != null ? resp.body().string() : "";
             JsonObject o = JsonParser.parseString(json).getAsJsonObject();
             return new DeviceCode(
-                    o.get("device_code").getAsString(),
-                    o.get("user_code").getAsString(),
-                    o.get("verification_url").getAsString(),
-                    o.get("expires_in").getAsInt(),
-                    o.get("interval").getAsInt(),
-                    o.get("message").getAsString()
+                    safeStr(o, "device_code"),
+                    safeStr(o, "user_code"),
+                    safeStr(o, "verification_url"),
+                    o.has("expires_in") && !o.get("expires_in").isJsonNull() ? o.get("expires_in").getAsInt() : 0,
+                    o.has("interval") && !o.get("interval").isJsonNull() ? o.get("interval").getAsInt() : 0,
+                    safeStr(o, "message")
             );
         } catch (IOException e) {
             throw new RuntimeException("网络错误", e);
@@ -114,10 +114,10 @@ public final class MicrosoftAuthFlow {
         try (Response resp = http.newCall(req).execute()) {
             String json = resp.body() != null ? resp.body().string() : "";
             JsonObject o = JsonParser.parseString(json).getAsJsonObject();
-            String error = o.has("error") ? o.get("error").getAsString() : null;
+            String error = o.has("error") && !o.get("error").isJsonNull() ? o.get("error").getAsString() : null;
             if (error == null) {
                 // 成功
-                future.complete(o.get("access_token").getAsString());
+                future.complete(safeStr(o, "access_token"));
                 return;
             }
             switch (error) {

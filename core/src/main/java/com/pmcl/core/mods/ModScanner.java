@@ -349,7 +349,7 @@ public final class ModScanner {
             }
             return String.join(", ", names);
         }
-        return a.getAsString();
+        return a.isJsonPrimitive() ? a.getAsString() : "";
     }
 
     private static List<String> jsonArrToStrings(JsonObject o, String key) {
