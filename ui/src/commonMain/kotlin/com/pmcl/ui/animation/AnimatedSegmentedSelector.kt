@@ -1,7 +1,6 @@
 package com.pmcl.ui.animation
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -9,12 +8,14 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -26,27 +27,8 @@ import androidx.compose.ui.unit.sp
 /**
  * 带流体滑动指示器的分段选择器。
  *
- * 用于互斥单选场景（如 GC 类型、语言、联机后端等），选中项之间有一个滑动的
- * 高亮背景块，切换时流畅过渡。
- *
- * 用法：
- * ```
- * AnimatedSegmentedSelector(
- *     items = listOf("G1GC", "ZGC", "ParallelGC"),
- *     selectedIndex = gcIndex,
- *     onSelect = { gcIndex = it }
- * )
- * ```
- *
- * 等宽模式（每个按钮平均占满宽度）：
- * ```
- * AnimatedSegmentedSelector(
- *     items = listOf("Terracotta", "EasyTier", "ConnectX"),
- *     selectedIndex = backendIndex,
- *     onSelect = { backendIndex = it },
- *     fillWidth = true
- * )
- * ```
+ * 用于互斥单选场景，选中项之间有一个滑动的白色高亮背景块，
+ * 切换时以 300ms 强调缓动曲线流畅过渡。
  */
 @Composable
 fun AnimatedSegmentedSelector(
@@ -56,41 +38,47 @@ fun AnimatedSegmentedSelector(
     modifier: Modifier = Modifier,
     fillWidth: Boolean = false,
     shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(10.dp),
-    height: androidx.compose.ui.unit.Dp = 36.dp
+    height: androidx.compose.ui.unit.Dp = 36.dp,
+    indicatorPadding: androidx.compose.ui.unit.Dp = 3.dp
 ) {
     if (items.isEmpty()) return
 
     val density = LocalDensity.current
-    // 记录每个按钮的宽度（px），用于计算滑动指示器位置
+    val safeIndex = selectedIndex.coerceIn(0, items.lastIndex)
     val itemWidths = remember { mutableStateListOf<Float>().apply { repeat(items.size) { add(0f) } } }
     var containerWidth by remember { mutableStateOf(0f) }
+
+    // 指示器内缩量（px），让滑动块在轨道内有呼吸感
+    val padPx = with(density) { indicatorPadding.toPx() }
 
     // 计算选中项的 x 偏移和宽度
     val targetOffset: Float
     val targetWidth: Float
     if (fillWidth && containerWidth > 0f) {
-        // 等宽模式：按容器宽度平均分配
         val perWidth = containerWidth / items.size
-        targetOffset = perWidth * selectedIndex.coerceIn(0, items.lastIndex)
-        targetWidth = perWidth
+        targetOffset = perWidth * safeIndex + padPx
+        targetWidth = perWidth - padPx * 2
     } else {
-        // 自适应模式：按按钮实际测量宽度
         var acc = 0f
-        for (i in 0 until selectedIndex.coerceIn(0, items.lastIndex)) {
-            acc += itemWidths[i]
-        }
-        targetOffset = acc
-        targetWidth = itemWidths[selectedIndex.coerceIn(0, items.lastIndex)]
+        for (i in 0 until safeIndex) { acc += itemWidths[i] }
+        targetOffset = acc + padPx
+        targetWidth = (itemWidths[safeIndex] - padPx * 2).coerceAtLeast(0f)
     }
 
-    val animatedOffset by animateFloatAsStateSmooth(
-        targetValue = targetOffset,
-        label = "indicator_offset"
+    // 300ms 强调缓动，让滑动过程清晰可见
+    val animSpec = tween<Float>(
+        durationMillis = MotionTokens.DURATION_MEDIUM,
+        easing = MotionTokens.EasingEmphasized
     )
-    val animatedWidth by animateFloatAsStateSmooth(
-        targetValue = if (targetWidth > 0f) targetWidth else 1f,
-        label = "indicator_width"
+    val animatedOffset by animateFloatAsState(targetValue = targetOffset, animationSpec = animSpec, label = "offset")
+    val animatedWidth by animateFloatAsState(
+        targetValue = if (targetWidth > 0f) targetWidth else 0f,
+        animationSpec = animSpec,
+        label = "width"
     )
+
+    // 指示器圆角（比容器略小，视觉嵌套感）
+    val indicatorShape = RoundedCornerShape(7.dp)
 
     Box(
         modifier = modifier
@@ -99,22 +87,23 @@ fun AnimatedSegmentedSelector(
             .clip(shape)
             .background(MaterialTheme.colorScheme.surfaceVariant)
     ) {
-        // 滑动指示器背景
+        // 滑动指示器：使用 shadow + surface 提升层次感
         if (animatedWidth > 0f) {
-            Box(
+            Surface(
+                color = MaterialTheme.colorScheme.primary,
+                shadowElevation = 2.dp,
+                shape = indicatorShape,
                 modifier = Modifier
-                    .offset { IntOffset(animatedOffset.toInt(), 0) }
+                    .offset { IntOffset(animatedOffset.toInt(), padPx.toInt()) }
                     .width(with(density) { animatedWidth.toDp() })
-                    .fillMaxHeight()
-                    .clip(shape)
-                    .background(MaterialTheme.colorScheme.primaryContainer)
-            )
+                    .height(with(density) { (height.toPx() - padPx * 2).toDp() })
+            ) {}
         }
 
         // 按钮行
         Row(modifier = Modifier.fillMaxSize()) {
             items.forEachIndexed { i, label ->
-                val isSelected = i == selectedIndex
+                val isSelected = i == safeIndex
                 Box(
                     modifier = Modifier
                         .weight(if (fillWidth) 1f else 0f)
@@ -129,8 +118,8 @@ fun AnimatedSegmentedSelector(
                     Text(
                         text = label,
                         fontSize = 13.sp,
-                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                        color = if (isSelected) MaterialTheme.colorScheme.onPrimary
                                 else MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.padding(horizontal = 12.dp)
@@ -140,19 +129,3 @@ fun AnimatedSegmentedSelector(
         }
     }
 }
-
-/**
- * 平滑的 animateFloatAsState 包装，使用 MotionTokens 的标准缓动曲线。
- */
-@Composable
-private fun animateFloatAsStateSmooth(
-    targetValue: Float,
-    label: String
-): State<Float> = androidx.compose.animation.core.animateFloatAsState(
-    targetValue = targetValue,
-    animationSpec = tween(
-        durationMillis = MotionTokens.DURATION_SHORT,
-        easing = MotionTokens.EasingEmphasized
-    ),
-    label = label
-)
