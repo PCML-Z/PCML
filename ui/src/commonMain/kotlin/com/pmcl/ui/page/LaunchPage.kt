@@ -830,16 +830,17 @@ private fun CrashReportDialog(
 }
 
 /**
- * 游戏安装完成后的模组加载器安装询问对话框。
+ * 游戏安装前的模组加载器选择对话框。
  *
  * 流程：
- * 1. 显示"是否安装模组加载器？"询问
- * 2. 用户选择加载器类型（Fabric/Forge/Quilt/NeoForge）
+ * 1. 用户点击安装游戏时触发此弹窗（安装尚未开始）
+ * 2. 用户选择加载器类型（Fabric/Forge/Quilt/NeoForge），可不选
  * 3. 自动加载该加载器的可用版本列表
- * 4. 用户选择具体版本后点击"安装"
+ * 4. 用户选择具体版本后点击"开始安装"，游戏安装完成后自动继续安装加载器
+ * 5. 点击"仅安装原版"则跳过加载器选择，直接安装原版游戏
  *
- * 点击"跳过"或对话框外区域则关闭，不再提醒。
- * 此对话框为 public，由 App.kt 全局监听 installCompleteEvent 统一弹出，
+ * 点击"取消"或对话框外区域则关闭弹窗，不执行任何安装。
+ * 此对话框为 public，由 App.kt 全局监听 preInstallEvent 统一弹出，
  * 避免多页面重复弹窗。
  */
 @Composable
@@ -859,7 +860,7 @@ fun ModLoaderInstallPromptDialog(
     val modLoaderVersions by vm.modLoaderVersions.collectAsState()
     val installing by vm.installing.collectAsState()
 
-    // 当前选中的加载器类型（null 表示尚未选择）
+    // 当前选中的加载器类型（null 表示尚未选择，将仅安装原版）
     var selectedLoader by remember { mutableStateOf<ModLoader?>(null) }
     // 当前选中的加载器版本
     var selectedLoaderVersion by remember { mutableStateOf<String?>(null) }
@@ -879,15 +880,15 @@ fun ModLoaderInstallPromptDialog(
         },
         title = {
             Text(
-                if (selectedLoader == null) "安装完成 - 是否安装模组加载器？"
+                if (selectedLoader == null) "安装 Minecraft - 是否安装模组加载器？"
                 else "选择 ${selectedLoader!!.name} 版本"
             )
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    "Minecraft $gameVersion 已安装成功。\n" +
-                    "安装模组加载器后可以运行各类模组，选择你需要的加载器：",
+                    "即将安装 Minecraft $gameVersion。\n" +
+                    "可选择同时安装模组加载器（安装游戏后自动继续），或跳过仅安装原版。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -978,22 +979,29 @@ fun ModLoaderInstallPromptDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    val loader = selectedLoader
-                    val lv = selectedLoaderVersion
-                    if (loader != null && lv != null && !installing) {
-                        vm.installModLoader(loader, gameVersion, lv)
-                        // 安装完成后关闭弹窗（installModLoader 内部会刷新版本列表）
+                    if (!installing) {
+                        val loader = selectedLoader
+                        val lv = selectedLoaderVersion
+                        if (loader != null && lv != null) {
+                            // 游戏安装完成后自动继续安装加载器
+                            vm.proceedInstall(versionId, loader, lv)
+                        } else {
+                            // 仅安装原版游戏
+                            vm.proceedInstall(versionId, null, null)
+                        }
                         onDismiss()
                     }
                 },
-                enabled = selectedLoader != null && selectedLoaderVersion != null && !installing
+                // 选中加载器+版本、或未选加载器时均可点击；仅选了加载器但没选版本时禁用
+                enabled = !installing && (selectedLoader == null ||
+                        (selectedLoader != null && selectedLoaderVersion != null))
             ) {
-                Text(if (installing) "安装中…" else "安装")
+                Text(if (installing) "安装中…" else "开始安装")
             }
         },
         dismissButton = {
             OutlinedButton(onClick = onDismiss, enabled = !installing) {
-                Text("跳过")
+                Text("取消")
             }
         }
     )

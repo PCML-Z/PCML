@@ -216,20 +216,20 @@ class LauncherViewModel {
     /** 清除崩溃事件（UI 关闭弹窗时调用） */
     fun clearCrashEvent() { _crashEvent.value = null }
 
-    // ===== 游戏安装完成事件（用于弹窗询问是否安装模组加载器）=====
+    // ===== 游戏安装前询问事件（用于弹窗询问是否同时安装模组加载器）=====
     /**
-     * Vanilla 游戏版本安装成功后触发的事件。
-     * UI 监听此流弹出模组加载器安装询问对话框。
+     * 用户点击安装游戏时触发的事件（安装开始前）。
+     * UI 监听此流弹出模组加载器选择对话框，用户确认后再执行实际安装。
      * null 表示无事件（已清除或未触发）。
      */
-    data class InstallCompleteEvent(
+    data class PreInstallEvent(
         val versionId: String
     )
-    private val _installCompleteEvent = MutableStateFlow<InstallCompleteEvent?>(null)
-    val installCompleteEvent: StateFlow<InstallCompleteEvent?> = _installCompleteEvent.asStateFlow()
+    private val _preInstallEvent = MutableStateFlow<PreInstallEvent?>(null)
+    val preInstallEvent: StateFlow<PreInstallEvent?> = _preInstallEvent.asStateFlow()
 
-    /** 清除安装完成事件（UI 关闭弹窗时调用） */
-    fun clearInstallCompleteEvent() { _installCompleteEvent.value = null }
+    /** 清除安装前询问事件（UI 关闭弹窗时调用） */
+    fun clearPreInstallEvent() { _preInstallEvent.value = null }
 
     // ===== 新闻 =====
     private val _newsItems = MutableStateFlow<List<com.pmcl.core.news.NewsItem>>(emptyList())
@@ -683,7 +683,23 @@ class LauncherViewModel {
         }
     }
 
+    /**
+     * 触发游戏安装流程：先弹窗询问是否同时安装模组加载器，用户确认后再执行实际安装。
+     * 此方法不立即开始下载，仅触发 [preInstallEvent] 事件。
+     */
     fun installVersion(versionId: String) {
+        _preInstallEvent.value = PreInstallEvent(versionId)
+    }
+
+    /**
+     * 执行实际安装：先安装游戏版本，成功后若指定了加载器则继续安装模组加载器。
+     * 由安装前弹窗确认后调用。
+     *
+     * @param versionId      游戏 versionId
+     * @param loader         可选模组加载器类型，null 表示仅安装原版
+     * @param loaderVersion  加载器版本号，loader 非 null 时必须提供
+     */
+    fun proceedInstall(versionId: String, loader: ModLoader? = null, loaderVersion: String? = null) {
         scope.launch {
             _installing.value = true
             _status.value = "开始安装 $versionId"
@@ -696,8 +712,19 @@ class LauncherViewModel {
                 }
                 refreshLocalVersions()
                 _status.value = "安装完成：$versionId"
-                // 触发安装完成事件，UI 监听后弹窗询问是否安装模组加载器
-                _installCompleteEvent.value = InstallCompleteEvent(versionId)
+                // 游戏安装成功后，若用户选择了加载器则继续安装
+                if (loader != null && !loaderVersion.isNullOrEmpty()) {
+                    _status.value = "安装 $loader $loaderVersion"
+                    withContext(Dispatchers.IO) {
+                        core.modLoaders().get(loader)
+                            .install(versionId, loaderVersion) { p ->
+                                _installProgress.value = p
+                                _status.value = "${p.getStage()} - ${p.getMessage()}"
+                            }.join()
+                    }
+                    refreshLocalVersions()
+                    _status.value = "安装完成：$loader $loaderVersion"
+                }
             } catch (e: Throwable) {
                 _status.value = "安装失败：${e.message}"
             } finally {
