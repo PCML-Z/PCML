@@ -110,18 +110,14 @@ fun ModsPage(vm: LauncherViewModel) {
             ) {
                 Text("来源：", style = MaterialTheme.typography.labelMedium,
                      color = MaterialTheme.colorScheme.outline)
-                FilterChip(
-                    selected = selectedSource == null,
-                    onClick = { selectedSource = null },
-                    label = { Text("全部") }
+                val sourceItems = listOf("全部") + sources
+                com.pmcl.ui.animation.AnimatedSegmentedSelector(
+                    items = sourceItems,
+                    selectedIndex = if (selectedSource == null) 0
+                        else sourceItems.indexOf(selectedSource).coerceAtLeast(0),
+                    onSelect = { selectedSource = if (it == 0) null else sourceItems[it] },
+                    height = 30.dp
                 )
-                sources.forEach { src ->
-                    FilterChip(
-                        selected = selectedSource == src,
-                        onClick = { selectedSource = if (selectedSource == src) null else src },
-                        label = { Text(src) }
-                    )
-                }
             }
         }
 
@@ -133,18 +129,14 @@ fun ModsPage(vm: LauncherViewModel) {
         ) {
             Text("加载器：", style = MaterialTheme.typography.labelMedium,
                  color = MaterialTheme.colorScheme.outline)
-            FilterChip(
-                selected = selectedLoader == null,
-                onClick = { selectedLoader = null },
-                label = { Text("全部") }
+            val loaderItems = listOf("全部") + loaders
+            com.pmcl.ui.animation.AnimatedSegmentedSelector(
+                items = loaderItems,
+                selectedIndex = if (selectedLoader == null) 0
+                    else loaderItems.indexOf(selectedLoader).coerceAtLeast(0),
+                onSelect = { selectedLoader = if (it == 0) null else loaderItems[it] },
+                height = 30.dp
             )
-            loaders.forEach { loader ->
-                FilterChip(
-                    selected = selectedLoader == loader,
-                    onClick = { selectedLoader = if (selectedLoader == loader) null else loader },
-                    label = { Text(loader) }
-                )
-            }
             Spacer(Modifier.weight(1f))
             // 排序下拉
             Box {

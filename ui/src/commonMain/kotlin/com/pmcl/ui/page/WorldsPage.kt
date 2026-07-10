@@ -94,18 +94,14 @@ fun WorldsPage(vm: LauncherViewModel) {
             ) {
                 Text("来源：", style = MaterialTheme.typography.labelMedium,
                      color = MaterialTheme.colorScheme.outline)
-                FilterChip(
-                    selected = selectedSource == null,
-                    onClick = { selectedSource = null },
-                    label = { Text("全部") }
+                val sourceItems = listOf("全部") + sources
+                com.pmcl.ui.animation.AnimatedSegmentedSelector(
+                    items = sourceItems,
+                    selectedIndex = if (selectedSource == null) 0
+                        else sourceItems.indexOf(selectedSource).coerceAtLeast(0),
+                    onSelect = { selectedSource = if (it == 0) null else sourceItems[it] },
+                    height = 30.dp
                 )
-                sources.forEach { src ->
-                    FilterChip(
-                        selected = selectedSource == src,
-                        onClick = { selectedSource = if (selectedSource == src) null else src },
-                        label = { Text(src) }
-                    )
-                }
             }
         }
 
