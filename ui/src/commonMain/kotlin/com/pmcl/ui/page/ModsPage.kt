@@ -6,8 +6,11 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
@@ -225,13 +228,13 @@ private fun ModRow(m: ModMeta, vm: LauncherViewModel) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (m.isDisabled()) {
                     TextButton(onClick = { vm.enableMod(m.getJarFile()) }) {
-                        Text("▶")
+                        Icon(Icons.Filled.PlayArrow, null, Modifier.size(14.dp))
                         Spacer(Modifier.width(4.dp))
                         Text("启用")
                     }
                 } else {
                     TextButton(onClick = { vm.disableMod(m.getJarFile()) }) {
-                        Text("⏸")
+                        Icon(Icons.Filled.Pause, null, Modifier.size(14.dp))
                         Spacer(Modifier.width(4.dp))
                         Text("禁用")
                     }
@@ -291,10 +294,20 @@ private fun ConflictCard(result: ModConflictChecker.Result) {
             )
             Spacer(Modifier.height(4.dp))
             for (e in result.getErrors()) {
-                Text("• $e", style = MaterialTheme.typography.bodySmall)
+                Row(verticalAlignment = Alignment.Top) {
+                    Icon(Icons.Filled.Circle, null, Modifier.size(6.dp).padding(top = 6.dp),
+                         tint = MaterialTheme.colorScheme.error)
+                    Spacer(Modifier.width(6.dp))
+                    Text(e, style = MaterialTheme.typography.bodySmall)
+                }
             }
             for (w in result.getWarnings()) {
-                Text("• $w", style = MaterialTheme.typography.bodySmall)
+                Row(verticalAlignment = Alignment.Top) {
+                    Icon(Icons.Filled.Circle, null, Modifier.size(6.dp).padding(top = 6.dp),
+                         tint = MaterialTheme.colorScheme.tertiary)
+                    Spacer(Modifier.width(6.dp))
+                    Text(w, style = MaterialTheme.typography.bodySmall)
+                }
             }
         }
     }

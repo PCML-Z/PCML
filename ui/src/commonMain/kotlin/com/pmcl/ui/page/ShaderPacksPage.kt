@@ -7,11 +7,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -177,11 +179,20 @@ private fun ShaderPackRow(
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
             }
-            Text(if (pack.isValid) "✓ 含 shaders/ 目录（兼容 Iris/OptiFine）"
-                 else "⚠ 缺少 shaders/ 目录，可能无法生效",
-                 style = MaterialTheme.typography.bodySmall,
-                 color = if (pack.isValid) MaterialTheme.colorScheme.outline
-                         else MaterialTheme.colorScheme.error)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    if (pack.isValid) Icons.Filled.CheckCircle else Icons.Filled.Warning,
+                    null, Modifier.size(14.dp),
+                    tint = if (pack.isValid) MaterialTheme.colorScheme.outline
+                           else MaterialTheme.colorScheme.error
+                )
+                Spacer(Modifier.width(4.dp))
+                Text(if (pack.isValid) "含 shaders/ 目录（兼容 Iris/OptiFine）"
+                     else "缺少 shaders/ 目录，可能无法生效",
+                     style = MaterialTheme.typography.bodySmall,
+                     color = if (pack.isValid) MaterialTheme.colorScheme.outline
+                             else MaterialTheme.colorScheme.error)
+            }
 
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {

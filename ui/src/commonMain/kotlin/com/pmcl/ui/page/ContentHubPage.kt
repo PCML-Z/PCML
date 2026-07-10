@@ -44,34 +44,40 @@ fun ContentHubPage(vm: LauncherViewModel) {
                     selected = tab == i,
                     onClick = { tab = i },
                     text = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(spec.label, fontWeight = if (tab == i) FontWeight.SemiBold else FontWeight.Normal)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                spec.icon,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                                tint = if (tab == i) MaterialTheme.colorScheme.primary
+                                       else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                spec.label,
+                                fontWeight = if (tab == i) FontWeight.SemiBold else FontWeight.Normal
+                            )
                             Spacer(Modifier.width(6.dp))
                             Surface(
                                 color = if (tab == i)
                                     MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
-                                shape = CircleShape,
-                                modifier = Modifier.size(18.dp)
+                                else MaterialTheme.colorScheme.outline.copy(alpha = 0.15f),
+                                shape = CircleShape
                             ) {
-                                Box(
-                                    Modifier.fillMaxSize(),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        "${spec.count}",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = if (tab == i)
-                                            MaterialTheme.colorScheme.onPrimary
-                                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                }
+                                Text(
+                                    "${spec.count}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (tab == i)
+                                        MaterialTheme.colorScheme.onPrimary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                                )
                             }
                         }
-                    },
-                    icon = {
-                        Icon(spec.icon, contentDescription = null, modifier = Modifier.size(20.dp))
                     }
                 )
             }
