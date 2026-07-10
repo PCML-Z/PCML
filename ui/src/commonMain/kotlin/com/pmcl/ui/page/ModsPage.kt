@@ -199,7 +199,7 @@ fun ModsPage(vm: LauncherViewModel) {
                 verticalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier.weight(1f)
             ) {
-                itemsIndexed(processedMods, key = { _, m -> "${m.getSource() ?: "?"}/${m.getJarFile() ?: "?"}" }) { index, m ->
+                itemsIndexed(processedMods, key = { _, m -> System.identityHashCode(m) }) { index, m ->
                     StaggeredAppear(index) {
                         ModRow(m, vm)
                     }
