@@ -1,6 +1,8 @@
 package com.pmcl.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CropSquare
@@ -9,6 +11,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.isPrimaryPressed
 import androidx.compose.ui.input.pointer.pointerInput
@@ -51,13 +54,14 @@ fun main() = application {
         onCloseRequest = ::exitApplication,
         title = "PMCL — Minecraft Launcher",
         state = state,
-        undecorated = borderless
+        undecorated = borderless,
+        transparent = borderless
     ) {
         if (borderless) {
             // 无边框窗口用 AWT shape 裁剪出圆角（最大化时用直角填满屏幕）
             DisposableEffect(Unit) {
                 val updateShape = {
-                    val arc = if (window.extendedState == Frame.MAXIMIZED_BOTH) 0.0 else 12.0
+                    val arc = if (window.extendedState == Frame.MAXIMIZED_BOTH) 0.0 else 14.0
                     window.shape = RoundRectangle2D.Double(
                         0.0, 0.0,
                         window.width.toDouble(), window.height.toDouble(),
@@ -72,16 +76,21 @@ fun main() = application {
                 window.addComponentListener(listener)
                 onDispose { window.removeComponentListener(listener) }
             }
-            Column(Modifier.fillMaxSize()) {
-                // 无边框模式下使用自定义标题栏
-                val isDark = pref.isUseDarkTheme()
-                MaterialTheme(
-                    colorScheme = if (isDark) darkColorScheme() else lightColorScheme()
+            // 无边框模式下使用自定义标题栏；用 Surface + clip 绘制圆角背景
+            val isDark = pref.isUseDarkTheme()
+            MaterialTheme(
+                colorScheme = if (isDark) darkColorScheme() else lightColorScheme()
+            ) {
+                Surface(
+                    modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(14.dp)),
+                    color = MaterialTheme.colorScheme.surface
                 ) {
-                    BorderlessTitleBar(onClose = ::exitApplication)
-                }
-                Box(Modifier.weight(1f).fillMaxWidth()) {
-                    App()
+                    Column(Modifier.fillMaxSize()) {
+                        BorderlessTitleBar(onClose = ::exitApplication)
+                        Box(Modifier.weight(1f).fillMaxWidth()) {
+                            App()
+                        }
+                    }
                 }
             }
         } else {
