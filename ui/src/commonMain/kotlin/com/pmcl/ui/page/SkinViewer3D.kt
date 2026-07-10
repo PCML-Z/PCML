@@ -69,7 +69,9 @@ private data class ModelFace(
 
 /**
  * Build a box and return its 6 textured faces.
- * UV vertex order: bottom-left, bottom-right, top-right, top-left (in UV space).
+ * All faces use CCW vertex order when viewed from outside.
+ * UV mapping: v0=(u0,v1) bottom-left, v1=(u1,v1) bottom-right,
+ *             v2=(u1,v0) top-right, v3=(u0,v0) top-left
  */
 private fun buildBox(
     cx: Float, cy: Float, cz: Float,
@@ -83,18 +85,18 @@ private fun buildBox(
     fun f(v: List<V3>, u: FloatArray) = ModelFace(v, u[0], u[1], u[2], u[3], fallback)
 
     return listOf(
-        // Top (+Y) — view from above: x left→right, z front→back
+        // Top (+Y) — looking down from +Y, CCW: front-left, front-right, back-right, back-left
         f(listOf(V3(x0, y1, z1), V3(x1, y1, z1), V3(x1, y1, z0), V3(x0, y1, z0)), uv[0]),
-        // Bottom (-Y)
+        // Bottom (-Y) — looking up from -Y, CCW: back-left, back-right, front-right, front-left
         f(listOf(V3(x0, y0, z0), V3(x1, y0, z0), V3(x1, y0, z1), V3(x0, y0, z1)), uv[1]),
-        // Right (-X): z front→back maps to u left→right
-        f(listOf(V3(x0, y0, z1), V3(x0, y0, z0), V3(x0, y1, z0), V3(x0, y1, z1)), uv[2]),
-        // Front (+Z): x left→right
+        // Front (+Z) — looking from +Z, CCW: bottom-left, bottom-right, top-right, top-left
         f(listOf(V3(x0, y0, z1), V3(x1, y0, z1), V3(x1, y1, z1), V3(x0, y1, z1)), uv[3]),
-        // Left (+X): z back→front
-        f(listOf(V3(x1, y0, z0), V3(x1, y0, z1), V3(x1, y1, z1), V3(x1, y1, z0)), uv[4]),
-        // Back (-Z): x right→left
-        f(listOf(V3(x1, y0, z0), V3(x0, y0, z0), V3(x0, y1, z0), V3(x1, y1, z0)), uv[5])
+        // Back (-Z) — looking from -Z, CCW: bottom-right, bottom-left, top-left, top-right
+        f(listOf(V3(x1, y0, z0), V3(x0, y0, z0), V3(x0, y1, z0), V3(x1, y1, z0)), uv[5]),
+        // Left (+X) — looking from +X, CCW: front-bottom, back-bottom, back-top, front-top
+        f(listOf(V3(x1, y0, z1), V3(x1, y0, z0), V3(x1, y1, z0), V3(x1, y1, z1)), uv[4]),
+        // Right (-X) — looking from -X, CCW: back-bottom, front-bottom, front-top, back-top
+        f(listOf(V3(x0, y0, z0), V3(x0, y0, z1), V3(x0, y1, z1), V3(x0, y1, z0)), uv[2])
     )
 }
 
@@ -385,14 +387,20 @@ fun SkinViewer3D(
                 val face = model[i]
                 val rotated = face.vertices.map { rotate(it) }
 
+                // 3D normal for lighting
                 val e1 = rotated[1] - rotated[0]
                 val e2 = rotated[2] - rotated[0]
                 val normal = e1.cross(e2).normalized()
 
-                // Backface culling: camera at -Z, keep faces with normal.z < 0
-                if (normal.z >= 0f) continue
-
                 val projected = rotated.map { project(it) }
+
+                // Screen-space backface culling: compute signed area of projected quad.
+                // In screen coords (Y down), CCW 3D faces become CW after projection,
+                // so negative signed area = facing camera.
+                val signedArea = (projected[1].x - projected[0].x) * (projected[2].y - projected[0].y) -
+                                 (projected[1].y - projected[0].y) * (projected[2].x - projected[0].x)
+                if (signedArea >= 0f) continue
+
                 val avgZ = (rotated[0].z + rotated[1].z + rotated[2].z + rotated[3].z) / 4f
                 val brightness = maxOf(0.45f, normal.dot(lightDir))
 
