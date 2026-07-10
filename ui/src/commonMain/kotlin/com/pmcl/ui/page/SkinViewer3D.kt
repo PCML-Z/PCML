@@ -349,9 +349,13 @@ fun SkinViewer3D(
             val cosX = cos(totalRotX * PI / 180f)
             val sinX = sin(totalRotX * PI / 180f)
 
+            // 模型 Y 范围 0~32，中心偏移到 0 以居中显示
+            val modelOffsetY = 16f
+
             fun rotate(v: V3): V3 {
-                val y1 = v.y * cosX - v.z * sinX
-                val z1 = v.y * sinX + v.z * cosX
+                val py = v.y - modelOffsetY
+                val y1 = py * cosX - v.z * sinX
+                val z1 = py * sinX + v.z * cosX
                 val x2 = v.x * cosY + z1 * sinY
                 val z2 = -v.x * sinY + z1 * cosY
                 return V3(x2, y1, z2)
