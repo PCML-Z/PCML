@@ -18,6 +18,7 @@ public final class ModMeta {
     private List<String> conflicts; // 冲突的 modId
     private String jarFile;         // jar 文件名（含 .disabled 后缀则被禁用）
     private boolean disabled;       // 是否被禁用（.jar.disabled 后缀）
+    private String source;          // 来源标签（版本目录名 / "全局" / "系统"），由 VM 设置
 
     public ModMeta(String modId, String version, String name, String description,
                    String authors, String loader, List<String> depends,
@@ -51,6 +52,8 @@ public final class ModMeta {
     public List<String> getConflicts() { return conflicts; }
     public String getJarFile() { return jarFile; }
     public boolean isDisabled() { return disabled; }
+    public String getSource() { return source; }
+    public void setSource(String source) { this.source = source; }
 
     @Override
     public String toString() {

@@ -31,6 +31,7 @@ fun ModsPage(vm: LauncherViewModel) {
     val status by vm.status.collectAsState()
     var query by remember { mutableStateOf("") }
     var selectedLoader by remember { mutableStateOf<String?>(null) }
+    var selectedSource by remember { mutableStateOf<String?>(null) }
     var sortExpanded by remember { mutableStateOf(false) }
     var sortBy by remember { mutableStateOf(ModSort.NAME) }
 
@@ -40,14 +41,21 @@ fun ModsPage(vm: LauncherViewModel) {
     val loaders = remember(installedMods) {
         installedMods.map { it.getLoader() ?: "unknown" }.distinct().sorted()
     }
+    // 提取所有来源（游戏版本/整合包）标签
+    val sources = remember(installedMods) {
+        installedMods.map { it.getSource() ?: "未知" }.distinct().sorted()
+    }
 
-    // 搜索 + 加载器筛选 + 排序
-    val processedMods = remember(installedMods, query, selectedLoader, sortBy) {
+    // 搜索 + 来源筛选 + 加载器筛选 + 排序
+    val processedMods = remember(installedMods, query, selectedLoader, selectedSource, sortBy) {
         var list = if (query.isBlank()) installedMods
         else installedMods.filter {
             (it.getName() ?: "").contains(query, ignoreCase = true) ||
             (it.getModId() ?: "").contains(query, ignoreCase = true) ||
             (it.getLoader() ?: "").contains(query, ignoreCase = true)
+        }
+        if (selectedSource != null) {
+            list = list.filter { (it.getSource() ?: "未知") == selectedSource }
         }
         if (selectedLoader != null) {
             list = list.filter { (it.getLoader() ?: "unknown") == selectedLoader }
@@ -93,12 +101,38 @@ fun ModsPage(vm: LauncherViewModel) {
             shape = RoundedCornerShape(12.dp)
         )
 
+        // === 来源（游戏版本/整合包）筛选 ===
+        if (sources.size > 1 || (sources.size == 1 && sources[0] != "全局")) {
+            Spacer(Modifier.height(8.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text("来源：", style = MaterialTheme.typography.labelMedium,
+                     color = MaterialTheme.colorScheme.outline)
+                FilterChip(
+                    selected = selectedSource == null,
+                    onClick = { selectedSource = null },
+                    label = { Text("全部") }
+                )
+                sources.forEach { src ->
+                    FilterChip(
+                        selected = selectedSource == src,
+                        onClick = { selectedSource = if (selectedSource == src) null else src },
+                        label = { Text(src) }
+                    )
+                }
+            }
+        }
+
         // === 加载器筛选 + 排序 ===
         Spacer(Modifier.height(8.dp))
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
+            Text("加载器：", style = MaterialTheme.typography.labelMedium,
+                 color = MaterialTheme.colorScheme.outline)
             FilterChip(
                 selected = selectedLoader == null,
                 onClick = { selectedLoader = null },
@@ -143,7 +177,7 @@ fun ModsPage(vm: LauncherViewModel) {
         val enabledCount = installedMods.count { !it.isDisabled() }
         val disabledCount = installedMods.size - enabledCount
         Text("已安装（${installedMods.size}：启用 $enabledCount / 禁用 $disabledCount）" +
-             if (query.isNotBlank() || selectedLoader != null)
+             if (query.isNotBlank() || selectedLoader != null || selectedSource != null)
                  " · 当前显示 ${processedMods.size}" else "",
              style = MaterialTheme.typography.titleMedium,
              fontWeight = FontWeight.SemiBold)
@@ -202,6 +236,14 @@ private fun ModRow(m: ModMeta, vm: LauncherViewModel) {
                             else MaterialTheme.colorScheme.onSurface
                 )
                 AssistChip(onClick = {}, label = { Text(m.getLoader() ?: "unknown") })
+                Spacer(Modifier.width(6.dp))
+                AssistChip(
+                    onClick = {},
+                    label = { Text(m.getSource() ?: "未知") },
+                    colors = AssistChipDefaults.assistChipColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer
+                    )
+                )
                 Spacer(Modifier.width(8.dp))
                 Text("v${m.getVersion() ?: "?"}", style = MaterialTheme.typography.labelSmall)
             }

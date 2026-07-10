@@ -893,10 +893,13 @@ class LauncherViewModel {
                     for (modsDir in modsDirs) {
                         try {
                             val part = ModScanner.scanDirectory(modsDir)
+                            // 为每个 mod 设置来源标签
+                            val sourceLabel = sourceLabelFor(modsDir)
                             for (m in part) {
                                 // 用「目录路径 + 文件名」去重，避免不同目录的同名文件误去重
                                 val dedupKey = "$modsDir/${m.getJarFile()}"
                                 if (seenFiles.add(dedupKey)) {
+                                    m.setSource(sourceLabel)
                                     allMods.add(m)
                                     modsByDir.getOrPut(modsDir) { mutableListOf() }.add(m)
                                 }
@@ -928,6 +931,27 @@ class LauncherViewModel {
 
     private fun modsDirsCount(mods: List<ModMeta>): String {
         return "${mods.size} mods"
+    }
+
+    /**
+     * 根据 mods 目录路径推断来源标签：
+     * - PMCL 全局 mods → "全局"
+     * - versions/<id>/mods → <id>（版本/整合包名）
+     * - 系统 .minecraft/mods → "系统"
+     */
+    private fun sourceLabelFor(modsDir: java.nio.file.Path): String {
+        // PMCL 全局 mods 目录
+        if (modsDir == config.getWorkDir().resolve("mods")) return "全局"
+        // 整合包结构：parent 是 versions/<id> 下的版本目录
+        val parent = modsDir.parent
+        if (parent != null) {
+            val grandParentName = parent.parent?.fileName?.toString()?.lowercase()
+            if (grandParentName == "versions") {
+                return parent.fileName?.toString() ?: "版本"
+            }
+        }
+        // 系统目录
+        return "系统"
     }
 
     /** 删除指定 mod（按 jar 文件名） */
