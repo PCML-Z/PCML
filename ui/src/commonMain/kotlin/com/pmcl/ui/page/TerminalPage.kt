@@ -12,7 +12,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.text.TextStyle
@@ -28,30 +27,35 @@ import java.io.ByteArrayOutputStream
 import java.io.PrintStream
 
 /**
- * Terminal page: embeds a terminal-like interface in the GUI to operate
- * all launcher core features via commands.
+ * 终端页面：在 GUI 中嵌入终端式界面，通过命令操作启动器所有核心功能。
  *
- * Reuses PmclCli's command parsing logic, capturing output by temporarily
- * redirecting System.out/System.err. Commands run in background coroutines
- * without blocking the UI.
+ * 复用 PmclCli 的命令解析逻辑，通过临时重定向 System.out/System.err 捕获输出。
+ * 命令在后台协程中执行，不阻塞 UI。
+ *
+ * 配色统一使用 MaterialTheme.colorScheme，与启动器主题保持一致。
  */
 @Composable
 fun TerminalPage(vm: LauncherViewModel) {
-    // Terminal output lines
     val lines = remember { mutableStateListOf<TerminalLine>() }
-    // Current input
     var input by remember { mutableStateOf("") }
-    // Command history
     val history = remember { mutableStateListOf<String>() }
     var historyIndex by remember { mutableStateOf(-1) }
-    // Whether a command is executing
     var executing by remember { mutableStateOf(false) }
-    // PmclCli instance — share the same LauncherCore as the GUI
     val cli = remember { PmclCli(vm.core) }
     val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
 
-    // Show welcome banner on startup
+    // 主题色（终端专用语义化映射）
+    val bg = MaterialTheme.colorScheme.background
+    val surface = MaterialTheme.colorScheme.surface
+    val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
+    val primary = MaterialTheme.colorScheme.primary
+    val secondary = MaterialTheme.colorScheme.secondary
+    val tertiary = MaterialTheme.colorScheme.tertiary
+    val error = MaterialTheme.colorScheme.error
+    val onSurface = MaterialTheme.colorScheme.onSurface
+    val outline = MaterialTheme.colorScheme.outline
+
     LaunchedEffect(Unit) {
         lines.add(TerminalLine("", LineType.EMPTY))
         lines.add(TerminalLine("+===========================================+", LineType.BANNER))
@@ -64,7 +68,6 @@ fun TerminalPage(vm: LauncherViewModel) {
         lines.add(TerminalLine("", LineType.EMPTY))
     }
 
-    // Auto-scroll to bottom
     LaunchedEffect(lines.size) {
         scrollState.animateScrollTo(scrollState.maxValue)
     }
@@ -72,17 +75,17 @@ fun TerminalPage(vm: LauncherViewModel) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF1E1E2E))
+            .background(bg)
             .padding(8.dp)
     ) {
-        // Top toolbar
+        // 顶部工具栏
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
                 "PMCL Shell",
-                color = Color(0xFF89B4FA),
+                color = primary,
                 fontSize = 14.sp,
                 fontFamily = FontFamily.Monospace,
                 modifier = Modifier.weight(1f)
@@ -91,12 +94,12 @@ fun TerminalPage(vm: LauncherViewModel) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(14.dp),
                     strokeWidth = 2.dp,
-                    color = Color(0xFFF9E2AF)
+                    color = tertiary
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
                     "Executing...",
-                    color = Color(0xFFF9E2AF),
+                    color = tertiary,
                     fontSize = 12.sp,
                     fontFamily = FontFamily.Monospace
                 )
@@ -104,7 +107,7 @@ fun TerminalPage(vm: LauncherViewModel) {
             Spacer(Modifier.width(12.dp))
             Text(
                 "History: ${history.size}",
-                color = Color(0xFF6C7086),
+                color = outline,
                 fontSize = 11.sp,
                 fontFamily = FontFamily.Monospace
             )
@@ -116,7 +119,7 @@ fun TerminalPage(vm: LauncherViewModel) {
                 Icon(
                     Icons.Filled.Clear,
                     contentDescription = "Clear",
-                    tint = Color(0xFF6C7086),
+                    tint = outline,
                     modifier = Modifier.size(16.dp)
                 )
             }
@@ -124,12 +127,12 @@ fun TerminalPage(vm: LauncherViewModel) {
 
         Spacer(Modifier.height(4.dp))
 
-        // Terminal output area
+        // 终端输出区
         Box(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .background(Color(0xFF11111B), RoundedCornerShape(6.dp))
+                .background(surface, RoundedCornerShape(6.dp))
                 .verticalScroll(scrollState)
                 .padding(12.dp)
         ) {
@@ -139,31 +142,31 @@ fun TerminalPage(vm: LauncherViewModel) {
                         LineType.EMPTY -> Spacer(Modifier.height(2.dp))
                         LineType.BANNER -> Text(
                             line.text,
-                            color = Color(0xFF89B4FA),
+                            color = primary,
                             fontSize = 13.sp,
                             fontFamily = FontFamily.Monospace
                         )
                         LineType.COMMAND -> Text(
                             line.text,
-                            color = Color(0xFFA6E3A1),
+                            color = secondary,
                             fontSize = 13.sp,
                             fontFamily = FontFamily.Monospace
                         )
                         LineType.OUTPUT -> Text(
                             line.text,
-                            color = Color(0xFFCDD6F4),
+                            color = onSurface,
                             fontSize = 13.sp,
                             fontFamily = FontFamily.Monospace
                         )
                         LineType.ERROR -> Text(
                             line.text,
-                            color = Color(0xFFF38BA8),
+                            color = error,
                             fontSize = 13.sp,
                             fontFamily = FontFamily.Monospace
                         )
                         LineType.HINT -> Text(
                             line.text,
-                            color = Color(0xFFF9E2AF),
+                            color = tertiary,
                             fontSize = 13.sp,
                             fontFamily = FontFamily.Monospace
                         )
@@ -172,7 +175,7 @@ fun TerminalPage(vm: LauncherViewModel) {
                 if (executing) {
                     Text(
                         "_",
-                        color = Color(0xFFF9E2AF),
+                        color = tertiary,
                         fontSize = 13.sp,
                         fontFamily = FontFamily.Monospace
                     )
@@ -182,17 +185,17 @@ fun TerminalPage(vm: LauncherViewModel) {
 
         Spacer(Modifier.height(8.dp))
 
-        // Input box
+        // 输入框
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Color(0xFF181825), RoundedCornerShape(6.dp))
+                .background(surfaceVariant, RoundedCornerShape(6.dp))
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
                 "pmcl> ",
-                color = Color(0xFFA6E3A1),
+                color = secondary,
                 fontSize = 14.sp,
                 fontFamily = FontFamily.Monospace
             )
@@ -241,11 +244,11 @@ fun TerminalPage(vm: LauncherViewModel) {
                         }
                     },
                 textStyle = TextStyle(
-                    color = Color(0xFFCDD6F4),
+                    color = onSurface,
                     fontSize = 14.sp,
                     fontFamily = FontFamily.Monospace
                 ),
-                cursorBrush = SolidColor(Color(0xFFA6E3A1)),
+                cursorBrush = SolidColor(secondary),
                 singleLine = true,
                 enabled = !executing
             )
@@ -253,7 +256,7 @@ fun TerminalPage(vm: LauncherViewModel) {
     }
 }
 
-/** Execute a single command, capturing PmclCli's System.out output */
+/** 执行单条命令，捕获 PmclCli 的 System.out 输出 */
 private suspend fun executeCommand(
     cli: PmclCli,
     command: String,
@@ -264,12 +267,10 @@ private suspend fun executeCommand(
     setExecuting(true)
 
     try {
-        // Intercept clear command
         if (command.trim().equals("clear", ignoreCase = true) || command.trim().equals("cls", ignoreCase = true)) {
             lines.clear()
             return
         }
-        // Intercept exit/quit command (do not exit the app in GUI)
         val lowerCmd = command.trim().split("\\s+".toRegex()).firstOrNull()?.lowercase()
         if (lowerCmd == "exit" || lowerCmd == "quit") {
             lines.add(TerminalLine("Exit is not supported in GUI terminal. Use 'clear' to clear screen.", LineType.HINT))
@@ -279,7 +280,6 @@ private suspend fun executeCommand(
         val parts = command.trim().split("\\s+".toRegex()).toTypedArray()
         if (parts.isEmpty() || parts[0].isEmpty()) return
 
-        // Execute in IO thread, capture output by redirecting System.out
         val output = withContext(Dispatchers.IO) {
             val baos = ByteArrayOutputStream()
             val originalOut = System.out
@@ -297,17 +297,14 @@ private suspend fun executeCommand(
             }
         }
 
-        // Split output into lines and add to terminal
         if (output.isNotEmpty()) {
             output.split("\n").forEach { line ->
                 if (line.isNotEmpty()) {
-                    // Simple error line detection
                     val type = if (line.startsWith("Error") || line.startsWith("Failed") ||
                         line.contains("Exception") || line.contains("Error:") ||
                         line.contains("not found") || line.contains("Unknown"))
                         LineType.ERROR else LineType.OUTPUT
                     lines.add(TerminalLine(line, type))
-                    // 限制终端行数，防止 OOM
                     if (lines.size > 5000) {
                         lines.removeAt(0)
                     }
@@ -321,10 +318,10 @@ private suspend fun executeCommand(
     }
 }
 
-/** Terminal line type */
+/** 终端行类型 */
 private enum class LineType {
     EMPTY, BANNER, COMMAND, OUTPUT, ERROR, HINT
 }
 
-/** Terminal line data */
+/** 终端行数据 */
 private data class TerminalLine(val text: String, val type: LineType)
