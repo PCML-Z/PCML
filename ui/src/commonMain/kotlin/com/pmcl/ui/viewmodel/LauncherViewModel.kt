@@ -318,6 +318,11 @@ class LauncherViewModel {
         }
         // 初始化联机后端
         core.multiplayer().setBackend(mpBackend)
+        // 连接预热：提前对常见下载源建立 TCP+TLS 连接，减少首次下载延迟
+        core.downloads().warmupConnections(java.util.List.of(
+                "https://piston-meta.mojang.com/",
+                "https://bmclapi2.bangbang93.com/"
+        ))
     }
 
     /** 扫描本地已安装版本（详细信息），自动检测 .pmcl/versions + 系统默认 Minecraft 目录，带进度回调 */

@@ -54,6 +54,9 @@ public final class ChunkedDownloader {
     /** 单分片失败重试次数 */
     private static final int CHUNK_RETRY = 2;
 
+    /** 分片进度记录文件后缀（用于断点续传） */
+    private static final String PROGRESS_SUFFIX = ".chunks";
+
     private final OkHttpClient http;
     private final int chunkCount;
     private final ExecutorService pool;
@@ -120,6 +123,9 @@ public final class ChunkedDownloader {
 
         // 分片下载到 .part 文件
         Path partFile = target.resolveSibling(target.getFileName() + ".part");
+        // 加载已完成的分片进度（断点续传）
+        long[] chunkCompleted = loadChunkProgress(target, actualChunks);
+        // 预分配文件
         try (RandomAccessFile raf = new RandomAccessFile(partFile.toFile(), "rw")) {
             raf.setLength(size);
         }
@@ -127,18 +133,35 @@ public final class ChunkedDownloader {
         long chunkSize = size / actualChunks;
         List<CompletableFuture<Void>> futures = new ArrayList<>();
         AtomicLong completed = new AtomicLong(0);
+        // 统计已完成字节数（含续传的已下载部分）
+        for (int i = 0; i < actualChunks; i++) {
+            completed.addAndGet(chunkCompleted[i]);
+        }
         // 进度节流：避免每 read 都通知造成 UI 抖动
         final long[] lastNotifyTime = {0};
+        // 初始通知一次当前进度
+        if (onProgress != null && completed.get() > 0) {
+            onProgress.accept(completed.get());
+        }
 
         for (int i = 0; i < actualChunks; i++) {
-            long start = i * chunkSize;
-            long end = (i == actualChunks - 1) ? size - 1 : (start + chunkSize - 1);
-            final long s = start, e = end;
+            long chunkStart = i * chunkSize;
+            long chunkEnd = (i == actualChunks - 1) ? size - 1 : (chunkStart + chunkSize - 1);
+            long alreadyDone = chunkCompleted[i];
+            // 该分片已完整下载，跳过
+            if (alreadyDone >= (chunkEnd - chunkStart + 1)) continue;
+            final long s = chunkStart + alreadyDone;
+            final long e = chunkEnd;
             final int idx = i;
+            final long skipBytes = alreadyDone;
             futures.add(CompletableFuture.runAsync(() -> {
+                // 用数组模拟引用，让 lambda 内部可变
+                final long[] sessionBytes = {0};
                 try {
-                    downloadChunkWithRetry(url, partFile, s, e, idx, bytes -> {
-                        long now = completed.addAndGet(bytes);
+                    downloadChunkWithRetry(url, partFile, s, e, idx, deltaBytes -> {
+                        sessionBytes[0] += deltaBytes;
+                        chunkCompleted[idx] = skipBytes + sessionBytes[0];
+                        long now = completed.addAndGet(deltaBytes);
                         // 节流：50ms 内只通知一次
                         long t = System.currentTimeMillis();
                         if (onProgress != null && t - lastNotifyTime[0] >= PROGRESS_THROTTLE_MS) {
@@ -156,13 +179,60 @@ public final class ChunkedDownloader {
         try {
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
         } catch (RuntimeException ex) {
-            Files.deleteIfExists(partFile);
+            // 分片失败时保留 .part 文件和进度，下次可断点续传
+            saveChunkProgress(target, chunkCompleted);
             throw ex;
         }
 
+        // 全部完成，清理进度文件
+        deleteChunkProgress(target);
         // 原子重命名
         Files.move(partFile, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
         if (onProgress != null) onProgress.accept(size);
+    }
+
+    /**
+     * 加载分片进度（断点续传）。
+     * 返回每个分片已下载的字节数，无进度文件则返回全 0 数组。
+     */
+    private long[] loadChunkProgress(Path target, int chunkCount) {
+        Path progressFile = target.resolveSibling(target.getFileName() + PROGRESS_SUFFIX);
+        if (!Files.exists(progressFile)) return new long[chunkCount];
+        try {
+            List<String> lines = Files.readAllLines(progressFile);
+            long[] result = new long[chunkCount];
+            for (int i = 0; i < Math.min(lines.size(), chunkCount); i++) {
+                try {
+                    result[i] = Long.parseLong(lines.get(i).trim());
+                } catch (NumberFormatException ignored) {
+                    result[i] = 0;
+                }
+            }
+            return result;
+        } catch (Exception e) {
+            return new long[chunkCount];
+        }
+    }
+
+    /** 保存分片进度到 .chunks 文件 */
+    private void saveChunkProgress(Path target, long[] chunkCompleted) {
+        Path progressFile = target.resolveSibling(target.getFileName() + PROGRESS_SUFFIX);
+        try {
+            StringBuilder sb = new StringBuilder();
+            for (long c : chunkCompleted) {
+                sb.append(c).append('\n');
+            }
+            Files.writeString(progressFile, sb.toString());
+        } catch (Exception ignored) {
+            // 保存失败不影响下载流程
+        }
+    }
+
+    /** 删除分片进度文件 */
+    private void deleteChunkProgress(Path target) {
+        try {
+            Files.deleteIfExists(target.resolveSibling(target.getFileName() + PROGRESS_SUFFIX));
+        } catch (Exception ignored) {}
     }
 
     /**
@@ -184,6 +254,7 @@ public final class ChunkedDownloader {
 
     /**
      * 单分片下载（带重试）：失败自动重试 {@value #CHUNK_RETRY} 次。
+     * 使用指数退避 + 随机抖动避免 thundering herd。
      */
     private void downloadChunkWithRetry(String url, Path partFile, long start, long end, int idx,
                                         Consumer<Long> onBytes) throws IOException {
@@ -195,7 +266,9 @@ public final class ChunkedDownloader {
             } catch (IOException ex) {
                 last = ex;
                 if (attempt < CHUNK_RETRY) {
-                    try { Thread.sleep(300L * (attempt + 1)); } catch (InterruptedException ie) {
+                    long base = 300L * (1L << attempt); // 300ms, 600ms, 1200ms
+                    long jitter = (long) (Math.random() * 100);
+                    try { Thread.sleep(base + jitter); } catch (InterruptedException ie) {
                         Thread.currentThread().interrupt();
                         throw ex;
                     }

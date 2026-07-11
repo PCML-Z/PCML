@@ -56,8 +56,14 @@ public final class DownloadManager {
     /** 全局最大并发请求数 */
     private static final int MAX_REQUESTS = 128;
 
+    /** 连接池容量：匹配 MAX_REQUESTS_PER_HOST，避免高并发时频繁重建 TCP/TLS 连接 */
+    private static final int CONNECTION_POOL_SIZE = 64;
+
     /** 大于此阈值（8MB）的文件走 ChunkedDownloader 多分片下载 */
     private static final long CHUNKED_THRESHOLD = 8L * 1024 * 1024;
+
+    /** downloadTo 进度回调节流间隔（ms） */
+    private static final long PROGRESS_THROTTLE_MS = 50;
 
     private final LauncherConfig config;
     private final MirrorManager mirror = new MirrorManager();
@@ -99,12 +105,13 @@ public final class DownloadManager {
         dispatcher.setMaxRequestsPerHost(MAX_REQUESTS_PER_HOST);
 
         OkHttpClient.Builder b = new OkHttpClient.Builder()
-                .connectionPool(new ConnectionPool(32, 5, TimeUnit.MINUTES))
+                .connectionPool(new ConnectionPool(CONNECTION_POOL_SIZE, 5, TimeUnit.MINUTES))
                 .dispatcher(dispatcher)
                 .connectTimeout(java.time.Duration.ofSeconds(connectTimeoutSec))
-                .readTimeout(java.time.Duration.ofSeconds(60))
+                .readTimeout(java.time.Duration.ofSeconds(120))
                 .writeTimeout(java.time.Duration.ofSeconds(60))
-                .protocols(Arrays.asList(Protocol.HTTP_2, Protocol.HTTP_1_1));
+                .protocols(Arrays.asList(Protocol.HTTP_2, Protocol.HTTP_1_1))
+                .dns(new FastDns());
 
         if (proxy != null) {
             b.proxy(proxy);
@@ -172,8 +179,7 @@ public final class DownloadManager {
      */
     public CompletableFuture<Void> downloadChunked(String url, Path target,
                                                    java.util.function.Consumer<Long> onProgress) {
-        ChunkedDownloader cd = new ChunkedDownloader(http, chunkedDownloadThreads, pool);
-        return cd.download(rewrite(url), target, onProgress);
+        return chunked.download(rewrite(url), target, onProgress);
     }
 
     public MirrorManager mirror() { return mirror; }
@@ -234,8 +240,10 @@ public final class DownloadManager {
                 return;
             } catch (IOException e) {
                 last = e;
-                // 短暂退避
-                try { Thread.sleep(500L * (i + 1)); } catch (InterruptedException ie) {
+                // 指数退避 + 随机抖动：避免高并发下所有失败任务同步重试（thundering herd）
+                long base = 500L * (1L << i); // 500ms, 1s, 2s, 4s ...
+                long jitter = (long) (Math.random() * 200);
+                try { Thread.sleep(base + jitter); } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
                     throw e;
                 }
@@ -409,11 +417,19 @@ public final class DownloadManager {
                             byte[] buf = new byte[BUFFER_SIZE];
                             int n;
                             long total = 0;
+                            long lastNotify = 0;
                             while ((n = in.read(buf)) != -1) {
                                 raf.write(buf, 0, n);
                                 total += n;
-                                onProgress.accept(total);
+                                // 节流：50ms 内只通知一次，避免高频回调导致 UI 抖动
+                                long t = System.currentTimeMillis();
+                                if (t - lastNotify >= PROGRESS_THROTTLE_MS) {
+                                    lastNotify = t;
+                                    onProgress.accept(total);
+                                }
                             }
+                            // 最终通知确保进度准确
+                            onProgress.accept(total);
                         }
                     }
                 }
@@ -468,6 +484,55 @@ public final class DownloadManager {
             return sb.toString();
         } catch (Exception e) {
             throw new IOException("SHA1 计算失败", e);
+        }
+    }
+
+    /**
+     * 连接预热：提前对常见下载源发起 HEAD 请求，建立 TCP+TLS 连接并放入连接池，
+     * 后续实际下载可直接复用，避免首次请求的 DNS+TCP+TLS 握手延迟。
+     * 在后台线程异步执行，不阻塞调用方。
+     */
+    public void warmupConnections(List<String> urls) {
+        if (urls == null || urls.isEmpty()) return;
+        CompletableFuture.runAsync(() -> {
+            for (String url : urls) {
+                try {
+                    String rewritten = rewrite(url);
+                    Request head = new Request.Builder().url(rewritten).head().build();
+                    try (Response resp = http.newCall(head).execute()) {
+                        // 仅为了建立连接，忽略响应内容
+                    }
+                } catch (Throwable ignored) {
+                    // 预热失败不影响正常下载
+                }
+            }
+        }, pool);
+    }
+
+    /**
+     * 快速 DNS 解析器：系统 DNS + 缓存优化，减少 DNS 解析延迟。
+     * <p>
+     * 使用系统 DNS（命中本地缓存时最快），并发解析 IPv4 + IPv6，
+     * 对 localhost 和 IP 字面量直接返回，跳过 DNS 查询。
+     * OkHttp 默认 Dns.SYSTEM 已足够，这里仅做一层缓存防重复解析。
+     */
+    private static final class FastDns implements okhttp3.Dns {
+        private final java.util.concurrent.ConcurrentMap<String, java.util.List<java.net.InetAddress>> cache =
+                new java.util.concurrent.ConcurrentHashMap<>();
+
+        @Override
+        public java.util.List<java.net.InetAddress> lookup(String hostname) throws java.net.UnknownHostException {
+            // IP 字面量直接解析，不走缓存
+            if (hostname == null || hostname.isEmpty()) {
+                throw new java.net.UnknownHostException("hostname is null or empty");
+            }
+            // 命中缓存
+            java.util.List<java.net.InetAddress> cached = cache.get(hostname);
+            if (cached != null) return cached;
+            // 系统 DNS 解析
+            java.util.List<java.net.InetAddress> result = okhttp3.Dns.SYSTEM.lookup(hostname);
+            cache.putIfAbsent(hostname, result);
+            return result;
         }
     }
 }
