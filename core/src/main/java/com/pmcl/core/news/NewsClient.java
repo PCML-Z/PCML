@@ -76,35 +76,34 @@ public final class NewsClient {
     public CompletableFuture<List<NewsItem>> fetch(int limit) {
         final int max = limit <= 0 ? DEFAULT_LIMIT : limit;
         return CompletableFuture.supplyAsync(() -> {
+            Exception last = null;
+            // 优先用 curl：minecraft.net 的 HTTP/2 在 GFW 环境下有 INTERNAL_ERROR，
+            // OkHttp 会挂起至 readTimeout（120 秒）才失败，用户体验极差。
+            // curl 使用不同 TLS 实现，通常 2-3 秒即可成功。
+            if (CurlFallback.isAvailable()) {
+                try {
+                    byte[] bytes = CurlFallback.getBytes(FEED_URL, "GET", null);
+                    return parseBytes(bytes, max);
+                } catch (Exception e) {
+                    last = e;
+                }
+            }
+            // curl 不可用或失败：尝试 OkHttp（有代理时可能成功）
             Request req = new Request.Builder()
                     .url(FEED_URL)
                     .header("User-Agent", "PMCL/1.0")
                     .header("Accept", "application/rss+xml, application/xml, text/xml, */*")
                     .get()
                     .build();
-            Exception last = null;
             for (int attempt = 0; attempt <= RETRY; attempt++) {
                 try (Response resp = http.newCall(req).execute()) {
                     if (!resp.isSuccessful()) {
                         throw new RuntimeException("RSS 请求失败：HTTP " + resp.code());
                     }
-                    // 关键：直接用字节流，让 DOM 解析器根据 XML 声明识别编码
-                    // （Minecraft.net RSS 声明为 utf-16，OkHttp.string() 默认按 UTF-8 解码会破坏 BOM）
                     byte[] bytes = resp.body() != null ? resp.body().bytes() : new byte[0];
                     return parseBytes(bytes, max);
                 } catch (Exception e) {
                     last = e;
-                    // 任何网络错误都立即 fallback 到 curl（GFW 环境下 OkHttp 的
-                    // TLS 指纹/HTTP2 协议均可能被干扰，不只 SSL 握手失败）
-                    if (CurlFallback.isAvailable()) {
-                        try {
-                            byte[] bytes = CurlFallback.getBytes(FEED_URL, "GET", null);
-                            return parseBytes(bytes, max);
-                        } catch (Exception curlEx) {
-                            last = curlEx;
-                            // curl 也失败：继续重试 OkHttp
-                        }
-                    }
                     if (attempt < RETRY) {
                         try {
                             Thread.sleep(RETRY_BASE_MS * (1L << attempt));
@@ -115,7 +114,6 @@ public final class NewsClient {
                     }
                 }
             }
-            // 友好的中文错误提示，帮助用户定位问题
             String msg = last != null ? last.getMessage() : "未知错误";
             throw new RuntimeException(friendlyError(msg), last);
         });
@@ -157,13 +155,23 @@ public final class NewsClient {
      */
     public CompletableFuture<ArticleContent> fetchArticle(String articleUrl) {
         return CompletableFuture.supplyAsync(() -> {
+            Exception last = null;
+            // 优先用 curl（与 fetch() 一致：minecraft.net HTTP/2 在 GFW 下有问题）
+            if (CurlFallback.isAvailable()) {
+                try {
+                    String html = CurlFallback.getString(articleUrl);
+                    return extractArticleContent(html, articleUrl);
+                } catch (Exception e) {
+                    last = e;
+                }
+            }
+            // curl 不可用或失败：尝试 OkHttp
             Request req = new Request.Builder()
                     .url(articleUrl)
                     .header("User-Agent", "PMCL/1.0")
                     .header("Accept", "text/html, */*")
                     .get()
                     .build();
-            Exception last = null;
             for (int attempt = 0; attempt <= RETRY; attempt++) {
                 try (Response resp = http.newCall(req).execute()) {
                     if (!resp.isSuccessful()) {
@@ -174,15 +182,6 @@ public final class NewsClient {
                     return extractArticleContent(html, articleUrl);
                 } catch (Exception e) {
                     last = e;
-                    // 任何网络错误都立即 fallback 到 curl（与 fetch() 一致）
-                    if (CurlFallback.isAvailable()) {
-                        try {
-                            String html = CurlFallback.getString(articleUrl);
-                            return extractArticleContent(html, articleUrl);
-                        } catch (Exception curlEx) {
-                            last = curlEx;
-                        }
-                    }
                     if (attempt < RETRY) {
                         try {
                             Thread.sleep(RETRY_BASE_MS * (1L << attempt));
