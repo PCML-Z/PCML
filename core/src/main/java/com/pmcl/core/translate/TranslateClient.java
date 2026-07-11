@@ -55,19 +55,23 @@ public class TranslateClient {
     /**
      * 翻译文本（auto → zh-CN）。
      *
+     * 翻译源优先级：MyMemory（中国大陆可直连）→ Google Translate（需代理）。
+     * 之所以 MyMemory 优先：Google Translate 被 GFW 完全屏蔽（连接超时），
+     * 放在首位会导致每次翻译等待 75 秒后才 fallback。
+     *
      * @param text 待翻译文本（可为多段，用换行分隔）
      * @return 翻译后的文本；若已是中文或翻译失败则返回原文
      */
     public String translate(String text) {
         if (text == null || text.isBlank()) return text;
 
-        // 源1：Google Translate（有代理时质量最佳）
-        String googleResult = tryGoogle(text);
-        if (googleResult != null) return googleResult;
-
-        // 源2：MyMemory（中国大陆可直连）
+        // 源1：MyMemory（中国大陆可直连，响应快）
         String myMemoryResult = tryMyMemory(text);
         if (myMemoryResult != null) return myMemoryResult;
+
+        // 源2：Google Translate（MyMemory 失败时尝试，需代理或非 GFW 环境）
+        String googleResult = tryGoogle(text);
+        if (googleResult != null) return googleResult;
 
         // 全部失败：返回原文
         return text;
@@ -117,40 +121,24 @@ public class TranslateClient {
 
     /**
      * 尝试 Google Translate，失败返回 null。
+     * Google 被 GFW 完全屏蔽时只尝试 1 次（不重试），避免浪费时间。
+     * 优先用 curl（5 秒超时，比 OkHttp 的 15 秒连接超时更快失败）。
      */
     private String tryGoogle(String text) {
         String url = GOOGLE_ENDPOINT + URLEncoder.encode(text, StandardCharsets.UTF_8);
-        IOException last = null;
-        for (int attempt = 0; attempt <= RETRY; attempt++) {
+        // 优先用 curl（短超时，快速失败）
+        if (CurlFallback.isAvailable()) {
             try {
-                String body = doGet(url);
+                String body = CurlFallback.getStringWithTimeout(url, 5);
                 String result = parseGoogleResponse(body, text);
                 if (result != null && !result.isBlank() && !result.equals(text)) {
                     return result;
                 }
-                return null; // 解析失败或结果为空
-            } catch (IOException e) {
-                last = e;
-                // SSL 握手失败：立即 fallback 到 curl
-                if (CurlFallback.isSslHandshakeFailure(e) && CurlFallback.isAvailable()) {
-                    try {
-                        String body = CurlFallback.getString(url);
-                        String result = parseGoogleResponse(body, text);
-                        if (result != null && !result.isBlank() && !result.equals(text)) {
-                            return result;
-                        }
-                    } catch (IOException ce) {
-                        last = ce;
-                    }
-                }
-                try { Thread.sleep(RETRY_BASE_MS * (1L << attempt)); }
-                catch (InterruptedException ie) { Thread.currentThread().interrupt(); return null; }
-            }
-        }
-        // 所有重试失败后，最后尝试 curl
-        if (CurlFallback.isAvailable()) {
+            } catch (IOException ignored) { }
+        } else {
+            // 无 curl：用 OkHttp 尝试 1 次
             try {
-                String body = CurlFallback.getString(url);
+                String body = doGet(url);
                 String result = parseGoogleResponse(body, text);
                 if (result != null && !result.isBlank() && !result.equals(text)) {
                     return result;

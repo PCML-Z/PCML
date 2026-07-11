@@ -70,6 +70,60 @@ public final class CurlFallback {
     }
 
     /**
+     * 用 curl 下载文本内容，自定义超时（秒）。
+     * 用于快速探测被屏蔽的源（如 Google Translate 在 GFW 环境下），
+     * 避免使用默认 30 秒超时导致长时间阻塞。
+     *
+     * @param url 请求 URL
+     * @param timeoutSec 超时秒数
+     * @return 响应体字符串
+     */
+    public static String getStringWithTimeout(String url, int timeoutSec) throws IOException {
+        List<String> cmd = new ArrayList<>();
+        cmd.add("curl");
+        cmd.add("-sS");
+        cmd.add("--max-time"); cmd.add(String.valueOf(timeoutSec));
+        cmd.add("--connect-timeout"); cmd.add(String.valueOf(Math.min(5, timeoutSec)));
+        cmd.add("-L");
+        cmd.add("-H"); cmd.add("User-Agent: PMCL/1.0");
+        cmd.add("-H"); cmd.add("Accept: */*");
+        cmd.add(url);
+
+        Process p = new ProcessBuilder(cmd).start();
+        try {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            try (InputStream in = p.getInputStream()) {
+                byte[] buf = new byte[64 * 1024];
+                int n;
+                while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
+            }
+            ByteArrayOutputStream err = new ByteArrayOutputStream();
+            try (InputStream in = p.getErrorStream()) {
+                byte[] buf = new byte[4096];
+                int n;
+                while ((n = in.read(buf)) != -1) err.write(buf, 0, n);
+            }
+            boolean done = p.waitFor(timeoutSec + 5, TimeUnit.SECONDS);
+            if (!done) {
+                p.destroyForcibly();
+                throw new IOException("curl 超时: " + url);
+            }
+            int exit = p.exitValue();
+            if (exit != 0) {
+                String errMsg = err.toString(java.nio.charset.StandardCharsets.UTF_8).trim();
+                throw new IOException("curl 失败 exit=" + exit + ": " + errMsg + " url=" + url);
+            }
+            return out.toString(java.nio.charset.StandardCharsets.UTF_8);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            p.destroyForcibly();
+            throw new IOException("curl 被中断: " + url, e);
+        } finally {
+            p.destroyForcibly();
+        }
+    }
+
+    /**
      * 用 curl 下载字节数据。
      *
      * @param url    请求 URL
