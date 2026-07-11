@@ -247,13 +247,16 @@ object HmclEmbedder {
 
     /**
      * 收集所有 styleClass 含 "jfx-decorator-button" 的节点（用于调试）。
+     * 遍历 Parent（不仅是 Pane），因为 SVGContainer extends Parent 而非 Pane。
      */
     private fun collectDecoratorButtons(node: Node, list: MutableList<Node>) {
         val styleClass = node.styleClass
         if (styleClass.isNotEmpty() && styleClass.any { it.contains("jfx-decorator-button") }) {
             list.add(node)
         }
-        if (node is Pane) {
+        // 使用 Parent.getChildrenUnmodifiable() 遍历所有子节点
+        // （Parent 是 Pane、SVGContainer 等的基类）
+        if (node is javafx.scene.Parent) {
             for (child in node.childrenUnmodifiable) {
                 collectDecoratorButtons(child, list)
             }
@@ -286,7 +289,8 @@ object HmclEmbedder {
             }
         }
 
-        if (node is Pane) {
+        // 遍历所有 Parent 的子节点（不仅是 Pane）
+        if (node is javafx.scene.Parent) {
             val children = node.childrenUnmodifiable.toList()
             for (child in children) {
                 findAndRemoveButtons(child, removed)
@@ -296,24 +300,13 @@ object HmclEmbedder {
 
     /**
      * 检查按钮的 graphic 是否为最小化图标。
+     * graphic 可能是直接的 SVGPath，也可能是 SVGContainer（extends Parent）包裹的 SVGPath。
      * SVG.getPath() 在 rawPath 前加 "M24 24ZM0 0Z" 前缀，但 rawPath 内容保留在内。
      * MINIMIZE_CENTER rawPath = "M6 13v-2h12v2H6Z"
      */
     private fun isMinimizeButton(node: Node): Boolean {
         val graphic = (node as? javafx.scene.control.ButtonBase)?.graphic ?: return false
-        if (graphic is javafx.scene.shape.SVGPath) {
-            val content = graphic.content ?: ""
-            return content.contains("v-2h12v2")
-        }
-        // SVGContainer 包裹了 SVGPath
-        if (graphic is Pane) {
-            for (child in graphic.childrenUnmodifiable) {
-                if (child is javafx.scene.shape.SVGPath && child.content?.contains("v-2h12v2") == true) {
-                    return true
-                }
-            }
-        }
-        return false
+        return nodeContainsSvgPath(graphic, "v-2h12v2")
     }
 
     /**
@@ -322,17 +315,24 @@ object HmclEmbedder {
      */
     private fun isCloseButton(node: Node): Boolean {
         val graphic = (node as? javafx.scene.control.ButtonBase)?.graphic ?: return false
-        if (graphic is javafx.scene.shape.SVGPath) {
-            val content = graphic.content ?: ""
-            return content.contains("6.4 19 5 17.6") || content.contains("17.6 5 19 6.4")
+        return nodeContainsSvgPath(graphic, "6.4 19 5 17.6") ||
+               nodeContainsSvgPath(graphic, "17.6 5 19 6.4")
+    }
+
+    /**
+     * 递归检查 node 是否包含 SVGPath 且其 content 含指定关键字。
+     * 支持直接 SVGPath 和 SVGContainer（Parent）包裹的情况。
+     */
+    private fun nodeContainsSvgPath(node: Node?, keyword: String): Boolean {
+        if (node == null) return false
+        if (node is javafx.scene.shape.SVGPath) {
+            val content = node.content ?: ""
+            if (content.contains(keyword)) return true
         }
-        // SVGContainer 包裹了 SVGPath
-        if (graphic is Pane) {
-            for (child in graphic.childrenUnmodifiable) {
-                if (child is javafx.scene.shape.SVGPath) {
-                    val c = child.content ?: ""
-                    if (c.contains("6.4 19 5 17.6") || c.contains("17.6 5 19 6.4")) return true
-                }
+        // 递归检查 Parent 子节点（SVGContainer extends Parent）
+        if (node is javafx.scene.Parent) {
+            for (child in node.childrenUnmodifiable) {
+                if (nodeContainsSvgPath(child, keyword)) return true
             }
         }
         return false
