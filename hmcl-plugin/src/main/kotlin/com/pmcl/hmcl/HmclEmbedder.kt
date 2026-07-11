@@ -142,8 +142,14 @@ object HmclEmbedder {
                             log("Scene attached to JFXPanel successfully!")
                             statusRef.set("HMCL UI embedded successfully")
 
-                            // Inject PMCL icon into HMCL title bar after scene is rendered
+                            // 删除 HMCL 窗口的最小化和关闭按钮
+                            // （HMCL 嵌入 PMCL 后不应有独立窗口按钮，关闭应由 PMCL 控制）
                             Platform.runLater {
+                                try {
+                                    removeWindowButtons(scene)
+                                } catch (e: Throwable) {
+                                    log("Button removal failed (non-fatal): ${e.message}")
+                                }
                                 try {
                                     injectPmclIcon(scene)
                                 } catch (e: Throwable) {
@@ -189,6 +195,100 @@ object HmclEmbedder {
 
     /** Whether the HMCL scene has been successfully embedded. */
     fun isEmbedded(): Boolean = sceneStolen && statusRef.get().contains("successfully")
+
+    /**
+     * 删除 HMCL 窗口的最小化和关闭按钮。
+     *
+     * HMCL 使用 JFoenix 的 Decorator 控件，其 DecoratorSkin 包含：
+     * - minimizeButton（最小化）
+     * - maximizeButton（最大化，全屏切换）
+     * - closeButton（关闭）
+     *
+     * 由于 HMCL 嵌入在 PMCL 中运行，不应有独立的窗口控制按钮。
+     * 通过反射找到这些按钮并从其父容器中移除。
+     */
+    private fun removeWindowButtons(scene: Scene) {
+        val root = scene.root ?: return
+        log("Removing window buttons from scene root: ${root.javaClass.name}")
+
+        // 方案1：通过 DecoratorSkin 反射获取按钮字段
+        if (root is javafx.scene.control.Control) {
+            val skin = root.skin
+            if (skin != null) {
+                log("Found skin: ${skin.javaClass.name}")
+                val skinClass = skin.javaClass
+
+                // 尝试移除 minimizeButton 和 closeButton
+                var removed = 0
+                for (fieldName in listOf("minimizeButton", "closeButton")) {
+                    try {
+                        val field = skinClass.getDeclaredField(fieldName)
+                        field.isAccessible = true
+                        val btn = field.get(skin) as? javafx.scene.Node
+                        if (btn != null) {
+                            val parent = btn.parent
+                            if (parent is Pane) {
+                                parent.children.remove(btn)
+                                removed++
+                                log("Removed $fieldName from ${parent.javaClass.simpleName}")
+                            } else {
+                                // 如果无法从父容器移除，则隐藏
+                                btn.isVisible = false
+                                btn.isManaged = false
+                                removed++
+                                log("Hidden $fieldName (parent not a Pane: ${parent?.javaClass?.name})")
+                            }
+                        }
+                    } catch (e: NoSuchFieldException) {
+                        log("$fieldName field not found on ${skinClass.name}")
+                    } catch (e: Throwable) {
+                        log("Failed to remove $fieldName: ${e.message}")
+                    }
+                }
+
+                if (removed > 0) {
+                    log("Window button removal complete: $removed buttons removed")
+                    return
+                }
+            }
+        }
+
+        // 方案2：遍历场景图查找按钮（通过 CSS class 或样式）
+        log("Fallback: searching scene graph for window buttons")
+        removeButtonsByClass(root)
+    }
+
+    /**
+     * 遍历场景图查找并移除窗口控制按钮。
+     * JFoenix Decorator 的按钮通常有特定的 styleClass。
+     */
+    private fun removeButtonsByClass(node: Node) {
+        val styleClass = node.styleClass
+        if (styleClass.isNotEmpty()) {
+            val classes = styleClass.joinToString(",")
+            // JFoenix Decorator 按钮的 styleClass 通常是 "minimize-button"、"close-button"
+            if (classes.contains("minimize") || classes.contains("close")) {
+                val parent = node.parent
+                if (parent is Pane) {
+                    parent.children.remove(node)
+                    log("Removed button by styleClass: $classes")
+                } else {
+                    node.isVisible = false
+                    node.isManaged = false
+                    log("Hidden button by styleClass: $classes")
+                }
+                return
+            }
+        }
+
+        if (node is Pane) {
+            // 复制 children 列表以避免 ConcurrentModification
+            val children = node.childrenUnmodifiable.toList()
+            for (child in children) {
+                removeButtonsByClass(child)
+            }
+        }
+    }
 
     /**
      * Inject PMCL icon into HMCL's title bar.
