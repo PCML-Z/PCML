@@ -199,95 +199,87 @@ object HmclEmbedder {
     /**
      * 删除 HMCL 窗口的最小化和关闭按钮。
      *
-     * HMCL 使用 JFoenix 的 Decorator 控件，其 DecoratorSkin 包含：
-     * - minimizeButton（最小化）
-     * - maximizeButton（最大化，全屏切换）
-     * - closeButton（关闭）
+     * HMCL 的 DecoratorSkin.createNavBar() 创建 3 个 JFXButton：
+     * - HELP（问号，帮助按钮）
+     * - MINIMIZE_CENTER（最小化）
+     * - CLOSE（关闭）
      *
-     * 由于 HMCL 嵌入在 PMCL 中运行，不应有独立的窗口控制按钮。
-     * 通过反射找到这些按钮并从其父容器中移除。
+     * 这些按钮都是局部变量（不是 DecoratorSkin 的字段），styleClass 统一为
+     * "jfx-decorator-button"，无法通过字段反射或 styleClass 区分。
+     *
+     * 识别方法：检查按钮的 graphic（SVGPath）的 content 属性：
+     * - MINIMIZE_CENTER 路径含 "v-2h12v2"（减号形状）
+     * - CLOSE 路径含 "6.4 19 5 17.6"（X 形状）
      */
     private fun removeWindowButtons(scene: Scene) {
         val root = scene.root ?: return
         log("Removing window buttons from scene root: ${root.javaClass.name}")
-
-        // 方案1：通过 DecoratorSkin 反射获取按钮字段
-        if (root is javafx.scene.control.Control) {
-            val skin = root.skin
-            if (skin != null) {
-                log("Found skin: ${skin.javaClass.name}")
-                val skinClass = skin.javaClass
-
-                // 尝试移除 minimizeButton 和 closeButton
-                var removed = 0
-                for (fieldName in listOf("minimizeButton", "closeButton")) {
-                    try {
-                        val field = skinClass.getDeclaredField(fieldName)
-                        field.isAccessible = true
-                        val btn = field.get(skin) as? javafx.scene.Node
-                        if (btn != null) {
-                            val parent = btn.parent
-                            if (parent is Pane) {
-                                parent.children.remove(btn)
-                                removed++
-                                log("Removed $fieldName from ${parent.javaClass.simpleName}")
-                            } else {
-                                // 如果无法从父容器移除，则隐藏
-                                btn.isVisible = false
-                                btn.isManaged = false
-                                removed++
-                                log("Hidden $fieldName (parent not a Pane: ${parent?.javaClass?.name})")
-                            }
-                        }
-                    } catch (e: NoSuchFieldException) {
-                        log("$fieldName field not found on ${skinClass.name}")
-                    } catch (e: Throwable) {
-                        log("Failed to remove $fieldName: ${e.message}")
-                    }
-                }
-
-                if (removed > 0) {
-                    log("Window button removal complete: $removed buttons removed")
-                    return
-                }
-            }
-        }
-
-        // 方案2：遍历场景图查找按钮（通过 CSS class 或样式）
-        log("Fallback: searching scene graph for window buttons")
-        removeButtonsByClass(root)
+        val removed = intArrayOf(0)
+        findAndRemoveButtons(root, removed)
+        log("Window button removal complete: ${removed[0]} buttons removed")
     }
 
     /**
-     * 遍历场景图查找并移除窗口控制按钮。
-     * JFoenix Decorator 的按钮通常有特定的 styleClass。
+     * 递归遍历场景图，查找 JFXButton（styleClass 含 "jfx-decorator-button"），
+     * 检查其 SVGPath 图形内容来识别最小化和关闭按钮并移除。
      */
-    private fun removeButtonsByClass(node: Node) {
+    private fun findAndRemoveButtons(node: Node, removed: IntArray) {
+        // 检查是否是窗口控制按钮（JFXButton 或 ButtonBase，styleClass 含 jfx-decorator-button）
         val styleClass = node.styleClass
-        if (styleClass.isNotEmpty()) {
-            val classes = styleClass.joinToString(",")
-            // JFoenix Decorator 按钮的 styleClass 通常是 "minimize-button"、"close-button"
-            if (classes.contains("minimize") || classes.contains("close")) {
+        if (styleClass.isNotEmpty() && styleClass.any { it.contains("jfx-decorator-button") }) {
+            val isMinimize = isMinimizeButton(node)
+            val isClose = isCloseButton(node)
+            if (isMinimize || isClose) {
+                val type = if (isMinimize) "minimize" else "close"
                 val parent = node.parent
                 if (parent is Pane) {
                     parent.children.remove(node)
-                    log("Removed button by styleClass: $classes")
+                    removed[0]++
+                    log("Removed $type button from ${parent.javaClass.simpleName}")
                 } else {
                     node.isVisible = false
                     node.isManaged = false
-                    log("Hidden button by styleClass: $classes")
+                    removed[0]++
+                    log("Hidden $type button (parent not a Pane: ${parent?.javaClass?.name})")
                 }
                 return
             }
         }
 
+        // 递归遍历子节点
         if (node is Pane) {
-            // 复制 children 列表以避免 ConcurrentModification
             val children = node.childrenUnmodifiable.toList()
             for (child in children) {
-                removeButtonsByClass(child)
+                findAndRemoveButtons(child, removed)
             }
         }
+    }
+
+    /**
+     * 检查按钮的 graphic 是否为最小化图标（SVGPath content 含 "v-2h12v2"）。
+     */
+    private fun isMinimizeButton(node: Node): Boolean {
+        val graphic = (node as? javafx.scene.control.ButtonBase)?.graphic ?: return false
+        if (graphic is javafx.scene.shape.SVGPath) {
+            val content = graphic.content ?: ""
+            log("Checking button graphic SVGPath content (minimize check): ${content.take(60)}...")
+            // MINIMIZE_CENTER rawPath = "M6 13v-2h12v2H6Z"
+            return content.contains("v-2h12v2")
+        }
+        return false
+    }
+
+    /**
+     * 检查按钮的 graphic 是否为关闭图标（SVGPath content 含 "6.4 19 5 17.6"）。
+     */
+    private fun isCloseButton(node: Node): Boolean {
+        val graphic = (node as? javafx.scene.control.ButtonBase)?.graphic ?: return false
+        if (graphic is javafx.scene.shape.SVGPath) {
+            val content = graphic.content ?: ""
+            // CLOSE rawPath = "M6.4 19 5 17.6 10.6 12 5 6.4 6.4 5 12 10.6 17.6 5 19 6.4 ..."
+            return content.contains("6.4 19 5 17.6") || content.contains("17.6 5 19 6.4")
+        }
+        return false
     }
 
     /**
