@@ -123,9 +123,10 @@ public final class PluginPackageBuilder {
         Path libDir = extractedDir.resolve("lib");
         if (Files.isDirectory(libDir)) {
             List<Path> jars = new ArrayList<>();
-            Files.walk(libDir)
-                .filter(p -> p.toString().endsWith(".jar"))
-                .forEach(jars::add);
+            try (var stream = Files.walk(libDir)) {
+                stream.filter(p -> p.toString().endsWith(".jar"))
+                    .forEach(jars::add);
+            }
             for (Path jar : jars) {
                 urls.add(jar.toUri().toURL());
             }

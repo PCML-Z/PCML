@@ -505,19 +505,19 @@ public final class PluginManager {
 
     // ==================== Query ====================
 
-    public List<PluginEntry> getLoadedPlugins() {
+    public synchronized List<PluginEntry> getLoadedPlugins() {
         return Collections.unmodifiableList(new ArrayList<>(loadedPlugins.values()));
     }
 
-    public PluginEntry getPlugin(String pluginId) {
+    public synchronized PluginEntry getPlugin(String pluginId) {
         return loadedPlugins.get(pluginId);
     }
 
-    public boolean isLoaded(String pluginId) {
+    public synchronized boolean isLoaded(String pluginId) {
         return loadedPlugins.containsKey(pluginId);
     }
 
-    public boolean isEnabled(String pluginId) {
+    public synchronized boolean isEnabled(String pluginId) {
         return enabledState.getOrDefault(pluginId, false); // default disabled for security
     }
 
@@ -531,7 +531,7 @@ public final class PluginManager {
         revision++;
     }
 
-    public List<RegisteredCommand> getCustomCommands() {
+    public synchronized List<RegisteredCommand> getCustomCommands() {
         List<RegisteredCommand> all = new ArrayList<>();
         for (List<RegisteredCommand> cmds : customCommands.values()) {
             all.addAll(cmds);
@@ -539,7 +539,7 @@ public final class PluginManager {
         return all;
     }
 
-    public List<RegisteredPage> getCustomPages() {
+    public synchronized List<RegisteredPage> getCustomPages() {
         List<RegisteredPage> all = new ArrayList<>();
         for (List<RegisteredPage> pages : customPages.values()) {
             all.addAll(pages);
@@ -672,11 +672,12 @@ public final class PluginManager {
 
     private void deleteDirectory(Path dir) throws IOException {
         if (!Files.exists(dir)) return;
-        Files.walk(dir)
-                .sorted((a, b) -> b.compareTo(a))
-                .forEach(p -> {
-                    try { Files.deleteIfExists(p); } catch (IOException ignored) {}
-                });
+        try (var stream = Files.walk(dir)) {
+            stream.sorted((a, b) -> b.compareTo(a))
+                    .forEach(p -> {
+                        try { Files.deleteIfExists(p); } catch (IOException ignored) {}
+                    });
+        }
     }
 
     // ==================== Inner Classes ====================

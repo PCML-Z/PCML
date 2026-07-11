@@ -213,6 +213,7 @@ fun TerminalPage(vm: LauncherViewModel) {
                                     historyIndex = -1
                                     if (history.isEmpty() || history.last() != cmd) {
                                         history.add(cmd)
+                                        if (history.size > 1000) history.removeAt(0)
                                     }
                                     scope.launch {
                                         executeCommand(cli, cmd, lines) { executing = it }

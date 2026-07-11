@@ -59,7 +59,7 @@ public final class ShaderPackManager {
                             boolean isActive = name.equals(active) ||
                                     stripZipSuffix(name).equals(active);
                             result.add(new ShaderPack(name, p, size, valid, isActive));
-                        } catch (IOException ignored) {}
+                        } catch (Throwable ignored) {}
                     });
         }
         return result;
@@ -116,7 +116,7 @@ public final class ShaderPackManager {
         try (ZipFile zip = new ZipFile(zipPath.toFile())) {
             return zip.getEntry("shaders/") != null
                     || zip.stream().anyMatch(e -> e.getName().startsWith("shaders/"));
-        } catch (IOException e) {
+        } catch (Throwable e) {
             return false;
         }
     }
@@ -131,7 +131,7 @@ public final class ShaderPackManager {
                     if (parts.length == 2) return parts[1].trim();
                 }
             }
-        } catch (IOException ignored) {}
+        } catch (Throwable ignored) {}
         return null;
     }
 

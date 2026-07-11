@@ -61,7 +61,7 @@ fun WelcomePage(vm: LauncherViewModel) {
             // === 迁移控件 ===
             // 仅显示 HMCL 与 Launcher X 来源
             val targetSources = sources.filter { s ->
-                s.getName().contains("HMCL") || s.getName().contains("Launcher X")
+                (s.getName() ?: "").contains("HMCL") || (s.getName() ?: "").contains("Launcher X")
             }
 
             if (targetSources.isEmpty()) {

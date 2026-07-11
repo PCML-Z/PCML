@@ -114,14 +114,24 @@ public final class EasyTierManager {
                 extractEasyTierCore(zip, binaryPath);
                 if (!isWindows()) {
                     try {
-                        new ProcessBuilder("chmod", "+x", binaryPath.toString())
-                                .redirectErrorStream(true).start().waitFor();
+                        Process p = new ProcessBuilder("chmod", "+x", binaryPath.toString())
+                                .redirectErrorStream(true).start();
+                        try {
+                            p.waitFor(10, TimeUnit.SECONDS);
+                        } finally {
+                            p.destroyForcibly();
+                        }
                     } catch (Exception ignored) {}
                     // macOS：移除 com.apple.quarantine 隔离属性，避免 Gatekeeper 阻止运行
                     if (System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("mac")) {
                         try {
-                            new ProcessBuilder("xattr", "-d", "com.apple.quarantine", binaryPath.toString())
-                                    .redirectErrorStream(true).start().waitFor();
+                            Process p = new ProcessBuilder("xattr", "-d", "com.apple.quarantine", binaryPath.toString())
+                                    .redirectErrorStream(true).start();
+                            try {
+                                p.waitFor(10, TimeUnit.SECONDS);
+                            } finally {
+                                p.destroyForcibly();
+                            }
                         } catch (Exception ignored) {}
                     }
                 }

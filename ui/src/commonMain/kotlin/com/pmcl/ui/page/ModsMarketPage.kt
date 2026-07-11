@@ -320,7 +320,7 @@ private fun PopularCard(
                         contentScale = ContentScale.Fit,
                         modifier = Modifier.fillMaxSize()
                     )
-                } else if (project.getIconUrl().isNotEmpty()) {
+                } else if (!project.getIconUrl().isNullOrEmpty()) {
                     CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
                 } else {
                     Text("🎮", style = MaterialTheme.typography.headlineMedium)
@@ -422,8 +422,9 @@ private fun ColumnScope.ModDetailView(
             Row {
                 TextButton(onClick = {
                     try {
-                        if (Desktop.isDesktopSupported()) {
-                            Desktop.getDesktop().browse(URI(project.getWebsiteUrl()))
+                        val url = project.getWebsiteUrl()
+                        if (!url.isNullOrBlank() && Desktop.isDesktopSupported()) {
+                            Desktop.getDesktop().browse(URI(url))
                         }
                     } catch (_: Throwable) {
                         // 浏览器打开失败，忽略
@@ -576,11 +577,11 @@ private fun FileRow(
     ) {
         Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(f.getFileName(),
+                Text(f.getFileName() ?: "",
                      style = MaterialTheme.typography.bodySmall,
                      maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
-                    "${f.getGameVersions().joinToString(",")} · ${f.getLoaders().joinToString(",")} · ${f.getReleaseType()}" +
+                    "${(f.getGameVersions() ?: emptyList()).joinToString(",")} · ${f.getLoaders().joinToString(",")} · ${f.getReleaseType()}" +
                     if (f.getFileSize() > 0) " · ${f.getFileSize() / 1024}KB" else "",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.outline
@@ -588,7 +589,7 @@ private fun FileRow(
             }
             Button(onClick = {
                 vm.installMod(f, targetGameVersion.ifBlank {
-                    f.getGameVersions().firstOrNull() ?: ""
+                    (f.getGameVersions() ?: emptyList()).firstOrNull() ?: ""
                 })
             }) { Text("下载") }
         }

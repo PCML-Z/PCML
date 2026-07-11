@@ -14,6 +14,9 @@ import java.util.Locale;
  * <p>
  * 当前存储：useDarkTheme、customJvmArgs、gcType 等。
  * 字段以 JSON 灵活扩展，新增字段无需修改格式版本。
+ * <p>
+ * 所有公共方法均 synchronized，确保 UI 线程（设置页）与后台协程
+ * （recordRecentVersion/setLastPlayedTime）并发访问时的线程安全。
  */
 public final class Preferences {
 
@@ -72,59 +75,59 @@ public final class Preferences {
         load();
     }
 
-    public boolean isUseDarkTheme() { return useDarkTheme; }
-    public void setUseDarkTheme(boolean v) { useDarkTheme = v; save(); }
-    public boolean isDynamicColor() { return dynamicColor; }
-    public void setDynamicColor(boolean v) { dynamicColor = v; save(); }
+    public synchronized boolean isUseDarkTheme() { return useDarkTheme; }
+    public synchronized void setUseDarkTheme(boolean v) { useDarkTheme = v; save(); }
+    public synchronized boolean isDynamicColor() { return dynamicColor; }
+    public synchronized void setDynamicColor(boolean v) { dynamicColor = v; save(); }
 
-    public boolean isBorderlessWindow() { return borderlessWindow; }
-    public void setBorderlessWindow(boolean v) { borderlessWindow = v; save(); }
+    public synchronized boolean isBorderlessWindow() { return borderlessWindow; }
+    public synchronized void setBorderlessWindow(boolean v) { borderlessWindow = v; save(); }
 
-    public String getLanguage() { return language; }
-    public void setLanguage(String v) { language = v; save(); }
+    public synchronized String getLanguage() { return language; }
+    public synchronized void setLanguage(String v) { language = v; save(); }
 
     /** 首次启动欢迎流程是否已完成 */
-    public boolean isFirstLaunchCompleted() { return firstLaunchCompleted; }
-    public void setFirstLaunchCompleted(boolean v) { firstLaunchCompleted = v; save(); }
+    public synchronized boolean isFirstLaunchCompleted() { return firstLaunchCompleted; }
+    public synchronized void setFirstLaunchCompleted(boolean v) { firstLaunchCompleted = v; save(); }
 
     /** 返回固定磁贴列表的副本（避免外部原地修改导致 StateFlow 引用比较失效） */
-    public java.util.List<String> getPinnedVersions() {
+    public synchronized java.util.List<String> getPinnedVersions() {
         return new java.util.ArrayList<>(pinnedVersions);
     }
 
-    public void setPinnedVersions(java.util.List<String> v) {
+    public synchronized void setPinnedVersions(java.util.List<String> v) {
         pinnedVersions = new java.util.ArrayList<>(v); save();
     }
 
-    public void pinVersion(String versionId) {
+    public synchronized void pinVersion(String versionId) {
         if (!pinnedVersions.contains(versionId)) {
             pinnedVersions.add(versionId); save();
         }
     }
 
-    public void unpinVersion(String versionId) {
+    public synchronized void unpinVersion(String versionId) {
         pinnedVersions.remove(versionId);
         // 同步清理磁贴自定义名称
         pinnedTileLabels.remove(versionId);
         save();
     }
 
-    public boolean isPinned(String versionId) {
+    public synchronized boolean isPinned(String versionId) {
         return pinnedVersions.contains(versionId);
     }
 
     // ===== 磁贴自定义名称（持久化） =====
-    public String getPinnedTileLabel(String versionId) {
+    public synchronized String getPinnedTileLabel(String versionId) {
         return pinnedTileLabels.get(versionId);
     }
 
     /** 返回整个磁贴标签映射的副本（供 ViewModel 批量加载） */
-    public java.util.Map<String, String> getPinnedTileLabelsRaw() {
+    public synchronized java.util.Map<String, String> getPinnedTileLabelsRaw() {
         return new java.util.HashMap<>(pinnedTileLabels);
     }
 
     /** 设置/更新磁贴自定义名称；传 null 或空串则清除该标签 */
-    public void setPinnedTileLabel(String versionId, String label) {
+    public synchronized void setPinnedTileLabel(String versionId, String label) {
         if (label == null || label.isEmpty()) {
             pinnedTileLabels.remove(versionId);
         } else {
@@ -135,12 +138,12 @@ public final class Preferences {
 
     // ===== 最近使用（LRU，最多 5 个） =====
     /** 返回最近使用列表的副本（避免外部原地修改导致 StateFlow 引用比较失效） */
-    public java.util.List<String> getRecentVersions() {
+    public synchronized java.util.List<String> getRecentVersions() {
         return new java.util.ArrayList<>(recentVersions);
     }
 
     /** 记录一次启动，置顶到最近使用列表头部（去重，超限裁剪） */
-    public void recordRecentVersion(String versionId) {
+    public synchronized void recordRecentVersion(String versionId) {
         recentVersions.remove(versionId);
         recentVersions.add(0, versionId);
         while (recentVersions.size() > 5) {
@@ -149,88 +152,88 @@ public final class Preferences {
         save();
     }
 
-    public void clearRecentVersions() {
+    public synchronized void clearRecentVersions() {
         recentVersions.clear(); save();
     }
 
     /** 从最近使用列表移除某版本（版本被删除时清理用） */
-    public void removeRecentVersion(String versionId) {
+    public synchronized void removeRecentVersion(String versionId) {
         if (recentVersions.remove(versionId)) save();
     }
 
     // ===== 最后选中版本（启动时恢复） =====
-    public String getLastSelectedVersion() { return lastSelectedVersion; }
-    public void setLastSelectedVersion(String v) {
+    public synchronized String getLastSelectedVersion() { return lastSelectedVersion; }
+    public synchronized void setLastSelectedVersion(String v) {
         lastSelectedVersion = v == null ? "" : v; save();
     }
 
     // ===== 最后游玩时间戳（versionId → epoch millis） =====
-    public Long getLastPlayedTime(String versionId) {
+    public synchronized Long getLastPlayedTime(String versionId) {
         return lastPlayedTimes.get(versionId);
     }
 
     /** 返回整个最后游玩时间映射的副本（供 ViewModel 批量加载） */
-    public java.util.Map<String, Long> getLastPlayedTimesRaw() {
+    public synchronized java.util.Map<String, Long> getLastPlayedTimesRaw() {
         return new java.util.HashMap<>(lastPlayedTimes);
     }
 
-    public void setLastPlayedTime(String versionId, long epochMillis) {
+    public synchronized void setLastPlayedTime(String versionId, long epochMillis) {
         lastPlayedTimes.put(versionId, epochMillis); save();
     }
 
     /** 移除某版本的最后游玩时间记录（版本被删除时清理用） */
-    public void removeLastPlayedTime(String versionId) {
+    public synchronized void removeLastPlayedTime(String versionId) {
         if (lastPlayedTimes.remove(versionId) != null) save();
     }
 
-    public String getCustomJvmArgs() { return customJvmArgs; }
-    public void setCustomJvmArgs(String v) { customJvmArgs = v; save(); }
+    public synchronized String getCustomJvmArgs() { return customJvmArgs; }
+    public synchronized void setCustomJvmArgs(String v) { customJvmArgs = v; save(); }
 
-    public String getGcType() { return gcType; }
-    public void setGcType(String v) { gcType = v; save(); }
+    public synchronized String getGcType() { return gcType; }
+    public synchronized void setGcType(String v) { gcType = v; save(); }
 
-    public boolean isUseAikarFlags() { return useAikarFlags; }
-    public void setUseAikarFlags(boolean v) { useAikarFlags = v; save(); }
+    public synchronized boolean isUseAikarFlags() { return useAikarFlags; }
+    public synchronized void setUseAikarFlags(boolean v) { useAikarFlags = v; save(); }
 
-    public int getMinMemoryMb() { return minMemoryMb; }
-    public void setMinMemoryMb(int v) { minMemoryMb = v; save(); }
+    public synchronized int getMinMemoryMb() { return minMemoryMb; }
+    public synchronized void setMinMemoryMb(int v) { minMemoryMb = v; save(); }
 
-    public int getMaxMemoryMb() { return maxMemoryMb; }
-    public void setMaxMemoryMb(int v) { maxMemoryMb = v; save(); }
+    public synchronized int getMaxMemoryMb() { return maxMemoryMb; }
+    public synchronized void setMaxMemoryMb(int v) { maxMemoryMb = v; save(); }
 
-    public String getJavaPath() { return javaPath; }
-    public void setJavaPath(String v) { javaPath = v == null ? "" : v; save(); }
+    public synchronized String getJavaPath() { return javaPath; }
+    public synchronized void setJavaPath(String v) { javaPath = v == null ? "" : v; save(); }
 
     // ===== 游戏通用行为 =====
-    public int getGameWindowWidth() { return gameWindowWidth; }
-    public void setGameWindowWidth(int v) {
+    public synchronized int getGameWindowWidth() { return gameWindowWidth; }
+    public synchronized void setGameWindowWidth(int v) {
         gameWindowWidth = Math.max(1, v); save();
     }
 
-    public int getGameWindowHeight() { return gameWindowHeight; }
-    public void setGameWindowHeight(int v) {
+    public synchronized int getGameWindowHeight() { return gameWindowHeight; }
+    public synchronized void setGameWindowHeight(int v) {
         gameWindowHeight = Math.max(1, v); save();
     }
 
-    public boolean isGameFullscreen() { return gameFullscreen; }
-    public void setGameFullscreen(boolean v) { gameFullscreen = v; save(); }
+    public synchronized boolean isGameFullscreen() { return gameFullscreen; }
+    public synchronized void setGameFullscreen(boolean v) { gameFullscreen = v; save(); }
 
-    public boolean isGameDemo() { return gameDemo; }
-    public void setGameDemo(boolean v) { gameDemo = v; save(); }
+    public synchronized boolean isGameDemo() { return gameDemo; }
+    public synchronized void setGameDemo(boolean v) { gameDemo = v; save(); }
 
-    public String getGameServerHost() { return gameServerHost; }
-    public void setGameServerHost(String v) {
+    public synchronized String getGameServerHost() { return gameServerHost; }
+    public synchronized void setGameServerHost(String v) {
         gameServerHost = v == null ? "" : v.trim(); save();
     }
 
-    public int getGameServerPort() { return gameServerPort; }
-    public void setGameServerPort(int v) {
+    public synchronized int getGameServerPort() { return gameServerPort; }
+    public synchronized void setGameServerPort(int v) {
         if (v > 0 && v < 65536) gameServerPort = v; save();
     }
 
     /** 渲染器类型：AUTO（不注入）/ OPENGL / VULKAN */
-    public String getGameRenderer() { return gameRenderer; }
-    public void setGameRenderer(String v) {
+    public synchronized String getGameRenderer() { return gameRenderer; }
+    public synchronized void setGameRenderer(String v) {
         if (v == null) v = "AUTO";
         String upper = v.toUpperCase(java.util.Locale.ROOT);
         if (upper.equals("OPENGL") || upper.equals("VULKAN") || upper.equals("AUTO")) {
@@ -240,64 +243,64 @@ public final class Preferences {
     }
 
     // ===== 网络配置 =====
-    public String getMirrorType() { return mirrorType; }
-    public void setMirrorType(String v) { mirrorType = v; save(); }
+    public synchronized String getMirrorType() { return mirrorType; }
+    public synchronized void setMirrorType(String v) { mirrorType = v; save(); }
 
-    public String getCustomMirrorBase() { return customMirrorBase; }
-    public void setCustomMirrorBase(String v) { customMirrorBase = v; save(); }
+    public synchronized String getCustomMirrorBase() { return customMirrorBase; }
+    public synchronized void setCustomMirrorBase(String v) { customMirrorBase = v; save(); }
 
-    public boolean isUseProxy() { return useProxy; }
-    public void setUseProxy(boolean v) { useProxy = v; save(); }
+    public synchronized boolean isUseProxy() { return useProxy; }
+    public synchronized void setUseProxy(boolean v) { useProxy = v; save(); }
 
-    public String getProxyHost() { return proxyHost; }
-    public void setProxyHost(String v) { proxyHost = v; save(); }
+    public synchronized String getProxyHost() { return proxyHost; }
+    public synchronized void setProxyHost(String v) { proxyHost = v; save(); }
 
-    public int getProxyPort() { return proxyPort; }
-    public void setProxyPort(int v) { proxyPort = v; save(); }
+    public synchronized int getProxyPort() { return proxyPort; }
+    public synchronized void setProxyPort(int v) { proxyPort = v; save(); }
 
-    public boolean isUseHttpAuth() { return useHttpAuth; }
-    public void setUseHttpAuth(boolean v) { useHttpAuth = v; save(); }
+    public synchronized boolean isUseHttpAuth() { return useHttpAuth; }
+    public synchronized void setUseHttpAuth(boolean v) { useHttpAuth = v; save(); }
 
-    public String getProxyUsername() { return proxyUsername; }
-    public void setProxyUsername(String v) { proxyUsername = v; save(); }
+    public synchronized String getProxyUsername() { return proxyUsername; }
+    public synchronized void setProxyUsername(String v) { proxyUsername = v; save(); }
 
-    public String getProxyPassword() { return proxyPassword; }
-    public void setProxyPassword(String v) { proxyPassword = v; save(); }
+    public synchronized String getProxyPassword() { return proxyPassword; }
+    public synchronized void setProxyPassword(String v) { proxyPassword = v; save(); }
 
-    public int getDownloadSpeedLimitKb() { return downloadSpeedLimitKb; }
-    public void setDownloadSpeedLimitKb(int v) { downloadSpeedLimitKb = v; save(); }
+    public synchronized int getDownloadSpeedLimitKb() { return downloadSpeedLimitKb; }
+    public synchronized void setDownloadSpeedLimitKb(int v) { downloadSpeedLimitKb = v; save(); }
 
-    public int getDownloadRetryCount() { return downloadRetryCount; }
-    public void setDownloadRetryCount(int v) { downloadRetryCount = v; save(); }
+    public synchronized int getDownloadRetryCount() { return downloadRetryCount; }
+    public synchronized void setDownloadRetryCount(int v) { downloadRetryCount = v; save(); }
 
-    public boolean isEnableResume() { return enableResume; }
-    public void setEnableResume(boolean v) { enableResume = v; save(); }
+    public synchronized boolean isEnableResume() { return enableResume; }
+    public synchronized void setEnableResume(boolean v) { enableResume = v; save(); }
 
-    public int getChunkedDownloadThreads() { return chunkedDownloadThreads; }
-    public void setChunkedDownloadThreads(int v) {
+    public synchronized int getChunkedDownloadThreads() { return chunkedDownloadThreads; }
+    public synchronized void setChunkedDownloadThreads(int v) {
         chunkedDownloadThreads = Math.max(1, v); save();
     }
 
     // ===== 多人联机 =====
-    public String getMpBackend() {
+    public synchronized String getMpBackend() {
         // 默认使用 Terracotta（HMCL 同款官方陶瓦联机实现）
         if (mpBackend == null || mpBackend.isEmpty()) return "TERRACOTTA";
         return mpBackend;
     }
-    public void setMpBackend(String v) {
+    public synchronized void setMpBackend(String v) {
         mpBackend = (v == null || v.isEmpty()) ? "TERRACOTTA" : v.toUpperCase(Locale.ROOT); save();
     }
-    public String getConnectxServerAddress() { return connectxServerAddress; }
-    public void setConnectxServerAddress(String v) { connectxServerAddress = v == null ? "" : v; save(); }
-    public int getConnectxServerPort() { return connectxServerPort; }
-    public void setConnectxServerPort(int v) {
+    public synchronized String getConnectxServerAddress() { return connectxServerAddress; }
+    public synchronized void setConnectxServerAddress(String v) { connectxServerAddress = v == null ? "" : v; save(); }
+    public synchronized int getConnectxServerPort() { return connectxServerPort; }
+    public synchronized void setConnectxServerPort(int v) {
         if (v > 0 && v < 65536) connectxServerPort = v; save();
     }
-    public String getConnectxBinaryPath() { return connectxBinaryPath; }
-    public void setConnectxBinaryPath(String v) { connectxBinaryPath = v == null ? "" : v; save(); }
+    public synchronized String getConnectxBinaryPath() { return connectxBinaryPath; }
+    public synchronized void setConnectxBinaryPath(String v) { connectxBinaryPath = v == null ? "" : v; save(); }
 
     /** 从磁盘加载（不存在则保持默认） */
-    public void load() {
+    public synchronized void load() {
         if (!Files.exists(file)) return;
         try {
             JsonObject o = JsonParser.parseString(Files.readString(file)).getAsJsonObject();
@@ -373,7 +376,7 @@ public final class Preferences {
     }
 
     /** 保存到磁盘 */
-    public void save() {
+    public synchronized void save() {
         try {
             JsonObject o = new JsonObject();
             o.addProperty("useDarkTheme", useDarkTheme);

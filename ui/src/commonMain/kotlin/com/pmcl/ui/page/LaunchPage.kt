@@ -396,7 +396,7 @@ fun LaunchPage(vm: LauncherViewModel) {
                             list = list.filter { it.getType() == typeFilter }
                         }
                         if (searchQuery.isNotEmpty()) {
-                            list = list.filter { it.getId().contains(searchQuery, ignoreCase = true) }
+                            list = list.filter { it.getId()?.contains(searchQuery, ignoreCase = true) == true }
                         }
                         list.take(200) // 最多显示 200 个，避免列表过长
                     }
@@ -1401,6 +1401,7 @@ private fun AvatarImage(url: String) {
         if (launchAvatarCache.containsKey(url)) { image = launchAvatarCache[url]; return@LaunchedEffect }
         withContext(Dispatchers.IO) {
             try {
+                if (url.isNullOrBlank()) return@withContext
                 val bytes = URL(url).readBytes()
                 val bmp = SkiaImage.makeFromEncoded(bytes).toComposeImageBitmap()
                 launchAvatarCache[url] = bmp

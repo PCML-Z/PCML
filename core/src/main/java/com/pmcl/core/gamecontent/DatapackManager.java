@@ -88,7 +88,7 @@ public final class DatapackManager {
                 meta = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
             }
             return build(name, zipPath, meta, true);
-        } catch (IOException e) {
+        } catch (Throwable e) {
             return null;
         }
     }
@@ -99,7 +99,7 @@ public final class DatapackManager {
         if (!Files.exists(meta)) return new Datapack(name, dir, 0, "", false);
         try {
             return build(name, dir, Files.readString(meta), false);
-        } catch (IOException e) {
+        } catch (Throwable e) {
             return null;
         }
     }
@@ -116,7 +116,7 @@ public final class DatapackManager {
                 if (pack.has("description") && pack.get("description").isJsonPrimitive())
                     description = pack.get("description").getAsString();
             }
-        } catch (Exception ignored) {}
+        } catch (Throwable ignored) {}
         return new Datapack(name, path, packFormat, description, isZip);
     }
 

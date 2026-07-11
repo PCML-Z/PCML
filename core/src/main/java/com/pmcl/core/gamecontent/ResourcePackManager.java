@@ -89,7 +89,7 @@ public final class ResourcePackManager {
                 meta = readAll(in);
             }
             return buildPack(zipPath.getFileName().toString(), zipPath, meta, true);
-        } catch (IOException e) {
+        } catch (Throwable e) {
             return null;
         }
     }
@@ -102,7 +102,7 @@ public final class ResourcePackManager {
         try {
             String content = Files.readString(meta);
             return buildPack(dir.getFileName().toString(), dir, content, false);
-        } catch (IOException e) {
+        } catch (Throwable e) {
             return null;
         }
     }
@@ -119,7 +119,7 @@ public final class ResourcePackManager {
                 if (pack.has("description") && pack.get("description").isJsonPrimitive())
                     description = pack.get("description").getAsString();
             }
-        } catch (Exception ignored) {}
+        } catch (Throwable ignored) {}
         String name = isZip ? stripZipSuffix(fileName) : fileName;
         return new Pack(name, path, packFormat, description, isZip);
     }

@@ -64,8 +64,9 @@ fun QuickLaunchPage(
                      color = MaterialTheme.colorScheme.primary,
                      fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(24.dp))
-                if (account != null) {
-                    Text("账号：${account!!.username}",
+                val acc = account
+                if (acc != null) {
+                    Text("账号：${acc.username}",
                          style = MaterialTheme.typography.labelLarge,
                          color = MaterialTheme.colorScheme.outline)
                 } else {
@@ -96,13 +97,14 @@ fun QuickLaunchPage(
             Spacer(Modifier.height(16.dp))
 
             // === 选中版本卡片 ===
-            if (selectedVersion != null) {
+            val sv = selectedVersion
+            if (sv != null) {
                 Card(
                     Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Column(Modifier.padding(16.dp)) {
-                        Text(selectedVersion!!,
+                        Text(sv,
                              style = MaterialTheme.typography.titleMedium,
                              fontWeight = FontWeight.Bold)
                         Spacer(Modifier.height(4.dp))
@@ -172,7 +174,7 @@ fun QuickLaunchPage(
                 val p = installProgress
                 if (p != null) {
                     Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                        Text(p.getMessage(),
+                        Text(p.getMessage() ?: "",
                              style = MaterialTheme.typography.labelSmall,
                              color = MaterialTheme.colorScheme.outline)
                         Spacer(Modifier.height(4.dp))

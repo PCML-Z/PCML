@@ -160,6 +160,7 @@ public final class DownloadManager {
         if (old != null) {
             try {
                 old.connectionPool().evictAll();
+                old.dispatcher().executorService().shutdown();
             } catch (Throwable ignored) {}
         }
 
@@ -174,6 +175,22 @@ public final class DownloadManager {
     }
 
     public int getChunkedDownloadThreads() { return chunkedDownloadThreads; }
+
+    /**
+     * 关闭所有线程池与连接池，释放资源。
+     * 应在启动器退出前调用，避免 dispatcher/校验/下载线程泄漏。
+     */
+    public void shutdown() {
+        if (http != null) {
+            try {
+                http.connectionPool().evictAll();
+                http.dispatcher().executorService().shutdown();
+            } catch (Throwable ignored) {}
+        }
+        pool.shutdown();
+        chunkedPool.shutdown();
+        verifyPool.shutdown();
+    }
 
     /**
      * 使用多线程分片下载大文件（如 Java runtime、client.jar、Forge installer）。

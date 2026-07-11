@@ -6,6 +6,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
 /**
@@ -107,7 +108,11 @@ public final class JavaRuntimeFinder {
         // 4. java 命令在 PATH（兜底）
         try {
             Process p = new ProcessBuilder("java", "-version").redirectErrorStream(true).start();
-            if (p.waitFor() == 0) return "java";
+            try {
+                if (p.waitFor(5, TimeUnit.SECONDS) && p.exitValue() == 0) return "java";
+            } finally {
+                p.destroyForcibly();
+            }
         } catch (IOException | InterruptedException ignored) {
         }
 
@@ -213,13 +218,19 @@ public final class JavaRuntimeFinder {
     public static Integer getMajorVersion(String javaExe) {
         try {
             Process p = new ProcessBuilder(javaExe, "-version").redirectErrorStream(true).start();
-            String output = new String(p.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
-            p.waitFor();
-            // 输出形如: java version "21.0.1" 2023-10-17 LTS
-            //          openjdk version "17.0.9" 2023-10-17
-            java.util.regex.Matcher m = java.util.regex.Pattern
-                    .compile("version\\s+\"(\\d+)").matcher(output);
-            if (m.find()) return Integer.parseInt(m.group(1));
+            try {
+                String output = new String(p.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+                if (!p.waitFor(5, TimeUnit.SECONDS)) {
+                    return null;
+                }
+                // 输出形如: java version "21.0.1" 2023-10-17 LTS
+                //          openjdk version "17.0.9" 2023-10-17
+                java.util.regex.Matcher m = java.util.regex.Pattern
+                        .compile("version\\s+\"(\\d+)").matcher(output);
+                if (m.find()) return Integer.parseInt(m.group(1));
+            } finally {
+                p.destroyForcibly();
+            }
         } catch (IOException | InterruptedException ignored) {}
         return null;
     }
@@ -234,13 +245,19 @@ public final class JavaRuntimeFinder {
         try {
             Process p = new ProcessBuilder(javaExe, "-XshowSettings:properties", "-version")
                     .redirectErrorStream(true).start();
-            String output = new String(p.getInputStream().readAllBytes(),
-                    java.nio.charset.StandardCharsets.UTF_8);
-            p.waitFor();
-            // 输出包含:    os.arch = aarch64  或  os.arch = x86_64  或  os.arch = amd64
-            java.util.regex.Matcher m = java.util.regex.Pattern
-                    .compile("os\\.arch\\s*=\\s*(\\S+)").matcher(output);
-            if (m.find()) return m.group(1);
+            try {
+                String output = new String(p.getInputStream().readAllBytes(),
+                        java.nio.charset.StandardCharsets.UTF_8);
+                if (!p.waitFor(5, TimeUnit.SECONDS)) {
+                    return System.getProperty("os.arch", "");
+                }
+                // 输出包含:    os.arch = aarch64  或  os.arch = x86_64  或  os.arch = amd64
+                java.util.regex.Matcher m = java.util.regex.Pattern
+                        .compile("os\\.arch\\s*=\\s*(\\S+)").matcher(output);
+                if (m.find()) return m.group(1);
+            } finally {
+                p.destroyForcibly();
+            }
         } catch (IOException | InterruptedException ignored) {}
         // 回退到启动器自身的 os.arch
         return System.getProperty("os.arch", "");

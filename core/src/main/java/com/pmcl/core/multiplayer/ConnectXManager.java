@@ -141,6 +141,10 @@ public final class ConnectXManager {
                     stop();
                     throw new RuntimeException("连接 ConnectX 服务器失败：" +
                             (e.getCause() != null ? e.getCause().getMessage() : e.getMessage()));
+                } catch (InterruptedException e) {
+                    stop();
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException("连接 ConnectX 服务器被中断");
                 }
                 return (Void) null;
             } catch (Exception e) {

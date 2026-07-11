@@ -148,12 +148,12 @@ private fun WindowScope.windowDragModifier(isDragging: MutableState<Boolean>): M
                         initialWindowLoc = Point(window.x, window.y)
                         isDragging.value = true
                     }
-                    if (event.type == PointerEventType.Move &&
-                        initialMouse != null && initialWindowLoc != null && mouseLocation != null
-                    ) {
-                        val dx = mouseLocation.x - initialMouse!!.x
-                        val dy = mouseLocation.y - initialMouse!!.y
-                        window.setLocation(initialWindowLoc!!.x + dx, initialWindowLoc!!.y + dy)
+                    val im = initialMouse
+                    val iwl = initialWindowLoc
+                    if (event.type == PointerEventType.Move && im != null && iwl != null && mouseLocation != null) {
+                        val dx = mouseLocation.x - im.x
+                        val dy = mouseLocation.y - im.y
+                        window.setLocation(iwl.x + dx, iwl.y + dy)
                     }
                 } else {
                     if (initialMouse != null) {

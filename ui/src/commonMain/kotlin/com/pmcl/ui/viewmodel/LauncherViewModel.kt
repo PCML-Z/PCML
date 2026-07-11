@@ -294,6 +294,7 @@ class LauncherViewModel {
     val migrationProgress: StateFlow<String> = _migrationProgress.asStateFlow()
 
     /** 当前会话的 GameLogger 实例 */
+    @Volatile
     private var gameLogger: GameLogger? = null
 
     val systemInfo: String
@@ -1175,12 +1176,12 @@ class LauncherViewModel {
         //   静态扫描无法检测这些，误报率高；真正的冲突游戏自己会崩并生成崩溃报告）
         val conflicts = _modConflicts.value
         if (conflicts != null && conflicts.hasIssues()) {
-            _gameLogs.value = _gameLogs.value + "[警告] mod 冲突检测（仅供参考，不阻断启动）："
+            _gameLogs.update { old -> (old + "[警告] mod 冲突检测（仅供参考，不阻断启动）：").takeLast(2000) }
             conflicts.getErrors().take(5).forEach {
-                _gameLogs.value = _gameLogs.value + "  - $it"
+                _gameLogs.update { old -> (old + "  - $it").takeLast(2000) }
             }
             if (conflicts.getErrors().size > 5) {
-                _gameLogs.value = _gameLogs.value + "  …还有 ${conflicts.getErrors().size - 5} 条，见模组页"
+                _gameLogs.update { old -> (old + "  …还有 ${conflicts.getErrors().size - 5} 条，见模组页").takeLast(2000) }
             }
         }
 
@@ -1351,7 +1352,7 @@ class LauncherViewModel {
                 }
             } catch (e: Throwable) {
                 _status.value = "启动失败：${e.message}"
-                _gameLogs.value = _gameLogs.value + "[错误] ${e.message}"
+                _gameLogs.update { old -> (old + "[错误] ${e.message}").takeLast(2000) }
             } finally {
                 _gameRunning.value = false
                 gameLogger?.close()
@@ -1414,7 +1415,7 @@ class LauncherViewModel {
                 _gameRunning.value = false
             } catch (e: Throwable) {
                 _status.value = "启动失败: ${e.message}"
-                _gameLogs.value = (_gameLogs.value + "启动失败: ${e.message}")
+                _gameLogs.update { old -> (old + "启动失败: ${e.message}").takeLast(2000) }
             }
         }
     }
@@ -1984,7 +1985,7 @@ class LauncherViewModel {
                 }
                 // 失败时 translate 返回原文：不缓存，以便后续重试
                 if (result != text) {
-                    _translationCache.value = _translationCache.value + (text to result)
+                    _translationCache.update { old -> old + (text to result) }
                 }
             } catch (_: Throwable) {
             } finally {
@@ -2011,16 +2012,16 @@ class LauncherViewModel {
                 val results = withContext(Dispatchers.IO) {
                     core.translate().translateBatchAsync(pending).join()
                 }
-                val newMap = _translationCache.value.toMutableMap()
+                val newEntries = mutableMapOf<String, String>()
                 for (i in pending.indices) {
                     val original = pending[i]
                     val translated = results[i]
                     // 失败时 translate 返回原文：不缓存，以便后续重试
                     if (translated != original) {
-                        newMap[original] = translated
+                        newEntries[original] = translated
                     }
                 }
-                _translationCache.value = newMap
+                _translationCache.update { old -> old.toMutableMap().apply { putAll(newEntries) } }
             } catch (_: Throwable) {
             } finally {
                 if (translateCounter.decrementAndGet() <= 0) {

@@ -229,6 +229,7 @@ private fun SkinImage(url: String, sizePx: Int) {
         if (skinImageCache.containsKey(url)) { image = skinImageCache[url]; return@LaunchedEffect }
         withContext(Dispatchers.IO) {
             try {
+                if (url.isNullOrBlank()) return@withContext
                 val bytes = URL(url).readBytes()
                 val bmp = SkiaImage.makeFromEncoded(bytes).toComposeImageBitmap()
                 skinImageCache[url] = bmp

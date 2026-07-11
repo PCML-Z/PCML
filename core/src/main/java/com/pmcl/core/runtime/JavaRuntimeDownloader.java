@@ -14,6 +14,7 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 /**
@@ -157,12 +158,19 @@ public final class JavaRuntimeDownloader {
             pb = new ProcessBuilder("tar", "-xzf", archive.toString(), "-C", target.toString());
         }
         pb.inheritIO();
+        Process p = null;
         try {
-            int code = pb.start().waitFor();
+            p = pb.start();
+            if (!p.waitFor(120, TimeUnit.SECONDS)) {
+                throw new IOException("解压超时");
+            }
+            int code = p.exitValue();
             if (code != 0) throw new IOException("解压失败 code=" + code);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IOException("解压被中断", e);
+        } finally {
+            if (p != null) p.destroyForcibly();
         }
     }
 

@@ -334,7 +334,7 @@ private fun ArticleBody(
         contentPadding = PaddingValues(bottom = 24.dp)
     ) {
         // 封面图
-        if (article.getCoverImage().isNotEmpty()) {
+        if (!article.getCoverImage().isNullOrEmpty()) {
             item {
                 val cover = rememberUrlImage(article.getCoverImage())
                 Box(
@@ -633,12 +633,12 @@ private fun NewsCard(
                 }
                 Spacer(Modifier.height(4.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (item.getCategory().isNotEmpty()) {
+                    if (!item.getCategory().isNullOrEmpty()) {
                         Surface(
                             color = MaterialTheme.colorScheme.primaryContainer,
                             shape = RoundedCornerShape(4.dp)
                         ) {
-                            Text(item.getCategory(),
+                            Text(item.getCategory() ?: "",
                                  style = MaterialTheme.typography.labelSmall,
                                  color = MaterialTheme.colorScheme.onPrimaryContainer,
                                  modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp))
@@ -690,6 +690,7 @@ private fun rememberUrlImage(url: String): ImageBitmap? {
         }
         withContext(Dispatchers.IO) {
             try {
+                if (url.isNullOrBlank()) return@withContext
                 val bytes = URL(url).readBytes()
                 val bmp = SkiaImage.makeFromEncoded(bytes).toComposeImageBitmap()
                 newsImageCache[url] = bmp

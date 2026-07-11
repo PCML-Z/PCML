@@ -17,7 +17,7 @@ public final class I18n {
     public static final Locale ZH_CN = Locale.SIMPLIFIED_CHINESE;
     public static final Locale EN_US = Locale.US;
 
-    private static Locale current = ZH_CN;
+    private static volatile Locale current = ZH_CN;
 
     private static final Map<String, String> ZH = new LinkedHashMap<>();
     private static final Map<String, String> EN = new LinkedHashMap<>();

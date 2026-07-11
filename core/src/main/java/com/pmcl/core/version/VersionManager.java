@@ -212,7 +212,7 @@ public final class VersionManager {
                         mainClass = root.get("mainClass").getAsString();
                     if (root.has("assets"))
                         assets = root.get("assets").getAsString();
-                } catch (Exception ignored) {}
+                } catch (Throwable ignored) {}
             }
             result.add(new LocalVersionInfo(id, mtime, hasJar, hasJson,
                     inheritsFrom, mainClass, assets));
