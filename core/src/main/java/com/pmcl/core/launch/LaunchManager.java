@@ -64,9 +64,11 @@ public final class LaunchManager {
         // 调试：打印完整启动命令
         if (logger != null) {
             logger.append("[PMCL DEBUG] 启动命令:");
+            StringBuilder sb = new StringBuilder();
             for (int i = 0; i < cmd.size(); i++) {
-                logger.append("[PMCL DEBUG] [" + i + "] " + cmd.get(i));
+                sb.append("[PMCL DEBUG] [").append(i).append("] ").append(cmd.get(i)).append("\n");
             }
+            logger.append(sb.toString());
         }
         ProcessBuilder pb = new ProcessBuilder(cmd);
         // 用 profile 实际的 gameDir 作为进程工作目录（支持启动外部 Minecraft 安装）

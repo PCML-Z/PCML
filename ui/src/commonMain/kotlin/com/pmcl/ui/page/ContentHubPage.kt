@@ -30,12 +30,14 @@ fun ContentHubPage(vm: LauncherViewModel) {
     val datapacks by vm.datapacks.collectAsState()
 
     data class TabSpec(val label: String, val icon: ImageVector, val count: Int)
-    val tabs = listOf(
-        TabSpec("模组", Icons.Filled.Extension, mods.size),
-        TabSpec("光影包", Icons.Filled.WbSunny, shaders.size),
-        TabSpec("资源包", Icons.Filled.Palette, resources.size),
-        TabSpec("数据包", Icons.Filled.Dataset, datapacks.size)
-    )
+    val tabs = remember(mods, shaders, resources, datapacks) {
+        listOf(
+            TabSpec("模组", Icons.Filled.Extension, mods.size),
+            TabSpec("光影包", Icons.Filled.WbSunny, shaders.size),
+            TabSpec("资源包", Icons.Filled.Palette, resources.size),
+            TabSpec("数据包", Icons.Filled.Dataset, datapacks.size)
+        )
+    }
 
     Column(Modifier.fillMaxSize()) {
         TabRow(selectedTabIndex = tab) {

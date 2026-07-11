@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Mod 依赖冲突检测。
@@ -68,6 +69,55 @@ public final class ModConflictChecker {
         return id.toLowerCase().replace('-', '_').replace("\"", "").trim();
     }
 
+    private static final Set<String> SYSTEM_DEPS = Set.of(
+            // 加载器与运行时
+            "minecraft", "java", "fabricloader", "fabric-language-kotlin",
+            "quilt_loader", "quilted_fabric_api", "forge", "neoforge", "fml",
+            // 常见 jar-in-jar 内嵌库（NeoForge mod 常打包这些库，静态扫描检测不到）
+            "cupboard", "kotlinforforge",
+            "cloth-config2", "cloth_config", "cloth-config",
+            "curios", "curiosity",
+            "jei", "rei", "emi",
+            "formations", "diagonalblocks",
+            "extensibleenums", "limitlesscontainers",
+            "lootintegrations", "coroutil",
+            "xaerolib", "c2me-base",
+            "kirin", "balm-fabric",
+            "fancymenu", "ambientsounds",
+            "dummmmmmy", "geckolib",
+            "entityculling", "create",
+            "embeddium", "rubidium",
+            "kubejs", "probejs",
+            "ftbchunks", "ftbranks", "ftblibrary",
+            "ftbteams", "ftbquests", "ftbxmodcompat",
+            "konkrete", "melody",
+            "cristellib", "biox",
+            "connector", "connectorextras",
+            "athena", "collective",
+            "drippyloadingscreen", "rrls",
+            "findme", "itemborders",
+            "equipmentcompare", "controllable",
+            "legendarytooltips", "merchantmarkers",
+            "advancementplaques", "worldtools",
+            "pneumaticcraft", "railcraft",
+            "occultism", "luckperms",
+            "openpartiesandclaims", "voicechat",
+            "irons_spellbooks", "ironsspells",
+            "farmersdelight", "crafttweaker",
+            "xaerobetterpvp", "xaerominimap",
+            "xaeroworldmap", "memoryleakfix",
+            "sodium", "indium",
+            "chatheads", "cubeattractors",
+            "rpgdemonstration", "cmi",
+            "essentials", "balm",
+            "libx", "bookshelf",
+            "catalogue", "fancytwitch",
+            "forgeconfigapiport", "architectury",
+            "mindfuldarkness", "commonality",
+            "yungsapi", "repurposed_structures",
+            "moonlight", "starstory"
+    );
+
     private static boolean isSystemDep(String id) {
         if (id == null) return false;
         // 清理可能的引号、注释、空白
@@ -80,60 +130,10 @@ public final class ModConflictChecker {
         if (low.length() >= 2 && low.startsWith("\"") && low.endsWith("\"")) {
             low = low.substring(1, low.length() - 1);
         }
-        // 加载器与运行时
-        if (low.equals("minecraft") || low.equals("java") || low.equals("fabricloader")
-                || low.equals("fabric-language-kotlin") || low.equals("quilt_loader")
-                || low.equals("quilted_fabric_api") || low.equals("forge")
-                || low.equals("neoforge") || low.equals("fml")
-                // Fabric API 子模块（由 fabric-api 聚合提供）
-                || low.startsWith("fabric-api") || low.startsWith("fabric-")
-                // 版本约束前缀
-                || low.startsWith("minecraft:") || low.startsWith("java:")) return true;
-        // 常见 jar-in-jar 内嵌库（NeoForge mod 常打包这些库，静态扫描检测不到）
-        if (low.equals("cupboard") || low.equals("kotlinforforge")
-                || low.equals("cloth-config2") || low.equals("cloth_config") || low.equals("cloth-config")
-                || low.equals("curios") || low.equals("curiosity")
-                || low.equals("jei") || low.equals("rei") || low.equals("emi")
-                || low.equals("formations") || low.equals("diagonalblocks")
-                || low.equals("extensibleenums") || low.equals("limitlesscontainers")
-                || low.equals("lootintegrations") || low.equals("coroutil")
-                || low.equals("xaerolib") || low.equals("c2me-base")
-                || low.equals("kirin") || low.equals("balm-fabric")
-                || low.equals("fancymenu") || low.equals("ambientsounds")
-                || low.equals("dummmmmmy") || low.equals("geckolib")
-                || low.equals("entityculling") || low.equals("create")
-                || low.equals("embeddium") || low.equals("rubidium")
-                || low.equals("kubejs") || low.equals("probejs")
-                || low.equals("ftbchunks") || low.equals("ftbranks") || low.equals("ftblibrary")
-                || low.equals("ftbteams") || low.equals("ftbquests") || low.equals("ftbxmodcompat")
-                || low.equals("konkrete") || low.equals("melody")
-                || low.equals("cristellib") || low.equals("biox")
-                || low.equals("connector") || low.equals("connectorextras")
-                || low.equals("athena") || low.equals("collective")
-                || low.equals("drippyloadingscreen") || low.equals("rrls")
-                || low.equals("findme") || low.equals("itemborders")
-                || low.equals("equipmentcompare") || low.equals("controllable")
-                || low.equals("legendarytooltips") || low.equals("merchantmarkers")
-                || low.equals("advancementplaques") || low.equals("worldtools")
-                || low.equals("pneumaticcraft") || low.equals("railcraft")
-                || low.equals("occultism") || low.equals("luckperms")
-                || low.equals("openpartiesandclaims") || low.equals("voicechat")
-                || low.equals("irons_spellbooks") || low.equals("ironsspells")
-                || low.equals("farmersdelight") || low.equals("crafttweaker")
-                || low.equals("xaerobetterpvp") || low.equals("xaerominimap")
-                || low.equals("xaeroworldmap") || low.equals("memoryleakfix")
-                || low.equals("sodium") || low.equals("indium")
-                || low.equals("chatheads") || low.equals("cubeattractors")
-                || low.equals("rpgdemonstration") || low.equals("cmi")
-                || low.equals("essentials") || low.equals("balm")
-                || low.equals("libx") || low.equals("bookshelf")
-                || low.equals("catalogue") || low.equals("fancytwitch")
-                || low.equals("forgeconfigapiport") || low.equals("architectury")
-                || low.equals("mindfuldarkness") || low.equals("commonality")
-                || low.equals("yungsapi") || low.equals("repurposed_structures")
-                || low.equals("moonlight") || low.equals("starstory")
-                ) return true;
-        return false;
+        if (SYSTEM_DEPS.contains(low)) return true;
+        // Fabric API 子模块（由 fabric-api 聚合提供）+ 版本约束前缀
+        return low.startsWith("fabric-api") || low.startsWith("fabric-")
+                || low.startsWith("minecraft:") || low.startsWith("java:");
     }
 
     public static final class Result {

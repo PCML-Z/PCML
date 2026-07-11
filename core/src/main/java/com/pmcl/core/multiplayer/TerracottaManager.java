@@ -6,6 +6,7 @@ import okhttp3.Response;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -18,6 +19,7 @@ import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+import java.util.regex.Pattern;
 import java.util.zip.GZIPInputStream;
 
 /**
@@ -70,6 +72,12 @@ public final class TerracottaManager {
 
     /** EasyTier 公共中继节点列表 URL（HMCL 同款） */
     private static final String NODE_LIST_URL = "https://terracotta.glavo.site/nodes";
+
+    /** 从端口文件 JSON 中解析 HTTP 端口，如 "port": 12345 */
+    private static final Pattern PORT_PATTERN = Pattern.compile("\"port\"\\s*:\\s*(\\d+)");
+
+    /** 从日志文件中解析 HTTP 端口，如 http://127.0.0.1:12345 */
+    private static final Pattern LOG_URL_PATTERN = Pattern.compile("http://127\\.0\\.0\\.1:(\\d+)");
 
     private final Path binaryDir;
     private final Path binaryPath;
@@ -222,8 +230,7 @@ public final class TerracottaManager {
                 while (System.currentTimeMillis() < deadline) {
                     if (Files.exists(portFile)) {
                         String content = Files.readString(portFile, StandardCharsets.UTF_8).trim();
-                        java.util.regex.Matcher m = java.util.regex.Pattern
-                                .compile("\"port\"\\s*:\\s*(\\d+)").matcher(content);
+                        java.util.regex.Matcher m = PORT_PATTERN.matcher(content);
                         if (m.find()) {
                             httpPort = Integer.parseInt(m.group(1));
                             process = hmclProc; // --hmcl 进程可能已退出（secondary mode 正常行为）
@@ -291,20 +298,34 @@ public final class TerracottaManager {
                 if (progress != null) progress.accept("日志文件：" + logFilePath);
 
                 // 轮询日志文件，解析 HTTP 端口
+                // 仅读取新增字节，避免每次迭代都重读整个日志文件
                 Path logPath = Paths.get(logFilePath);
+                long lastLogPos = 0;
                 deadline = System.currentTimeMillis() + 20000;
                 while (System.currentTimeMillis() < deadline) {
                     if (!process.isAlive()) {
                         throw new IOException("Terracotta daemon 进程异常退出");
                     }
                     if (Files.exists(logPath)) {
-                        String content = Files.readString(logPath, StandardCharsets.UTF_8);
-                        java.util.regex.Matcher m = java.util.regex.Pattern
-                                .compile("http://127\\.0\\.0\\.1:(\\d+)").matcher(content);
-                        if (m.find()) {
-                            httpPort = Integer.parseInt(m.group(1));
-                            if (progress != null) progress.accept("Terracotta 已启动，HTTP 端口 " + httpPort);
-                            return (Void) null;
+                        long fileLen = Files.size(logPath);
+                        // 文件被截断/轮转 → 从头读
+                        if (fileLen < lastLogPos) {
+                            lastLogPos = 0;
+                        }
+                        if (fileLen > lastLogPos) {
+                            try (RandomAccessFile raf = new RandomAccessFile(logPath.toFile(), "r")) {
+                                raf.seek(lastLogPos);
+                                byte[] newBytes = new byte[(int) (fileLen - lastLogPos)];
+                                raf.readFully(newBytes);
+                                lastLogPos = fileLen;
+                                String newContent = new String(newBytes, StandardCharsets.UTF_8);
+                                java.util.regex.Matcher m = LOG_URL_PATTERN.matcher(newContent);
+                                if (m.find()) {
+                                    httpPort = Integer.parseInt(m.group(1));
+                                    if (progress != null) progress.accept("Terracotta 已启动，HTTP 端口 " + httpPort);
+                                    return (Void) null;
+                                }
+                            }
                         }
                     }
                     Thread.sleep(200);

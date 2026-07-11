@@ -148,6 +148,8 @@ fun ModsMarketPage(vm: LauncherViewModel) {
 
         Spacer(Modifier.height(12.dp))
 
+        val installedModIds = remember(installedMods) { installedMods.map { it.getModId() }.toSet() }
+
         when {
             // 详情视图：点击卡片后进入
             detailProject != null -> {
@@ -176,7 +178,7 @@ fun ModsMarketPage(vm: LauncherViewModel) {
                             project = project,
                             vm = vm,
                             searchGameVersion = gameVersion,
-                            installedModIds = installedMods.map { it.getModId() }.toSet(),
+                            installedModIds = installedModIds,
                             translateEnabled = translateEnabled,
                             translationCache = translationCache
                         )
@@ -672,21 +674,36 @@ private fun CategoryBar(
 }
 
 /**
+ * 图片内存缓存：URL → ImageBitmap。避免滚动时重复下载与解码。
+ */
+private val modImageCache = mutableMapOf<String, ImageBitmap>()
+
+/**
  * 异步加载网络图片为 ImageBitmap（基于 Skia）。
  * 失败或空 URL 返回 null。
  */
 @Composable
 private fun rememberUrlImage(url: String): ImageBitmap? {
-    var image by remember(url) { mutableStateOf<ImageBitmap?>(null) }
+    var image by remember(url) { mutableStateOf<ImageBitmap?>(modImageCache[url]) }
     LaunchedEffect(url) {
         if (url.isEmpty()) {
             image = null
             return@LaunchedEffect
         }
+        if (modImageCache.containsKey(url)) {
+            image = modImageCache[url]
+            return@LaunchedEffect
+        }
         withContext(Dispatchers.IO) {
             try {
                 val bytes = URL(url).readBytes()
-                image = SkiaImage.makeFromEncoded(bytes).toComposeImageBitmap()
+                val bmp = SkiaImage.makeFromEncoded(bytes).toComposeImageBitmap()
+                modImageCache[url] = bmp
+                while (modImageCache.size > 50) {
+                    val iterator = modImageCache.keys.iterator()
+                    if (iterator.hasNext()) { iterator.next(); iterator.remove() }
+                }
+                image = bmp
             } catch (_: Throwable) {
                 image = null
             }

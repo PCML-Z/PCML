@@ -42,8 +42,8 @@ fun WikiPage(vm: LauncherViewModel) {
         Text("快捷入口", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(8.dp))
 
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(listOf(
+        val wikiLinks = remember(query) {
+            listOf(
                 "Modrinth 项目主页" to (if (query.isNotBlank()) "https://modrinth.com/mod?q=" +
                         java.net.URLEncoder.encode(query, "UTF-8") else "https://modrinth.com/mods"),
                 "CurseForge 模组搜索" to (if (query.isNotBlank())
@@ -57,7 +57,10 @@ fun WikiPage(vm: LauncherViewModel) {
                 "Fabric Wiki" to "https://fabricmc.net/wiki/",
                 "Forge 文档" to "https://docs.minecraftforge.net/",
                 "Mojang 官方" to "https://www.minecraft.net/"
-            )) { (label, url) ->
+            )
+        }
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(wikiLinks, key = { it.first }) { (label, url) ->
                 Card(Modifier.fillMaxWidth()) {
                     Row(Modifier.padding(12.dp).fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically) {

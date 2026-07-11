@@ -192,13 +192,15 @@ public final class ModScanner {
     private static ModMeta parseForge(JarFile jar, JarEntry entry, String fileName, String loader) throws IOException {
         try (InputStream in = jar.getInputStream(entry)) {
             String content = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+            // 预先按行拆分一次，避免 tomlValueInSection 每次都重新 split
+            String[] lines = content.split("\n");
             // === 提取 [[mods]] 段内的字段 ===
-            String modId = tomlValueInSection(content, "modId", "mods");
-            String version = tomlValueInSection(content, "version", "mods");
-            String name = tomlValueInSection(content, "displayName", "mods");
-            if (name == null) name = tomlValueInSection(content, "name", "mods");
-            String desc = tomlValueInSection(content, "description", "mods");
-            String authors = tomlValueInSection(content, "authors", "mods");
+            String modId = tomlValueInSection(lines, "modId", "mods");
+            String version = tomlValueInSection(lines, "version", "mods");
+            String name = tomlValueInSection(lines, "displayName", "mods");
+            if (name == null) name = tomlValueInSection(lines, "name", "mods");
+            String desc = tomlValueInSection(lines, "description", "mods");
+            String authors = tomlValueInSection(lines, "authors", "mods");
 
             // === 解析所有 [[dependencies.<modId>]] 段 ===
             // 每个段含：modId, mandatory=true/false, type=required/optional/incompatible
@@ -298,8 +300,12 @@ public final class ModScanner {
 
     /** 在指定 [[sectionName]] 段内提取 key 的值（仅在该段内，避免跨段干扰） */
     private static String tomlValueInSection(String content, String key, String sectionName) {
+        return tomlValueInSection(content.split("\n"), key, sectionName);
+    }
+
+    /** 在指定 [[sectionName]] 段内提取 key 的值（接收预先拆分好的行数组，避免重复 split） */
+    private static String tomlValueInSection(String[] lines, String key, String sectionName) {
         String sectionHeader = "[[" + sectionName + "]]";
-        String[] lines = content.split("\n");
         boolean inSection = false;
         for (String raw : lines) {
             String line = raw.trim();

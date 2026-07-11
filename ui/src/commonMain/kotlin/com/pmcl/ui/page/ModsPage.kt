@@ -73,8 +73,8 @@ fun ModsPage(vm: LauncherViewModel) {
         }
     }
 
-    val enabledCount = installedMods.count { !it.isDisabled() }
-    val disabledCount = installedMods.size - enabledCount
+    val enabledCount = remember(installedMods) { installedMods.count { !it.isDisabled() } }
+    val disabledCount = remember(installedMods) { installedMods.count { it.isDisabled() } }
     val hasFilter = query.isNotBlank() || selectedLoader != null || selectedSource != null
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
@@ -363,11 +363,13 @@ private fun ModRow(
             }
 
             // 第三行：元数据（jar · modId · 作者）合并为一行
-            val authors = m.getAuthors()
-            val meta = buildString {
-                append(m.getJarFile() ?: "?")
-                append("  ·  ").append(m.getModId() ?: "?")
-                if (!authors.isNullOrEmpty()) append("  ·  作者：").append(authors)
+            val meta = remember(m) {
+                val authors = m.getAuthors()
+                buildString {
+                    append(m.getJarFile() ?: "?")
+                    append("  ·  ").append(m.getModId() ?: "?")
+                    if (!authors.isNullOrEmpty()) append("  ·  作者：").append(authors)
+                }
             }
             Spacer(Modifier.height(2.dp))
             Text(meta,

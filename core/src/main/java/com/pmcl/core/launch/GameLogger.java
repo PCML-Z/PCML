@@ -26,6 +26,8 @@ public final class GameLogger {
     private final Path logFile;
     private final BufferedWriter writer;
     private static final DateTimeFormatter TS = DateTimeFormatter.ofPattern("HH:mm:ss.SSS");
+    private int linesSinceFlush = 0;
+    private long lastFlushTime = 0;
 
     public GameLogger(Path logFile) throws IOException {
         this.logFile = logFile;
@@ -48,7 +50,13 @@ public final class GameLogger {
         try {
             writer.write(stamped);
             writer.newLine();
-            writer.flush();
+            linesSinceFlush++;
+            long now = System.currentTimeMillis();
+            if (linesSinceFlush >= 50 || now - lastFlushTime > 200) {
+                writer.flush();
+                linesSinceFlush = 0;
+                lastFlushTime = now;
+            }
         } catch (IOException ignored) {
         }
     }

@@ -108,6 +108,13 @@ public final class DataCache {
      * @return [数据, savedAtMillis]，不存在返回 null
      */
     public static <T> Object[] loadWithTimestamp(String key, TypeToken<T> typeToken) {
+        // 先查内存缓存，命中则直接返回，避免磁盘 I/O
+        CacheEntry<?> entry = memCache.get(key);
+        if (entry != null) {
+            @SuppressWarnings("unchecked")
+            T data = (T) entry.data;
+            return new Object[]{data, entry.savedAt};
+        }
         try {
             Path file = CACHE_DIR.resolve(key + ".json");
             if (!Files.exists(file)) return null;

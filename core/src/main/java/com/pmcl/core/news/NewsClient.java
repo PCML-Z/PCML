@@ -42,6 +42,20 @@ public final class NewsClient {
     private static final Pattern IMG_PATTERN =
             Pattern.compile("<img[^>]+src\\s*=\\s*[\"']([^\"']+)[\"']", Pattern.CASE_INSENSITIVE);
 
+    /** 匹配所有 HTML 标签，用于剥离标签 */
+    private static final Pattern HTML_TAG_PATTERN = Pattern.compile("<[^>]+>");
+
+    /** 匹配连续空白字符，用于折叠空白 */
+    private static final Pattern WHITESPACE_PATTERN = Pattern.compile("\\s+");
+
+    /** 提取 minecraft.net 文章正文富文本块 */
+    private static final Pattern RICH_TEXT_PATTERN = Pattern.compile(
+            "<div class=\"MC_Link_Style_RichText\">(.*?)</div>", Pattern.DOTALL);
+
+    /** 提取 article-media 区块中的图片 URL */
+    private static final Pattern ARTICLE_MEDIA_IMG_PATTERN = Pattern.compile(
+            "<div class=\"article-media\">.*?<img[^>]+src=\"([^\"]+)\"", Pattern.DOTALL);
+
     private volatile OkHttpClient http;
 
     /** 默认构造：自建客户端（无代理，仅用于无 DownloadManager 的场景） */
@@ -216,9 +230,7 @@ public final class NewsClient {
 
         // 提取正文：所有 article-text > MC_Link_Style_RichText 的内容
         StringBuilder bodyHtml = new StringBuilder();
-        java.util.regex.Pattern richTextPattern = java.util.regex.Pattern.compile(
-                "<div class=\"MC_Link_Style_RichText\">(.*?)</div>", java.util.regex.Pattern.DOTALL);
-        java.util.regex.Matcher m = richTextPattern.matcher(html);
+        java.util.regex.Matcher m = RICH_TEXT_PATTERN.matcher(html);
         while (m.find()) {
             String chunk = m.group(1).trim();
             // 只保留 <p>、<h2>、<h3>、<ul>、<ol>、<li>、<strong>、<em>、<a>、<img> 相关内容
@@ -230,9 +242,7 @@ public final class NewsClient {
 
         // 提取文章内图片 URL（article-media 里的 img src）
         java.util.List<String> images = new java.util.ArrayList<>();
-        java.util.regex.Pattern imgBlockPattern = java.util.regex.Pattern.compile(
-                "<div class=\"article-media\">.*?<img[^>]+src=\"([^\"]+)\"", java.util.regex.Pattern.DOTALL);
-        java.util.regex.Matcher imgM = imgBlockPattern.matcher(html);
+        java.util.regex.Matcher imgM = ARTICLE_MEDIA_IMG_PATTERN.matcher(html);
         while (imgM.find()) {
             String src = imgM.group(1);
             // 补全相对路径
@@ -349,18 +359,18 @@ public final class NewsClient {
     /** 粗略剥离 HTML 标签，转纯文本 */
     static String stripHtml(String html) {
         if (html == null || html.isEmpty()) return "";
-        // 去 HTML 实体常见转换
+        // 去 HTML 实体常见转换（字面量替换，避免每次编译正则）
         String s = html
-                .replaceAll("&nbsp;", " ")
-                .replaceAll("&amp;", "&")
-                .replaceAll("&lt;", "<")
-                .replaceAll("&gt;", ">")
-                .replaceAll("&quot;", "\"")
-                .replaceAll("&#39;", "'");
+                .replace("&nbsp;", " ")
+                .replace("&amp;", "&")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&quot;", "\"")
+                .replace("&#39;", "'");
         // 去所有标签
-        s = s.replaceAll("<[^>]+>", "");
+        s = HTML_TAG_PATTERN.matcher(s).replaceAll("");
         // 折叠空白
-        s = s.replaceAll("\\s+", " ").trim();
+        s = WHITESPACE_PATTERN.matcher(s).replaceAll(" ").trim();
         return s;
     }
 }

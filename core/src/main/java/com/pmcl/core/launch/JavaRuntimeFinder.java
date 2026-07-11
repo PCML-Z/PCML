@@ -6,7 +6,10 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 /**
@@ -18,6 +21,18 @@ import java.util.stream.Stream;
  *   3) 常见安装路径
  */
 public final class JavaRuntimeFinder {
+
+    /** 匹配 java -version 输出中的版本号，如 version "21.0.1" */
+    private static final Pattern VERSION_PATTERN = Pattern.compile("version\\s+\"(\\d+)");
+
+    /** 匹配 -XshowSettings:properties 输出中的 os.arch 属性 */
+    private static final Pattern ARCH_PATTERN = Pattern.compile("os\\.arch\\s*=\\s*(\\S+)");
+
+    /** getMajorVersion 结果缓存（key = javaExe 路径），避免重复 fork java -version 进程 */
+    private static final ConcurrentHashMap<String, Integer> MAJOR_VERSION_CACHE = new ConcurrentHashMap<>();
+
+    /** getArchitecture 结果缓存（key = javaExe 路径），避免重复 fork java -XshowSettings 进程 */
+    private static final ConcurrentHashMap<String, String> ARCH_CACHE = new ConcurrentHashMap<>();
 
     private JavaRuntimeFinder() {}
 
@@ -214,8 +229,18 @@ public final class JavaRuntimeFinder {
 
     /**
      * 获取 java 的主版本号（如 21、17、24），失败返回 null。
+     * 结果按 javaExe 路径缓存，避免对同一可执行文件重复 fork 进程。
      */
     public static Integer getMajorVersion(String javaExe) {
+        Integer cached = MAJOR_VERSION_CACHE.get(javaExe);
+        if (cached != null) return cached;
+        Integer result = computeMajorVersion(javaExe);
+        if (result != null) MAJOR_VERSION_CACHE.put(javaExe, result);
+        return result;
+    }
+
+    /** 实际通过 fork java -version 解析版本号 */
+    private static Integer computeMajorVersion(String javaExe) {
         try {
             Process p = new ProcessBuilder(javaExe, "-version").redirectErrorStream(true).start();
             try {
@@ -225,8 +250,7 @@ public final class JavaRuntimeFinder {
                 }
                 // 输出形如: java version "21.0.1" 2023-10-17 LTS
                 //          openjdk version "17.0.9" 2023-10-17
-                java.util.regex.Matcher m = java.util.regex.Pattern
-                        .compile("version\\s+\"(\\d+)").matcher(output);
+                Matcher m = VERSION_PATTERN.matcher(output);
                 if (m.find()) return Integer.parseInt(m.group(1));
             } finally {
                 p.destroyForcibly();
@@ -240,8 +264,22 @@ public final class JavaRuntimeFinder {
      * 通过运行 java -XshowSettings:properties -version 解析 os.arch 属性。
      * 这反映的是游戏 Java 进程的架构，而非启动器自身的架构。
      * 失败时回退到系统 os.arch。
+     * 成功解析的结果按 javaExe 路径缓存，避免重复 fork 进程。
      */
     public static String getArchitecture(String javaExe) {
+        String cached = ARCH_CACHE.get(javaExe);
+        if (cached != null) return cached;
+        String result = computeArchitecture(javaExe);
+        if (result != null) {
+            ARCH_CACHE.put(javaExe, result);
+            return result;
+        }
+        // 回退到启动器自身的 os.arch（不缓存，便于后续重试）
+        return System.getProperty("os.arch", "");
+    }
+
+    /** 实际通过 fork java -XshowSettings:properties -version 解析 os.arch */
+    private static String computeArchitecture(String javaExe) {
         try {
             Process p = new ProcessBuilder(javaExe, "-XshowSettings:properties", "-version")
                     .redirectErrorStream(true).start();
@@ -249,18 +287,16 @@ public final class JavaRuntimeFinder {
                 String output = new String(p.getInputStream().readAllBytes(),
                         java.nio.charset.StandardCharsets.UTF_8);
                 if (!p.waitFor(5, TimeUnit.SECONDS)) {
-                    return System.getProperty("os.arch", "");
+                    return null;
                 }
                 // 输出包含:    os.arch = aarch64  或  os.arch = x86_64  或  os.arch = amd64
-                java.util.regex.Matcher m = java.util.regex.Pattern
-                        .compile("os\\.arch\\s*=\\s*(\\S+)").matcher(output);
+                Matcher m = ARCH_PATTERN.matcher(output);
                 if (m.find()) return m.group(1);
             } finally {
                 p.destroyForcibly();
             }
         } catch (IOException | InterruptedException ignored) {}
-        // 回退到启动器自身的 os.arch
-        return System.getProperty("os.arch", "");
+        return null;
     }
 
     private static String resolveJava(String home) {

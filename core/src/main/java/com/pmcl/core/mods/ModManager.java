@@ -18,6 +18,11 @@ public final class ModManager {
 
     private final Path modsDir;
 
+    /** scanDirectory 结果缓存（按 mods 目录 mtime 失效） */
+    private volatile List<ModMeta> cachedMods;
+    /** 缓存对应的 mods 目录 mtime（毫秒） */
+    private volatile long cachedModsTime;
+
     public ModManager(Path modsDir) {
         this.modsDir = modsDir;
     }
@@ -86,12 +91,43 @@ public final class ModManager {
 
     /**
      * 检测同名 mod 是否已安装（按 modId 匹配，避免重复下载）。
+     * 利用 mods 目录 mtime 缓存扫描结果，目录未变动时直接复用缓存。
      */
     public boolean isModInstalled(String modId) throws IOException {
-        List<ModMeta> mods = ModScanner.scanDirectory(modsDir);
+        List<ModMeta> mods = getCachedMods();
         for (ModMeta m : mods) {
             if (modId.equals(m.getModId()) && !m.isDisabled()) return true;
         }
         return false;
+    }
+
+    /**
+     * 获取（必要时扫描并缓存）mods 目录下的 mod 列表。
+     * 当 mods 目录 mtime 与缓存一致时直接返回缓存，避免重复扫描。
+     */
+    private List<ModMeta> getCachedMods() throws IOException {
+        long currentMtime;
+        try {
+            currentMtime = Files.getLastModifiedTime(modsDir).toMillis();
+        } catch (IOException e) {
+            // 目录不存在等异常：直接扫描不缓存
+            return ModScanner.scanDirectory(modsDir);
+        }
+        List<ModMeta> cached = cachedMods;
+        if (cached != null && cachedModsTime == currentMtime) {
+            return cached;
+        }
+        List<ModMeta> mods = ModScanner.scanDirectory(modsDir);
+        cachedMods = mods;
+        cachedModsTime = currentMtime;
+        return mods;
+    }
+
+    /**
+     * 清除扫描结果缓存。应在 mod 安装/卸载/增删后调用，确保下次查询重新扫描。
+     */
+    public void invalidateCache() {
+        cachedMods = null;
+        cachedModsTime = 0;
     }
 }

@@ -4,7 +4,9 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Stream;
 
 /**
@@ -36,20 +38,28 @@ public final class CrashAnalyzer {
         List<CrashReport> result = new ArrayList<>();
         if (!Files.isDirectory(crashDir)) return result;
         try (Stream<Path> stream = Files.list(crashDir)) {
+            List<Path> txtFiles = new ArrayList<>();
             stream.filter(p -> p.getFileName().toString().endsWith(".txt"))
-                    .sorted((a, b) -> {
-                        try {
-                            return Long.compare(
-                                    Files.getLastModifiedTime(b).toMillis(),
-                                    Files.getLastModifiedTime(a).toMillis());
-                        } catch (IOException e) { return 0; }
-                    })
-                    .forEach(p -> {
-                        try {
-                            String content = Files.readString(p);
-                            result.add(analyze(content, p));
-                        } catch (IOException ignored) {}
-                    });
+                  .forEach(txtFiles::add);
+            // 预取 mtime，避免在排序比较器中重复 stat（O(n log n) → O(n)）
+            Map<Path, Long> mtimeCache = new HashMap<>();
+            for (Path p : txtFiles) {
+                try {
+                    mtimeCache.put(p, Files.getLastModifiedTime(p).toMillis());
+                } catch (IOException ignored) {}
+            }
+            txtFiles.sort((a, b) -> {
+                Long ma = mtimeCache.get(a);
+                Long mb = mtimeCache.get(b);
+                if (ma == null || mb == null) return 0;
+                return Long.compare(mb, ma);
+            });
+            for (Path p : txtFiles) {
+                try {
+                    String content = Files.readString(p);
+                    result.add(analyze(content, p));
+                } catch (IOException ignored) {}
+            }
         }
         return result;
     }

@@ -615,7 +615,7 @@ fun LaunchPage(vm: LauncherViewModel) {
                     }
                 } else {
                     LazyColumn(Modifier.padding(8.dp)) {
-                        items(gameLogs.takeLast(500)) { line ->
+                        itemsIndexed(gameLogs.takeLast(500), key = { index, _ -> "log-$index" }) { _, line ->
                             Text(line, style = MaterialTheme.typography.bodySmall,
                                  fontFamily = FontFamily.Monospace)
                         }

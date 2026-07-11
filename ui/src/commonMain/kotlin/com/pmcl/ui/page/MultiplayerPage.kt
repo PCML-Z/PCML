@@ -38,6 +38,7 @@ fun MultiplayerPage(vm: LauncherViewModel) {
     val virtualIp by vm.mpVirtualIp.collectAsState()
     val invitation by vm.mpInvitation.collectAsState()
     val status by vm.status.collectAsState()
+    val mcAddr by vm.mpLocalMcAddr.collectAsState()
 
     var joinCode by remember { mutableStateOf("") }
     var showConnectXSettings by remember { mutableStateOf(false) }
@@ -216,7 +217,6 @@ fun MultiplayerPage(vm: LauncherViewModel) {
                              style = MaterialTheme.typography.labelSmall,
                              color = MaterialTheme.colorScheme.outline)
                         // 房客模式下显示本地 MC 连接地址
-                        val mcAddr = vm.mpLocalMcAddr.collectAsState().value
                         if (mcAddr.isNotEmpty()) {
                             Spacer(Modifier.height(8.dp))
                             Surface(

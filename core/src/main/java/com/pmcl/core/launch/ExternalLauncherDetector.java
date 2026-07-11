@@ -6,6 +6,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 /**
@@ -17,6 +18,8 @@ import java.util.stream.Stream;
  * 2. 直接用其他启动器打开该版本
  */
 public final class ExternalLauncherDetector {
+
+    private static final Pattern HMCL_JAR_PATTERN = Pattern.compile("HMCL[-\\d.]*\\.jar");
 
     /** 检测到的外部启动器信息 */
     public static class ExternalLauncher {
@@ -134,7 +137,7 @@ public final class ExternalLauncherDetector {
             if (!Files.isDirectory(dirPath)) continue;
             try (Stream<Path> stream = Files.list(dirPath)) {
                 var hmclJar = stream
-                        .filter(p -> p.getFileName().toString().matches("HMCL[-\\d.]*\\.jar"))
+                        .filter(p -> HMCL_JAR_PATTERN.matcher(p.getFileName().toString()).matches())
                         .findFirst();
                 if (hmclJar.isPresent()) {
                     String gameDir;
