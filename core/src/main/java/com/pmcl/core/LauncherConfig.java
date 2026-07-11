@@ -11,7 +11,7 @@ public final class LauncherConfig {
     private Path workDir;
     private int minMemoryMb = 512;
     private int maxMemoryMb = 2048;
-    private int downloadThreads = 8;
+    private int downloadThreads = 16;
 
     public LauncherConfig() {
         this(Paths.get(System.getProperty("user.home"), ".pmcl"));

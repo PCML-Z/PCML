@@ -257,7 +257,7 @@ public final class ChunkedDownloader {
      * </ul>
      */
     private int calcChunkCount(long size, boolean acceptRanges) {
-        if (!acceptRanges || size < 0 || chunkCount == 1 || size < 8 * 1024 * 1024) {
+        if (!acceptRanges || size < 0 || chunkCount == 1 || size < 4 * 1024 * 1024) {
             return 1;
         }
         int bySize = (int) (size / MIN_CHUNK_SIZE);

@@ -59,8 +59,8 @@ public final class DownloadManager {
     /** 连接池容量：匹配 MAX_REQUESTS_PER_HOST，避免高并发时频繁重建 TCP/TLS 连接 */
     private static final int CONNECTION_POOL_SIZE = 64;
 
-    /** 大于此阈值（8MB）的文件走 ChunkedDownloader 多分片下载 */
-    private static final long CHUNKED_THRESHOLD = 8L * 1024 * 1024;
+    /** 大于此阈值（4MB）的文件走 ChunkedDownloader 多分片下载 */
+    private static final long CHUNKED_THRESHOLD = 4L * 1024 * 1024;
 
     /** downloadTo 进度回调节流间隔（ms） */
     private static final long PROGRESS_THROTTLE_MS = 50;
@@ -69,8 +69,10 @@ public final class DownloadManager {
     private final MirrorManager mirror = new MirrorManager();
     private volatile OkHttpClient http;
     private final ExecutorService pool;
-    /** 校验专用线程池（不占用下载线程） */
-    private final ExecutorService verifyPool = Executors.newFixedThreadPool(2);
+    /** 分片下载专用线程池：避免与批量下载竞争线程，大文件分片可独立并行 */
+    private final ExecutorService chunkedPool;
+    /** 校验专用线程池（不占用下载线程），4 线程并行校验避免成为瓶颈 */
+    private final ExecutorService verifyPool = Executors.newFixedThreadPool(4);
     /** 批量下载背压信号量：限制同时进行中的下载数，避免一次性提交撑爆队列 */
     private final Semaphore downloadLimiter;
     /** 分片下载器（复用线程池，避免每次创建） */
@@ -85,9 +87,11 @@ public final class DownloadManager {
     public DownloadManager(LauncherConfig config) {
         this.config = config;
         this.pool = Executors.newFixedThreadPool(config.getDownloadThreads());
+        this.chunkedPool = Executors.newFixedThreadPool(
+                Math.min(16, config.getDownloadThreads()));
         this.downloadLimiter = new Semaphore(config.getDownloadThreads());
         this.http = buildClient(null, 15, false, null, null);
-        this.chunked = new ChunkedDownloader(http, chunkedDownloadThreads, pool);
+        this.chunked = new ChunkedDownloader(http, chunkedDownloadThreads, chunkedPool);
     }
 
     /**
@@ -165,7 +169,7 @@ public final class DownloadManager {
         chunkedDownloadThreads = Math.max(1, pref.getChunkedDownloadThreads());
 
         // 同步更新 chunked downloader 的客户端引用和限速
-        chunked = new ChunkedDownloader(http, chunkedDownloadThreads, pool);
+        chunked = new ChunkedDownloader(http, chunkedDownloadThreads, chunkedPool);
         chunked.setSpeedLimit(speedLimitBytesPerSec);
     }
 
@@ -205,6 +209,8 @@ public final class DownloadManager {
                                                Consumer<Long> onBytes) {
         long total = tasks.stream().mapToLong(DownloadTask::getSize).sum();
         AtomicLong completed = new AtomicLong(0);
+        // 实时进度节流：避免高频回调导致 UI 线程过载
+        final long[] lastNotifyTime = {0};
 
         CompletableFuture<?>[] futures = tasks.stream()
                 .map(t -> CompletableFuture.runAsync(() -> {
@@ -213,7 +219,17 @@ public final class DownloadManager {
                         downloadLimiter.acquire();
                         Path partFile;
                         try {
-                            partFile = downloadOneWithRetry(t);
+                            partFile = downloadOneWithRetry(t, deltaBytes -> {
+                                // 实时回调：下载过程中也通知进度
+                                if (onBytes != null) {
+                                    long now = completed.addAndGet(deltaBytes);
+                                    long t2 = System.currentTimeMillis();
+                                    if (t2 - lastNotifyTime[0] >= PROGRESS_THROTTLE_MS) {
+                                        lastNotifyTime[0] = t2;
+                                        onBytes.accept(now);
+                                    }
+                                }
+                            });
                         } finally {
                             downloadLimiter.release();
                         }
@@ -221,7 +237,10 @@ public final class DownloadManager {
                         if (partFile != null) {
                             verifyAndRename(t, partFile);
                         }
-                        completed.addAndGet(t.getSize());
+                        // 文件已完成（含跳过的情况）
+                        if (partFile == null) {
+                            completed.addAndGet(t.getSize());
+                        }
                         if (onBytes != null) onBytes.accept(completed.get());
                         if (onFileDone != null) onFileDone.accept(t.getRelativePath());
                     } catch (IOException e) {
@@ -242,12 +261,13 @@ public final class DownloadManager {
     /**
      * 下载单文件（带重试），返回 .part 文件路径（未校验未重命名）。
      * 返回 null 表示文件已存在且 SHA1 匹配，无需下载。
+     * onDeltaBytes 回调下载过程中的增量字节数（用于实时进度）。
      */
-    private Path downloadOneWithRetry(DownloadTask task) throws IOException {
+    private Path downloadOneWithRetry(DownloadTask task, Consumer<Long> onDeltaBytes) throws IOException {
         IOException last = null;
         for (int i = 0; i <= retryCount; i++) {
             try {
-                return downloadOne(task);
+                return downloadOne(task, onDeltaBytes);
             } catch (IOException e) {
                 last = e;
                 // 指数退避 + 随机抖动：避免高并发下所有失败任务同步重试（thundering herd）
@@ -281,8 +301,9 @@ public final class DownloadManager {
     /**
      * 下载单文件到 .part 文件（不校验不重命名），返回 .part 路径。
      * 返回 null 表示文件已存在且 SHA1 匹配，无需下载。
+     * onDeltaBytes 回调下载过程中的增量字节数（用于实时进度）。
      */
-    private Path downloadOne(DownloadTask task) throws IOException {
+    private Path downloadOne(DownloadTask task, Consumer<Long> onDeltaBytes) throws IOException {
         Path target = config.getWorkDir().resolve(task.getRelativePath());
         Files.createDirectories(target.getParent());
 
@@ -335,6 +356,8 @@ public final class DownloadManager {
                 while ((n = in.read(buf)) != -1) {
                     raf.write(buf, 0, n);
                     bytesInWindow += n;
+                    // 实时进度回调
+                    if (onDeltaBytes != null) onDeltaBytes.accept((long) n);
 
                     // 限速：每 100ms 检查一次
                     if (speedLimitBytesPerSec > 0) {
