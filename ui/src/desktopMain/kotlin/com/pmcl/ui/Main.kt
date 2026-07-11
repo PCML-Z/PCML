@@ -54,12 +54,16 @@ fun main() = application {
         onCloseRequest = ::exitApplication,
         title = "PMCL — Minecraft Launcher",
         state = state,
-        undecorated = borderless,
-        transparent = borderless
+        undecorated = borderless
     ) {
         if (borderless) {
-            // 无边框窗口用 AWT shape 裁剪出圆角（最大化时用直角填满屏幕）
+            // 无边框模式：AWT 不透明背景 + shape 裁剪圆角（不用 transparent 避免拖动闪烁）
+            val isDark = pref.isUseDarkTheme()
+            val scheme = if (isDark) darkColorScheme() else lightColorScheme()
+            val surface = scheme.surface
             DisposableEffect(Unit) {
+                // 设置 AWT 背景为主题色（不透明），shape 会裁剪掉圆角外区域
+                window.background = java.awt.Color(surface.red, surface.green, surface.blue)
                 val updateShape = {
                     val arc = if (window.extendedState == Frame.MAXIMIZED_BOTH) 0.0 else 14.0
                     window.shape = RoundRectangle2D.Double(
@@ -76,11 +80,7 @@ fun main() = application {
                 window.addComponentListener(listener)
                 onDispose { window.removeComponentListener(listener) }
             }
-            // 无边框模式下使用自定义标题栏；用 Surface + clip 绘制圆角背景
-            val isDark = pref.isUseDarkTheme()
-            MaterialTheme(
-                colorScheme = if (isDark) darkColorScheme() else lightColorScheme()
-            ) {
+            MaterialTheme(colorScheme = scheme) {
                 Surface(
                     modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(14.dp)),
                     color = MaterialTheme.colorScheme.surface
