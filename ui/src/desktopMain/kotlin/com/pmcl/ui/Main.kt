@@ -54,24 +54,40 @@ fun main() = application {
         onCloseRequest = ::exitApplication,
         title = "PMCL — Minecraft Launcher",
         state = state,
-        undecorated = borderless
+        undecorated = borderless,
+        transparent = borderless
     ) {
         if (borderless) {
-            // 无边框模式：AWT 不透明背景 + shape 裁剪圆角（不用 transparent 避免拖动闪烁）
+            // 无边框模式：transparent=true 让边缘像素 alpha 混合（抗锯齿），
+            // 拖动期间临时设为不透明矩形避免 SwingPanel 重绘延迟导致闪烁
             val isDark = pref.isUseDarkTheme()
             val scheme = if (isDark) darkColorScheme() else lightColorScheme()
-            val surface = scheme.surface
+            val surfaceColor = scheme.surface
+            val isDragging = remember { mutableStateOf(false) }
+
             DisposableEffect(Unit) {
-                // 设置 AWT 背景为主题色（不透明），shape 会裁剪掉圆角外区域
-                window.background = java.awt.Color(surface.red, surface.green, surface.blue)
-                // AWT shape 圆角比 Compose clip 小 2px，让 Compose 抗锯齿边缘画在不透明背景上遮盖锯齿
                 val updateShape = {
-                    val arc = if (window.extendedState == Frame.MAXIMIZED_BOTH) 0.0 else 12.0
-                    window.shape = RoundRectangle2D.Double(
-                        0.0, 0.0,
-                        window.width.toDouble(), window.height.toDouble(),
-                        arc, arc
-                    )
+                    if (isDragging.value) {
+                        // 拖动中：移除 shape 和透明，用不透明矩形避免闪烁
+                        window.shape = null
+                        window.background = java.awt.Color(
+                            surfaceColor.red, surfaceColor.green, surfaceColor.blue
+                        )
+                    } else if (window.extendedState == Frame.MAXIMIZED_BOTH) {
+                        // 最大化：直角填满屏幕
+                        window.shape = null
+                        window.background = java.awt.Color(
+                            surfaceColor.red, surfaceColor.green, surfaceColor.blue
+                        )
+                    } else {
+                        // 正常：透明背景 + 圆角 shape（边缘抗锯齿）
+                        window.background = java.awt.Color(0, 0, 0, 0)
+                        window.shape = RoundRectangle2D.Double(
+                            0.0, 0.0,
+                            window.width.toDouble(), window.height.toDouble(),
+                            14.0, 14.0
+                        )
+                    }
                 }
                 updateShape()
                 val listener = object : ComponentAdapter() {
@@ -81,13 +97,25 @@ fun main() = application {
                 window.addComponentListener(listener)
                 onDispose { window.removeComponentListener(listener) }
             }
+            // 拖动状态变化时刷新 shape
+            LaunchedEffect(isDragging.value) {
+                if (!isDragging.value) {
+                    window.background = java.awt.Color(0, 0, 0, 0)
+                    window.shape = if (window.extendedState == Frame.MAXIMIZED_BOTH) null
+                    else RoundRectangle2D.Double(
+                        0.0, 0.0,
+                        window.width.toDouble(), window.height.toDouble(),
+                        14.0, 14.0
+                    )
+                }
+            }
             MaterialTheme(colorScheme = scheme) {
                 Surface(
                     modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(14.dp)),
                     color = MaterialTheme.colorScheme.surface
                 ) {
                     Column(Modifier.fillMaxSize()) {
-                        BorderlessTitleBar(onClose = ::exitApplication)
+                        BorderlessTitleBar(onClose = ::exitApplication, isDragging = isDragging)
                         Box(Modifier.weight(1f).fillMaxWidth()) {
                             App()
                         }
@@ -102,41 +130,50 @@ fun main() = application {
 
 /**
  * 窗口拖拽修饰符：按住左键拖拽移动窗口（Compose 1.7 无 WindowDragArea，手动实现）。
+ * 拖动开始/结束 时更新 isDragging 状态，用于切换透明/不透明渲染避免闪烁。
  */
-private fun WindowScope.windowDragModifier(): Modifier = Modifier.pointerInput(Unit) {
-    var initialMouse: Point? = null
-    var initialWindowLoc: Point? = null
+private fun WindowScope.windowDragModifier(isDragging: MutableState<Boolean>): Modifier =
+    Modifier.pointerInput(Unit) {
+        var initialMouse: Point? = null
+        var initialWindowLoc: Point? = null
 
-    awaitPointerEventScope {
-        while (true) {
-            val event = awaitPointerEvent()
-            val mouseLocation = MouseInfo.getPointerInfo()?.location
+        awaitPointerEventScope {
+            while (true) {
+                val event = awaitPointerEvent()
+                val mouseLocation = MouseInfo.getPointerInfo()?.location
 
-            if (event.buttons.isPrimaryPressed) {
-                if (initialMouse == null && mouseLocation != null) {
-                    initialMouse = mouseLocation
-                    initialWindowLoc = Point(window.x, window.y)
+                if (event.buttons.isPrimaryPressed) {
+                    if (initialMouse == null && mouseLocation != null) {
+                        initialMouse = mouseLocation
+                        initialWindowLoc = Point(window.x, window.y)
+                        isDragging.value = true
+                    }
+                    if (event.type == PointerEventType.Move &&
+                        initialMouse != null && initialWindowLoc != null && mouseLocation != null
+                    ) {
+                        val dx = mouseLocation.x - initialMouse!!.x
+                        val dy = mouseLocation.y - initialMouse!!.y
+                        window.setLocation(initialWindowLoc!!.x + dx, initialWindowLoc!!.y + dy)
+                    }
+                } else {
+                    if (initialMouse != null) {
+                        isDragging.value = false
+                    }
+                    initialMouse = null
+                    initialWindowLoc = null
                 }
-                if (event.type == PointerEventType.Move &&
-                    initialMouse != null && initialWindowLoc != null && mouseLocation != null
-                ) {
-                    val dx = mouseLocation.x - initialMouse!!.x
-                    val dy = mouseLocation.y - initialMouse!!.y
-                    window.setLocation(initialWindowLoc!!.x + dx, initialWindowLoc!!.y + dy)
-                }
-            } else {
-                initialMouse = null
-                initialWindowLoc = null
             }
         }
     }
-}
 
 /**
  * 无边框窗口自定义标题栏：可拖拽 + 最小化/最大化/关闭按钮。
  */
 @Composable
-private fun FrameWindowScope.BorderlessTitleBar(onClose: () -> Unit) {
+private fun FrameWindowScope.BorderlessTitleBar(
+    onClose: () -> Unit,
+    isDragging: MutableState<Boolean>
+) {
     Surface(
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = 2.dp,
@@ -150,7 +187,7 @@ private fun FrameWindowScope.BorderlessTitleBar(onClose: () -> Unit) {
             Row(
                 modifier = Modifier
                     .weight(1f)
-                    .then(windowDragModifier())
+                    .then(windowDragModifier(isDragging))
                     .padding(start = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
