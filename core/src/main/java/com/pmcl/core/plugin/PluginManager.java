@@ -70,7 +70,7 @@ public final class PluginManager {
             "migrate", "account", "whoami", "login", "logout", "java", "config",
             "pin", "unpin", "recent", "playtime", "mp", "multiplayer", "update",
             "sysinfo", "download", "wiki", "plugin", "plugins", "status", "exit", "quit",
-            "cls", "clear"
+            "cls", "clear", "cache", "log", "skin", "version", "ver", "open", "url", "theme"
     );
 
     private final LauncherCore core;

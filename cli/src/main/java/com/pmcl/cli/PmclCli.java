@@ -224,6 +224,13 @@ public final class PmclCli {
             case "wiki": cmdWiki(rest); break;
             case "plugin": case "plugins": cmdPlugin(rest); break;
             case "status": printStatus(); break;
+            case "cache": cmdCache(rest); break;
+            case "log": cmdLog(rest); break;
+            case "skin": cmdSkin(); break;
+            case "version": case "ver": cmdVersion(); break;
+            case "open": cmdOpen(rest); break;
+            case "url": cmdUrl(rest); break;
+            case "theme": cmdTheme(rest); break;
             case "exit": case "quit": System.out.println("Goodbye!"); System.exit(0); break;
             default:
                 // Check for plugin-registered commands: plugin:<pluginId>:<commandName>
@@ -329,6 +336,13 @@ public final class PmclCli {
         System.out.println("    sysinfo                   Show system information");
         System.out.println("    download <url> <path>     Download a file");
         System.out.println("    wiki <query>              Open Minecraft Wiki search in browser");
+        System.out.println("    cache [clear]             Show cache info or clear all cache");
+        System.out.println("    log [lines]               Show recent game log (default 50 lines)");
+        System.out.println("    skin                      Show current account skin info");
+        System.out.println("    version / ver             Show PMCL version info");
+        System.out.println("    open <dir>                Open directory in file manager");
+        System.out.println("    url <url>                 Open URL in system browser");
+        System.out.println("    theme <dark|light>        Quick switch theme");
         System.out.println();
         System.out.println("  Plugin Management:");
         System.out.println("    plugin list               List loaded plugins");
@@ -2044,6 +2058,221 @@ public final class PmclCli {
             }
         } else {
             System.out.printf("[OK] Loaded %d new plugin(s). Total: %d%n", loaded, after);
+        }
+    }
+
+    // ==================== Cache ====================
+
+    private void cmdCache(String[] rest) {
+        if (rest.length > 0 && rest[0].equalsIgnoreCase("clear")) {
+            try {
+                com.pmcl.core.cache.DataCache.clearAll();
+                System.out.println("[OK] All cache cleared.");
+            } catch (Exception e) {
+                System.err.println("Failed to clear cache: " + e.getMessage());
+            }
+            return;
+        }
+        System.out.println(SEP);
+        System.out.println("Cache Information:");
+        System.out.println(SEP);
+        java.nio.file.Path cacheDir = com.pmcl.core.cache.DataCache.getCacheDir();
+        System.out.println("  Cache directory: " + cacheDir);
+        try {
+            if (java.nio.file.Files.exists(cacheDir)) {
+                long[] size = {0};
+                long[] count = {0};
+                java.nio.file.Files.walk(cacheDir)
+                        .filter(java.nio.file.Files::isRegularFile)
+                        .forEach(p -> {
+                            try {
+                                size[0] += java.nio.file.Files.size(p);
+                                count[0]++;
+                            } catch (java.io.IOException ignored) {}
+                        });
+                System.out.printf("  Files: %d%n", count[0]);
+                System.out.printf("  Total size: %s%n", formatSize(size[0]));
+            } else {
+                System.out.println("  (cache directory does not exist)");
+            }
+        } catch (Exception e) {
+            System.out.println("  (unable to calculate size: " + e.getMessage() + ")");
+        }
+        System.out.println();
+        System.out.println("Use 'cache clear' to clear all cached data.");
+    }
+
+    // ==================== Game Log ====================
+
+    private void cmdLog(String[] rest) {
+        int lines = 50;
+        if (rest.length > 0) {
+            try {
+                lines = Integer.parseInt(rest[0]);
+                if (lines <= 0) lines = 50;
+                if (lines > 2000) lines = 2000;
+            } catch (NumberFormatException e) {
+                System.err.println("Invalid number: " + rest[0]);
+                return;
+            }
+        }
+        java.nio.file.Path logFile = core.getConfig().getWorkDir().resolve("logs").resolve("latest.log");
+        if (!java.nio.file.Files.exists(logFile)) {
+            System.out.println("No game log found at: " + logFile);
+            System.out.println("Log file is created when a game is launched.");
+            return;
+        }
+        try {
+            List<String> allLines = java.nio.file.Files.readAllLines(logFile);
+            int total = allLines.size();
+            int start = Math.max(0, total - lines);
+            List<String> tail = allLines.subList(start, total);
+            System.out.println(SEP);
+            System.out.printf("Game Log (last %d of %d lines):%n", tail.size(), total);
+            System.out.println(SEP);
+            for (String l : tail) {
+                System.out.println(l);
+            }
+        } catch (Exception e) {
+            System.err.println("Failed to read log: " + e.getMessage());
+        }
+    }
+
+    // ==================== Skin ====================
+
+    private void cmdSkin() {
+        if (currentAccount == null) {
+            System.out.println("Not logged in. Use 'login offline <name>' or 'login ms' first.");
+            return;
+        }
+        System.out.println(SEP);
+        System.out.println("Account Skin Info:");
+        System.out.println(SEP);
+        System.out.println("  Username: " + currentAccount.getUsername());
+        System.out.println("  UUID: " + currentAccount.getUuid());
+        System.out.println("  Type: " + currentAccount.getType());
+        String skinUrl = currentAccount.getSkinUrl();
+        String skinModel = currentAccount.getSkinModel();
+        System.out.println("  Skin URL: " + (skinUrl == null || skinUrl.isEmpty() ? "(none)" : skinUrl));
+        System.out.println("  Skin model: " + (skinModel == null || skinModel.isEmpty() ? "classic" : skinModel));
+        String avatar = currentAccount.getAvatarUrl();
+        String body = currentAccount.getBodyRenderUrl();
+        if (avatar != null && !avatar.isEmpty()) {
+            System.out.println("  Avatar URL: " + avatar);
+        }
+        if (body != null && !body.isEmpty()) {
+            System.out.println("  Body render URL: " + body);
+        }
+    }
+
+    // ==================== Version Info ====================
+
+    private void cmdVersion() {
+        System.out.println(SEP);
+        System.out.println("PMCL — Minecraft Launcher");
+        System.out.println(SEP);
+        System.out.println("  Java version: " + System.getProperty("java.version"));
+        System.out.println("  Java vendor: " + System.getProperty("java.vendor"));
+        System.out.println("  OS: " + System.getProperty("os.name") + " " + System.getProperty("os.version") + " (" + System.getProperty("os.arch") + ")");
+        System.out.println("  Working directory: " + core.getConfig().getWorkDir());
+        System.out.println("  JAR location: " + getJarLocation());
+    }
+
+    private String getJarLocation() {
+        try {
+            java.security.CodeSource cs = PmclCli.class.getProtectionDomain().getCodeSource();
+            if (cs != null && cs.getLocation() != null) {
+                return cs.getLocation().getPath();
+            }
+        } catch (Exception ignored) {}
+        return "(unknown)";
+    }
+
+    // ==================== Open Directory ====================
+
+    private void cmdOpen(String[] rest) {
+        if (rest.length == 0) {
+            System.err.println("Usage: open <dir>");
+            System.err.println("  Subdirs: home, versions, mods, logs, cache, screenshots, plugins");
+            System.err.println("  Or use an absolute/relative path");
+            return;
+        }
+        java.nio.file.Path target;
+        String dir = rest[0].toLowerCase();
+        java.nio.file.Path workDir = core.getConfig().getWorkDir();
+        switch (dir) {
+            case "home": case ".":
+                target = workDir; break;
+            case "versions": case "version":
+                target = workDir.resolve("versions"); break;
+            case "mods": case "mod":
+                target = workDir.resolve("mods"); break;
+            case "logs": case "log":
+                target = workDir.resolve("logs"); break;
+            case "cache":
+                target = com.pmcl.core.cache.DataCache.getCacheDir(); break;
+            case "screenshots": case "shots":
+                target = workDir.resolve("screenshots"); break;
+            case "plugins": case "plugin":
+                target = java.nio.file.Paths.get(System.getProperty("user.home"), ".pmcl", "plugins"); break;
+            default:
+                target = java.nio.file.Paths.get(rest[0]);
+        }
+        try {
+            java.nio.file.Files.createDirectories(target);
+            if (java.awt.Desktop.isDesktopSupported() &&
+                java.awt.Desktop.getDesktop().isSupported(java.awt.Desktop.Action.OPEN)) {
+                java.awt.Desktop.getDesktop().open(target.toFile());
+                System.out.println("[OK] Opened: " + target);
+            } else {
+                System.err.println("Desktop OPEN action not supported on this platform.");
+            }
+        } catch (Exception e) {
+            System.err.println("Failed to open: " + e.getMessage());
+        }
+    }
+
+    // ==================== Open URL ====================
+
+    private void cmdUrl(String[] rest) {
+        if (rest.length == 0) {
+            System.err.println("Usage: url <url>");
+            return;
+        }
+        String url = rest[0];
+        if (!url.startsWith("http://") && !url.startsWith("https://")) {
+            url = "https://" + url;
+        }
+        try {
+            com.pmcl.core.web.WikiBrowser.open(url);
+            System.out.println("[OK] Opened in browser: " + url);
+        } catch (Exception e) {
+            System.err.println("Failed to open URL: " + e.getMessage());
+        }
+    }
+
+    // ==================== Theme Switch ====================
+
+    private void cmdTheme(String[] rest) {
+        if (rest.length == 0) {
+            boolean dark = core.getPreferences().isUseDarkTheme();
+            System.out.println("Current theme: " + (dark ? "dark" : "light"));
+            System.out.println("Use 'theme dark' or 'theme light' to switch.");
+            return;
+        }
+        String mode = rest[0].toLowerCase();
+        Preferences pref = core.getPreferences();
+        switch (mode) {
+            case "dark":
+                pref.setUseDarkTheme(true);
+                System.out.println("[OK] Theme set to dark (restart UI to apply).");
+                break;
+            case "light":
+                pref.setUseDarkTheme(false);
+                System.out.println("[OK] Theme set to light (restart UI to apply).");
+                break;
+            default:
+                System.err.println("Unknown theme: " + mode + " (use 'dark' or 'light')");
         }
     }
 
