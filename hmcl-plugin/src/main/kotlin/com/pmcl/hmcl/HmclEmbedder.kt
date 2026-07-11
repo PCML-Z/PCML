@@ -234,14 +234,13 @@ object HmclEmbedder {
         findAndRemoveButtons(root, removed)
         log("Window button removal: ${removed[0]} buttons removed")
 
-        // 如果没找到按钮，可能是 DecoratorSkin 还没创建，重试
-        if (removed[0] < 2 && retryCount < 10) {
-            Platform.runLater {
-                try {
-                    Thread.sleep(100) // 给 skin 创建一些时间
-                } catch (_: InterruptedException) {}
-                removeWindowButtons(scene, retryCount + 1)
-            }
+        // 如果没找到按钮，可能是 DecoratorSkin 还没创建（skin 在首次 layout 时创建）
+        // 注意：不能用 Thread.sleep，否则会阻塞 JavaFX 线程导致 layout 永远不执行
+        // 用 PauseTransition 实现非阻塞延迟
+        if (removed[0] < 2 && retryCount < 20) {
+            val pause = javafx.animation.PauseTransition(javafx.util.Duration(150.0))
+            pause.setOnFinished { removeWindowButtons(scene, retryCount + 1) }
+            pause.play()
         }
     }
 
