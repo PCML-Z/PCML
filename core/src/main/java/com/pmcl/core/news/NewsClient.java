@@ -94,13 +94,15 @@ public final class NewsClient {
                     return parseBytes(bytes, max);
                 } catch (Exception e) {
                     last = e;
-                    // SSL 握手失败：立即 fallback 到 curl
-                    if (CurlFallback.isSslHandshakeFailure(e) && CurlFallback.isAvailable()) {
+                    // 任何网络错误都立即 fallback 到 curl（GFW 环境下 OkHttp 的
+                    // TLS 指纹/HTTP2 协议均可能被干扰，不只 SSL 握手失败）
+                    if (CurlFallback.isAvailable()) {
                         try {
                             byte[] bytes = CurlFallback.getBytes(FEED_URL, "GET", null);
                             return parseBytes(bytes, max);
                         } catch (Exception curlEx) {
-                            throw new RuntimeException("拉取新闻失败（curl fallback）：" + curlEx.getMessage(), curlEx);
+                            last = curlEx;
+                            // curl 也失败：继续重试 OkHttp
                         }
                     }
                     if (attempt < RETRY) {
@@ -111,15 +113,6 @@ public final class NewsClient {
                             break;
                         }
                     }
-                }
-            }
-            // 所有重试失败后，最后尝试 curl
-            if (CurlFallback.isAvailable()) {
-                try {
-                    byte[] bytes = CurlFallback.getBytes(FEED_URL, "GET", null);
-                    return parseBytes(bytes, max);
-                } catch (Exception curlEx) {
-                    throw new RuntimeException("拉取新闻失败（curl fallback）：" + curlEx.getMessage(), curlEx);
                 }
             }
             // 友好的中文错误提示，帮助用户定位问题
@@ -181,13 +174,13 @@ public final class NewsClient {
                     return extractArticleContent(html, articleUrl);
                 } catch (Exception e) {
                     last = e;
-                    // SSL 握手失败：立即 fallback 到 curl（与 fetch() 一致）
-                    if (CurlFallback.isSslHandshakeFailure(e) && CurlFallback.isAvailable()) {
+                    // 任何网络错误都立即 fallback 到 curl（与 fetch() 一致）
+                    if (CurlFallback.isAvailable()) {
                         try {
                             String html = CurlFallback.getString(articleUrl);
                             return extractArticleContent(html, articleUrl);
                         } catch (Exception curlEx) {
-                            throw new RuntimeException("抓取文章失败（curl fallback）：" + curlEx.getMessage(), curlEx);
+                            last = curlEx;
                         }
                     }
                     if (attempt < RETRY) {
@@ -198,15 +191,6 @@ public final class NewsClient {
                             break;
                         }
                     }
-                }
-            }
-            // 所有重试失败后，最后尝试 curl
-            if (CurlFallback.isAvailable()) {
-                try {
-                    String html = CurlFallback.getString(articleUrl);
-                    return extractArticleContent(html, articleUrl);
-                } catch (Exception curlEx) {
-                    throw new RuntimeException("抓取文章失败（curl fallback）：" + curlEx.getMessage(), curlEx);
                 }
             }
             String msg = last != null ? last.getMessage() : "未知错误";
