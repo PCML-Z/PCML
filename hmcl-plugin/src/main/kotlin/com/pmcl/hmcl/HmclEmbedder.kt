@@ -199,24 +199,65 @@ object HmclEmbedder {
     /**
      * 删除 HMCL 窗口的最小化和关闭按钮。
      *
-     * HMCL 的 DecoratorSkin.createNavBar() 创建 3 个 JFXButton：
+     * HMCL 的 DecoratorSkin 构造函数创建一个 HBox（位于 AnchorPane 内），包含：
      * - HELP（问号，帮助按钮）
      * - MINIMIZE_CENTER（最小化）
      * - CLOSE（关闭）
      *
      * 这些按钮都是局部变量（不是 DecoratorSkin 的字段），styleClass 统一为
-     * "jfx-decorator-button"，无法通过字段反射或 styleClass 区分。
+     * "jfx-decorator-button"。按钮的 graphic 是 SVGPath，其 content 由
+     * SVG.getPath() 生成（rawPath 前加 "M24 24ZM0 0Z" 前缀）。
      *
      * 识别方法：检查按钮的 graphic（SVGPath）的 content 属性：
      * - MINIMIZE_CENTER 路径含 "v-2h12v2"（减号形状）
      * - CLOSE 路径含 "6.4 19 5 17.6"（X 形状）
+     *
+     * 由于 DecoratorSkin 可能在 scene steal 后才创建按钮（Control 的 skin 在
+     * 首次 layout 时创建），需要重试机制。
      */
-    private fun removeWindowButtons(scene: Scene) {
+    private fun removeWindowButtons(scene: Scene, retryCount: Int = 0) {
         val root = scene.root ?: return
-        log("Removing window buttons from scene root: ${root.javaClass.name}")
+        log("Removing window buttons (attempt ${retryCount + 1}), root: ${root.javaClass.name}")
+
+        // 先 dump 所有 jfx-decorator-button 节点用于调试
+        val decoratorButtons = mutableListOf<Node>()
+        collectDecoratorButtons(root, decoratorButtons)
+        log("Found ${decoratorButtons.size} jfx-decorator-button nodes")
+        for (btn in decoratorButtons) {
+            val graphic = (btn as? javafx.scene.control.ButtonBase)?.graphic
+            val graphicType = graphic?.javaClass?.name ?: "null"
+            val content = (graphic as? javafx.scene.shape.SVGPath)?.content ?: "N/A"
+            log("  Button: ${btn.javaClass.simpleName}, graphic=$graphicType, content=${content.take(80)}")
+        }
+
         val removed = intArrayOf(0)
         findAndRemoveButtons(root, removed)
-        log("Window button removal complete: ${removed[0]} buttons removed")
+        log("Window button removal: ${removed[0]} buttons removed")
+
+        // 如果没找到按钮，可能是 DecoratorSkin 还没创建，重试
+        if (removed[0] < 2 && retryCount < 10) {
+            Platform.runLater {
+                try {
+                    Thread.sleep(100) // 给 skin 创建一些时间
+                } catch (_: InterruptedException) {}
+                removeWindowButtons(scene, retryCount + 1)
+            }
+        }
+    }
+
+    /**
+     * 收集所有 styleClass 含 "jfx-decorator-button" 的节点（用于调试）。
+     */
+    private fun collectDecoratorButtons(node: Node, list: MutableList<Node>) {
+        val styleClass = node.styleClass
+        if (styleClass.isNotEmpty() && styleClass.any { it.contains("jfx-decorator-button") }) {
+            list.add(node)
+        }
+        if (node is Pane) {
+            for (child in node.childrenUnmodifiable) {
+                collectDecoratorButtons(child, list)
+            }
+        }
     }
 
     /**
@@ -224,7 +265,6 @@ object HmclEmbedder {
      * 检查其 SVGPath 图形内容来识别最小化和关闭按钮并移除。
      */
     private fun findAndRemoveButtons(node: Node, removed: IntArray) {
-        // 检查是否是窗口控制按钮（JFXButton 或 ButtonBase，styleClass 含 jfx-decorator-button）
         val styleClass = node.styleClass
         if (styleClass.isNotEmpty() && styleClass.any { it.contains("jfx-decorator-button") }) {
             val isMinimize = isMinimizeButton(node)
@@ -246,7 +286,6 @@ object HmclEmbedder {
             }
         }
 
-        // 递归遍历子节点
         if (node is Pane) {
             val children = node.childrenUnmodifiable.toList()
             for (child in children) {
@@ -256,28 +295,45 @@ object HmclEmbedder {
     }
 
     /**
-     * 检查按钮的 graphic 是否为最小化图标（SVGPath content 含 "v-2h12v2"）。
+     * 检查按钮的 graphic 是否为最小化图标。
+     * SVG.getPath() 在 rawPath 前加 "M24 24ZM0 0Z" 前缀，但 rawPath 内容保留在内。
+     * MINIMIZE_CENTER rawPath = "M6 13v-2h12v2H6Z"
      */
     private fun isMinimizeButton(node: Node): Boolean {
         val graphic = (node as? javafx.scene.control.ButtonBase)?.graphic ?: return false
         if (graphic is javafx.scene.shape.SVGPath) {
             val content = graphic.content ?: ""
-            log("Checking button graphic SVGPath content (minimize check): ${content.take(60)}...")
-            // MINIMIZE_CENTER rawPath = "M6 13v-2h12v2H6Z"
             return content.contains("v-2h12v2")
+        }
+        // SVGContainer 包裹了 SVGPath
+        if (graphic is Pane) {
+            for (child in graphic.childrenUnmodifiable) {
+                if (child is javafx.scene.shape.SVGPath && child.content?.contains("v-2h12v2") == true) {
+                    return true
+                }
+            }
         }
         return false
     }
 
     /**
-     * 检查按钮的 graphic 是否为关闭图标（SVGPath content 含 "6.4 19 5 17.6"）。
+     * 检查按钮的 graphic 是否为关闭图标。
+     * CLOSE rawPath = "M6.4 19 5 17.6 10.6 12 5 6.4 6.4 5 12 10.6 17.6 5 19 6.4 ..."
      */
     private fun isCloseButton(node: Node): Boolean {
         val graphic = (node as? javafx.scene.control.ButtonBase)?.graphic ?: return false
         if (graphic is javafx.scene.shape.SVGPath) {
             val content = graphic.content ?: ""
-            // CLOSE rawPath = "M6.4 19 5 17.6 10.6 12 5 6.4 6.4 5 12 10.6 17.6 5 19 6.4 ..."
             return content.contains("6.4 19 5 17.6") || content.contains("17.6 5 19 6.4")
+        }
+        // SVGContainer 包裹了 SVGPath
+        if (graphic is Pane) {
+            for (child in graphic.childrenUnmodifiable) {
+                if (child is javafx.scene.shape.SVGPath) {
+                    val c = child.content ?: ""
+                    if (c.contains("6.4 19 5 17.6") || c.contains("17.6 5 19 6.4")) return true
+                }
+            }
         }
         return false
     }
