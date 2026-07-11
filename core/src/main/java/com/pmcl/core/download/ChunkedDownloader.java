@@ -60,6 +60,7 @@ public final class ChunkedDownloader {
     private final OkHttpClient http;
     private final int chunkCount;
     private final ExecutorService pool;
+    private volatile int speedLimitBytesPerSec = 0;
 
     /**
      * @param http       共享 OkHttpClient（必须配 Dispatcher.maxRequestsPerHost ≥ chunkCount）
@@ -70,6 +71,11 @@ public final class ChunkedDownloader {
         this.http = http;
         this.chunkCount = Math.max(1, chunkCount);
         this.pool = pool;
+    }
+
+    /** 设置限速（bytes/sec，0=不限） */
+    public void setSpeedLimit(int bytesPerSec) {
+        this.speedLimitBytesPerSec = Math.max(0, bytesPerSec);
     }
 
     /**
@@ -179,9 +185,15 @@ public final class ChunkedDownloader {
         try {
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
         } catch (RuntimeException ex) {
-            // 分片失败时保留 .part 文件和进度，下次可断点续传
+            // 分片失败：保留 .part 文件和进度，尝试降级为单连接续传剩余分片
             saveChunkProgress(target, chunkCompleted);
-            throw ex;
+            try {
+                fallbackSingleConnection(url, partFile, target, size, chunkCompleted,
+                        chunkSize, actualChunks, onProgress);
+            } catch (IOException fallbackErr) {
+                throw ex; // 降级也失败，抛原始异常
+            }
+            return;
         }
 
         // 全部完成，清理进度文件
@@ -278,6 +290,76 @@ public final class ChunkedDownloader {
         throw last;
     }
 
+    /**
+     * 降级单连接续传：分片下载失败后，用单连接顺序下载未完成的分片。
+     * 避免一个分片失败导致整个文件重下。
+     */
+    private void fallbackSingleConnection(String url, Path partFile, Path target, long size,
+                                          long[] chunkCompleted, long chunkSize, int actualChunks,
+                                          Consumer<Long> onProgress) throws IOException {
+        long completedTotal = 0;
+        for (long c : chunkCompleted) completedTotal += c;
+        final long[] lastNotify = {0};
+
+        for (int i = 0; i < actualChunks; i++) {
+            long chunkStart = i * chunkSize;
+            long chunkEnd = (i == actualChunks - 1) ? size - 1 : (chunkStart + chunkSize - 1);
+            long chunkLen = chunkEnd - chunkStart + 1;
+            if (chunkCompleted[i] >= chunkLen) continue; // 已完成
+
+            long resumeFrom = chunkStart + chunkCompleted[i];
+            Request req = new Request.Builder().url(url)
+                    .header("Range", "bytes=" + resumeFrom + "-" + chunkEnd)
+                    .get().build();
+            try (Response resp = http.newCall(req).execute()) {
+                if (resp.code() != 206 && resp.code() != 200) {
+                    throw new IOException("降级下载分片 " + i + " code=" + resp.code());
+                }
+                if (resp.body() == null) throw new IOException("响应体为空: " + url);
+                try (var in = resp.body().byteStream();
+                     RandomAccessFile raf = new RandomAccessFile(partFile.toFile(), "rw")) {
+                    raf.seek(resumeFrom);
+                    byte[] buf = new byte[BUFFER_SIZE];
+                    int n;
+                    long lastThrottleTime = System.currentTimeMillis();
+                    long bytesInWindow = 0;
+                    while ((n = in.read(buf)) != -1) {
+                        raf.write(buf, 0, n);
+                        completedTotal += n;
+                        chunkCompleted[i] += n;
+                        bytesInWindow += n;
+                        // 限速
+                        if (speedLimitBytesPerSec > 0) {
+                            long now = System.currentTimeMillis();
+                            long elapsed = now - lastThrottleTime;
+                            if (elapsed >= 100) {
+                                long allowed = (speedLimitBytesPerSec * elapsed) / 1000L;
+                                if (bytesInWindow > allowed) {
+                                    long sleepMs = (bytesInWindow - allowed) * 1000L / speedLimitBytesPerSec;
+                                    try { Thread.sleep(sleepMs); } catch (InterruptedException ie) {
+                                        Thread.currentThread().interrupt();
+                                    }
+                                }
+                                lastThrottleTime = System.currentTimeMillis();
+                                bytesInWindow = 0;
+                            }
+                        }
+                        // 进度节流
+                        long t = System.currentTimeMillis();
+                        if (onProgress != null && t - lastNotify[0] >= PROGRESS_THROTTLE_MS) {
+                            lastNotify[0] = t;
+                            onProgress.accept(completedTotal);
+                        }
+                    }
+                }
+            }
+        }
+        // 全部完成，清理进度文件并重命名
+        deleteChunkProgress(target);
+        Files.move(partFile, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        if (onProgress != null) onProgress.accept(size);
+    }
+
     private void downloadChunk(String url, Path partFile, long start, long end, int idx,
                                Consumer<Long> onBytes) throws IOException {
         Request req = new Request.Builder().url(url)
@@ -293,9 +375,28 @@ public final class ChunkedDownloader {
                 raf.seek(start);
                 byte[] buf = new byte[BUFFER_SIZE];
                 int n;
+                long lastThrottleTime = System.currentTimeMillis();
+                long bytesInWindow = 0;
                 while ((n = in.read(buf)) != -1) {
                     raf.write(buf, 0, n);
                     if (onBytes != null) onBytes.accept((long) n);
+                    // 限速
+                    if (speedLimitBytesPerSec > 0) {
+                        bytesInWindow += n;
+                        long now = System.currentTimeMillis();
+                        long elapsed = now - lastThrottleTime;
+                        if (elapsed >= 100) {
+                            long allowed = (speedLimitBytesPerSec * elapsed) / 1000L;
+                            if (bytesInWindow > allowed) {
+                                long sleepMs = (bytesInWindow - allowed) * 1000L / speedLimitBytesPerSec;
+                                try { Thread.sleep(sleepMs); } catch (InterruptedException ie) {
+                                    Thread.currentThread().interrupt();
+                                }
+                            }
+                            lastThrottleTime = System.currentTimeMillis();
+                            bytesInWindow = 0;
+                        }
+                    }
                 }
             }
         }
@@ -309,6 +410,7 @@ public final class ChunkedDownloader {
             if (!resp.isSuccessful()) {
                 throw new IOException("下载失败 code=" + resp.code() + " url=" + url);
             }
+            if (resp.body() == null) throw new IOException("响应体为空: " + url);
             try (var in = resp.body().byteStream();
                  RandomAccessFile raf = new RandomAccessFile(tmp.toFile(), "rw")) {
                 raf.setLength(0); // 显式截断，避免旧临时文件残留
@@ -316,9 +418,28 @@ public final class ChunkedDownloader {
                 int n;
                 long total = 0;
                 long lastNotify = 0;
+                long lastThrottleTime = System.currentTimeMillis();
+                long bytesInWindow = 0;
                 while ((n = in.read(buf)) != -1) {
                     raf.write(buf, 0, n);
                     total += n;
+                    bytesInWindow += n;
+                    // 限速
+                    if (speedLimitBytesPerSec > 0) {
+                        long now = System.currentTimeMillis();
+                        long elapsed = now - lastThrottleTime;
+                        if (elapsed >= 100) {
+                            long allowed = (speedLimitBytesPerSec * elapsed) / 1000L;
+                            if (bytesInWindow > allowed) {
+                                long sleepMs = (bytesInWindow - allowed) * 1000L / speedLimitBytesPerSec;
+                                try { Thread.sleep(sleepMs); } catch (InterruptedException ie) {
+                                    Thread.currentThread().interrupt();
+                                }
+                            }
+                            lastThrottleTime = System.currentTimeMillis();
+                            bytesInWindow = 0;
+                        }
+                    }
                     long t = System.currentTimeMillis();
                     if (onProgress != null && t - lastNotify >= PROGRESS_THROTTLE_MS) {
                         lastNotify = t;

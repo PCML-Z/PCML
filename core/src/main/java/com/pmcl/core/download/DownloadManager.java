@@ -159,13 +159,14 @@ public final class DownloadManager {
             } catch (Throwable ignored) {}
         }
 
-        // 同步更新 chunked downloader 的客户端引用
-        chunked = new ChunkedDownloader(http, pref.getChunkedDownloadThreads(), pool);
-
         speedLimitBytesPerSec = pref.getDownloadSpeedLimitKb() * 1024;
         retryCount = Math.max(0, pref.getDownloadRetryCount());
         enableResume = pref.isEnableResume();
         chunkedDownloadThreads = Math.max(1, pref.getChunkedDownloadThreads());
+
+        // 同步更新 chunked downloader 的客户端引用和限速
+        chunked = new ChunkedDownloader(http, chunkedDownloadThreads, pool);
+        chunked.setSpeedLimit(speedLimitBytesPerSec);
     }
 
     public int getChunkedDownloadThreads() { return chunkedDownloadThreads; }
@@ -208,15 +209,21 @@ public final class DownloadManager {
         CompletableFuture<?>[] futures = tasks.stream()
                 .map(t -> CompletableFuture.runAsync(() -> {
                     try {
+                        // 阶段1：下载（持有 semaphore）
                         downloadLimiter.acquire();
+                        Path partFile;
                         try {
-                            downloadOneWithRetry(t);
-                            completed.addAndGet(t.getSize());
-                            if (onBytes != null) onBytes.accept(completed.get());
-                            if (onFileDone != null) onFileDone.accept(t.getRelativePath());
+                            partFile = downloadOneWithRetry(t);
                         } finally {
                             downloadLimiter.release();
                         }
+                        // 阶段2：SHA1 校验（已释放 semaphore，不占用下载槽位）
+                        if (partFile != null) {
+                            verifyAndRename(t, partFile);
+                        }
+                        completed.addAndGet(t.getSize());
+                        if (onBytes != null) onBytes.accept(completed.get());
+                        if (onFileDone != null) onFileDone.accept(t.getRelativePath());
                     } catch (IOException e) {
                         throw new RuntimeException("下载失败: " + t.getUrl(), e);
                     } catch (InterruptedException e) {
@@ -232,12 +239,15 @@ public final class DownloadManager {
                 });
     }
 
-    private void downloadOneWithRetry(DownloadTask task) throws IOException {
+    /**
+     * 下载单文件（带重试），返回 .part 文件路径（未校验未重命名）。
+     * 返回 null 表示文件已存在且 SHA1 匹配，无需下载。
+     */
+    private Path downloadOneWithRetry(DownloadTask task) throws IOException {
         IOException last = null;
         for (int i = 0; i <= retryCount; i++) {
             try {
-                downloadOne(task);
-                return;
+                return downloadOne(task);
             } catch (IOException e) {
                 last = e;
                 // 指数退避 + 随机抖动：避免高并发下所有失败任务同步重试（thundering herd）
@@ -252,7 +262,27 @@ public final class DownloadManager {
         throw last;
     }
 
-    private void downloadOne(DownloadTask task) throws IOException {
+    /**
+     * SHA1 校验并原子重命名。校验失败删除 .part 文件并抛异常。
+     */
+    private void verifyAndRename(DownloadTask task, Path partFile) throws IOException {
+        Path target = config.getWorkDir().resolve(task.getRelativePath());
+        if (task.getSha1() != null && !task.getSha1().isEmpty()) {
+            String actual = sha1Async(partFile);
+            if (!actual.equalsIgnoreCase(task.getSha1())) {
+                Files.deleteIfExists(partFile);
+                throw new IOException("SHA1 校验失败: " + task.getRelativePath() +
+                        " 期望=" + task.getSha1() + " 实际=" + actual);
+            }
+        }
+        Files.move(partFile, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+    }
+
+    /**
+     * 下载单文件到 .part 文件（不校验不重命名），返回 .part 路径。
+     * 返回 null 表示文件已存在且 SHA1 匹配，无需下载。
+     */
+    private Path downloadOne(DownloadTask task) throws IOException {
         Path target = config.getWorkDir().resolve(task.getRelativePath());
         Files.createDirectories(target.getParent());
 
@@ -260,7 +290,7 @@ public final class DownloadManager {
         if (Files.exists(target) && task.getSha1() != null && !task.getSha1().isEmpty()) {
             String existing = sha1Async(target);
             if (existing.equalsIgnoreCase(task.getSha1())) {
-                return;
+                return null;
             }
         }
 
@@ -326,18 +356,8 @@ public final class DownloadManager {
             }
         }
 
-        // 校验：仅当原任务提供 SHA1 时校验
-        if (task.getSha1() != null && !task.getSha1().isEmpty()) {
-            String actual = sha1Async(partFile);
-            if (!actual.equalsIgnoreCase(task.getSha1())) {
-                Files.deleteIfExists(partFile);
-                throw new IOException("SHA1 校验失败: " + task.getRelativePath() +
-                        " 期望=" + task.getSha1() + " 实际=" + actual);
-            }
-        }
-
-        // 完成后原子重命名
-        Files.move(partFile, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        // 返回 .part 路径，校验和重命名由调用方在释放 semaphore 后执行
+        return partFile;
     }
 
     /**
@@ -385,7 +405,7 @@ public final class DownloadManager {
     /**
      * 下载到指定绝对路径，带字节进度回调。
      * <p>
-     * 使用 {@link Files#copy} 写入（自动截断旧文件），256KB 缓冲区。
+     * 支持断点续传（.download 文件）和限速，256KB 缓冲区。
      * 大文件下载请显式调用 {@link #downloadChunked}。
      *
      * @param url       资源 URL（会被镜像重写）
@@ -396,41 +416,75 @@ public final class DownloadManager {
         Files.createDirectories(target.getParent());
         String rewritten = rewrite(url);
 
-        // 先写入临时文件，完成后原子重命名（避免旧文件残留导致损坏）
+        // 断点续传：使用 .download 文件
         Path tmp = target.resolveSibling(target.getFileName() + ".download");
-        Request req = new Request.Builder().url(rewritten).get().build();
+        long existingSize = 0;
+        if (enableResume && Files.exists(tmp)) {
+            existingSize = Files.size(tmp);
+        }
+
         IOException last = null;
         for (int i = 0; i <= retryCount; i++) {
+            Request.Builder reqBuilder = new Request.Builder().url(rewritten).get();
+            if (enableResume && existingSize > 0) {
+                reqBuilder.header("Range", "bytes=" + existingSize + "-");
+            }
+            Request req = reqBuilder.build();
             try (Response resp = http.newCall(req).execute()) {
-                if (!resp.isSuccessful()) {
-                    throw new IOException("下载失败 code=" + resp.code() + " url=" + url);
+                int code = resp.code();
+                boolean rangeOk = (code == 206);
+                boolean fullOk = (code == 200);
+                if (!rangeOk && !fullOk) {
+                    throw new IOException("下载失败 code=" + code + " url=" + url);
                 }
-                // 用 Files.copy 写入临时文件（自动截断/创建），再用 InputStream 逐块读取做进度回调
+                long startPos = rangeOk ? existingSize : 0L;
+                if (fullOk && Files.exists(tmp)) {
+                    Files.deleteIfExists(tmp);
+                    existingSize = 0;
+                    startPos = 0;
+                }
                 if (resp.body() == null) throw new IOException("响应体为空: " + url);
                 try (InputStream in = resp.body().byteStream()) {
-                    if (onProgress == null) {
-                        Files.copy(in, tmp, StandardCopyOption.REPLACE_EXISTING);
-                    } else {
-                        // 带进度回调：用 256KB 缓冲区逐块写入
-                        try (RandomAccessFile raf = new RandomAccessFile(tmp.toFile(), "rw")) {
-                            raf.setLength(0); // 显式截断，避免旧临时文件残留
-                            byte[] buf = new byte[BUFFER_SIZE];
-                            int n;
-                            long total = 0;
-                            long lastNotify = 0;
-                            while ((n = in.read(buf)) != -1) {
-                                raf.write(buf, 0, n);
-                                total += n;
-                                // 节流：50ms 内只通知一次，避免高频回调导致 UI 抖动
+                    try (RandomAccessFile raf = new RandomAccessFile(tmp.toFile(), "rw")) {
+                        raf.seek(startPos);
+                        byte[] buf = new byte[BUFFER_SIZE];
+                        long lastThrottleTime = System.currentTimeMillis();
+                        long bytesInWindow = 0;
+                        long lastNotify = 0;
+                        long total = startPos;
+                        int n;
+                        while ((n = in.read(buf)) != -1) {
+                            raf.write(buf, 0, n);
+                            total += n;
+                            bytesInWindow += n;
+
+                            // 限速
+                            if (speedLimitBytesPerSec > 0) {
+                                long now = System.currentTimeMillis();
+                                long elapsed = now - lastThrottleTime;
+                                if (elapsed >= 100) {
+                                    long allowed = (speedLimitBytesPerSec * elapsed) / 1000L;
+                                    if (bytesInWindow > allowed) {
+                                        long sleepMs = (bytesInWindow - allowed) * 1000L / speedLimitBytesPerSec;
+                                        try { Thread.sleep(sleepMs); } catch (InterruptedException ie) {
+                                            Thread.currentThread().interrupt();
+                                        }
+                                    }
+                                    lastThrottleTime = System.currentTimeMillis();
+                                    bytesInWindow = 0;
+                                }
+                            }
+
+                            // 进度节流
+                            if (onProgress != null) {
                                 long t = System.currentTimeMillis();
                                 if (t - lastNotify >= PROGRESS_THROTTLE_MS) {
                                     lastNotify = t;
                                     onProgress.accept(total);
                                 }
                             }
-                            // 最终通知确保进度准确
-                            onProgress.accept(total);
                         }
+                        if (onProgress != null) onProgress.accept(total);
                     }
                 }
                 // 原子重命名
@@ -438,12 +492,18 @@ public final class DownloadManager {
                 return;
             } catch (IOException e) {
                 last = e;
+                // 更新已下载大小用于下次重试续传
+                if (enableResume && Files.exists(tmp)) {
+                    try { existingSize = Files.size(tmp); } catch (Exception ignored) {}
+                }
                 // SSL 握手失败：立即 fallback 到 curl（不重试 OkHttp）
                 if (CurlFallback.isSslHandshakeFailure(e) && CurlFallback.isAvailable()) {
                     CurlFallback.downloadFile(rewritten, target);
                     return;
                 }
-                try { Thread.sleep(500L * (i + 1)); } catch (InterruptedException ie) {
+                long base = 500L * (1L << i);
+                long jitter = (long) (Math.random() * 200);
+                try { Thread.sleep(base + jitter); } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
                     throw e;
                 }
