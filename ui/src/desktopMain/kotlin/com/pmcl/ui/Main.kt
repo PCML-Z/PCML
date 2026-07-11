@@ -64,8 +64,9 @@ fun main() = application {
             DisposableEffect(Unit) {
                 // 设置 AWT 背景为主题色（不透明），shape 会裁剪掉圆角外区域
                 window.background = java.awt.Color(surface.red, surface.green, surface.blue)
+                // AWT shape 圆角比 Compose clip 小 2px，让 Compose 抗锯齿边缘画在不透明背景上遮盖锯齿
                 val updateShape = {
-                    val arc = if (window.extendedState == Frame.MAXIMIZED_BOTH) 0.0 else 14.0
+                    val arc = if (window.extendedState == Frame.MAXIMIZED_BOTH) 0.0 else 12.0
                     window.shape = RoundRectangle2D.Double(
                         0.0, 0.0,
                         window.width.toDouble(), window.height.toDouble(),
