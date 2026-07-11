@@ -8,11 +8,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.outlined.Translate
 import androidx.compose.material3.*
@@ -20,9 +21,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.mods.ModConflictChecker
 import com.pmcl.core.mods.ModMeta
+import com.pmcl.ui.animation.AnimatedSegmentedSelector
 import com.pmcl.ui.animation.StaggeredAppear
 import com.pmcl.ui.viewmodel.LauncherViewModel
 
@@ -42,16 +45,13 @@ fun ModsPage(vm: LauncherViewModel) {
 
     LaunchedEffect(Unit) { vm.refreshInstalledMods() }
 
-    // 提取所有加载器类型（用于筛选 chips）
     val loaders = remember(installedMods) {
         installedMods.map { it.getLoader() ?: "unknown" }.distinct().sorted()
     }
-    // 提取所有来源（游戏版本/整合包）标签
     val sources = remember(installedMods) {
         installedMods.map { it.getSource() ?: "未知" }.distinct().sorted()
     }
 
-    // 搜索 + 来源筛选 + 加载器筛选 + 排序
     val processedMods = remember(installedMods, query, selectedLoader, selectedSource, sortBy) {
         var list = if (query.isBlank()) installedMods
         else installedMods.filter {
@@ -69,22 +69,39 @@ fun ModsPage(vm: LauncherViewModel) {
             ModSort.NAME -> list.sortedBy { (it.getName() ?: "").lowercase() }
             ModSort.VERSION -> list.sortedBy { (it.getVersion() ?: "").lowercase() }
             ModSort.LOADER -> list.sortedBy { (it.getLoader() ?: "").lowercase() }
-            ModSort.STATUS -> list.sortedByDescending { it.isDisabled() } // 启用在前
+            ModSort.STATUS -> list.sortedByDescending { it.isDisabled() }
         }
     }
 
+    val enabledCount = installedMods.count { !it.isDisabled() }
+    val disabledCount = installedMods.size - enabledCount
+    val hasFilter = query.isNotBlank() || selectedLoader != null || selectedSource != null
+
     Column(Modifier.fillMaxSize().padding(16.dp)) {
+        // === 顶部栏：标题 + 计数 + 操作按钮 ===
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("模组管理", style = MaterialTheme.typography.headlineSmall,
                  fontWeight = FontWeight.Bold)
+            Spacer(Modifier.width(8.dp))
+            Surface(
+                color = MaterialTheme.colorScheme.primaryContainer,
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Text(
+                    "${installedMods.size}",
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
             Spacer(Modifier.weight(1f))
-            // 翻译开关
+            // 翻译开关（图标按钮）
             FilterChip(
                 selected = translateEnabled,
                 onClick = {
                     translateEnabled = !translateEnabled
                     if (translateEnabled) {
-                        // 收集所有 name + description 并批量翻译
                         val texts = installedMods.flatMap {
                             listOfNotNull(it.getName(), it.getDescription())
                         }.distinct()
@@ -103,76 +120,43 @@ fun ModsPage(vm: LauncherViewModel) {
                     }
                 }
             )
-            Spacer(Modifier.width(8.dp))
-            OutlinedButton(onClick = { vm.openModsDir() }) {
-                Text("打开目录")
+            Spacer(Modifier.width(6.dp))
+            // 打开目录（图标按钮）
+            IconButton(onClick = { vm.openModsDir() }) {
+                Icon(Icons.Filled.Folder, contentDescription = "打开目录", modifier = Modifier.size(18.dp))
             }
-            Spacer(Modifier.width(8.dp))
-            OutlinedButton(onClick = vm::refreshInstalledMods) {
-                Icon(Icons.Filled.Refresh, contentDescription = null,
-                     modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(4.dp))
-                Text("刷新")
+            // 刷新（图标按钮）
+            IconButton(onClick = vm::refreshInstalledMods) {
+                Icon(Icons.Filled.Refresh, contentDescription = "刷新", modifier = Modifier.size(18.dp))
             }
         }
-        Spacer(Modifier.height(8.dp))
-        Text("目录：${vm.config.getWorkDir().resolve("mods")}",
-             style = MaterialTheme.typography.labelSmall,
-             color = MaterialTheme.colorScheme.outline)
 
-        // === 搜索框 ===
-        Spacer(Modifier.height(12.dp))
-        OutlinedTextField(
-            value = query,
-            onValueChange = { query = it },
-            modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("搜索模组名 / ID / 加载器…") },
-            leadingIcon = { Icon(Icons.Filled.Search, null, Modifier.size(18.dp)) },
-            singleLine = true,
-            shape = RoundedCornerShape(12.dp)
+        // === 元信息行：目录路径 + 状态 ===
+        Text(
+            "目录：${vm.config.getWorkDir().resolve("mods")}  ·  状态：$status",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.outline,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
 
-        // === 来源（游戏版本/整合包）筛选 ===
-        if (sources.size > 1 || (sources.size == 1 && sources[0] != "全局")) {
-            Spacer(Modifier.height(8.dp))
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Text("来源：", style = MaterialTheme.typography.labelMedium,
-                     color = MaterialTheme.colorScheme.outline)
-                val sourceItems = listOf("全部") + sources
-                com.pmcl.ui.animation.AnimatedSegmentedSelector(
-                    items = sourceItems,
-                    selectedIndex = if (selectedSource == null) 0
-                        else sourceItems.indexOf(selectedSource).coerceAtLeast(0),
-                    onSelect = { selectedSource = if (it == 0) null else sourceItems[it] },
-                    height = 30.dp
-                )
-            }
-        }
-
-        // === 加载器筛选 + 排序 ===
-        Spacer(Modifier.height(8.dp))
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Text("加载器：", style = MaterialTheme.typography.labelMedium,
-                 color = MaterialTheme.colorScheme.outline)
-            val loaderItems = listOf("全部") + loaders
-            com.pmcl.ui.animation.AnimatedSegmentedSelector(
-                items = loaderItems,
-                selectedIndex = if (selectedLoader == null) 0
-                    else loaderItems.indexOf(selectedLoader).coerceAtLeast(0),
-                onSelect = { selectedLoader = if (it == 0) null else loaderItems[it] },
-                height = 30.dp
+        // === 搜索 + 排序 ===
+        Spacer(Modifier.height(10.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                modifier = Modifier.weight(1f),
+                placeholder = { Text("搜索模组名 / ID / 加载器…") },
+                leadingIcon = { Icon(Icons.Filled.Search, null, Modifier.size(18.dp)) },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp)
             )
-            Spacer(Modifier.weight(1f))
+            Spacer(Modifier.width(8.dp))
             // 排序下拉
             Box {
                 OutlinedButton(onClick = { sortExpanded = true }) {
-                    Icon(Icons.AutoMirrored.Filled.Sort, null, Modifier.size(16.dp))
+                    Icon(Icons.Filled.Sort, null, Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
                     Text(sortBy.label)
                     Icon(Icons.Filled.ArrowDropDown, null, Modifier.size(16.dp))
@@ -188,24 +172,55 @@ fun ModsPage(vm: LauncherViewModel) {
             }
         }
 
-        Spacer(Modifier.height(12.dp))
-
-        // 冲突报告
-        val conflictsData = conflicts
-        if (conflictsData != null && conflictsData.hasIssues()) {
-            ConflictCard(conflictsData)
-            Spacer(Modifier.height(12.dp))
+        // === 筛选条：来源 + 加载器（单行横向滚动） ===
+        val showSourceFilter = sources.size > 1 || (sources.size == 1 && sources[0] != "全局")
+        if (showSourceFilter || loaders.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (showSourceFilter) {
+                    val sourceItems = listOf("来源") + sources
+                    AnimatedSegmentedSelector(
+                        items = sourceItems,
+                        selectedIndex = if (selectedSource == null) 0
+                            else sourceItems.indexOf(selectedSource).coerceAtLeast(0),
+                        onSelect = { selectedSource = if (it == 0) null else sourceItems[it] },
+                        height = 30.dp
+                    )
+                }
+                if (loaders.isNotEmpty()) {
+                    val loaderItems = listOf("加载器") + loaders
+                    AnimatedSegmentedSelector(
+                        items = loaderItems,
+                        selectedIndex = if (selectedLoader == null) 0
+                            else loaderItems.indexOf(selectedLoader).coerceAtLeast(0),
+                        onSelect = { selectedLoader = if (it == 0) null else loaderItems[it] },
+                        height = 30.dp
+                    )
+                }
+            }
         }
 
-        // 已安装列表
-        val enabledCount = installedMods.count { !it.isDisabled() }
-        val disabledCount = installedMods.size - enabledCount
-        Text("已安装（${installedMods.size}：启用 $enabledCount / 禁用 $disabledCount）" +
-             if (query.isNotBlank() || selectedLoader != null || selectedSource != null)
-                 " · 当前显示 ${processedMods.size}" else "",
-             style = MaterialTheme.typography.titleMedium,
-             fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.height(8.dp))
+        // === 冲突报告 ===
+        val conflictsData = conflicts
+        if (conflictsData != null && conflictsData.hasIssues()) {
+            Spacer(Modifier.height(10.dp))
+            ConflictCard(conflictsData)
+        }
+
+        // === 列表标题 ===
+        Spacer(Modifier.height(10.dp))
+        Text(
+            "启用 $enabledCount · 禁用 $disabledCount" +
+            if (hasFilter) " · 当前显示 ${processedMods.size}" else "",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold
+        )
+        Spacer(Modifier.height(6.dp))
+
+        // === 已安装列表 ===
         if (processedMods.isEmpty()) {
             Surface(
                 color = MaterialTheme.colorScheme.surfaceVariant,
@@ -230,9 +245,6 @@ fun ModsPage(vm: LauncherViewModel) {
                 }
             }
         }
-        Spacer(Modifier.height(8.dp))
-        Text("状态：$status", style = MaterialTheme.typography.labelSmall,
-             color = MaterialTheme.colorScheme.outline)
     }
 }
 
@@ -260,73 +272,109 @@ private fun ModRow(
         shape = RoundedCornerShape(8.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column(Modifier.padding(12.dp)) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+            // 第一行：名称 + 版本 + 标签 + 操作按钮
             Row(verticalAlignment = Alignment.CenterVertically) {
+                // 状态指示点
+                Icon(
+                    Icons.Filled.Circle,
+                    contentDescription = null,
+                    modifier = Modifier.size(6.dp),
+                    tint = if (m.isDisabled()) MaterialTheme.colorScheme.outline
+                           else MaterialTheme.colorScheme.primary
+                )
+                Spacer(Modifier.width(6.dp))
                 Text(
                     displayName + if (m.isDisabled()) "（已禁用）" else "",
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     color = if (m.isDisabled()) MaterialTheme.colorScheme.outline
                             else MaterialTheme.colorScheme.onSurface
                 )
-                AssistChip(onClick = {}, label = { Text(m.getLoader() ?: "unknown") })
+                Text("v${m.getVersion() ?: "?"}",
+                     style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.outline)
                 Spacer(Modifier.width(6.dp))
-                AssistChip(
-                    onClick = {},
-                    label = { Text(m.getSource() ?: "未知") },
-                    colors = AssistChipDefaults.assistChipColors(
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer
+                // 加载器标签
+                Surface(
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    shape = RoundedCornerShape(6.dp)
+                ) {
+                    Text(
+                        m.getLoader() ?: "unknown",
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
                     )
-                )
+                }
+                Spacer(Modifier.width(4.dp))
+                // 来源标签
+                Surface(
+                    color = MaterialTheme.colorScheme.tertiaryContainer,
+                    shape = RoundedCornerShape(6.dp)
+                ) {
+                    Text(
+                        m.getSource() ?: "未知",
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                    )
+                }
                 Spacer(Modifier.width(8.dp))
-                Text("v${m.getVersion() ?: "?"}", style = MaterialTheme.typography.labelSmall)
+                // 启用/禁用 + 删除（图标按钮，紧凑内联）
+                if (m.isDisabled()) {
+                    IconButton(
+                        onClick = { vm.enableMod(m.getJarFile()) },
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(Icons.Filled.PlayArrow, contentDescription = "启用",
+                             modifier = Modifier.size(16.dp),
+                             tint = MaterialTheme.colorScheme.primary)
+                    }
+                } else {
+                    IconButton(
+                        onClick = { vm.disableMod(m.getJarFile()) },
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(Icons.Filled.Pause, contentDescription = "禁用",
+                             modifier = Modifier.size(16.dp))
+                    }
+                }
+                IconButton(
+                    onClick = { showDeleteDialog = true },
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(Icons.Filled.Delete, contentDescription = "删除",
+                         modifier = Modifier.size(16.dp),
+                         tint = MaterialTheme.colorScheme.error)
+                }
             }
+
+            // 第二行：描述（可选）
             if (!displayDesc.isNullOrEmpty()) {
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(2.dp))
                 Text(displayDesc,
                      style = MaterialTheme.typography.bodySmall,
                      color = MaterialTheme.colorScheme.onSurfaceVariant,
-                     maxLines = 2)
-            }
-            Spacer(Modifier.height(4.dp))
-            Text("${m.getJarFile() ?: "?"}  ·  ${m.getModId() ?: "?"}",
-                 style = MaterialTheme.typography.labelSmall,
-                 color = MaterialTheme.colorScheme.outline)
-            val authors = m.getAuthors()
-            if (!authors.isNullOrEmpty()) {
-                Text("作者：$authors",
-                     style = MaterialTheme.typography.labelSmall,
-                     color = MaterialTheme.colorScheme.outline)
+                     maxLines = 2,
+                     overflow = TextOverflow.Ellipsis)
             }
 
-            Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (m.isDisabled()) {
-                    TextButton(onClick = { vm.enableMod(m.getJarFile()) }) {
-                        Icon(Icons.Filled.PlayArrow, null, Modifier.size(14.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("启用")
-                    }
-                } else {
-                    TextButton(onClick = { vm.disableMod(m.getJarFile()) }) {
-                        Icon(Icons.Filled.Pause, null, Modifier.size(14.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("禁用")
-                    }
-                }
-                Spacer(Modifier.width(8.dp))
-                TextButton(
-                    onClick = { showDeleteDialog = true },
-                    colors = ButtonDefaults.textButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    )
-                ) {
-                    Icon(Icons.Filled.Delete, contentDescription = null,
-                         modifier = Modifier.size(14.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("删除")
-                }
+            // 第三行：元数据（jar · modId · 作者）合并为一行
+            val authors = m.getAuthors()
+            val meta = buildString {
+                append(m.getJarFile() ?: "?")
+                append("  ·  ").append(m.getModId() ?: "?")
+                if (!authors.isNullOrEmpty()) append("  ·  作者：").append(authors)
             }
+            Spacer(Modifier.height(2.dp))
+            Text(meta,
+                 style = MaterialTheme.typography.labelSmall,
+                 color = MaterialTheme.colorScheme.outline,
+                 maxLines = 1,
+                 overflow = TextOverflow.Ellipsis)
         }
     }
 

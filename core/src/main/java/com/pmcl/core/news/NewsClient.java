@@ -167,6 +167,7 @@ public final class NewsClient {
             Request req = new Request.Builder()
                     .url(articleUrl)
                     .header("User-Agent", "PMCL/1.0")
+                    .header("Accept", "text/html, */*")
                     .get()
                     .build();
             Exception last = null;
@@ -180,6 +181,15 @@ public final class NewsClient {
                     return extractArticleContent(html, articleUrl);
                 } catch (Exception e) {
                     last = e;
+                    // SSL 握手失败：立即 fallback 到 curl（与 fetch() 一致）
+                    if (CurlFallback.isSslHandshakeFailure(e) && CurlFallback.isAvailable()) {
+                        try {
+                            String html = CurlFallback.getString(articleUrl);
+                            return extractArticleContent(html, articleUrl);
+                        } catch (Exception curlEx) {
+                            throw new RuntimeException("抓取文章失败（curl fallback）：" + curlEx.getMessage(), curlEx);
+                        }
+                    }
                     if (attempt < RETRY) {
                         try {
                             Thread.sleep(RETRY_BASE_MS * (1L << attempt));
@@ -190,8 +200,17 @@ public final class NewsClient {
                     }
                 }
             }
+            // 所有重试失败后，最后尝试 curl
+            if (CurlFallback.isAvailable()) {
+                try {
+                    String html = CurlFallback.getString(articleUrl);
+                    return extractArticleContent(html, articleUrl);
+                } catch (Exception curlEx) {
+                    throw new RuntimeException("抓取文章失败（curl fallback）：" + curlEx.getMessage(), curlEx);
+                }
+            }
             String msg = last != null ? last.getMessage() : "未知错误";
-            throw new RuntimeException("抓取文章失败：" + msg, last);
+            throw new RuntimeException(friendlyError(msg), last);
         });
     }
 

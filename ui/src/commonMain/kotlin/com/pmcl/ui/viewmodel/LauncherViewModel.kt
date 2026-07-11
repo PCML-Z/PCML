@@ -255,6 +255,8 @@ class LauncherViewModel {
 
     private val _translating = MutableStateFlow(false)
     val translating: StateFlow<Boolean> = _translating.asStateFlow()
+    /** 并发翻译计数器：>0 时 _translating 为 true，用于 UI 显示「翻译中…」 */
+    private val translateCounter = java.util.concurrent.atomic.AtomicInteger(0)
 
     // ===== 多人联机 =====
     private val _mpState = MutableStateFlow<com.pmcl.core.multiplayer.MultiplayerManager.State>(
@@ -1967,50 +1969,63 @@ class LauncherViewModel {
      * 翻译单段文本（带缓存）。
      * 如果已翻译过则直接返回缓存，否则调用 TranslateClient。
      * UI 层通过 [translationCache] 观察翻译结果。
+     * 允许多条并发翻译，互不阻塞。
      */
     fun translateText(text: String) {
         if (text.isBlank()) return
-        // 已缓存：跳过
         if (_translationCache.value.containsKey(text)) return
-        if (_translating.value) return
 
+        translateCounter.incrementAndGet()
+        _translating.value = true
         scope.launch {
-            _translating.value = true
             try {
                 val result = withContext(Dispatchers.IO) {
                     core.translate().translate(text)
                 }
-                _translationCache.value = _translationCache.value + (text to result)
+                // 失败时 translate 返回原文：不缓存，以便后续重试
+                if (result != text) {
+                    _translationCache.value = _translationCache.value + (text to result)
+                }
             } catch (_: Throwable) {
-                // 翻译失败：不阻断 UI
             } finally {
-                _translating.value = false
+                if (translateCounter.decrementAndGet() <= 0) {
+                    _translating.value = false
+                }
             }
         }
     }
 
     /**
      * 批量翻译（带缓存，跳过已翻译的）。
+     * 并行翻译，允许与 [translateText] 同时调用。
      * @param texts 待翻译文本列表
      */
     fun translateBatch(texts: List<String>) {
         val pending = texts.filter { it.isNotBlank() && !_translationCache.value.containsKey(it) }
-        if (pending.isEmpty() || _translating.value) return
+        if (pending.isEmpty()) return
 
+        translateCounter.incrementAndGet()
+        _translating.value = true
         scope.launch {
-            _translating.value = true
             try {
                 val results = withContext(Dispatchers.IO) {
                     core.translate().translateBatchAsync(pending).join()
                 }
                 val newMap = _translationCache.value.toMutableMap()
                 for (i in pending.indices) {
-                    newMap[pending[i]] = results[i]
+                    val original = pending[i]
+                    val translated = results[i]
+                    // 失败时 translate 返回原文：不缓存，以便后续重试
+                    if (translated != original) {
+                        newMap[original] = translated
+                    }
                 }
                 _translationCache.value = newMap
             } catch (_: Throwable) {
             } finally {
-                _translating.value = false
+                if (translateCounter.decrementAndGet() <= 0) {
+                    _translating.value = false
+                }
             }
         }
     }
