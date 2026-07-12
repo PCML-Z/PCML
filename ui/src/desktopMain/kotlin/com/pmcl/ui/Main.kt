@@ -215,26 +215,22 @@ private fun FrameWindowScope.BorderlessTitleBar(
         modifier = Modifier.fillMaxWidth().height(38.dp)
     ) {
         Row(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .then(windowDragModifier(isDragging)),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 拖拽区域 + 标题
-            Row(
-                modifier = Modifier
-                    .then(windowDragModifier(isDragging))
-                    .padding(start = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    "PMCL — Minecraft Launcher",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1
-                )
-            }
+            // 标题
+            Text(
+                "PMCL — Minecraft Launcher",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                modifier = Modifier.padding(start = 12.dp)
+            )
             Spacer(Modifier.width(12.dp))
-            // 搜索框
+            // 搜索框（自身消耗指针事件，不会触发拖动）
             TopBarSearchField(
                 modifier = Modifier.width(280.dp),
                 vm = vm,
