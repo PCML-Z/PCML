@@ -265,9 +265,10 @@ public final class TerracottaManager {
                 // 异步读取进程输出，同时解析日志文件路径
                 java.util.concurrent.atomic.AtomicReference<String> logPathRef =
                         new java.util.concurrent.atomic.AtomicReference<>(null);
+                final Process procForThread = process;
                 outputThread = new Thread(() -> {
                     try (java.io.BufferedReader reader = new java.io.BufferedReader(
-                            new java.io.InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+                            new java.io.InputStreamReader(procForThread.getInputStream(), StandardCharsets.UTF_8))) {
                         String line;
                         while ((line = reader.readLine()) != null) {
                             if (progress != null) {
@@ -644,7 +645,7 @@ public final class TerracottaManager {
             String name;
             if (tmpl.contains("gitee.com")) name = "Gitee 镜像";
             else if (tmpl.startsWith("https://github.com")) name = "GitHub 直连";
-            else name = tmpl.split("//")[1].split("/")[0];
+            else name = safeHostname(tmpl);
             try {
                 if (progress != null) progress.accept("下载中（" + name + "）…");
                 Request req = new Request.Builder().url(url).header("User-Agent", "PMCL/1.0").get().build();
@@ -731,7 +732,10 @@ public final class TerracottaManager {
                             && !lowerName.endsWith(".zip");
                     // 也兼容直接叫 terracotta / terracotta.exe 的情况
                     if (lowerName.endsWith("terracotta") || lowerName.endsWith("terracotta.exe") || isBinary) {
-                        // 读取文件内容
+                        // 读取文件内容（校验大小防止 OOM/NegativeArraySizeException）
+                        if (size > 200L * 1024 * 1024 || size > Integer.MAX_VALUE) {
+                            throw new IOException("tar 条目过大: " + name + " (" + size + " bytes)");
+                        }
                         byte[] content = new byte[(int) size];
                         readFully(gz, content);
                         Files.write(outBinary, content);
@@ -771,6 +775,15 @@ public final class TerracottaManager {
 
     private static boolean isWindows() {
         return System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("win");
+    }
+
+    /** 从 URL 模板中安全提取 hostname，split 失败时返回原始模板 */
+    private static String safeHostname(String url) {
+        try {
+            return new java.net.URI(url).getHost();
+        } catch (Exception e) {
+            return url;
+        }
     }
 
     /** Asset 规格 */

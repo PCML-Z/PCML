@@ -53,7 +53,11 @@ public final class MicrosoftAuthFlow {
 
     private final OkHttpClient http;
     private final Gson gson = new Gson();
-    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread t = new Thread(r, "msauth-scheduler");
+        t.setDaemon(true);
+        return t;
+    });
 
     public MicrosoftAuthFlow() {
         this.http = new OkHttpClient.Builder()

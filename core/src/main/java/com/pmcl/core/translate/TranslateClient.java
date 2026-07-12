@@ -272,8 +272,8 @@ public class TranslateClient {
             translated = MULTI_SPACE.matcher(translated).replaceAll(" ").trim();
 
             // MyMemory 偶尔返回 "MYMEMORY WARNING" 等错误信息
-            if (translated.toUpperCase().contains("MYMEMORY WARNING")
-                    || translated.toUpperCase().contains("INVALID")) {
+            if (translated.toUpperCase(java.util.Locale.ROOT).contains("MYMEMORY WARNING")
+                    || translated.toUpperCase(java.util.Locale.ROOT).contains("INVALID")) {
                 return null;
             }
             return translated.isBlank() ? null : translated;

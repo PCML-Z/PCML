@@ -125,8 +125,10 @@ public final class Library {
             JsonObject rule = e.getAsJsonObject();
             String action = rule.has("action") && !rule.get("action").isJsonNull()
                     ? rule.get("action").getAsString() : "";
-            if (rule.has("os")) {
-                String ruleOs = rule.getAsJsonObject("os").get("name").getAsString();
+            if (rule.has("os") && !rule.get("os").isJsonNull()) {
+                JsonObject osObj = rule.getAsJsonObject("os");
+                if (!osObj.has("name") || osObj.get("name").isJsonNull()) continue;
+                String ruleOs = osObj.get("name").getAsString();
                 if (!ruleOs.equals(osName)) continue;
             }
             allowed = "allow".equals(action);
@@ -144,7 +146,7 @@ public final class Library {
     public String getNativeClassifier() {
         if (natives == null) return null;
         String os = currentOsName();
-        if (!natives.has(os)) return null;
+        if (!natives.has(os) || natives.get(os).isJsonNull()) return null;
         String classifier = natives.get(os).getAsString();
 
         // ARM64 架构：优先尝试 arm64 classifier（LWJGL 3.x 提供原生 arm64 支持）

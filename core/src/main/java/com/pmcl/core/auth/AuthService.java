@@ -101,7 +101,8 @@ public final class AuthService {
                 ));
             }
         }
-        String selected = root.has("selected") ? root.get("selected").getAsString() : null;
+        String selected = root.has("selected") && !root.get("selected").isJsonNull()
+                ? root.get("selected").getAsString() : null;
         return new AccountStore(accounts, selected);
     }
 

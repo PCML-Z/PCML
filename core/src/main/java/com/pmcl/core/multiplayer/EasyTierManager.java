@@ -382,9 +382,10 @@ public final class EasyTierManager {
                 process = pb.start();
 
                 // 异步读取输出
+                final Process procForThread = process;
                 outputThread = new Thread(() -> {
                     try (BufferedReader reader = new BufferedReader(
-                            new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+                            new InputStreamReader(procForThread.getInputStream(), StandardCharsets.UTF_8))) {
                         String line;
                         while ((line = reader.readLine()) != null) {
                             if (onOutput != null) {
@@ -506,6 +507,15 @@ public final class EasyTierManager {
         return System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("win");
     }
 
+    /** 从 URL 模板中安全提取 hostname，split 失败时返回原始模板 */
+    private static String safeHostname(String url) {
+        try {
+            return new java.net.URI(url).getHost();
+        } catch (Exception e) {
+            return url;
+        }
+    }
+
     // resolveAssetName 已废弃：改用 GitHub API 动态查询 asset 列表 + 平台匹配，见 matchAsset()
 
     /**
@@ -524,7 +534,7 @@ public final class EasyTierManager {
             String url = String.format(tmpl, githubPath);
             String mirrorName = tmpl.startsWith("https://github.com")
                     ? "GitHub 直连"
-                    : tmpl.split("/")[2];
+                    : safeHostname(tmpl);
             // 每个镜像重试 2 次
             for (int retry = 0; retry < 2; retry++) {
                 try {

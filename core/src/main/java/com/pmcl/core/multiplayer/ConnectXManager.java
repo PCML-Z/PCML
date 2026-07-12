@@ -107,9 +107,10 @@ public final class ConnectXManager {
 
                 // 异步读取输出
                 final CompletableFuture<Void> connectedFuture = new CompletableFuture<>();
+                final Process procForThread = process;
                 outputThread = new Thread(() -> {
                     try (BufferedReader reader = new BufferedReader(
-                            new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+                            new InputStreamReader(procForThread.getInputStream(), StandardCharsets.UTF_8))) {
                         String line;
                         while ((line = reader.readLine()) != null) {
                             if (onOutput != null) {
@@ -250,13 +251,27 @@ public final class ConnectXManager {
 
     /** 写入 appsettings.json */
     private void writeAppSettings(String serverAddr, int serverPort) throws IOException {
-        String escapedAddr = serverAddr.replace("\\", "\\\\").replace("\"", "\\\"");
-        String json = String.format(
-                "{\"Serilog\":{\"Using\":[\"Serilog.Sinks.File\",\"Serilog.Sinks.Console\"],\"WriteTo\":[" +
-                "{\"Name\":\"Console\",\"Args\":{\"outputTemplate\":\"[{Timestamp:yy-MM-dd HH:mm:ss} {Level:u3}]: {Message:lj}{NewLine}{Exception}\"}}]," +
-                "\"MinimumLevel\":{\"Default\":\"Information\",\"Override\":{\"Microsoft\":\"Warning\",\"System\":\"Warning\"}}}," +
-                "\"Server\":{\"ListenPort\":%d,\"ListenAddress\":\"%s\"}}",
-                serverPort, escapedAddr);
+        // 用 Gson 构造 JSON，确保所有特殊字符（\n \r \t " \）正确转义
+        com.google.gson.Gson gson = new com.google.gson.Gson();
+        java.util.Map<String, Object> root = new java.util.LinkedHashMap<>();
+        java.util.Map<String, Object> serilog = new java.util.LinkedHashMap<>();
+        serilog.put("Using", java.util.List.of("Serilog.Sinks.File", "Serilog.Sinks.Console"));
+        java.util.Map<String, Object> writeTo = new java.util.LinkedHashMap<>();
+        writeTo.put("Name", "Console");
+        java.util.Map<String, Object> args = new java.util.LinkedHashMap<>();
+        args.put("outputTemplate", "[{Timestamp:yy-MM-dd HH:mm:ss} {Level:u3}]: {Message:lj}{NewLine}{Exception}");
+        writeTo.put("Args", args);
+        serilog.put("WriteTo", java.util.List.of(writeTo));
+        java.util.Map<String, Object> minLevel = new java.util.LinkedHashMap<>();
+        minLevel.put("Default", "Information");
+        minLevel.put("Override", java.util.Map.of("Microsoft", "Warning", "System", "Warning"));
+        serilog.put("MinimumLevel", minLevel);
+        root.put("Serilog", serilog);
+        java.util.Map<String, Object> server = new java.util.LinkedHashMap<>();
+        server.put("ListenPort", serverPort);
+        server.put("ListenAddress", serverAddr);
+        root.put("Server", server);
+        String json = gson.toJson(root);
         Files.write(workDir.resolve("appsettings.json"), json.getBytes(StandardCharsets.UTF_8));
     }
 

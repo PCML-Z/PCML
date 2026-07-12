@@ -67,7 +67,9 @@ public final class DataCache {
             wrapper.put("data", data);
             Files.writeString(file, GSON.toJson(wrapper));
             memCache.put(key, new CacheEntry<>(data, System.currentTimeMillis()));
-        } catch (Throwable ignored) {}
+        } catch (Exception e) {
+            System.err.println("[DataCache] save failed for " + key + ": " + e.getMessage());
+        }
     }
 
     /**

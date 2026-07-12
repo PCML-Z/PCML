@@ -2082,14 +2082,15 @@ public final class PmclCli {
             if (java.nio.file.Files.exists(cacheDir)) {
                 long[] size = {0};
                 long[] count = {0};
-                java.nio.file.Files.walk(cacheDir)
-                        .filter(java.nio.file.Files::isRegularFile)
+                try (var stream = java.nio.file.Files.walk(cacheDir)) {
+                    stream.filter(java.nio.file.Files::isRegularFile)
                         .forEach(p -> {
                             try {
                                 size[0] += java.nio.file.Files.size(p);
                                 count[0]++;
                             } catch (java.io.IOException ignored) {}
                         });
+                }
                 System.out.printf("  Files: %d%n", count[0]);
                 System.out.printf("  Total size: %s%n", formatSize(size[0]));
             } else {

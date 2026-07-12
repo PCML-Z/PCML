@@ -208,7 +208,7 @@ object HmclEmbedder {
             log("PMCL icon resource not found in plugin classpath")
             return
         }
-        val iconImage = Image(iconStream)
+        val iconImage = iconStream.use { Image(it) }
         if (iconImage.isError) {
             log("Failed to load PMCL icon: ${iconImage.exception?.message}")
             return
