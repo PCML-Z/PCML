@@ -80,6 +80,13 @@ public final class I18n {
         ZH.put("nav.datapacks", "数据包");
         ZH.put("nav.configs", "配置文件");
 
+        // ===== 搜索 =====
+        ZH.put("search.button", "搜索功能");
+        ZH.put("search.placeholder", "搜索功能…");
+        ZH.put("search.no_results", "无匹配结果");
+        ZH.put("search.hint", "↑↓ 导航 · Enter 选择 · Esc 关闭");
+        ZH.put("search.results_count", "{0} 项结果");
+
         // ===== 启动页 =====
         ZH.put("launch.title", "启动游戏");
         ZH.put("launch.select_version", "选择版本");
@@ -442,6 +449,13 @@ public final class I18n {
         EN.put("nav.datapacks", "Datapacks");
         EN.put("nav.configs", "Configs");
 
+        // ===== Search =====
+        EN.put("search.button", "Search");
+        EN.put("search.placeholder", "Search features…");
+        EN.put("search.no_results", "No matching results");
+        EN.put("search.hint", "↑↓ Navigate · Enter Select · Esc Close");
+        EN.put("search.results_count", "{0} results");
+
         EN.put("launch.title", "Launch Game");
         EN.put("launch.select_version", "Select version");
         EN.put("launch.start", "Launch");
@@ -784,6 +798,13 @@ public final class I18n {
         JA.put("nav.resourcepacks", "リソースパック");
         JA.put("nav.datapacks", "データパック");
         JA.put("nav.configs", "設定ファイル");
+
+        // ===== 検索 =====
+        JA.put("search.button", "検索");
+        JA.put("search.placeholder", "機能を検索…");
+        JA.put("search.no_results", "一致する結果なし");
+        JA.put("search.hint", "↑↓ 移動 · Enter 選択 · Esc 閉じる");
+        JA.put("search.results_count", "{0} 件");
 
         JA.put("launch.title", "ゲーム起動");
         JA.put("launch.select_version", "バージョン選択");

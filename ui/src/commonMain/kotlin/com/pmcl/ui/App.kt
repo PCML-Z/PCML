@@ -2,13 +2,17 @@ package com.pmcl.ui
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.key.*
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
 import com.pmcl.core.plugin.PluginManager
@@ -18,6 +22,7 @@ import com.pmcl.ui.animation.SlideInFromStart
 import com.pmcl.ui.navigation.NavDestination
 import com.pmcl.ui.navigation.allDestinations
 import com.pmcl.ui.page.AccountsPage
+import com.pmcl.ui.page.CommandPalette
 import com.pmcl.ui.page.ContentHubPage
 import com.pmcl.ui.page.DownloadHubPage
 import com.pmcl.ui.page.LaunchPage
@@ -180,37 +185,112 @@ private fun MainWindowContent(vm: LauncherViewModel) {
             }
         }
 
-        Box(Modifier.weight(1f).fillMaxHeight()) {
-            EntranceAnimation(delayMs = 120, durationMs = 400, offsetDp = 32) {
-                AnimatedPageSwitch(targetState = current) { target ->
-                    when (target) {
-                        is NavTarget.BuiltIn -> when (target.dest) {
-                            NavDestination.Launch      -> LaunchPage(vm)
-                            NavDestination.News        -> NewsPage(vm)
-                            NavDestination.Multiplayer -> MultiplayerPage(vm)
-                            NavDestination.Download    -> DownloadHubPage(vm)
-                            NavDestination.Content     -> ContentHubPage(vm)
-                            NavDestination.Saves       -> SavesHubPage(vm)
-                            NavDestination.Statistics  -> StatisticsPage(vm)
-                            NavDestination.Accounts    -> AccountsPage(vm)
-                            NavDestination.Settings    -> SettingsPage(vm)
-                            NavDestination.Terminal    -> TerminalPage(vm)
-                            NavDestination.Plugins     -> PluginPage(vm)
+        var showCommandPalette by remember { mutableStateOf(false) }
+
+        Box(
+            Modifier
+                .weight(1f)
+                .fillMaxHeight()
+                .onPreviewKeyEvent { event ->
+                    if (event.type == KeyEventType.KeyDown &&
+                        event.key == Key.K &&
+                        (event.isCtrlPressed || event.isMetaPressed)
+                    ) {
+                        showCommandPalette = true
+                        true
+                    } else false
+                }
+        ) {
+            val currentNav = current
+
+            Column(Modifier.fillMaxSize()) {
+                // 顶部栏
+                Surface(
+                    tonalElevation = 2.dp,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        val title = when (val t = currentNav) {
+                            is NavTarget.BuiltIn -> I18n.t(t.dest.labelKey)
+                            is NavTarget.PluginPage -> t.page.title
                         }
-                        is NavTarget.PluginPage -> {
-                            // Render the plugin's composable content
-                            target.page.content.invoke()
+                        Text(
+                            title,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(Modifier.weight(1f))
+                        OutlinedButton(
+                            onClick = { showCommandPalette = true },
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Icon(Icons.Filled.Search, null, Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(I18n.t("search.button"), style = MaterialTheme.typography.labelMedium)
+                            Spacer(Modifier.width(8.dp))
+                            Surface(
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                shape = RoundedCornerShape(4.dp)
+                            ) {
+                                Text(
+                                    "Ctrl K",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
                 }
+
+                // 页面内容
+                Box(Modifier.weight(1f).fillMaxHeight()) {
+                    EntranceAnimation(delayMs = 120, durationMs = 400, offsetDp = 32) {
+                        AnimatedPageSwitch(targetState = current) { target ->
+                            when (target) {
+                                is NavTarget.BuiltIn -> when (target.dest) {
+                                    NavDestination.Launch      -> LaunchPage(vm)
+                                    NavDestination.News        -> NewsPage(vm)
+                                    NavDestination.Multiplayer -> MultiplayerPage(vm)
+                                    NavDestination.Download    -> DownloadHubPage(vm)
+                                    NavDestination.Content     -> ContentHubPage(vm)
+                                    NavDestination.Saves       -> SavesHubPage(vm)
+                                    NavDestination.Statistics  -> StatisticsPage(vm)
+                                    NavDestination.Accounts    -> AccountsPage(vm)
+                                    NavDestination.Settings    -> SettingsPage(vm)
+                                    NavDestination.Terminal    -> TerminalPage(vm)
+                                    NavDestination.Plugins     -> PluginPage(vm)
+                                }
+                                is NavTarget.PluginPage -> {
+                                    target.page.content.invoke()
+                                }
+                            }
+                        }
+                    }
+                    SnackbarHost(
+                        hostState = snackbarHostState,
+                        modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp)
+                    )
+                }
             }
-            // 崩溃恢复操作反馈消息（覆盖在页面内容底部）
-            androidx.compose.material3.SnackbarHost(
-                hostState = snackbarHostState,
-                modifier = Modifier.align(androidx.compose.ui.Alignment.BottomCenter).padding(16.dp)
+
+            // 命令面板（全局搜索）
+            CommandPalette(
+                visible = showCommandPalette,
+                onDismiss = { showCommandPalette = false },
+                onNavigate = { route, tabIndex ->
+                    val target = allDestinations.firstOrNull { it.route == route }
+                    if (target != null) {
+                        current = NavTarget.BuiltIn(target)
+                        if (tabIndex >= 0) vm.requestHubTab(route, tabIndex)
+                    }
+                }
             )
         }
-    }
+    } // close Row
 
     // ===== 全局：游戏安装前弹窗（询问是否同时安装模组加载器）=====
     // 放在全局层级，无论用户在哪个页面安装游戏都会触发弹窗，且避免多页面重复弹窗

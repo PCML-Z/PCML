@@ -16,6 +16,17 @@ import com.pmcl.ui.viewmodel.LauncherViewModel
 @Composable
 fun DownloadHubPage(vm: LauncherViewModel) {
     var tab by remember { mutableStateOf(0) }
+
+    // 监听命令面板的 Tab 跳转请求
+    val hubTabRequest by vm.hubTabRequest.collectAsState()
+    LaunchedEffect(hubTabRequest) {
+        val req = hubTabRequest ?: return@LaunchedEffect
+        if (req.first == "download" && req.second in 0..3) {
+            tab = req.second
+            vm.clearHubTabRequest()
+        }
+    }
+
     val summary by vm.queueSummary.collectAsState()
 
     Column(Modifier.fillMaxSize()) {

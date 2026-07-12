@@ -325,6 +325,12 @@ class LauncherViewModel {
     val navigationRequest: StateFlow<String?> = _navigationRequest.asStateFlow()
     fun clearNavigationRequest() { _navigationRequest.value = null }
 
+    /** Hub 页面 Tab 跳转请求：命令面板可请求跳转到 Hub 页面的指定 Tab */
+    private val _hubTabRequest = MutableStateFlow<Pair<String, Int>?>(null)
+    val hubTabRequest: StateFlow<Pair<String, Int>?> = _hubTabRequest.asStateFlow()
+    fun requestHubTab(route: String, tabIndex: Int) { _hubTabRequest.value = route to tabIndex }
+    fun clearHubTabRequest() { _hubTabRequest.value = null }
+
     // ===== 游戏安装前询问事件（用于弹窗询问是否同时安装模组加载器）=====
     /**
      * 用户点击安装游戏时触发的事件（安装开始前）。

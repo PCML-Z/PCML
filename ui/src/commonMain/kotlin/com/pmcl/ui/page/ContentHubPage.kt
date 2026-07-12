@@ -27,6 +27,16 @@ import com.pmcl.ui.viewmodel.LauncherViewModel
 fun ContentHubPage(vm: LauncherViewModel) {
     var tab by remember { mutableStateOf(0) }
 
+    // 监听命令面板的 Tab 跳转请求
+    val hubTabRequest by vm.hubTabRequest.collectAsState()
+    LaunchedEffect(hubTabRequest) {
+        val req = hubTabRequest ?: return@LaunchedEffect
+        if (req.first == "content" && req.second in 0..5) {
+            tab = req.second
+            vm.clearHubTabRequest()
+        }
+    }
+
     val mods by vm.installedMods.collectAsState()
     val shaders by vm.shaderPacks.collectAsState()
     val resources by vm.resourcePacks.collectAsState()

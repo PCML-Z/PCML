@@ -15,6 +15,16 @@ import com.pmcl.ui.viewmodel.LauncherViewModel
 fun SavesHubPage(vm: LauncherViewModel) {
     var tab by remember { mutableStateOf(0) }
 
+    // 监听命令面板的 Tab 跳转请求
+    val hubTabRequest by vm.hubTabRequest.collectAsState()
+    LaunchedEffect(hubTabRequest) {
+        val req = hubTabRequest ?: return@LaunchedEffect
+        if (req.first == "saves" && req.second in 0..1) {
+            tab = req.second
+            vm.clearHubTabRequest()
+        }
+    }
+
     Column(Modifier.fillMaxSize()) {
         TabRow(selectedTabIndex = tab) {
             listOf(I18n.t("nav.worlds"), I18n.t("nav.screenshots")).forEachIndexed { i, label ->
