@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -993,8 +994,19 @@ fun LaunchPage(vm: LauncherViewModel) {
                         Text("（暂无日志）", color = MaterialTheme.colorScheme.outline)
                     }
                 } else {
-                    LazyColumn(Modifier.padding(8.dp)) {
-                        itemsIndexed(gameLogs.takeLast(500), key = { index, _ -> "log-$index" }) { _, line ->
+                    val logListState = rememberLazyListState()
+                    val displayedLogs = gameLogs.takeLast(500)
+                    // 日志更新时平滑滚动到底部
+                    LaunchedEffect(displayedLogs.size) {
+                        if (displayedLogs.isNotEmpty()) {
+                            logListState.animateScrollToItem(displayedLogs.lastIndex)
+                        }
+                    }
+                    LazyColumn(
+                        modifier = Modifier.padding(8.dp),
+                        state = logListState
+                    ) {
+                        itemsIndexed(displayedLogs, key = { index, _ -> "log-$index" }) { _, line ->
                             Text(line, style = MaterialTheme.typography.bodySmall,
                                  fontFamily = FontFamily.Monospace)
                         }
