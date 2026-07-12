@@ -1182,7 +1182,8 @@ fun ModLoaderInstallPromptDialog(
                     ModLoader.FABRIC to "Fabric",
                     ModLoader.FORGE to "Forge",
                     ModLoader.QUILT to "Quilt",
-                    ModLoader.NEOFORGE to "NeoForge"
+                    ModLoader.NEOFORGE to "NeoForge",
+                    ModLoader.OPTIFINE to "OptiFine"
                 )
                 val loaderLabels = loaderOptions.map { it.second }
                 val loaderIndex = loaderOptions.indexOfFirst { it.first == selectedLoader }.coerceAtLeast(0)
@@ -1218,6 +1219,19 @@ fun ModLoaderInstallPromptDialog(
                         ) {
                             items(modLoaderVersions.take(20), key = { it.getLoaderVersion() }) { lv ->
                                 val isSelected = selectedLoaderVersion == lv.getLoaderVersion()
+                                // OptiFine 版本编码为 "type|patch[|forge]"，显示时解码
+                                val displayVersion = remember(lv) {
+                                    val raw = lv.getLoaderVersion()
+                                    if (lv.getLoader() == ModLoader.OPTIFINE) {
+                                        val parts = raw.split("|")
+                                        if (parts.size >= 2) {
+                                            val type = parts[0]
+                                            val patch = parts[1]
+                                            val forge = parts.size >= 3 && parts[2] == "forge"
+                                            (if (forge) "[Forge] " else "") + type + " " + patch
+                                        } else raw
+                                    } else raw
+                                }
                                 Surface(
                                     onClick = {
                                         if (!installing) selectedLoaderVersion = lv.getLoaderVersion()
@@ -1233,7 +1247,7 @@ fun ModLoaderInstallPromptDialog(
                                     ) {
                                         Column(Modifier.weight(1f)) {
                                             Text(
-                                                lv.getLoaderVersion(),
+                                                displayVersion,
                                                 style = MaterialTheme.typography.bodySmall,
                                                 fontWeight = if (isSelected) FontWeight.Bold
                                                              else FontWeight.Normal

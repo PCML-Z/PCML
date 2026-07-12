@@ -111,6 +111,7 @@ public final class I18n {
         ZH.put("launch.server_hint", "启动后自动连接指定服务器，对应 --server / --port 参数");
         ZH.put("launch.running_instances", "运行中实例");
         ZH.put("launch.active", "活跃");
+        ZH.put("launch.optifine_needs_forge", "此 OptiFine 版本需要先安装 Forge");
 
         // ===== 下载页 =====
         ZH.put("download.refresh", "刷新版本列表");
@@ -461,6 +462,7 @@ public final class I18n {
         EN.put("launch.server_hint", "Auto-connect to the specified server on launch (--server / --port)");
         EN.put("launch.running_instances", "Running Instances");
         EN.put("launch.active", "Active");
+        EN.put("launch.optifine_needs_forge", "This OptiFine version requires Forge to be installed first");
 
         EN.put("download.refresh", "Refresh versions");
         EN.put("download.install", "Install");
@@ -793,6 +795,7 @@ public final class I18n {
         JA.put("launch.server_hint", "起動後に指定サーバーへ自動接続（--server / --port）");
         JA.put("launch.running_instances", "実行中インスタンス");
         JA.put("launch.active", "アクティブ");
+        JA.put("launch.optifine_needs_forge", "この OptiFine バージョンは Forge の先行インストールが必要です");
 
         JA.put("download.refresh", "バージョン一覧を更新");
         JA.put("download.install", "インストール");
