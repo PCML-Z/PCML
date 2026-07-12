@@ -89,9 +89,20 @@ fun LaunchPage(vm: LauncherViewModel) {
     val format = remember { SimpleDateFormat("yyyy-MM-dd HH:mm") }
     val formatRelative = remember { SimpleDateFormat("MM-dd HH:mm") }
 
+    // 预计算本地版本 ID 集合，避免在多处重复 O(n) 线性查找
+    val localInfoIds = remember(localInfos) { localInfos.mapNotNull { it.getId() }.toHashSet() }
+    // 预计算固定磁贴 ID 集合，供列表项 O(1) 查询是否已固定
+    val pinnedIds = remember(pinned) { pinned.toHashSet() }
+
+    // 预计算最近使用（与固定磁贴去重），避免在 LazyListScope 中重复过滤
+    val recentNotPinned = remember(recents, pinnedIds, localInfoIds) {
+        recents.filter { vid -> vid !in pinnedIds && vid in localInfoIds }
+    }
+
     // 当前选中版本是否已安装（含 jar/json 才算可启动；仅有 json 也算"已安装"以便下载 client.jar）
-    val isInstalled = remember(selected, localInfos) {
-        selected != null && localInfos.any { it.getId() == selected }
+    // 使用 HashSet 查找将 O(n) 降为 O(1)，remember 缓存避免重复计算
+    val isInstalled = remember(selected, localInfoIds) {
+        selected != null && selected in localInfoIds
     }
 
     // 磁贴操作对话框状态
@@ -282,10 +293,7 @@ fun LaunchPage(vm: LauncherViewModel) {
             }
 
             // ===== 最近使用（LRU，自动记录） =====
-            // 与固定磁贴去重，避免同一版本出现两次
-            val recentNotPinned = recents.filter { vid ->
-                vid !in pinned && localInfos.any { it.getId() == vid }
-            }
+            // recentNotPinned 已在顶层用 remember 预计算
             if (recentNotPinned.isNotEmpty()) {
                 item {
                     Spacer(Modifier.height(12.dp))
@@ -348,7 +356,7 @@ fun LaunchPage(vm: LauncherViewModel) {
                         LocalVersionRow(
                             info = info,
                             selected = info.getId() == selected,
-                            pinned = pinned.contains(info.getId()),
+                            pinned = info.getId() in pinnedIds,
                             format = format,
                             onClick = { vm.selectVersion(info.getId()) },
                             onPin = { vm.pinVersion(info.getId()) },
@@ -421,7 +429,7 @@ fun LaunchPage(vm: LauncherViewModel) {
                             id = v.getId(),
                             type = v.getType(),
                             selected = v.getId() == selected,
-                            installed = localInfos.any { it.getId() == v.getId() },
+                            installed = v.getId() in localInfoIds,
                             onClick = { vm.selectVersion(v.getId()) }
                         )
                     }
@@ -999,7 +1007,8 @@ fun LaunchPage(vm: LauncherViewModel) {
                     }
                 } else {
                     val logListState = rememberLazyListState()
-                    val displayedLogs = gameLogs.takeLast(500)
+                    // remember 缓存避免每次重组都创建新列表
+                    val displayedLogs = remember(gameLogs) { gameLogs.takeLast(500) }
                     // 日志更新时平滑滚动到底部
                     LaunchedEffect(displayedLogs.size) {
                         if (displayedLogs.isNotEmpty()) {

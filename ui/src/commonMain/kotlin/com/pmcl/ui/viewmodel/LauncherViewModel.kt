@@ -3242,9 +3242,10 @@ class LauncherViewModel {
                 val latency = withContext(Dispatchers.IO) {
                     com.pmcl.core.multiplayer.ServerPinger.ping(host, port)
                 }
-                _serverPings.value = _serverPings.value + (key to latency)
+                // 使用 update 原子更新，避免并发 ping 完成时读-改-写丢失更新
+                _serverPings.update { it + (key to latency) }
             } catch (e: Throwable) {
-                _serverPings.value = _serverPings.value + (key to com.pmcl.core.multiplayer.ServerPinger.UNREACHABLE)
+                _serverPings.update { it + (key to com.pmcl.core.multiplayer.ServerPinger.UNREACHABLE) }
             }
         }
     }

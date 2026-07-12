@@ -1,5 +1,7 @@
 package com.pmcl.core.multiplayer;
 
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -49,8 +51,8 @@ public final class ServerPinger {
             socket.connect(new InetSocketAddress(host, port), timeout);
             socket.setSoTimeout(timeout);
 
-            DataOutputStream out = new DataOutputStream(socket.getOutputStream());
-            DataInputStream in = new DataInputStream(socket.getInputStream());
+            DataOutputStream out = new DataOutputStream(new BufferedOutputStream(socket.getOutputStream()));
+            DataInputStream in = new DataInputStream(new BufferedInputStream(socket.getInputStream()));
 
             // 构造 Handshake 包
             byte[] hostBytes = host.getBytes(StandardCharsets.UTF_8);

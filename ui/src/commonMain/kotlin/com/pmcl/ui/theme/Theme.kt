@@ -10,6 +10,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.TextUnit
@@ -86,29 +87,33 @@ fun LauncherTheme(
 
 /**
  * 根据 uiScale 缩放 Material3 Typography 中所有 TextStyle 的 fontSize。
+ * 使用 remember 缓存，仅在 scale 变化时重建 15 个 TextStyle，避免每次重组都分配对象。
  */
 @Composable
 private fun rememberScaledTypography(scale: Float): Typography {
-    val base = Typography()
-    if (scale == 1.0f) return base
-    val s = { sp: TextUnit -> (sp.value * scale).sp }
-    return Typography(
-        displayLarge = base.displayLarge.scale(s),
-        displayMedium = base.displayMedium.scale(s),
-        displaySmall = base.displaySmall.scale(s),
-        headlineLarge = base.headlineLarge.scale(s),
-        headlineMedium = base.headlineMedium.scale(s),
-        headlineSmall = base.headlineSmall.scale(s),
-        titleLarge = base.titleLarge.scale(s),
-        titleMedium = base.titleMedium.scale(s),
-        titleSmall = base.titleSmall.scale(s),
-        bodyLarge = base.bodyLarge.scale(s),
-        bodyMedium = base.bodyMedium.scale(s),
-        bodySmall = base.bodySmall.scale(s),
-        labelLarge = base.labelLarge.scale(s),
-        labelMedium = base.labelMedium.scale(s),
-        labelSmall = base.labelSmall.scale(s)
-    )
+    // scale == 1.0f 时返回默认 Typography 单例，避免不必要的对象分配
+    return remember(scale) {
+        val base = Typography()
+        if (scale == 1.0f) return@remember base
+        val s = { sp: TextUnit -> (sp.value * scale).sp }
+        Typography(
+            displayLarge = base.displayLarge.scale(s),
+            displayMedium = base.displayMedium.scale(s),
+            displaySmall = base.displaySmall.scale(s),
+            headlineLarge = base.headlineLarge.scale(s),
+            headlineMedium = base.headlineMedium.scale(s),
+            headlineSmall = base.headlineSmall.scale(s),
+            titleLarge = base.titleLarge.scale(s),
+            titleMedium = base.titleMedium.scale(s),
+            titleSmall = base.titleSmall.scale(s),
+            bodyLarge = base.bodyLarge.scale(s),
+            bodyMedium = base.bodyMedium.scale(s),
+            bodySmall = base.bodySmall.scale(s),
+            labelLarge = base.labelLarge.scale(s),
+            labelMedium = base.labelMedium.scale(s),
+            labelSmall = base.labelSmall.scale(s)
+        )
+    }
 }
 
 private fun TextStyle.scale(s: (TextUnit) -> TextUnit): TextStyle = copy(

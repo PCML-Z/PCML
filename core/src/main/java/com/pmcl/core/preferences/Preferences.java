@@ -77,31 +77,46 @@ public final class Preferences {
     private int connectxServerPort = 3535;         // ConnectX 服务器端口
     private String connectxBinaryPath = "";        // ConnectX.ClientConsole 二进制路径
 
+    // ===== 防抖磁盘写入（性能优化）=====
+    // 每次 setter 只标记 dirty 并调度一次延迟写入，连续修改（如拖动 UI 缩放滑块）只会触发一次磁盘 IO。
+    // 内存状态始终即时更新（synchronized 保护），仅磁盘写入被合并。
+    private volatile boolean dirty = false;
+    private final java.util.concurrent.ScheduledExecutorService saveExecutor =
+        java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "pmcl-prefs-writer");
+            t.setDaemon(true);
+            return t;
+        });
+    private java.util.concurrent.ScheduledFuture<?> pendingSave = null;
+    private static final long SAVE_DEBOUNCE_MS = 200;
+
     public Preferences(Path file) {
         this.file = file;
         load();
+        // JVM 退出时强制刷新未落盘的修改，避免防抖导致数据丢失
+        Runtime.getRuntime().addShutdownHook(new Thread(this::flush, "pmcl-prefs-shutdown"));
     }
 
     public synchronized boolean isUseDarkTheme() { return useDarkTheme; }
-    public synchronized void setUseDarkTheme(boolean v) { useDarkTheme = v; save(); }
+    public synchronized void setUseDarkTheme(boolean v) { useDarkTheme = v; scheduleSave(); }
     public synchronized boolean isDynamicColor() { return dynamicColor; }
-    public synchronized void setDynamicColor(boolean v) { dynamicColor = v; save(); }
+    public synchronized void setDynamicColor(boolean v) { dynamicColor = v; scheduleSave(); }
     public synchronized int getCustomAccentColor() { return customAccentColor; }
-    public synchronized void setCustomAccentColor(int v) { customAccentColor = v; save(); }
+    public synchronized void setCustomAccentColor(int v) { customAccentColor = v; scheduleSave(); }
 
     public synchronized boolean isBorderlessWindow() { return borderlessWindow; }
-    public synchronized void setBorderlessWindow(boolean v) { borderlessWindow = v; save(); }
+    public synchronized void setBorderlessWindow(boolean v) { borderlessWindow = v; scheduleSave(); }
 
     /** UI 缩放系数，范围 0.8~1.5，默认 1.0 */
     public synchronized float getUiScale() { return uiScale; }
-    public synchronized void setUiScale(float v) { uiScale = Math.max(0.7f, Math.min(1.6f, v)); save(); }
+    public synchronized void setUiScale(float v) { uiScale = Math.max(0.7f, Math.min(1.6f, v)); scheduleSave(); }
 
     public synchronized String getLanguage() { return language; }
-    public synchronized void setLanguage(String v) { language = v; save(); }
+    public synchronized void setLanguage(String v) { language = v; scheduleSave(); }
 
     /** 首次启动欢迎流程是否已完成 */
     public synchronized boolean isFirstLaunchCompleted() { return firstLaunchCompleted; }
-    public synchronized void setFirstLaunchCompleted(boolean v) { firstLaunchCompleted = v; save(); }
+    public synchronized void setFirstLaunchCompleted(boolean v) { firstLaunchCompleted = v; scheduleSave(); }
 
     /** 返回固定磁贴列表的副本（避免外部原地修改导致 StateFlow 引用比较失效） */
     public synchronized java.util.List<String> getPinnedVersions() {
@@ -109,12 +124,12 @@ public final class Preferences {
     }
 
     public synchronized void setPinnedVersions(java.util.List<String> v) {
-        pinnedVersions = new java.util.ArrayList<>(v); save();
+        pinnedVersions = new java.util.ArrayList<>(v); scheduleSave();
     }
 
     public synchronized void pinVersion(String versionId) {
         if (!pinnedVersions.contains(versionId)) {
-            pinnedVersions.add(versionId); save();
+            pinnedVersions.add(versionId); scheduleSave();
         }
     }
 
@@ -122,7 +137,7 @@ public final class Preferences {
         pinnedVersions.remove(versionId);
         // 同步清理磁贴自定义名称
         pinnedTileLabels.remove(versionId);
-        save();
+        scheduleSave();
     }
 
     public synchronized boolean isPinned(String versionId) {
@@ -146,7 +161,7 @@ public final class Preferences {
         } else {
             pinnedTileLabels.put(versionId, label);
         }
-        save();
+        scheduleSave();
     }
 
     // ===== 最近使用（LRU，最多 5 个） =====
@@ -162,22 +177,22 @@ public final class Preferences {
         while (recentVersions.size() > 5) {
             recentVersions.remove(recentVersions.size() - 1);
         }
-        save();
+        scheduleSave();
     }
 
     public synchronized void clearRecentVersions() {
-        recentVersions.clear(); save();
+        recentVersions.clear(); scheduleSave();
     }
 
     /** 从最近使用列表移除某版本（版本被删除时清理用） */
     public synchronized void removeRecentVersion(String versionId) {
-        if (recentVersions.remove(versionId)) save();
+        if (recentVersions.remove(versionId)) scheduleSave();
     }
 
     // ===== 最后选中版本（启动时恢复） =====
     public synchronized String getLastSelectedVersion() { return lastSelectedVersion; }
     public synchronized void setLastSelectedVersion(String v) {
-        lastSelectedVersion = v == null ? "" : v; save();
+        lastSelectedVersion = v == null ? "" : v; scheduleSave();
     }
 
     // ===== 最后游玩时间戳（versionId → epoch millis） =====
@@ -191,31 +206,31 @@ public final class Preferences {
     }
 
     public synchronized void setLastPlayedTime(String versionId, long epochMillis) {
-        lastPlayedTimes.put(versionId, epochMillis); save();
+        lastPlayedTimes.put(versionId, epochMillis); scheduleSave();
     }
 
     /** 移除某版本的最后游玩时间记录（版本被删除时清理用） */
     public synchronized void removeLastPlayedTime(String versionId) {
-        if (lastPlayedTimes.remove(versionId) != null) save();
+        if (lastPlayedTimes.remove(versionId) != null) scheduleSave();
     }
 
     public synchronized String getCustomJvmArgs() { return customJvmArgs; }
-    public synchronized void setCustomJvmArgs(String v) { customJvmArgs = v; save(); }
+    public synchronized void setCustomJvmArgs(String v) { customJvmArgs = v; scheduleSave(); }
 
     public synchronized String getGcType() { return gcType; }
-    public synchronized void setGcType(String v) { gcType = v; save(); }
+    public synchronized void setGcType(String v) { gcType = v; scheduleSave(); }
 
     public synchronized boolean isUseAikarFlags() { return useAikarFlags; }
-    public synchronized void setUseAikarFlags(boolean v) { useAikarFlags = v; save(); }
+    public synchronized void setUseAikarFlags(boolean v) { useAikarFlags = v; scheduleSave(); }
 
     public synchronized int getMinMemoryMb() { return minMemoryMb; }
-    public synchronized void setMinMemoryMb(int v) { minMemoryMb = v; save(); }
+    public synchronized void setMinMemoryMb(int v) { minMemoryMb = v; scheduleSave(); }
 
     public synchronized int getMaxMemoryMb() { return maxMemoryMb; }
-    public synchronized void setMaxMemoryMb(int v) { maxMemoryMb = v; save(); }
+    public synchronized void setMaxMemoryMb(int v) { maxMemoryMb = v; scheduleSave(); }
 
     public synchronized String getJavaPath() { return javaPath; }
-    public synchronized void setJavaPath(String v) { javaPath = v == null ? "" : v; save(); }
+    public synchronized void setJavaPath(String v) { javaPath = v == null ? "" : v; scheduleSave(); }
 
     /** 获取指定版本的独立 Java 路径，未配置返回空字符串 */
     public synchronized String getVersionJavaPath(String versionId) {
@@ -232,7 +247,7 @@ public final class Preferences {
         } else {
             versionJavaPaths.put(versionId, javaPath);
         }
-        save();
+        scheduleSave();
     }
 
     /** 返回所有已配置独立 Java 的版本 ID 集合 */
@@ -243,28 +258,28 @@ public final class Preferences {
     // ===== 游戏通用行为 =====
     public synchronized int getGameWindowWidth() { return gameWindowWidth; }
     public synchronized void setGameWindowWidth(int v) {
-        gameWindowWidth = Math.max(1, v); save();
+        gameWindowWidth = Math.max(1, v); scheduleSave();
     }
 
     public synchronized int getGameWindowHeight() { return gameWindowHeight; }
     public synchronized void setGameWindowHeight(int v) {
-        gameWindowHeight = Math.max(1, v); save();
+        gameWindowHeight = Math.max(1, v); scheduleSave();
     }
 
     public synchronized boolean isGameFullscreen() { return gameFullscreen; }
-    public synchronized void setGameFullscreen(boolean v) { gameFullscreen = v; save(); }
+    public synchronized void setGameFullscreen(boolean v) { gameFullscreen = v; scheduleSave(); }
 
     public synchronized boolean isGameDemo() { return gameDemo; }
-    public synchronized void setGameDemo(boolean v) { gameDemo = v; save(); }
+    public synchronized void setGameDemo(boolean v) { gameDemo = v; scheduleSave(); }
 
     public synchronized String getGameServerHost() { return gameServerHost; }
     public synchronized void setGameServerHost(String v) {
-        gameServerHost = v == null ? "" : v.trim(); save();
+        gameServerHost = v == null ? "" : v.trim(); scheduleSave();
     }
 
     public synchronized int getGameServerPort() { return gameServerPort; }
     public synchronized void setGameServerPort(int v) {
-        if (v > 0 && v < 65536) gameServerPort = v; save();
+        if (v > 0 && v < 65536) gameServerPort = v; scheduleSave();
     }
 
     // ===== 收藏服务器列表 =====
@@ -277,13 +292,13 @@ public final class Preferences {
     public synchronized void addFavoriteServer(String name, String host, int port) {
         String n = (name == null || name.isBlank()) ? (host + ":" + port) : name.trim();
         favoriteServers.add(new String[]{n, host.trim(), String.valueOf(port)});
-        save();
+        scheduleSave();
     }
 
     public synchronized void removeFavoriteServer(int index) {
         if (index >= 0 && index < favoriteServers.size()) {
             favoriteServers.remove(index);
-            save();
+            scheduleSave();
         }
     }
 
@@ -291,7 +306,7 @@ public final class Preferences {
         if (index >= 0 && index < favoriteServers.size()) {
             String n = (name == null || name.isBlank()) ? (host + ":" + port) : name.trim();
             favoriteServers.set(index, new String[]{n, host.trim(), String.valueOf(port)});
-            save();
+            scheduleSave();
         }
     }
 
@@ -303,56 +318,56 @@ public final class Preferences {
         if (upper.equals("OPENGL") || upper.equals("VULKAN") || upper.equals("AUTO")) {
             gameRenderer = upper;
         }
-        save();
+        scheduleSave();
     }
 
     /** 自定义游戏窗口图标 PNG 路径（空则使用 MC 默认图标） */
     public synchronized String getWindowIconPath() { return windowIconPath; }
     public synchronized void setWindowIconPath(String v) {
-        windowIconPath = v == null ? "" : v.trim(); save();
+        windowIconPath = v == null ? "" : v.trim(); scheduleSave();
     }
 
     // ===== 网络配置 =====
     public synchronized String getMirrorType() { return mirrorType; }
-    public synchronized void setMirrorType(String v) { mirrorType = v; save(); }
+    public synchronized void setMirrorType(String v) { mirrorType = v; scheduleSave(); }
 
     public synchronized String getCustomMirrorBase() { return customMirrorBase; }
-    public synchronized void setCustomMirrorBase(String v) { customMirrorBase = v; save(); }
+    public synchronized void setCustomMirrorBase(String v) { customMirrorBase = v; scheduleSave(); }
 
     public synchronized boolean isUseProxy() { return useProxy; }
-    public synchronized void setUseProxy(boolean v) { useProxy = v; save(); }
+    public synchronized void setUseProxy(boolean v) { useProxy = v; scheduleSave(); }
 
     public synchronized String getProxyHost() { return proxyHost; }
-    public synchronized void setProxyHost(String v) { proxyHost = v; save(); }
+    public synchronized void setProxyHost(String v) { proxyHost = v; scheduleSave(); }
 
     public synchronized int getProxyPort() { return proxyPort; }
-    public synchronized void setProxyPort(int v) { proxyPort = v; save(); }
+    public synchronized void setProxyPort(int v) { proxyPort = v; scheduleSave(); }
 
     public synchronized boolean isUseHttpAuth() { return useHttpAuth; }
-    public synchronized void setUseHttpAuth(boolean v) { useHttpAuth = v; save(); }
+    public synchronized void setUseHttpAuth(boolean v) { useHttpAuth = v; scheduleSave(); }
 
     public synchronized String getProxyUsername() { return proxyUsername; }
-    public synchronized void setProxyUsername(String v) { proxyUsername = v; save(); }
+    public synchronized void setProxyUsername(String v) { proxyUsername = v; scheduleSave(); }
 
     public synchronized String getProxyPassword() { return proxyPassword; }
-    public synchronized void setProxyPassword(String v) { proxyPassword = v; save(); }
+    public synchronized void setProxyPassword(String v) { proxyPassword = v; scheduleSave(); }
 
     public synchronized int getDownloadSpeedLimitKb() { return downloadSpeedLimitKb; }
-    public synchronized void setDownloadSpeedLimitKb(int v) { downloadSpeedLimitKb = v; save(); }
+    public synchronized void setDownloadSpeedLimitKb(int v) { downloadSpeedLimitKb = v; scheduleSave(); }
 
     public synchronized int getDownloadRetryCount() { return downloadRetryCount; }
-    public synchronized void setDownloadRetryCount(int v) { downloadRetryCount = v; save(); }
+    public synchronized void setDownloadRetryCount(int v) { downloadRetryCount = v; scheduleSave(); }
 
     public synchronized boolean isEnableResume() { return enableResume; }
-    public synchronized void setEnableResume(boolean v) { enableResume = v; save(); }
+    public synchronized void setEnableResume(boolean v) { enableResume = v; scheduleSave(); }
 
     public synchronized int getChunkedDownloadThreads() { return chunkedDownloadThreads; }
     public synchronized void setChunkedDownloadThreads(int v) {
-        chunkedDownloadThreads = Math.max(1, v); save();
+        chunkedDownloadThreads = Math.max(1, v); scheduleSave();
     }
 
     public synchronized boolean isVersionIsolation() { return versionIsolation; }
-    public synchronized void setVersionIsolation(boolean v) { versionIsolation = v; save(); }
+    public synchronized void setVersionIsolation(boolean v) { versionIsolation = v; scheduleSave(); }
 
     // ===== 多人联机 =====
     public synchronized String getMpBackend() {
@@ -361,16 +376,16 @@ public final class Preferences {
         return mpBackend;
     }
     public synchronized void setMpBackend(String v) {
-        mpBackend = (v == null || v.isEmpty()) ? "TERRACOTTA" : v.toUpperCase(Locale.ROOT); save();
+        mpBackend = (v == null || v.isEmpty()) ? "TERRACOTTA" : v.toUpperCase(Locale.ROOT); scheduleSave();
     }
     public synchronized String getConnectxServerAddress() { return connectxServerAddress; }
-    public synchronized void setConnectxServerAddress(String v) { connectxServerAddress = v == null ? "" : v; save(); }
+    public synchronized void setConnectxServerAddress(String v) { connectxServerAddress = v == null ? "" : v; scheduleSave(); }
     public synchronized int getConnectxServerPort() { return connectxServerPort; }
     public synchronized void setConnectxServerPort(int v) {
-        if (v > 0 && v < 65536) connectxServerPort = v; save();
+        if (v > 0 && v < 65536) connectxServerPort = v; scheduleSave();
     }
     public synchronized String getConnectxBinaryPath() { return connectxBinaryPath; }
-    public synchronized void setConnectxBinaryPath(String v) { connectxBinaryPath = v == null ? "" : v; save(); }
+    public synchronized void setConnectxBinaryPath(String v) { connectxBinaryPath = v == null ? "" : v; scheduleSave(); }
 
     /** 从磁盘加载（不存在则保持默认） */
     public synchronized void load() {
@@ -474,82 +489,126 @@ public final class Preferences {
         }
     }
 
-    /** 保存到磁盘 */
-    public synchronized void save() {
+    /**
+     * 标记状态已修改并调度一次防抖磁盘写入。
+     * <p>
+     * 连续快速调用（如拖动滑块、连续输入）时，仅最后一次调用后 200ms 才真正写盘，
+     * 避免每个 setter 都触发完整的 JSON 序列化 + 文件 IO。
+     * 内存状态在 synchronized 保护下始终即时生效。
+     */
+    protected void scheduleSave() {
+        dirty = true;
+        if (pendingSave == null || pendingSave.isDone()) {
+            pendingSave = saveExecutor.schedule(this::doSave, SAVE_DEBOUNCE_MS, java.util.concurrent.TimeUnit.MILLISECONDS);
+        }
+    }
+
+    /** 后台线程执行的实际写盘操作，在 synchronized 块内构建 JSON 快照后异步写盘 */
+    private void doSave() {
+        JsonObject snapshot;
+        synchronized (this) {
+            if (!dirty) return;
+            dirty = false;
+            snapshot = buildJson();
+        }
         try {
-            JsonObject o = new JsonObject();
-            o.addProperty("useDarkTheme", useDarkTheme);
+            java.nio.file.Path parent = file.getParent();
+            if (parent != null) Files.createDirectories(parent);
+            Files.writeString(file, gson.toJson(snapshot));
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 构建完整 JSON 快照（必须在 synchronized 块内调用） */
+    private JsonObject buildJson() {
+        JsonObject o = new JsonObject();
+        o.addProperty("useDarkTheme", useDarkTheme);
         o.addProperty("dynamicColor", dynamicColor);
         o.addProperty("customAccentColor", customAccentColor);
-            o.addProperty("borderlessWindow", borderlessWindow);
-            o.addProperty("uiScale", uiScale);
-            o.addProperty("language", language);
-            o.addProperty("firstLaunchCompleted", firstLaunchCompleted);
-            com.google.gson.JsonArray pinArr = new com.google.gson.JsonArray();
-            for (String v : pinnedVersions) pinArr.add(v);
-            o.add("pinnedVersions", pinArr);
-            // 最近使用
-            com.google.gson.JsonArray recentArr = new com.google.gson.JsonArray();
-            for (String v : recentVersions) recentArr.add(v);
-            o.add("recentVersions", recentArr);
-            o.addProperty("lastSelectedVersion", lastSelectedVersion);
-            JsonObject timesObj = new JsonObject();
-            for (var entry : lastPlayedTimes.entrySet()) {
-                timesObj.addProperty(entry.getKey(), entry.getValue());
-            }
-            o.add("lastPlayedTimes", timesObj);
-            // 磁贴自定义名称
-            JsonObject labelsObj = new JsonObject();
-            for (var entry : pinnedTileLabels.entrySet()) {
-                labelsObj.addProperty(entry.getKey(), entry.getValue());
-            }
-            o.add("pinnedTileLabels", labelsObj);
-            o.addProperty("customJvmArgs", customJvmArgs);
-            o.addProperty("gcType", gcType);
-            o.addProperty("useAikarFlags", useAikarFlags);
-            o.addProperty("minMemoryMb", minMemoryMb);
-            o.addProperty("maxMemoryMb", maxMemoryMb);
-            o.addProperty("javaPath", javaPath);
-            JsonObject vjp = new JsonObject();
-            for (var entry : versionJavaPaths.entrySet()) {
-                vjp.addProperty(entry.getKey(), entry.getValue());
-            }
-            o.add("versionJavaPaths", vjp);
-            o.addProperty("gameWindowWidth", gameWindowWidth);
-            o.addProperty("gameWindowHeight", gameWindowHeight);
-            o.addProperty("gameFullscreen", gameFullscreen);
-            o.addProperty("gameDemo", gameDemo);
-            o.addProperty("gameServerHost", gameServerHost);
-            o.addProperty("gameServerPort", gameServerPort);
-            var favArr = new com.google.gson.JsonArray();
-            for (var s : favoriteServers) {
-                var item = new com.google.gson.JsonArray();
-                item.add(s[0]); item.add(s[1]); item.add(s[2]);
-                favArr.add(item);
-            }
-            o.add("favoriteServers", favArr);
-            o.addProperty("gameRenderer", gameRenderer);
-            o.addProperty("windowIconPath", windowIconPath);
-            o.addProperty("mirrorType", mirrorType);
-            o.addProperty("customMirrorBase", customMirrorBase);
-            o.addProperty("useProxy", useProxy);
-            o.addProperty("proxyHost", proxyHost);
-            o.addProperty("proxyPort", proxyPort);
-            o.addProperty("useHttpAuth", useHttpAuth);
-            o.addProperty("proxyUsername", proxyUsername);
-            o.addProperty("proxyPassword", proxyPassword);
-            o.addProperty("downloadSpeedLimitKb", downloadSpeedLimitKb);
-            o.addProperty("downloadRetryCount", downloadRetryCount);
-            o.addProperty("enableResume", enableResume);
-            o.addProperty("chunkedDownloadThreads", chunkedDownloadThreads);
-            o.addProperty("versionIsolation", versionIsolation);
-            o.addProperty("mpBackend", mpBackend);
-            o.addProperty("connectxServerAddress", connectxServerAddress);
-            o.addProperty("connectxServerPort", connectxServerPort);
-            o.addProperty("connectxBinaryPath", connectxBinaryPath);
-            Files.createDirectories(file.getParent());
+        o.addProperty("borderlessWindow", borderlessWindow);
+        o.addProperty("uiScale", uiScale);
+        o.addProperty("language", language);
+        o.addProperty("firstLaunchCompleted", firstLaunchCompleted);
+        com.google.gson.JsonArray pinArr = new com.google.gson.JsonArray();
+        for (String v : pinnedVersions) pinArr.add(v);
+        o.add("pinnedVersions", pinArr);
+        com.google.gson.JsonArray recentArr = new com.google.gson.JsonArray();
+        for (String v : recentVersions) recentArr.add(v);
+        o.add("recentVersions", recentArr);
+        o.addProperty("lastSelectedVersion", lastSelectedVersion);
+        JsonObject timesObj = new JsonObject();
+        for (var entry : lastPlayedTimes.entrySet()) {
+            timesObj.addProperty(entry.getKey(), entry.getValue());
+        }
+        o.add("lastPlayedTimes", timesObj);
+        JsonObject labelsObj = new JsonObject();
+        for (var entry : pinnedTileLabels.entrySet()) {
+            labelsObj.addProperty(entry.getKey(), entry.getValue());
+        }
+        o.add("pinnedTileLabels", labelsObj);
+        o.addProperty("customJvmArgs", customJvmArgs);
+        o.addProperty("gcType", gcType);
+        o.addProperty("useAikarFlags", useAikarFlags);
+        o.addProperty("minMemoryMb", minMemoryMb);
+        o.addProperty("maxMemoryMb", maxMemoryMb);
+        o.addProperty("javaPath", javaPath);
+        JsonObject vjp = new JsonObject();
+        for (var entry : versionJavaPaths.entrySet()) {
+            vjp.addProperty(entry.getKey(), entry.getValue());
+        }
+        o.add("versionJavaPaths", vjp);
+        o.addProperty("gameWindowWidth", gameWindowWidth);
+        o.addProperty("gameWindowHeight", gameWindowHeight);
+        o.addProperty("gameFullscreen", gameFullscreen);
+        o.addProperty("gameDemo", gameDemo);
+        o.addProperty("gameServerHost", gameServerHost);
+        o.addProperty("gameServerPort", gameServerPort);
+        var favArr = new com.google.gson.JsonArray();
+        for (var s : favoriteServers) {
+            var item = new com.google.gson.JsonArray();
+            item.add(s[0]); item.add(s[1]); item.add(s[2]);
+            favArr.add(item);
+        }
+        o.add("favoriteServers", favArr);
+        o.addProperty("gameRenderer", gameRenderer);
+        o.addProperty("windowIconPath", windowIconPath);
+        o.addProperty("mirrorType", mirrorType);
+        o.addProperty("customMirrorBase", customMirrorBase);
+        o.addProperty("useProxy", useProxy);
+        o.addProperty("proxyHost", proxyHost);
+        o.addProperty("proxyPort", proxyPort);
+        o.addProperty("useHttpAuth", useHttpAuth);
+        o.addProperty("proxyUsername", proxyUsername);
+        o.addProperty("proxyPassword", proxyPassword);
+        o.addProperty("downloadSpeedLimitKb", downloadSpeedLimitKb);
+        o.addProperty("downloadRetryCount", downloadRetryCount);
+        o.addProperty("enableResume", enableResume);
+        o.addProperty("chunkedDownloadThreads", chunkedDownloadThreads);
+        o.addProperty("versionIsolation", versionIsolation);
+        o.addProperty("mpBackend", mpBackend);
+        o.addProperty("connectxServerAddress", connectxServerAddress);
+        o.addProperty("connectxServerPort", connectxServerPort);
+        o.addProperty("connectxBinaryPath", connectxBinaryPath);
+        return o;
+    }
+
+    /** 立即同步保存到磁盘（取消待执行的防抖写入）。外部需要确保数据立即落盘时调用。 */
+    public synchronized void save() {
+        if (pendingSave != null) pendingSave.cancel(false);
+        dirty = false;
+        try {
+            JsonObject o = buildJson();
+            java.nio.file.Path parent = file.getParent();
+            if (parent != null) Files.createDirectories(parent);
             Files.writeString(file, gson.toJson(o));
         } catch (Throwable ignored) {
         }
+    }
+
+    /** 刷新所有待写入的修改到磁盘（供关闭钩子调用）。不阻塞已有 synchronized 调用方。 */
+    public void flush() {
+        // 取消待执行的防抖任务，直接同步写盘
+        if (pendingSave != null) pendingSave.cancel(false);
+        doSave();
     }
 }
