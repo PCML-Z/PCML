@@ -164,7 +164,7 @@ fun DownloadPage(vm: LauncherViewModel) {
                         subtitle = "${typeLabel(v.getType())} · ${(v.getReleaseTime() ?: "").take(10)}",
                         buttonText = "安装",
                         installing = installing,
-                        onAction = { vm.installVersion(v.getId()) }
+                        onAction = { vm.enqueueVersionInstall(v.getId()) }
                     )
                     }
                 }
@@ -188,7 +188,7 @@ fun DownloadPage(vm: LauncherViewModel) {
                                 3 -> ModLoader.FORGE
                                 else -> ModLoader.NEOFORGE
                             }
-                            vm.installModLoader(loader, lv.getGameVersion(), lv.getLoaderVersion())
+                            vm.enqueueModLoaderInstall(loader.name, lv.getGameVersion(), lv.getLoaderVersion())
                         }
                     )
                     }

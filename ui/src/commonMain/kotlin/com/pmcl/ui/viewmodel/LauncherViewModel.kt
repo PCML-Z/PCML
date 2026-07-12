@@ -1436,7 +1436,8 @@ class LauncherViewModel {
 
     /** 提交模组下载到队列 */
     fun enqueueModDownload(modFile: ModFile, gameVersion: String, versionId: String? = null) {
-        core.downloadQueue().submitModDownload(modFile, gameVersion, versionId)
+        val vid = versionId ?: _selectedVersion.value
+        core.downloadQueue().submitModDownload(modFile, gameVersion, vid)
         _status.value = "已加入队列：${modFile.fileName}"
         refreshQueue()
     }

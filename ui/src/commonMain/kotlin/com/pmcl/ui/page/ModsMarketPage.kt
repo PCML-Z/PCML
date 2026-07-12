@@ -691,7 +691,7 @@ private fun FileRow(
                 )
             }
             Button(onClick = {
-                vm.installMod(f, targetGameVersion.ifBlank {
+                vm.enqueueModDownload(f, targetGameVersion.ifBlank {
                     (f.getGameVersions() ?: emptyList()).firstOrNull() ?: ""
                 })
             }) { Text(I18n.t("market.download")) }

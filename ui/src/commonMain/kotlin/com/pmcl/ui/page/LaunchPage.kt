@@ -650,7 +650,7 @@ fun LaunchPage(vm: LauncherViewModel) {
             Button(
                 onClick = {
                     if (isDownloadMode) {
-                        selected?.let { vm.installVersion(it) }
+                        selected?.let { vm.enqueueVersionInstall(it) }
                     } else {
                         vm.launch()
                     }

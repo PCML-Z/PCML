@@ -125,7 +125,7 @@ fun QuickLaunchPage(
             Button(
                 onClick = {
                     if (isDownloadMode) {
-                        selectedVersion?.let { vm.installVersion(it) }
+                        selectedVersion?.let { vm.enqueueVersionInstall(it) }
                     } else {
                         vm.launch()
                     }
