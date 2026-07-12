@@ -44,20 +44,21 @@ public final class GameLogger {
             ring[(head + size) % BUFFER_CAPACITY] = stamped;
             if (size < BUFFER_CAPACITY) size++;
             else head = (head + 1) % BUFFER_CAPACITY;
+            // BufferedWriter 非线程安全，写入操作也需在锁内
+            try {
+                writer.write(stamped);
+                writer.newLine();
+                linesSinceFlush++;
+                long now = System.currentTimeMillis();
+                if (linesSinceFlush >= 50 || now - lastFlushTime > 200) {
+                    writer.flush();
+                    linesSinceFlush = 0;
+                    lastFlushTime = now;
+                }
+            } catch (IOException ignored) {
+            }
         } finally {
             lock.unlock();
-        }
-        try {
-            writer.write(stamped);
-            writer.newLine();
-            linesSinceFlush++;
-            long now = System.currentTimeMillis();
-            if (linesSinceFlush >= 50 || now - lastFlushTime > 200) {
-                writer.flush();
-                linesSinceFlush = 0;
-                lastFlushTime = now;
-            }
-        } catch (IOException ignored) {
         }
     }
 

@@ -676,7 +676,7 @@ private fun CategoryBar(
 /**
  * 图片内存缓存：URL → ImageBitmap。避免滚动时重复下载与解码。
  */
-private val modImageCache = mutableMapOf<String, ImageBitmap>()
+private val modImageCache = java.util.concurrent.ConcurrentHashMap<String, ImageBitmap>()
 
 /**
  * 异步加载网络图片为 ImageBitmap（基于 Skia）。
@@ -702,6 +702,7 @@ private fun rememberUrlImage(url: String): ImageBitmap? {
                 while (modImageCache.size > 50) {
                     val iterator = modImageCache.keys.iterator()
                     if (iterator.hasNext()) { iterator.next(); iterator.remove() }
+                    else break
                 }
                 image = bmp
             } catch (_: Throwable) {

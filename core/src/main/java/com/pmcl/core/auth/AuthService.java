@@ -15,6 +15,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
+import java.nio.charset.StandardCharsets;
 
 /**
  * 账号认证 + 多账号管理。
@@ -39,7 +40,7 @@ public final class AuthService {
      */
     public Account offline(String username) {
         String uuid = UUID.nameUUIDFromBytes(
-                ("Offline:" + username).getBytes()).toString();
+                ("Offline:" + username).getBytes(StandardCharsets.UTF_8)).toString();
         return new Account(username, uuid, uuid, Account.AccountType.OFFLINE);
     }
 

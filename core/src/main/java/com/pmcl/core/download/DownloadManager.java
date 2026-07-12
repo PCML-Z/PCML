@@ -28,6 +28,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
@@ -289,7 +290,7 @@ public final class DownloadManager {
                 last = e;
                 // 指数退避 + 随机抖动：避免高并发下所有失败任务同步重试（thundering herd）
                 long base = 500L * (1L << i); // 500ms, 1s, 2s, 4s ...
-                long jitter = (long) (Math.random() * 200);
+                long jitter = ThreadLocalRandom.current().nextLong(200);
                 try { Thread.sleep(base + jitter); } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
                     throw e;
@@ -542,7 +543,7 @@ public final class DownloadManager {
                     return;
                 }
                 long base = 500L * (1L << i);
-                long jitter = (long) (Math.random() * 200);
+                long jitter = ThreadLocalRandom.current().nextLong(200);
                 try { Thread.sleep(base + jitter); } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
                     throw e;

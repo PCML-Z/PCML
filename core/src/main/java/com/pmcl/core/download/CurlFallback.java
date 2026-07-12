@@ -3,6 +3,7 @@ package com.pmcl.core.download;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -33,12 +34,20 @@ public final class CurlFallback {
      * 检测系统是否安装 curl。
      */
     public static boolean isAvailable() {
+        Process p = null;
         try {
-            Process p = new ProcessBuilder("curl", "--version").start();
+            p = new ProcessBuilder("curl", "--version").start();
             boolean done = p.waitFor(3, TimeUnit.SECONDS);
-            return done && p.exitValue() == 0;
+            if (!done) return false;
+            // 排空输出流，防止子进程因管道缓冲区满而阻塞
+            try (InputStream is = p.getInputStream()) {
+                is.transferTo(OutputStream.nullOutputStream());
+            }
+            return p.exitValue() == 0;
         } catch (Exception e) {
             return false;
+        } finally {
+            if (p != null) p.destroyForcibly();
         }
     }
 

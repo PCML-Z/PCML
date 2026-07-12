@@ -201,7 +201,7 @@ public final class ConnectXManager {
     }
 
     /** 停止进程 */
-    public void stop() {
+    public synchronized void stop() {
         if (stdin != null) {
             try { stdin.close(); } catch (IOException ignored) {}
         }

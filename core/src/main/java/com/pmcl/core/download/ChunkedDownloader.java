@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
@@ -279,7 +280,7 @@ public final class ChunkedDownloader {
                 last = ex;
                 if (attempt < CHUNK_RETRY) {
                     long base = 300L * (1L << attempt); // 300ms, 600ms, 1200ms
-                    long jitter = (long) (Math.random() * 100);
+                    long jitter = ThreadLocalRandom.current().nextLong(100);
                     try { Thread.sleep(base + jitter); } catch (InterruptedException ie) {
                         Thread.currentThread().interrupt();
                         throw ex;

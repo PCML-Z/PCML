@@ -524,8 +524,8 @@ class LauncherViewModel {
             }
             if (cached != null) {
                 @Suppress("UNCHECKED_CAST")
-                val data = cached[0] as List<McVersion>
-                val savedAt = cached[1] as Long
+                val data = cached[0] as? List<McVersion> ?: return@launch
+                val savedAt = cached[1] as? Long ?: return@launch
                 if (data.isNotEmpty()) {
                     _versions.value = data
                     if (_selectedVersion.value == null) {
@@ -633,6 +633,10 @@ class LauncherViewModel {
                 val dark = preferences.isUseDarkTheme()
                 val palette = withContext(Dispatchers.IO) {
                     com.pmcl.core.theme.WallpaperColorProvider.generatePalette(seedColor, dark)
+                }
+                if (palette.size < 5) {
+                    _status.value = "壁纸取色失败：调色板数据不完整"
+                    return@launch
                 }
                 val scheme = if (dark) {
                     androidx.compose.material3.darkColorScheme(
@@ -751,8 +755,8 @@ class LauncherViewModel {
             }
             if (cached != null) {
                 @Suppress("UNCHECKED_CAST")
-                val data = cached[0] as List<ModLoaderVersion>
-                val savedAt = cached[1] as Long
+                val data = cached[0] as? List<ModLoaderVersion> ?: return@launch
+                val savedAt = cached[1] as? Long ?: return@launch
                 // 缓存存在且未过期（24h）：直接使用，不发起网络请求
                 if (!DataCache.isExpired(savedAt, 24 * 60 * 60 * 1000L)) {
                     _modLoaderVersions.value = data
@@ -834,8 +838,8 @@ class LauncherViewModel {
             }
             if (cached != null) {
                 @Suppress("UNCHECKED_CAST")
-                val data = cached[0] as List<ModProject>
-                val savedAt = cached[1] as Long
+                val data = cached[0] as? List<ModProject> ?: return@launch
+                val savedAt = cached[1] as? Long ?: return@launch
                 if (data.isNotEmpty()) {
                     _popularMods.value = data
                     _popularLoading.value = false
@@ -1863,8 +1867,8 @@ class LauncherViewModel {
             }
             if (cached != null) {
                 @Suppress("UNCHECKED_CAST")
-                val data = cached[0] as List<com.pmcl.core.news.NewsItem>
-                val savedAt = cached[1] as Long
+                val data = cached[0] as? List<com.pmcl.core.news.NewsItem> ?: return@launch
+                val savedAt = cached[1] as? Long ?: return@launch
                 if (data.isNotEmpty()) {
                     _newsItems.value = data
                     _newsLoading.value = false

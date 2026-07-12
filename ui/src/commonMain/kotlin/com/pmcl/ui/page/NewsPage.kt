@@ -666,7 +666,7 @@ private fun NewsCard(
 /**
  * 图片内存缓存：URL → ImageBitmap。避免滚动时重复下载与解码。
  */
-private val newsImageCache = LinkedHashMap<String, ImageBitmap?>()
+private val newsImageCache = java.util.Collections.synchronizedMap(LinkedHashMap<String, ImageBitmap?>())
 
 /**
  * 异步从 URL 加载图片，返回 Skia 解码的 ImageBitmap。
@@ -694,9 +694,12 @@ private fun rememberUrlImage(url: String): ImageBitmap? {
                 val bytes = URL(url).readBytes()
                 val bmp = SkiaImage.makeFromEncoded(bytes).toComposeImageBitmap()
                 newsImageCache[url] = bmp
-                while (newsImageCache.size > 50) {
-                    val iterator = newsImageCache.keys.iterator()
-                    if (iterator.hasNext()) { iterator.next(); iterator.remove() }
+                synchronized(newsImageCache) {
+                    while (newsImageCache.size > 50) {
+                        val iterator = newsImageCache.keys.iterator()
+                        if (iterator.hasNext()) { iterator.next(); iterator.remove() }
+                        else break
+                    }
                 }
                 image = bmp
             } catch (_: Throwable) {

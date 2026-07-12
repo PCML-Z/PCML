@@ -143,14 +143,18 @@ public final class TerracottaManager {
 
                 if (!isWindows()) {
                     try {
-                        new ProcessBuilder("chmod", "+x", binaryPath.toString())
-                                .redirectErrorStream(true).start().waitFor();
+                        Process chmodP = new ProcessBuilder("chmod", "+x", binaryPath.toString())
+                                .redirectErrorStream(true).start();
+                        if (!chmodP.waitFor(10, java.util.concurrent.TimeUnit.SECONDS))
+                            chmodP.destroyForcibly();
                     } catch (Exception ignored) {}
                     // macOS：移除隔离属性
                     if (System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("mac")) {
                         try {
-                            new ProcessBuilder("xattr", "-dr", "com.apple.quarantine", binaryPath.toString())
-                                    .redirectErrorStream(true).start().waitFor();
+                            Process xattrP = new ProcessBuilder("xattr", "-dr", "com.apple.quarantine", binaryPath.toString())
+                                    .redirectErrorStream(true).start();
+                            if (!xattrP.waitFor(10, java.util.concurrent.TimeUnit.SECONDS))
+                                xattrP.destroyForcibly();
                         } catch (Exception ignored) {}
                     }
                 }

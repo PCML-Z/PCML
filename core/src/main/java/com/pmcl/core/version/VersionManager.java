@@ -28,7 +28,10 @@ public final class VersionManager {
             "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
 
     private final LauncherConfig config;
-    private final OkHttpClient http = new OkHttpClient();
+    private final OkHttpClient http = new OkHttpClient.Builder()
+            .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+            .build();
     private final Gson gson = new Gson();
 
     public VersionManager(LauncherConfig config) {
