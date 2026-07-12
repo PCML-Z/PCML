@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.filled.Update
 import androidx.compose.material.icons.outlined.Translate
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -25,6 +26,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.mods.ModConflictChecker
 import com.pmcl.core.mods.ModMeta
+import com.pmcl.core.mods.ModUpdateChecker
 import com.pmcl.ui.animation.AnimatedSegmentedSelector
 import com.pmcl.ui.animation.StaggeredAppear
 import com.pmcl.ui.viewmodel.LauncherViewModel
@@ -36,12 +38,22 @@ fun ModsPage(vm: LauncherViewModel) {
     val status by vm.status.collectAsState()
     val translationCache by vm.translationCache.collectAsState()
     val translating by vm.translating.collectAsState()
+    val modUpdates by vm.modUpdates.collectAsState()
+    val checkingUpdates by vm.checkingUpdates.collectAsState()
+    val updateProgress by vm.updateCheckProgress.collectAsState()
+    val updatingMod by vm.updatingMod.collectAsState()
     var translateEnabled by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
     var selectedLoader by remember { mutableStateOf<String?>(null) }
     var selectedSource by remember { mutableStateOf<String?>(null) }
     var sortExpanded by remember { mutableStateOf(false) }
     var sortBy by remember { mutableStateOf(ModSort.NAME) }
+
+    // 更新信息映射：modId → UpdateInfo
+    val updateInfoMap = remember(modUpdates) {
+        modUpdates.associateBy { it.installed.modId ?: "" }
+    }
+    val updateCount = remember(modUpdates) { modUpdates.count { it.hasUpdate() } }
 
     LaunchedEffect(Unit) { vm.refreshInstalledMods() }
 
@@ -96,6 +108,21 @@ fun ModsPage(vm: LauncherViewModel) {
                 )
             }
             Spacer(Modifier.weight(1f))
+            // 检查更新按钮
+            if (updateCount > 0) {
+                Button(
+                    onClick = { vm.updateAllMods() },
+                    enabled = !updatingMod && !checkingUpdates,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary
+                    )
+                ) {
+                    Icon(Icons.Filled.Update, null, Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("一键更新 ($updateCount)")
+                }
+                Spacer(Modifier.width(6.dp))
+            }
             // 翻译开关（图标按钮）
             FilterChip(
                 selected = translateEnabled,
@@ -121,6 +148,18 @@ fun ModsPage(vm: LauncherViewModel) {
                 }
             )
             Spacer(Modifier.width(6.dp))
+            // 检查更新（图标按钮）
+            IconButton(onClick = { vm.checkModUpdates() }, enabled = !checkingUpdates) {
+                if (checkingUpdates) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    Icon(Icons.Filled.Update, contentDescription = "检查更新",
+                         modifier = Modifier.size(18.dp))
+                }
+            }
             // 打开目录（图标按钮）
             IconButton(onClick = { vm.openModsDir() }) {
                 Icon(Icons.Filled.Folder, contentDescription = "打开目录", modifier = Modifier.size(18.dp))
@@ -139,6 +178,25 @@ fun ModsPage(vm: LauncherViewModel) {
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
+
+        // === 更新检测进度条 ===
+        if (checkingUpdates || updatingMod) {
+            Spacer(Modifier.height(6.dp))
+            val (done, total) = updateProgress
+            val label = if (checkingUpdates) "检测更新" else "批量更新"
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("$label $done/$total",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(8.dp))
+                LinearProgressIndicator(
+                    progress = { if (total > 0) done.toFloat() / total else 0f },
+                    modifier = Modifier.weight(1f),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+            }
+        }
 
         // === 搜索 + 排序 ===
         Spacer(Modifier.height(10.dp))
@@ -240,7 +298,8 @@ fun ModsPage(vm: LauncherViewModel) {
             ) {
                 itemsIndexed(processedMods, key = { _, m -> System.identityHashCode(m) }) { index, m ->
                     StaggeredAppear(index) {
-                        ModRow(m, vm, translateEnabled, translationCache)
+                        val updateInfo = updateInfoMap[m.getModId() ?: ""]
+                        ModRow(m, vm, translateEnabled, translationCache, updateInfo, updatingMod)
                     }
                 }
             }
@@ -257,7 +316,9 @@ private fun ModRow(
     m: ModMeta,
     vm: LauncherViewModel,
     translateEnabled: Boolean = false,
-    translationCache: Map<String, String> = emptyMap()
+    translationCache: Map<String, String> = emptyMap(),
+    updateInfo: ModUpdateChecker.UpdateInfo? = null,
+    updatingMod: Boolean = false
 ) {
     var showDeleteDialog by remember { mutableStateOf(false) }
 
@@ -297,6 +358,22 @@ private fun ModRow(
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
                 Spacer(Modifier.width(6.dp))
+                // 更新徽章（有更新时显示）
+                if (updateInfo != null && updateInfo.hasUpdate()) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.error,
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text(
+                            "有更新",
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onError,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                    Spacer(Modifier.width(4.dp))
+                }
                 // 加载器标签
                 Surface(
                     color = MaterialTheme.colorScheme.secondaryContainer,
@@ -342,6 +419,18 @@ private fun ModRow(
                              modifier = Modifier.size(16.dp))
                     }
                 }
+                // 更新按钮（有更新时显示）
+                if (updateInfo != null && updateInfo.hasUpdate()) {
+                    IconButton(
+                        onClick = { vm.updateMod(updateInfo) },
+                        modifier = Modifier.size(28.dp),
+                        enabled = !updatingMod
+                    ) {
+                        Icon(Icons.Filled.Update, contentDescription = "更新",
+                             modifier = Modifier.size(16.dp),
+                             tint = MaterialTheme.colorScheme.primary)
+                    }
+                }
                 IconButton(
                     onClick = { showDeleteDialog = true },
                     modifier = Modifier.size(28.dp)
@@ -377,6 +466,19 @@ private fun ModRow(
                  color = MaterialTheme.colorScheme.outline,
                  maxLines = 1,
                  overflow = TextOverflow.Ellipsis)
+
+            // 更新信息行（有更新时显示新版本详情）
+            if (updateInfo != null && updateInfo.hasUpdate() && updateInfo.latestFile != null) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    "可更新至: ${updateInfo.latestFile.fileName}  ·  来源: ${updateInfo.source}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    fontWeight = FontWeight.Medium
+                )
+            }
         }
     }
 

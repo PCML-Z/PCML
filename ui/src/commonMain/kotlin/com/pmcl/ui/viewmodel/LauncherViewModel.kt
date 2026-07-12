@@ -18,6 +18,7 @@ import com.pmcl.core.modloader.ModLoaderVersion
 import com.pmcl.core.mods.ModConflictChecker
 import com.pmcl.core.mods.ModMeta
 import com.pmcl.core.mods.ModScanner
+import com.pmcl.core.mods.ModUpdateChecker
 import com.pmcl.core.modpack.ModpackManager
 import com.pmcl.core.preferences.Preferences
 import com.pmcl.core.version.McVersion
@@ -171,6 +172,23 @@ class LauncherViewModel {
 
     /** 队列监听器初始化标志，避免重复注册 */
     private var queueListenerRegistered = false
+
+    // ===== 模组更新检测 =====
+    private val _modUpdates = MutableStateFlow<List<ModUpdateChecker.UpdateInfo>>(emptyList())
+    val modUpdates: StateFlow<List<ModUpdateChecker.UpdateInfo>> = _modUpdates.asStateFlow()
+
+    private val _checkingUpdates = MutableStateFlow(false)
+    val checkingUpdates: StateFlow<Boolean> = _checkingUpdates.asStateFlow()
+
+    private val _updateCheckProgress = MutableStateFlow<Pair<Int, Int>>(0 to 0)
+    val updateCheckProgress: StateFlow<Pair<Int, Int>> = _updateCheckProgress.asStateFlow()
+
+    private val _updatingMod = MutableStateFlow(false)
+    val updatingMod: StateFlow<Boolean> = _updatingMod.asStateFlow()
+
+    /** 更新检测用的 gameVersion（从当前选中版本推断） */
+    private val _updateGameVersion = MutableStateFlow("")
+    val updateGameVersion: StateFlow<String> = _updateGameVersion.asStateFlow()
 
     // ===== 微软登录 =====
     private val _deviceCode = MutableStateFlow<DeviceCode?>(null)
@@ -1375,6 +1393,123 @@ class LauncherViewModel {
     fun removeQueueTask(taskId: String) {
         core.downloadQueue().remove(taskId)
         refreshQueue()
+    }
+
+    // ============ 模组更新检测 ============
+
+    /**
+     * 检测已安装模组的更新。
+     * 自动从当前选中版本推断 gameVersion。
+     */
+    fun checkModUpdates() {
+        val mods = _installedMods.value
+        if (mods.isEmpty()) {
+            _status.value = "没有已安装的模组"
+            return
+        }
+        // 从选中版本推断 gameVersion
+        val versionId = _selectedVersion.value
+        val gameVersion = inferGameVersion(versionId)
+        _updateGameVersion.value = gameVersion
+
+        if (_checkingUpdates.value) return // 防止重复检测
+        _checkingUpdates.value = true
+        _updateCheckProgress.value = 0 to mods.size
+        _status.value = "正在检测模组更新..."
+
+        scope.launch {
+            try {
+                val results = core.modUpdateChecker().checkUpdates(
+                    mods, gameVersion
+                ) { progress ->
+                    _updateCheckProgress.value = progress[0] to progress[1]
+                }.join()
+                _modUpdates.value = results
+                val updateCount = results.count { it.hasUpdate() }
+                _status.value = if (updateCount > 0) {
+                    "检测完成：$updateCount 个模组有更新"
+                } else {
+                    "检测完成：所有模组均为最新"
+                }
+            } catch (e: Throwable) {
+                _status.value = "检测更新失败：${e.message}"
+            } finally {
+                _checkingUpdates.value = false
+            }
+        }
+    }
+
+    /**
+     * 从版本 ID 推断 gameVersion（如 "1.20.4-OptiFine_HD_U_I7" → "1.20.4"）。
+     */
+    private fun inferGameVersion(versionId: String?): String {
+        if (versionId == null || versionId.isEmpty()) return ""
+        // 取第一个分隔符前的部分（Forge/Fabric/OptiFine 版本通常用 - 分隔）
+        val idx = versionId.indexOfAny(charArrayOf('-', '+'))
+        return if (idx > 0) versionId.substring(0, idx) else versionId
+    }
+
+    /**
+     * 更新单个模组。
+     */
+    fun updateMod(info: ModUpdateChecker.UpdateInfo) {
+        if (_updatingMod.value) return
+        _updatingMod.value = true
+        val versionId = _selectedVersion.value
+        val gameVersion = _updateGameVersion.value
+
+        scope.launch {
+            try {
+                core.modUpdateChecker().updateMod(info, gameVersion, versionId) { status ->
+                    _status.value = status
+                }.join()
+                _status.value = "更新完成：${info.displayName()}"
+                // 刷新已安装模组列表
+                refreshInstalledMods()
+            } catch (e: Throwable) {
+                _status.value = "更新失败：${e.message}"
+            } finally {
+                _updatingMod.value = false
+            }
+        }
+    }
+
+    /**
+     * 一键更新所有有更新的模组。
+     */
+    fun updateAllMods() {
+        val updates = _modUpdates.value.filter { it.hasUpdate() }
+        if (updates.isEmpty()) {
+            _status.value = "没有需要更新的模组"
+            return
+        }
+        if (_updatingMod.value) return
+        _updatingMod.value = true
+        val versionId = _selectedVersion.value
+        val gameVersion = _updateGameVersion.value
+        _status.value = "正在批量更新 ${updates.size} 个模组..."
+
+        scope.launch {
+            try {
+                core.modUpdateChecker().updateAll(updates, gameVersion, versionId) { progress ->
+                    _updateCheckProgress.value = progress[0] to progress[1]
+                    _status.value = "批量更新中：${progress[0]}/${progress[1]}"
+                }.join()
+                _status.value = "批量更新完成"
+                refreshInstalledMods()
+                // 重新检测一次
+                checkModUpdates()
+            } catch (e: Throwable) {
+                _status.value = "批量更新失败：${e.message}"
+            } finally {
+                _updatingMod.value = false
+            }
+        }
+    }
+
+    /** 清空更新检测结果 */
+    fun clearModUpdates() {
+        _modUpdates.value = emptyList()
     }
 
     // ============ 启动游戏 ============
