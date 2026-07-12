@@ -432,7 +432,11 @@ fun LaunchPage(vm: LauncherViewModel) {
         VerticalDivider()
 
         // ===== 右侧：账号 + 启动 + 日志 =====
-        Column(Modifier.weight(1f).fillMaxHeight().padding(16.dp)) {
+        // verticalScroll 让整个右侧区域可平滑滑动（日志区使用固定最小高度，避免 weight 在可滚动 Column 中失效）
+        Column(
+            Modifier.weight(1f).fillMaxHeight().padding(16.dp)
+                .verticalScroll(rememberScrollState())
+        ) {
             Text("PMCL", style = MaterialTheme.typography.headlineMedium,
                  fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
             Spacer(Modifier.height(12.dp))
@@ -987,7 +991,7 @@ fun LaunchPage(vm: LauncherViewModel) {
             Surface(
                 color = MaterialTheme.colorScheme.surfaceVariant,
                 shape = RoundedCornerShape(8.dp),
-                modifier = Modifier.weight(1f).fillMaxWidth()
+                modifier = Modifier.fillMaxWidth().heightIn(min = 300.dp)
             ) {
                 if (gameLogs.isEmpty()) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
