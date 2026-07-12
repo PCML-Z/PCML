@@ -298,6 +298,16 @@ class LauncherViewModel {
     /** 清除崩溃事件（UI 关闭弹窗时调用） */
     fun clearCrashEvent() { _crashEvent.value = null }
 
+    /** 恢复操作执行后的用户反馈消息（UI 可监听显示 snackbar） */
+    private val _recoveryMessage = MutableStateFlow<String?>(null)
+    val recoveryMessage: StateFlow<String?> = _recoveryMessage.asStateFlow()
+    fun clearRecoveryMessage() { _recoveryMessage.value = null }
+
+    /** 导航请求：恢复操作可请求跳转到指定页面 */
+    private val _navigationRequest = MutableStateFlow<String?>(null)
+    val navigationRequest: StateFlow<String?> = _navigationRequest.asStateFlow()
+    fun clearNavigationRequest() { _navigationRequest.value = null }
+
     // ===== 游戏安装前询问事件（用于弹窗询问是否同时安装模组加载器）=====
     /**
      * 用户点击安装游戏时触发的事件（安装开始前）。
@@ -2243,6 +2253,147 @@ class LauncherViewModel {
                 _status.value = "扫描到 ${list.size} 份崩溃报告"
             } catch (e: Throwable) {
                 _status.value = "扫描崩溃报告失败：${e.message}"
+            }
+        }
+    }
+
+    // ============ 崩溃恢复操作 ============
+
+    /**
+     * 执行崩溃恢复操作。
+     * 根据 RecoveryType 调用对应的修复逻辑，执行后更新 _recoveryMessage 供 UI 显示反馈。
+     */
+    fun executeRecoveryAction(action: CrashAnalyzer.RecoveryAction, versionId: String) {
+        when (action.getType()) {
+            CrashAnalyzer.RecoveryType.INCREASE_MEMORY -> increaseMemory()
+            CrashAnalyzer.RecoveryType.SWITCH_JAVA -> {
+                _navigationRequest.value = "settings"
+                _recoveryMessage.value = "已跳转到设置，请在「Java 路径」中为 $versionId 指定正确版本"
+            }
+            CrashAnalyzer.RecoveryType.CHECK_MOD_CONFLICTS -> {
+                refreshInstalledMods()
+                _recoveryMessage.value = "正在扫描模组冲突，请稍后查看模组页面"
+            }
+            CrashAnalyzer.RecoveryType.DISABLE_RECENT_MODS -> disableRecentMods(versionId)
+            CrashAnalyzer.RecoveryType.CHECK_INTEGRITY -> {
+                checkIntegrity(versionId)
+                _recoveryMessage.value = "正在校验 $versionId 完整性，缺失文件将自动补全"
+            }
+            CrashAnalyzer.RecoveryType.REINSTALL_VERSION -> reinstallVersion(versionId)
+            CrashAnalyzer.RecoveryType.CLEAR_GAME_CONFIG -> clearGameConfig(versionId)
+            CrashAnalyzer.RecoveryType.SHARE_LOGS -> {
+                shareLogs()
+                _recoveryMessage.value = "正在上传日志到 paste.gg…"
+            }
+            CrashAnalyzer.RecoveryType.OPEN_MODS_PAGE -> {
+                _navigationRequest.value = "content"
+                _recoveryMessage.value = "已跳转到模组管理页面"
+            }
+            CrashAnalyzer.RecoveryType.OPEN_SETTINGS -> {
+                _navigationRequest.value = "settings"
+                _recoveryMessage.value = "已跳转到设置页面"
+            }
+        }
+    }
+
+    /** 增大最大内存 1024MB（上限为系统可用内存的 80%） */
+    fun increaseMemory() {
+        val current = preferences.getMaxMemoryMb()
+        val sysMax = with(core.runtime()) { getTotalMemoryMb() }
+        val ceiling = (sysMax * 0.8).toInt()
+        val target = (current + 1024).coerceAtMost(ceiling)
+        if (target <= current) {
+            _recoveryMessage.value = "内存已达上限 ${ceiling}MB（系统可用 ${sysMax}MB）"
+        } else {
+            preferences.setMaxMemoryMb(target)
+            _recoveryMessage.value = "最大内存已从 ${current}MB 调整为 ${target}MB，可重新启动游戏"
+        }
+    }
+
+    /** 禁用最近添加的模组：将 mods 目录下最近修改的 5 个 .jar 移到 disabled 子目录 */
+    fun disableRecentMods(versionId: String) {
+        scope.launch {
+            try {
+                val moved = withContext(Dispatchers.IO) {
+                    val modsDir = config.getWorkDir().resolve("mods")
+                    if (!java.nio.file.Files.isDirectory(modsDir)) return@withContext 0
+                    val disabledDir = modsDir.resolve("disabled")
+                    java.nio.file.Files.createDirectories(disabledDir)
+                    // 列出 .jar 并按 mtime 降序（最近添加的在前）
+                    val jars = java.nio.file.Files.list(modsDir)
+                        .filter { it.fileName.toString().endsWith(".jar") }
+                        .toList()
+                    val sorted = jars.sortedByDescending {
+                        try { java.nio.file.Files.getLastModifiedTime(it).toMillis() }
+                        catch (_: Throwable) { 0L }
+                    }
+                    var count = 0
+                    for (jar in sorted.take(5)) {
+                        try {
+                            val dest = disabledDir.resolve(jar.fileName)
+                            java.nio.file.Files.move(jar, dest,
+                                java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+                            count++
+                        } catch (_: Throwable) {}
+                    }
+                    count
+                }
+                _recoveryMessage.value = if (moved > 0)
+                    "已禁用 $moved 个最近添加的模组（已移至 mods/disabled）"
+                else "mods 目录下无可禁用的模组"
+                if (moved > 0) refreshInstalledMods()
+            } catch (e: Throwable) {
+                _recoveryMessage.value = "禁用模组失败：${e.message}"
+            }
+        }
+    }
+
+    /** 重新安装版本：删除 versions/{id} 目录后触发安装 */
+    fun reinstallVersion(versionId: String) {
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val versionDir = config.getVersionsDir().resolve(versionId)
+                    if (java.nio.file.Files.exists(versionDir)) {
+                        java.nio.file.Files.walk(versionDir)
+                            .sorted(java.util.Comparator.reverseOrder())
+                            .forEach { p -> try { java.nio.file.Files.deleteIfExists(p) } catch (_: Throwable) {} }
+                    }
+                }
+                _recoveryMessage.value = "$versionId 旧文件已清除，正在重新安装…"
+                installVersion(versionId)
+            } catch (e: Throwable) {
+                _recoveryMessage.value = "重新安装失败：${e.message}"
+            }
+        }
+    }
+
+    /** 清理游戏配置：备份并重置可能损坏的 options.txt / servers.dat */
+    fun clearGameConfig(versionId: String) {
+        scope.launch {
+            try {
+                val backedUp = withContext(Dispatchers.IO) {
+                    val gameDir = config.getWorkDir()
+                    val backupDir = gameDir.resolve("config-backup-${System.currentTimeMillis()}")
+                    java.nio.file.Files.createDirectories(backupDir)
+                    var count = 0
+                    val targets = listOf("options.txt", "servers.dat",
+                        "optionsof.txt", "servers.dat_old", "optionsSHA.txt")
+                    for (name in targets) {
+                        val f = gameDir.resolve(name)
+                        if (java.nio.file.Files.exists(f)) {
+                            java.nio.file.Files.move(f, backupDir.resolve(name),
+                                java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+                            count++
+                        }
+                    }
+                    count
+                }
+                _recoveryMessage.value = if (backedUp > 0)
+                    "已备份并清理 $backedUp 个配置文件（备份位于 config-backup-* 目录），可重新启动"
+                else "未发现可清理的配置文件"
+            } catch (e: Throwable) {
+                _recoveryMessage.value = "清理配置失败：${e.message}"
             }
         }
     }

@@ -351,6 +351,8 @@ public final class I18n {
         ZH.put("crash.causes", "可能原因");
         ZH.put("crash.suggestions", "建议");
         ZH.put("crash.empty", "暂无崩溃报告");
+        ZH.put("crash.recovery_title", "一键恢复");
+        ZH.put("crash.recovery_hint", "点击下方操作自动修复问题");
 
         // ===== 迁移 =====
         ZH.put("migration.title", "迁移游戏数据");
@@ -693,6 +695,8 @@ public final class I18n {
         EN.put("crash.causes", "Possible causes");
         EN.put("crash.suggestions", "Suggestions");
         EN.put("crash.empty", "No crash reports");
+        EN.put("crash.recovery_title", "Quick Recovery");
+        EN.put("crash.recovery_hint", "Click an action below to auto-fix the issue");
 
         EN.put("migration.title", "Migrate game data");
         EN.put("migration.from", "Migrate from {0}");
@@ -1032,6 +1036,8 @@ public final class I18n {
         JA.put("crash.causes", "考えられる原因");
         JA.put("crash.suggestions", "提案");
         JA.put("crash.empty", "クラッシュレポートがありません");
+        JA.put("crash.recovery_title", "クイック復元");
+        JA.put("crash.recovery_hint", "下のアクションをクリックして自動修復");
 
         JA.put("migration.title", "ゲームデータ移行");
         JA.put("migration.from", "{0} から移行");

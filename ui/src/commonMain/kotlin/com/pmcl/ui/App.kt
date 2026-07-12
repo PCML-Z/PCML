@@ -130,6 +130,15 @@ private fun MainWindowContent(vm: LauncherViewModel) {
         builtIn + plugins
     }
 
+    // 崩溃恢复操作反馈消息（Snackbar）
+    val recoveryMessage by vm.recoveryMessage.collectAsState()
+    val snackbarHostState = remember { androidx.compose.material3.SnackbarHostState() }
+    LaunchedEffect(recoveryMessage) {
+        val msg = recoveryMessage ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(msg)
+        vm.clearRecoveryMessage()
+    }
+
     Row(Modifier.fillMaxSize()) {
         SlideInFromStart(delayMs = 0, durationMs = 400) {
             NavigationRail {
@@ -187,6 +196,11 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                     }
                 }
             }
+            // 崩溃恢复操作反馈消息（覆盖在页面内容底部）
+            androidx.compose.material3.SnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier.align(androidx.compose.ui.Alignment.BottomCenter).padding(16.dp)
+            )
         }
     }
 
@@ -199,5 +213,17 @@ private fun MainWindowContent(vm: LauncherViewModel) {
             vm = vm,
             onDismiss = { vm.clearPreInstallEvent() }
         )
+    }
+
+    // ===== 全局：崩溃恢复操作导航请求 =====
+    val navigationRequest by vm.navigationRequest.collectAsState()
+    LaunchedEffect(navigationRequest) {
+        val req = navigationRequest ?: return@LaunchedEffect
+        // 匹配目标页面
+        val target = allDestinations.firstOrNull { it.route == req }
+        if (target != null) {
+            current = NavTarget.BuiltIn(target)
+        }
+        vm.clearNavigationRequest()
     }
 }
