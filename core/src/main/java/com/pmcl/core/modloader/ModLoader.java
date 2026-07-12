@@ -9,5 +9,6 @@ public enum ModLoader {
     NEOFORGE,
     FABRIC,
     QUILT,
-    OPTIFINE
+    OPTIFINE,
+    LITELOADER
 }

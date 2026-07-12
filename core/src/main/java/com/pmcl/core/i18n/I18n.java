@@ -112,6 +112,7 @@ public final class I18n {
         ZH.put("launch.running_instances", "运行中实例");
         ZH.put("launch.active", "活跃");
         ZH.put("launch.optifine_needs_forge", "此 OptiFine 版本需要先安装 Forge");
+        ZH.put("launch.liteloader_old_versions", "LiteLoader 适用于 1.7.10 / 1.10.2 / 1.12.2 等旧版本");
         ZH.put("launch.version_java", "版本 Java");
         ZH.put("launch.version_java_auto", "自动检测（未指定）");
         ZH.put("launch.version_java_path", "Java 可执行文件路径");
@@ -471,6 +472,7 @@ public final class I18n {
         EN.put("launch.running_instances", "Running Instances");
         EN.put("launch.active", "Active");
         EN.put("launch.optifine_needs_forge", "This OptiFine version requires Forge to be installed first");
+        EN.put("launch.liteloader_old_versions", "LiteLoader is for old versions like 1.7.10 / 1.10.2 / 1.12.2");
         EN.put("launch.version_java", "Version Java");
         EN.put("launch.version_java_auto", "Auto-detect (not set)");
         EN.put("launch.version_java_path", "Java executable path");
@@ -812,6 +814,7 @@ public final class I18n {
         JA.put("launch.running_instances", "実行中インスタンス");
         JA.put("launch.active", "アクティブ");
         JA.put("launch.optifine_needs_forge", "この OptiFine バージョンは Forge の先行インストールが必要です");
+        JA.put("launch.liteloader_old_versions", "LiteLoader は 1.7.10 / 1.10.2 / 1.12.2 などの旧バージョン向けです");
         JA.put("launch.version_java", "バージョン Java");
         JA.put("launch.version_java_auto", "自動検出（未設定）");
         JA.put("launch.version_java_path", "Java 実行ファイルパス");

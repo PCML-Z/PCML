@@ -19,6 +19,7 @@ public final class ModLoaderManager {
         installers.put(ModLoader.FORGE, new ForgeInstaller(config, downloads, false));
         installers.put(ModLoader.NEOFORGE, new ForgeInstaller(config, downloads, true));
         installers.put(ModLoader.OPTIFINE, new OptiFineInstaller(config, downloads));
+        installers.put(ModLoader.LITELOADER, new LiteLoaderInstaller(config, downloads));
         // VANILLA 不需要安装器
     }
 

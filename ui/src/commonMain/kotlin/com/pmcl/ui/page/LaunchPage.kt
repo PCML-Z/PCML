@@ -1326,7 +1326,8 @@ fun ModLoaderInstallPromptDialog(
                     ModLoader.FORGE to "Forge",
                     ModLoader.QUILT to "Quilt",
                     ModLoader.NEOFORGE to "NeoForge",
-                    ModLoader.OPTIFINE to "OptiFine"
+                    ModLoader.OPTIFINE to "OptiFine",
+                    ModLoader.LITELOADER to "LiteLoader"
                 )
                 val loaderLabels = loaderOptions.map { it.second }
                 val loaderIndex = loaderOptions.indexOfFirst { it.first == selectedLoader }.coerceAtLeast(0)
