@@ -49,6 +49,7 @@ public final class Preferences {
     private String gameServerHost = "";      // 启动后自动连接服务器地址（--server）
     private int gameServerPort = 25565;      // 服务器端口（--port）
     private String gameRenderer = "AUTO";    // 渲染器：AUTO/OPENGL/VULKAN（--renderer）
+    private String windowIconPath = "";      // 自定义游戏窗口图标 PNG 路径（注入到 <gameDir>/icons/）
 
     // 网络配置
     private String mirrorType = "OFFICIAL";        // OFFICIAL / BMCLAPI / CUSTOM
@@ -243,6 +244,12 @@ public final class Preferences {
         save();
     }
 
+    /** 自定义游戏窗口图标 PNG 路径（空则使用 MC 默认图标） */
+    public synchronized String getWindowIconPath() { return windowIconPath; }
+    public synchronized void setWindowIconPath(String v) {
+        windowIconPath = v == null ? "" : v.trim(); save();
+    }
+
     // ===== 网络配置 =====
     public synchronized String getMirrorType() { return mirrorType; }
     public synchronized void setMirrorType(String v) { mirrorType = v; save(); }
@@ -359,6 +366,7 @@ public final class Preferences {
             if (o.has("gameServerHost") && !o.get("gameServerHost").isJsonNull()) gameServerHost = o.get("gameServerHost").getAsString();
             if (o.has("gameServerPort")) gameServerPort = o.get("gameServerPort").getAsInt();
             if (o.has("gameRenderer") && !o.get("gameRenderer").isJsonNull()) gameRenderer = o.get("gameRenderer").getAsString();
+            if (o.has("windowIconPath") && !o.get("windowIconPath").isJsonNull()) windowIconPath = o.get("windowIconPath").getAsString();
             if (o.has("mirrorType") && !o.get("mirrorType").isJsonNull()) mirrorType = o.get("mirrorType").getAsString();
             if (o.has("customMirrorBase") && !o.get("customMirrorBase").isJsonNull()) customMirrorBase = o.get("customMirrorBase").getAsString();
             if (o.has("useProxy")) useProxy = o.get("useProxy").getAsBoolean();
@@ -421,6 +429,7 @@ public final class Preferences {
             o.addProperty("gameServerHost", gameServerHost);
             o.addProperty("gameServerPort", gameServerPort);
             o.addProperty("gameRenderer", gameRenderer);
+            o.addProperty("windowIconPath", windowIconPath);
             o.addProperty("mirrorType", mirrorType);
             o.addProperty("customMirrorBase", customMirrorBase);
             o.addProperty("useProxy", useProxy);

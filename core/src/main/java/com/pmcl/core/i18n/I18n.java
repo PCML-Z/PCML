@@ -303,6 +303,11 @@ public final class I18n {
         ZH.put("settings.dark_theme", "深色主题");
         ZH.put("settings.light_theme", "浅色主题");
         ZH.put("settings.network", "网络配置");
+        ZH.put("settings.window_icon", "游戏窗口图标");
+        ZH.put("settings.window_icon_path", "图标 PNG 路径");
+        ZH.put("settings.window_icon_empty", "留空使用默认图标");
+        ZH.put("settings.window_icon_select", "选择 PNG 图标文件");
+        ZH.put("settings.window_icon_hint", "启动时自动缩放到 16x16 / 32x32 并注入到游戏目录 icons/");
         ZH.put("settings.mirror", "下载镜像源");
         ZH.put("settings.mirror_official", "官方");
         ZH.put("settings.mirror_bmclapi", "BMCLAPI");
@@ -621,6 +626,11 @@ public final class I18n {
         EN.put("settings.dark_theme", "Dark theme");
         EN.put("settings.light_theme", "Light theme");
         EN.put("settings.network", "Network");
+        EN.put("settings.window_icon", "Game Window Icon");
+        EN.put("settings.window_icon_path", "Icon PNG path");
+        EN.put("settings.window_icon_empty", "Leave empty for default icon");
+        EN.put("settings.window_icon_select", "Select PNG icon file");
+        EN.put("settings.window_icon_hint", "Auto-resized to 16x16 / 32x32 and injected into gameDir/icons/ on launch");
         EN.put("settings.mirror", "Download mirror");
         EN.put("settings.mirror_official", "Official");
         EN.put("settings.mirror_bmclapi", "BMCLAPI");
@@ -934,6 +944,11 @@ public final class I18n {
         JA.put("settings.dark_theme", "ダークテーマ");
         JA.put("settings.light_theme", "ライトテーマ");
         JA.put("settings.network", "ネットワーク");
+        JA.put("settings.window_icon", "ゲームウィンドウアイコン");
+        JA.put("settings.window_icon_path", "アイコン PNG パス");
+        JA.put("settings.window_icon_empty", "空欄でデフォルトアイコン");
+        JA.put("settings.window_icon_select", "PNG アイコンファイルを選択");
+        JA.put("settings.window_icon_hint", "起動時に 16x16 / 32x32 へ自動リサイズし gameDir/icons/ に注入");
         JA.put("settings.mirror", "ダウンロードミラー");
         JA.put("settings.mirror_official", "公式");
         JA.put("settings.mirror_bmclapi", "BMCLAPI");

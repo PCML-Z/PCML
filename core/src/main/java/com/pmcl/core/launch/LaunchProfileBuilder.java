@@ -9,6 +9,9 @@ import com.pmcl.core.install.VersionJson;
 import com.pmcl.core.preferences.Preferences;
 import com.pmcl.core.version.VersionManager;
 
+import javax.imageio.ImageIO;
+import java.awt.Graphics2D;
+import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -378,7 +381,49 @@ public final class LaunchProfileBuilder {
             profile.addGameArg(Integer.toString(preferences.getGameServerPort()));
         }
 
+        // 自定义窗口图标：复制到 <gameDir>/icons/icon_16x16.png 和 icon_32x32.png
+        // Minecraft MainWindow 启动时从 gameDir/icons/ 读取图标
+        injectWindowIcon(preferences.getWindowIconPath(), gameDir);
+
         return profile;
+    }
+
+    /**
+     * 将用户指定的 PNG 复制并缩放到 {@code <gameDir>/icons/icon_16x16.png} 和 {@code icon_32x32.png}。
+     * <p>
+     * Minecraft（1.6+）启动时从 {@code gameDir/icons/} 读取窗口图标。
+     * 任何异常均静默忽略，确保不阻塞启动流程。
+     */
+    private void injectWindowIcon(String iconPath, Path gameDir) {
+        if (iconPath == null || iconPath.isEmpty()) return;
+        Path src = Path.of(iconPath);
+        if (!Files.isRegularFile(src)) return;
+        try {
+            BufferedImage img = ImageIO.read(src.toFile());
+            if (img == null) return;
+            Path iconsDir = gameDir.resolve("icons");
+            Files.createDirectories(iconsDir);
+            // 缩放并写入 16x16 和 32x32
+            writeResizedPng(img, 16, iconsDir.resolve("icon_16x16.png"));
+            writeResizedPng(img, 32, iconsDir.resolve("icon_32x32.png"));
+        } catch (IOException ignored) {
+            // 图标注入失败不应阻塞启动
+        }
+    }
+
+    private void writeResizedPng(BufferedImage src, int size, Path target) throws IOException {
+        BufferedImage out = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = out.createGraphics();
+        try {
+            g.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION,
+                               java.awt.RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            g.setRenderingHint(java.awt.RenderingHints.KEY_RENDERING,
+                               java.awt.RenderingHints.VALUE_RENDER_QUALITY);
+            g.drawImage(src, 0, 0, size, size, null);
+        } finally {
+            g.dispose();
+        }
+        ImageIO.write(out, "png", target.toFile());
     }
 
     private void addClasspath(LaunchProfile profile, Set<String> seen, Path p) {

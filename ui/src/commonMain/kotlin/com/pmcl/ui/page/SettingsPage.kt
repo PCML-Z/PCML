@@ -5,6 +5,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -12,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.pmcl.core.i18n.I18n
 import com.pmcl.ui.theme.LocalThemeState
 import com.pmcl.ui.viewmodel.LauncherViewModel
 
@@ -327,6 +331,7 @@ private fun GameBehaviorCard(pref: com.pmcl.core.preferences.Preferences) {
     var demo by remember { mutableStateOf(pref.isGameDemo()) }
     var serverHost by remember { mutableStateOf(pref.getGameServerHost()) }
     var serverPort by remember { mutableStateOf(pref.getGameServerPort().toString()) }
+    var windowIconPath by remember { mutableStateOf(pref.getWindowIconPath()) }
     var versionIsolation by remember { mutableStateOf(pref.isVersionIsolation()) }
 
     Card(Modifier.fillMaxWidth()) {
@@ -445,6 +450,54 @@ private fun GameBehaviorCard(pref: com.pmcl.core.preferences.Preferences) {
                 )
             }
             Text("对应 --server / --port；仅对新世界选择界面生效，已有存档不受影响",
+                 style = MaterialTheme.typography.labelSmall,
+                 color = MaterialTheme.colorScheme.outline)
+
+            Spacer(Modifier.height(12.dp))
+            Text(I18n.t("settings.window_icon"), style = MaterialTheme.typography.labelMedium)
+            Spacer(Modifier.height(4.dp))
+            OutlinedTextField(
+                value = windowIconPath,
+                onValueChange = {
+                    windowIconPath = it
+                    pref.setWindowIconPath(it)
+                },
+                label = { Text(I18n.t("settings.window_icon_path")) },
+                singleLine = true,
+                placeholder = { Text(I18n.t("settings.window_icon_empty")) },
+                modifier = Modifier.fillMaxWidth(),
+                trailingIcon = {
+                    Row {
+                        IconButton(onClick = {
+                            val fd = java.awt.FileDialog(
+                                null as java.awt.Frame?,
+                                I18n.t("settings.window_icon_select"),
+                                java.awt.FileDialog.LOAD
+                            )
+                            fd.filenameFilter = java.io.FilenameFilter { _, name ->
+                                name.lowercase().endsWith(".png")
+                            }
+                            fd.isVisible = true
+                            if (fd.file != null) {
+                                val p = java.io.File(fd.directory, fd.file).absolutePath
+                                windowIconPath = p
+                                pref.setWindowIconPath(p)
+                            }
+                        }) {
+                            Icon(Icons.Filled.FolderOpen, contentDescription = I18n.t("common.browse"))
+                        }
+                        if (windowIconPath.isNotEmpty()) {
+                            IconButton(onClick = {
+                                windowIconPath = ""
+                                pref.setWindowIconPath("")
+                            }) {
+                                Icon(Icons.Filled.Clear, contentDescription = I18n.t("common.remove"))
+                            }
+                        }
+                    }
+                }
+            )
+            Text(I18n.t("settings.window_icon_hint"),
                  style = MaterialTheme.typography.labelSmall,
                  color = MaterialTheme.colorScheme.outline)
         }
