@@ -78,6 +78,7 @@ public final class I18n {
         ZH.put("nav.shaders", "光影包");
         ZH.put("nav.resourcepacks", "资源包");
         ZH.put("nav.datapacks", "数据包");
+        ZH.put("nav.configs", "配置文件");
 
         // ===== 启动页 =====
         ZH.put("launch.title", "启动游戏");
@@ -439,6 +440,7 @@ public final class I18n {
         EN.put("nav.shaders", "Shaders");
         EN.put("nav.resourcepacks", "Resource Packs");
         EN.put("nav.datapacks", "Datapacks");
+        EN.put("nav.configs", "Configs");
 
         EN.put("launch.title", "Launch Game");
         EN.put("launch.select_version", "Select version");
@@ -781,6 +783,7 @@ public final class I18n {
         JA.put("nav.shaders", "シェーダー");
         JA.put("nav.resourcepacks", "リソースパック");
         JA.put("nav.datapacks", "データパック");
+        JA.put("nav.configs", "設定ファイル");
 
         JA.put("launch.title", "ゲーム起動");
         JA.put("launch.select_version", "バージョン選択");
