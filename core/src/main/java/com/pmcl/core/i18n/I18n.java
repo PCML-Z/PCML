@@ -112,6 +112,12 @@ public final class I18n {
         ZH.put("launch.running_instances", "运行中实例");
         ZH.put("launch.active", "活跃");
         ZH.put("launch.optifine_needs_forge", "此 OptiFine 版本需要先安装 Forge");
+        ZH.put("launch.version_java", "版本 Java");
+        ZH.put("launch.version_java_auto", "自动检测（未指定）");
+        ZH.put("launch.version_java_path", "Java 可执行文件路径");
+        ZH.put("launch.version_java_empty", "留空则使用全局或自动检测");
+        ZH.put("launch.version_java_select", "选择 Java 可执行文件");
+        ZH.put("launch.version_java_hint", "为该版本指定独立 Java 路径，优先级高于全局设置");
 
         // ===== 下载页 =====
         ZH.put("download.refresh", "刷新版本列表");
@@ -463,6 +469,12 @@ public final class I18n {
         EN.put("launch.running_instances", "Running Instances");
         EN.put("launch.active", "Active");
         EN.put("launch.optifine_needs_forge", "This OptiFine version requires Forge to be installed first");
+        EN.put("launch.version_java", "Version Java");
+        EN.put("launch.version_java_auto", "Auto-detect (not set)");
+        EN.put("launch.version_java_path", "Java executable path");
+        EN.put("launch.version_java_empty", "Leave empty for global or auto-detect");
+        EN.put("launch.version_java_select", "Select Java executable");
+        EN.put("launch.version_java_hint", "Specify a Java path for this version; takes priority over global setting");
 
         EN.put("download.refresh", "Refresh versions");
         EN.put("download.install", "Install");
@@ -796,6 +808,12 @@ public final class I18n {
         JA.put("launch.running_instances", "実行中インスタンス");
         JA.put("launch.active", "アクティブ");
         JA.put("launch.optifine_needs_forge", "この OptiFine バージョンは Forge の先行インストールが必要です");
+        JA.put("launch.version_java", "バージョン Java");
+        JA.put("launch.version_java_auto", "自動検出（未設定）");
+        JA.put("launch.version_java_path", "Java 実行ファイルパス");
+        JA.put("launch.version_java_empty", "空欄で全局または自動検出");
+        JA.put("launch.version_java_select", "Java 実行ファイルを選択");
+        JA.put("launch.version_java_hint", "このバージョン専用の Java パスを指定（全局設定より優先）");
 
         JA.put("download.refresh", "バージョン一覧を更新");
         JA.put("download.install", "インストール");

@@ -21,9 +21,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -463,6 +466,99 @@ fun LaunchPage(vm: LauncherViewModel) {
                                 fontWeight = FontWeight.SemiBold,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                             )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+            }
+
+            // 每版本独立 Java 选择（仅在选中版本时显示）
+            selected?.let { verId ->
+                val pref = remember { vm.preferences }
+                var versionJava by remember(verId) { mutableStateOf(pref.getVersionJavaPath(verId)) }
+                var javaExpanded by remember(verId) { mutableStateOf(false) }
+                val hasVersionJava = versionJava.isNotEmpty()
+
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth().clickable { javaExpanded = !javaExpanded }
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Filled.Code, null, Modifier.size(18.dp),
+                                tint = if (hasVersionJava) MaterialTheme.colorScheme.primary
+                                       else MaterialTheme.colorScheme.outline
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(I18n.t("launch.version_java"),
+                                     style = MaterialTheme.typography.labelLarge,
+                                     fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    if (hasVersionJava) versionJava
+                                    else I18n.t("launch.version_java_auto"),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.outline,
+                                    maxLines = 1
+                                )
+                            }
+                            Icon(
+                                if (javaExpanded) Icons.Filled.KeyboardArrowUp
+                                else Icons.Filled.KeyboardArrowDown,
+                                null, Modifier.size(20.dp),
+                                tint = MaterialTheme.colorScheme.outline
+                            )
+                        }
+                        AnimatedVisibility(visible = javaExpanded) {
+                            Column {
+                                Spacer(Modifier.height(12.dp))
+                                OutlinedTextField(
+                                    value = versionJava,
+                                    onValueChange = {
+                                        versionJava = it
+                                        vm.setVersionJavaPath(verId, it)
+                                    },
+                                    label = { Text(I18n.t("launch.version_java_path")) },
+                                    singleLine = true,
+                                    placeholder = { Text(I18n.t("launch.version_java_empty")) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    trailingIcon = {
+                                        Row {
+                                            IconButton(onClick = {
+                                                val fd = java.awt.FileDialog(
+                                                    null as java.awt.Frame?,
+                                                    I18n.t("launch.version_java_select"),
+                                                    java.awt.FileDialog.LOAD
+                                                )
+                                                fd.isVisible = true
+                                                if (fd.file != null) {
+                                                    val p = java.io.File(fd.directory, fd.file).absolutePath
+                                                    versionJava = p
+                                                    vm.setVersionJavaPath(verId, p)
+                                                }
+                                            }) {
+                                                Icon(Icons.Filled.FolderOpen,
+                                                     contentDescription = I18n.t("common.browse"))
+                                            }
+                                            if (versionJava.isNotEmpty()) {
+                                                IconButton(onClick = {
+                                                    versionJava = ""
+                                                    vm.setVersionJavaPath(verId, "")
+                                                }) {
+                                                    Icon(Icons.Filled.Clear,
+                                                         contentDescription = I18n.t("common.remove"))
+                                                }
+                                            }
+                                        }
+                                    }
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text(I18n.t("launch.version_java_hint"),
+                                     style = MaterialTheme.typography.labelSmall,
+                                     color = MaterialTheme.colorScheme.outline)
+                            }
                         }
                     }
                 }

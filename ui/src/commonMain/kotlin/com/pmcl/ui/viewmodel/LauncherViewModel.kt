@@ -1631,10 +1631,15 @@ class LauncherViewModel {
                     try { core.profileBuilder().getRequiredJavaVersion(versionId) } catch (e: Throwable) { 0 }
                 }
                 val javaExe = withContext(Dispatchers.IO) {
-                    val customPath = preferences.getJavaPath()
-                    if (customPath.isNotEmpty()) customPath
-                    else JavaRuntimeFinder.findJavaExecutable(config.getRuntimesDir(), requiredJavaVer)
-                        ?: ""
+                    // 优先级：版本独立 Java > 全局 Java > 自动检测
+                    val versionPath = preferences.getVersionJavaPath(versionId)
+                    if (versionPath.isNotEmpty()) versionPath
+                    else {
+                        val customPath = preferences.getJavaPath()
+                        if (customPath.isNotEmpty()) customPath
+                        else JavaRuntimeFinder.findJavaExecutable(config.getRuntimesDir(), requiredJavaVer)
+                            ?: ""
+                    }
                 }
                 if (javaExe.isEmpty()) {
                     _status.value = "启动失败：未找到 Java 运行时"
@@ -1880,6 +1885,16 @@ class LauncherViewModel {
         } catch (e: Throwable) {
             "未找到"
         }
+    }
+
+    /** 获取指定版本的独立 Java 路径，未配置返回空字符串 */
+    fun getVersionJavaPath(versionId: String): String {
+        return preferences.getVersionJavaPath(versionId)
+    }
+
+    /** 设置指定版本的独立 Java 路径，空字符串则清除 */
+    fun setVersionJavaPath(versionId: String, javaPath: String) {
+        preferences.setVersionJavaPath(versionId, javaPath)
     }
 
     /**

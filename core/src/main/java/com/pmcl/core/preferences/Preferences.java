@@ -40,6 +40,8 @@ public final class Preferences {
     private int minMemoryMb = 512;
     private int maxMemoryMb = 4096;
     private String javaPath = "";  // 用户指定的 Java 路径，空则自动查找
+    // 每版本独立 Java 路径映射：versionId → javaPath，优先级高于全局 javaPath
+    private java.util.Map<String, String> versionJavaPaths = new java.util.concurrent.ConcurrentHashMap<>();
 
     // 游戏通用行为
     private int gameWindowWidth = 854;       // 窗口初始宽度（--width）
@@ -206,6 +208,29 @@ public final class Preferences {
     public synchronized String getJavaPath() { return javaPath; }
     public synchronized void setJavaPath(String v) { javaPath = v == null ? "" : v; save(); }
 
+    /** 获取指定版本的独立 Java 路径，未配置返回空字符串 */
+    public synchronized String getVersionJavaPath(String versionId) {
+        if (versionId == null) return "";
+        String p = versionJavaPaths.get(versionId);
+        return p == null ? "" : p;
+    }
+
+    /** 设置指定版本的独立 Java 路径，空字符串则清除该版本配置 */
+    public synchronized void setVersionJavaPath(String versionId, String javaPath) {
+        if (versionId == null || versionId.isEmpty()) return;
+        if (javaPath == null || javaPath.isEmpty()) {
+            versionJavaPaths.remove(versionId);
+        } else {
+            versionJavaPaths.put(versionId, javaPath);
+        }
+        save();
+    }
+
+    /** 返回所有已配置独立 Java 的版本 ID 集合 */
+    public synchronized java.util.Set<String> getVersionsWithCustomJava() {
+        return new java.util.LinkedHashSet<>(versionJavaPaths.keySet());
+    }
+
     // ===== 游戏通用行为 =====
     public synchronized int getGameWindowWidth() { return gameWindowWidth; }
     public synchronized void setGameWindowWidth(int v) {
@@ -359,6 +384,15 @@ public final class Preferences {
             if (o.has("minMemoryMb")) minMemoryMb = o.get("minMemoryMb").getAsInt();
             if (o.has("maxMemoryMb")) maxMemoryMb = o.get("maxMemoryMb").getAsInt();
             if (o.has("javaPath") && !o.get("javaPath").isJsonNull()) javaPath = o.get("javaPath").getAsString();
+            if (o.has("versionJavaPaths") && !o.get("versionJavaPaths").isJsonNull()) {
+                JsonObject vjp = o.getAsJsonObject("versionJavaPaths");
+                versionJavaPaths.clear();
+                for (var entry : vjp.entrySet()) {
+                    if (!entry.getValue().isJsonNull()) {
+                        versionJavaPaths.put(entry.getKey(), entry.getValue().getAsString());
+                    }
+                }
+            }
             if (o.has("gameWindowWidth")) gameWindowWidth = o.get("gameWindowWidth").getAsInt();
             if (o.has("gameWindowHeight")) gameWindowHeight = o.get("gameWindowHeight").getAsInt();
             if (o.has("gameFullscreen")) gameFullscreen = o.get("gameFullscreen").getAsBoolean();
@@ -422,6 +456,11 @@ public final class Preferences {
             o.addProperty("minMemoryMb", minMemoryMb);
             o.addProperty("maxMemoryMb", maxMemoryMb);
             o.addProperty("javaPath", javaPath);
+            JsonObject vjp = new JsonObject();
+            for (var entry : versionJavaPaths.entrySet()) {
+                vjp.addProperty(entry.getKey(), entry.getValue());
+            }
+            o.add("versionJavaPaths", vjp);
             o.addProperty("gameWindowWidth", gameWindowWidth);
             o.addProperty("gameWindowHeight", gameWindowHeight);
             o.addProperty("gameFullscreen", gameFullscreen);
