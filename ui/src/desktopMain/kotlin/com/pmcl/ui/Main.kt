@@ -237,12 +237,9 @@ private fun FrameWindowScope.BorderlessTitleBar(
             // 搜索框
             TopBarSearchField(
                 modifier = Modifier.width(280.dp),
+                vm = vm,
                 focusRequester = searchFocusRequester,
-                compact = true,
-                onNavigate = { route, tabIndex ->
-                    vm.requestNavigation(route)
-                    if (tabIndex >= 0) vm.requestHubTab(route, tabIndex)
-                }
+                compact = true
             )
             Spacer(Modifier.weight(1f))
             // 最小化
@@ -295,12 +292,9 @@ private fun SlimSearchBar(
         ) {
             TopBarSearchField(
                 modifier = Modifier.width(320.dp),
+                vm = vm,
                 focusRequester = searchFocusRequester,
-                compact = true,
-                onNavigate = { route, tabIndex ->
-                    vm.requestNavigation(route)
-                    if (tabIndex >= 0) vm.requestHubTab(route, tabIndex)
-                }
+                compact = true
             )
             Spacer(Modifier.weight(1f))
         }
