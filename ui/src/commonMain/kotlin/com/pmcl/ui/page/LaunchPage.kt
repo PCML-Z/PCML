@@ -1337,7 +1337,7 @@ fun ModLoaderInstallPromptDialog(
                     onSelect = { i ->
                         if (!installing) selectedLoader = loaderOptions[i].first
                     },
-                    fillWidth = true,
+                    scrollable = true,
                     height = 34.dp
                 )
 
