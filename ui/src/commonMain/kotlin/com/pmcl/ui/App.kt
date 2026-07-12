@@ -10,6 +10,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.pmcl.core.i18n.I18n
 import com.pmcl.core.plugin.PluginManager
 import com.pmcl.ui.animation.AnimatedPageSwitch
 import com.pmcl.ui.animation.EntranceAnimation
@@ -89,13 +90,8 @@ fun App() {
  * Represents either a built-in nav destination or a plugin-provided page.
  */
 private sealed class NavTarget {
-    abstract val label: String
-    data class BuiltIn(val dest: NavDestination) : NavTarget() {
-        override val label = dest.label
-    }
-    data class PluginPage(val page: PluginManager.RegisteredPage) : NavTarget() {
-        override val label = page.title
-    }
+    data class BuiltIn(val dest: NavDestination) : NavTarget()
+    data class PluginPage(val page: PluginManager.RegisteredPage) : NavTarget()
 }
 
 @Composable
@@ -151,11 +147,16 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                             onClick = { current = target },
                             icon = {
                                 when (target) {
-                                    is NavTarget.BuiltIn -> Icon(target.dest.icon, contentDescription = target.label)
-                                    is NavTarget.PluginPage -> Icon(Icons.Filled.Extension, contentDescription = target.label)
+                                    is NavTarget.BuiltIn -> Icon(target.dest.icon, contentDescription = I18n.t(target.dest.labelKey))
+                                    is NavTarget.PluginPage -> Icon(Icons.Filled.Extension, contentDescription = target.page.title)
                                 }
                             },
-                            label = { Text(target.label) }
+                            label = {
+                                Text(when (target) {
+                                    is NavTarget.BuiltIn -> I18n.t(target.dest.labelKey)
+                                    is NavTarget.PluginPage -> target.page.title
+                                })
+                            }
                         )
                     }
                 }

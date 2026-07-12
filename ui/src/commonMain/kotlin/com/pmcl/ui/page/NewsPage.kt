@@ -23,6 +23,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.pmcl.core.i18n.I18n
 import com.pmcl.core.news.NewsItem
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import kotlinx.coroutines.Dispatchers
@@ -154,7 +155,7 @@ fun NewsPage(vm: LauncherViewModel) {
                             modifier = Modifier.size(14.dp)
                         )
                         Spacer(Modifier.width(4.dp))
-                        Text(if (translating) "翻译中…" else "翻译")
+                        Text(if (translating) I18n.t("mods.translating") else I18n.t("mods.translate"))
                     }
                 }
             )
@@ -163,12 +164,12 @@ fun NewsPage(vm: LauncherViewModel) {
                 onClick = { vm.refreshNews() },
                 enabled = !loading
             ) {
-                Text(if (loading) "加载中…" else "刷新")
+                Text(if (loading) I18n.t("common.loading") else I18n.t("common.refresh"))
             }
         }
         Spacer(Modifier.height(4.dp))
         Text(
-            "来自 Minecraft.net 官方 RSS · 点击卡片查看全文",
+            I18n.t("news.source"),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.outline
         )
@@ -180,7 +181,7 @@ fun NewsPage(vm: LauncherViewModel) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         CircularProgressIndicator()
                         Spacer(Modifier.height(12.dp))
-                        Text("正在拉取最新新闻…",
+                        Text(I18n.t("news.fetching"),
                              style = MaterialTheme.typography.bodySmall,
                              color = MaterialTheme.colorScheme.outline)
                     }
@@ -191,7 +192,7 @@ fun NewsPage(vm: LauncherViewModel) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("📰", style = MaterialTheme.typography.displaySmall)
                         Spacer(Modifier.height(12.dp))
-                        Text("暂无新闻",
+                        Text(I18n.t("news.empty"),
                              style = MaterialTheme.typography.titleMedium,
                              fontWeight = FontWeight.SemiBold)
                         Spacer(Modifier.height(4.dp))
@@ -202,7 +203,7 @@ fun NewsPage(vm: LauncherViewModel) {
                         OutlinedButton(onClick = { vm.refreshNews() }) {
                             Icon(Icons.Filled.Refresh, null, Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text("重试")
+                            Text(I18n.t("common.retry"))
                         }
                     }
                 }
@@ -249,10 +250,10 @@ private fun ArticleDetailView(
         // 顶部导航栏
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回",
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = I18n.t("common.back"),
                      modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(4.dp))
-                Text("返回列表")
+                Text(I18n.t("news.back_to_list"))
             }
             Spacer(Modifier.weight(1f))
             if (article != null) {
@@ -268,7 +269,7 @@ private fun ArticleDetailView(
                                 modifier = Modifier.size(14.dp)
                             )
                             Spacer(Modifier.width(4.dp))
-                            Text(if (translating) "翻译中…" else "翻译")
+                            Text(if (translating) I18n.t("mods.translating") else I18n.t("mods.translate"))
                         }
                     }
                 )
@@ -288,7 +289,7 @@ private fun ArticleDetailView(
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         CircularProgressIndicator()
                         Spacer(Modifier.height(12.dp))
-                        Text("正在加载文章…",
+                        Text(I18n.t("news.loading_article"),
                              style = MaterialTheme.typography.bodySmall,
                              color = MaterialTheme.colorScheme.outline)
                     }
@@ -297,7 +298,7 @@ private fun ArticleDetailView(
             error.isNotEmpty() -> {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("加载失败",
+                        Text(I18n.t("news.load_failed"),
                              style = MaterialTheme.typography.titleMedium,
                              fontWeight = FontWeight.SemiBold)
                         Spacer(Modifier.height(8.dp))
@@ -376,7 +377,7 @@ private fun ArticleBody(
             Spacer(Modifier.height(16.dp))
             HorizontalDivider()
             Spacer(Modifier.height(8.dp))
-            Text("原文链接：${article.getUrl()}",
+            Text(I18n.t("news.source_link", article.getUrl()),
                  style = MaterialTheme.typography.labelSmall,
                  color = MaterialTheme.colorScheme.outline)
         }

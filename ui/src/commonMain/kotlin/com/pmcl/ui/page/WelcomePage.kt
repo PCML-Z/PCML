@@ -13,6 +13,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.pmcl.core.i18n.I18n
 import com.pmcl.core.migration.MigrationManager
 import com.pmcl.ui.viewmodel.LauncherViewModel
 
@@ -48,11 +49,11 @@ fun WelcomePage(vm: LauncherViewModel) {
             verticalArrangement = Arrangement.Center
         ) {
             // === 标题 ===
-            Text("欢迎使用 PMCL",
+            Text(I18n.t("launch.welcome"),
                  style = MaterialTheme.typography.headlineMedium,
                  fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(4.dp))
-            Text("一个跨平台的 Minecraft 启动器",
+            Text(I18n.t("launch.subtitle"),
                  style = MaterialTheme.typography.bodyMedium,
                  color = MaterialTheme.colorScheme.outline)
 
@@ -65,7 +66,7 @@ fun WelcomePage(vm: LauncherViewModel) {
             }
 
             if (targetSources.isEmpty()) {
-                Text("未检测到 HMCL 或 Launcher X",
+                Text(I18n.t("migration.no_source"),
                      style = MaterialTheme.typography.bodyMedium,
                      color = MaterialTheme.colorScheme.outline)
             } else {
@@ -89,7 +90,7 @@ fun WelcomePage(vm: LauncherViewModel) {
                 modifier = Modifier.fillMaxWidth(0.5f).height(48.dp),
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Text("进入 PMCL",
+                Text(I18n.t("launch.enter"),
                      style = MaterialTheme.typography.titleMedium, fontSize = 16.sp)
             }
         }
@@ -106,7 +107,7 @@ private fun MigrationCard(
     var migrated by remember { mutableStateOf(false) }
     Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
         Column(Modifier.padding(16.dp)) {
-            Text("从 ${source.getName()} 迁移",
+            Text(I18n.t("migration.from", source.getName()),
                  style = MaterialTheme.typography.titleSmall,
                  fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(4.dp))
@@ -114,7 +115,7 @@ private fun MigrationCard(
                  style = MaterialTheme.typography.labelSmall,
                  color = MaterialTheme.colorScheme.outline)
             Spacer(Modifier.height(2.dp))
-            Text("大小：${MigrationManager.formatSize(source.getEstimatedSize())}",
+            Text(I18n.t("migration.size", MigrationManager.formatSize(source.getEstimatedSize())),
                  style = MaterialTheme.typography.labelSmall,
                  color = MaterialTheme.colorScheme.primary,
                  fontWeight = FontWeight.Medium)
@@ -130,7 +131,7 @@ private fun MigrationCard(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
                     Spacer(Modifier.width(8.dp))
-                    Text(progress.ifEmpty { "迁移中…" },
+                    Text(progress.ifEmpty { I18n.t("migration.processing") },
                          style = MaterialTheme.typography.bodySmall,
                          modifier = Modifier.weight(1f))
                 }
@@ -138,7 +139,7 @@ private fun MigrationCard(
                 Button(onClick = { onMigrate(); migrated = true }) {
                     Icon(Icons.Filled.Refresh, null, Modifier.size(14.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text("迁移游戏数据")
+                    Text(I18n.t("migration.title"))
                 }
             }
         }

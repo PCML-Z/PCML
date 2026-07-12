@@ -133,9 +133,10 @@ public final class LauncherCore {
         applyLanguage(preferences.getLanguage());
     }
 
-    /** 应用语言（zh_CN / en_US） */
+    /** 应用语言（zh_CN / en_US / ja_JP） */
     public void applyLanguage(String lang) {
         if ("en_US".equals(lang)) I18n.setLocale(I18n.EN_US);
+        else if ("ja_JP".equals(lang)) I18n.setLocale(I18n.JA_JP);
         else I18n.setLocale(I18n.ZH_CN);
     }
 

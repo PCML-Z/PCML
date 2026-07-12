@@ -28,6 +28,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.pmcl.core.i18n.I18n
 import com.pmcl.core.market.ModProject
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import kotlinx.coroutines.Dispatchers
@@ -304,15 +305,15 @@ private fun DependencyResultDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("依赖安装结果") },
+        title = { Text(I18n.t("mods.dep_result_title")) },
         text = {
             Column {
-                Text("模组: ${result.modName}",
+                Text(I18n.t("mods.dep_mod_label", result.modName),
                      fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(8.dp))
 
                 if (result.installedDependencies.isNotEmpty()) {
-                    Text("已安装依赖 (${result.installedDependencies.size})",
+                    Text(I18n.t("mods.dep_installed", result.installedDependencies.size),
                          style = MaterialTheme.typography.labelLarge,
                          color = MaterialTheme.colorScheme.primary,
                          fontWeight = FontWeight.SemiBold)
@@ -325,7 +326,7 @@ private fun DependencyResultDialog(
                 }
 
                 if (result.skippedInstalled.isNotEmpty()) {
-                    Text("已安装跳过 (${result.skippedInstalled.size})",
+                    Text(I18n.t("mods.dep_skipped", result.skippedInstalled.size),
                          style = MaterialTheme.typography.labelMedium,
                          color = MaterialTheme.colorScheme.onSurfaceVariant)
                     result.skippedInstalled.forEach { dep ->
@@ -337,7 +338,7 @@ private fun DependencyResultDialog(
                 }
 
                 if (result.skippedSystem.isNotEmpty()) {
-                    Text("系统依赖跳过",
+                    Text(I18n.t("mods.dep_system"),
                          style = MaterialTheme.typography.labelMedium,
                          color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("  ${result.skippedSystem.joinToString(", ")}",
@@ -347,7 +348,7 @@ private fun DependencyResultDialog(
                 }
 
                 if (result.notFound.isNotEmpty()) {
-                    Text("未找到 (${result.notFound.size})",
+                    Text(I18n.t("mods.dep_not_found", result.notFound.size),
                          style = MaterialTheme.typography.labelLarge,
                          color = MaterialTheme.colorScheme.error,
                          fontWeight = FontWeight.SemiBold)
@@ -360,7 +361,7 @@ private fun DependencyResultDialog(
                 }
 
                 if (result.failed.isNotEmpty()) {
-                    Text("安装失败 (${result.failed.size})",
+                    Text(I18n.t("mods.dep_failed", result.failed.size),
                          style = MaterialTheme.typography.labelLarge,
                          color = MaterialTheme.colorScheme.error,
                          fontWeight = FontWeight.SemiBold)
@@ -372,14 +373,14 @@ private fun DependencyResultDialog(
                 }
 
                 if (!result.hasInstalled() && result.notFound.isEmpty() && result.failed.isEmpty()) {
-                    Text("无额外依赖需要安装",
+                    Text(I18n.t("mods.dep_no_extra"),
                          style = MaterialTheme.typography.bodyMedium,
                          color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("确定") }
+            TextButton(onClick = onDismiss) { Text(I18n.t("common.ok")) }
         }
     )
 }
@@ -693,7 +694,7 @@ private fun FileRow(
                 vm.installMod(f, targetGameVersion.ifBlank {
                     (f.getGameVersions() ?: emptyList()).firstOrNull() ?: ""
                 })
-            }) { Text("下载") }
+            }) { Text(I18n.t("market.download")) }
             Spacer(Modifier.width(4.dp))
             OutlinedButton(
                 onClick = {
@@ -709,7 +710,7 @@ private fun FileRow(
                         strokeWidth = 2.dp
                     )
                 }
-                Text("含依赖")
+                Text(I18n.t("mods.with_deps"))
             }
         }
     }

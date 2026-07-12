@@ -17,6 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.pmcl.core.i18n.I18n
 import com.pmcl.core.multiplayer.MultiplayerManager
 import com.pmcl.ui.viewmodel.LauncherViewModel
 
@@ -51,16 +52,16 @@ fun MultiplayerPage(vm: LauncherViewModel) {
 
     // 状态 → 文案 / 颜色映射
     val stateText = when (state) {
-        MultiplayerManager.State.IDLE         -> "未加入房间"
+        MultiplayerManager.State.IDLE         -> I18n.t("mp.state.idle")
         MultiplayerManager.State.DOWNLOADING  -> when {
-            isConnectX -> "正在连接服务器…"
-            vm.mpBackend == MultiplayerManager.Backend.TERRACOTTA -> "正在下载 Terracotta…"
-            else -> "正在下载 EasyTier…"
+            isConnectX -> I18n.t("mp.state.connecting_server")
+            vm.mpBackend == MultiplayerManager.Backend.TERRACOTTA -> I18n.t("mp.state.downloading_terracotta")
+            else -> I18n.t("mp.state.downloading_easytier")
         }
-        MultiplayerManager.State.CONNECTING   -> "正在连接…"
-        MultiplayerManager.State.CONNECTED    -> "已连接"
-        MultiplayerManager.State.DISCONNECTED -> "已断开"
-        MultiplayerManager.State.FAILED       -> "连接失败"
+        MultiplayerManager.State.CONNECTING   -> I18n.t("mp.state.connecting")
+        MultiplayerManager.State.CONNECTED    -> I18n.t("mp.state.connected")
+        MultiplayerManager.State.DISCONNECTED -> I18n.t("mp.state.disconnected")
+        MultiplayerManager.State.FAILED       -> I18n.t("mp.state.failed")
     }
     val stateColor = when (state) {
         MultiplayerManager.State.CONNECTED    -> MaterialTheme.colorScheme.primary
@@ -83,9 +84,9 @@ fun MultiplayerPage(vm: LauncherViewModel) {
             Icon(Icons.Filled.Share, null, tint = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.width(8.dp))
             Text(when (vm.mpBackend) {
-                MultiplayerManager.Backend.CONNECTX -> "ConnectX 联机"
-                MultiplayerManager.Backend.TERRACOTTA -> "陶瓦联机 · Terracotta"
-                else -> "陶瓦联机 · EasyTier"
+                MultiplayerManager.Backend.CONNECTX -> I18n.t("mp.connectx")
+                MultiplayerManager.Backend.TERRACOTTA -> I18n.t("mp.terracotta")
+                else -> I18n.t("mp.easytier")
             },
                  style = MaterialTheme.typography.headlineSmall,
                  fontWeight = FontWeight.Bold,
@@ -93,7 +94,7 @@ fun MultiplayerPage(vm: LauncherViewModel) {
             // 设置按钮
             if (!inRoom) {
                 IconButton(onClick = { showConnectXSettings = true }) {
-                    Icon(Icons.Filled.Settings, "联机设置")
+                    Icon(Icons.Filled.Settings, I18n.t("mp.settings"))
                 }
             }
             // 状态指示
@@ -126,11 +127,11 @@ fun MultiplayerPage(vm: LauncherViewModel) {
                 )
             ) {
                 Column(Modifier.padding(12.dp)) {
-                    Text("联机后端", style = MaterialTheme.typography.labelMedium,
+                    Text(I18n.t("mp.backend"), style = MaterialTheme.typography.labelMedium,
                          color = MaterialTheme.colorScheme.outline)
                     Spacer(Modifier.height(6.dp))
                     val backendList = listOf(
-                        Triple("Terracotta（官方）", MultiplayerManager.Backend.TERRACOTTA, 0),
+                        Triple(I18n.t("mp.terracotta_official"), MultiplayerManager.Backend.TERRACOTTA, 0),
                         Triple("EasyTier", MultiplayerManager.Backend.EASYTIER, 1),
                         Triple("ConnectX", MultiplayerManager.Backend.CONNECTX, 2)
                     )
@@ -182,7 +183,7 @@ fun MultiplayerPage(vm: LauncherViewModel) {
             )
         ) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("当前房间", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(I18n.t("mp.current_room"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
 
                 if (inRoom) {
                     // === Terracotta 后端：显示房间码 ===
@@ -199,7 +200,7 @@ fun MultiplayerPage(vm: LauncherViewModel) {
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Column(Modifier.weight(1f)) {
-                                    Text("房间码（发送给朋友加入）",
+                                    Text(I18n.t("mp.room_code"),
                                          style = MaterialTheme.typography.labelSmall,
                                          color = MaterialTheme.colorScheme.onPrimaryContainer)
                                     Text(invitation,
@@ -208,7 +209,7 @@ fun MultiplayerPage(vm: LauncherViewModel) {
                                          color = MaterialTheme.colorScheme.onPrimaryContainer)
                                 }
                                 IconButton(onClick = { vm.copyInvitation() }) {
-                                    Icon(Icons.AutoMirrored.Filled.Send, "复制房间码")
+                                    Icon(Icons.AutoMirrored.Filled.Send, I18n.t("mp.copy_room_code"))
                                 }
                             }
                         }
@@ -237,7 +238,7 @@ fun MultiplayerPage(vm: LauncherViewModel) {
                                              color = MaterialTheme.colorScheme.onTertiaryContainer)
                                     }
                                     IconButton(onClick = { vm.copyToClipboard(mcAddr) }) {
-                                        Icon(Icons.Filled.Share, "复制地址")
+                                        Icon(Icons.Filled.Share, I18n.t("mp.copy_addr"))
                                     }
                                 }
                             }
@@ -247,10 +248,10 @@ fun MultiplayerPage(vm: LauncherViewModel) {
                                  color = MaterialTheme.colorScheme.outline)
                         }
                     } else if (isConnectX) {
-                        InfoRow("房间短ID", invitation.removePrefix("connectx-").take(12))
+                        InfoRow(I18n.t("mp.room_id"), invitation.removePrefix("connectx-").take(12))
                         if (invitation.isNotEmpty()) {
                             Spacer(Modifier.height(8.dp))
-                            Text("邀请码（发送给朋友加入）",
+                            Text(I18n.t("mp.invite_code"),
                                  style = MaterialTheme.typography.labelMedium,
                                  color = MaterialTheme.colorScheme.outline)
                             OutlinedTextField(
@@ -268,7 +269,7 @@ fun MultiplayerPage(vm: LauncherViewModel) {
                         }
                     } else {
                         // EasyTier 后端
-                        InfoRow("网络名称", invitation.take(20) + if (invitation.length > 20) "…" else "")
+                        InfoRow(I18n.t("mp.network_name"), invitation.take(20) + if (invitation.length > 20) "…" else "")
                         if (virtualIp.isNotEmpty()) {
                             Spacer(Modifier.height(8.dp))
                             Surface(
@@ -280,7 +281,7 @@ fun MultiplayerPage(vm: LauncherViewModel) {
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Column(Modifier.weight(1f)) {
-                                        Text("你的虚拟 IP",
+                                        Text(I18n.t("mp.virtual_ip"),
                                              style = MaterialTheme.typography.labelSmall,
                                              color = MaterialTheme.colorScheme.onPrimaryContainer)
                                         Text(virtualIp,
@@ -289,7 +290,7 @@ fun MultiplayerPage(vm: LauncherViewModel) {
                                              color = MaterialTheme.colorScheme.onPrimaryContainer)
                                     }
                                     IconButton(onClick = { vm.copyToClipboard(virtualIp) }) {
-                                        Icon(Icons.Filled.Share, "复制 IP")
+                                        Icon(Icons.Filled.Share, I18n.t("mp.copy_ip"))
                                     }
                                 }
                             }
@@ -298,13 +299,13 @@ fun MultiplayerPage(vm: LauncherViewModel) {
                                  style = MaterialTheme.typography.labelSmall,
                                  color = MaterialTheme.colorScheme.outline)
                         } else {
-                            Text("虚拟 IP 获取中…请稍候",
+                            Text(I18n.t("mp.ip_acquiring"),
                                  style = MaterialTheme.typography.bodySmall,
                                  color = MaterialTheme.colorScheme.tertiary)
                         }
                         if (invitation.isNotEmpty()) {
                             Spacer(Modifier.height(8.dp))
-                            Text("邀请码（发送给朋友加入）",
+                            Text(I18n.t("mp.invite_code"),
                                  style = MaterialTheme.typography.labelMedium,
                                  color = MaterialTheme.colorScheme.outline)
                             OutlinedTextField(
@@ -339,7 +340,7 @@ fun MultiplayerPage(vm: LauncherViewModel) {
             ) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     // 创建房间
-                    Text("房主", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Text(I18n.t("mp.host"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                     Button(
                         onClick = { vm.createRoom() },
                         enabled = !busy,
@@ -347,17 +348,17 @@ fun MultiplayerPage(vm: LauncherViewModel) {
                     ) {
                         Icon(Icons.Filled.PlayArrow, null, Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text(if (busy) "处理中…" else "创建房间")
+                        Text(if (busy) "处理中…" else I18n.t("mp.create_room"))
                     }
 
                     HorizontalDivider()
 
                     // 加入房间
-                    Text("房客", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Text(I18n.t("mp.guest"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                     OutlinedTextField(
                         value = joinCode,
                         onValueChange = { joinCode = it },
-                        label = { Text("房间码 / 邀请码") },
+                        label = { Text(I18n.t("mp.room_code_label")) },
                         placeholder = { Text(
                             when {
                                 isConnectX -> "粘贴 connectx-… 邀请码"
@@ -376,7 +377,7 @@ fun MultiplayerPage(vm: LauncherViewModel) {
                     ) {
                         Icon(Icons.AutoMirrored.Filled.ArrowForward, null, Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text(if (busy) "处理中…" else "加入房间")
+                        Text(if (busy) "处理中…" else I18n.t("mp.join_room"))
                     }
                 }
             }
@@ -393,7 +394,7 @@ fun MultiplayerPage(vm: LauncherViewModel) {
             ) {
                 Icon(Icons.AutoMirrored.Filled.ExitToApp, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
-                Text("离开房间")
+                Text(I18n.t("mp.leave_room"))
             }
         }
 
@@ -405,10 +406,10 @@ fun MultiplayerPage(vm: LauncherViewModel) {
             )
         ) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("使用说明", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Text(I18n.t("mp.usage"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 val isTerracottaBackend = vm.mpBackend == MultiplayerManager.Backend.TERRACOTTA
                 if (isTerracottaBackend) {
-                    Text("房主：",
+                    Text(I18n.t("mp.host_label"),
                          style = MaterialTheme.typography.labelMedium,
                          fontWeight = FontWeight.SemiBold)
                     Text("1. 点击「创建房间」，首次会自动下载 Terracotta 官方二进制（约 8-14MB）",
@@ -418,7 +419,7 @@ fun MultiplayerPage(vm: LauncherViewModel) {
                     Text("3. 进入单人世界 → ESC 菜单 → 「对局域网开放」",
                          style = MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.height(6.dp))
-                    Text("房客：",
+                    Text(I18n.t("mp.guest_label"),
                          style = MaterialTheme.typography.labelMedium,
                          fontWeight = FontWeight.SemiBold)
                     Text("1. 粘贴房主发来的房间码 → 点击「加入房间」",
@@ -479,7 +480,7 @@ fun MultiplayerPage(vm: LauncherViewModel) {
                 )
             ) {
                 Column(Modifier.padding(12.dp)) {
-                    Text("错误详情",
+                    Text(I18n.t("mp.error_detail"),
                          style = MaterialTheme.typography.labelMedium,
                          color = MaterialTheme.colorScheme.onErrorContainer)
                     Text(lastError,
@@ -532,10 +533,10 @@ private fun ConnectXSettingsDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("ConnectX 设置") },
+        title = { Text(I18n.t("mp.connectx_settings")) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("ConnectX.ClientConsole 二进制路径",
+                Text(I18n.t("mp.connectx_binary"),
                      style = MaterialTheme.typography.labelMedium,
                      color = MaterialTheme.colorScheme.outline)
                 OutlinedTextField(
@@ -546,7 +547,7 @@ private fun ConnectXSettingsDialog(
                     singleLine = true
                 )
                 Spacer(Modifier.height(4.dp))
-                Text("ConnectX 服务器地址",
+                Text(I18n.t("mp.connectx_server"),
                      style = MaterialTheme.typography.labelMedium,
                      color = MaterialTheme.colorScheme.outline)
                 OutlinedTextField(
@@ -557,7 +558,7 @@ private fun ConnectXSettingsDialog(
                     singleLine = true
                 )
                 Spacer(Modifier.height(4.dp))
-                Text("ConnectX 服务器端口",
+                Text(I18n.t("mp.connectx_port"),
                      style = MaterialTheme.typography.labelMedium,
                      color = MaterialTheme.colorScheme.outline)
                 OutlinedTextField(
@@ -574,10 +575,10 @@ private fun ConnectXSettingsDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onSave) { Text("保存") }
+            TextButton(onClick = onSave) { Text(I18n.t("common.save")) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
+            TextButton(onClick = onDismiss) { Text(I18n.t("common.cancel")) }
         }
     )
 }

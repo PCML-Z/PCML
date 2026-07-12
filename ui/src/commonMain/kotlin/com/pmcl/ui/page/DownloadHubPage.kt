@@ -6,6 +6,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.pmcl.core.i18n.I18n
 import com.pmcl.ui.viewmodel.LauncherViewModel
 
 /**
@@ -19,7 +20,7 @@ fun DownloadHubPage(vm: LauncherViewModel) {
 
     Column(Modifier.fillMaxSize()) {
         TabRow(selectedTabIndex = tab) {
-            listOf("版本", "市场", "队列", "Wiki").forEachIndexed { i, label ->
+            listOf(I18n.t("download.local_versions"), I18n.t("nav.market"), I18n.t("nav.queue"), I18n.t("nav.wiki")).forEachIndexed { i, label ->
                 Tab(
                     selected = tab == i,
                     onClick = { tab = i },

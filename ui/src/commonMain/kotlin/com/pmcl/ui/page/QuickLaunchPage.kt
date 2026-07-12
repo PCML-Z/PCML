@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.pmcl.core.i18n.I18n
 import com.pmcl.ui.viewmodel.LauncherViewModel
 
 /**
@@ -59,18 +60,18 @@ fun QuickLaunchPage(
             contentAlignment = Alignment.CenterStart
         ) {
             Column {
-                Text("欢迎使用 PMCL",
+                Text(I18n.t("launch.welcome"),
                      style = MaterialTheme.typography.displayMedium,
                      color = MaterialTheme.colorScheme.primary,
                      fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(24.dp))
                 val acc = account
                 if (acc != null) {
-                    Text("账号：${acc.username}",
+                    Text(I18n.t("launch.account_label", acc.username),
                          style = MaterialTheme.typography.labelLarge,
                          color = MaterialTheme.colorScheme.outline)
                 } else {
-                    Text("未登录账号 · 进入 PMCL 后可登录",
+                    Text(I18n.t("launch.not_logged_in_short"),
                          style = MaterialTheme.typography.labelLarge,
                          color = MaterialTheme.colorScheme.outline)
                 }
@@ -84,12 +85,12 @@ fun QuickLaunchPage(
         ) {
             // === 标题栏 ===
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("启动", style = MaterialTheme.typography.headlineSmall,
+                Text(I18n.t("launch.start"), style = MaterialTheme.typography.headlineSmall,
                      fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
             }
             Spacer(Modifier.height(4.dp))
             Text(
-                selectedVersion ?: "未选择版本",
+                selectedVersion ?: I18n.t("launch.no_version_selected"),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.outline
             )
@@ -109,7 +110,7 @@ fun QuickLaunchPage(
                              fontWeight = FontWeight.Bold)
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            if (isInstalled) "已安装" else "未安装",
+                            if (isInstalled) I18n.t("launch.installed") else I18n.t("launch.not_installed"),
                             style = MaterialTheme.typography.labelSmall,
                             color = if (isInstalled) MaterialTheme.colorScheme.primary
                                     else MaterialTheme.colorScheme.tertiary
@@ -141,7 +142,7 @@ fun QuickLaunchPage(
                     gameRunning -> {
                         Icon(Icons.Filled.PlayArrow, null, Modifier.size(24.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("游戏运行中…",
+                        Text(I18n.t("launch.game_running"),
                              style = MaterialTheme.typography.titleMedium, fontSize = 18.sp)
                     }
                     installing && isDownloadMode -> {
@@ -151,19 +152,19 @@ fun QuickLaunchPage(
                             color = MaterialTheme.colorScheme.onTertiary
                         )
                         Spacer(Modifier.width(10.dp))
-                        Text("下载中…",
+                        Text(I18n.t("launch.downloading"),
                              style = MaterialTheme.typography.titleMedium, fontSize = 18.sp)
                     }
                     isDownloadMode -> {
                         Icon(Icons.Filled.Refresh, null, Modifier.size(24.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("下载并安装",
+                        Text(I18n.t("launch.download_install"),
                              style = MaterialTheme.typography.titleMedium, fontSize = 18.sp)
                     }
                     else -> {
                         Icon(Icons.Filled.PlayArrow, null, Modifier.size(24.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("启动 Minecraft",
+                        Text(I18n.t("launch.start_minecraft"),
                              style = MaterialTheme.typography.titleMedium, fontSize = 18.sp)
                     }
                 }
@@ -194,11 +195,11 @@ fun QuickLaunchPage(
                 modifier = Modifier.fillMaxWidth().height(48.dp),
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Text("进入 PMCL", style = MaterialTheme.typography.titleMedium)
+                Text(I18n.t("launch.enter"), style = MaterialTheme.typography.titleMedium)
             }
 
             // === 状态信息 ===
-            if (status.isNotEmpty() && status != "就绪") {
+            if (status.isNotEmpty() && status != I18n.t("launch.ready")) {
                 Spacer(Modifier.height(8.dp))
                 Text(status,
                      style = MaterialTheme.typography.labelSmall,
@@ -235,7 +236,7 @@ fun QuickLaunchPage(
             confirmButton = {},
             dismissButton = {
                 OutlinedButton(onClick = { vm.dismissCompatOptions() }) {
-                    Text("取消")
+                    Text(I18n.t("common.cancel"))
                 }
             }
         )

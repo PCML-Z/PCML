@@ -9,6 +9,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.pmcl.core.i18n.I18n
 import com.pmcl.core.web.WikiBrowser
 import com.pmcl.ui.viewmodel.LauncherViewModel
 
@@ -25,7 +26,7 @@ fun WikiPage(vm: LauncherViewModel) {
         Text("Mod Wiki", style = MaterialTheme.typography.headlineSmall,
              fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
-        Text("在系统浏览器中打开 Mod Wiki / 项目主页。",
+        Text(I18n.t("wiki.title"),
              style = MaterialTheme.typography.bodySmall,
              color = MaterialTheme.colorScheme.outline)
         Spacer(Modifier.height(16.dp))
@@ -33,30 +34,30 @@ fun WikiPage(vm: LauncherViewModel) {
         OutlinedTextField(
             value = query,
             onValueChange = { query = it },
-            label = { Text("搜索关键词（如 mod 名称）") },
+            label = { Text(I18n.t("wiki.search_placeholder")) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth()
         )
         Spacer(Modifier.height(12.dp))
 
-        Text("快捷入口", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+        Text(I18n.t("wiki.shortcuts"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(8.dp))
 
         val wikiLinks = remember(query) {
             listOf(
-                "Modrinth 项目主页" to (if (query.isNotBlank()) "https://modrinth.com/mod?q=" +
+                I18n.t("wiki.modrinth") to (if (query.isNotBlank()) "https://modrinth.com/mod?q=" +
                         java.net.URLEncoder.encode(query, "UTF-8") else "https://modrinth.com/mods"),
-                "CurseForge 模组搜索" to (if (query.isNotBlank())
+                I18n.t("wiki.curseforge") to (if (query.isNotBlank())
                     "https://www.curseforge.com/minecraft/mc-mods/search?search=" +
                         java.net.URLEncoder.encode(query, "UTF-8")
                     else "https://www.curseforge.com/minecraft/mc-mods"),
-                "Minecraft Wiki 搜索" to (if (query.isNotBlank())
+                I18n.t("wiki.mc_wiki") to (if (query.isNotBlank())
                     WikiBrowser.minecraftWikiSearchUrl(query) else "https://minecraft.wiki/"),
-                "Google 搜索" to (if (query.isNotBlank())
+                I18n.t("wiki.google") to (if (query.isNotBlank())
                     WikiBrowser.searchUrl(query) else "https://www.google.com/"),
                 "Fabric Wiki" to "https://fabricmc.net/wiki/",
-                "Forge 文档" to "https://docs.minecraftforge.net/",
-                "Mojang 官方" to "https://www.minecraft.net/"
+                I18n.t("wiki.forge_docs") to "https://docs.minecraftforge.net/",
+                I18n.t("wiki.mojang") to "https://www.minecraft.net/"
             )
         }
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -65,7 +66,7 @@ fun WikiPage(vm: LauncherViewModel) {
                     Row(Modifier.padding(12.dp).fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically) {
                         Text(label, modifier = Modifier.weight(1f))
-                        Button(onClick = { vm.openWikiUrl(url) }) { Text("打开") }
+                        Button(onClick = { vm.openWikiUrl(url) }) { Text(I18n.t("common.open")) }
                     }
                 }
             }
@@ -77,7 +78,7 @@ fun WikiPage(vm: LauncherViewModel) {
              color = MaterialTheme.colorScheme.outline)
         if (!WikiBrowser.isSupported()) {
             Spacer(Modifier.height(4.dp))
-            Text("当前平台不支持系统浏览器调用",
+            Text(I18n.t("wiki.unsupported"),
                  style = MaterialTheme.typography.labelSmall,
                  color = MaterialTheme.colorScheme.error)
         }

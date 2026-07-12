@@ -24,18 +24,18 @@ import androidx.compose.ui.graphics.vector.ImageVector
  *
  * 注意：Compose Multiplatform 内置 material-icons 集合有限，仅使用稳定可用的图标。
  */
-sealed class NavDestination(val route: String, val label: String, val icon: ImageVector) {
-    data object Launch      : NavDestination("launch",      "启动",   Icons.Filled.PlayArrow)
-    data object News        : NavDestination("news",        "新闻",   Icons.Filled.Info)
-    data object Multiplayer : NavDestination("multiplayer", "联机",   Icons.Filled.Share)
-    data object Download    : NavDestination("download",    "下载",   Icons.Filled.Build)
-    data object Content     : NavDestination("content",     "内容",   Icons.Filled.Star)
-    data object Saves       : NavDestination("saves",       "存档",   Icons.Filled.Search)
-    data object Statistics  : NavDestination("statistics",  "统计",   Icons.Filled.BarChart)
-    data object Accounts    : NavDestination("accounts",    "账号",   Icons.Filled.Person)
-    data object Settings    : NavDestination("settings",    "设置",   Icons.Filled.Settings)
-    data object Terminal    : NavDestination("terminal",    "终端",   Icons.Filled.Terminal)
-    data object Plugins     : NavDestination("plugins",     "插件",   Icons.Filled.Extension)
+sealed class NavDestination(val route: String, val labelKey: String, val icon: ImageVector) {
+    data object Launch      : NavDestination("launch",      "nav.launch",      Icons.Filled.PlayArrow)
+    data object News        : NavDestination("news",        "nav.news",        Icons.Filled.Info)
+    data object Multiplayer : NavDestination("multiplayer", "nav.multiplayer", Icons.Filled.Share)
+    data object Download    : NavDestination("download",    "nav.download",    Icons.Filled.Build)
+    data object Content     : NavDestination("content",     "nav.content",     Icons.Filled.Star)
+    data object Saves       : NavDestination("saves",       "nav.saves",       Icons.Filled.Search)
+    data object Statistics  : NavDestination("statistics",  "nav.statistics",  Icons.Filled.BarChart)
+    data object Accounts    : NavDestination("accounts",    "nav.accounts",    Icons.Filled.Person)
+    data object Settings    : NavDestination("settings",    "nav.settings",    Icons.Filled.Settings)
+    data object Terminal    : NavDestination("terminal",    "nav.terminal",    Icons.Filled.Terminal)
+    data object Plugins     : NavDestination("plugins",     "nav.plugins",     Icons.Filled.Extension)
 }
 
 val allDestinations = listOf(

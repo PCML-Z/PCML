@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import com.pmcl.core.i18n.I18n
 import com.pmcl.ui.viewmodel.LauncherViewModel
 
 /**
@@ -16,7 +17,7 @@ fun SavesHubPage(vm: LauncherViewModel) {
 
     Column(Modifier.fillMaxSize()) {
         TabRow(selectedTabIndex = tab) {
-            listOf("世界", "截图").forEachIndexed { i, label ->
+            listOf(I18n.t("nav.worlds"), I18n.t("nav.screenshots")).forEachIndexed { i, label ->
                 Tab(
                     selected = tab == i,
                     onClick = { tab = i },

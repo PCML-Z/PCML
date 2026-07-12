@@ -17,6 +17,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.pmcl.core.i18n.I18n
 import com.pmcl.core.stats.PlayTimeTracker
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import java.time.LocalDate
@@ -69,15 +70,15 @@ private fun OverviewCard(stats: PlayTimeTracker.OverallStat?) {
         )
     ) {
         Column(Modifier.padding(16.dp)) {
-            Text("游玩总览", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(I18n.t("stats.overview"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(12.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                StatItem("总时长", PlayTimeTracker.formatDuration(stats?.totalDuration ?: 0))
-                StatItem("总会话", "${stats?.totalSessions ?: 0} 次")
+                StatItem(I18n.t("stats.total_duration"), PlayTimeTracker.formatDuration(stats?.totalDuration ?: 0))
+                StatItem(I18n.t("stats.total_sessions"), "${stats?.totalSessions ?: 0} ${I18n.t("common.times")}")
                 val avgDaily = if (stats != null && stats!!.daily.isNotEmpty()) {
                     stats!!.totalDuration / stats!!.daily.size
                 } else 0L
-                StatItem("日均", PlayTimeTracker.formatDuration(avgDaily))
+                StatItem(I18n.t("stats.daily_avg"), PlayTimeTracker.formatDuration(avgDaily))
             }
         }
     }
@@ -103,7 +104,7 @@ private fun DaysSelector(selected: Int, onSelect: (Int) -> Unit) {
             FilterChip(
                 selected = selected == days,
                 onClick = { onSelect(days) },
-                label = { Text("近 $days 天") }
+                label = { Text(I18n.t("stats.recent_days", days)) }
             )
         }
     }
@@ -119,7 +120,7 @@ private fun DailyTrendCard(dailyStats: List<PlayTimeTracker.DailyStat>, days: In
         shape = RoundedCornerShape(12.dp)
     ) {
         Column(Modifier.padding(16.dp)) {
-            Text("每日游玩时长", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(I18n.t("stats.daily_trend"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(16.dp))
             DailyTrendChart(dailyStats)
         }
@@ -251,7 +252,7 @@ private fun VersionDistributionCard(versions: List<PlayTimeTracker.VersionStat>)
         shape = RoundedCornerShape(12.dp)
     ) {
         Column(Modifier.padding(16.dp)) {
-            Text("版本游玩时长分布", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(I18n.t("stats.version_dist"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(16.dp))
             // 只显示前 10 个版本
             versions.take(10).forEach { stat ->
@@ -277,7 +278,7 @@ private fun VersionBar(stat: PlayTimeTracker.VersionStat, maxDuration: Long) {
             Text(stat.version, style = MaterialTheme.typography.bodySmall,
                  fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f),
                  maxLines = 1)
-            Text("${PlayTimeTracker.formatDurationShort(stat.totalDuration)} (${stat.sessionCount} 次)",
+            Text("${PlayTimeTracker.formatDurationShort(stat.totalDuration)} (${stat.sessionCount} ${I18n.t("common.times")})",
                  style = MaterialTheme.typography.labelSmall,
                  color = MaterialTheme.colorScheme.onSurfaceVariant)
         }

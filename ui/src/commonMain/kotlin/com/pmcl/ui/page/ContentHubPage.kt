@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.pmcl.core.i18n.I18n
 import com.pmcl.ui.viewmodel.LauncherViewModel
 
 /**
@@ -34,11 +35,11 @@ fun ContentHubPage(vm: LauncherViewModel) {
     data class TabSpec(val label: String, val icon: ImageVector, val count: Int)
     val tabs = remember(mods, shaders, resources, datapacks, modpacks) {
         listOf(
-            TabSpec("模组", Icons.Filled.Extension, mods.size),
-            TabSpec("整合包", Icons.Filled.Inventory2, modpacks.size),
-            TabSpec("光影包", Icons.Filled.WbSunny, shaders.size),
-            TabSpec("资源包", Icons.Filled.Palette, resources.size),
-            TabSpec("数据包", Icons.Filled.Dataset, datapacks.size)
+            TabSpec(I18n.t("nav.mods"), Icons.Filled.Extension, mods.size),
+            TabSpec(I18n.t("nav.modpacks"), Icons.Filled.Inventory2, modpacks.size),
+            TabSpec(I18n.t("nav.shaders"), Icons.Filled.WbSunny, shaders.size),
+            TabSpec(I18n.t("nav.resourcepacks"), Icons.Filled.Palette, resources.size),
+            TabSpec(I18n.t("nav.datapacks"), Icons.Filled.Dataset, datapacks.size)
         )
     }
 

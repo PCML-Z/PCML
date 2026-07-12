@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.pmcl.core.i18n.I18n
 import com.pmcl.core.download.DownloadQueueManager
 import com.pmcl.ui.viewmodel.LauncherViewModel
 
@@ -50,10 +51,10 @@ fun DownloadsPage(vm: LauncherViewModel) {
         if (tasks.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("队列为空", style = MaterialTheme.typography.titleMedium,
+                    Text(I18n.t("queue.empty"), style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(8.dp))
-                    Text("在「版本」或「市场」Tab 中点击安装即可加入队列",
+                    Text(I18n.t("queue.empty_hint"),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -102,15 +103,15 @@ private fun QueueSummaryCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
-                    Text("下载队列总览",
+                    Text(I18n.t("queue.title"),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(4.dp))
                     Text(buildString {
-                        append("共 ${summary.total()} 项")
-                        if (summary.active() > 0) append("  |  活跃 ${summary.active()}")
-                        if (summary.done > 0) append("  |  完成 ${summary.done}")
-                        if (summary.failed > 0) append("  |  失败 ${summary.failed}")
+                        append(I18n.t("queue.total_items", summary.total()))
+                        if (summary.active() > 0) append("  |  " + I18n.t("queue.active", summary.active()))
+                        if (summary.done > 0) append("  |  " + I18n.t("queue.done", summary.done))
+                        if (summary.failed > 0) append("  |  " + I18n.t("queue.failed", summary.failed))
                     }, style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -144,23 +145,23 @@ private fun QueueSummaryCard(
                 OutlinedButton(onClick = onPauseAll, enabled = summary.active() > 0) {
                     Icon(Icons.Filled.Pause, null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("全部暂停")
+                    Text(I18n.t("queue.pause_all"))
                 }
                 OutlinedButton(onClick = onResumeAll, enabled = summary.paused > 0 || summary.failed > 0) {
                     Icon(Icons.Filled.PlayArrow, null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("全部继续")
+                    Text(I18n.t("queue.resume_all"))
                 }
                 OutlinedButton(onClick = onCancelAll, enabled = summary.active() > 0) {
                     Icon(Icons.Filled.Close, null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("全部取消")
+                    Text(I18n.t("queue.cancel_all"))
                 }
                 OutlinedButton(onClick = onClearFinished,
                     enabled = summary.done > 0 || summary.cancelled > 0 || summary.failed > 0) {
                     Icon(Icons.Filled.Delete, null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("清除已完成")
+                    Text(I18n.t("queue.clear_finished"))
                 }
             }
         }
@@ -254,12 +255,12 @@ private fun QueueTaskCard(
                         TextButton(onClick = onPause) {
                             Icon(Icons.Filled.Pause, null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text("暂停")
+                            Text(I18n.t("common.pause"))
                         }
                         TextButton(onClick = onCancel) {
                             Icon(Icons.Filled.Close, null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text("取消")
+                            Text(I18n.t("common.cancel"))
                         }
                     }
                     DownloadQueueManager.TaskStatus.PAUSED,
@@ -267,12 +268,12 @@ private fun QueueTaskCard(
                         TextButton(onClick = onResume) {
                             Icon(Icons.Filled.PlayArrow, null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text("继续")
+                            Text(I18n.t("common.resume"))
                         }
                         TextButton(onClick = onRemove) {
                             Icon(Icons.Filled.Delete, null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text("移除")
+                            Text(I18n.t("common.remove"))
                         }
                     }
                     DownloadQueueManager.TaskStatus.DONE,
@@ -280,7 +281,7 @@ private fun QueueTaskCard(
                         TextButton(onClick = onRemove) {
                             Icon(Icons.Filled.Delete, null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text("移除")
+                            Text(I18n.t("common.remove"))
                         }
                     }
                 }

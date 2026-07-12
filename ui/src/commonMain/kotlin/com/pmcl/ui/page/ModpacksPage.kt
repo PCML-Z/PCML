@@ -13,6 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.pmcl.core.i18n.I18n
 import com.pmcl.core.install.InstallProgress
 import com.pmcl.core.modpack.ModpackManager
 import com.pmcl.ui.viewmodel.LauncherViewModel
@@ -36,10 +37,10 @@ fun ModpacksPage(vm: LauncherViewModel) {
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         // 顶部操作栏
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("整合包管理", style = MaterialTheme.typography.titleMedium,
+            Text(I18n.t("modpack.title"), style = MaterialTheme.typography.titleMedium,
                  fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
             IconButton(onClick = { vm.refreshModpacks() }, enabled = !busy) {
-                Icon(Icons.Filled.Refresh, contentDescription = "刷新")
+                Icon(Icons.Filled.Refresh, contentDescription = I18n.t("common.refresh"))
             }
             Button(
                 onClick = { showImportDialog = true },
@@ -48,7 +49,7 @@ fun ModpacksPage(vm: LauncherViewModel) {
             ) {
                 Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(4.dp))
-                Text("导入")
+                Text(I18n.t("common.import"))
             }
             Button(
                 onClick = { showExportDialog = true },
@@ -57,7 +58,7 @@ fun ModpacksPage(vm: LauncherViewModel) {
             ) {
                 Icon(Icons.Filled.Upload, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(4.dp))
-                Text("导出")
+                Text(I18n.t("common.export"))
             }
         }
 
@@ -68,7 +69,7 @@ fun ModpacksPage(vm: LauncherViewModel) {
             val p = progress!!
             Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
                 Column(Modifier.padding(12.dp)) {
-                    Text(p.getMessage() ?: "处理中...", style = MaterialTheme.typography.bodySmall)
+                    Text(p.getMessage() ?: I18n.t("common.processing"), style = MaterialTheme.typography.bodySmall)
                     if (p.getTotal() > 0) {
                         Spacer(Modifier.height(4.dp))
                         LinearProgressIndicator(
@@ -88,9 +89,9 @@ fun ModpacksPage(vm: LauncherViewModel) {
                     Icon(Icons.Filled.Inventory2, contentDescription = null,
                          modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.outline)
                     Spacer(Modifier.height(8.dp))
-                    Text("暂无整合包", color = MaterialTheme.colorScheme.outline)
+                    Text(I18n.t("modpack.empty"), color = MaterialTheme.colorScheme.outline)
                     Spacer(Modifier.height(4.dp))
-                    Text("点击「导入」安装 .mrpack 或 .zip 整合包",
+                    Text(I18n.t("modpack.empty_hint"),
                          style = MaterialTheme.typography.labelSmall,
                          color = MaterialTheme.colorScheme.outline)
                 }
@@ -162,12 +163,12 @@ private fun ModpackCard(vm: LauncherViewModel, mp: ModpackManager.InstalledModpa
                     Spacer(Modifier.width(4.dp))
                     AssistChip(
                         onClick = {},
-                        label = { Text("${mp.modCount} 个模组", style = MaterialTheme.typography.labelSmall) }
+                        label = { Text(I18n.t("modpack.mod_count", mp.modCount), style = MaterialTheme.typography.labelSmall) }
                     )
                 }
             }
             IconButton(onClick = { showDeleteConfirm = true }, enabled = !busy) {
-                Icon(Icons.Filled.Delete, contentDescription = "删除",
+                Icon(Icons.Filled.Delete, contentDescription = I18n.t("common.delete"),
                      tint = MaterialTheme.colorScheme.error)
             }
         }
@@ -176,16 +177,16 @@ private fun ModpackCard(vm: LauncherViewModel, mp: ModpackManager.InstalledModpa
     if (showDeleteConfirm) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
-            title = { Text("删除整合包") },
-            text = { Text("确定要删除整合包「${mp.name}」吗？\n这将删除该实例的所有 mods、saves 和 config。") },
+            title = { Text(I18n.t("modpack.delete_title")) },
+            text = { Text(I18n.t("modpack.delete_confirm", mp.name)) },
             confirmButton = {
                 TextButton(onClick = {
                     showDeleteConfirm = false
                     vm.deleteModpack(mp.name)
-                }) { Text("删除", color = MaterialTheme.colorScheme.error) }
+                }) { Text(I18n.t("common.delete"), color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = {
-                TextButton(onClick = { showDeleteConfirm = false }) { Text("取消") }
+                TextButton(onClick = { showDeleteConfirm = false }) { Text(I18n.t("common.cancel")) }
             }
         )
     }
@@ -197,20 +198,20 @@ private fun ImportModpackDialog(onDismiss: () -> Unit, onConfirm: (String) -> Un
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("导入整合包") },
+        title = { Text(I18n.t("modpack.import_title")) },
         text = {
             Column {
-                Text("选择 .mrpack (Modrinth) 或 .zip (CurseForge) 整合包文件",
+                Text(I18n.t("modpack.import_hint"),
                      style = MaterialTheme.typography.bodySmall)
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
                     value = path,
                     onValueChange = { path = it },
-                    label = { Text("文件路径") },
+                    label = { Text(I18n.t("modpack.file_path")) },
                     modifier = Modifier.fillMaxWidth(),
                     trailingIcon = {
                         IconButton(onClick = {
-                            val fd = FileDialog(null as Frame?, "选择整合包文件", FileDialog.LOAD)
+                            val fd = FileDialog(null as Frame?, I18n.t("modpack.select_file"), FileDialog.LOAD)
                             fd.filenameFilter = FilenameFilter { _, name ->
                                 name.endsWith(".mrpack") || name.endsWith(".zip")
                             }
@@ -219,7 +220,7 @@ private fun ImportModpackDialog(onDismiss: () -> Unit, onConfirm: (String) -> Un
                                 path = java.io.File(fd.directory, fd.file).absolutePath
                             }
                         }) {
-                            Icon(Icons.Filled.FolderOpen, contentDescription = "浏览")
+                            Icon(Icons.Filled.FolderOpen, contentDescription = I18n.t("common.browse"))
                         }
                     }
                 )
@@ -229,10 +230,10 @@ private fun ImportModpackDialog(onDismiss: () -> Unit, onConfirm: (String) -> Un
             TextButton(
                 onClick = { if (path.isNotEmpty()) onConfirm(path) },
                 enabled = path.isNotEmpty()
-            ) { Text("导入") }
+            ) { Text(I18n.t("common.import")) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
+            TextButton(onClick = onDismiss) { Text(I18n.t("common.cancel")) }
         }
     )
 }
@@ -252,20 +253,20 @@ private fun ExportModpackDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("导出整合包") },
+        title = { Text(I18n.t("modpack.export_title")) },
         text = {
             Column {
-                Text("将版本「$versionId」导出为 Modrinth .mrpack 格式",
+                Text(I18n.t("modpack.export_hint", versionId),
                      style = MaterialTheme.typography.bodySmall)
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
                     value = path,
                     onValueChange = { path = it },
-                    label = { Text("保存路径") },
+                    label = { Text(I18n.t("modpack.save_path")) },
                     modifier = Modifier.fillMaxWidth(),
                     trailingIcon = {
                         IconButton(onClick = {
-                            val fd = FileDialog(null as Frame?, "保存整合包", FileDialog.SAVE)
+                            val fd = FileDialog(null as Frame?, I18n.t("modpack.save_file"), FileDialog.SAVE)
                             fd.file = "$versionId.mrpack"
                             fd.filenameFilter = FilenameFilter { _, name ->
                                 name.endsWith(".mrpack")
@@ -275,12 +276,12 @@ private fun ExportModpackDialog(
                                 path = java.io.File(fd.directory, fd.file).absolutePath
                             }
                         }) {
-                            Icon(Icons.Filled.FolderOpen, contentDescription = "浏览")
+                            Icon(Icons.Filled.FolderOpen, contentDescription = I18n.t("common.browse"))
                         }
                     }
                 )
                 Spacer(Modifier.height(4.dp))
-                Text("导出包含：mods/、config/、resourcepacks/、shaderpacks/、options.txt",
+                Text(I18n.t("modpack.export_content"),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
             }
@@ -289,10 +290,10 @@ private fun ExportModpackDialog(
             TextButton(
                 onClick = { if (path.isNotEmpty()) onConfirm(path) },
                 enabled = path.isNotEmpty()
-            ) { Text("导出") }
+            ) { Text(I18n.t("common.export")) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
+            TextButton(onClick = onDismiss) { Text(I18n.t("common.cancel")) }
         }
     )
 }
