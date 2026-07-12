@@ -109,6 +109,8 @@ public final class I18n {
         ZH.put("launch.server_empty_hint", "留空则正常启动");
         ZH.put("launch.server_leave_empty", "留空不连接");
         ZH.put("launch.server_hint", "启动后自动连接指定服务器，对应 --server / --port 参数");
+        ZH.put("launch.running_instances", "运行中实例");
+        ZH.put("launch.active", "活跃");
 
         // ===== 下载页 =====
         ZH.put("download.refresh", "刷新版本列表");
@@ -457,6 +459,8 @@ public final class I18n {
         EN.put("launch.server_empty_hint", "Leave empty for normal launch");
         EN.put("launch.server_leave_empty", "Leave empty to skip");
         EN.put("launch.server_hint", "Auto-connect to the specified server on launch (--server / --port)");
+        EN.put("launch.running_instances", "Running Instances");
+        EN.put("launch.active", "Active");
 
         EN.put("download.refresh", "Refresh versions");
         EN.put("download.install", "Install");
@@ -787,6 +791,8 @@ public final class I18n {
         JA.put("launch.server_empty_hint", "空欄で通常起動");
         JA.put("launch.server_leave_empty", "空欄で接続しない");
         JA.put("launch.server_hint", "起動後に指定サーバーへ自動接続（--server / --port）");
+        JA.put("launch.running_instances", "実行中インスタンス");
+        JA.put("launch.active", "アクティブ");
 
         JA.put("download.refresh", "バージョン一覧を更新");
         JA.put("download.install", "インストール");

@@ -230,6 +230,19 @@ class LauncherViewModel {
     private val _gameRunning = MutableStateFlow(false)
     val gameRunning: StateFlow<Boolean> = _gameRunning.asStateFlow()
 
+    // ===== 多实例启动 =====
+    data class RunningInstance(
+        val id: String,
+        val versionId: String,
+        val accountName: String,
+        val startTime: Long,
+        val active: Boolean = false
+    )
+    private val _runningInstances = MutableStateFlow<List<RunningInstance>>(emptyList())
+    val runningInstances: StateFlow<List<RunningInstance>> = _runningInstances.asStateFlow()
+    private val instanceLogs = mutableMapOf<String, MutableList<String>>()
+    private val instanceLoggers = mutableMapOf<String, GameLogger?>()
+
     // ===== 兼容性选项（检测到外部启动器时弹出选择） =====
     data class CompatOption(
         val title: String,
@@ -503,10 +516,6 @@ class LauncherViewModel {
         }
         if (_account.value == null) {
             _status.value = "请先在右侧登录账号后再启动"
-            return
-        }
-        if (_gameRunning.value) {
-            _status.value = "游戏已在运行中，请先等待退出"
             return
         }
         selectVersion(versionId)
@@ -1598,10 +1607,6 @@ class LauncherViewModel {
             _status.value = "请先登录账号"
             return
         }
-        if (_gameRunning.value) {
-            _status.value = "游戏已在运行中"
-            return
-        }
         // mod 冲突检测：仅警告，不阻断启动
         // （NeoForge 支持 jar-in-jar 内嵌依赖，Sinytra Connector 提供 fabric 兼容层，
         //   静态扫描无法检测这些，误报率高；真正的冲突游戏自己会崩并生成崩溃报告）
@@ -1618,6 +1623,7 @@ class LauncherViewModel {
 
         scope.launch {
             _status.value = "正在构建启动配置…"
+            var instanceId: String? = null
             try {
                 // 先读取版本要求的 Java 版本，用于选择合适的 Java 运行时
                 // alpha/beta/1.7- 无 javaVersion 字段返回 0，按旧版本处理（需 Java 8）
@@ -1717,21 +1723,38 @@ class LauncherViewModel {
                     core.profileBuilder().build(versionId, account, javaMajorVer, javaArch)
                 }
 
-                // 创建/复用 GameLogger 持久化日志
-                val logFile = config.getWorkDir().resolve("logs").resolve("latest.log")
-                gameLogger = withContext(Dispatchers.IO) {
+                // 创建/复用 GameLogger 持久化日志（多实例：每个实例独立日志文件）
+                instanceId = "${versionId}_${System.currentTimeMillis()}"
+                val logFile = config.getWorkDir().resolve("logs").resolve("$instanceId.log")
+                val instLogger = withContext(Dispatchers.IO) {
                     try { GameLogger(logFile) } catch (e: Throwable) { null }
                 }
+                instanceLoggers[instanceId] = instLogger
+                gameLogger = instLogger
 
-                _gameLogs.value = if (usingCompatLayer) {
-                    listOf(
+                // 初始化实例日志列表
+                val initLogs = if (usingCompatLayer) {
+                    mutableListOf(
                         "[PMCL 兼容层] 检测到旧版本使用 Java $javaMajorVer 启动（推荐 Java ${requiredJavaVer}）",
                         "[PMCL 兼容层] 已通过 PmclBootstrap 入口类注入 URLClassLoader，解决 LaunchWrapper 兼容问题",
                         "[PMCL 兼容层] 已注入 --add-opens 参数，允许旧版本反射访问 Java 内部 API",
                         "[PMCL 兼容层] 如遇问题，请安装 Java 8 以获得最佳兼容性",
                         ""
                     )
-                } else emptyList()
+                } else mutableListOf()
+                instanceLogs[instanceId] = initLogs
+                _gameLogs.value = initLogs.toList()
+
+                // 添加到运行中实例列表，设为活跃
+                _runningInstances.update { list ->
+                    list.map { it.copy(active = false) } + RunningInstance(
+                        id = instanceId,
+                        versionId = versionId,
+                        accountName = account.username,
+                        startTime = System.currentTimeMillis(),
+                        active = true
+                    )
+                }
                 _gameRunning.value = true
                 _status.value = "启动中… java=$javaExe (Java $javaMajorVer $javaArch) version=$versionId" +
                         if (usingCompatLayer) " [兼容层]" else ""
@@ -1753,11 +1776,23 @@ class LauncherViewModel {
                 // launchAsync 返回 CompletableFuture，需等待进程退出，否则 gameRunning 会立即被 finally 重置
                 val future = core.launch().launchAsync(
                     profile, javaExe,
-                    { line -> _gameLogs.update { old -> (old + line).takeLast(2000) } },
-                    gameLogger
+                    { line ->
+                        // 同时写入实例日志和全局日志（如果该实例是活跃的）
+                        instanceLogs[instanceId]?.let { logs ->
+                            synchronized(logs) {
+                                logs.add(line)
+                                if (logs.size > 2000) logs.subList(0, logs.size - 2000).clear()
+                            }
+                        }
+                        // 仅当此实例为活跃时更新 UI
+                        if (_runningInstances.value.any { it.id == instanceId && it.active }) {
+                            _gameLogs.value = instanceLogs[instanceId]?.toList() ?: emptyList()
+                        }
+                    },
+                    instLogger
                 )
                 val exitCode = withContext(Dispatchers.IO) { future.join() }
-                _status.value = "游戏已退出（code=$exitCode）"
+                _status.value = "游戏已退出（code=$exitCode） $versionId"
 
                 // 记录游玩时长
                 core.playTimeTracker().recordEnd(versionId)
@@ -1788,12 +1823,47 @@ class LauncherViewModel {
             } catch (e: Throwable) {
                 _status.value = "启动失败：${e.message}"
                 _gameLogs.update { old -> (old + "[错误] ${e.message}").takeLast(2000) }
+                instanceId?.let { id ->
+                    instanceLogs[id]?.let { logs ->
+                        synchronized(logs) { logs.add("[错误] ${e.message}") }
+                    }
+                }
             } finally {
-                _gameRunning.value = false
-                gameLogger?.close()
-                gameLogger = null
+                instanceId?.let { id ->
+                    // 从运行列表中移除此实例
+                    _runningInstances.update { list ->
+                        val remaining = list.filter { it.id != id }
+                        // 如果活跃实例退出了，将最后一个实例设为活跃
+                        if (remaining.isNotEmpty() && !remaining.any { it.active }) {
+                            remaining.mapIndexed { idx, inst ->
+                                if (idx == remaining.lastIndex) inst.copy(active = true)
+                                else inst
+                            }
+                        } else remaining
+                    }
+                    // 更新 UI 日志为新的活跃实例
+                    val activeInst = _runningInstances.value.firstOrNull { it.active }
+                    if (activeInst != null) {
+                        _gameLogs.value = instanceLogs[activeInst.id]?.toList() ?: emptyList()
+                    }
+                    _gameRunning.value = _runningInstances.value.isNotEmpty()
+                    // 清理此实例的日志资源
+                    instanceLoggers.remove(id)?.close()
+                    instanceLogs.remove(id)
+                    gameLogger = instanceLoggers.values.lastOrNull()
+                }
             }
         }
+    }
+
+    /**
+     * 切换活跃实例（UI 日志面板显示该实例的日志）。
+     */
+    fun selectInstance(instanceId: String) {
+        _runningInstances.update { list ->
+            list.map { it.copy(active = it.id == instanceId) }
+        }
+        _gameLogs.value = instanceLogs[instanceId]?.toList() ?: emptyList()
     }
 
     // ============ Java 运行时管理 ============

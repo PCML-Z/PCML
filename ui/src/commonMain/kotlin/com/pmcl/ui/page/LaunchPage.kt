@@ -545,10 +545,11 @@ fun LaunchPage(vm: LauncherViewModel) {
             Spacer(Modifier.height(12.dp))
 
             // 启动 / 下载按钮：根据是否安装切换
-            val canInstall = selected != null && !installing && !gameRunning
-            val canLaunch = selected != null && isInstalled && account != null && !gameRunning && !installing
+            val canInstall = selected != null && !installing
+            val canLaunch = selected != null && isInstalled && account != null && !installing
             val buttonEnabled = canLaunch || canInstall
             val isDownloadMode = selected != null && !isInstalled
+            val runningInstances by vm.runningInstances.collectAsState()
 
             Button(
                 onClick = {
@@ -567,12 +568,6 @@ fun LaunchPage(vm: LauncherViewModel) {
                 ) else ButtonDefaults.buttonColors()
             ) {
                 when {
-                    gameRunning -> {
-                        Icon(Icons.Filled.PlayArrow, null, Modifier.size(24.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("游戏运行中…",
-                             style = MaterialTheme.typography.titleMedium, fontSize = 18.sp)
-                    }
                     installing && isDownloadMode -> {
                         CircularProgressIndicator(
                             modifier = Modifier.size(22.dp),
@@ -645,6 +640,75 @@ fun LaunchPage(vm: LauncherViewModel) {
             Text("状态：$status",
                  style = MaterialTheme.typography.labelSmall,
                  color = MaterialTheme.colorScheme.outline)
+
+            // 运行中实例列表（多实例启动支持）
+            if (runningInstances.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(I18n.t("launch.running_instances"),
+                                 style = MaterialTheme.typography.labelMedium,
+                                 fontWeight = FontWeight.SemiBold,
+                                 modifier = Modifier.weight(1f))
+                            Text("${runningInstances.size}",
+                                 style = MaterialTheme.typography.labelSmall,
+                                 color = MaterialTheme.colorScheme.primary,
+                                 fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        runningInstances.forEach { inst ->
+                            val isActive = inst.active
+                            val runtimeMs = System.currentTimeMillis() - inst.startTime
+                            val runtimeStr = formatRuntime(runtimeMs)
+                            Surface(
+                                color = if (isActive) MaterialTheme.colorScheme.primaryContainer
+                                        else MaterialTheme.colorScheme.surface,
+                                shape = RoundedCornerShape(6.dp),
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
+                                    .clickable { vm.selectInstance(inst.id) }
+                            ) {
+                                Row(
+                                    Modifier.padding(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Filled.PlayArrow, null, Modifier.size(14.dp),
+                                        tint = if (isActive) MaterialTheme.colorScheme.primary
+                                               else MaterialTheme.colorScheme.outline
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text(inst.versionId,
+                                             style = MaterialTheme.typography.bodySmall,
+                                             fontWeight = FontWeight.SemiBold,
+                                             maxLines = 1)
+                                        Text("${inst.accountName} · $runtimeStr",
+                                             style = MaterialTheme.typography.labelSmall,
+                                             color = MaterialTheme.colorScheme.outline,
+                                             maxLines = 1)
+                                    }
+                                    if (isActive) {
+                                        Surface(
+                                            color = MaterialTheme.colorScheme.primary,
+                                            shape = RoundedCornerShape(3.dp)
+                                        ) {
+                                            Text(I18n.t("launch.active"),
+                                                 color = MaterialTheme.colorScheme.onPrimary,
+                                                 style = MaterialTheme.typography.labelSmall,
+                                                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
 
             Spacer(Modifier.height(12.dp))
             HorizontalDivider()
@@ -1253,7 +1317,7 @@ private fun PinnedTile(
 ) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
-    val enabled = launchable && !gameRunning && hasAccount
+    val enabled = launchable && hasAccount
     var menuExpanded by remember { mutableStateOf(false) }
 
     // 显示名：优先自定义名称，否则回退到版本 ID
@@ -1363,7 +1427,6 @@ private fun PinnedTile(
                 val stateText = when {
                     !launchable -> "版本已失效（缺 JSON）"
                     !hasAccount -> "请先登录账号"
-                    gameRunning -> "运行中…"
                     else -> "点击启动"
                 }
                 Text(stateText,
@@ -1396,7 +1459,7 @@ private fun RecentVersionRow(
     onClick: () -> Unit,
     onLaunch: () -> Unit
 ) {
-    val canLaunch = !gameRunning && hasAccount
+    val canLaunch = hasAccount
     Surface(
         onClick = onClick,
         color = MaterialTheme.colorScheme.surfaceVariant,
@@ -1428,6 +1491,21 @@ private fun RecentVersionRow(
                      modifier = Modifier.size(18.dp))
             }
         }
+    }
+}
+
+/**
+ * 格式化运行时长（毫秒 → "1h 23m" / "5m 12s" / "42s"）
+ */
+private fun formatRuntime(ms: Long): String {
+    val totalSec = ms / 1000
+    val h = totalSec / 3600
+    val m = (totalSec % 3600) / 60
+    val s = totalSec % 60
+    return when {
+        h > 0 -> "${h}h ${m}m"
+        m > 0 -> "${m}m ${s}s"
+        else -> "${s}s"
     }
 }
 
