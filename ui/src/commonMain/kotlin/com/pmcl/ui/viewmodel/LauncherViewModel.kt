@@ -19,6 +19,7 @@ import com.pmcl.core.mods.ModConflictChecker
 import com.pmcl.core.mods.ModMeta
 import com.pmcl.core.mods.ModScanner
 import com.pmcl.core.mods.ModUpdateChecker
+import com.pmcl.core.mods.ModDependencyResolver
 import com.pmcl.core.modpack.ModpackManager
 import com.pmcl.core.preferences.Preferences
 import com.pmcl.core.version.McVersion
@@ -189,6 +190,13 @@ class LauncherViewModel {
     /** 更新检测用的 gameVersion（从当前选中版本推断） */
     private val _updateGameVersion = MutableStateFlow("")
     val updateGameVersion: StateFlow<String> = _updateGameVersion.asStateFlow()
+
+    // ===== 模组依赖安装 =====
+    private val _installingDeps = MutableStateFlow(false)
+    val installingDeps: StateFlow<Boolean> = _installingDeps.asStateFlow()
+
+    private val _depInstallResult = MutableStateFlow<ModDependencyResolver.DependencyResult?>(null)
+    val depInstallResult: StateFlow<ModDependencyResolver.DependencyResult?> = _depInstallResult.asStateFlow()
 
     // ===== 微软登录 =====
     private val _deviceCode = MutableStateFlow<DeviceCode?>(null)
@@ -1007,6 +1015,40 @@ class LauncherViewModel {
                 _status.value = "模组安装失败：${e.message}"
             }
         }
+    }
+
+    /**
+     * 安装模组并自动解析安装其依赖。
+     * 下载主模组后解析 jar 内 depends 列表，自动搜索并安装未安装的依赖。
+     */
+    fun installModWithDeps(file: ModFile, gameVersion: String) {
+        if (_installingDeps.value) return
+        _installingDeps.value = true
+        _depInstallResult.value = null
+        scope.launch {
+            _status.value = "安装模组（含依赖）：${file.getFileName()}"
+            try {
+                val result = core.modDependencyResolver().installWithDependencies(
+                    file, gameVersion, _selectedVersion.value
+                ) { msg -> _status.value = msg }.join()
+                _depInstallResult.value = result
+                _status.value = if (result.hasInstalled()) {
+                    "安装完成：${file.getFileName()}（${result.summary()}）"
+                } else {
+                    "安装完成：${file.getFileName()}（无额外依赖）"
+                }
+                refreshInstalledMods()
+            } catch (e: Throwable) {
+                _status.value = "安装失败：${e.message}"
+            } finally {
+                _installingDeps.value = false
+            }
+        }
+    }
+
+    /** 清除依赖安装结果 */
+    fun clearDepInstallResult() {
+        _depInstallResult.value = null
     }
 
     // ============ 已安装 Mod 扫描 ============

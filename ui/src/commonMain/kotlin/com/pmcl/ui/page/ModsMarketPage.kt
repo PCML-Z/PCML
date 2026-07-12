@@ -52,6 +52,7 @@ fun ModsMarketPage(vm: LauncherViewModel) {
     val currentModFiles by vm.currentModFiles.collectAsState()
     val translationCache by vm.translationCache.collectAsState()
     val translating by vm.translating.collectAsState()
+    val depResult by vm.depInstallResult.collectAsState()
     var translateEnabled by remember { mutableStateOf(false) }
 
     var query by remember { mutableStateOf("") }
@@ -283,6 +284,104 @@ fun ModsMarketPage(vm: LauncherViewModel) {
         Text("状态：$status", style = MaterialTheme.typography.labelSmall,
              color = MaterialTheme.colorScheme.outline)
     }
+
+    // 依赖安装结果对话框
+    if (depResult != null) {
+        DependencyResultDialog(
+            result = depResult!!,
+            onDismiss = { vm.clearDepInstallResult() }
+        )
+    }
+}
+
+/**
+ * 依赖安装结果对话框：展示已安装依赖、跳过的系统依赖、未找到的依赖等。
+ */
+@Composable
+private fun DependencyResultDialog(
+    result: com.pmcl.core.mods.ModDependencyResolver.DependencyResult,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("依赖安装结果") },
+        text = {
+            Column {
+                Text("模组: ${result.modName}",
+                     fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(8.dp))
+
+                if (result.installedDependencies.isNotEmpty()) {
+                    Text("已安装依赖 (${result.installedDependencies.size})",
+                         style = MaterialTheme.typography.labelLarge,
+                         color = MaterialTheme.colorScheme.primary,
+                         fontWeight = FontWeight.SemiBold)
+                    result.installedDependencies.forEach { dep ->
+                        Text("  + $dep",
+                             style = MaterialTheme.typography.bodySmall,
+                             color = MaterialTheme.colorScheme.primary)
+                    }
+                    Spacer(Modifier.height(6.dp))
+                }
+
+                if (result.skippedInstalled.isNotEmpty()) {
+                    Text("已安装跳过 (${result.skippedInstalled.size})",
+                         style = MaterialTheme.typography.labelMedium,
+                         color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    result.skippedInstalled.forEach { dep ->
+                        Text("  - $dep (已安装)",
+                             style = MaterialTheme.typography.bodySmall,
+                             color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Spacer(Modifier.height(6.dp))
+                }
+
+                if (result.skippedSystem.isNotEmpty()) {
+                    Text("系统依赖跳过",
+                         style = MaterialTheme.typography.labelMedium,
+                         color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("  ${result.skippedSystem.joinToString(", ")}",
+                         style = MaterialTheme.typography.bodySmall,
+                         color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(6.dp))
+                }
+
+                if (result.notFound.isNotEmpty()) {
+                    Text("未找到 (${result.notFound.size})",
+                         style = MaterialTheme.typography.labelLarge,
+                         color = MaterialTheme.colorScheme.error,
+                         fontWeight = FontWeight.SemiBold)
+                    result.notFound.forEach { dep ->
+                        Text("  ? $dep",
+                             style = MaterialTheme.typography.bodySmall,
+                             color = MaterialTheme.colorScheme.error)
+                    }
+                    Spacer(Modifier.height(6.dp))
+                }
+
+                if (result.failed.isNotEmpty()) {
+                    Text("安装失败 (${result.failed.size})",
+                         style = MaterialTheme.typography.labelLarge,
+                         color = MaterialTheme.colorScheme.error,
+                         fontWeight = FontWeight.SemiBold)
+                    result.failed.forEach { dep ->
+                        Text("  ! $dep",
+                             style = MaterialTheme.typography.bodySmall,
+                             color = MaterialTheme.colorScheme.error)
+                    }
+                }
+
+                if (!result.hasInstalled() && result.notFound.isEmpty() && result.failed.isEmpty()) {
+                    Text("无额外依赖需要安装",
+                         style = MaterialTheme.typography.bodyMedium,
+                         color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("确定") }
+        }
+    )
 }
 
 /**
@@ -572,6 +671,7 @@ private fun FileRow(
     targetGameVersion: String,
     vm: LauncherViewModel
 ) {
+    val installingDeps by vm.installingDeps.collectAsState()
     Surface(
         color = MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(6.dp),
@@ -594,6 +694,23 @@ private fun FileRow(
                     (f.getGameVersions() ?: emptyList()).firstOrNull() ?: ""
                 })
             }) { Text("下载") }
+            Spacer(Modifier.width(4.dp))
+            OutlinedButton(
+                onClick = {
+                    vm.installModWithDeps(f, targetGameVersion.ifBlank {
+                        (f.getGameVersions() ?: emptyList()).firstOrNull() ?: ""
+                    })
+                },
+                enabled = !installingDeps
+            ) {
+                if (installingDeps) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(14.dp),
+                        strokeWidth = 2.dp
+                    )
+                }
+                Text("含依赖")
+            }
         }
     }
 }

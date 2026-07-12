@@ -10,6 +10,7 @@ import com.pmcl.core.market.ModMarketManager;
 import com.pmcl.core.modloader.ModLoaderManager;
 import com.pmcl.core.mods.ModManager;
 import com.pmcl.core.mods.ModUpdateChecker;
+import com.pmcl.core.mods.ModDependencyResolver;
 import com.pmcl.core.modpack.ModpackManager;
 import com.pmcl.core.multiplayer.MultiplayerManager;
 import com.pmcl.core.migration.MigrationManager;
@@ -58,6 +59,7 @@ public final class LauncherCore {
     private final ModpackManager modpackManager;
     private final DownloadQueueManager downloadQueue;
     private final ModUpdateChecker modUpdateChecker;
+    private final ModDependencyResolver modDependencyResolver;
     private final LaunchProfileBuilder profileBuilder;
     private final JavaRuntimeDownloader javaRuntimeDownloader;
     private final WorldManager worldManager;
@@ -100,6 +102,7 @@ public final class LauncherCore {
         this.downloadQueue = new DownloadQueueManager(config, downloadManager, versionInstaller,
                 modMarketManager, modLoaderManager, preferences);
         this.modUpdateChecker = new ModUpdateChecker(config, modMarketManager, preferences);
+        this.modDependencyResolver = new ModDependencyResolver(config, modMarketManager, preferences);
         this.profileBuilder = new LaunchProfileBuilder(config, preferences, downloadManager);
         this.javaRuntimeDownloader = new JavaRuntimeDownloader(config, downloadManager);
         this.worldManager = new WorldManager(config.getWorkDir());
@@ -194,6 +197,7 @@ public final class LauncherCore {
     public ModpackManager modpacks() { return modpackManager; }
     public DownloadQueueManager downloadQueue() { return downloadQueue; }
     public ModUpdateChecker modUpdateChecker() { return modUpdateChecker; }
+    public ModDependencyResolver modDependencyResolver() { return modDependencyResolver; }
 
     public LaunchProfileBuilder profileBuilder() { return profileBuilder; }
 
