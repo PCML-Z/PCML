@@ -21,6 +21,7 @@ import com.pmcl.core.runtime.JavaRuntimeDownloader;
 import com.pmcl.core.runtime.RuntimeManager;
 import com.pmcl.core.stats.PlayTimeTracker;
 import com.pmcl.core.translate.TranslateClient;
+import com.pmcl.core.util.PastebinClient;
 import com.pmcl.core.update.SelfUpdater;
 import com.pmcl.core.version.VersionManager;
 import com.pmcl.core.gamecontent.WorldManager;
@@ -62,6 +63,7 @@ public final class LauncherCore {
     private final ModUpdateChecker modUpdateChecker;
     private final ModDependencyResolver modDependencyResolver;
     private final PlayTimeTracker playTimeTracker;
+    private final PastebinClient pastebinClient;
     private final LaunchProfileBuilder profileBuilder;
     private final JavaRuntimeDownloader javaRuntimeDownloader;
     private final WorldManager worldManager;
@@ -107,6 +109,7 @@ public final class LauncherCore {
         this.modDependencyResolver = new ModDependencyResolver(config, modMarketManager, preferences);
         this.playTimeTracker = new PlayTimeTracker(
                 Paths.get(System.getProperty("user.home"), ".pmcl", "playtime.json"));
+        this.pastebinClient = new PastebinClient(downloadManager.httpClient());
         this.profileBuilder = new LaunchProfileBuilder(config, preferences, downloadManager);
         this.javaRuntimeDownloader = new JavaRuntimeDownloader(config, downloadManager);
         this.worldManager = new WorldManager(config.getWorkDir());
@@ -155,6 +158,7 @@ public final class LauncherCore {
         OkHttpClient http = downloadManager.httpClient();
         newsClient.updateHttpClient(http);
         modMarketManager.updateHttpClients(http);
+        pastebinClient.updateHttpClient(http);
         translateClient.updateHttpClient(http);
     }
 
@@ -204,6 +208,7 @@ public final class LauncherCore {
     public ModUpdateChecker modUpdateChecker() { return modUpdateChecker; }
     public ModDependencyResolver modDependencyResolver() { return modDependencyResolver; }
     public PlayTimeTracker playTimeTracker() { return playTimeTracker; }
+    public PastebinClient pastebin() { return pastebinClient; }
 
     public LaunchProfileBuilder profileBuilder() { return profileBuilder; }
 

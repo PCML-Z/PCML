@@ -46,6 +46,7 @@ public final class I18n {
         ZH.put("common.back", "返回");
         ZH.put("common.open", "打开");
         ZH.put("common.copy", "复制");
+        ZH.put("common.close", "关闭");
         ZH.put("common.enable", "启用");
         ZH.put("common.disable", "禁用");
         ZH.put("common.install", "安装");
@@ -361,6 +362,17 @@ public final class I18n {
         // ===== 终端页 =====
         ZH.put("terminal.title", "终端");
 
+        // ===== 日志导出/分享 =====
+        ZH.put("log.export", "导出");
+        ZH.put("log.export_title", "导出日志");
+        ZH.put("log.export_hint", "选择保存位置，日志将导出为 .txt 文件");
+        ZH.put("log.export_save", "保存日志文件");
+        ZH.put("log.choose_file", "选择保存位置");
+        ZH.put("log.export_failed", "导出失败");
+        ZH.put("log.share", "分享");
+        ZH.put("log.share_success", "分享成功");
+        ZH.put("log.share_url_hint", "日志已上传到 paste.gg，复制下方链接分享给他人：");
+
         // ========================================
         // EN 翻译
         // ========================================
@@ -384,6 +396,7 @@ public final class I18n {
         EN.put("common.back", "Back");
         EN.put("common.open", "Open");
         EN.put("common.copy", "Copy");
+        EN.put("common.close", "Close");
         EN.put("common.enable", "Enable");
         EN.put("common.disable", "Disable");
         EN.put("common.install", "Install");
@@ -679,6 +692,17 @@ public final class I18n {
 
         EN.put("terminal.title", "Terminal");
 
+        // ===== 日志导出/分享 =====
+        EN.put("log.export", "Export");
+        EN.put("log.export_title", "Export Log");
+        EN.put("log.export_hint", "Choose a save location; the log will be exported as a .txt file");
+        EN.put("log.export_save", "Save log file");
+        EN.put("log.choose_file", "Choose save location");
+        EN.put("log.export_failed", "Export failed");
+        EN.put("log.share", "Share");
+        EN.put("log.share_success", "Share Success");
+        EN.put("log.share_url_hint", "Log uploaded to paste.gg. Copy the link below to share:");
+
         // ========================================
         // JA 翻訳
         // ========================================
@@ -702,6 +726,7 @@ public final class I18n {
         JA.put("common.back", "戻る");
         JA.put("common.open", "開く");
         JA.put("common.copy", "コピー");
+        JA.put("common.close", "閉じる");
         JA.put("common.enable", "有効化");
         JA.put("common.disable", "無効化");
         JA.put("common.install", "インストール");
@@ -996,6 +1021,17 @@ public final class I18n {
         JA.put("plugin.disabled", "無効");
 
         JA.put("terminal.title", "ターミナル");
+
+        // ===== 日志导出/分享 =====
+        JA.put("log.export", "書き出し");
+        JA.put("log.export_title", "ログ書き出し");
+        JA.put("log.export_hint", "保存先を選択すると、ログが .txt ファイルとして書き出されます");
+        JA.put("log.export_save", "ログファイルを保存");
+        JA.put("log.choose_file", "保存先を選択");
+        JA.put("log.export_failed", "書き出し失敗");
+        JA.put("log.share", "共有");
+        JA.put("log.share_success", "共有成功");
+        JA.put("log.share_url_hint", "ログは paste.gg にアップロードされました。下記リンクをコピーして共有してください：");
     }
 
     public static Locale getCurrentLocale() { return current; }

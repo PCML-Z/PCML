@@ -221,6 +221,12 @@ class LauncherViewModel {
     private val _gameLogs = MutableStateFlow<List<String>>(emptyList())
     val gameLogs: StateFlow<List<String>> = _gameLogs.asStateFlow()
 
+    // ===== 日志导出/分享 =====
+    private val _logSharing = MutableStateFlow(false)
+    val logSharing: StateFlow<Boolean> = _logSharing.asStateFlow()
+    private val _shareUrl = MutableStateFlow<String?>(null)
+    val shareUrl: StateFlow<String?> = _shareUrl.asStateFlow()
+
     private val _gameRunning = MutableStateFlow(false)
     val gameRunning: StateFlow<Boolean> = _gameRunning.asStateFlow()
 
@@ -2295,6 +2301,64 @@ class LauncherViewModel {
         preferences.setLanguage(lang)
         core.applyLanguage(lang)
         _status.value = "已切换语言（重启 UI 后完全生效）"
+    }
+
+    // ============ 日志导出/分享 ============
+
+    /** 清除已分享的 URL（关闭分享对话框时调用） */
+    fun clearShareUrl() { _shareUrl.value = null }
+
+    /**
+     * 导出当前游戏日志到用户指定的文件路径。
+     * @param targetPath 目标文件绝对路径
+     * @return 是否成功
+     */
+    suspend fun exportLogs(targetPath: String): Boolean = withContext(Dispatchers.IO) {
+        val logs = _gameLogs.value
+        if (logs.isEmpty()) return@withContext false
+        try {
+            val path = java.nio.file.Paths.get(targetPath)
+            java.nio.file.Files.createDirectories(path.parent)
+            val content = buildString {
+                append("PMCL 游戏日志\n")
+                append("导出时间: ").append(java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(java.util.Date())).append("\n")
+                append("=").append("=".repeat(60)).append("\n\n")
+                append(logs.joinToString("\n"))
+            }
+            java.nio.file.Files.write(path, content.toByteArray(java.nio.charset.StandardCharsets.UTF_8))
+            _status.value = "日志已导出到: $targetPath"
+            true
+        } catch (e: Throwable) {
+            _status.value = "日志导出失败: ${e.message}"
+            false
+        }
+    }
+
+    /**
+     * 上传当前游戏日志到 paste.gg，返回可分享的 URL。
+     */
+    fun shareLogs() {
+        if (_logSharing.value) return
+        val logs = _gameLogs.value
+        if (logs.isEmpty()) {
+            _status.value = "暂无日志可分享"
+            return
+        }
+        _logSharing.value = true
+        _shareUrl.value = null
+        scope.launch {
+            try {
+                val content = logs.joinToString("\n")
+                val name = "PMCL-Log-${java.text.SimpleDateFormat("yyyyMMdd-HHmmss").format(java.util.Date())}"
+                val url = core.pastebin().upload(content, name)
+                _shareUrl.value = url
+                _status.value = "日志已上传，分享链接已生成"
+            } catch (e: Throwable) {
+                _status.value = "日志上传失败: ${e.message}"
+            } finally {
+                _logSharing.value = false
+            }
+        }
     }
 
     // ============ 新闻 ============

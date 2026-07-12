@@ -21,7 +21,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.PlayArrow
@@ -51,6 +54,7 @@ import com.pmcl.ui.animation.StaggeredAppear
 import com.pmcl.ui.animation.pressScale
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jetbrains.skia.Image as SkiaImage
 import java.net.URL
@@ -645,7 +649,9 @@ fun LaunchPage(vm: LauncherViewModel) {
             Spacer(Modifier.height(12.dp))
             HorizontalDivider()
             Spacer(Modifier.height(8.dp))
-            // 日志标题 + 复制按钮
+            // 日志标题 + 操作按钮（复制 / 导出 / 分享）
+            val logSharing by vm.logSharing.collectAsState()
+            val shareUrl by vm.shareUrl.collectAsState()
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("游戏日志", style = MaterialTheme.typography.labelLarge,
                      fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
@@ -680,6 +686,140 @@ fun LaunchPage(vm: LauncherViewModel) {
                         copied = false
                     }
                 }
+
+                // 导出日志到文件
+                var showExportDialog by remember { mutableStateOf(false) }
+                TextButton(
+                    onClick = { showExportDialog = true },
+                    enabled = gameLogs.isNotEmpty(),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                        horizontal = 8.dp, vertical = 0.dp
+                    )
+                ) {
+                    Icon(Icons.Filled.IosShare, null, Modifier.size(14.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(I18n.t("log.export"), style = MaterialTheme.typography.labelSmall)
+                }
+                if (showExportDialog) {
+                    val exportState = remember { mutableStateOf<Boolean?>(null) }
+                    AlertDialog(
+                        onDismissRequest = {
+                            if (exportState.value != null) showExportDialog = false
+                        },
+                        title = { Text(I18n.t("log.export_title")) },
+                        text = {
+                            Column {
+                                Text(I18n.t("log.export_hint"),
+                                     style = MaterialTheme.typography.bodySmall,
+                                     color = MaterialTheme.colorScheme.outline)
+                                Spacer(Modifier.height(8.dp))
+                                Row {
+                                    OutlinedButton(onClick = {
+                                        val fd = java.awt.FileDialog(
+                                            null as java.awt.Frame?,
+                                            I18n.t("log.export_save"),
+                                            java.awt.FileDialog.SAVE
+                                        )
+                                        fd.file = "pmcl-log-${java.text.SimpleDateFormat("yyyyMMdd-HHmmss").format(java.util.Date())}.txt"
+                                        fd.isVisible = true
+                                        if (fd.file != null) {
+                                            val p = java.io.File(fd.directory, fd.file).absolutePath
+                                            kotlinx.coroutines.MainScope().launch {
+                                                exportState.value = vm.exportLogs(p)
+                                                if (exportState.value == true) showExportDialog = false
+                                            }
+                                        } else {
+                                            showExportDialog = false
+                                        }
+                                    }) { Text(I18n.t("log.choose_file")) }
+                                    Spacer(Modifier.width(8.dp))
+                                    if (exportState.value == false) {
+                                        Text(I18n.t("log.export_failed"),
+                                             color = MaterialTheme.colorScheme.error,
+                                             style = MaterialTheme.typography.labelSmall,
+                                             modifier = Modifier.align(Alignment.CenterVertically))
+                                    }
+                                }
+                            }
+                        },
+                        confirmButton = {},
+                        dismissButton = {
+                            TextButton(onClick = { showExportDialog = false }) {
+                                Text(I18n.t("common.cancel"))
+                            }
+                        }
+                    )
+                }
+
+                // 分享到 pastebin
+                TextButton(
+                    onClick = { vm.shareLogs() },
+                    enabled = gameLogs.isNotEmpty() && !logSharing,
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                        horizontal = 8.dp, vertical = 0.dp
+                    )
+                ) {
+                    if (logSharing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(12.dp),
+                            strokeWidth = 1.5.dp
+                        )
+                        Spacer(Modifier.width(4.dp))
+                    } else {
+                        Icon(Icons.Filled.CloudUpload, null, Modifier.size(14.dp))
+                        Spacer(Modifier.width(4.dp))
+                    }
+                    Text(I18n.t("log.share"), style = MaterialTheme.typography.labelSmall)
+                }
+            }
+            // 分享成功后弹出 URL 对话框
+            shareUrl?.let { url ->
+                AlertDialog(
+                    onDismissRequest = { vm.clearShareUrl() },
+                    title = { Text(I18n.t("log.share_success")) },
+                    text = {
+                        Column {
+                            Text(I18n.t("log.share_url_hint"),
+                                 style = MaterialTheme.typography.bodySmall,
+                                 color = MaterialTheme.colorScheme.outline)
+                            Spacer(Modifier.height(8.dp))
+                            Surface(
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                shape = RoundedCornerShape(4.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    url,
+                                    modifier = Modifier.padding(8.dp),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontFamily = FontFamily.Monospace,
+                                    maxLines = 2
+                                )
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            try {
+                                val toolkit = java.awt.Toolkit.getDefaultToolkit()
+                                val clipboard = toolkit.systemClipboard
+                                clipboard.setContents(java.awt.datatransfer.StringSelection(url), null)
+                            } catch (_: Throwable) {}
+                            vm.clearShareUrl()
+                        }) { Text(I18n.t("common.copy")) }
+                    },
+                    dismissButton = {
+                        Row {
+                            OutlinedButton(onClick = {
+                                try { com.pmcl.core.web.WikiBrowser.open(url) } catch (_: Throwable) {}
+                            }) { Text(I18n.t("common.open")) }
+                            Spacer(Modifier.width(8.dp))
+                            TextButton(onClick = { vm.clearShareUrl() }) {
+                                Text(I18n.t("common.close"))
+                            }
+                        }
+                    }
+                )
             }
             Spacer(Modifier.height(4.dp))
 
