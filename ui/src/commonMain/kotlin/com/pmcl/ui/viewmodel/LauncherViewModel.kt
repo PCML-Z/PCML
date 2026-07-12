@@ -17,6 +17,7 @@ import com.pmcl.core.modloader.ModLoaderVersion
 import com.pmcl.core.mods.ModConflictChecker
 import com.pmcl.core.mods.ModMeta
 import com.pmcl.core.mods.ModScanner
+import com.pmcl.core.modpack.ModpackManager
 import com.pmcl.core.preferences.Preferences
 import com.pmcl.core.version.McVersion
 import com.pmcl.core.gamecontent.WorldManager
@@ -147,6 +148,16 @@ class LauncherViewModel {
 
     private val _modConflicts = MutableStateFlow<ModConflictChecker.Result?>(null)
     val modConflicts: StateFlow<ModConflictChecker.Result?> = _modConflicts.asStateFlow()
+
+    // ===== 整合包管理 =====
+    private val _modpacks = MutableStateFlow<List<ModpackManager.InstalledModpack>>(emptyList())
+    val modpacks: StateFlow<List<ModpackManager.InstalledModpack>> = _modpacks.asStateFlow()
+
+    private val _modpackProgress = MutableStateFlow<InstallProgress?>(null)
+    val modpackProgress: StateFlow<InstallProgress?> = _modpackProgress.asStateFlow()
+
+    private val _modpackBusy = MutableStateFlow(false)
+    val modpackBusy: StateFlow<Boolean> = _modpackBusy.asStateFlow()
 
     // ===== 微软登录 =====
     private val _deviceCode = MutableStateFlow<DeviceCode?>(null)
@@ -1169,6 +1180,96 @@ class LauncherViewModel {
      */
     fun isModInstalled(modId: String): Boolean {
         return _installedMods.value.any { it.getModId() == modId && !it.isDisabled() }
+    }
+
+    // ============ 整合包管理 ============
+
+    /** 刷新已安装整合包列表 */
+    fun refreshModpacks() {
+        scope.launch {
+            try {
+                val list = withContext(Dispatchers.IO) {
+                    core.modpacks().listInstalledModpacks()
+                }
+                _modpacks.value = list
+            } catch (e: Throwable) {
+                _status.value = "刷新整合包列表失败：${e.message}"
+            }
+        }
+    }
+
+    /** 导入整合包文件（.mrpack 或 .zip） */
+    fun importModpack(filePath: String) {
+        if (_modpackBusy.value) {
+            _status.value = "整合包操作进行中，请等待"
+            return
+        }
+        scope.launch {
+            _modpackBusy.value = true
+            _modpackProgress.value = InstallProgress(
+                InstallProgress.Stage.DOWNLOAD_VERSION_JSON, 0, 0, "开始导入整合包...")
+            try {
+                withContext(Dispatchers.IO) {
+                    val path = java.nio.file.Paths.get(filePath)
+                    core.modpacks().importModpack(path) { p ->
+                        _modpackProgress.value = p
+                    }.join()
+                }
+                _status.value = "整合包导入完成"
+                refreshModpacks()
+            } catch (e: Throwable) {
+                _status.value = "整合包导入失败：${e.message}"
+            } finally {
+                _modpackBusy.value = false
+                _modpackProgress.value = null
+            }
+        }
+    }
+
+    /** 导出当前选中版本为 Modrinth .mrpack 整合包 */
+    fun exportModpack(targetPath: String) {
+        val versionId = _selectedVersion.value ?: run {
+            _status.value = "请先选择版本"
+            return
+        }
+        if (_modpackBusy.value) {
+            _status.value = "整合包操作进行中，请等待"
+            return
+        }
+        scope.launch {
+            _modpackBusy.value = true
+            _modpackProgress.value = InstallProgress(
+                InstallProgress.Stage.DOWNLOAD_VERSION_JSON, 0, 0, "开始导出整合包...")
+            try {
+                withContext(Dispatchers.IO) {
+                    val path = java.nio.file.Paths.get(targetPath)
+                    core.modpacks().exportModpack(versionId, path) { p ->
+                        _modpackProgress.value = p
+                    }.join()
+                }
+                _status.value = "整合包已导出：$targetPath"
+            } catch (e: Throwable) {
+                _status.value = "整合包导出失败：${e.message}"
+            } finally {
+                _modpackBusy.value = false
+                _modpackProgress.value = null
+            }
+        }
+    }
+
+    /** 删除整合包实例 */
+    fun deleteModpack(name: String) {
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    core.modpacks().deleteModpack(name)
+                }
+                _status.value = "已删除整合包：$name"
+                refreshModpacks()
+            } catch (e: Throwable) {
+                _status.value = "删除整合包失败：${e.message}"
+            }
+        }
     }
 
     // ============ 启动游戏 ============

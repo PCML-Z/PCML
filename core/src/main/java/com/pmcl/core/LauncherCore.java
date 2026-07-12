@@ -8,6 +8,7 @@ import com.pmcl.core.launch.LaunchProfileBuilder;
 import com.pmcl.core.market.ModMarketManager;
 import com.pmcl.core.modloader.ModLoaderManager;
 import com.pmcl.core.mods.ModManager;
+import com.pmcl.core.modpack.ModpackManager;
 import com.pmcl.core.multiplayer.MultiplayerManager;
 import com.pmcl.core.migration.MigrationManager;
 import com.pmcl.core.news.NewsClient;
@@ -52,6 +53,7 @@ public final class LauncherCore {
     private final ModLoaderManager modLoaderManager;
     private final ModMarketManager modMarketManager;
     private final ModManager modManager;
+    private final ModpackManager modpackManager;
     private final LaunchProfileBuilder profileBuilder;
     private final JavaRuntimeDownloader javaRuntimeDownloader;
     private final WorldManager worldManager;
@@ -89,6 +91,8 @@ public final class LauncherCore {
         this.modLoaderManager = new ModLoaderManager(config, downloadManager);
         this.modMarketManager = new ModMarketManager(config, downloadManager);
         this.modManager = new ModManager(config.getWorkDir().resolve("mods"));
+        this.modpackManager = new ModpackManager(config, downloadManager, versionInstaller,
+                modLoaderManager, preferences);
         this.profileBuilder = new LaunchProfileBuilder(config, preferences, downloadManager);
         this.javaRuntimeDownloader = new JavaRuntimeDownloader(config, downloadManager);
         this.worldManager = new WorldManager(config.getWorkDir());
@@ -180,6 +184,7 @@ public final class LauncherCore {
     public ModMarketManager modMarket() { return modMarketManager; }
 
     public ModManager modManager() { return modManager; }
+    public ModpackManager modpacks() { return modpackManager; }
 
     public LaunchProfileBuilder profileBuilder() { return profileBuilder; }
 

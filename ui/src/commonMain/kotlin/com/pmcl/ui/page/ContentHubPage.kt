@@ -5,6 +5,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Dataset
 import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.*
@@ -28,11 +29,13 @@ fun ContentHubPage(vm: LauncherViewModel) {
     val shaders by vm.shaderPacks.collectAsState()
     val resources by vm.resourcePacks.collectAsState()
     val datapacks by vm.datapacks.collectAsState()
+    val modpacks by vm.modpacks.collectAsState()
 
     data class TabSpec(val label: String, val icon: ImageVector, val count: Int)
-    val tabs = remember(mods, shaders, resources, datapacks) {
+    val tabs = remember(mods, shaders, resources, datapacks, modpacks) {
         listOf(
             TabSpec("模组", Icons.Filled.Extension, mods.size),
+            TabSpec("整合包", Icons.Filled.Inventory2, modpacks.size),
             TabSpec("光影包", Icons.Filled.WbSunny, shaders.size),
             TabSpec("资源包", Icons.Filled.Palette, resources.size),
             TabSpec("数据包", Icons.Filled.Dataset, datapacks.size)
@@ -87,9 +90,10 @@ fun ContentHubPage(vm: LauncherViewModel) {
         Box(Modifier.fillMaxSize().weight(1f)) {
             when (tab) {
                 0 -> ModsPage(vm)
-                1 -> ShaderPacksPage(vm)
-                2 -> ResourcePacksPage(vm)
-                3 -> DatapacksPage(vm)
+                1 -> ModpacksPage(vm)
+                2 -> ShaderPacksPage(vm)
+                3 -> ResourcePacksPage(vm)
+                4 -> DatapacksPage(vm)
             }
         }
     }
