@@ -6,6 +6,7 @@ import com.pmcl.core.LauncherCore
 import com.pmcl.core.auth.Account
 import com.pmcl.core.auth.DeviceCode
 import com.pmcl.core.cache.DataCache
+import com.pmcl.core.download.DownloadQueueManager
 import com.pmcl.core.install.InstallProgress
 import com.pmcl.core.launch.GameLogger
 import com.pmcl.core.launch.JavaRuntimeFinder
@@ -158,6 +159,18 @@ class LauncherViewModel {
 
     private val _modpackBusy = MutableStateFlow(false)
     val modpackBusy: StateFlow<Boolean> = _modpackBusy.asStateFlow()
+
+    // ===== 下载队列 =====
+    private val _queueTasks = MutableStateFlow<List<DownloadQueueManager.QueueTask>>(emptyList())
+    val queueTasks: StateFlow<List<DownloadQueueManager.QueueTask>> = _queueTasks.asStateFlow()
+
+    private val _queueSummary = MutableStateFlow<DownloadQueueManager.QueueSummary>(
+        DownloadQueueManager.QueueSummary(0, 0, 0, 0, 0, 0, 0L, 0L)
+    )
+    val queueSummary: StateFlow<DownloadQueueManager.QueueSummary> = _queueSummary.asStateFlow()
+
+    /** 队列监听器初始化标志，避免重复注册 */
+    private var queueListenerRegistered = false
 
     // ===== 微软登录 =====
     private val _deviceCode = MutableStateFlow<DeviceCode?>(null)
@@ -1270,6 +1283,98 @@ class LauncherViewModel {
                 _status.value = "删除整合包失败：${e.message}"
             }
         }
+    }
+
+    // ============ 下载队列管理 ============
+
+    /** 注册队列监听器并刷新任务列表（页面首次进入时调用） */
+    fun initDownloadQueue() {
+        if (queueListenerRegistered) {
+            refreshQueue()
+            return
+        }
+        queueListenerRegistered = true
+        core.downloadQueue().addListener { tasks ->
+            // 在 IO 线程回调，直接更新 StateFlow（Compose 快照系统线程安全）
+            _queueTasks.value = tasks
+            _queueSummary.value = core.downloadQueue().summary
+        }
+        refreshQueue()
+    }
+
+    /** 刷新队列状态 */
+    fun refreshQueue() {
+        _queueTasks.value = core.downloadQueue().tasks
+        _queueSummary.value = core.downloadQueue().summary
+    }
+
+    /** 提交版本安装到队列 */
+    fun enqueueVersionInstall(versionId: String) {
+        core.downloadQueue().submitVersionInstall(versionId)
+        _status.value = "已加入队列：Minecraft $versionId"
+        refreshQueue()
+    }
+
+    /** 提交模组加载器安装到队列 */
+    fun enqueueModLoaderInstall(loaderName: String, gameVersion: String, loaderVersion: String) {
+        core.downloadQueue().submitModLoaderInstall(loaderName, gameVersion, loaderVersion)
+        _status.value = "已加入队列：$loaderName $loaderVersion"
+        refreshQueue()
+    }
+
+    /** 提交模组下载到队列 */
+    fun enqueueModDownload(modFile: ModFile, gameVersion: String, versionId: String? = null) {
+        core.downloadQueue().submitModDownload(modFile, gameVersion, versionId)
+        _status.value = "已加入队列：${modFile.fileName}"
+        refreshQueue()
+    }
+
+    /** 暂停任务 */
+    fun pauseQueueTask(taskId: String) {
+        core.downloadQueue().pause(taskId)
+        refreshQueue()
+    }
+
+    /** 继续任务 */
+    fun resumeQueueTask(taskId: String) {
+        core.downloadQueue().resume(taskId)
+        refreshQueue()
+    }
+
+    /** 取消任务 */
+    fun cancelQueueTask(taskId: String) {
+        core.downloadQueue().cancel(taskId)
+        refreshQueue()
+    }
+
+    /** 暂停所有 */
+    fun pauseAllQueue() {
+        core.downloadQueue().pauseAll()
+        refreshQueue()
+    }
+
+    /** 继续所有 */
+    fun resumeAllQueue() {
+        core.downloadQueue().resumeAll()
+        refreshQueue()
+    }
+
+    /** 取消所有 */
+    fun cancelAllQueue() {
+        core.downloadQueue().cancelAll()
+        refreshQueue()
+    }
+
+    /** 清除已完成/已取消/已失败的任务记录 */
+    fun clearFinishedQueue() {
+        core.downloadQueue().clearFinished()
+        refreshQueue()
+    }
+
+    /** 移除任务记录 */
+    fun removeQueueTask(taskId: String) {
+        core.downloadQueue().remove(taskId)
+        refreshQueue()
     }
 
     // ============ 启动游戏 ============

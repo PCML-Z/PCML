@@ -2,6 +2,7 @@ package com.pmcl.core;
 
 import com.pmcl.core.auth.AuthService;
 import com.pmcl.core.download.DownloadManager;
+import com.pmcl.core.download.DownloadQueueManager;
 import com.pmcl.core.install.VersionInstaller;
 import com.pmcl.core.launch.LaunchManager;
 import com.pmcl.core.launch.LaunchProfileBuilder;
@@ -54,6 +55,7 @@ public final class LauncherCore {
     private final ModMarketManager modMarketManager;
     private final ModManager modManager;
     private final ModpackManager modpackManager;
+    private final DownloadQueueManager downloadQueue;
     private final LaunchProfileBuilder profileBuilder;
     private final JavaRuntimeDownloader javaRuntimeDownloader;
     private final WorldManager worldManager;
@@ -93,6 +95,8 @@ public final class LauncherCore {
         this.modManager = new ModManager(config.getWorkDir().resolve("mods"));
         this.modpackManager = new ModpackManager(config, downloadManager, versionInstaller,
                 modLoaderManager, preferences);
+        this.downloadQueue = new DownloadQueueManager(config, downloadManager, versionInstaller,
+                modMarketManager, modLoaderManager, preferences);
         this.profileBuilder = new LaunchProfileBuilder(config, preferences, downloadManager);
         this.javaRuntimeDownloader = new JavaRuntimeDownloader(config, downloadManager);
         this.worldManager = new WorldManager(config.getWorkDir());
@@ -185,6 +189,7 @@ public final class LauncherCore {
 
     public ModManager modManager() { return modManager; }
     public ModpackManager modpacks() { return modpackManager; }
+    public DownloadQueueManager downloadQueue() { return downloadQueue; }
 
     public LaunchProfileBuilder profileBuilder() { return profileBuilder; }
 
