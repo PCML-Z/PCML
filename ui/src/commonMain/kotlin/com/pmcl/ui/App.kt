@@ -2,15 +2,14 @@ package com.pmcl.ui
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Extension
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -22,7 +21,6 @@ import com.pmcl.ui.animation.SlideInFromStart
 import com.pmcl.ui.navigation.NavDestination
 import com.pmcl.ui.navigation.allDestinations
 import com.pmcl.ui.page.AccountsPage
-import com.pmcl.ui.page.CommandPalette
 import com.pmcl.ui.page.ContentHubPage
 import com.pmcl.ui.page.DownloadHubPage
 import com.pmcl.ui.page.LaunchPage
@@ -34,6 +32,7 @@ import com.pmcl.ui.page.SavesHubPage
 import com.pmcl.ui.page.SettingsPage
 import com.pmcl.ui.page.StatisticsPage
 import com.pmcl.ui.page.TerminalPage
+import com.pmcl.ui.page.TopBarSearchField
 import com.pmcl.ui.page.WelcomePage
 import com.pmcl.ui.theme.LauncherTheme
 import com.pmcl.ui.theme.LocalThemeState
@@ -185,7 +184,7 @@ private fun MainWindowContent(vm: LauncherViewModel) {
             }
         }
 
-        var showCommandPalette by remember { mutableStateOf(false) }
+        val searchFocusRequester = remember { FocusRequester() }
 
         Box(
             Modifier
@@ -196,7 +195,7 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                         event.key == Key.K &&
                         (event.isCtrlPressed || event.isMetaPressed)
                     ) {
-                        showCommandPalette = true
+                        searchFocusRequester.requestFocus()
                         true
                     } else false
                 }
@@ -204,7 +203,7 @@ private fun MainWindowContent(vm: LauncherViewModel) {
             val currentNav = current
 
             Column(Modifier.fillMaxSize()) {
-                // 顶部栏
+                // 顶部标题栏：页面标题 + 内嵌搜索框
                 Surface(
                     tonalElevation = 2.dp,
                     modifier = Modifier.fillMaxWidth()
@@ -222,27 +221,19 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.SemiBold
                         )
-                        Spacer(Modifier.weight(1f))
-                        OutlinedButton(
-                            onClick = { showCommandPalette = true },
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                        ) {
-                            Icon(Icons.Filled.Search, null, Modifier.size(16.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text(I18n.t("search.button"), style = MaterialTheme.typography.labelMedium)
-                            Spacer(Modifier.width(8.dp))
-                            Surface(
-                                color = MaterialTheme.colorScheme.surfaceVariant,
-                                shape = RoundedCornerShape(4.dp)
-                            ) {
-                                Text(
-                                    "Ctrl K",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                        Spacer(Modifier.width(16.dp))
+                        TopBarSearchField(
+                            modifier = Modifier.width(320.dp),
+                            focusRequester = searchFocusRequester,
+                            onNavigate = { route, tabIndex ->
+                                val target = allDestinations.firstOrNull { it.route == route }
+                                if (target != null) {
+                                    current = NavTarget.BuiltIn(target)
+                                    if (tabIndex >= 0) vm.requestHubTab(route, tabIndex)
+                                }
                             }
-                        }
+                        )
+                        Spacer(Modifier.weight(1f))
                     }
                 }
 
@@ -276,19 +267,6 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                     )
                 }
             }
-
-            // 命令面板（全局搜索）
-            CommandPalette(
-                visible = showCommandPalette,
-                onDismiss = { showCommandPalette = false },
-                onNavigate = { route, tabIndex ->
-                    val target = allDestinations.firstOrNull { it.route == route }
-                    if (target != null) {
-                        current = NavTarget.BuiltIn(target)
-                        if (tabIndex >= 0) vm.requestHubTab(route, tabIndex)
-                    }
-                }
-            )
         }
     } // close Row
 
