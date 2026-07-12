@@ -266,6 +266,11 @@ public final class LaunchProfileBuilder {
             }
         }
 
+        // === 自动检测并注入 Kotlin stdlib ===
+        // 当 mods 目录中的 mod 使用 Kotlin 编写时，需要 kotlin-stdlib 在游戏 classpath 上，
+        // 否则游戏启动后会报 NoClassDefFoundError: kotlin/collections/MapWithDefault 等错误。
+        injectKotlinStdlibIfNeeded(profile, seen, gameDir, librariesDir);
+
         // 设置 java.library.path 指向 natives 目录
         profile.addJvmArg("-Djava.library.path=" + nativesDir.toString());
         // LWJGL 3 也支持此参数
@@ -431,6 +436,112 @@ public final class LaunchProfileBuilder {
         if (seen.add(key)) {
             profile.addClasspath(p);
         }
+    }
+
+    /**
+     * 自动检测 mods 目录中是否有使用 Kotlin 的 mod，若有则下载 kotlin-stdlib 并加入 classpath。
+     * <p>
+     * 检测方式：扫描 mods/ 下所有 .jar，检查是否含 {@code kotlin/} 包前缀的 class 文件
+     * 或 {@code META-INF/kotlin-} 文件（Kotlin 编译器生成的元数据）。
+     * <p>
+     * 若检测到 Kotlin mod 且 classpath 中尚未包含 kotlin-stdlib（通过 seen 集合判断），
+     * 则从 Maven Central 下载 kotlin-stdlib JAR 到 libraries 目录并加入 classpath。
+     *
+     * @param profile      启动配置
+     * @param seen         已加入 classpath 的路径集合（去重用）
+     * @param gameDir      游戏工作目录（含 mods/ 子目录）
+     * @param librariesDir 库文件目录（kotlin-stdlib JAR 存放位置）
+     */
+    private void injectKotlinStdlibIfNeeded(LaunchProfile profile, Set<String> seen,
+                                             Path gameDir, Path librariesDir) {
+        Path modsDir = gameDir.resolve("mods");
+        if (!java.nio.file.Files.isDirectory(modsDir)) return;
+
+        // 1. 扫描 mods 目录，检测是否有 Kotlin mod
+        boolean hasKotlinMod = false;
+        try (var stream = java.nio.file.Files.list(modsDir)) {
+            var jars = stream
+                    .filter(p -> p.getFileName().toString().toLowerCase(java.util.Locale.ROOT)
+                            .endsWith(".jar"))
+                    .toList();
+            for (Path jar : jars) {
+                if (isKotlinJar(jar)) {
+                    hasKotlinMod = true;
+                    break;
+                }
+            }
+        } catch (IOException e) {
+            // 扫描失败不影响启动
+            return;
+        }
+        if (!hasKotlinMod) return;
+
+        // 2. 检查 classpath 是否已包含 kotlin-stdlib（可能是 fabric-language-kotlin 等已自带）
+        for (String s : seen) {
+            if (s.contains("kotlin-stdlib") || s.contains("fabric-language-kotlin")
+                    || s.contains("KotlinLanguageAdapter")) {
+                return; // 已有 Kotlin 运行时
+            }
+        }
+
+        // 3. 下载 kotlin-stdlib JAR 到 libraries 目录
+        // 使用与启动器一致的 Kotlin 版本（2.0.21），向后兼容 1.9.x mod
+        String kotlinVersion = "2.0.21";
+        String groupPath = "org/jetbrains/kotlin/kotlin-stdlib";
+        String jarName = "kotlin-stdlib-" + kotlinVersion + ".jar";
+        Path kotlinJar = librariesDir.resolve(groupPath).resolve(kotlinVersion).resolve(jarName);
+
+        if (!java.nio.file.Files.exists(kotlinJar)) {
+            try {
+                java.nio.file.Files.createDirectories(kotlinJar.getParent());
+                String mavenUrl = "https://repo1.maven.org/maven2/"
+                        + groupPath + "/" + kotlinVersion + "/" + jarName;
+                System.err.println("[LaunchProfileBuilder] 检测到 Kotlin mod，正在下载 kotlin-stdlib "
+                        + kotlinVersion + " ...");
+                if (downloadManager != null) {
+                    downloadManager.downloadTo(mavenUrl, kotlinJar);
+                } else {
+                    // 无下载器时尝试直接 HTTP 下载
+                    try (var in = new java.net.URL(mavenUrl).openStream()) {
+                        java.nio.file.Files.copy(in, kotlinJar,
+                                java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    }
+                }
+                System.err.println("[LaunchProfileBuilder] kotlin-stdlib 下载完成: " + kotlinJar);
+            } catch (IOException e) {
+                System.err.println("[LaunchProfileBuilder] 下载 kotlin-stdlib 失败: " + e.getMessage());
+                return;
+            }
+        }
+
+        // 4. 加入 classpath
+        addClasspath(profile, seen, kotlinJar);
+    }
+
+    /**
+     * 检查 JAR 文件是否为 Kotlin 编译（含 Kotlin class 或元数据）。
+     * 通过 ZipInputStream 快速扫描，不解压到磁盘。
+     */
+    private boolean isKotlinJar(Path jarPath) {
+        try (var zip = new java.util.zip.ZipFile(jarPath.toFile())) {
+            // 优先检查 META-INF/kotlin-*.kotlin_module（Kotlin 编译器生成的元数据文件）
+            var entries = zip.entries();
+            while (entries.hasMoreElements()) {
+                var entry = entries.nextElement();
+                String name = entry.getName();
+                // Kotlin 元数据文件
+                if (name.startsWith("META-INF/kotlin-") && name.endsWith(".kotlin_module")) {
+                    return true;
+                }
+                // Kotlin class 文件（kotlin/ 包前缀）
+                if (name.startsWith("kotlin/") && name.endsWith(".class")) {
+                    return true;
+                }
+            }
+        } catch (IOException e) {
+            // 读取失败不算 Kotlin mod
+        }
+        return false;
     }
 
     /**
