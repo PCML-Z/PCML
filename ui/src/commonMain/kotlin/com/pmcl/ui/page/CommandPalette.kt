@@ -121,7 +121,7 @@ private fun keywordsForRoute(route: String, label: String): List<String> = when 
  * @param modifier 布局修饰符
  * @param focusRequester 外部传入的 FocusRequester，用于 Ctrl+K 快捷键聚焦
  * @param onNavigate 导航回调 (route, tabIndex)
- * @param compact 紧凑模式：减小高度以适应窗口标题栏
+ * @param compact 紧凑模式：无边框填充样式，与窗口标题栏融合
  */
 @Composable
 fun TopBarSearchField(
@@ -157,36 +157,50 @@ fun TopBarSearchField(
         OutlinedTextField(
             value = query,
             onValueChange = { query = it },
-            placeholder = { Text(I18n.t("search.placeholder"), style = if (compact) MaterialTheme.typography.labelMedium else MaterialTheme.typography.bodyMedium) },
+            placeholder = {
+                Text(
+                    I18n.t("search.placeholder"),
+                    style = if (compact) MaterialTheme.typography.labelSmall else MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (compact) 0.6f else 1f)
+                )
+            },
             leadingIcon = { Icon(Icons.Filled.Search, null, Modifier.size(if (compact) 14.dp else 18.dp)) },
             trailingIcon = {
                 if (query.isNotEmpty()) {
                     IconButton(
                         onClick = { query = ""; expanded = false },
-                        modifier = Modifier.size(if (compact) 16.dp else 20.dp)
+                        modifier = Modifier.size(if (compact) 18.dp else 20.dp)
                     ) {
                         Icon(Icons.Filled.Clear, I18n.t("common.close"), Modifier.size(if (compact) 12.dp else 16.dp))
-                    }
-                } else if (!compact) {
-                    Surface(
-                        color = MaterialTheme.colorScheme.surfaceVariant,
-                        shape = RoundedCornerShape(4.dp)
-                    ) {
-                        Text(
-                            "Ctrl K",
-                            style = MaterialTheme.typography.labelSmall,
-                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
                     }
                 }
             },
             singleLine = true,
-            shape = RoundedCornerShape(if (compact) 6.dp else 8.dp),
-            textStyle = if (compact) MaterialTheme.typography.labelMedium else MaterialTheme.typography.bodyMedium,
+            shape = RoundedCornerShape(if (compact) 8.dp else 8.dp),
+            textStyle = if (compact) MaterialTheme.typography.labelSmall else MaterialTheme.typography.bodyMedium,
+            colors = if (compact) {
+                // compact 模式：无边框 + 半透明背景，与标题栏融合
+                TextFieldDefaults.colors(
+                    focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent,
+                    disabledIndicatorColor = Color.Transparent,
+                    focusedLeadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    unfocusedLeadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    focusedTrailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    unfocusedTrailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    cursorColor = MaterialTheme.colorScheme.primary
+                )
+            } else {
+                TextFieldDefaults.colors(
+                    focusedIndicatorColor = MaterialTheme.colorScheme.primary,
+                    unfocusedIndicatorColor = MaterialTheme.colorScheme.outline
+                )
+            },
             modifier = Modifier
                 .fillMaxWidth()
-                .height(if (compact) 30.dp else 48.dp)
+                .height(if (compact) 28.dp else 48.dp)
                 .focusRequester(focusRequester)
                 .onKeyEvent { event ->
                     if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
@@ -227,69 +241,83 @@ fun TopBarSearchField(
             expanded = expanded,
             onDismissRequest = { expanded = false }
         ) {
-            if (filtered.isEmpty()) {
-                Box(
-                    modifier = Modifier.fillMaxWidth().padding(24.dp),
-                    contentAlignment = Alignment.Center
+            SearchResultsContent(filtered, selectedIndex, onNavigate) {
+                query = ""; expanded = false
+            }
+        }
+    }
+}
+
+/**
+ * 搜索结果下拉列表内容。
+ */
+@Composable
+private fun SearchResultsContent(
+    filtered: List<SearchableAction>,
+    selectedIndex: Int,
+    onNavigate: (String, Int) -> Unit,
+    onClear: () -> Unit
+) {
+    if (filtered.isEmpty()) {
+        Box(
+            modifier = Modifier.fillMaxWidth().padding(24.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(I18n.t("search.no_results"), color = MaterialTheme.colorScheme.outline)
+        }
+    } else {
+        Text(
+            I18n.t("search.results_count", filtered.size),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.outline,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+        )
+        HorizontalDivider()
+        Column(modifier = Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
+            filtered.forEachIndexed { index, action ->
+                val isSelected = index == selectedIndex
+                Surface(
+                    color = if (isSelected) MaterialTheme.colorScheme.primaryContainer
+                            else Color.Transparent,
+                    shape = RoundedCornerShape(6.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            onNavigate(action.route, action.tabIndex)
+                            onClear()
+                        }
                 ) {
-                    Text(I18n.t("search.no_results"), color = MaterialTheme.colorScheme.outline)
-                }
-            } else {
-                Text(
-                    I18n.t("search.results_count", filtered.size),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.outline,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-                )
-                HorizontalDivider()
-                Column(modifier = Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
-                    filtered.forEachIndexed { index, action ->
-                        val isSelected = index == selectedIndex
-                        Surface(
-                            color = if (isSelected) MaterialTheme.colorScheme.primaryContainer
-                                    else Color.Transparent,
-                            shape = RoundedCornerShape(6.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    onNavigate(action.route, action.tabIndex)
-                                    query = ""
-                                    expanded = false
-                                }
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    action.icon,
-                                    null,
-                                    modifier = Modifier.size(20.dp),
-                                    tint = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
-                                           else MaterialTheme.colorScheme.onSurfaceVariant
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            action.icon,
+                            null,
+                            modifier = Modifier.size(20.dp),
+                            tint = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
+                                   else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                action.title,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
+                                        else MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            if (action.description.isNotEmpty()) {
+                                Text(
+                                    action.description,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                                            else MaterialTheme.colorScheme.outline,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
-                                Spacer(Modifier.width(12.dp))
-                                Column(Modifier.weight(1f)) {
-                                    Text(
-                                        action.title,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
-                                                else MaterialTheme.colorScheme.onSurface,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    if (action.description.isNotEmpty()) {
-                                        Text(
-                                            action.description,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
-                                                    else MaterialTheme.colorScheme.outline,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
-                                }
                             }
                         }
                     }
