@@ -1,5 +1,6 @@
 package com.pmcl.ui.page
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -8,9 +9,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -495,6 +499,9 @@ fun MultiplayerPage(vm: LauncherViewModel) {
                  style = MaterialTheme.typography.labelSmall,
                  color = MaterialTheme.colorScheme.outline)
         }
+
+        // ===== 收藏服务器列表 =====
+        FavoriteServersCard(vm)
     }
 
     // ConnectX 设置弹窗
@@ -593,5 +600,180 @@ private fun InfoRow(label: String, value: String) {
         Text(value,
              style = MaterialTheme.typography.bodyMedium,
              fontWeight = FontWeight.Medium)
+    }
+}
+
+/**
+ * 收藏服务器列表卡片：添加/删除/ping 延迟/设为直连。
+ */
+@Composable
+private fun FavoriteServersCard(vm: LauncherViewModel) {
+    // 进入页面时加载列表
+    LaunchedEffect(Unit) { vm.loadFavoriteServers() }
+
+    val servers by vm.favoriteServers.collectAsState()
+    val pings by vm.serverPings.collectAsState()
+
+    var showAddDialog by remember { mutableStateOf(false) }
+    var newName by remember { mutableStateOf("") }
+    var newHost by remember { mutableStateOf("") }
+    var newPort by remember { mutableStateOf("25565") }
+
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.Speed, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("收藏服务器", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.weight(1f))
+                // 全部 ping
+                TextButton(
+                    onClick = { vm.pingAllServers() },
+                    enabled = servers.isNotEmpty()
+                ) {
+                    Icon(Icons.Filled.Speed, null, Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("全部测速")
+                }
+                // 添加
+                IconButton(onClick = { showAddDialog = true }) {
+                    Icon(Icons.Filled.Add, "添加服务器")
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+            Text("管理收藏的 Minecraft 服务器，点击测速按钮检测延迟，点击直连设为启动时自动连接的目标",
+                 style = MaterialTheme.typography.labelSmall,
+                 color = MaterialTheme.colorScheme.outline)
+
+            if (servers.isEmpty()) {
+                Spacer(Modifier.height(12.dp))
+                Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
+                    Text("暂无收藏服务器，点击 + 添加",
+                         style = MaterialTheme.typography.bodySmall,
+                         color = MaterialTheme.colorScheme.outline)
+                }
+            } else {
+                Spacer(Modifier.height(8.dp))
+                HorizontalDivider()
+                servers.forEachIndexed { index, server ->
+                    val key = "${server.host}:${server.port}"
+                    val ping = pings[key]
+                    val pingText = when (ping) {
+                        null -> "—"
+                        com.pmcl.core.multiplayer.ServerPinger.UNREACHABLE -> "离线"
+                        com.pmcl.core.multiplayer.ServerPinger.TIMEOUT -> "超时"
+                        else -> "${ping}ms"
+                    }
+                    val pingColor = when (ping) {
+                        null -> MaterialTheme.colorScheme.outline
+                        com.pmcl.core.multiplayer.ServerPinger.UNREACHABLE, com.pmcl.core.multiplayer.ServerPinger.TIMEOUT ->
+                            MaterialTheme.colorScheme.error
+                        else -> if (ping < 100) MaterialTheme.colorScheme.primary
+                                else if (ping < 300) MaterialTheme.colorScheme.tertiary
+                                else MaterialTheme.colorScheme.outline
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { vm.setDirectConnectServer(server.host, server.port) }
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(server.name,
+                                 style = MaterialTheme.typography.bodyMedium,
+                                 fontWeight = FontWeight.Medium,
+                                 maxLines = 1)
+                            Text("${server.host}:${server.port}",
+                                 style = MaterialTheme.typography.labelSmall,
+                                 color = MaterialTheme.colorScheme.outline,
+                                 maxLines = 1)
+                        }
+                        // 延迟
+                        Surface(
+                            color = pingColor.copy(alpha = 0.12f),
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Text(
+                                pingText,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = pingColor,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                            )
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        // 单个 ping
+                        IconButton(
+                            onClick = { vm.pingServer(server.host, server.port) },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(Icons.Filled.Speed, "测速", Modifier.size(16.dp))
+                        }
+                        // 直连
+                        IconButton(
+                            onClick = { vm.setDirectConnectServer(server.host, server.port) },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(Icons.Filled.PlayArrow, "设为直连", Modifier.size(16.dp))
+                        }
+                        // 删除
+                        IconButton(
+                            onClick = { vm.removeFavoriteServer(index) },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(Icons.Filled.Delete, "删除", Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                    if (index < servers.lastIndex) {
+                        HorizontalDivider()
+                    }
+                }
+            }
+        }
+    }
+
+    // 添加服务器弹窗
+    if (showAddDialog) {
+        AlertDialog(
+            onDismissRequest = { showAddDialog = false },
+            title = { Text("添加收藏服务器") },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = newName, onValueChange = { newName = it },
+                        label = { Text("名称（可选）") }, singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = newHost, onValueChange = { newHost = it },
+                        label = { Text("地址") }, singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = newPort, onValueChange = { newPort = it.filter { c -> c.isDigit() } },
+                        label = { Text("端口") }, singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val port = newPort.toIntOrNull() ?: 25565
+                        if (newHost.isNotBlank()) {
+                            vm.addFavoriteServer(newName, newHost.trim(), port)
+                            newName = ""; newHost = ""; newPort = "25565"
+                            showAddDialog = false
+                        }
+                    }
+                ) { Text("添加") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddDialog = false }) { Text("取消") }
+            }
+        )
     }
 }

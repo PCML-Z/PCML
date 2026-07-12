@@ -52,6 +52,7 @@ public final class Preferences {
     private boolean gameDemo = false;        // 演示模式（--demo）
     private String gameServerHost = "";      // 启动后自动连接服务器地址（--server）
     private int gameServerPort = 25565;      // 服务器端口（--port）
+    private java.util.List<String[]> favoriteServers = new java.util.ArrayList<>();  // 收藏的服务器列表，每项 [name, host, port]
     private String gameRenderer = "AUTO";    // 渲染器：AUTO/OPENGL/VULKAN（--renderer）
     private String windowIconPath = "";      // 自定义游戏窗口图标 PNG 路径（注入到 <gameDir>/icons/）
 
@@ -266,6 +267,34 @@ public final class Preferences {
         if (v > 0 && v < 65536) gameServerPort = v; save();
     }
 
+    // ===== 收藏服务器列表 =====
+    /** 返回收藏服务器列表的副本，每项为 [name, host, port] */
+    public synchronized java.util.List<String[]> getFavoriteServers() {
+        return new java.util.ArrayList<>(favoriteServers);
+    }
+
+    /** 添加收藏服务器，name 为空时用 host:port 代替 */
+    public synchronized void addFavoriteServer(String name, String host, int port) {
+        String n = (name == null || name.isBlank()) ? (host + ":" + port) : name.trim();
+        favoriteServers.add(new String[]{n, host.trim(), String.valueOf(port)});
+        save();
+    }
+
+    public synchronized void removeFavoriteServer(int index) {
+        if (index >= 0 && index < favoriteServers.size()) {
+            favoriteServers.remove(index);
+            save();
+        }
+    }
+
+    public synchronized void updateFavoriteServer(int index, String name, String host, int port) {
+        if (index >= 0 && index < favoriteServers.size()) {
+            String n = (name == null || name.isBlank()) ? (host + ":" + port) : name.trim();
+            favoriteServers.set(index, new String[]{n, host.trim(), String.valueOf(port)});
+            save();
+        }
+    }
+
     /** 渲染器类型：AUTO（不注入）/ OPENGL / VULKAN */
     public synchronized String getGameRenderer() { return gameRenderer; }
     public synchronized void setGameRenderer(String v) {
@@ -409,6 +438,19 @@ public final class Preferences {
             if (o.has("gameDemo")) gameDemo = o.get("gameDemo").getAsBoolean();
             if (o.has("gameServerHost") && !o.get("gameServerHost").isJsonNull()) gameServerHost = o.get("gameServerHost").getAsString();
             if (o.has("gameServerPort")) gameServerPort = o.get("gameServerPort").getAsInt();
+            if (o.has("favoriteServers") && o.get("favoriteServers").isJsonArray()) {
+                favoriteServers = new java.util.ArrayList<>();
+                for (var elem : o.getAsJsonArray("favoriteServers")) {
+                    try {
+                        var arr = elem.getAsJsonArray();
+                        if (arr.size() >= 3) {
+                            favoriteServers.add(new String[]{
+                                arr.get(0).getAsString(), arr.get(1).getAsString(), arr.get(2).getAsString()
+                            });
+                        }
+                    } catch (Exception ignored) {}
+                }
+            }
             if (o.has("gameRenderer") && !o.get("gameRenderer").isJsonNull()) gameRenderer = o.get("gameRenderer").getAsString();
             if (o.has("windowIconPath") && !o.get("windowIconPath").isJsonNull()) windowIconPath = o.get("windowIconPath").getAsString();
             if (o.has("mirrorType") && !o.get("mirrorType").isJsonNull()) mirrorType = o.get("mirrorType").getAsString();
@@ -479,6 +521,13 @@ public final class Preferences {
             o.addProperty("gameDemo", gameDemo);
             o.addProperty("gameServerHost", gameServerHost);
             o.addProperty("gameServerPort", gameServerPort);
+            var favArr = new com.google.gson.JsonArray();
+            for (var s : favoriteServers) {
+                var item = new com.google.gson.JsonArray();
+                item.add(s[0]); item.add(s[1]); item.add(s[2]);
+                favArr.add(item);
+            }
+            o.add("favoriteServers", favArr);
             o.addProperty("gameRenderer", gameRenderer);
             o.addProperty("windowIconPath", windowIconPath);
             o.addProperty("mirrorType", mirrorType);

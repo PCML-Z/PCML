@@ -3195,6 +3195,66 @@ class LauncherViewModel {
         }
     }
 
+    // ============ 收藏服务器列表 + ping 延迟 ============
+
+    /** 服务器列表数据项 */
+    data class FavoriteServer(val name: String, val host: String, val port: Int)
+
+    /** ping 结果：key = "host:port"，value = 延迟毫秒（-1 不可达，-2 超时） */
+    private val _serverPings = MutableStateFlow<Map<String, Long>>(emptyMap())
+    val serverPings: StateFlow<Map<String, Long>> = _serverPings.asStateFlow()
+
+    /** 服务器列表（可观察） */
+    private val _favoriteServers = MutableStateFlow<List<FavoriteServer>>(emptyList())
+    val favoriteServers: StateFlow<List<FavoriteServer>> = _favoriteServers.asStateFlow()
+
+    /** 加载收藏服务器列表 */
+    fun loadFavoriteServers() {
+        _favoriteServers.value = preferences.getFavoriteServers().map {
+            FavoriteServer(it[0], it[1], it[2].toIntOrNull() ?: 25565)
+        }
+    }
+
+    /** 添加收藏服务器 */
+    fun addFavoriteServer(name: String, host: String, port: Int) {
+        preferences.addFavoriteServer(name, host, port)
+        loadFavoriteServers()
+    }
+
+    /** 删除收藏服务器 */
+    fun removeFavoriteServer(index: Int) {
+        preferences.removeFavoriteServer(index)
+        loadFavoriteServers()
+    }
+
+    /** 将服务器设为直连目标（写入 gameServerHost/Port） */
+    fun setDirectConnectServer(host: String, port: Int) {
+        preferences.setGameServerHost(host)
+        preferences.setGameServerPort(port)
+        _status.value = "已设置直连服务器：$host:$port"
+    }
+
+    /** ping 单个服务器 */
+    fun pingServer(host: String, port: Int) {
+        val key = "$host:$port"
+        scope.launch {
+            try {
+                val latency = withContext(Dispatchers.IO) {
+                    com.pmcl.core.multiplayer.ServerPinger.ping(host, port)
+                }
+                _serverPings.value = _serverPings.value + (key to latency)
+            } catch (e: Throwable) {
+                _serverPings.value = _serverPings.value + (key to com.pmcl.core.multiplayer.ServerPinger.UNREACHABLE)
+            }
+        }
+    }
+
+    /** 批量 ping 所有收藏服务器 */
+    fun pingAllServers() {
+        val servers = _favoriteServers.value
+        servers.forEach { s -> pingServer(s.host, s.port) }
+    }
+
     // ============ 首次启动 / 迁移 ============
 
     /** 扫描本机其他启动器的数据目录（HMCL / PCL / 系统 .minecraft） */
