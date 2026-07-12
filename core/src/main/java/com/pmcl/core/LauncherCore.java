@@ -19,6 +19,7 @@ import com.pmcl.core.plugin.PluginManager;
 import com.pmcl.core.preferences.Preferences;
 import com.pmcl.core.runtime.JavaRuntimeDownloader;
 import com.pmcl.core.runtime.RuntimeManager;
+import com.pmcl.core.stats.PlayTimeTracker;
 import com.pmcl.core.translate.TranslateClient;
 import com.pmcl.core.update.SelfUpdater;
 import com.pmcl.core.version.VersionManager;
@@ -60,6 +61,7 @@ public final class LauncherCore {
     private final DownloadQueueManager downloadQueue;
     private final ModUpdateChecker modUpdateChecker;
     private final ModDependencyResolver modDependencyResolver;
+    private final PlayTimeTracker playTimeTracker;
     private final LaunchProfileBuilder profileBuilder;
     private final JavaRuntimeDownloader javaRuntimeDownloader;
     private final WorldManager worldManager;
@@ -103,6 +105,8 @@ public final class LauncherCore {
                 modMarketManager, modLoaderManager, preferences);
         this.modUpdateChecker = new ModUpdateChecker(config, modMarketManager, preferences);
         this.modDependencyResolver = new ModDependencyResolver(config, modMarketManager, preferences);
+        this.playTimeTracker = new PlayTimeTracker(
+                Paths.get(System.getProperty("user.home"), ".pmcl", "playtime.json"));
         this.profileBuilder = new LaunchProfileBuilder(config, preferences, downloadManager);
         this.javaRuntimeDownloader = new JavaRuntimeDownloader(config, downloadManager);
         this.worldManager = new WorldManager(config.getWorkDir());
@@ -198,6 +202,7 @@ public final class LauncherCore {
     public DownloadQueueManager downloadQueue() { return downloadQueue; }
     public ModUpdateChecker modUpdateChecker() { return modUpdateChecker; }
     public ModDependencyResolver modDependencyResolver() { return modDependencyResolver; }
+    public PlayTimeTracker playTimeTracker() { return playTimeTracker; }
 
     public LaunchProfileBuilder profileBuilder() { return profileBuilder; }
 

@@ -22,6 +22,7 @@ import com.pmcl.core.mods.ModUpdateChecker
 import com.pmcl.core.mods.ModDependencyResolver
 import com.pmcl.core.modpack.ModpackManager
 import com.pmcl.core.preferences.Preferences
+import com.pmcl.core.stats.PlayTimeTracker
 import com.pmcl.core.version.McVersion
 import com.pmcl.core.gamecontent.WorldManager
 import com.pmcl.core.gamecontent.ScreenshotManager
@@ -197,6 +198,17 @@ class LauncherViewModel {
 
     private val _depInstallResult = MutableStateFlow<ModDependencyResolver.DependencyResult?>(null)
     val depInstallResult: StateFlow<ModDependencyResolver.DependencyResult?> = _depInstallResult.asStateFlow()
+
+    // ===== 游戏时长统计 =====
+    private val _playTimeStats = MutableStateFlow<PlayTimeTracker.OverallStat?>(null)
+    val playTimeStats: StateFlow<PlayTimeTracker.OverallStat?> = _playTimeStats.asStateFlow()
+
+    private val _dailyStats = MutableStateFlow<List<PlayTimeTracker.DailyStat>>(emptyList())
+    val dailyStats: StateFlow<List<PlayTimeTracker.DailyStat>> = _dailyStats.asStateFlow()
+
+    /** 统计图表展示的天数范围 */
+    private val _statsDays = MutableStateFlow(7)
+    val statsDays: StateFlow<Int> = _statsDays.asStateFlow()
 
     // ===== 微软登录 =====
     private val _deviceCode = MutableStateFlow<DeviceCode?>(null)
@@ -1051,6 +1063,21 @@ class LauncherViewModel {
         _depInstallResult.value = null
     }
 
+    // ============ 游戏时长统计 ============
+
+    /** 刷新统计数据（进入统计页时调用） */
+    fun refreshPlayTimeStats() {
+        val days = _statsDays.value
+        _playTimeStats.value = core.playTimeTracker().getOverallStats(days)
+        _dailyStats.value = core.playTimeTracker().getDailyStatsWithZeros(days)
+    }
+
+    /** 设置统计展示天数（7/14/30）并刷新 */
+    fun setStatsDays(days: Int) {
+        _statsDays.value = days
+        refreshPlayTimeStats()
+    }
+
     // ============ 已安装 Mod 扫描 ============
 
     fun refreshInstalledMods() {
@@ -1709,12 +1736,13 @@ class LauncherViewModel {
                     catch (t: Throwable) { emptySet<String>() }
                 }
 
-                // 记录启动：最近使用列表 + 最后游玩时间戳
+                // 记录启动：最近使用列表 + 最后游玩时间戳 + 时长追踪
                 val launchTime = System.currentTimeMillis()
                 preferences.recordRecentVersion(versionId)
                 preferences.setLastPlayedTime(versionId, launchTime)
                 _recentVersions.value = preferences.getRecentVersions()
                 _lastPlayedTimes.value = HashMap(preferences.getLastPlayedTimesRaw())
+                core.playTimeTracker().recordStart(versionId)
 
                 // launchAsync 返回 CompletableFuture，需等待进程退出，否则 gameRunning 会立即被 finally 重置
                 val future = core.launch().launchAsync(
@@ -1724,6 +1752,9 @@ class LauncherViewModel {
                 )
                 val exitCode = withContext(Dispatchers.IO) { future.join() }
                 _status.value = "游戏已退出（code=$exitCode）"
+
+                // 记录游玩时长
+                core.playTimeTracker().recordEnd(versionId)
 
                 // 异常退出检测：非 0 退出码视为崩溃
                 if (exitCode != 0) {

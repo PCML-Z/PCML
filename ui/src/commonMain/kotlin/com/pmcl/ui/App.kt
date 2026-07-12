@@ -26,6 +26,7 @@ import com.pmcl.ui.page.PluginPage
 import com.pmcl.ui.page.QuickLaunchPage
 import com.pmcl.ui.page.SavesHubPage
 import com.pmcl.ui.page.SettingsPage
+import com.pmcl.ui.page.StatisticsPage
 import com.pmcl.ui.page.TerminalPage
 import com.pmcl.ui.page.WelcomePage
 import com.pmcl.ui.theme.LauncherTheme
@@ -172,6 +173,7 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                             NavDestination.Download    -> DownloadHubPage(vm)
                             NavDestination.Content     -> ContentHubPage(vm)
                             NavDestination.Saves       -> SavesHubPage(vm)
+                            NavDestination.Statistics  -> StatisticsPage(vm)
                             NavDestination.Accounts    -> AccountsPage(vm)
                             NavDestination.Settings    -> SettingsPage(vm)
                             NavDestination.Terminal    -> TerminalPage(vm)

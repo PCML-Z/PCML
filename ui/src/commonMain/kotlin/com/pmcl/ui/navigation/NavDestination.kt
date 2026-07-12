@@ -1,6 +1,7 @@
 package com.pmcl.ui.navigation
 
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Info
@@ -30,6 +31,7 @@ sealed class NavDestination(val route: String, val label: String, val icon: Imag
     data object Download    : NavDestination("download",    "下载",   Icons.Filled.Build)
     data object Content     : NavDestination("content",     "内容",   Icons.Filled.Star)
     data object Saves       : NavDestination("saves",       "存档",   Icons.Filled.Search)
+    data object Statistics  : NavDestination("statistics",  "统计",   Icons.Filled.BarChart)
     data object Accounts    : NavDestination("accounts",    "账号",   Icons.Filled.Person)
     data object Settings    : NavDestination("settings",    "设置",   Icons.Filled.Settings)
     data object Terminal    : NavDestination("terminal",    "终端",   Icons.Filled.Terminal)
@@ -43,6 +45,7 @@ val allDestinations = listOf(
     NavDestination.Download,
     NavDestination.Content,
     NavDestination.Saves,
+    NavDestination.Statistics,
     NavDestination.Accounts,
     NavDestination.Settings,
     NavDestination.Terminal,
