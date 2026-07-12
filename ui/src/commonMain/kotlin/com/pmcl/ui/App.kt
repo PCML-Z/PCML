@@ -47,15 +47,23 @@ fun App() {
 
     // 启动时初始化动态颜色
     LaunchedEffect(Unit) {
-        themeState.enableDynamicColor(vm.preferences.isDynamicColor())
+        val customColor = vm.preferences.getCustomAccentColor()
         if (vm.preferences.isDynamicColor()) {
+            // 莫奈取色模式
+            themeState.enableDynamicColor(true)
             vm.refreshWallpaperColor(themeState)
+        } else if (customColor != -1) {
+            // 自定义强调色模式
+            themeState.applyCustomAccentColor(customColor)
+            val dark = vm.preferences.isUseDarkTheme()
+            themeState.applySeedColor(customColor, dark)
         }
     }
 
     // 直接读取 themeState 的属性，Compose 会自动观察 mutableStateOf 的变化
+    // 莫奈取色或自定义强调色时使用 dynamicColorScheme
     val effectiveScheme: androidx.compose.material3.ColorScheme? =
-        if (themeState.dynamicColor) themeState.dynamicColorScheme else null
+        if (themeState.dynamicColor || themeState.customAccentColor != -1) themeState.dynamicColorScheme else null
 
     LauncherTheme(
         useDarkTheme = themeState.useDark,

@@ -26,6 +26,7 @@ public final class Preferences {
     // 默认值
     private boolean useDarkTheme = false;
     private boolean dynamicColor = false; // 莫奈取色：主题颜色跟随桌面壁纸
+    private int customAccentColor = -1;   // 自定义强调色 ARGB，-1 表示未设置（使用默认配色）
     private boolean borderlessWindow = false; // 无边框窗口模式（自定义标题栏）
     private String language = "zh_CN";             // zh_CN / en_US
     private boolean firstLaunchCompleted = false;  // 是否完成首次启动欢迎流程
@@ -83,6 +84,8 @@ public final class Preferences {
     public synchronized void setUseDarkTheme(boolean v) { useDarkTheme = v; save(); }
     public synchronized boolean isDynamicColor() { return dynamicColor; }
     public synchronized void setDynamicColor(boolean v) { dynamicColor = v; save(); }
+    public synchronized int getCustomAccentColor() { return customAccentColor; }
+    public synchronized void setCustomAccentColor(int v) { customAccentColor = v; save(); }
 
     public synchronized boolean isBorderlessWindow() { return borderlessWindow; }
     public synchronized void setBorderlessWindow(boolean v) { borderlessWindow = v; save(); }
@@ -342,6 +345,7 @@ public final class Preferences {
             JsonObject o = JsonParser.parseString(Files.readString(file)).getAsJsonObject();
             if (o.has("useDarkTheme")) useDarkTheme = o.get("useDarkTheme").getAsBoolean();
             if (o.has("dynamicColor")) dynamicColor = o.get("dynamicColor").getAsBoolean();
+            if (o.has("customAccentColor")) customAccentColor = o.get("customAccentColor").getAsInt();
             if (o.has("borderlessWindow")) borderlessWindow = o.get("borderlessWindow").getAsBoolean();
             if (o.has("language") && !o.get("language").isJsonNull()) language = o.get("language").getAsString();
             if (o.has("firstLaunchCompleted")) firstLaunchCompleted = o.get("firstLaunchCompleted").getAsBoolean();
@@ -427,7 +431,8 @@ public final class Preferences {
         try {
             JsonObject o = new JsonObject();
             o.addProperty("useDarkTheme", useDarkTheme);
-            o.addProperty("dynamicColor", dynamicColor);
+        o.addProperty("dynamicColor", dynamicColor);
+        o.addProperty("customAccentColor", customAccentColor);
             o.addProperty("borderlessWindow", borderlessWindow);
             o.addProperty("language", language);
             o.addProperty("firstLaunchCompleted", firstLaunchCompleted);

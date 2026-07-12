@@ -313,6 +313,101 @@ public final class WallpaperColorProvider {
         return new int[]{primary, secondary, tertiary, background, surface};
     }
 
+    /**
+     * 从种子色生成完整的 Material3 调色板（18 个颜色角色）。
+     * 用于自定义强调色和莫奈取色，确保所有颜色角色协调一致。
+     *
+     * @param seedRgb 种子色 RGB（不含 alpha）
+     * @param dark    是否为暗色模式
+     * @return 颜色角色 RGB int 数组，顺序对应 {@link FullPalette} 字段
+     */
+    public static FullPalette generateFullPalette(int seedRgb, boolean dark) {
+        float[] hsl = rgbToHsl(
+                (seedRgb >> 16) & 0xFF,
+                (seedRgb >> 8) & 0xFF,
+                seedRgb & 0xFF
+        );
+        float hue = hsl[0];
+        float sat = hsl[1];
+        if (sat < 0.3f) sat = 0.5f;
+        sat = Math.min(sat, 0.7f);
+
+        if (dark) {
+            return new FullPalette(
+                hslToRgb(hue, sat, 0.70f),              // primary
+                hslToRgb(hue, sat * 0.3f, 0.10f),        // onPrimary
+                hslToRgb(hue, sat * 0.5f, 0.30f),        // primaryContainer
+                hslToRgb(hue, sat * 0.3f, 0.90f),        // onPrimaryContainer
+                hslToRgb(hue, sat * 0.85f, 0.60f),       // secondary
+                hslToRgb(hue, sat * 0.3f, 0.10f),        // onSecondary
+                hslToRgb((hue + 60) % 360, sat * 0.9f, 0.65f), // tertiary
+                hslToRgb(hue, sat * 0.25f, 0.10f),       // background
+                hslToRgb(hue, sat * 0.1f, 0.90f),        // onBackground
+                hslToRgb(hue, sat * 0.2f, 0.16f),        // surface
+                hslToRgb(hue, sat * 0.1f, 0.90f),        // onSurface
+                hslToRgb(hue, sat * 0.15f, 0.22f),       // surfaceVariant
+                hslToRgb(hue, sat * 0.1f, 0.70f),        // onSurfaceVariant
+                hslToRgb(hue, sat * 0.1f, 0.55f),        // outline
+                hslToRgb(0, 0.7f, 0.65f),                // error
+                hslToRgb(0, 0.3f, 0.10f)                 // onError
+            );
+        } else {
+            return new FullPalette(
+                hslToRgb(hue, sat, 0.42f),              // primary
+                0xFFFFFFFF,                               // onPrimary
+                hslToRgb(hue, sat * 0.7f, 0.90f),        // primaryContainer
+                hslToRgb(hue, sat * 0.5f, 0.20f),        // onPrimaryContainer
+                hslToRgb(hue, sat * 0.85f, 0.52f),       // secondary
+                0xFFFFFFFF,                               // onSecondary
+                hslToRgb((hue + 60) % 360, sat * 0.9f, 0.48f), // tertiary
+                hslToRgb(hue, sat * 0.2f, 0.95f),        // background
+                hslToRgb(hue, sat * 0.3f, 0.10f),        // onBackground
+                hslToRgb(hue, sat * 0.15f, 0.98f),       // surface
+                hslToRgb(hue, sat * 0.3f, 0.10f),        // onSurface
+                hslToRgb(hue, sat * 0.1f, 0.90f),        // surfaceVariant
+                hslToRgb(hue, sat * 0.2f, 0.30f),        // onSurfaceVariant
+                hslToRgb(hue, sat * 0.1f, 0.45f),        // outline
+                hslToRgb(0, 0.7f, 0.45f),                // error
+                0xFFFFFFFF                                // onError
+            );
+        }
+    }
+
+    /**
+     * 完整调色板：16 个 Material3 颜色角色。
+     * 所有字段为 ARGB int（alpha=0xFF）。
+     */
+    public static final class FullPalette {
+        public final int primary, onPrimary, primaryContainer, onPrimaryContainer;
+        public final int secondary, onSecondary, tertiary;
+        public final int background, onBackground, surface, onSurface;
+        public final int surfaceVariant, onSurfaceVariant, outline;
+        public final int error, onError;
+
+        public FullPalette(int primary, int onPrimary, int primaryContainer, int onPrimaryContainer,
+                           int secondary, int onSecondary, int tertiary,
+                           int background, int onBackground, int surface, int onSurface,
+                           int surfaceVariant, int onSurfaceVariant, int outline,
+                           int error, int onError) {
+            this.primary = primary;
+            this.onPrimary = onPrimary;
+            this.primaryContainer = primaryContainer;
+            this.onPrimaryContainer = onPrimaryContainer;
+            this.secondary = secondary;
+            this.onSecondary = onSecondary;
+            this.tertiary = tertiary;
+            this.background = background;
+            this.onBackground = onBackground;
+            this.surface = surface;
+            this.onSurface = onSurface;
+            this.surfaceVariant = surfaceVariant;
+            this.onSurfaceVariant = onSurfaceVariant;
+            this.outline = outline;
+            this.error = error;
+            this.onError = onError;
+        }
+    }
+
     /** 公共诊断日志方法 */
     public static void diagLog(String msg) { diag(msg); }
 

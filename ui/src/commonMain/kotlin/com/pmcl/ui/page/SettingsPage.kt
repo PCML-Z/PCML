@@ -1,17 +1,24 @@
 package com.pmcl.ui.page
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -137,8 +144,8 @@ fun SettingsPage(vm: LauncherViewModel) {
                     Switch(
                         checked = themeState.useDark,
                         onCheckedChange = { v ->
-                            themeState.set(v)
-                            pref.setUseDarkTheme(v)
+                            // 修复：切换深浅模式时重新生成莫奈/自定义配色
+                            vm.onThemeModeChanged(v, themeState)
                         }
                     )
                     Spacer(Modifier.width(8.dp))
@@ -160,7 +167,13 @@ fun SettingsPage(vm: LauncherViewModel) {
                         onCheckedChange = { v ->
                             themeState.enableDynamicColor(v)
                             pref.setDynamicColor(v)
-                            if (v) vm.refreshWallpaperColor(themeState)
+                            if (v) {
+                                // 开启莫奈时清除自定义强调色
+                                vm.clearCustomAccentColor(themeState)
+                                vm.refreshWallpaperColor(themeState)
+                            } else {
+                                themeState.updateDynamicColorScheme(null)
+                            }
                         }
                     )
                     Spacer(Modifier.width(8.dp))
@@ -168,6 +181,29 @@ fun SettingsPage(vm: LauncherViewModel) {
                 }
                 Spacer(Modifier.height(4.dp))
                 Text("开启后主题颜色自动从桌面壁纸提取，实现 Material You 动态配色",
+                     style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.outline)
+
+                Spacer(Modifier.height(12.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(12.dp))
+
+                // 自定义强调色（手动色板选择）
+                Text("自定义强调色", style = MaterialTheme.typography.labelMedium,
+                     fontWeight = FontWeight.Medium)
+                Spacer(Modifier.height(8.dp))
+                AccentColorPicker(
+                    selectedColor = themeState.customAccentColor,
+                    enabled = !themeState.dynamicColor,
+                    onSelect = { argb ->
+                        vm.applyCustomAccentColor(argb, themeState)
+                    },
+                    onClear = {
+                        vm.clearCustomAccentColor(themeState)
+                    }
+                )
+                Spacer(Modifier.height(4.dp))
+                Text("手动选择主题强调色，关闭莫奈取色后生效。选择后自动生成协调的完整配色方案",
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
 
@@ -719,6 +755,119 @@ private fun JavaRuntimeCard(vm: LauncherViewModel, pref: com.pmcl.core.preferenc
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
+        }
+    }
+}
+
+/**
+ * 强调色选择器：预设色板 + 自定义颜色输入。
+ */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun AccentColorPicker(
+    selectedColor: Int,
+    enabled: Boolean,
+    onSelect: (Int) -> Unit,
+    onClear: () -> Unit
+) {
+    // 预设色板（RGB，不含 alpha）
+    val presets = remember {
+        listOf(
+            0x3D8BFF to "天空蓝",   // 默认蓝
+            0x55C57A to "薄荷绿",
+            0xFA8C16 to "琥珀橙",
+            0xE91E63 to "玫瑰粉",
+            0x9C27B0 to "紫罗兰",
+            0xF44336 to "赤红",
+            0x00BCD4 to "青蓝",
+            0x8BC34A to "草绿",
+            0xFFC107 to "金黄",
+            0x795548 to "棕褐",
+            0x607D8B to "蓝灰",
+            0x000000 to "纯黑"
+        )
+    }
+
+    val currentRgb = if (selectedColor != -1) selectedColor and 0x00FFFFFF else -1
+
+    Column(Modifier.fillMaxWidth()) {
+        // 预设色板网格
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            presets.forEach { (rgb, name) ->
+                val isSelected = currentRgb == rgb
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(Color(rgb or 0xFF000000.toInt()))
+                        .then(
+                            if (isSelected) Modifier.border(3.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
+                            else Modifier.border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), CircleShape)
+                        )
+                        .clickable(enabled = enabled) { onSelect(rgb) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (isSelected) {
+                        Icon(
+                            Icons.Filled.Check,
+                            contentDescription = name,
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        // 自定义颜色输入 + 恢复默认按钮
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            var hexInput by remember(selectedColor) {
+                mutableStateOf(
+                    if (selectedColor != -1) String.format("%06X", selectedColor and 0x00FFFFFF)
+                    else ""
+                )
+            }
+            OutlinedTextField(
+                value = hexInput,
+                onValueChange = { v ->
+                    val cleaned = v.filter { it.isLetterOrDigit() }.take(6)
+                    hexInput = cleaned
+                    if (cleaned.length == 6) {
+                        val rgb = cleaned.toInt(16)
+                        onSelect(rgb)
+                    }
+                },
+                label = { Text("自定义 HEX") },
+                prefix = { Text("#") },
+                singleLine = true,
+                enabled = enabled,
+                modifier = Modifier.weight(1f),
+                textStyle = MaterialTheme.typography.bodyMedium
+            )
+            Spacer(Modifier.width(8.dp))
+            if (selectedColor != -1) {
+                OutlinedButton(onClick = onClear, enabled = enabled) {
+                    Icon(Icons.Filled.Clear, null, Modifier.size(14.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("默认")
+                }
+            }
+        }
+
+        if (!enabled) {
+            Spacer(Modifier.height(4.dp))
+            Text("请先关闭莫奈取色以使用自定义强调色",
+                 style = MaterialTheme.typography.labelSmall,
+                 color = MaterialTheme.colorScheme.outline)
         }
     }
 }

@@ -720,7 +720,7 @@ class LauncherViewModel {
      * @param targetThemeState 可选的 ThemeState 引用，若提供则直接更新（避免字段赋值时序问题）
      */
     fun refreshWallpaperColor(targetThemeState: com.pmcl.ui.theme.ThemeState? = null) {
-        val ts = targetThemeState ?: themeState
+        val ts = targetThemeState ?: themeState ?: return
         com.pmcl.core.theme.WallpaperColorProvider.diagLog("[VM] refreshWallpaperColor called, ts=${ts != null}")
         scope.launch {
             try {
@@ -735,39 +735,55 @@ class LauncherViewModel {
                     return@launch
                 }
                 val dark = preferences.isUseDarkTheme()
-                val palette = withContext(Dispatchers.IO) {
-                    com.pmcl.core.theme.WallpaperColorProvider.generatePalette(seedColor, dark)
-                }
-                if (palette.size < 5) {
-                    _status.value = "壁纸取色失败：调色板数据不完整"
-                    return@launch
-                }
-                val scheme = if (dark) {
-                    androidx.compose.material3.darkColorScheme(
-                        primary = androidx.compose.ui.graphics.Color(palette[0] or 0xFF000000.toInt()),
-                        secondary = androidx.compose.ui.graphics.Color(palette[1] or 0xFF000000.toInt()),
-                        tertiary = androidx.compose.ui.graphics.Color(palette[2] or 0xFF000000.toInt()),
-                        background = androidx.compose.ui.graphics.Color(palette[3] or 0xFF000000.toInt()),
-                        surface = androidx.compose.ui.graphics.Color(palette[4] or 0xFF000000.toInt())
-                    )
-                } else {
-                    androidx.compose.material3.lightColorScheme(
-                        primary = androidx.compose.ui.graphics.Color(palette[0] or 0xFF000000.toInt()),
-                        secondary = androidx.compose.ui.graphics.Color(palette[1] or 0xFF000000.toInt()),
-                        tertiary = androidx.compose.ui.graphics.Color(palette[2] or 0xFF000000.toInt()),
-                        background = androidx.compose.ui.graphics.Color(palette[3] or 0xFF000000.toInt()),
-                        surface = androidx.compose.ui.graphics.Color(palette[4] or 0xFF000000.toInt())
-                    )
-                }
-                // Compose Desktop 的 mutableStateOf 可以在任意线程更新（快照系统自动同步）
-                com.pmcl.core.theme.WallpaperColorProvider.diagLog("[VM] calling updateDynamicColorScheme, ts=${ts != null}, primary=${scheme.primary}")
-                ts?.updateDynamicColorScheme(scheme)
-                com.pmcl.core.theme.WallpaperColorProvider.diagLog("[VM] updateDynamicColorScheme done, ts.dynamicColorScheme=${ts?.dynamicColorScheme}")
+                ts.applySeedColor(seedColor, dark)
+                com.pmcl.core.theme.WallpaperColorProvider.diagLog("[VM] applySeedColor done, primary=${ts.dynamicColorScheme?.primary}")
                 _status.value = "莫奈取色已应用（种子色: #${Integer.toHexString(seedColor).padStart(6, '0')}）"
             } catch (e: Throwable) {
                 com.pmcl.core.theme.WallpaperColorProvider.diagLog("[VM] EXCEPTION: ${e.javaClass.name}: ${e.message}")
                 _status.value = "壁纸取色失败：${e.message}"
             }
+        }
+    }
+
+    /**
+     * 应用自定义强调色（手动色板选择）。
+     * 非莫奈模式下使用用户选择的颜色作为种子色生成完整配色。
+     */
+    fun applyCustomAccentColor(argb: Int, targetThemeState: com.pmcl.ui.theme.ThemeState? = null) {
+        val ts = targetThemeState ?: themeState ?: return
+        // 提取 RGB（去掉 alpha）
+        val rgb = argb and 0x00FFFFFF
+        ts.applyCustomAccentColor(rgb)
+        ts.enableDynamicColor(false)
+        preferences.setDynamicColor(false)
+        preferences.setCustomAccentColor(rgb)
+        val dark = preferences.isUseDarkTheme()
+        ts.applySeedColor(rgb, dark)
+        _status.value = "已应用自定义强调色 (#${Integer.toHexString(rgb).padStart(6, '0')})"
+    }
+
+    /** 清除自定义强调色，恢复默认配色 */
+    fun clearCustomAccentColor(targetThemeState: com.pmcl.ui.theme.ThemeState? = null) {
+        val ts = targetThemeState ?: themeState ?: return
+        ts.clearCustomAccentColor()
+        ts.updateDynamicColorScheme(null)
+        preferences.setCustomAccentColor(-1)
+        _status.value = "已恢复默认配色"
+    }
+
+    /**
+     * 切换深色/浅色模式时重新生成配色（修复莫奈/自定义色与深浅模式不同步的 bug）。
+     * 在 SettingsPage 深色 Switch 的 onCheckedChange 中调用。
+     */
+    fun onThemeModeChanged(dark: Boolean, targetThemeState: com.pmcl.ui.theme.ThemeState? = null) {
+        val ts = targetThemeState ?: themeState ?: return
+        ts.set(dark)
+        preferences.setUseDarkTheme(dark)
+        // 如果莫奈取色或自定义强调色开启，需重新生成配色以适配深浅模式
+        if (ts.dynamicColor && ts.seedColor != -1) {
+            ts.applySeedColor(ts.seedColor, dark)
+        } else if (ts.customAccentColor != -1) {
+            ts.applySeedColor(ts.customAccentColor, dark)
         }
     }
 
