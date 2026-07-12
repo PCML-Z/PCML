@@ -302,7 +302,15 @@ public final class LaunchProfileBuilder {
         }
 
         // 版本 JSON 自带的 JVM 参数
+        // 过滤掉运行时 Java 不支持的参数：
+        //   --sun-misc-unsafe-memory-access=allow 是 Java 23+ (JEP 471) 引入的，
+        //   Mojang 新版本 JSON 自带此参数，但 PMCL 使用 Java 21 启动会报
+        //   "Unrecognized option" 导致 JVM 无法创建、游戏直接退出。
         for (String arg : vj.getJvmArgs()) {
+            if (javaMajorVersion > 0 && javaMajorVersion < 23
+                    && arg.startsWith("--sun-misc-unsafe-memory-access")) {
+                continue;
+            }
             profile.addJvmArg(replacePlaceholders(arg, versionId, mcRoot, librariesDir, assetsDir, versionsDir, gameDir, account, vj.getAssets()));
         }
 
