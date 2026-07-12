@@ -41,10 +41,10 @@ public final class VersionJson {
 
     public static VersionJson parse(String json) {
         JsonObject root = JsonParser.parseString(json).getAsJsonObject();
-        String id = root.has("id") ? root.get("id").getAsString() : "";
-        String mainClass = root.has("mainClass") ? root.get("mainClass").getAsString() : "";
-        String assets = root.has("assets") ? root.get("assets").getAsString() : "";
-        String inheritsFrom = root.has("inheritsFrom") ? root.get("inheritsFrom").getAsString() : null;
+        String id = root.has("id") && !root.get("id").isJsonNull() ? root.get("id").getAsString() : "";
+        String mainClass = root.has("mainClass") && !root.get("mainClass").isJsonNull() ? root.get("mainClass").getAsString() : "";
+        String assets = root.has("assets") && !root.get("assets").isJsonNull() ? root.get("assets").getAsString() : "";
+        String inheritsFrom = root.has("inheritsFrom") && !root.get("inheritsFrom").isJsonNull() ? root.get("inheritsFrom").getAsString() : null;
 
         // javaVersion.majorVersion：MC 1.13+ 才有此字段，旧版本（alpha/beta/1.7-）返回 0
         // alpha/beta 需要 Java 8；1.13-1.16.5 需要 Java 8；1.17 需要 16；1.18 需要 17；1.20.5+ 需要 21
@@ -180,7 +180,7 @@ public final class VersionJson {
     }
 
     private static String currentOsName() {
-        String os = System.getProperty("os.name").toLowerCase();
+        String os = System.getProperty("os.name", "").toLowerCase();
         if (os.contains("win")) return "windows";
         if (os.contains("mac")) return "osx";
         return "linux";

@@ -209,11 +209,11 @@ public final class VersionManager {
             if (hasJson) {
                 try {
                     JsonObject root = JsonParser.parseString(Files.readString(json, java.nio.charset.StandardCharsets.UTF_8)).getAsJsonObject();
-                    if (root.has("inheritsFrom"))
+                    if (root.has("inheritsFrom") && !root.get("inheritsFrom").isJsonNull())
                         inheritsFrom = root.get("inheritsFrom").getAsString();
-                    if (root.has("mainClass"))
+                    if (root.has("mainClass") && !root.get("mainClass").isJsonNull())
                         mainClass = root.get("mainClass").getAsString();
-                    if (root.has("assets"))
+                    if (root.has("assets") && !root.get("assets").isJsonNull())
                         assets = root.get("assets").getAsString();
                 } catch (Throwable ignored) {}
             }

@@ -57,7 +57,7 @@ public final class IntegrityChecker {
             JsonObject dl = root.getAsJsonObject("downloads");
             if (dl.has("client")) {
                 JsonObject client = dl.getAsJsonObject("client");
-                if (client.has("sha1")) {
+                if (client.has("sha1") && !client.get("sha1").isJsonNull()) {
                     Path clientJar = versionDir.resolve(versionId + ".jar");
                     verifyFile(clientJar, client.get("sha1").getAsString(), result);
                 }
@@ -72,7 +72,8 @@ public final class IntegrityChecker {
                 JsonObject downloads = lib.getAsJsonObject("downloads");
                 if (downloads.has("artifact")) {
                     JsonObject art = downloads.getAsJsonObject("artifact");
-                    if (art.has("path") && art.has("sha1")) {
+                    if (art.has("path") && !art.get("path").isJsonNull()
+                            && art.has("sha1") && !art.get("sha1").isJsonNull()) {
                         Path libFile = config.getLibrariesDir().resolve(art.get("path").getAsString());
                         verifyFile(libFile, art.get("sha1").getAsString(), result);
                     }
@@ -82,7 +83,8 @@ public final class IntegrityChecker {
                     JsonObject cl = downloads.getAsJsonObject("classifiers");
                     for (var ce : cl.entrySet()) {
                         JsonObject a = ce.getValue().getAsJsonObject();
-                        if (a.has("path") && a.has("sha1")) {
+                        if (a.has("path") && !a.get("path").isJsonNull()
+                                && a.has("sha1") && !a.get("sha1").isJsonNull()) {
                             Path libFile = config.getLibrariesDir().resolve(a.get("path").getAsString());
                             verifyFile(libFile, a.get("sha1").getAsString(), result);
                         }

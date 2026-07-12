@@ -307,21 +307,21 @@ public final class Preferences {
             if (o.has("useDarkTheme")) useDarkTheme = o.get("useDarkTheme").getAsBoolean();
             if (o.has("dynamicColor")) dynamicColor = o.get("dynamicColor").getAsBoolean();
             if (o.has("borderlessWindow")) borderlessWindow = o.get("borderlessWindow").getAsBoolean();
-            if (o.has("language")) language = o.get("language").getAsString();
+            if (o.has("language") && !o.get("language").isJsonNull()) language = o.get("language").getAsString();
             if (o.has("firstLaunchCompleted")) firstLaunchCompleted = o.get("firstLaunchCompleted").getAsBoolean();
             if (o.has("pinnedVersions")) {
                 pinnedVersions = new java.util.ArrayList<>();
                 for (var e : o.getAsJsonArray("pinnedVersions")) {
-                    pinnedVersions.add(e.getAsString());
+                    if (!e.isJsonNull()) pinnedVersions.add(e.getAsString());
                 }
             }
             if (o.has("recentVersions")) {
                 recentVersions = new java.util.ArrayList<>();
                 for (var e : o.getAsJsonArray("recentVersions")) {
-                    recentVersions.add(e.getAsString());
+                    if (!e.isJsonNull()) recentVersions.add(e.getAsString());
                 }
             }
-            if (o.has("lastSelectedVersion")) {
+            if (o.has("lastSelectedVersion") && !o.get("lastSelectedVersion").isJsonNull()) {
                 lastSelectedVersion = o.get("lastSelectedVersion").getAsString();
             }
             if (o.has("lastPlayedTimes") && o.get("lastPlayedTimes").isJsonObject()) {
@@ -342,35 +342,35 @@ public final class Preferences {
                     } catch (Exception ignored) {}
                 }
             }
-            if (o.has("customJvmArgs")) customJvmArgs = o.get("customJvmArgs").getAsString();
-            if (o.has("gcType")) gcType = o.get("gcType").getAsString();
+            if (o.has("customJvmArgs") && !o.get("customJvmArgs").isJsonNull()) customJvmArgs = o.get("customJvmArgs").getAsString();
+            if (o.has("gcType") && !o.get("gcType").isJsonNull()) gcType = o.get("gcType").getAsString();
             if (o.has("useAikarFlags")) useAikarFlags = o.get("useAikarFlags").getAsBoolean();
             if (o.has("minMemoryMb")) minMemoryMb = o.get("minMemoryMb").getAsInt();
             if (o.has("maxMemoryMb")) maxMemoryMb = o.get("maxMemoryMb").getAsInt();
-            if (o.has("javaPath")) javaPath = o.get("javaPath").getAsString();
+            if (o.has("javaPath") && !o.get("javaPath").isJsonNull()) javaPath = o.get("javaPath").getAsString();
             if (o.has("gameWindowWidth")) gameWindowWidth = o.get("gameWindowWidth").getAsInt();
             if (o.has("gameWindowHeight")) gameWindowHeight = o.get("gameWindowHeight").getAsInt();
             if (o.has("gameFullscreen")) gameFullscreen = o.get("gameFullscreen").getAsBoolean();
             if (o.has("gameDemo")) gameDemo = o.get("gameDemo").getAsBoolean();
-            if (o.has("gameServerHost")) gameServerHost = o.get("gameServerHost").getAsString();
+            if (o.has("gameServerHost") && !o.get("gameServerHost").isJsonNull()) gameServerHost = o.get("gameServerHost").getAsString();
             if (o.has("gameServerPort")) gameServerPort = o.get("gameServerPort").getAsInt();
-            if (o.has("gameRenderer")) gameRenderer = o.get("gameRenderer").getAsString();
-            if (o.has("mirrorType")) mirrorType = o.get("mirrorType").getAsString();
-            if (o.has("customMirrorBase")) customMirrorBase = o.get("customMirrorBase").getAsString();
+            if (o.has("gameRenderer") && !o.get("gameRenderer").isJsonNull()) gameRenderer = o.get("gameRenderer").getAsString();
+            if (o.has("mirrorType") && !o.get("mirrorType").isJsonNull()) mirrorType = o.get("mirrorType").getAsString();
+            if (o.has("customMirrorBase") && !o.get("customMirrorBase").isJsonNull()) customMirrorBase = o.get("customMirrorBase").getAsString();
             if (o.has("useProxy")) useProxy = o.get("useProxy").getAsBoolean();
-            if (o.has("proxyHost")) proxyHost = o.get("proxyHost").getAsString();
+            if (o.has("proxyHost") && !o.get("proxyHost").isJsonNull()) proxyHost = o.get("proxyHost").getAsString();
             if (o.has("proxyPort")) proxyPort = o.get("proxyPort").getAsInt();
             if (o.has("useHttpAuth")) useHttpAuth = o.get("useHttpAuth").getAsBoolean();
-            if (o.has("proxyUsername")) proxyUsername = o.get("proxyUsername").getAsString();
-            if (o.has("proxyPassword")) proxyPassword = o.get("proxyPassword").getAsString();
+            if (o.has("proxyUsername") && !o.get("proxyUsername").isJsonNull()) proxyUsername = o.get("proxyUsername").getAsString();
+            if (o.has("proxyPassword") && !o.get("proxyPassword").isJsonNull()) proxyPassword = o.get("proxyPassword").getAsString();
             if (o.has("downloadSpeedLimitKb")) downloadSpeedLimitKb = o.get("downloadSpeedLimitKb").getAsInt();
             if (o.has("downloadRetryCount")) downloadRetryCount = o.get("downloadRetryCount").getAsInt();
             if (o.has("enableResume")) enableResume = o.get("enableResume").getAsBoolean();
             if (o.has("chunkedDownloadThreads")) chunkedDownloadThreads = o.get("chunkedDownloadThreads").getAsInt();
-            if (o.has("mpBackend")) mpBackend = o.get("mpBackend").getAsString();
-            if (o.has("connectxServerAddress")) connectxServerAddress = o.get("connectxServerAddress").getAsString();
+            if (o.has("mpBackend") && !o.get("mpBackend").isJsonNull()) mpBackend = o.get("mpBackend").getAsString();
+            if (o.has("connectxServerAddress") && !o.get("connectxServerAddress").isJsonNull()) connectxServerAddress = o.get("connectxServerAddress").getAsString();
             if (o.has("connectxServerPort")) connectxServerPort = o.get("connectxServerPort").getAsInt();
-            if (o.has("connectxBinaryPath")) connectxBinaryPath = o.get("connectxBinaryPath").getAsString();
+            if (o.has("connectxBinaryPath") && !o.get("connectxBinaryPath").isJsonNull()) connectxBinaryPath = o.get("connectxBinaryPath").getAsString();
         } catch (Throwable ignored) {
         }
     }

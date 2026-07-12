@@ -689,6 +689,13 @@ public final class LaunchProfileBuilder {
     }
 
     private VersionJson loadVersionJson(String versionId) throws IOException {
+        return loadVersionJson(versionId, new java.util.HashSet<>());
+    }
+
+    private VersionJson loadVersionJson(String versionId, java.util.Set<String> visiting) throws IOException {
+        if (!visiting.add(versionId)) {
+            throw new IOException("检测到循环版本继承: " + visiting + " -> " + versionId);
+        }
         Path jsonPath = findVersionJson(versionId);
         if (jsonPath == null) {
             throw new IOException("版本未安装: " + versionId +
@@ -698,7 +705,7 @@ public final class LaunchProfileBuilder {
         VersionJson vj = VersionJson.parse(json);
 
         if (vj.getInheritsFrom() != null && !vj.getInheritsFrom().equals(versionId)) {
-            VersionJson parent = loadVersionJson(vj.getInheritsFrom());
+            VersionJson parent = loadVersionJson(vj.getInheritsFrom(), visiting);
             com.google.gson.JsonObject childObj = vj.getRawJson();
             if (!childObj.has("mainClass") && parent.getMainClass() != null) {
                 childObj.addProperty("mainClass", parent.getMainClass());

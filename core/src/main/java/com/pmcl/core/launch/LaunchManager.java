@@ -151,6 +151,7 @@ public final class LaunchManager {
 
                 return code;
             } catch (IOException | InterruptedException e) {
+                if (e instanceof InterruptedException) Thread.currentThread().interrupt();
                 String errMsg = "[PMCL] 启动失败: " + e.getMessage();
                 if (logger != null) logger.append(errMsg);
                 if (onLog != null) onLog.accept(errMsg);

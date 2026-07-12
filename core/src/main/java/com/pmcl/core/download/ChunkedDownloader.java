@@ -313,7 +313,11 @@ public final class ChunkedDownloader {
                     .header("Range", "bytes=" + resumeFrom + "-" + chunkEnd)
                     .get().build();
             try (Response resp = http.newCall(req).execute()) {
-                if (resp.code() != 206 && resp.code() != 200) {
+                if (resp.code() == 200) {
+                    // 服务器不支持 Range：单连接降级也无效，交给上层 singleDownload 处理
+                    throw new IOException("服务器不支持 Range 请求（返回 200），无法续传");
+                }
+                if (resp.code() != 206) {
                     throw new IOException("降级下载分片 " + i + " code=" + resp.code());
                 }
                 if (resp.body() == null) throw new IOException("响应体为空: " + url);
@@ -367,7 +371,12 @@ public final class ChunkedDownloader {
                 .header("Range", "bytes=" + start + "-" + end)
                 .get().build();
         try (Response resp = http.newCall(req).execute()) {
-            if (resp.code() != 206 && resp.code() != 200) {
+            if (resp.code() == 200) {
+                // 服务器忽略 Range，返回整个文件。分片模式下不能 seek+write，否则数据错乱。
+                // 抛出异常触发上层 fallbackSingleConnection 或 singleDownload 处理。
+                throw new IOException("服务器不支持 Range 请求（返回 200），无法分片下载");
+            }
+            if (resp.code() != 206) {
                 throw new IOException("分片 " + idx + " code=" + resp.code());
             }
             if (resp.body() == null) throw new IOException("响应体为空: " + url);
