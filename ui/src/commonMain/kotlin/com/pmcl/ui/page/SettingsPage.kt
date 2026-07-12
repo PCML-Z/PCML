@@ -247,6 +247,58 @@ fun SettingsPage(vm: LauncherViewModel) {
                 Text("开启后使用自定义标题栏，重启启动器后生效",
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
+
+                Spacer(Modifier.height(12.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(12.dp))
+
+                // UI 缩放
+                var uiScale by remember { mutableStateOf(pref.getUiScale()) }
+                Text("界面缩放", style = MaterialTheme.typography.labelMedium,
+                     fontWeight = FontWeight.Medium)
+                Spacer(Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("小", style = MaterialTheme.typography.labelSmall,
+                         color = MaterialTheme.colorScheme.outline)
+                    Spacer(Modifier.width(8.dp))
+                    Slider(
+                        value = uiScale,
+                        onValueChange = { v ->
+                            uiScale = v
+                            themeState.applyUiScale(v)
+                            pref.setUiScale(v)
+                        },
+                        valueRange = 0.8f..1.5f,
+                        steps = 13,  // 0.05 步长：(1.5-0.8)/0.05 = 14 段 → 13 个步进点
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("大", style = MaterialTheme.typography.labelSmall,
+                         color = MaterialTheme.colorScheme.outline)
+                    Spacer(Modifier.width(12.dp))
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        shape = RoundedCornerShape(4.dp)
+                    ) {
+                        Text(
+                            "${"%.0f".format(uiScale * 100)}%",
+                            style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                Row {
+                    TextButton(onClick = {
+                        uiScale = 1.0f
+                        themeState.applyUiScale(1.0f)
+                        pref.setUiScale(1.0f)
+                    }) { Text("重置为 100%") }
+                }
+                Text("调整界面字体和元素大小，实时生效",
+                     style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.outline)
             }
         }
 

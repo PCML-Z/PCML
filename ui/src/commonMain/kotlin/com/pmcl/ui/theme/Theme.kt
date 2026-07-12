@@ -5,11 +5,15 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.sp
 import com.pmcl.ui.animation.MotionTokens
 
 private val LightColors = lightColorScheme(
@@ -32,6 +36,7 @@ private val DarkColors = darkColorScheme(
 fun LauncherTheme(
     useDarkTheme: Boolean = isSystemInDarkTheme(),
     dynamicColorScheme: ColorScheme? = null,
+    uiScale: Float = 1.0f,
     content: @Composable () -> Unit
 ) {
     // 主题颜色平滑过渡（约 400ms）
@@ -68,8 +73,45 @@ fun LauncherTheme(
         outline = outline,
         error = error
     )
+
+    // 根据 uiScale 生成缩放后的 Typography
+    val scaledTypography = rememberScaledTypography(uiScale)
+
     MaterialTheme(
         colorScheme = animatedColors,
+        typography = scaledTypography,
         content = content
     )
 }
+
+/**
+ * 根据 uiScale 缩放 Material3 Typography 中所有 TextStyle 的 fontSize。
+ */
+@Composable
+private fun rememberScaledTypography(scale: Float): Typography {
+    val base = Typography()
+    if (scale == 1.0f) return base
+    val s = { sp: TextUnit -> (sp.value * scale).sp }
+    return Typography(
+        displayLarge = base.displayLarge.scale(s),
+        displayMedium = base.displayMedium.scale(s),
+        displaySmall = base.displaySmall.scale(s),
+        headlineLarge = base.headlineLarge.scale(s),
+        headlineMedium = base.headlineMedium.scale(s),
+        headlineSmall = base.headlineSmall.scale(s),
+        titleLarge = base.titleLarge.scale(s),
+        titleMedium = base.titleMedium.scale(s),
+        titleSmall = base.titleSmall.scale(s),
+        bodyLarge = base.bodyLarge.scale(s),
+        bodyMedium = base.bodyMedium.scale(s),
+        bodySmall = base.bodySmall.scale(s),
+        labelLarge = base.labelLarge.scale(s),
+        labelMedium = base.labelMedium.scale(s),
+        labelSmall = base.labelSmall.scale(s)
+    )
+}
+
+private fun TextStyle.scale(s: (TextUnit) -> TextUnit): TextStyle = copy(
+    fontSize = s(fontSize),
+    lineHeight = s(lineHeight)
+)

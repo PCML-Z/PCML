@@ -44,7 +44,7 @@ fun App(vm: LauncherViewModel) {
         vm.themeState = themeState
     }
 
-    // 启动时初始化动态颜色
+    // 启动时初始化动态颜色 + UI 缩放
     LaunchedEffect(Unit) {
         val customColor = vm.preferences.getCustomAccentColor()
         if (vm.preferences.isDynamicColor()) {
@@ -57,6 +57,8 @@ fun App(vm: LauncherViewModel) {
             val dark = vm.preferences.isUseDarkTheme()
             themeState.applySeedColor(customColor, dark)
         }
+        // 应用 UI 缩放
+        themeState.applyUiScale(vm.preferences.getUiScale())
     }
 
     // 直接读取 themeState 的属性，Compose 会自动观察 mutableStateOf 的变化
@@ -66,7 +68,8 @@ fun App(vm: LauncherViewModel) {
 
     LauncherTheme(
         useDarkTheme = themeState.useDark,
-        dynamicColorScheme = effectiveScheme
+        dynamicColorScheme = effectiveScheme,
+        uiScale = themeState.uiScale
     ) {
         CompositionLocalProvider(LocalThemeState provides themeState) {
             Surface(modifier = Modifier.fillMaxSize()) {

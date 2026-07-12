@@ -28,6 +28,7 @@ public final class Preferences {
     private boolean dynamicColor = false; // 莫奈取色：主题颜色跟随桌面壁纸
     private int customAccentColor = -1;   // 自定义强调色 ARGB，-1 表示未设置（使用默认配色）
     private boolean borderlessWindow = false; // 无边框窗口模式（自定义标题栏）
+    private float uiScale = 1.0f;             // UI 缩放系数（0.8~1.5），1.0 = 默认大小
     private String language = "zh_CN";             // zh_CN / en_US
     private boolean firstLaunchCompleted = false;  // 是否完成首次启动欢迎流程
     private java.util.List<String> pinnedVersions = new java.util.ArrayList<>();
@@ -89,6 +90,10 @@ public final class Preferences {
 
     public synchronized boolean isBorderlessWindow() { return borderlessWindow; }
     public synchronized void setBorderlessWindow(boolean v) { borderlessWindow = v; save(); }
+
+    /** UI 缩放系数，范围 0.8~1.5，默认 1.0 */
+    public synchronized float getUiScale() { return uiScale; }
+    public synchronized void setUiScale(float v) { uiScale = Math.max(0.7f, Math.min(1.6f, v)); save(); }
 
     public synchronized String getLanguage() { return language; }
     public synchronized void setLanguage(String v) { language = v; save(); }
@@ -347,6 +352,7 @@ public final class Preferences {
             if (o.has("dynamicColor")) dynamicColor = o.get("dynamicColor").getAsBoolean();
             if (o.has("customAccentColor")) customAccentColor = o.get("customAccentColor").getAsInt();
             if (o.has("borderlessWindow")) borderlessWindow = o.get("borderlessWindow").getAsBoolean();
+            if (o.has("uiScale")) uiScale = o.get("uiScale").getAsFloat();
             if (o.has("language") && !o.get("language").isJsonNull()) language = o.get("language").getAsString();
             if (o.has("firstLaunchCompleted")) firstLaunchCompleted = o.get("firstLaunchCompleted").getAsBoolean();
             if (o.has("pinnedVersions")) {
@@ -434,6 +440,7 @@ public final class Preferences {
         o.addProperty("dynamicColor", dynamicColor);
         o.addProperty("customAccentColor", customAccentColor);
             o.addProperty("borderlessWindow", borderlessWindow);
+            o.addProperty("uiScale", uiScale);
             o.addProperty("language", language);
             o.addProperty("firstLaunchCompleted", firstLaunchCompleted);
             com.google.gson.JsonArray pinArr = new com.google.gson.JsonArray();

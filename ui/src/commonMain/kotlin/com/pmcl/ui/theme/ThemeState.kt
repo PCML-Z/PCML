@@ -34,6 +34,10 @@ class ThemeState(initialDark: Boolean = false) {
     var seedColor by mutableStateOf(-1)
         private set
 
+    /** UI 缩放系数，1.0 = 默认大小 */
+    var uiScale by mutableStateOf(1.0f)
+        private set
+
     fun toggle() = set(!useDark)
 
     fun set(value: Boolean) {
@@ -56,6 +60,10 @@ class ThemeState(initialDark: Boolean = false) {
     fun clearCustomAccentColor() {
         customAccentColor = -1
         seedColor = -1
+    }
+
+    fun applyUiScale(scale: Float) {
+        uiScale = scale.coerceIn(0.7f, 1.6f)
     }
 
     /**
