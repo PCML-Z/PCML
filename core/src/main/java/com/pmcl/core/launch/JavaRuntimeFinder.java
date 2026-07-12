@@ -243,8 +243,8 @@ public final class JavaRuntimeFinder {
     private static Integer computeMajorVersion(String javaExe) {
         try {
             Process p = new ProcessBuilder(javaExe, "-version").redirectErrorStream(true).start();
-            try {
-                String output = new String(p.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            try (java.io.InputStream is = p.getInputStream()) {
+                String output = new String(is.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
                 if (!p.waitFor(5, TimeUnit.SECONDS)) {
                     return null;
                 }
@@ -283,8 +283,8 @@ public final class JavaRuntimeFinder {
         try {
             Process p = new ProcessBuilder(javaExe, "-XshowSettings:properties", "-version")
                     .redirectErrorStream(true).start();
-            try {
-                String output = new String(p.getInputStream().readAllBytes(),
+            try (java.io.InputStream is = p.getInputStream()) {
+                String output = new String(is.readAllBytes(),
                         java.nio.charset.StandardCharsets.UTF_8);
                 if (!p.waitFor(5, TimeUnit.SECONDS)) {
                     return null;

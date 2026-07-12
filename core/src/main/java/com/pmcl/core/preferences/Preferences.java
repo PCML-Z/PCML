@@ -387,11 +387,15 @@ public final class Preferences {
     public synchronized String getConnectxBinaryPath() { return connectxBinaryPath; }
     public synchronized void setConnectxBinaryPath(String v) { connectxBinaryPath = v == null ? "" : v; scheduleSave(); }
 
-    /** 从磁盘加载（不存在则保持默认） */
+    /** 从磁盘加载（不存在或损坏则保持默认） */
     public synchronized void load() {
         if (!Files.exists(file)) return;
         try {
-            JsonObject o = JsonParser.parseString(Files.readString(file)).getAsJsonObject();
+            String content = Files.readString(file);
+            if (content.isBlank()) return;
+            var parsed = JsonParser.parseString(content);
+            if (parsed == null || !parsed.isJsonObject()) return;
+            JsonObject o = parsed.getAsJsonObject();
             if (o.has("useDarkTheme")) useDarkTheme = o.get("useDarkTheme").getAsBoolean();
             if (o.has("dynamicColor")) dynamicColor = o.get("dynamicColor").getAsBoolean();
             if (o.has("customAccentColor")) customAccentColor = o.get("customAccentColor").getAsInt();

@@ -174,7 +174,7 @@ class LauncherViewModel {
     val queueSummary: StateFlow<DownloadQueueManager.QueueSummary> = _queueSummary.asStateFlow()
 
     /** 队列监听器初始化标志，避免重复注册 */
-    private var queueListenerRegistered = false
+    @Volatile private var queueListenerRegistered = false
 
     // ===== 配置文件编辑器 =====
     private val _configFiles = MutableStateFlow<List<ConfigFileManager.ConfigFileEntry>>(emptyList())
@@ -257,8 +257,10 @@ class LauncherViewModel {
     )
     private val _runningInstances = MutableStateFlow<List<RunningInstance>>(emptyList())
     val runningInstances: StateFlow<List<RunningInstance>> = _runningInstances.asStateFlow()
-    private val instanceLogs = mutableMapOf<String, MutableList<String>>()
-    private val instanceLoggers = mutableMapOf<String, GameLogger?>()
+    // 使用 ConcurrentHashMap 避免多实例并发启动/退出时 put/remove/迭代 导致 ConcurrentModificationException
+    // 内层 MutableList 仍用 synchronized(logs) 保护（见日志回调处）
+    private val instanceLogs = java.util.concurrent.ConcurrentHashMap<String, MutableList<String>>()
+    private val instanceLoggers = java.util.concurrent.ConcurrentHashMap<String, GameLogger?>()
 
     // ===== 兼容性选项（检测到外部启动器时弹出选择） =====
     data class CompatOption(
@@ -447,12 +449,16 @@ class LauncherViewModel {
     fun refreshLocalVersions() {
         // 先读缓存秒开（独立协程，不阻塞 UI，不影响扫描重入守卫）
         scope.launch {
-            val cached = withContext(Dispatchers.IO) {
-                DataCache.load("local_versions", object : TypeToken<List<com.pmcl.core.version.VersionManager.LocalVersionInfo>>() {})
-            }
-            if (cached != null && cached.isNotEmpty() && _localVersionInfos.value.isEmpty()) {
-                _localVersionInfos.value = cached
-                _localVersions.value = cached.map { it.getId() }
+            try {
+                val cached = withContext(Dispatchers.IO) {
+                    DataCache.load("local_versions", object : TypeToken<List<com.pmcl.core.version.VersionManager.LocalVersionInfo>>() {})
+                }
+                if (cached != null && cached.isNotEmpty() && _localVersionInfos.value.isEmpty()) {
+                    _localVersionInfos.value = cached
+                    _localVersions.value = cached.map { it.getId() }
+                }
+            } catch (e: Throwable) {
+                // 缓存读取失败不影响后续正常扫描，静默处理
             }
         }
         // 用 atomic compareAndSet 防重入，避免 _scanning 卡死时按钮永远失效
@@ -1148,11 +1154,15 @@ class LauncherViewModel {
     fun refreshInstalledMods() {
         // 先读缓存秒开
         scope.launch {
-            val cached = withContext(Dispatchers.IO) {
-                DataCache.load("installed_mods", object : TypeToken<List<ModMeta>>() {})
-            }
-            if (cached != null && cached.isNotEmpty() && _installedMods.value.isEmpty()) {
-                _installedMods.value = cached
+            try {
+                val cached = withContext(Dispatchers.IO) {
+                    DataCache.load("installed_mods", object : TypeToken<List<ModMeta>>() {})
+                }
+                if (cached != null && cached.isNotEmpty() && _installedMods.value.isEmpty()) {
+                    _installedMods.value = cached
+                }
+            } catch (e: Throwable) {
+                // 缓存读取失败不影响后续扫描，静默处理
             }
         }
         scope.launch {

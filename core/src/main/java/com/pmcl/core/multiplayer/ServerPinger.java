@@ -46,6 +46,10 @@ public final class ServerPinger {
      * @return 延迟毫秒数；-1 不可达；-2 超时
      */
     public static long ping(String host, int port, int timeout) {
+        // 输入校验：避免非法 host/port 触发未预期异常
+        if (host == null || host.isEmpty() || port <= 0 || port > 65535 || timeout <= 0) {
+            return UNREACHABLE;
+        }
         long start = System.currentTimeMillis();
         try (Socket socket = new Socket()) {
             socket.connect(new InetSocketAddress(host, port), timeout);
@@ -122,6 +126,10 @@ public final class ServerPinger {
         int current;
         do {
             current = in.readByte();
+            if (length == 5) {
+                // 第 5 字节最多只能使用低 4 位，否则溢出
+                if ((current & 0xF0) != 0) throw new IOException("VarInt too big");
+            }
             value |= (current & 0x7F) << (length * 7);
             length++;
             if (length > 5) throw new IOException("VarInt too big");
