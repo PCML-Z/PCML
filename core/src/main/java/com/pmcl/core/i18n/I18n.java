@@ -102,6 +102,12 @@ public final class I18n {
         ZH.put("launch.not_installed", "未安装");
         ZH.put("launch.ready", "就绪");
         ZH.put("launch.account_label", "账号：{0}");
+        ZH.put("launch.server_connect", "服务器直连");
+        ZH.put("launch.server_address", "服务器地址");
+        ZH.put("launch.server_port", "端口");
+        ZH.put("launch.server_empty_hint", "留空则正常启动");
+        ZH.put("launch.server_leave_empty", "留空不连接");
+        ZH.put("launch.server_hint", "启动后自动连接指定服务器，对应 --server / --port 参数");
 
         // ===== 下载页 =====
         ZH.put("download.refresh", "刷新版本列表");
@@ -427,6 +433,12 @@ public final class I18n {
         EN.put("launch.not_installed", "Not installed");
         EN.put("launch.ready", "Ready");
         EN.put("launch.account_label", "Account: {0}");
+        EN.put("launch.server_connect", "Server Direct Connect");
+        EN.put("launch.server_address", "Server address");
+        EN.put("launch.server_port", "Port");
+        EN.put("launch.server_empty_hint", "Leave empty for normal launch");
+        EN.put("launch.server_leave_empty", "Leave empty to skip");
+        EN.put("launch.server_hint", "Auto-connect to the specified server on launch (--server / --port)");
 
         EN.put("download.refresh", "Refresh versions");
         EN.put("download.install", "Install");
@@ -734,6 +746,12 @@ public final class I18n {
         JA.put("launch.not_installed", "未インストール");
         JA.put("launch.ready", "準備完了");
         JA.put("launch.account_label", "アカウント: {0}");
+        JA.put("launch.server_connect", "サーバー直接接続");
+        JA.put("launch.server_address", "サーバーアドレス");
+        JA.put("launch.server_port", "ポート");
+        JA.put("launch.server_empty_hint", "空欄で通常起動");
+        JA.put("launch.server_leave_empty", "空欄で接続しない");
+        JA.put("launch.server_hint", "起動後に指定サーバーへ自動接続（--server / --port）");
 
         JA.put("download.refresh", "バージョン一覧を更新");
         JA.put("download.install", "インストール");

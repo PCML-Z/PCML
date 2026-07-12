@@ -21,6 +21,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Star
@@ -43,6 +46,7 @@ import androidx.compose.ui.unit.sp
 import com.pmcl.core.version.VersionManager
 import com.pmcl.core.modloader.ModLoader
 import com.pmcl.core.modloader.ModLoaderVersion
+import com.pmcl.core.i18n.I18n
 import com.pmcl.ui.animation.StaggeredAppear
 import com.pmcl.ui.animation.pressScale
 import com.pmcl.ui.viewmodel.LauncherViewModel
@@ -460,6 +464,81 @@ fun LaunchPage(vm: LauncherViewModel) {
                 }
                 Spacer(Modifier.height(12.dp))
             }
+
+            // 服务器直连快捷入口
+            val pref = remember { vm.preferences }
+            var serverHost by remember { mutableStateOf(pref.getGameServerHost()) }
+            var serverPort by remember { mutableStateOf(pref.getGameServerPort().toString()) }
+            var serverExpanded by remember { mutableStateOf(false) }
+            val serverEnabled = serverHost.isNotEmpty()
+
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth().clickable { serverExpanded = !serverExpanded }
+            ) {
+                Column(Modifier.padding(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Filled.Dns, null, Modifier.size(18.dp),
+                            tint = if (serverEnabled) MaterialTheme.colorScheme.primary
+                                   else MaterialTheme.colorScheme.outline
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(I18n.t("launch.server_connect"),
+                                 style = MaterialTheme.typography.labelLarge,
+                                 fontWeight = FontWeight.SemiBold)
+                            Text(
+                                if (serverEnabled) "$serverHost:$serverPort"
+                                else I18n.t("launch.server_empty_hint"),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.outline,
+                                maxLines = 1
+                            )
+                        }
+                        Icon(
+                            if (serverExpanded) Icons.Filled.KeyboardArrowUp
+                            else Icons.Filled.KeyboardArrowDown,
+                            null, Modifier.size(20.dp),
+                            tint = MaterialTheme.colorScheme.outline
+                        )
+                    }
+                    AnimatedVisibility(visible = serverExpanded) {
+                        Column {
+                            Spacer(Modifier.height(12.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                OutlinedTextField(
+                                    value = serverHost,
+                                    onValueChange = {
+                                        serverHost = it
+                                        pref.setGameServerHost(it)
+                                    },
+                                    label = { Text(I18n.t("launch.server_address")) },
+                                    singleLine = true,
+                                    placeholder = { Text(I18n.t("launch.server_leave_empty")) },
+                                    modifier = Modifier.weight(2f)
+                                )
+                                OutlinedTextField(
+                                    value = serverPort,
+                                    onValueChange = {
+                                        serverPort = it
+                                        it.toIntOrNull()?.let { v -> pref.setGameServerPort(v) }
+                                    },
+                                    label = { Text(I18n.t("launch.server_port")) },
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            Spacer(Modifier.height(4.dp))
+                            Text(I18n.t("launch.server_hint"),
+                                 style = MaterialTheme.typography.labelSmall,
+                                 color = MaterialTheme.colorScheme.outline)
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(12.dp))
 
             // 启动 / 下载按钮：根据是否安装切换
             val canInstall = selected != null && !installing && !gameRunning
