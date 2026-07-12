@@ -121,12 +121,14 @@ private fun keywordsForRoute(route: String, label: String): List<String> = when 
  * @param modifier 布局修饰符
  * @param focusRequester 外部传入的 FocusRequester，用于 Ctrl+K 快捷键聚焦
  * @param onNavigate 导航回调 (route, tabIndex)
+ * @param compact 紧凑模式：减小高度以适应窗口标题栏
  */
 @Composable
 fun TopBarSearchField(
     modifier: Modifier = Modifier,
     focusRequester: FocusRequester,
-    onNavigate: (route: String, tabIndex: Int) -> Unit
+    onNavigate: (route: String, tabIndex: Int) -> Unit,
+    compact: Boolean = false
 ) {
     val allActions = remember { buildSearchableActions() }
     var query by remember { mutableStateOf("") }
@@ -155,17 +157,17 @@ fun TopBarSearchField(
         OutlinedTextField(
             value = query,
             onValueChange = { query = it },
-            placeholder = { Text(I18n.t("search.placeholder")) },
-            leadingIcon = { Icon(Icons.Filled.Search, null) },
+            placeholder = { Text(I18n.t("search.placeholder"), style = if (compact) MaterialTheme.typography.labelMedium else MaterialTheme.typography.bodyMedium) },
+            leadingIcon = { Icon(Icons.Filled.Search, null, Modifier.size(if (compact) 14.dp else 18.dp)) },
             trailingIcon = {
                 if (query.isNotEmpty()) {
                     IconButton(
                         onClick = { query = ""; expanded = false },
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(if (compact) 16.dp else 20.dp)
                     ) {
-                        Icon(Icons.Filled.Clear, I18n.t("common.close"), Modifier.size(16.dp))
+                        Icon(Icons.Filled.Clear, I18n.t("common.close"), Modifier.size(if (compact) 12.dp else 16.dp))
                     }
-                } else {
+                } else if (!compact) {
                     Surface(
                         color = MaterialTheme.colorScheme.surfaceVariant,
                         shape = RoundedCornerShape(4.dp)
@@ -180,10 +182,11 @@ fun TopBarSearchField(
                 }
             },
             singleLine = true,
-            shape = RoundedCornerShape(8.dp),
-            textStyle = MaterialTheme.typography.bodyMedium,
+            shape = RoundedCornerShape(if (compact) 6.dp else 8.dp),
+            textStyle = if (compact) MaterialTheme.typography.labelMedium else MaterialTheme.typography.bodyMedium,
             modifier = Modifier
                 .fillMaxWidth()
+                .height(if (compact) 30.dp else 48.dp)
                 .focusRequester(focusRequester)
                 .onKeyEvent { event ->
                     if (event.type != KeyEventType.KeyDown) return@onKeyEvent false

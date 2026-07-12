@@ -9,9 +9,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.input.key.*
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
 import com.pmcl.core.plugin.PluginManager
@@ -32,7 +29,6 @@ import com.pmcl.ui.page.SavesHubPage
 import com.pmcl.ui.page.SettingsPage
 import com.pmcl.ui.page.StatisticsPage
 import com.pmcl.ui.page.TerminalPage
-import com.pmcl.ui.page.TopBarSearchField
 import com.pmcl.ui.page.WelcomePage
 import com.pmcl.ui.theme.LauncherTheme
 import com.pmcl.ui.theme.LocalThemeState
@@ -40,8 +36,7 @@ import com.pmcl.ui.theme.ThemeState
 import com.pmcl.ui.viewmodel.LauncherViewModel
 
 @Composable
-fun App() {
-    val vm = remember { LauncherViewModel() }
+fun App(vm: LauncherViewModel) {
     val themeState = remember { ThemeState(initialDark = vm.preferences.isUseDarkTheme()) }
 
     // 直接把 vm.themeState 设为 themeState，让 ViewModel 的 refreshWallpaperColor 能更新它
@@ -184,89 +179,33 @@ private fun MainWindowContent(vm: LauncherViewModel) {
             }
         }
 
-        val searchFocusRequester = remember { FocusRequester() }
-
-        Box(
-            Modifier
-                .weight(1f)
-                .fillMaxHeight()
-                .onPreviewKeyEvent { event ->
-                    if (event.type == KeyEventType.KeyDown &&
-                        event.key == Key.K &&
-                        (event.isCtrlPressed || event.isMetaPressed)
-                    ) {
-                        searchFocusRequester.requestFocus()
-                        true
-                    } else false
-                }
-        ) {
-            val currentNav = current
-
-            Column(Modifier.fillMaxSize()) {
-                // 顶部标题栏：页面标题 + 内嵌搜索框
-                Surface(
-                    tonalElevation = 2.dp,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        val title = when (val t = currentNav) {
-                            is NavTarget.BuiltIn -> I18n.t(t.dest.labelKey)
-                            is NavTarget.PluginPage -> t.page.title
+        Box(Modifier.weight(1f).fillMaxHeight()) {
+            EntranceAnimation(delayMs = 120, durationMs = 400, offsetDp = 32) {
+                AnimatedPageSwitch(targetState = current) { target ->
+                    when (target) {
+                        is NavTarget.BuiltIn -> when (target.dest) {
+                            NavDestination.Launch      -> LaunchPage(vm)
+                            NavDestination.News        -> NewsPage(vm)
+                            NavDestination.Multiplayer -> MultiplayerPage(vm)
+                            NavDestination.Download    -> DownloadHubPage(vm)
+                            NavDestination.Content     -> ContentHubPage(vm)
+                            NavDestination.Saves       -> SavesHubPage(vm)
+                            NavDestination.Statistics  -> StatisticsPage(vm)
+                            NavDestination.Accounts    -> AccountsPage(vm)
+                            NavDestination.Settings    -> SettingsPage(vm)
+                            NavDestination.Terminal    -> TerminalPage(vm)
+                            NavDestination.Plugins     -> PluginPage(vm)
                         }
-                        Text(
-                            title,
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Spacer(Modifier.width(16.dp))
-                        TopBarSearchField(
-                            modifier = Modifier.width(320.dp),
-                            focusRequester = searchFocusRequester,
-                            onNavigate = { route, tabIndex ->
-                                val target = allDestinations.firstOrNull { it.route == route }
-                                if (target != null) {
-                                    current = NavTarget.BuiltIn(target)
-                                    if (tabIndex >= 0) vm.requestHubTab(route, tabIndex)
-                                }
-                            }
-                        )
-                        Spacer(Modifier.weight(1f))
-                    }
-                }
-
-                // 页面内容
-                Box(Modifier.weight(1f).fillMaxHeight()) {
-                    EntranceAnimation(delayMs = 120, durationMs = 400, offsetDp = 32) {
-                        AnimatedPageSwitch(targetState = current) { target ->
-                            when (target) {
-                                is NavTarget.BuiltIn -> when (target.dest) {
-                                    NavDestination.Launch      -> LaunchPage(vm)
-                                    NavDestination.News        -> NewsPage(vm)
-                                    NavDestination.Multiplayer -> MultiplayerPage(vm)
-                                    NavDestination.Download    -> DownloadHubPage(vm)
-                                    NavDestination.Content     -> ContentHubPage(vm)
-                                    NavDestination.Saves       -> SavesHubPage(vm)
-                                    NavDestination.Statistics  -> StatisticsPage(vm)
-                                    NavDestination.Accounts    -> AccountsPage(vm)
-                                    NavDestination.Settings    -> SettingsPage(vm)
-                                    NavDestination.Terminal    -> TerminalPage(vm)
-                                    NavDestination.Plugins     -> PluginPage(vm)
-                                }
-                                is NavTarget.PluginPage -> {
-                                    target.page.content.invoke()
-                                }
-                            }
+                        is NavTarget.PluginPage -> {
+                            target.page.content.invoke()
                         }
                     }
-                    SnackbarHost(
-                        hostState = snackbarHostState,
-                        modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp)
-                    )
                 }
             }
+            SnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp)
+            )
         }
     } // close Row
 

@@ -12,6 +12,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.input.key.*
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.isPrimaryPressed
 import androidx.compose.ui.input.pointer.pointerInput
@@ -24,6 +26,8 @@ import androidx.compose.ui.window.WindowScope
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.pmcl.core.preferences.Preferences
+import com.pmcl.ui.page.TopBarSearchField
+import com.pmcl.ui.viewmodel.LauncherViewModel
 import java.awt.Frame
 import java.awt.MouseInfo
 import java.awt.Point
@@ -43,6 +47,8 @@ fun main() = application {
         Preferences(Paths.get(System.getProperty("user.home"), ".pmcl", "preferences.json"))
     }
     val borderless = pref.isBorderlessWindow()
+    val vm = remember { LauncherViewModel() }
+    val searchFocusRequester = remember { FocusRequester() }
 
     val state = rememberWindowState(
         width = 1100.dp,
@@ -57,73 +63,100 @@ fun main() = application {
         undecorated = borderless,
         transparent = borderless
     ) {
-        if (borderless) {
-            // 无边框模式：transparent=true 让边缘像素 alpha 混合（抗锯齿），
-            // 拖动期间临时设为不透明矩形避免 SwingPanel 重绘延迟导致闪烁
-            val isDark = pref.isUseDarkTheme()
-            val scheme = if (isDark) darkColorScheme() else lightColorScheme()
-            val surfaceColor = scheme.surface
-            val isDragging = remember { mutableStateOf(false) }
+        // Ctrl+K 全局快捷键：聚焦搜索框
+        Box(
+            Modifier.fillMaxSize().onPreviewKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown &&
+                    event.key == Key.K &&
+                    (event.isCtrlPressed || event.isMetaPressed)
+                ) {
+                    searchFocusRequester.requestFocus()
+                    true
+                } else false
+            }
+        ) {
+            if (borderless) {
+                // 无边框模式：transparent=true 让边缘像素 alpha 混合（抗锯齿），
+                // 拖动期间临时设为不透明矩形避免 SwingPanel 重绘延迟导致闪烁
+                val isDark = pref.isUseDarkTheme()
+                val scheme = if (isDark) darkColorScheme() else lightColorScheme()
+                val surfaceColor = scheme.surface
+                val isDragging = remember { mutableStateOf(false) }
 
-            DisposableEffect(Unit) {
-                val updateShape = {
-                    if (isDragging.value) {
-                        // 拖动中：移除 shape 和透明，用不透明矩形避免闪烁
-                        window.shape = null
-                        window.background = java.awt.Color(
-                            surfaceColor.red, surfaceColor.green, surfaceColor.blue
-                        )
-                    } else if (window.extendedState == Frame.MAXIMIZED_BOTH) {
-                        // 最大化：直角填满屏幕
-                        window.shape = null
-                        window.background = java.awt.Color(
-                            surfaceColor.red, surfaceColor.green, surfaceColor.blue
-                        )
-                    } else {
-                        // 正常：透明背景 + 圆角 shape（边缘抗锯齿）
+                DisposableEffect(Unit) {
+                    val updateShape = {
+                        if (isDragging.value) {
+                            // 拖动中：移除 shape 和透明，用不透明矩形避免闪烁
+                            window.shape = null
+                            window.background = java.awt.Color(
+                                surfaceColor.red, surfaceColor.green, surfaceColor.blue
+                            )
+                        } else if (window.extendedState == Frame.MAXIMIZED_BOTH) {
+                            // 最大化：直角填满屏幕
+                            window.shape = null
+                            window.background = java.awt.Color(
+                                surfaceColor.red, surfaceColor.green, surfaceColor.blue
+                            )
+                        } else {
+                            // 正常：透明背景 + 圆角 shape（边缘抗锯齿）
+                            window.background = java.awt.Color(0, 0, 0, 0)
+                            window.shape = RoundRectangle2D.Double(
+                                0.0, 0.0,
+                                window.width.toDouble(), window.height.toDouble(),
+                                14.0, 14.0
+                            )
+                        }
+                    }
+                    updateShape()
+                    val listener = object : ComponentAdapter() {
+                        override fun componentResized(e: ComponentEvent?) { updateShape() }
+                        override fun componentMoved(e: ComponentEvent?) { updateShape() }
+                    }
+                    window.addComponentListener(listener)
+                    onDispose { window.removeComponentListener(listener) }
+                }
+                // 拖动状态变化时刷新 shape
+                LaunchedEffect(isDragging.value) {
+                    if (!isDragging.value) {
                         window.background = java.awt.Color(0, 0, 0, 0)
-                        window.shape = RoundRectangle2D.Double(
+                        window.shape = if (window.extendedState == Frame.MAXIMIZED_BOTH) null
+                        else RoundRectangle2D.Double(
                             0.0, 0.0,
                             window.width.toDouble(), window.height.toDouble(),
                             14.0, 14.0
                         )
                     }
                 }
-                updateShape()
-                val listener = object : ComponentAdapter() {
-                    override fun componentResized(e: ComponentEvent?) { updateShape() }
-                    override fun componentMoved(e: ComponentEvent?) { updateShape() }
-                }
-                window.addComponentListener(listener)
-                onDispose { window.removeComponentListener(listener) }
-            }
-            // 拖动状态变化时刷新 shape
-            LaunchedEffect(isDragging.value) {
-                if (!isDragging.value) {
-                    window.background = java.awt.Color(0, 0, 0, 0)
-                    window.shape = if (window.extendedState == Frame.MAXIMIZED_BOTH) null
-                    else RoundRectangle2D.Double(
-                        0.0, 0.0,
-                        window.width.toDouble(), window.height.toDouble(),
-                        14.0, 14.0
-                    )
-                }
-            }
-            MaterialTheme(colorScheme = scheme) {
-                Surface(
-                    modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(14.dp)),
-                    color = MaterialTheme.colorScheme.surface
-                ) {
-                    Column(Modifier.fillMaxSize()) {
-                        BorderlessTitleBar(onClose = ::exitApplication, isDragging = isDragging)
-                        Box(Modifier.weight(1f).fillMaxWidth()) {
-                            App()
+                MaterialTheme(colorScheme = scheme) {
+                    Surface(
+                        modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(14.dp)),
+                        color = MaterialTheme.colorScheme.surface
+                    ) {
+                        Column(Modifier.fillMaxSize()) {
+                            BorderlessTitleBar(
+                                onClose = ::exitApplication,
+                                isDragging = isDragging,
+                                vm = vm,
+                                searchFocusRequester = searchFocusRequester
+                            )
+                            Box(Modifier.weight(1f).fillMaxWidth()) {
+                                App(vm)
+                            }
                         }
                     }
                 }
+            } else {
+                // 非无边框模式：OS 标题栏 + 应用内搜索条
+                Column(Modifier.fillMaxSize()) {
+                    SlimSearchBar(
+                        vm = vm,
+                        searchFocusRequester = searchFocusRequester
+                    )
+                    Box(Modifier.weight(1f).fillMaxWidth()) {
+                        App(vm)
+                    }
+                }
             }
-        } else {
-            App()
         }
     }
 }
@@ -167,26 +200,27 @@ private fun WindowScope.windowDragModifier(isDragging: MutableState<Boolean>): M
     }
 
 /**
- * 无边框窗口自定义标题栏：可拖拽 + 最小化/最大化/关闭按钮。
+ * 无边框窗口自定义标题栏：可拖拽 + 搜索框 + 最小化/最大化/关闭按钮。
  */
 @Composable
 private fun FrameWindowScope.BorderlessTitleBar(
     onClose: () -> Unit,
-    isDragging: MutableState<Boolean>
+    isDragging: MutableState<Boolean>,
+    vm: LauncherViewModel,
+    searchFocusRequester: FocusRequester
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = 2.dp,
-        modifier = Modifier.fillMaxWidth().height(36.dp)
+        modifier = Modifier.fillMaxWidth().height(38.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxSize(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 拖拽区域
+            // 拖拽区域 + 标题
             Row(
                 modifier = Modifier
-                    .weight(1f)
                     .then(windowDragModifier(isDragging))
                     .padding(start = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -199,6 +233,18 @@ private fun FrameWindowScope.BorderlessTitleBar(
                     maxLines = 1
                 )
             }
+            Spacer(Modifier.width(12.dp))
+            // 搜索框
+            TopBarSearchField(
+                modifier = Modifier.width(280.dp),
+                focusRequester = searchFocusRequester,
+                compact = true,
+                onNavigate = { route, tabIndex ->
+                    vm.requestNavigation(route)
+                    if (tabIndex >= 0) vm.requestHubTab(route, tabIndex)
+                }
+            )
+            Spacer(Modifier.weight(1f))
             // 最小化
             IconButton(
                 onClick = { window.extendedState = Frame.ICONIFIED },
@@ -226,6 +272,37 @@ private fun FrameWindowScope.BorderlessTitleBar(
             ) {
                 Icon(Icons.Filled.Close, "关闭", modifier = Modifier.size(16.dp))
             }
+        }
+    }
+}
+
+/**
+ * 非无边框模式下的搜索条（OS 标题栏下方）。
+ */
+@Composable
+private fun SlimSearchBar(
+    vm: LauncherViewModel,
+    searchFocusRequester: FocusRequester
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 2.dp,
+        modifier = Modifier.fillMaxWidth().height(38.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            TopBarSearchField(
+                modifier = Modifier.width(320.dp),
+                focusRequester = searchFocusRequester,
+                compact = true,
+                onNavigate = { route, tabIndex ->
+                    vm.requestNavigation(route)
+                    if (tabIndex >= 0) vm.requestHubTab(route, tabIndex)
+                }
+            )
+            Spacer(Modifier.weight(1f))
         }
     }
 }

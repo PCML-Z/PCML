@@ -320,9 +320,10 @@ class LauncherViewModel {
     val recoveryMessage: StateFlow<String?> = _recoveryMessage.asStateFlow()
     fun clearRecoveryMessage() { _recoveryMessage.value = null }
 
-    /** 导航请求：恢复操作可请求跳转到指定页面 */
+    /** 导航请求：恢复操作或搜索可请求跳转到指定页面 */
     private val _navigationRequest = MutableStateFlow<String?>(null)
     val navigationRequest: StateFlow<String?> = _navigationRequest.asStateFlow()
+    fun requestNavigation(route: String) { _navigationRequest.value = route }
     fun clearNavigationRequest() { _navigationRequest.value = null }
 
     /** Hub 页面 Tab 跳转请求：命令面板可请求跳转到 Hub 页面的指定 Tab */
