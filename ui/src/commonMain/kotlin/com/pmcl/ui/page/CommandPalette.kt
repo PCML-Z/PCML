@@ -1,9 +1,16 @@
 package com.pmcl.ui.page
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
@@ -12,11 +19,15 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.*
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
@@ -115,13 +126,14 @@ private fun keywordsForRoute(route: String, label: String): List<String> = when 
 /**
  * 标题栏内嵌搜索框。
  *
- * 直接放在顶部标题栏中使用，输入关键词后下方显示下拉搜索结果，
- * 选中后自动导航。Ctrl+K 可通过外部 [focusRequester] 聚焦。
+ * 使用 BasicTextField 手写，完全控制高度和文字显示。
+ * compact 模式：无边框填充样式，与窗口标题栏融合。
+ * 聚焦时背景色平滑过渡动画。
  *
  * @param modifier 布局修饰符
  * @param focusRequester 外部传入的 FocusRequester，用于 Ctrl+K 快捷键聚焦
  * @param onNavigate 导航回调 (route, tabIndex)
- * @param compact 紧凑模式：无边框填充样式，与窗口标题栏融合
+ * @param compact 紧凑模式：与窗口标题栏融合
  */
 @Composable
 fun TopBarSearchField(
@@ -134,6 +146,8 @@ fun TopBarSearchField(
     var query by remember { mutableStateOf("") }
     var expanded by remember { mutableStateOf(false) }
     var selectedIndex by remember { mutableStateOf(0) }
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
 
     val filtered = remember(query, allActions) {
         if (query.isBlank()) emptyList()
@@ -153,90 +167,128 @@ fun TopBarSearchField(
         expanded = query.isNotBlank() && filtered.isNotEmpty()
     }
 
+    // 聚焦时背景色动画过渡
+    val bgTarget = if (compact) {
+        if (isFocused) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f)
+        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+    } else {
+        if (isFocused) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+        else MaterialTheme.colorScheme.surface
+    }
+    val bgColor by animateColorAsState(
+        targetValue = bgTarget,
+        animationSpec = tween(200),
+        label = "searchBg"
+    )
+
+    val iconColor = if (isFocused) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant
+    val iconColorAnim by animateColorAsState(
+        targetValue = iconColor,
+        animationSpec = tween(200),
+        label = "searchIcon"
+    )
+
+    val height = if (compact) 30.dp else 44.dp
+    val cornerRadius = if (compact) 8.dp else 12.dp
+    val iconSize = if (compact) 14.dp else 18.dp
+    val fontSize = if (compact) MaterialTheme.typography.labelSmall else MaterialTheme.typography.bodyMedium
+    val textColor = if (compact) MaterialTheme.colorScheme.onSurface
+                    else MaterialTheme.colorScheme.onSurface
+
     Box(modifier) {
-        OutlinedTextField(
-            value = query,
-            onValueChange = { query = it },
-            placeholder = {
-                Text(
-                    I18n.t("search.placeholder"),
-                    style = if (compact) MaterialTheme.typography.labelSmall else MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (compact) 0.6f else 1f)
-                )
-            },
-            leadingIcon = { Icon(Icons.Filled.Search, null, Modifier.size(if (compact) 14.dp else 18.dp)) },
-            trailingIcon = {
-                if (query.isNotEmpty()) {
-                    IconButton(
-                        onClick = { query = ""; expanded = false },
-                        modifier = Modifier.size(if (compact) 18.dp else 20.dp)
-                    ) {
-                        Icon(Icons.Filled.Clear, I18n.t("common.close"), Modifier.size(if (compact) 12.dp else 16.dp))
-                    }
-                }
-            },
-            singleLine = true,
-            shape = RoundedCornerShape(if (compact) 8.dp else 8.dp),
-            textStyle = if (compact) MaterialTheme.typography.labelSmall else MaterialTheme.typography.bodyMedium,
-            colors = if (compact) {
-                // compact 模式：无边框 + 半透明背景，与标题栏融合
-                TextFieldDefaults.colors(
-                    focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent,
-                    disabledIndicatorColor = Color.Transparent,
-                    focusedLeadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    unfocusedLeadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    focusedTrailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    unfocusedTrailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    cursorColor = MaterialTheme.colorScheme.primary
-                )
-            } else {
-                TextFieldDefaults.colors(
-                    focusedIndicatorColor = MaterialTheme.colorScheme.primary,
-                    unfocusedIndicatorColor = MaterialTheme.colorScheme.outline
-                )
-            },
+        // 搜索框容器
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(if (compact) 28.dp else 48.dp)
-                .focusRequester(focusRequester)
-                .onKeyEvent { event ->
-                    if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
-                    when (event.key) {
-                        Key.Enter -> {
-                            if (filtered.isNotEmpty()) {
-                                val action = filtered[selectedIndex.coerceIn(0, filtered.lastIndex)]
-                                onNavigate(action.route, action.tabIndex)
-                                query = ""
-                                expanded = false
-                            }
-                            true
-                        }
-                        Key.DirectionDown -> {
-                            if (filtered.isNotEmpty() && selectedIndex < filtered.lastIndex) {
-                                selectedIndex++
-                            }
-                            true
-                        }
-                        Key.DirectionUp -> {
-                            if (selectedIndex > 0) selectedIndex--
-                            true
-                        }
-                        Key.Escape -> {
-                            if (query.isNotEmpty()) {
-                                query = ""
-                                expanded = false
-                            }
-                            true
-                        }
-                        else -> false
-                    }
+                .height(height)
+                .clip(RoundedCornerShape(cornerRadius))
+                .background(bgColor),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // 搜索图标
+            Icon(
+                Icons.Filled.Search,
+                null,
+                tint = iconColorAnim,
+                modifier = Modifier.padding(start = 10.dp).size(iconSize)
+            )
+            // 输入区域
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 6.dp),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                if (query.isEmpty()) {
+                    Text(
+                        I18n.t("search.placeholder"),
+                        style = fontSize,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                    )
                 }
-        )
+                BasicTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    singleLine = true,
+                    textStyle = fontSize.copy(color = textColor),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    keyboardOptions = KeyboardOptions.Default,
+                    interactionSource = interactionSource,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(focusRequester)
+                        .onKeyEvent { event ->
+                            if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                            when (event.key) {
+                                Key.Enter -> {
+                                    if (filtered.isNotEmpty()) {
+                                        val action = filtered[selectedIndex.coerceIn(0, filtered.lastIndex)]
+                                        onNavigate(action.route, action.tabIndex)
+                                        query = ""
+                                        expanded = false
+                                    }
+                                    true
+                                }
+                                Key.DirectionDown -> {
+                                    if (filtered.isNotEmpty() && selectedIndex < filtered.lastIndex) {
+                                        selectedIndex++
+                                    }
+                                    true
+                                }
+                                Key.DirectionUp -> {
+                                    if (selectedIndex > 0) selectedIndex--
+                                    true
+                                }
+                                Key.Escape -> {
+                                    if (query.isNotEmpty()) {
+                                        query = ""
+                                        expanded = false
+                                    }
+                                    true
+                                }
+                                else -> false
+                            }
+                        }
+                )
+            }
+            // 清除按钮
+            if (query.isNotEmpty()) {
+                Icon(
+                    Icons.Filled.Clear,
+                    I18n.t("common.close"),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .size(if (compact) 14.dp else 18.dp)
+                        .clip(RoundedCornerShape(50))
+                        .clickable { query = ""; expanded = false }
+                        .padding(2.dp)
+                )
+                Spacer(Modifier.width(6.dp))
+            }
+        }
 
-        // 下拉搜索结果
+        // 下拉搜索结果（带淡入动画）
         DropdownMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false }
