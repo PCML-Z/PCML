@@ -91,6 +91,7 @@ public final class CurlFallback {
         List<String> cmd = new ArrayList<>();
         cmd.add("curl");
         cmd.add("-sS");
+        cmd.add("-f");                     // HTTP 4xx/5xx 返回非零退出码
         cmd.add("--max-time"); cmd.add(String.valueOf(timeoutSec));
         cmd.add("--connect-timeout"); cmd.add(String.valueOf(Math.min(5, timeoutSec)));
         cmd.add("-L");
@@ -144,6 +145,7 @@ public final class CurlFallback {
         List<String> cmd = new ArrayList<>();
         cmd.add("curl");
         cmd.add("-sS");                    // 静默 + 显示错误
+        cmd.add("-f");                     // HTTP 4xx/5xx 返回非零退出码（避免把错误页当成功响应）
         cmd.add("--max-time"); cmd.add(String.valueOf(TIMEOUT_SEC));
         cmd.add("--connect-timeout"); cmd.add("10");
         cmd.add("-L");                     // 跟随重定向
@@ -204,6 +206,7 @@ public final class CurlFallback {
         List<String> cmd = new ArrayList<>();
         cmd.add("curl");
         cmd.add("-sS");
+        cmd.add("-f");                     // HTTP 4xx/5xx 返回非零退出码
         cmd.add("--max-time"); cmd.add(String.valueOf(TIMEOUT_SEC * 3));  // 文件下载给更多时间
         cmd.add("--connect-timeout"); cmd.add("10");
         cmd.add("-L");
@@ -247,6 +250,7 @@ public final class CurlFallback {
             List<String> cmd = new ArrayList<>();
             cmd.add("curl");
             cmd.add("-sS");
+            cmd.add("-f");                     // HTTP 4xx/5xx 返回非零退出码
             cmd.add("--max-time"); cmd.add("10");
             cmd.add("--connect-timeout"); cmd.add("5");
             cmd.add("-I");                     // HEAD 请求
