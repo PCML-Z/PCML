@@ -95,11 +95,31 @@ public final class LaunchProfileBuilder {
 
     /**
      * 推导游戏工作目录（gameDir）。
-     * 对于整合包（版本目录内含 mods/、config/ 等 game content），gameDir 应为版本目录本身，
-     * 这样 modloader 才能找到 versions/<id>/mods/ 下的模组。
-     * 对于普通版本，gameDir 为 mcRoot（与 libraries/assets 同级）。
+     * <p>
+     * 优先级：
+     * <ol>
+     *   <li>版本隔离开启：{@code ~/.pmcl/instances/<versionId>/}，自动创建 mods/saves/config/
+     *       resourcepacks/shaderpacks/screenshots/logs 子目录</li>
+     *   <li>整合包（版本目录内含 mods/）：版本目录本身</li>
+     *   <li>普通版本：mcRoot（与 libraries/assets 同级）</li>
+     * </ol>
      */
     private Path resolveGameDir(String versionId, Path mcRoot) {
+        // 版本隔离：每个版本独立的游戏目录
+        if (preferences.isVersionIsolation()) {
+            Path instanceDir = config.getWorkDir().resolve("instances").resolve(versionId);
+            // 自动创建子目录
+            try {
+                java.nio.file.Files.createDirectories(instanceDir);
+                for (String sub : new String[]{"mods", "saves", "config", "resourcepacks",
+                        "shaderpacks", "screenshots", "logs"}) {
+                    java.nio.file.Files.createDirectories(instanceDir.resolve(sub));
+                }
+            } catch (IOException e) {
+                throw new RuntimeException("无法创建版本隔离目录: " + instanceDir, e);
+            }
+            return instanceDir;
+        }
         Path jsonPath = findVersionJson(versionId);
         if (jsonPath != null) {
             Path versionDir = jsonPath.getParent(); // versions/{id}/

@@ -327,6 +327,7 @@ private fun GameBehaviorCard(pref: com.pmcl.core.preferences.Preferences) {
     var demo by remember { mutableStateOf(pref.isGameDemo()) }
     var serverHost by remember { mutableStateOf(pref.getGameServerHost()) }
     var serverPort by remember { mutableStateOf(pref.getGameServerPort().toString()) }
+    var versionIsolation by remember { mutableStateOf(pref.isVersionIsolation()) }
 
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
@@ -336,6 +337,20 @@ private fun GameBehaviorCard(pref: com.pmcl.core.preferences.Preferences) {
             Text("应用于所有版本的启动参数，留空使用游戏默认值",
                  style = MaterialTheme.typography.labelSmall,
                  color = MaterialTheme.colorScheme.outline)
+
+            Spacer(Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(checked = versionIsolation, onCheckedChange = {
+                    versionIsolation = it; pref.setVersionIsolation(it)
+                })
+                Spacer(Modifier.width(8.dp))
+                Column {
+                    Text("版本隔离")
+                    Text("各版本使用独立的 mods/saves/config 目录（~/.pmcl/instances/<版本>/）",
+                         style = MaterialTheme.typography.labelSmall,
+                         color = MaterialTheme.colorScheme.outline)
+                }
+            }
 
             Spacer(Modifier.height(12.dp))
             Text("窗口分辨率", style = MaterialTheme.typography.labelMedium)

@@ -63,6 +63,7 @@ public final class Preferences {
     private int downloadRetryCount = 3;
     private boolean enableResume = true;           // 断点续传
     private int chunkedDownloadThreads = 4;        // 分片下载连接数（>1 启用多线程分片）
+    private boolean versionIsolation = false;      // 版本隔离：各版本独立 mods/saves/config 目录
 
     // ===== 多人联机 =====
     private String mpBackend = "EASYTIER";         // EASYTIER / CONNECTX
@@ -281,6 +282,9 @@ public final class Preferences {
         chunkedDownloadThreads = Math.max(1, v); save();
     }
 
+    public synchronized boolean isVersionIsolation() { return versionIsolation; }
+    public synchronized void setVersionIsolation(boolean v) { versionIsolation = v; save(); }
+
     // ===== 多人联机 =====
     public synchronized String getMpBackend() {
         // 默认使用 Terracotta（HMCL 同款官方陶瓦联机实现）
@@ -367,6 +371,7 @@ public final class Preferences {
             if (o.has("downloadRetryCount")) downloadRetryCount = o.get("downloadRetryCount").getAsInt();
             if (o.has("enableResume")) enableResume = o.get("enableResume").getAsBoolean();
             if (o.has("chunkedDownloadThreads")) chunkedDownloadThreads = o.get("chunkedDownloadThreads").getAsInt();
+            if (o.has("versionIsolation")) versionIsolation = o.get("versionIsolation").getAsBoolean();
             if (o.has("mpBackend") && !o.get("mpBackend").isJsonNull()) mpBackend = o.get("mpBackend").getAsString();
             if (o.has("connectxServerAddress") && !o.get("connectxServerAddress").isJsonNull()) connectxServerAddress = o.get("connectxServerAddress").getAsString();
             if (o.has("connectxServerPort")) connectxServerPort = o.get("connectxServerPort").getAsInt();
@@ -428,6 +433,7 @@ public final class Preferences {
             o.addProperty("downloadRetryCount", downloadRetryCount);
             o.addProperty("enableResume", enableResume);
             o.addProperty("chunkedDownloadThreads", chunkedDownloadThreads);
+            o.addProperty("versionIsolation", versionIsolation);
             o.addProperty("mpBackend", mpBackend);
             o.addProperty("connectxServerAddress", connectxServerAddress);
             o.addProperty("connectxServerPort", connectxServerPort);

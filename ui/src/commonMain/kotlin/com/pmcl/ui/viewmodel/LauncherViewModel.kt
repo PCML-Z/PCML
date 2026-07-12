@@ -954,7 +954,8 @@ class LauncherViewModel {
             _status.value = "下载模组 ${file.getFileName()}"
             try {
                 withContext(Dispatchers.IO) {
-                    core.modMarket().installMod(file, gameVersion) { msg ->
+                    core.modMarket().installMod(file, gameVersion,
+                        _selectedVersion.value, preferences) { msg ->
                         _status.value = msg
                     }.join()
                 }
@@ -1004,6 +1005,16 @@ class LauncherViewModel {
                         for (subDir in subDirs) {
                             val versionModsDir = subDir.toPath().resolve("mods")
                             if (versionModsDir !in modsDirs) modsDirs.add(versionModsDir)
+                        }
+                    }
+                    // 4. 版本隔离目录下的 mods（instances/<id>/mods/）
+                    val instancesDir = config.getWorkDir().resolve("instances")
+                    val instancesFile = instancesDir.toFile()
+                    if (instancesFile.isDirectory) {
+                        val instDirs = instancesFile.listFiles { f -> f.isDirectory } ?: emptyArray()
+                        for (instDir in instDirs) {
+                            val instModsDir = instDir.toPath().resolve("mods")
+                            if (instModsDir !in modsDirs) modsDirs.add(instModsDir)
                         }
                     }
                     // 扫描所有 mods 目录，按目录分组
@@ -1533,6 +1544,16 @@ class LauncherViewModel {
                             savesDirs.add(versionSaves to subDir.name)
                         }
                     }
+                    // 4. 版本隔离目录下的 saves（instances/<id>/saves/）
+                    val instancesDir = config.getWorkDir().resolve("instances")
+                    val instancesFile = instancesDir.toFile()
+                    if (instancesFile.isDirectory) {
+                        val instDirs = instancesFile.listFiles { f -> f.isDirectory } ?: emptyArray()
+                        for (instDir in instDirs) {
+                            val instSaves = instDir.toPath().resolve("saves")
+                            savesDirs.add(instSaves to instDir.name)
+                        }
+                    }
                     // 扫描所有 saves 目录，按绝对路径去重
                     val wm = core.worlds()
                     val diag = StringBuilder()
@@ -1610,6 +1631,16 @@ class LauncherViewModel {
                         for (subDir in subDirs) {
                             val versionShots = subDir.toPath().resolve("screenshots")
                             shotDirs.add(versionShots to subDir.name)
+                        }
+                    }
+                    // 4. 版本隔离目录下的 screenshots（instances/<id>/screenshots/）
+                    val instancesDir = config.getWorkDir().resolve("instances")
+                    val instancesFile = instancesDir.toFile()
+                    if (instancesFile.isDirectory) {
+                        val instDirs = instancesFile.listFiles { f -> f.isDirectory } ?: emptyArray()
+                        for (instDir in instDirs) {
+                            val instShots = instDir.toPath().resolve("screenshots")
+                            shotDirs.add(instShots to instDir.name)
                         }
                     }
                     // 扫描所有 screenshots 目录，按绝对路径去重

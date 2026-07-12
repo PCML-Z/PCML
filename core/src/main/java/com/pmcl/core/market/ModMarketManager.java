@@ -2,6 +2,7 @@ package com.pmcl.core.market;
 
 import com.pmcl.core.LauncherConfig;
 import com.pmcl.core.download.DownloadManager;
+import com.pmcl.core.preferences.Preferences;
 import okhttp3.OkHttpClient;
 
 import java.nio.file.Path;
@@ -184,11 +185,36 @@ public final class ModMarketManager {
      */
     public CompletableFuture<Void> installMod(ModFile file, String gameVersion,
                                               Consumer<String> onStatus) {
+        return installMod(file, gameVersion, null, null, onStatus);
+    }
+
+    /**
+     * 安装模组到 mods 目录。
+     * <p>
+     * 版本隔离开启时，模组安装到 {@code instances/<versionId>/mods/}；
+     * 否则安装到 {@code mods/<gameVersion>/}。
+     *
+     * @param file         模组文件
+     * @param gameVersion  目标 MC 版本（非隔离模式下决定 mods 子目录）
+     * @param versionId    版本 ID（隔离模式下决定 instance 目录），可为 null
+     * @param preferences  偏好设置（判断是否开启版本隔离），可为 null
+     * @param onStatus     状态回调
+     */
+    public CompletableFuture<Void> installMod(ModFile file, String gameVersion,
+                                              String versionId, Preferences preferences,
+                                              Consumer<String> onStatus) {
         return CompletableFuture.runAsync(() -> {
             try {
-                Path modsDir = config.getWorkDir().resolve("mods");
-                if (gameVersion != null && !gameVersion.isEmpty()) {
-                    modsDir = modsDir.resolve(gameVersion);
+                Path modsDir;
+                if (preferences != null && preferences.isVersionIsolation()
+                        && versionId != null && !versionId.isEmpty()) {
+                    // 版本隔离：安装到 instances/<versionId>/mods/
+                    modsDir = config.getWorkDir().resolve("instances").resolve(versionId).resolve("mods");
+                } else {
+                    modsDir = config.getWorkDir().resolve("mods");
+                    if (gameVersion != null && !gameVersion.isEmpty()) {
+                        modsDir = modsDir.resolve(gameVersion);
+                    }
                 }
                 Path target = modsDir.resolve(file.getFileName());
                 // 重复安装检测：覆盖下载
