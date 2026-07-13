@@ -52,4 +52,9 @@ public final class AccountStore {
                 : selectedUuid;
         return new AccountStore(newList, newSelected);
     }
+
+    /** 返回新的 AccountStore：切换选中账号（不改变账号列表） */
+    public AccountStore select(String uuid) {
+        return new AccountStore(accounts, uuid);
+    }
 }

@@ -4,6 +4,7 @@ import com.google.gson.reflect.TypeToken
 import com.pmcl.core.LauncherConfig
 import com.pmcl.core.LauncherCore
 import com.pmcl.core.auth.Account
+import com.pmcl.core.auth.AccountStore
 import com.pmcl.core.auth.DeviceCode
 import com.pmcl.core.cache.DataCache
 import com.pmcl.core.download.DownloadQueueManager
@@ -110,6 +111,9 @@ class LauncherViewModel {
 
     private val _account = MutableStateFlow<Account?>(null)
     val account: StateFlow<Account?> = _account.asStateFlow()
+
+    private val _accounts = MutableStateFlow<List<Account>>(emptyList())
+    val accounts: StateFlow<List<Account>> = _accounts.asStateFlow()
 
     // ===== 安装进度 =====
     private val _installProgress = MutableStateFlow<InstallProgress?>(null)
@@ -611,16 +615,18 @@ class LauncherViewModel {
         _status.value = "已清理 $versionId 的所有记录"
     }
 
-    /** 从磁盘加载已保存账号 */
+    /** 从磁盘加载已保存账号集合（多账号） */
     private fun loadSavedAccount() {
         scope.launch {
             try {
-                val acc = withContext(Dispatchers.IO) {
-                    core.auth().loadAccount(accountFile)
+                val store = withContext(Dispatchers.IO) {
+                    core.auth().loadStore(accountFile)
                 }
-                if (acc != null) {
-                    _account.value = acc
-                    _status.value = "已加载账号：${acc.getUsername()}（${acc.getType()}）"
+                _accounts.value = store.getAccounts()
+                val sel = store.getSelected().orElse(null)
+                _account.value = sel
+                if (sel != null) {
+                    _status.value = "已加载账号：${sel.getUsername()}（${sel.getType()}）"
                 }
             } catch (e: Throwable) {
                 _status.value = "加载账号失败：${e.message}"
@@ -628,11 +634,14 @@ class LauncherViewModel {
         }
     }
 
-    private fun saveAccount(acc: Account) {
+    /** 持久化整个 AccountStore 到磁盘 */
+    private fun saveStore(store: AccountStore) {
+        _accounts.value = store.getAccounts()
+        _account.value = store.getSelected().orElse(null)
         scope.launch {
             try {
                 withContext(Dispatchers.IO) {
-                    core.auth().saveAccount(acc, accountFile)
+                    core.auth().saveStore(store, accountFile)
                 }
             } catch (e: Throwable) {
                 _status.value = "保存账号失败：${e.message}"
@@ -640,18 +649,30 @@ class LauncherViewModel {
         }
     }
 
+    /** 向账号集合添加新账号（或更新已有），并设为选中 */
+    private fun upsertAccount(acc: Account) {
+        val current = AccountStore(_accounts.value, _account.value?.getUuid())
+        saveStore(current.upsert(acc))
+    }
+
+    /** 切换当前选中账号 */
+    fun switchAccount(uuid: String) {
+        val current = AccountStore(_accounts.value, _account.value?.getUuid())
+        saveStore(current.select(uuid))
+        _status.value = "已切换到：${_account.value?.getUsername()}"
+    }
+
+    /** 删除指定账号 */
+    fun removeAccount(uuid: String) {
+        val current = AccountStore(_accounts.value, _account.value?.getUuid())
+        saveStore(current.remove(uuid))
+        _status.value = "已删除账号"
+    }
+
+    /** 退出当前账号（等同于删除当前选中账号） */
     fun logout() {
-        _account.value = null
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) {
-                    java.nio.file.Files.deleteIfExists(accountFile)
-                }
-                _status.value = "已退出登录"
-            } catch (e: Throwable) {
-                _status.value = "清除账号文件失败：${e.message}"
-            }
-        }
+        val cur = _account.value ?: return
+        removeAccount(cur.getUuid())
     }
 
     fun refreshVersions() {
@@ -727,8 +748,7 @@ class LauncherViewModel {
             return
         }
         val acc = core.auth().offline(username)
-        _account.value = acc
-        saveAccount(acc)
+        upsertAccount(acc)
         _status.value = "已登录（离线）：$username"
     }
 
@@ -746,8 +766,7 @@ class LauncherViewModel {
             current.getUsername(), current.getUuid(), current.getAccessToken(),
             current.getType(), skinUrl, skinModel
         )
-        _account.value = updated
-        saveAccount(updated)
+        upsertAccount(updated)
         _status.value = if (skinUrl.isEmpty()) "已清除自定义皮肤" else "已设置自定义皮肤"
     }
 
@@ -841,7 +860,7 @@ class LauncherViewModel {
                     }.join()
                 }
                 _account.value = account
-                saveAccount(account)
+                upsertAccount(account)
                 _status.value = "已登录（微软）：${account.getUsername()}"
                 _deviceCode.value = null
             } catch (e: Throwable) {

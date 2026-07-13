@@ -362,6 +362,12 @@ public final class I18n {
         ZH.put("accounts.start_ms_login", "开始微软登录");
         ZH.put("accounts.logging_in", "登录中…");
         ZH.put("accounts.device_code_hint", "请打开浏览器访问：");
+        ZH.put("accounts.list", "账号列表");
+        ZH.put("accounts.switch", "切换");
+        ZH.put("accounts.remove", "删除");
+        ZH.put("accounts.active", "当前账号");
+        ZH.put("accounts.remove_confirm_title", "删除账号");
+        ZH.put("accounts.remove_confirm", "确定要删除账号「{0}」吗？");
 
         // ===== 联机页 =====
         ZH.put("mp.connectx", "ConnectX 联机");
@@ -812,6 +818,12 @@ public final class I18n {
         EN.put("accounts.start_ms_login", "Start Microsoft login");
         EN.put("accounts.logging_in", "Logging in…");
         EN.put("accounts.device_code_hint", "Open this URL in browser:");
+        EN.put("accounts.list", "Account List");
+        EN.put("accounts.switch", "Switch");
+        EN.put("accounts.remove", "Remove");
+        EN.put("accounts.active", "Active");
+        EN.put("accounts.remove_confirm_title", "Remove Account");
+        EN.put("accounts.remove_confirm", "Remove account \"{0}\"?");
 
         EN.put("mp.connectx", "ConnectX Multiplayer");
         EN.put("mp.terracotta", "Terracotta Multiplayer");
@@ -1255,6 +1267,12 @@ public final class I18n {
         JA.put("accounts.start_ms_login", "Microsoftログイン開始");
         JA.put("accounts.logging_in", "ログイン中…");
         JA.put("accounts.device_code_hint", "ブラウザでこのURLを開いてください:");
+        JA.put("accounts.list", "アカウント一覧");
+        JA.put("accounts.switch", "切替");
+        JA.put("accounts.remove", "削除");
+        JA.put("accounts.active", "使用中");
+        JA.put("accounts.remove_confirm_title", "アカウント削除");
+        JA.put("accounts.remove_confirm", "アカウント「{0}」を削除しますか？");
 
         JA.put("mp.connectx", "ConnectXマルチプレイ");
         JA.put("mp.terracotta", "テラコッタマルチプレイ · Terracotta");

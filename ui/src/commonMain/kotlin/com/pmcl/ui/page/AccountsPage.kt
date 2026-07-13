@@ -6,7 +6,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -16,8 +19,10 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.auth.Account
+import com.pmcl.core.i18n.I18n
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -28,6 +33,7 @@ import java.util.concurrent.ConcurrentHashMap
 @Composable
 fun AccountsPage(vm: LauncherViewModel) {
     val account by vm.account.collectAsState()
+    val accounts by vm.accounts.collectAsState()
     val status by vm.status.collectAsState()
     val deviceCode by vm.deviceCode.collectAsState()
     val loggingIn by vm.loggingIn.collectAsState()
@@ -35,17 +41,35 @@ fun AccountsPage(vm: LauncherViewModel) {
     var username by remember { mutableStateOf("Steve") }
     var customSkinUrl by remember { mutableStateOf("") }
     var skinModel by remember { mutableStateOf("classic") }
+    var deleteTarget by remember { mutableStateOf<Account?>(null) }
     val scroll = rememberScrollState()
 
     Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(scroll)) {
-        Text("账号", style = MaterialTheme.typography.headlineSmall,
+        Text(I18n.t("accounts.title"), style = MaterialTheme.typography.headlineSmall,
              fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(16.dp))
+
+        // ===== 多账号列表 =====
+        if (accounts.isNotEmpty()) {
+            Text(I18n.t("accounts.list"), style = MaterialTheme.typography.titleSmall,
+                 fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(8.dp))
+            accounts.forEach { acc ->
+                AccountRow(
+                    acc = acc,
+                    isSelected = acc.getUuid() == account?.getUuid(),
+                    onSwitch = { vm.switchAccount(acc.getUuid()) },
+                    onDelete = { deleteTarget = acc }
+                )
+                Spacer(Modifier.height(4.dp))
+            }
+            Spacer(Modifier.height(16.dp))
+        }
 
         // 当前账号 + 皮肤预览
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp)) {
-                Text("当前账号", style = MaterialTheme.typography.titleSmall,
+                Text(I18n.t("accounts.current"), style = MaterialTheme.typography.titleSmall,
                      fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(8.dp))
 
@@ -93,10 +117,10 @@ fun AccountsPage(vm: LauncherViewModel) {
                     }
                     Spacer(Modifier.height(12.dp))
                     OutlinedButton(onClick = vm::logout) {
-                        Text("退出登录")
+                        Text(I18n.t("accounts.logout"))
                     }
                 } else {
-                    Text("未登录", color = MaterialTheme.colorScheme.outline)
+                    Text(I18n.t("accounts.not_logged_in"), color = MaterialTheme.colorScheme.outline)
                 }
             }
         }
@@ -150,18 +174,18 @@ fun AccountsPage(vm: LauncherViewModel) {
         // 离线登录卡片
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp)) {
-                Text("离线账号", style = MaterialTheme.typography.titleSmall,
+                Text(I18n.t("accounts.offline"), style = MaterialTheme.typography.titleSmall,
                      fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
                     value = username, onValueChange = { username = it },
-                    label = { Text("用户名") }, singleLine = true,
+                    label = { Text(I18n.t("accounts.username")) }, singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(Modifier.height(8.dp))
                 Button(onClick = { vm.loginOffline(username) },
                        enabled = username.isNotBlank() && !loggingIn) {
-                    Text("登录")
+                    Text(I18n.t("accounts.login"))
                 }
             }
         }
@@ -171,7 +195,7 @@ fun AccountsPage(vm: LauncherViewModel) {
         // 微软登录卡片
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp)) {
-                Text("微软账号", style = MaterialTheme.typography.titleSmall,
+                Text(I18n.t("accounts.microsoft"), style = MaterialTheme.typography.titleSmall,
                      fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(8.dp))
                 Text("使用设备码流程登录，无需输入密码。\n微软账号自动同步 Mojang 服务器皮肤。",
@@ -201,7 +225,7 @@ fun AccountsPage(vm: LauncherViewModel) {
                     }
                 } else {
                     Button(onClick = vm::startMicrosoftLogin, enabled = !loggingIn) {
-                        Text(if (loggingIn) "登录中…" else "开始微软登录")
+                        Text(if (loggingIn) I18n.t("accounts.logging_in") else I18n.t("accounts.start_ms_login"))
                     }
                 }
             }
@@ -210,9 +234,92 @@ fun AccountsPage(vm: LauncherViewModel) {
         Spacer(Modifier.height(16.dp))
         HorizontalDivider()
         Spacer(Modifier.height(8.dp))
-        Text("状态：$status",
+        Text("${I18n.t("common.status")}: $status",
              style = MaterialTheme.typography.labelSmall,
              color = MaterialTheme.colorScheme.outline)
+    }
+
+    // 删除账号确认对话框
+    deleteTarget?.let { acc ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            title = { Text(I18n.t("accounts.remove_confirm_title")) },
+            text = { Text(I18n.t("accounts.remove_confirm", acc.getUsername())) },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.removeAccount(acc.getUuid())
+                    deleteTarget = null
+                }) { Text(I18n.t("common.delete"), color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteTarget = null }) { Text(I18n.t("common.cancel")) }
+            }
+        )
+    }
+}
+
+/**
+ * 账号列表行：头像 + 用户名 + 类型，选中态高亮，切换/删除按钮。
+ */
+@Composable
+private fun AccountRow(
+    acc: Account,
+    isSelected: Boolean,
+    onSwitch: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer
+                        else MaterialTheme.colorScheme.surfaceVariant
+    Surface(
+        color = containerColor,
+        shape = RoundedCornerShape(10.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // 头像
+            val avatarUrl = acc.getAvatarUrl() ?: ""
+            if (avatarUrl.isNotEmpty()) {
+                SkinImage(avatarUrl, 36)
+            } else {
+                Surface(
+                    color = MaterialTheme.colorScheme.surface,
+                    shape = RoundedCornerShape(6.dp),
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(Icons.Filled.Person, contentDescription = null,
+                         modifier = Modifier.padding(8.dp))
+                }
+            }
+            Spacer(Modifier.width(10.dp))
+            // 信息
+            Column(Modifier.weight(1f)) {
+                Text(acc.getUsername(), fontWeight = FontWeight.SemiBold, maxLines = 1,
+                     overflow = TextOverflow.Ellipsis)
+                Text(acc.getType().name, style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.outline)
+            }
+            // 选中标记
+            if (isSelected) {
+                Icon(Icons.Filled.Check, contentDescription = I18n.t("accounts.active"),
+                     tint = MaterialTheme.colorScheme.primary,
+                     modifier = Modifier.size(18.dp))
+            } else {
+                // 切换按钮
+                IconButton(onClick = onSwitch) {
+                    Icon(Icons.Filled.SwapHoriz, contentDescription = I18n.t("accounts.switch"),
+                         modifier = Modifier.size(18.dp))
+                }
+            }
+            // 删除按钮
+            IconButton(onClick = onDelete) {
+                Icon(Icons.Filled.Delete, contentDescription = I18n.t("accounts.remove"),
+                     tint = MaterialTheme.colorScheme.error,
+                     modifier = Modifier.size(18.dp))
+            }
+        }
     }
 }
 
