@@ -79,7 +79,7 @@ public final class JavaRuntimeDownloader {
                 String json = downloadManager.downloadString(MANIFEST_URL);
                 JsonObject root = JsonParser.parseString(json).getAsJsonObject();
                 // 结构: [arch][type][entry...]
-                String arch = currentArch();
+                String arch = resolveArch(type);
                 if (!root.has(arch)) return new ArrayList<>();
                 JsonObject archObj = root.getAsJsonObject(arch);
                 if (!archObj.has(type.getMojangId())) return new ArrayList<>();
@@ -113,7 +113,7 @@ public final class JavaRuntimeDownloader {
         return CompletableFuture.runAsync(() -> {
             try {
                 Path runtimesDir = config.getRuntimesDir();
-                Path archDir = runtimesDir.resolve(currentArch());
+                Path archDir = runtimesDir.resolve(resolveArch(type));
                 Path targetDir = archDir.resolve(type.name() + "-" + entry.getVersion());
                 if (Files.exists(targetDir) && Files.exists(targetDir.resolve("bin"))) {
                     if (onStatus != null) onStatus.accept("已存在：" + targetDir);
@@ -172,6 +172,21 @@ public final class JavaRuntimeDownloader {
         } finally {
             if (p != null) p.destroyForcibly();
         }
+    }
+
+    /**
+     * 解析下载目标架构。
+     * <p>
+     * Apple Silicon Mac 上，老版本 Minecraft（1.12.2 及更早）的 LWJGL 2.x 原生库
+     * 只有 x86_64 版本，必须通过 Rosetta 2 运行 x86_64 Java 8。
+     * 因此 Java 8 在 Apple Silicon 上强制下载 macos-amd64 版本。
+     */
+    private static String resolveArch(RuntimeType type) {
+        String arch = currentArch();
+        if (type == RuntimeType.JAVA_8 && "macos-arm64".equals(arch)) {
+            return "macos-amd64"; // Rosetta 2
+        }
+        return arch;
     }
 
     /** Mojang Java runtime 清单使用的架构标识 */

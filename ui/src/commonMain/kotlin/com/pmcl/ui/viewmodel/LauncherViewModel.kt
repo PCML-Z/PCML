@@ -2320,22 +2320,35 @@ class LauncherViewModel {
     }
 
     /**
-     * 一键下载 Mojang 官方 Java 21 运行时（MC 1.20.5+ 必需）。
-     * 下载完成后清空 preferences.javaPath，让启动时自动用新扫描到的 runtimes。
+     * 一键下载 Mojang 官方 Java 运行时。
+     * 支持 Java 8（MC 1.12.2 及更早）/ Java 17（MC 1.17–1.20.4）/ Java 21（MC 1.20.5+）。
+     * <p>
+     * Apple Silicon Mac 上下载 Java 8 时，核心层自动选择 x86_64 版本（Rosetta 2），
+     * 因为老版本 Minecraft 的 LWJGL 2.x 原生库只有 x86_64 版本。
+     *
+     * @param version Java 主版本号（8 / 17 / 21）
      */
-    fun downloadJava21() {
+    fun downloadJava(version: Int) {
         if (_javaDownloading.value) return
+        val runtimeType = when (version) {
+            8 -> com.pmcl.core.runtime.JavaRuntimeDownloader.RuntimeType.JAVA_8
+            17 -> com.pmcl.core.runtime.JavaRuntimeDownloader.RuntimeType.JAVA_17
+            21 -> com.pmcl.core.runtime.JavaRuntimeDownloader.RuntimeType.JAVA_21
+            else -> {
+                _status.value = "不支持的 Java 版本：$version"
+                return
+            }
+        }
         scope.launch {
             _javaDownloading.value = true
-            _javaDownloadStatus.value = "正在拉取 Java 21 清单…"
+            _javaDownloadStatus.value = "正在拉取 Java $version 清单…"
             try {
-                val runtimeType = com.pmcl.core.runtime.JavaRuntimeDownloader.RuntimeType.JAVA_21
                 val entries = withContext(Dispatchers.IO) {
                     core.javaDownloader().listRuntimes(runtimeType).join()
                 }
                 if (entries.isNullOrEmpty()) {
-                    _javaDownloadStatus.value = "未找到可用的 Java 21 运行时"
-                    _status.value = "Java 21 下载失败：清单为空"
+                    _javaDownloadStatus.value = "未找到可用的 Java $version 运行时"
+                    _status.value = "Java $version 下载失败：清单为空"
                     return@launch
                 }
                 // 选第一个（Mojang 通常每个类型只提供一个稳定版）
@@ -2350,15 +2363,18 @@ class LauncherViewModel {
                 }
                 val detected = JavaRuntimeFinder.findJavaExecutable(config.getRuntimesDir())
                 _javaDownloadStatus.value = "完成：$detected"
-                _status.value = "Java 21 安装完成，可启动游戏"
+                _status.value = "Java $version 安装完成，可启动游戏"
             } catch (e: Throwable) {
                 _javaDownloadStatus.value = "失败：${e.message}"
-                _status.value = "Java 21 下载失败：${e.message}"
+                _status.value = "Java $version 下载失败：${e.message}"
             } finally {
                 _javaDownloading.value = false
             }
         }
     }
+
+    /** 向后兼容：下载 Java 21。 */
+    fun downloadJava21() = downloadJava(21)
 
     /** 手动指定 Java 可执行文件路径（空字符串表示自动检测）。 */
     fun setJavaPath(path: String) {

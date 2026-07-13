@@ -764,26 +764,36 @@ private fun JavaRuntimeCard(vm: LauncherViewModel, pref: com.pmcl.core.preferenc
                  style = MaterialTheme.typography.bodySmall,
                  color = MaterialTheme.colorScheme.outline)
             Spacer(Modifier.height(4.dp))
-            Text("MC 1.20.5+ 需要 Java 21；MC 1.17–1.20.4 需要 Java 17。Java 24+ 可能导致 Render thread 崩溃。",
+            Text("MC 1.20.5+ 需要 Java 21；MC 1.17–1.20.4 需要 Java 17；MC 1.12.2 及更早（含 alpha/beta）需要 Java 8。",
                  style = MaterialTheme.typography.labelSmall,
                  color = MaterialTheme.colorScheme.outline)
 
             Spacer(Modifier.height(12.dp))
 
-            // 一键下载 Java 21
-            Button(
-                onClick = { vm.downloadJava21() },
-                enabled = !downloading
-            ) {
-                if (downloading) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(16.dp),
-                        strokeWidth = 2.dp
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text("正在下载…")
-                } else {
-                    Text("一键下载 Java 21（Mojang 官方）")
+            // 一键下载 Java 8 / 17 / 21
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = { vm.downloadJava(8) },
+                    enabled = !downloading
+                ) { Text("Java 8") }
+                OutlinedButton(
+                    onClick = { vm.downloadJava(17) },
+                    enabled = !downloading
+                ) { Text("Java 17") }
+                Button(
+                    onClick = { vm.downloadJava(21) },
+                    enabled = !downloading
+                ) {
+                    if (downloading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("正在下载…")
+                    } else {
+                        Text("Java 21")
+                    }
                 }
             }
             if (downloading || dlStatus.isNotEmpty()) {
