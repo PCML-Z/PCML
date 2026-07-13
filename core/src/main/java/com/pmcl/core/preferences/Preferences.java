@@ -71,6 +71,9 @@ public final class Preferences {
     private int chunkedDownloadThreads = 4;        // 分片下载连接数（>1 启用多线程分片）
     private boolean versionIsolation = false;      // 版本隔离：各版本独立 mods/saves/config 目录
 
+    // ===== 启动预设 =====
+    private java.util.Map<String, LaunchPreset> launchPresets = new java.util.concurrent.ConcurrentHashMap<>();
+
     // ===== 多人联机 =====
     private String mpBackend = "EASYTIER";         // EASYTIER / CONNECTX
     private String connectxServerAddress = "";     // ConnectX 服务器地址
@@ -387,6 +390,88 @@ public final class Preferences {
     public synchronized String getConnectxBinaryPath() { return connectxBinaryPath; }
     public synchronized void setConnectxBinaryPath(String v) { connectxBinaryPath = v == null ? "" : v; scheduleSave(); }
 
+    // ===== 启动预设 =====
+
+    /** 启动预设：保存一组启动参数快照（内存/JVM/GC/窗口/全屏/服务器等） */
+    public static final class LaunchPreset {
+        public final String name;
+        public final int minMemoryMb;
+        public final int maxMemoryMb;
+        public final String gcType;
+        public final boolean useAikarFlags;
+        public final String customJvmArgs;
+        public final int gameWindowWidth;
+        public final int gameWindowHeight;
+        public final boolean gameFullscreen;
+        public final boolean gameDemo;
+        public final String gameRenderer;
+        public final String gameServerHost;
+        public final int gameServerPort;
+
+        public LaunchPreset(String name, int minMemoryMb, int maxMemoryMb, String gcType,
+                            boolean useAikarFlags, String customJvmArgs,
+                            int gameWindowWidth, int gameWindowHeight,
+                            boolean gameFullscreen, boolean gameDemo,
+                            String gameRenderer, String gameServerHost, int gameServerPort) {
+            this.name = name;
+            this.minMemoryMb = minMemoryMb;
+            this.maxMemoryMb = maxMemoryMb;
+            this.gcType = gcType;
+            this.useAikarFlags = useAikarFlags;
+            this.customJvmArgs = customJvmArgs;
+            this.gameWindowWidth = gameWindowWidth;
+            this.gameWindowHeight = gameWindowHeight;
+            this.gameFullscreen = gameFullscreen;
+            this.gameDemo = gameDemo;
+            this.gameRenderer = gameRenderer;
+            this.gameServerHost = gameServerHost;
+            this.gameServerPort = gameServerPort;
+        }
+    }
+
+    /** 获取所有启动预设（按名称排序） */
+    public synchronized java.util.List<LaunchPreset> getLaunchPresets() {
+        var list = new java.util.ArrayList<>(launchPresets.values());
+        list.sort(java.util.Comparator.comparing(p -> p.name));
+        return list;
+    }
+
+    /** 将当前启动参数保存为命名预设 */
+    public synchronized void saveLaunchPreset(String name) {
+        if (name == null || name.isBlank()) return;
+        LaunchPreset preset = new LaunchPreset(
+                name, minMemoryMb, maxMemoryMb, gcType, useAikarFlags, customJvmArgs,
+                gameWindowWidth, gameWindowHeight, gameFullscreen, gameDemo,
+                gameRenderer, gameServerHost, gameServerPort);
+        launchPresets.put(name, preset);
+        scheduleSave();
+    }
+
+    /** 加载指定预设到当前启动参数 */
+    public synchronized void applyLaunchPreset(String name) {
+        LaunchPreset p = launchPresets.get(name);
+        if (p == null) return;
+        minMemoryMb = p.minMemoryMb;
+        maxMemoryMb = p.maxMemoryMb;
+        gcType = p.gcType;
+        useAikarFlags = p.useAikarFlags;
+        customJvmArgs = p.customJvmArgs;
+        gameWindowWidth = p.gameWindowWidth;
+        gameWindowHeight = p.gameWindowHeight;
+        gameFullscreen = p.gameFullscreen;
+        gameDemo = p.gameDemo;
+        gameRenderer = p.gameRenderer;
+        gameServerHost = p.gameServerHost;
+        gameServerPort = p.gameServerPort;
+        scheduleSave();
+    }
+
+    /** 删除指定预设 */
+    public synchronized void deleteLaunchPreset(String name) {
+        launchPresets.remove(name);
+        scheduleSave();
+    }
+
     /** 从磁盘加载（不存在或损坏则保持默认） */
     public synchronized void load() {
         if (!Files.exists(file)) return;
@@ -489,6 +574,30 @@ public final class Preferences {
             if (o.has("connectxServerAddress") && !o.get("connectxServerAddress").isJsonNull()) connectxServerAddress = o.get("connectxServerAddress").getAsString();
             if (o.has("connectxServerPort")) connectxServerPort = o.get("connectxServerPort").getAsInt();
             if (o.has("connectxBinaryPath") && !o.get("connectxBinaryPath").isJsonNull()) connectxBinaryPath = o.get("connectxBinaryPath").getAsString();
+            if (o.has("launchPresets") && o.get("launchPresets").isJsonObject()) {
+                launchPresets.clear();
+                JsonObject presetsObj = o.getAsJsonObject("launchPresets");
+                for (var entry : presetsObj.entrySet()) {
+                    try {
+                        JsonObject p = entry.getValue().getAsJsonObject();
+                        launchPresets.put(entry.getKey(), new LaunchPreset(
+                                entry.getKey(),
+                                p.has("minMemoryMb") ? p.get("minMemoryMb").getAsInt() : 512,
+                                p.has("maxMemoryMb") ? p.get("maxMemoryMb").getAsInt() : 4096,
+                                p.has("gcType") && !p.get("gcType").isJsonNull() ? p.get("gcType").getAsString() : "G1GC",
+                                p.has("useAikarFlags") ? p.get("useAikarFlags").getAsBoolean() : true,
+                                p.has("customJvmArgs") && !p.get("customJvmArgs").isJsonNull() ? p.get("customJvmArgs").getAsString() : "",
+                                p.has("gameWindowWidth") ? p.get("gameWindowWidth").getAsInt() : 854,
+                                p.has("gameWindowHeight") ? p.get("gameWindowHeight").getAsInt() : 480,
+                                p.has("gameFullscreen") ? p.get("gameFullscreen").getAsBoolean() : false,
+                                p.has("gameDemo") ? p.get("gameDemo").getAsBoolean() : false,
+                                p.has("gameRenderer") && !p.get("gameRenderer").isJsonNull() ? p.get("gameRenderer").getAsString() : "AUTO",
+                                p.has("gameServerHost") && !p.get("gameServerHost").isJsonNull() ? p.get("gameServerHost").getAsString() : "",
+                                p.has("gameServerPort") ? p.get("gameServerPort").getAsInt() : 25565
+                        ));
+                    } catch (Exception ignored2) {}
+                }
+            }
         } catch (Throwable ignored) {
         }
     }
@@ -593,6 +702,25 @@ public final class Preferences {
         o.addProperty("connectxServerAddress", connectxServerAddress);
         o.addProperty("connectxServerPort", connectxServerPort);
         o.addProperty("connectxBinaryPath", connectxBinaryPath);
+        JsonObject presetsObj = new JsonObject();
+        for (var entry : launchPresets.entrySet()) {
+            LaunchPreset p = entry.getValue();
+            JsonObject po = new JsonObject();
+            po.addProperty("minMemoryMb", p.minMemoryMb);
+            po.addProperty("maxMemoryMb", p.maxMemoryMb);
+            po.addProperty("gcType", p.gcType);
+            po.addProperty("useAikarFlags", p.useAikarFlags);
+            po.addProperty("customJvmArgs", p.customJvmArgs);
+            po.addProperty("gameWindowWidth", p.gameWindowWidth);
+            po.addProperty("gameWindowHeight", p.gameWindowHeight);
+            po.addProperty("gameFullscreen", p.gameFullscreen);
+            po.addProperty("gameDemo", p.gameDemo);
+            po.addProperty("gameRenderer", p.gameRenderer);
+            po.addProperty("gameServerHost", p.gameServerHost);
+            po.addProperty("gameServerPort", p.gameServerPort);
+            presetsObj.add(entry.getKey(), po);
+        }
+        o.add("launchPresets", presetsObj);
         return o;
     }
 

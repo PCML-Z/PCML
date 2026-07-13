@@ -10,8 +10,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -120,6 +122,18 @@ fun SettingsPage(vm: LauncherViewModel) {
                     modifier = Modifier.fillMaxWidth()
                 )
             }
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        // 启动预设
+        LaunchPresetCard(vm, pref) { applyPresetName ->
+            // 应用预设后同步本地 UI 状态
+            minMem = pref.getMinMemoryMb().toString()
+            maxMem = pref.getMaxMemoryMb().toString()
+            gcType = pref.getGcType()
+            useAikar = pref.isUseAikarFlags()
+            customArgs = pref.getCustomJvmArgs()
         }
 
         Spacer(Modifier.height(16.dp))
@@ -407,6 +421,112 @@ private fun AboutCard(vm: LauncherViewModel) {
                  style = MaterialTheme.typography.labelSmall,
                  color = MaterialTheme.colorScheme.outline)
         }
+    }
+}
+
+@Composable
+private fun LaunchPresetCard(
+    vm: LauncherViewModel,
+    pref: com.pmcl.core.preferences.Preferences,
+    onPresetApplied: (String) -> Unit
+) {
+    val presets by vm.launchPresets.collectAsState()
+    var showSaveDialog by remember { mutableStateOf(false) }
+    var presetName by remember { mutableStateOf("") }
+
+    LaunchedEffect(Unit) { vm.refreshLaunchPresets() }
+
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.Bookmarks, null, Modifier.size(20.dp),
+                     tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(8.dp))
+                Text("启动预设", style = MaterialTheme.typography.titleSmall,
+                     fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                Button(onClick = { presetName = ""; showSaveDialog = true }) {
+                    Text("保存当前为预设")
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+            Text("保存多套启动参数（如「纯净」vs「modded 加额外参数」），一键切换。",
+                 style = MaterialTheme.typography.labelSmall,
+                 color = MaterialTheme.colorScheme.outline)
+
+            if (presets.isNotEmpty()) {
+                Spacer(Modifier.height(12.dp))
+                presets.forEach { p ->
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(p.name, fontWeight = FontWeight.Medium)
+                                Text(
+                                    "${p.maxMemoryMb}MB | ${p.gcType}" +
+                                    if (p.useAikarFlags) " | Aikar" else "" +
+                                    if (p.customJvmArgs.isNotEmpty()) " | +JVM" else "",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.outline
+                                )
+                            }
+                            OutlinedButton(onClick = {
+                                vm.applyLaunchPreset(p.name)
+                                onPresetApplied(p.name)
+                            }) { Text("应用") }
+                            Spacer(Modifier.width(4.dp))
+                            IconButton(onClick = { vm.deleteLaunchPreset(p.name) }) {
+                                Icon(Icons.Filled.Delete, "删除预设",
+                                     tint = MaterialTheme.colorScheme.error,
+                                     modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showSaveDialog) {
+        AlertDialog(
+            onDismissRequest = { showSaveDialog = false },
+            title = { Text("保存启动预设") },
+            text = {
+                Column {
+                    Text("为当前启动参数命名：", style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = presetName,
+                        onValueChange = { presetName = it },
+                        label = { Text("预设名称") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (presets.any { it.name == presetName.trim() }) {
+                        Spacer(Modifier.height(4.dp))
+                        Text("同名预设将被覆盖",
+                             style = MaterialTheme.typography.labelSmall,
+                             color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (presetName.isNotBlank()) {
+                        vm.saveLaunchPreset(presetName)
+                        showSaveDialog = false
+                    }
+                }) { Text("保存") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSaveDialog = false }) { Text("取消") }
+            }
+        )
     }
 }
 

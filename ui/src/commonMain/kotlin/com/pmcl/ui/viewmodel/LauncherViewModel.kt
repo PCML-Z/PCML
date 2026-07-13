@@ -308,6 +308,10 @@ class LauncherViewModel {
     private val _javaDownloadStatus = MutableStateFlow("")
     val javaDownloadStatus: StateFlow<String> = _javaDownloadStatus.asStateFlow()
 
+    // ===== 启动预设 =====
+    private val _launchPresets = MutableStateFlow<List<Preferences.LaunchPreset>>(emptyList())
+    val launchPresets: StateFlow<List<Preferences.LaunchPreset>> = _launchPresets.asStateFlow()
+
     // ===== 世界 / 截图 / 资源包 =====
     private val _worlds = MutableStateFlow<List<WorldManager.WorldInfo>>(emptyList())
     val worlds: StateFlow<List<WorldManager.WorldInfo>> = _worlds.asStateFlow()
@@ -2336,6 +2340,37 @@ class LauncherViewModel {
                 _gameLogs.value = listOf("打开 ${launcher.name} 失败: ${e.message}")
             }
         }
+    }
+
+    // ===== 启动预设 =====
+
+    /** 刷新预设列表（从 Preferences 读取） */
+    fun refreshLaunchPresets() {
+        _launchPresets.value = preferences.getLaunchPresets()
+    }
+
+    /** 保存当前启动参数为预设 */
+    fun saveLaunchPreset(name: String) {
+        if (name.isBlank()) {
+            _status.value = "预设名称不能为空"
+            return
+        }
+        preferences.saveLaunchPreset(name.trim())
+        refreshLaunchPresets()
+        _status.value = "已保存预设：${name.trim()}"
+    }
+
+    /** 加载预设到当前启动参数 */
+    fun applyLaunchPreset(name: String) {
+        preferences.applyLaunchPreset(name)
+        _status.value = "已应用预设：$name"
+    }
+
+    /** 删除预设 */
+    fun deleteLaunchPreset(name: String) {
+        preferences.deleteLaunchPreset(name)
+        refreshLaunchPresets()
+        _status.value = "已删除预设：$name"
     }
 
     /**
