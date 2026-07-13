@@ -1009,10 +1009,10 @@ fun LaunchPage(vm: LauncherViewModel) {
                     val logListState = rememberLazyListState()
                     // remember 缓存避免每次重组都创建新列表
                     val displayedLogs = remember(gameLogs) { gameLogs.takeLast(500) }
-                    // 日志更新时平滑滚动到底部
+                    // 日志更新时滚动到底部（高频更新用 scrollToItem 避免 animate 互相取消导致卡顿）
                     LaunchedEffect(displayedLogs.size) {
                         if (displayedLogs.isNotEmpty()) {
-                            logListState.animateScrollToItem(displayedLogs.lastIndex)
+                            logListState.scrollToItem(displayedLogs.lastIndex)
                         }
                     }
                     LazyColumn(

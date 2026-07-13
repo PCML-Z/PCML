@@ -2,10 +2,11 @@ package com.pmcl.ui.page
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material3.*
@@ -43,7 +44,7 @@ fun TerminalPage(vm: LauncherViewModel) {
     var executing by remember { mutableStateOf(false) }
     val cli = remember { PmclCli(vm.core) }
     val scope = rememberCoroutineScope()
-    val scrollState = rememberScrollState()
+    val scrollState = rememberLazyListState()
 
     // 主题色（终端专用语义化映射）
     val bg = MaterialTheme.colorScheme.background
@@ -69,7 +70,7 @@ fun TerminalPage(vm: LauncherViewModel) {
     }
 
     LaunchedEffect(lines.size) {
-        scrollState.animateScrollTo(scrollState.maxValue)
+        if (lines.isNotEmpty()) scrollState.scrollToItem(lines.lastIndex)
     }
 
     Column(
@@ -128,51 +129,51 @@ fun TerminalPage(vm: LauncherViewModel) {
         Spacer(Modifier.height(4.dp))
 
         // 终端输出区
-        Box(
+        LazyColumn(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
                 .background(surface, RoundedCornerShape(6.dp))
-                .verticalScroll(scrollState)
-                .padding(12.dp)
+                .padding(12.dp),
+            state = scrollState
         ) {
-            Column {
-                lines.forEach { line ->
-                    when (line.type) {
-                        LineType.EMPTY -> Spacer(Modifier.height(2.dp))
-                        LineType.BANNER -> Text(
-                            line.text,
-                            color = primary,
-                            fontSize = 13.sp,
-                            fontFamily = FontFamily.Monospace
-                        )
-                        LineType.COMMAND -> Text(
-                            line.text,
-                            color = secondary,
-                            fontSize = 13.sp,
-                            fontFamily = FontFamily.Monospace
-                        )
-                        LineType.OUTPUT -> Text(
-                            line.text,
-                            color = onSurface,
-                            fontSize = 13.sp,
-                            fontFamily = FontFamily.Monospace
-                        )
-                        LineType.ERROR -> Text(
-                            line.text,
-                            color = error,
-                            fontSize = 13.sp,
-                            fontFamily = FontFamily.Monospace
-                        )
-                        LineType.HINT -> Text(
-                            line.text,
-                            color = tertiary,
-                            fontSize = 13.sp,
-                            fontFamily = FontFamily.Monospace
-                        )
-                    }
+            itemsIndexed(lines, key = { index, _ -> index }) { _, line ->
+                when (line.type) {
+                    LineType.EMPTY -> Spacer(Modifier.height(2.dp))
+                    LineType.BANNER -> Text(
+                        line.text,
+                        color = primary,
+                        fontSize = 13.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    LineType.COMMAND -> Text(
+                        line.text,
+                        color = secondary,
+                        fontSize = 13.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    LineType.OUTPUT -> Text(
+                        line.text,
+                        color = onSurface,
+                        fontSize = 13.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    LineType.ERROR -> Text(
+                        line.text,
+                        color = error,
+                        fontSize = 13.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    LineType.HINT -> Text(
+                        line.text,
+                        color = tertiary,
+                        fontSize = 13.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
                 }
-                if (executing) {
+            }
+            if (executing) {
+                item {
                     Text(
                         "_",
                         color = tertiary,

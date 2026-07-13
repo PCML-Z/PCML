@@ -461,6 +461,9 @@ class LauncherViewModel {
     val config: LauncherConfig get() = core.getConfig()
     val preferences: Preferences get() = core.getPreferences()
 
+    /** mods 目录扫描缓存：key=目录路径, value=[mtime, 扫描结果] */
+    private val modScanCache = java.util.concurrent.ConcurrentHashMap<Path, Array<Any>>()
+
     init {
         loadSavedAccount()
         refreshInstalledMods()
@@ -1260,7 +1263,17 @@ class LauncherViewModel {
                     // 扫描所有 mods 目录，按目录分组
                     for (modsDir in modsDirs) {
                         try {
-                            val part = ModScanner.scanDirectory(modsDir)
+                            // 基于目录 mtime 的缓存：未变化则复用上次扫描结果
+                            val dirMtime = try { java.nio.file.Files.getLastModifiedTime(modsDir).toMillis() } catch (_: Throwable) { 0L }
+                            val cached = modScanCache[modsDir]
+                            @Suppress("UNCHECKED_CAST")
+                            val part = if (cached != null && cached[0] as Long == dirMtime && dirMtime > 0L) {
+                                cached[1] as List<ModMeta>
+                            } else {
+                                val scanned = ModScanner.scanDirectory(modsDir)
+                                modScanCache[modsDir] = arrayOf(dirMtime, scanned)
+                                scanned
+                            }
                             // 为每个 mod 设置来源标签
                             val sourceLabel = sourceLabelFor(modsDir)
                             for (m in part) {

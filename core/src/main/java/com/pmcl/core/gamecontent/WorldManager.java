@@ -6,6 +6,8 @@ import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -21,6 +23,8 @@ public final class WorldManager {
 
     private final Path savesDir;
     private final Path backupsDir;
+    /** 世界大小缓存：key=世界目录路径, value=[mtime, size] */
+    private final Map<Path, long[]> sizeCache = new ConcurrentHashMap<>();
 
     public WorldManager(Path workDir) {
         this.savesDir = workDir.resolve("saves");
@@ -71,8 +75,16 @@ public final class WorldManager {
                 Path levelDat = dir.resolve("level.dat");
                 if (!Files.exists(levelDat)) return;
                 try {
-                    long size = dirSize(dir);
                     long mtime = Files.getLastModifiedTime(levelDat).toMillis();
+                    // 缓存命中：level.dat mtime 未变则复用上次计算的大小
+                    long[] cached = sizeCache.get(dir);
+                    long size;
+                    if (cached != null && cached[0] == mtime) {
+                        size = cached[1];
+                    } else {
+                        size = dirSize(dir);
+                        sizeCache.put(dir, new long[]{mtime, size});
+                    }
                     result.add(new WorldInfo(dir.getFileName().toString(), dir, mtime, size, source));
                 } catch (Throwable ignored) {
                     // 单个世界扫描失败（权限/符号链接/损坏）不应中断其他世界的加载
@@ -136,6 +148,7 @@ public final class WorldManager {
     /** 删除世界 */
     public void delete(WorldInfo world) throws IOException {
         deleteRecursive(world.getDir());
+        sizeCache.remove(world.getDir());
     }
 
     private static long dirSize(Path dir) throws IOException {

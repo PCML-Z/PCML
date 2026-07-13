@@ -298,45 +298,32 @@ public final class VersionManager {
             }
         }
 
-        // 预计算各目录的版本数 + 总数
-        List<Integer> dirCounts = new ArrayList<>();
-        final int[] grandTotalArr = {0};
+        // 第一遍：逐目录扫描（scanVersionsDir 内部只 list 一次），收集结果和各目录计数
+        List<List<LocalVersionInfo>> parts = new ArrayList<>();
+        List<String> dirNames = new ArrayList<>();
         for (Path d : dirs) {
-            int cnt = 0;
-            if (Files.isDirectory(d)) {
-                try (var stream = Files.list(d)) {
-                    var it = stream.filter(Files::isDirectory).iterator();
-                    while (it.hasNext()) { it.next(); cnt++; }
-                } catch (IOException ignored) {}
-            }
-            dirCounts.add(cnt);
-            grandTotalArr[0] += cnt;
+            if (!Files.isDirectory(d)) { parts.add(Collections.emptyList()); continue; }
+            dirNames.add(d.getFileName() != null ? d.getFileName().toString() : d.toString());
+            parts.add(scanVersionsDir(d, null));
         }
-        final int grandTotal = grandTotalArr[0];
+        // 计算总数
+        int grandTotal = 0;
+        for (List<LocalVersionInfo> part : parts) grandTotal += part.size();
 
-        // 逐目录扫描，跨目录累计进度
+        // 第二遍：合并去重 + 回调进度
         List<LocalVersionInfo> pmcl = new ArrayList<>();
-        int[] scanned = {0};
-        for (int i = 0; i < dirs.size(); i++) {
-            Path d = dirs.get(i);
-            if (!Files.isDirectory(d)) continue;
-            String dirName = d.getFileName() != null ? d.getFileName().toString() : d.toString();
-            final int dirTotal = dirCounts.get(i);
-            final String fDirName = dirName;
-            final int[] dirScanned = {0};
-            List<LocalVersionInfo> part = scanVersionsDir(d, p -> {
-                dirScanned[0]++;
-                scanned[0]++;
-                // 用全局 scanned/total 回调，currentDir 标识当前目录
-                if (onProgress != null) {
-                    onProgress.accept(new ScanProgress(fDirName, scanned[0], grandTotal, p.getCurrentVersion()));
+        java.util.Set<String> existing = new java.util.HashSet<>();
+        int scanned = 0;
+        for (int i = 0; i < parts.size(); i++) {
+            String dirName = i < dirNames.size() ? dirNames.get(i) : "";
+            for (var v : parts.get(i)) {
+                if (existing.add(v.getId())) {
+                    pmcl.add(v);
                 }
-            });
-            // 去重：pmcl 已有的不再加入
-            java.util.Set<String> existing = new java.util.HashSet<>();
-            for (var v : pmcl) existing.add(v.getId());
-            for (var v : part) {
-                if (!existing.contains(v.getId())) pmcl.add(v);
+                scanned++;
+                if (onProgress != null) {
+                    onProgress.accept(new ScanProgress(dirName, scanned, grandTotal, v.getId()));
+                }
             }
         }
         return pmcl;

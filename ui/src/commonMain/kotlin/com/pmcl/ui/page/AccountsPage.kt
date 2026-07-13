@@ -325,7 +325,12 @@ private fun AccountRow(
 
 // ============ 皮肤图片加载（带内存缓存） ============
 
-private val skinImageCache = ConcurrentHashMap<String, ImageBitmap?>()
+private val skinImageCache = java.util.Collections.synchronizedMap(
+    object : LinkedHashMap<String, ImageBitmap?>(32, 0.75f, true) {
+        override fun removeEldestEntry(eldest: Map.Entry<String, ImageBitmap?>): Boolean {
+            return size > 50
+        }
+    })
 
 /** 异步加载皮肤图片，带内存缓存 */
 @Composable
@@ -340,7 +345,6 @@ private fun SkinImage(url: String, sizePx: Int) {
                 val bytes = URL(url).readBytes()
                 val bmp = SkiaImage.makeFromEncoded(bytes).toComposeImageBitmap()
                 skinImageCache[url] = bmp
-                if (skinImageCache.size > 50) skinImageCache.clear()
                 image = bmp
             } catch (_: Throwable) {
                 skinImageCache[url] = null
