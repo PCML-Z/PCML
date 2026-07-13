@@ -170,6 +170,29 @@ public final class LaunchProfileBuilder {
     }
 
     /**
+     * 按实例启动：使用 baseVersionId 的 JSON/jar/库文件，但 gameDir 指向实例目录。
+     * <p>
+     * 实例始终使用独立目录（忽略全局 versionIsolation 开关），因为实例的本质就是隔离。
+     *
+     * @param baseVersionId  基础 Minecraft 版本 ID（如 "1.20.4"）
+     * @param instanceDir    实例目录路径（gameDir）
+     * @param account        账号
+     * @param javaMajorVersion Java 主版本号
+     * @param javaArch       Java 架构
+     */
+    public LaunchProfile buildInstance(String baseVersionId, java.nio.file.Path instanceDir,
+                                       Account account, int javaMajorVersion, String javaArch) throws IOException {
+        if (javaArch != null && !javaArch.isEmpty()) {
+            com.pmcl.core.install.Library.setArchOverride(javaArch);
+        }
+        try {
+            return buildInternal(baseVersionId, account, javaMajorVersion, instanceDir);
+        } finally {
+            com.pmcl.core.install.Library.clearArchOverride();
+        }
+    }
+
+    /**
      * 读取版本 JSON 要求的 Java 主版本号（javaVersion.majorVersion）。
      * alpha/beta/1.7- 等旧版本无此字段，但实际需要 Java 8（LWJGL 2.x / 旧反射 API）。
      * 判断依据：无 javaVersion 字段且使用旧格式 minecraftArguments（而非 arguments 对象）→ 返回 8。
@@ -192,6 +215,16 @@ public final class LaunchProfileBuilder {
      *                         用于条件注入 Java 16+ 专属参数，避免在 Java 8 上启动失败。
      */
     private LaunchProfile buildInternal(String versionId, Account account, int javaMajorVersion) throws IOException {
+        return buildInternal(versionId, account, javaMajorVersion, null);
+    }
+
+    /**
+     * 实际构造启动配置的内部方法。
+     * @param javaMajorVersion 实际使用的 Java 主版本号（如 8/17/21），0 表示未知。
+     * @param instanceDir 非空时表示按实例启动，gameDir 固定为此目录（忽略 versionIsolation）。
+     */
+    private LaunchProfile buildInternal(String versionId, Account account, int javaMajorVersion,
+                                        java.nio.file.Path instanceDir) throws IOException {
         VersionJson vj = loadVersionJson(versionId);
 
         LaunchProfile profile = new LaunchProfile(config, account, versionId);
@@ -209,8 +242,23 @@ public final class LaunchProfileBuilder {
         // 校验并自动下载缺失的库文件（修复不完整的 MC 安装）
         verifyLibraries(vj, librariesDir);
 
-        // 设置游戏工作目录：整合包用版本目录本身，普通版本用 mcRoot
-        Path gameDir = resolveGameDir(versionId, mcRoot);
+        // 设置游戏工作目录：实例启动时固定为实例目录，否则按 versionIsolation/整合包逻辑推导
+        Path gameDir;
+        if (instanceDir != null) {
+            // 实例启动：始终使用实例目录，自动创建子目录
+            gameDir = instanceDir;
+            try {
+                java.nio.file.Files.createDirectories(instanceDir);
+                for (String sub : new String[]{"mods", "saves", "config", "resourcepacks",
+                        "shaderpacks", "screenshots", "logs"}) {
+                    java.nio.file.Files.createDirectories(instanceDir.resolve(sub));
+                }
+            } catch (IOException e) {
+                throw new RuntimeException("无法创建实例目录: " + instanceDir, e);
+            }
+        } else {
+            gameDir = resolveGameDir(versionId, mcRoot);
+        }
         profile.setGameDir(gameDir);
 
         Set<String> seen = new LinkedHashSet<>();

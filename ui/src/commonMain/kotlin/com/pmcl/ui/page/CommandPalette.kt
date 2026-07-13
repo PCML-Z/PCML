@@ -68,6 +68,7 @@ private const val GROUP_ACTION = "action"
 private const val GROUP_NAV = "navigation"
 private const val GROUP_VERSION = "version"
 private const val GROUP_MOD = "mod"
+private const val GROUP_INSTANCE = "instance"
 
 /**
  * 构建全部可搜索项索引（包含导航、版本、模组、快捷操作）。
@@ -221,6 +222,27 @@ fun buildSearchIndex(vm: LauncherViewModel): List<SearchItem> {
         ))
     }
 
+    // ===== 独立实例（可直接启动） =====
+    val instances by vm.instances.collectAsState()
+    instances.forEach { inst ->
+        val instName = inst.getName() ?: ""
+        if (instName.isEmpty()) return@forEach
+        items.add(SearchItem(
+            title = instName,
+            subtitle = buildString {
+                append(inst.getBaseVersionId() ?: "")
+                inst.getLoader()?.let { if (it.isNotEmpty()) append(" · $it") }
+            },
+            icon = Icons.Filled.Dashboard,
+            group = GROUP_INSTANCE,
+            keywords = listOf("instance", "实例", instName, inst.getBaseVersionId() ?: ""),
+            onSelect = {
+                vm.requestNavigation("instances")
+                if (inst.isLaunchable()) vm.launchInstance(inst.getInstanceId())
+            }
+        ))
+    }
+
     return items
 }
 
@@ -236,6 +258,7 @@ private fun describeRoute(route: String): String = when (route) {
     "settings" -> I18n.t("search.nav.settings")
     "terminal" -> I18n.t("search.nav.terminal")
     "plugins" -> I18n.t("search.nav.plugins")
+    "instances" -> I18n.t("search.nav.instances")
     else -> ""
 }
 
@@ -251,6 +274,7 @@ private fun keywordsForRoute(route: String, label: String): List<String> = when 
     "settings" -> listOf("设置", "settings", "偏好", "配置")
     "terminal" -> listOf("终端", "terminal", "命令行", "console")
     "plugins" -> listOf("插件", "plugin", "扩展")
+    "instances" -> listOf("实例", "instance", "独立", "prism", "multimc")
     else -> listOf(label)
 }
 
@@ -335,13 +359,14 @@ private fun filterAndGroup(query: String, items: List<SearchItem>): List<SearchR
 
     if (scored.isEmpty()) return emptyList()
 
-    // 按分组聚合，保持分组顺序：操作 > 导航 > 版本 > 模组
-    val groupOrder = listOf(GROUP_ACTION, GROUP_NAV, GROUP_VERSION, GROUP_MOD)
+    // 按分组聚合，保持分组顺序：操作 > 导航 > 版本 > 模组 > 实例
+    val groupOrder = listOf(GROUP_ACTION, GROUP_NAV, GROUP_VERSION, GROUP_MOD, GROUP_INSTANCE)
     val groupLabels = mapOf(
         GROUP_ACTION to I18n.t("search.group.action"),
         GROUP_NAV to I18n.t("search.group.navigation"),
         GROUP_VERSION to I18n.t("search.group.version"),
-        GROUP_MOD to I18n.t("search.group.mod")
+        GROUP_MOD to I18n.t("search.group.mod"),
+        GROUP_INSTANCE to I18n.t("search.group.instance")
     )
 
     return groupOrder.mapNotNull { groupKey ->

@@ -15,6 +15,7 @@ import com.pmcl.core.modpack.ModpackManager;
 import com.pmcl.core.multiplayer.MultiplayerManager;
 import com.pmcl.core.migration.MigrationManager;
 import com.pmcl.core.news.NewsClient;
+import com.pmcl.core.instance.InstanceManager;
 import com.pmcl.core.plugin.PluginManager;
 import com.pmcl.core.preferences.Preferences;
 import com.pmcl.core.runtime.JavaRuntimeDownloader;
@@ -80,6 +81,7 @@ public final class LauncherCore {
     private final MigrationManager migrationManager;
     private final PluginManager pluginManager;
     private final TranslateClient translateClient;
+    private final InstanceManager instanceManager;
 
     public LauncherCore() {
         this(new LauncherConfig());
@@ -89,6 +91,7 @@ public final class LauncherCore {
         this.config = config;
         this.preferences = new Preferences(
                 Paths.get(System.getProperty("user.home"), ".pmcl", "preferences.json"));
+        this.instanceManager = new InstanceManager(config);
 
         this.versionManager = new VersionManager(config);
         this.downloadManager = new DownloadManager(config);
@@ -213,4 +216,6 @@ public final class LauncherCore {
     public LaunchProfileBuilder profileBuilder() { return profileBuilder; }
 
     public PluginManager plugins() { return pluginManager; }
+
+    public InstanceManager instances() { return instanceManager; }
 }

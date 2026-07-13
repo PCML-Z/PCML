@@ -41,6 +41,11 @@ public final class LauncherConfig {
         return workDir.resolve("runtimes");
     }
 
+    /** 实例根目录 {@code ~/.pmcl/instances/}，用于独立实例管理 */
+    public Path getInstancesDir() {
+        return workDir.resolve("instances");
+    }
+
     public int getMinMemoryMb() {
         return minMemoryMb;
     }

@@ -32,6 +32,8 @@ import com.pmcl.core.gamecontent.ConfigFileManager
 import com.pmcl.core.gamecontent.DatapackManager
 import com.pmcl.core.install.IntegrityChecker
 import com.pmcl.core.launch.CrashAnalyzer
+import com.pmcl.core.instance.InstanceInfo
+import com.pmcl.core.instance.InstanceManager
 import com.pmcl.core.web.WikiBrowser
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -1933,7 +1935,16 @@ class LauncherViewModel {
                     return@launch
                 }
                 val profile = withContext(Dispatchers.IO) {
-                    core.profileBuilder().build(versionId, account, javaMajorVer, javaArch)
+                    val instDir = _pendingInstanceDir
+                    val instInfo = _pendingInstanceInfo
+                    if (instDir != null && instInfo != null) {
+                        // 实例启动：用基础版本的 JSON/jar/库，但 gameDir 指向实例目录
+                        core.profileBuilder().buildInstance(
+                            versionId, instDir, account, javaMajorVer, javaArch
+                        )
+                    } else {
+                        core.profileBuilder().build(versionId, account, javaMajorVer, javaArch)
+                    }
                 }
 
                 // 创建/复用 GameLogger 持久化日志（多实例：每个实例独立日志文件）
@@ -2042,6 +2053,9 @@ class LauncherViewModel {
                     }
                 }
             } finally {
+                // 清除实例启动上下文
+                _pendingInstanceDir = null
+                _pendingInstanceInfo = null
                 instanceId?.let { id ->
                     // 从运行列表中移除此实例
                     _runningInstances.update { list ->
@@ -3264,6 +3278,105 @@ class LauncherViewModel {
     fun pingAllServers() {
         val servers = _favoriteServers.value
         servers.forEach { s -> pingServer(s.host, s.port) }
+    }
+
+    // ============ 独立实例管理 ============
+
+    private val _instances = MutableStateFlow<List<InstanceInfo>>(emptyList())
+    val instances: StateFlow<List<InstanceInfo>> = _instances.asStateFlow()
+
+    private val _instanceLaunching = MutableStateFlow<String?>(null)
+    val instanceLaunching: StateFlow<String?> = _instanceLaunching.asStateFlow()
+
+    // 实例启动上下文：launch() 读取此字段决定是否按实例模式启动
+    @Volatile private var _pendingInstanceDir: java.nio.file.Path? = null
+    @Volatile private var _pendingInstanceInfo: InstanceInfo? = null
+
+    /** 加载实例列表 */
+    fun loadInstances() {
+        scope.launch {
+            try {
+                val list = withContext(Dispatchers.IO) { core.instances().listInstances() }
+                _instances.value = list
+            } catch (e: Throwable) {
+                _status.value = "加载实例失败: ${e.message}"
+            }
+        }
+    }
+
+    /** 创建新实例 */
+    fun createInstance(name: String, baseVersionId: String, loader: String?, loaderVersion: String?) {
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    core.instances().createInstance(name, baseVersionId, loader, loaderVersion)
+                }
+                loadInstances()
+                _status.value = "实例「$name」已创建"
+            } catch (e: Throwable) {
+                _status.value = "创建实例失败: ${e.message}"
+            }
+        }
+    }
+
+    /** 复制实例（克隆 mods/configs/resourcepacks） */
+    fun copyInstance(instanceId: String, newName: String) {
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    core.instances().copyInstance(instanceId, newName)
+                }
+                loadInstances()
+                _status.value = "实例「$newName」已从原实例复制"
+            } catch (e: Throwable) {
+                _status.value = "复制实例失败: ${e.message}"
+            }
+        }
+    }
+
+    /** 重命名实例 */
+    fun renameInstance(instanceId: String, newName: String) {
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    core.instances().renameInstance(instanceId, newName)
+                }
+                loadInstances()
+                _status.value = "实例已重命名为「$newName」"
+            } catch (e: Throwable) {
+                _status.value = "重命名失败: ${e.message}"
+            }
+        }
+    }
+
+    /** 删除实例 */
+    fun deleteInstance(instanceId: String) {
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    core.instances().deleteInstance(instanceId)
+                }
+                loadInstances()
+                _status.value = "实例已删除"
+            } catch (e: Throwable) {
+                _status.value = "删除实例失败: ${e.message}"
+            }
+        }
+    }
+
+    /** 启动实例 */
+    fun launchInstance(instanceId: String) {
+        val info = _instances.value.find { it.getInstanceId() == instanceId } ?: return
+        if (!info.isLaunchable()) {
+            _status.value = "实例「${info.getName()}」缺少基础版本，无法启动"
+            return
+        }
+        // 设置实例上下文，launch() 会读取此字段用 buildInstance 代替 build
+        _pendingInstanceDir = info.getInstanceDir()
+        _pendingInstanceInfo = info
+        // 选中基础版本并调用现有 launch 流程
+        selectVersion(info.getBaseVersionId())
+        launch()
     }
 
     // ============ 首次启动 / 迁移 ============

@@ -68,6 +68,7 @@ public final class I18n {
         ZH.put("nav.settings", "设置");
         ZH.put("nav.terminal", "终端");
         ZH.put("nav.plugins", "插件");
+        ZH.put("nav.instances", "实例");
         ZH.put("nav.mods", "模组");
         ZH.put("nav.market", "市场");
         ZH.put("nav.worlds", "世界");
@@ -91,6 +92,7 @@ public final class I18n {
         ZH.put("search.group.navigation", "页面导航");
         ZH.put("search.group.version", "已安装版本");
         ZH.put("search.group.mod", "已安装模组");
+        ZH.put("search.group.instance", "实例");
         // 快捷操作
         ZH.put("search.action.launch", "启动游戏");
         ZH.put("search.action.launch.desc", "启动当前选中的 Minecraft 版本");
@@ -114,6 +116,7 @@ public final class I18n {
         ZH.put("search.nav.settings", "启动器设置、镜像、代理、外观");
         ZH.put("search.nav.terminal", "内置终端");
         ZH.put("search.nav.plugins", "插件管理");
+        ZH.put("search.nav.instances", "独立实例管理（Prism/MultiMC 风格）");
         // Hub 子页面描述
         ZH.put("search.hub.mods", "内容中心 - 模组管理");
         ZH.put("search.hub.modpacks", "内容中心 - 整合包");
@@ -253,6 +256,41 @@ public final class I18n {
         ZH.put("modpack.save_path", "保存路径");
         ZH.put("modpack.save_file", "保存整合包");
         ZH.put("modpack.export_content", "导出包含：mods/、config/、resourcepacks/、shaderpacks/、options.txt");
+
+        // ===== 实例页 =====
+        ZH.put("instance.title", "实例管理");
+        ZH.put("instance.empty", "暂无实例");
+        ZH.put("instance.empty_hint", "点击「新建实例」创建一个独立实例，可装不同 mod 的同版本并行存在");
+        ZH.put("instance.create", "新建实例");
+        ZH.put("instance.copy", "复制");
+        ZH.put("instance.rename", "重命名");
+        ZH.put("instance.delete", "删除");
+        ZH.put("instance.launch", "启动");
+        ZH.put("instance.open_dir", "打开目录");
+        ZH.put("instance.create_title", "新建实例");
+        ZH.put("instance.create_hint", "实例使用独立目录，可与同版本其他实例装不同 mod 并行存在");
+        ZH.put("instance.name", "实例名称");
+        ZH.put("instance.base_version", "基础版本");
+        ZH.put("instance.loader", "模组加载器");
+        ZH.put("instance.loader_version", "加载器版本");
+        ZH.put("instance.loader_none", "无（原版）");
+        ZH.put("instance.rename_title", "重命名实例");
+        ZH.put("instance.copy_title", "复制实例");
+        ZH.put("instance.copy_hint", "将克隆 mods/config/resourcepacks/shaderpacks，不复制存档和截图");
+        ZH.put("instance.delete_title", "删除实例");
+        ZH.put("instance.delete_confirm", "确定要删除实例「{0}」吗？\n这将删除该实例的所有 mods、saves 和 config，不可恢复。");
+        ZH.put("instance.type_custom", "自定义");
+        ZH.put("instance.type_modpack", "整合包");
+        ZH.put("instance.last_played", "最后游玩：{0}");
+        ZH.put("instance.never_played", "未游玩过");
+        ZH.put("instance.play_time", "总时长：{0}");
+        ZH.put("instance.missing_version", "缺少基础版本");
+        ZH.put("instance.creating", "正在创建实例...");
+        ZH.put("instance.copying", "正在复制实例...");
+        ZH.put("instance.status_created", "实例「{0}」已创建");
+        ZH.put("instance.status_copied", "实例「{0}」已从原实例复制");
+        ZH.put("instance.status_renamed", "实例已重命名为「{0}」");
+        ZH.put("instance.status_deleted", "实例已删除");
 
         // ===== 世界页 =====
         ZH.put("worlds.title", "世界管理");
@@ -482,6 +520,7 @@ public final class I18n {
         EN.put("nav.settings", "Settings");
         EN.put("nav.terminal", "Terminal");
         EN.put("nav.plugins", "Plugins");
+        EN.put("nav.instances", "Instances");
         EN.put("nav.mods", "Mods");
         EN.put("nav.market", "Market");
         EN.put("nav.worlds", "Worlds");
@@ -504,6 +543,7 @@ public final class I18n {
         EN.put("search.group.navigation", "Navigation");
         EN.put("search.group.version", "Installed Versions");
         EN.put("search.group.mod", "Installed Mods");
+        EN.put("search.group.instance", "Instances");
         EN.put("search.action.launch", "Launch Game");
         EN.put("search.action.launch.desc", "Launch the currently selected Minecraft version");
         EN.put("search.action.scan_versions", "Scan Local Versions");
@@ -525,6 +565,7 @@ public final class I18n {
         EN.put("search.nav.settings", "Launcher settings, mirror, proxy, appearance");
         EN.put("search.nav.terminal", "Built-in terminal");
         EN.put("search.nav.plugins", "Plugin management");
+        EN.put("search.nav.instances", "Independent instance management (Prism/MultiMC style)");
         EN.put("search.hub.mods", "Content Hub - Mods");
         EN.put("search.hub.modpacks", "Content Hub - Modpacks");
         EN.put("search.hub.shaders", "Content Hub - Shaders");
@@ -656,6 +697,41 @@ public final class I18n {
         EN.put("modpack.save_path", "Save path");
         EN.put("modpack.save_file", "Save modpack");
         EN.put("modpack.export_content", "Includes: mods/, config/, resourcepacks/, shaderpacks/, options.txt");
+
+        // ===== Instance page =====
+        EN.put("instance.title", "Instance Manager");
+        EN.put("instance.empty", "No instances");
+        EN.put("instance.empty_hint", "Click \"Create\" to create an independent instance — same version with different mods can coexist");
+        EN.put("instance.create", "Create");
+        EN.put("instance.copy", "Copy");
+        EN.put("instance.rename", "Rename");
+        EN.put("instance.delete", "Delete");
+        EN.put("instance.launch", "Launch");
+        EN.put("instance.open_dir", "Open Folder");
+        EN.put("instance.create_title", "Create Instance");
+        EN.put("instance.create_hint", "Instances use isolated directories; same version with different mods can coexist");
+        EN.put("instance.name", "Instance name");
+        EN.put("instance.base_version", "Base version");
+        EN.put("instance.loader", "Mod loader");
+        EN.put("instance.loader_version", "Loader version");
+        EN.put("instance.loader_none", "None (Vanilla)");
+        EN.put("instance.rename_title", "Rename Instance");
+        EN.put("instance.copy_title", "Copy Instance");
+        EN.put("instance.copy_hint", "Clones mods/config/resourcepacks/shaderpacks; saves and screenshots are not copied");
+        EN.put("instance.delete_title", "Delete Instance");
+        EN.put("instance.delete_confirm", "Delete instance \"{0}\"?\nThis removes all mods, saves and config permanently.");
+        EN.put("instance.type_custom", "Custom");
+        EN.put("instance.type_modpack", "Modpack");
+        EN.put("instance.last_played", "Last played: {0}");
+        EN.put("instance.never_played", "Never played");
+        EN.put("instance.play_time", "Total play time: {0}");
+        EN.put("instance.missing_version", "Missing base version");
+        EN.put("instance.creating", "Creating instance...");
+        EN.put("instance.copying", "Copying instance...");
+        EN.put("instance.status_created", "Instance \"{0}\" created");
+        EN.put("instance.status_copied", "Instance \"{0}\" copied from source");
+        EN.put("instance.status_renamed", "Instance renamed to \"{0}\"");
+        EN.put("instance.status_deleted", "Instance deleted");
 
         EN.put("worlds.title", "Worlds");
         EN.put("worlds.empty", "No worlds. Worlds will be created when you start the game.");
@@ -872,6 +948,7 @@ public final class I18n {
         JA.put("nav.settings", "設定");
         JA.put("nav.terminal", "ターミナル");
         JA.put("nav.plugins", "プラグイン");
+        JA.put("nav.instances", "インスタンス");
         JA.put("nav.mods", "Mod");
         JA.put("nav.market", "市場");
         JA.put("nav.worlds", "ワールド");
@@ -894,6 +971,7 @@ public final class I18n {
         JA.put("search.group.navigation", "ナビゲーション");
         JA.put("search.group.version", "インストール済みバージョン");
         JA.put("search.group.mod", "インストール済みMod");
+        JA.put("search.group.instance", "インスタンス");
         JA.put("search.action.launch", "ゲーム起動");
         JA.put("search.action.launch.desc", "選択中のMinecraftバージョンを起動");
         JA.put("search.action.scan_versions", "ローカルバージョンをスキャン");
@@ -915,6 +993,7 @@ public final class I18n {
         JA.put("search.nav.settings", "ランチャー設定、ミラー、プロキシ、外観");
         JA.put("search.nav.terminal", "内蔵ターミナル");
         JA.put("search.nav.plugins", "プラグイン管理");
+        JA.put("search.nav.instances", "独立インスタンス管理（Prism/MultiMC 風）");
         JA.put("search.hub.mods", "コンテンツ - Mod");
         JA.put("search.hub.modpacks", "コンテンツ - Modpack");
         JA.put("search.hub.shaders", "コンテンツ - シェーダー");
@@ -1046,6 +1125,41 @@ public final class I18n {
         JA.put("modpack.save_path", "保存先");
         JA.put("modpack.save_file", "Modpackを保存");
         JA.put("modpack.export_content", "含む: mods/、config/、resourcepacks/、shaderpacks/、options.txt");
+
+        // ===== インスタンスページ =====
+        JA.put("instance.title", "インスタンス管理");
+        JA.put("instance.empty", "インスタンスなし");
+        JA.put("instance.empty_hint", "「新規作成」で独立インスタンスを作成。同バージョンで異なるModを並行可能");
+        JA.put("instance.create", "新規作成");
+        JA.put("instance.copy", "コピー");
+        JA.put("instance.rename", "名前変更");
+        JA.put("instance.delete", "削除");
+        JA.put("instance.launch", "起動");
+        JA.put("instance.open_dir", "フォルダを開く");
+        JA.put("instance.create_title", "インスタンス作成");
+        JA.put("instance.create_hint", "インスタンスは独立ディレクトリを使用。同バージョンの異なるModが並行可能");
+        JA.put("instance.name", "インスタンス名");
+        JA.put("instance.base_version", "ベースバージョン");
+        JA.put("instance.loader", "Modローダー");
+        JA.put("instance.loader_version", "ローダーバージョン");
+        JA.put("instance.loader_none", "なし（バニラ）");
+        JA.put("instance.rename_title", "インスタンス名変更");
+        JA.put("instance.copy_title", "インスタンスコピー");
+        JA.put("instance.copy_hint", "mods/config/resourcepacks/shaderpacksをクローン。セーブとスクショはコピーしません");
+        JA.put("instance.delete_title", "インスタンス削除");
+        JA.put("instance.delete_confirm", "インスタンス「{0}」を削除しますか？\nすべてのmods、saves、configが完全に削除されます。");
+        JA.put("instance.type_custom", "カスタム");
+        JA.put("instance.type_modpack", "Modpack");
+        JA.put("instance.last_played", "最終プレイ: {0}");
+        JA.put("instance.never_played", "未プレイ");
+        JA.put("instance.play_time", "総プレイ時間: {0}");
+        JA.put("instance.missing_version", "ベースバージョン不明");
+        JA.put("instance.creating", "インスタンス作成中...");
+        JA.put("instance.copying", "インスタンスコピー中...");
+        JA.put("instance.status_created", "インスタンス「{0}」を作成しました");
+        JA.put("instance.status_copied", "インスタンス「{0}」をコピーしました");
+        JA.put("instance.status_renamed", "インスタンス名を「{0}」に変更しました");
+        JA.put("instance.status_deleted", "インスタンスを削除しました");
 
         JA.put("worlds.title", "ワールド管理");
         JA.put("worlds.empty", "ワールドがありません。ゲーム起動時にsavesディレクトリに作成されます。");
