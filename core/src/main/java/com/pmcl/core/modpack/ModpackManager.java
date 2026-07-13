@@ -155,16 +155,21 @@ public final class ModpackManager {
         public final String loaderVersion;
         public final Path instanceDir;
         public final long modCount;
+        public final String source;         // 来源标签（"PMCL" / "外部" / 版本 ID）
 
         public InstalledModpack(String name, String gameVersion, String loader,
-                                String loaderVersion, Path instanceDir, long modCount) {
+                                String loaderVersion, Path instanceDir, long modCount,
+                                String source) {
             this.name = name;
             this.gameVersion = gameVersion;
             this.loader = loader;
             this.loaderVersion = loaderVersion;
             this.instanceDir = instanceDir;
             this.modCount = modCount;
+            this.source = source;
         }
+
+        public String getSource() { return source; }
     }
 
     // ===== 导入 =====
@@ -574,41 +579,80 @@ public final class ModpackManager {
 
     public List<InstalledModpack> listInstalledModpacks() {
         List<InstalledModpack> result = new ArrayList<>();
-        Path instancesDir = config.getWorkDir().resolve("instances");
-        if (!Files.isDirectory(instancesDir)) return result;
 
+        // 1. PMCL 工作目录的 instances
+        Path instancesDir = config.getWorkDir().resolve("instances");
+        scanInstances(instancesDir, "PMCL", result);
+
+        // 2. 外部启动器（系统所有 Minecraft 根目录的 instances）+ 各版本目录直接检查
+        for (Path versionsDir : com.pmcl.core.version.VersionManager.detectAllMinecraftVersionsDirs()) {
+            if (!Files.isDirectory(versionsDir)) continue;
+            Path mcRoot = versionsDir.getParent();
+            // 2a. 检查外部启动器的 instances 目录
+            if (mcRoot != null) {
+                Path externalInstances = mcRoot.resolve("instances");
+                // 跳过 PMCL 自身（避免重复扫描）
+                if (!externalInstances.equals(instancesDir)) {
+                    scanInstances(externalInstances, "外部", result);
+                }
+            }
+            // 2b. 每个版本目录直接检查 modpack.json（source = 版本 ID）
+            try (var stream = Files.list(versionsDir)) {
+                var it = stream.iterator();
+                while (it.hasNext()) {
+                    Path versionDir = it.next();
+                    if (!Files.isDirectory(versionDir)) continue;
+                    InstalledModpack mp = parseInstance(versionDir,
+                            versionDir.getFileName().toString());
+                    if (mp != null) result.add(mp);
+                }
+            } catch (IOException ignored) {
+            }
+        }
+        return result;
+    }
+
+    /** 扫描指定 instances 目录下的所有整合包实例 */
+    private void scanInstances(Path instancesDir, String source, List<InstalledModpack> result) {
+        if (!Files.isDirectory(instancesDir)) return;
         try (var stream = Files.list(instancesDir)) {
             var it = stream.iterator();
             while (it.hasNext()) {
                 Path dir = it.next();
                 if (!Files.isDirectory(dir)) continue;
-                Path infoFile = dir.resolve("modpack.json");
-                if (!Files.exists(infoFile)) continue;
-                try {
-                    String json = Files.readString(infoFile,
-                            java.nio.charset.StandardCharsets.UTF_8);
-                    JsonObject o = JsonParser.parseString(json).getAsJsonObject();
-                    String name = safeStr(o, "name", dir.getFileName().toString());
-                    String gameVersion = safeStr(o, "gameVersion", "");
-                    String loader = safeStr(o, "loader", "");
-                    String loaderVersion = safeStr(o, "loaderVersion", "");
-
-                    long modCount = 0;
-                    Path modsDir = dir.resolve("mods");
-                    if (Files.isDirectory(modsDir)) {
-                        try (var s = Files.list(modsDir)) {
-                            modCount = s.filter(p -> p.toString().endsWith(".jar")).count();
-                        }
-                    }
-                    result.add(new InstalledModpack(name, gameVersion, loader,
-                            loaderVersion, dir, modCount));
-                } catch (Throwable ignored) {
-                    // 跳过损坏的实例
-                }
+                InstalledModpack mp = parseInstance(dir, source);
+                if (mp != null) result.add(mp);
             }
         } catch (IOException ignored) {
         }
-        return result;
+    }
+
+    /** 解析单个实例目录的 modpack.json，失败返回 null */
+    private InstalledModpack parseInstance(Path dir, String source) {
+        Path infoFile = dir.resolve("modpack.json");
+        if (!Files.exists(infoFile)) return null;
+        try {
+            String json = Files.readString(infoFile,
+                    java.nio.charset.StandardCharsets.UTF_8);
+            JsonObject o = JsonParser.parseString(json).getAsJsonObject();
+            String name = safeStr(o, "name", dir.getFileName().toString());
+            String gameVersion = safeStr(o, "gameVersion", "");
+            String loader = safeStr(o, "loader", "");
+            String loaderVersion = safeStr(o, "loaderVersion", "");
+
+            long modCount = 0;
+            Path modsDir = dir.resolve("mods");
+            if (Files.isDirectory(modsDir)) {
+                try (var s = Files.list(modsDir)) {
+                    modCount = s.filter(p -> p.toString().endsWith(".jar")).count();
+                }
+            }
+            return new InstalledModpack(name, gameVersion, loader,
+                    loaderVersion, dir, modCount, source);
+        } catch (Throwable ignored) {
+            // 跳过损坏的实例
+            return null;
+        }
     }
 
     // ===== 删除整合包实例 =====

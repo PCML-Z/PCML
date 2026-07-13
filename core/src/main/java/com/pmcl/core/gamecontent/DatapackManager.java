@@ -30,17 +30,21 @@ public final class DatapackManager {
         private final int packFormat;
         private final String description;
         private final boolean isZip;
+        private final boolean disabled;     // 是否被禁用（.zip.disabled 或 .disabled 目录）
 
-        public Datapack(String name, Path path, int packFormat, String description, boolean isZip) {
+        public Datapack(String name, Path path, int packFormat, String description,
+                        boolean isZip, boolean disabled) {
             this.name = name; this.path = path;
             this.packFormat = packFormat; this.description = description;
             this.isZip = isZip;
+            this.disabled = disabled;
         }
         public String getName() { return name; }
         public Path getPath() { return path; }
         public int getPackFormat() { return packFormat; }
         public String getDescription() { return description; }
         public boolean isZip() { return isZip; }
+        public boolean isDisabled() { return disabled; }
     }
 
     /** 扫描指定世界的 datapacks 目录 */
@@ -51,11 +55,15 @@ public final class DatapackManager {
         try (Stream<Path> stream = Files.list(dpDir)) {
             stream.forEach(p -> {
                 String name = p.getFileName().toString();
+                String lower = name.toLowerCase();
                 Datapack dp;
-                if (name.toLowerCase().endsWith(".zip") && Files.isRegularFile(p)) {
-                    dp = parseZip(p);
+                if (lower.endsWith(".zip.disabled") && Files.isRegularFile(p)) {
+                    dp = parseZip(p, true);
+                } else if (lower.endsWith(".zip") && Files.isRegularFile(p)) {
+                    dp = parseZip(p, false);
                 } else if (Files.isDirectory(p)) {
-                    dp = parseDir(p);
+                    boolean disabled = lower.endsWith(".disabled");
+                    dp = parseDir(p, disabled);
                 } else {
                     dp = null;
                 }
@@ -63,6 +71,51 @@ public final class DatapackManager {
             });
         }
         return result;
+    }
+
+    /**
+     * 启用数据包：将 xxx.zip.disabled 重命名为 xxx.zip，或将 xxx.disabled 目录重命名为 xxx。
+     * 若目标已存在，则删除 .disabled 副本。
+     * @return 新文件名（启用后）
+     */
+    public String enable(Path worldDir, String fileName) throws IOException {
+        if (!fileName.toLowerCase().endsWith(".disabled")) return fileName;
+        Path dpDir = worldDir.resolve("datapacks");
+        Path src = dpDir.resolve(fileName);
+        String enabledName = fileName.substring(0, fileName.length() - ".disabled".length());
+        Path dst = dpDir.resolve(enabledName);
+        if (!Files.exists(src)) throw new IOException("文件不存在: " + fileName);
+        // 目标已存在 → 删除禁用副本
+        if (Files.exists(dst)) {
+            if (Files.isDirectory(src)) {
+                try (var s = Files.walk(src)) {
+                    s.sorted(java.util.Comparator.reverseOrder())
+                            .forEach(p -> {
+                                try { Files.delete(p); } catch (IOException ignored) {}
+                            });
+                }
+            } else {
+                Files.delete(src);
+            }
+            return enabledName;
+        }
+        Files.move(src, dst);
+        return enabledName;
+    }
+
+    /**
+     * 禁用数据包：将 xxx.zip 重命名为 xxx.zip.disabled，或将 xxx 目录重命名为 xxx.disabled。
+     * 已禁用的文件不变。
+     * @return 新文件名（禁用后）
+     */
+    public String disable(Path worldDir, String fileName) throws IOException {
+        if (fileName.toLowerCase().endsWith(".disabled")) return fileName;
+        Path dpDir = worldDir.resolve("datapacks");
+        Path src = dpDir.resolve(fileName);
+        Path dst = dpDir.resolve(fileName + ".disabled");
+        if (!Files.exists(src)) throw new IOException("文件不存在: " + fileName);
+        Files.move(src, dst);
+        return dst.getFileName().toString();
     }
 
     public void delete(Datapack pack) throws IOException {
@@ -78,33 +131,40 @@ public final class DatapackManager {
         }
     }
 
-    private Datapack parseZip(Path zipPath) {
+    private Datapack parseZip(Path zipPath, boolean disabled) {
         try (ZipFile zip = new ZipFile(zipPath.toFile())) {
             var entry = zip.getEntry("pack.mcmeta");
-            String name = stripZipSuffix(zipPath.getFileName().toString());
-            if (entry == null) return new Datapack(name, zipPath, 0, "", true);
+            // 显示名需去除 .disabled 后缀
+            String display = disabled
+                    ? stripDisabledSuffix(zipPath.getFileName().toString())
+                    : zipPath.getFileName().toString();
+            String name = stripZipSuffix(display);
+            if (entry == null) return new Datapack(name, zipPath, 0, "", true, disabled);
             String meta;
             try (var in = zip.getInputStream(entry)) {
                 meta = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
             }
-            return build(name, zipPath, meta, true);
+            return build(name, zipPath, meta, true, disabled);
         } catch (Throwable e) {
             return null;
         }
     }
 
-    private Datapack parseDir(Path dir) {
+    private Datapack parseDir(Path dir, boolean disabled) {
         Path meta = dir.resolve("pack.mcmeta");
-        String name = dir.getFileName().toString();
-        if (!Files.exists(meta)) return new Datapack(name, dir, 0, "", false);
+        // 显示名需去除 .disabled 后缀
+        String name = disabled
+                ? stripDisabledSuffix(dir.getFileName().toString())
+                : dir.getFileName().toString();
+        if (!Files.exists(meta)) return new Datapack(name, dir, 0, "", false, disabled);
         try {
-            return build(name, dir, Files.readString(meta), false);
+            return build(name, dir, Files.readString(meta), false, disabled);
         } catch (Throwable e) {
             return null;
         }
     }
 
-    private Datapack build(String name, Path path, String mcmeta, boolean isZip) {
+    private Datapack build(String name, Path path, String mcmeta, boolean isZip, boolean disabled) {
         int packFormat = 0;
         String description = "";
         try {
@@ -117,7 +177,12 @@ public final class DatapackManager {
                     description = pack.get("description").getAsString();
             }
         } catch (Throwable ignored) {}
-        return new Datapack(name, path, packFormat, description, isZip);
+        return new Datapack(name, path, packFormat, description, isZip, disabled);
+    }
+
+    private static String stripDisabledSuffix(String s) {
+        return s.toLowerCase().endsWith(".disabled")
+                ? s.substring(0, s.length() - ".disabled".length()) : s;
     }
 
     private static String stripZipSuffix(String s) {

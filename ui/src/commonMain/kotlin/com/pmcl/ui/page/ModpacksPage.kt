@@ -176,6 +176,13 @@ private fun ModpackCard(vm: LauncherViewModel, mp: ModpackManager.InstalledModpa
                         onClick = {},
                         label = { Text(I18n.t("modpack.mod_count", mp.modCount), style = MaterialTheme.typography.labelSmall) }
                     )
+                    if (mp.source.isNotEmpty()) {
+                        Spacer(Modifier.width(4.dp))
+                        AssistChip(
+                            onClick = {},
+                            label = { Text(I18n.t("modpack.source", mp.source), style = MaterialTheme.typography.labelSmall) }
+                        )
+                    }
                 }
             }
             // 检查更新按钮

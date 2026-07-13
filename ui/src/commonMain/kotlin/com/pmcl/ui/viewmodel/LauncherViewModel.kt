@@ -1314,6 +1314,25 @@ class LauncherViewModel {
         return "系统"
     }
 
+    /**
+     * 根据内容目录路径推断来源标签（光影包/资源包共用）。
+     * - PMCL 全局 → "全局"
+     * - versions/<id>/ 下 → <id>
+     * - instances/<id>/ 下 → <id>
+     * - 系统 .minecraft → "系统"
+     */
+    private fun contentSourceLabelFor(dir: java.nio.file.Path, subDirName: String): String {
+        if (dir == config.getWorkDir().resolve(subDirName)) return "全局"
+        val parent = dir.parent
+        if (parent != null) {
+            val grandName = parent.parent?.fileName?.toString()?.lowercase()
+            if (grandName == "versions" || grandName == "instances") {
+                return parent.fileName?.toString() ?: "版本"
+            }
+        }
+        return "系统"
+    }
+
     /** 删除指定 mod（按 jar 文件名） */
     fun deleteMod(jarFile: String) {
         scope.launch {
@@ -2647,11 +2666,74 @@ class LauncherViewModel {
     fun refreshResourcePacks() {
         scope.launch {
             try {
-                val list = withContext(Dispatchers.IO) { core.resourcePacks().list() }
+                val list = withContext(Dispatchers.IO) {
+                    val all = mutableListOf<ResourcePackManager.Pack>()
+                    val seen = mutableSetOf<String>()
+                    val dirs = mutableListOf<java.nio.file.Path>()
+                    // 1. PMCL 全局 resourcepacks
+                    dirs.add(config.getWorkDir().resolve("resourcepacks"))
+                    // 2. 系统 .minecraft/resourcepacks
+                    for (mcDir in com.pmcl.core.version.VersionManager.detectAllMinecraftVersionsDirs()) {
+                        val mcRoot = mcDir.parent
+                        if (mcRoot != null) dirs.add(mcRoot.resolve("resourcepacks"))
+                    }
+                    // 3. 版本隔离 versions/<id>/resourcepacks
+                    val versionsDirs = mutableListOf<java.nio.file.Path>()
+                    versionsDirs.add(config.getVersionsDir())
+                    versionsDirs.addAll(com.pmcl.core.version.VersionManager.detectAllMinecraftVersionsDirs())
+                    for (vd in versionsDirs) {
+                        val vf = vd.toFile()
+                        if (!vf.isDirectory) continue
+                        val subs = vf.listFiles { f -> f.isDirectory } ?: continue
+                        for (sub in subs) dirs.add(sub.toPath().resolve("resourcepacks"))
+                    }
+                    // 4. 实例 instances/<id>/resourcepacks
+                    val instDir = config.getWorkDir().resolve("instances")
+                    if (instDir.toFile().isDirectory) {
+                        val insts = instDir.toFile().listFiles { f -> f.isDirectory } ?: emptyArray()
+                        for (inst in insts) dirs.add(inst.toPath().resolve("resourcepacks"))
+                    }
+                    // 扫描所有目录
+                    for (dir in dirs) {
+                        try {
+                            val sourceLabel = contentSourceLabelFor(dir, "resourcepacks")
+                            val part = core.resourcePacks().list(dir, sourceLabel)
+                            for (p in part) {
+                                val key = "$dir/${p.name}"
+                                if (seen.add(key)) all.add(p)
+                            }
+                        } catch (_: Throwable) {}
+                    }
+                    all
+                }
                 _resourcePacks.value = list
                 _status.value = "扫描到 ${list.size} 个资源包"
             } catch (e: Throwable) {
                 _status.value = "扫描资源包失败：${e.message}"
+            }
+        }
+    }
+
+    fun enableResourcePack(pack: ResourcePackManager.Pack) {
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) { core.resourcePacks().enable(pack.name) }
+                _status.value = "已启用资源包 ${pack.name}"
+                refreshResourcePacks()
+            } catch (e: Throwable) {
+                _status.value = "启用失败：${e.message}"
+            }
+        }
+    }
+
+    fun disableResourcePack(pack: ResourcePackManager.Pack) {
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) { core.resourcePacks().disable(pack.name) }
+                _status.value = "已禁用资源包 ${pack.name}"
+                refreshResourcePacks()
+            } catch (e: Throwable) {
+                _status.value = "禁用失败：${e.message}"
             }
         }
     }
@@ -2854,11 +2936,74 @@ class LauncherViewModel {
     fun refreshShaderPacks() {
         scope.launch {
             try {
-                val list = withContext(Dispatchers.IO) { core.shaderPacks().list() }
+                val list = withContext(Dispatchers.IO) {
+                    val all = mutableListOf<ShaderPackManager.ShaderPack>()
+                    val seen = mutableSetOf<String>()
+                    val dirs = mutableListOf<java.nio.file.Path>()
+                    // 1. PMCL 全局 shaderpacks
+                    dirs.add(config.getWorkDir().resolve("shaderpacks"))
+                    // 2. 系统 .minecraft/shaderpacks
+                    for (mcDir in com.pmcl.core.version.VersionManager.detectAllMinecraftVersionsDirs()) {
+                        val mcRoot = mcDir.parent
+                        if (mcRoot != null) dirs.add(mcRoot.resolve("shaderpacks"))
+                    }
+                    // 3. 版本隔离 versions/<id>/shaderpacks
+                    val versionsDirs = mutableListOf<java.nio.file.Path>()
+                    versionsDirs.add(config.getVersionsDir())
+                    versionsDirs.addAll(com.pmcl.core.version.VersionManager.detectAllMinecraftVersionsDirs())
+                    for (vd in versionsDirs) {
+                        val vf = vd.toFile()
+                        if (!vf.isDirectory) continue
+                        val subs = vf.listFiles { f -> f.isDirectory } ?: continue
+                        for (sub in subs) dirs.add(sub.toPath().resolve("shaderpacks"))
+                    }
+                    // 4. 实例 instances/<id>/shaderpacks
+                    val instDir = config.getWorkDir().resolve("instances")
+                    if (instDir.toFile().isDirectory) {
+                        val insts = instDir.toFile().listFiles { f -> f.isDirectory } ?: emptyArray()
+                        for (inst in insts) dirs.add(inst.toPath().resolve("shaderpacks"))
+                    }
+                    // 扫描所有目录
+                    for (dir in dirs) {
+                        try {
+                            val sourceLabel = contentSourceLabelFor(dir, "shaderpacks")
+                            val part = core.shaderPacks().list(dir, sourceLabel)
+                            for (p in part) {
+                                val key = "$dir/${p.name}"
+                                if (seen.add(key)) all.add(p)
+                            }
+                        } catch (_: Throwable) {}
+                    }
+                    all
+                }
                 _shaderPacks.value = list
                 _status.value = "扫描到 ${list.size} 个光影包"
             } catch (e: Throwable) {
                 _status.value = "扫描光影包失败：${e.message}"
+            }
+        }
+    }
+
+    fun enableShaderPack(pack: ShaderPackManager.ShaderPack) {
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) { core.shaderPacks().enable(pack.name) }
+                _status.value = "已启用光影包 ${pack.name}"
+                refreshShaderPacks()
+            } catch (e: Throwable) {
+                _status.value = "启用失败：${e.message}"
+            }
+        }
+    }
+
+    fun disableShaderPack(pack: ShaderPackManager.ShaderPack) {
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) { core.shaderPacks().disable(pack.name) }
+                _status.value = "已禁用光影包 ${pack.name}"
+                refreshShaderPacks()
+            } catch (e: Throwable) {
+                _status.value = "禁用失败：${e.message}"
             }
         }
     }
@@ -2937,6 +3082,36 @@ class LauncherViewModel {
                 }
             } catch (e: Throwable) {
                 _status.value = "删除失败：${e.message}"
+            }
+        }
+    }
+
+    fun enableDatapack(pack: DatapackManager.Datapack) {
+        scope.launch {
+            try {
+                _selectedDatapackWorld.value?.let { w ->
+                    withContext(Dispatchers.IO) { core.datapacks().enable(w.dir, pack.name) }
+                    _status.value = "已启用数据包 ${pack.name}"
+                    val list = withContext(Dispatchers.IO) { core.datapacks().list(w.dir) }
+                    _datapacks.value = list
+                }
+            } catch (e: Throwable) {
+                _status.value = "启用失败：${e.message}"
+            }
+        }
+    }
+
+    fun disableDatapack(pack: DatapackManager.Datapack) {
+        scope.launch {
+            try {
+                _selectedDatapackWorld.value?.let { w ->
+                    withContext(Dispatchers.IO) { core.datapacks().disable(w.dir, pack.name) }
+                    _status.value = "已禁用数据包 ${pack.name}"
+                    val list = withContext(Dispatchers.IO) { core.datapacks().list(w.dir) }
+                    _datapacks.value = list
+                }
+            } catch (e: Throwable) {
+                _status.value = "禁用失败：${e.message}"
             }
         }
     }

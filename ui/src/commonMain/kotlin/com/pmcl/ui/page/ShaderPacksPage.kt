@@ -10,6 +10,8 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
@@ -18,6 +20,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.gamecontent.ShaderPackManager
@@ -161,19 +164,27 @@ private fun ShaderPackRow(
         color = if (isActive) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
                 else MaterialTheme.colorScheme.surfaceVariant,
         shape = RoundedCornerShape(8.dp),
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier.fillMaxWidth().alpha(if (pack.isDisabled) 0.5f else 1f)
     ) {
         Column(Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(pack.name, fontWeight = FontWeight.SemiBold,
                      modifier = Modifier.weight(1f))
+                if (pack.isDisabled) {
+                    AssistChip(onClick = {}, label = { Text("已禁用") })
+                    Spacer(Modifier.width(4.dp))
+                }
                 if (isActive) {
                     AssistChip(
                         onClick = {},
                         label = { Text("当前") },
                         leadingIcon = { Icon(Icons.Filled.Star, null, Modifier.size(14.dp)) }
                     )
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(4.dp))
+                }
+                if (!pack.source.isNullOrEmpty()) {
+                    AssistChip(onClick = {}, label = { Text(pack.source) })
+                    Spacer(Modifier.width(4.dp))
                 }
                 Text(formatFileSize(pack.size),
                      style = MaterialTheme.typography.labelSmall,
@@ -196,7 +207,22 @@ private fun ShaderPackRow(
 
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                if (!isActive) {
+                // 启用/禁用切换
+                if (pack.isDisabled) {
+                    OutlinedButton(onClick = { vm.enableShaderPack(pack) }) {
+                        Icon(Icons.Filled.PlayArrow, null, Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("启用")
+                    }
+                } else {
+                    OutlinedButton(onClick = { vm.disableShaderPack(pack) }) {
+                        Icon(Icons.Filled.Pause, null, Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("禁用")
+                    }
+                }
+                Spacer(Modifier.width(8.dp))
+                if (!isActive && !pack.isDisabled) {
                     Button(
                         onClick = { vm.setActiveShaderPack(pack) },
                         enabled = pack.isValid

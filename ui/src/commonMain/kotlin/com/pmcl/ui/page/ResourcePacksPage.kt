@@ -8,12 +8,15 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.gamecontent.ResourcePackManager
@@ -156,11 +159,19 @@ private fun ResourcePackRow(pack: ResourcePackManager.Pack, vm: LauncherViewMode
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant,
         shape = RoundedCornerShape(8.dp),
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier.fillMaxWidth().alpha(if (pack.isDisabled) 0.5f else 1f)
     ) {
         Column(Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(pack.name, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                if (pack.isDisabled) {
+                    AssistChip(onClick = {}, label = { Text("已禁用") })
+                    Spacer(Modifier.width(4.dp))
+                }
+                if (!pack.source.isNullOrEmpty()) {
+                    AssistChip(onClick = {}, label = { Text(pack.source) })
+                    Spacer(Modifier.width(4.dp))
+                }
                 AssistChip(onClick = {}, label = { Text("format ${pack.packFormat}") })
                 Spacer(Modifier.width(8.dp))
                 Text(if (pack.isZip) "zip" else "dir",
@@ -180,15 +191,31 @@ private fun ResourcePackRow(pack: ResourcePackManager.Pack, vm: LauncherViewMode
                  color = MaterialTheme.colorScheme.outline)
 
             Spacer(Modifier.height(8.dp))
-            TextButton(
-                onClick = { showDeleteDialog = true },
-                colors = ButtonDefaults.textButtonColors(
-                    contentColor = MaterialTheme.colorScheme.error
-                )
-            ) {
-                Icon(Icons.Filled.Delete, null, Modifier.size(14.dp))
-                Spacer(Modifier.width(4.dp))
-                Text("删除")
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (pack.isDisabled) {
+                    OutlinedButton(onClick = { vm.enableResourcePack(pack) }) {
+                        Icon(Icons.Filled.PlayArrow, null, Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("启用")
+                    }
+                } else {
+                    OutlinedButton(onClick = { vm.disableResourcePack(pack) }) {
+                        Icon(Icons.Filled.Pause, null, Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("禁用")
+                    }
+                }
+                Spacer(Modifier.width(8.dp))
+                TextButton(
+                    onClick = { showDeleteDialog = true },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Icon(Icons.Filled.Delete, null, Modifier.size(14.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("删除")
+                }
             }
         }
     }

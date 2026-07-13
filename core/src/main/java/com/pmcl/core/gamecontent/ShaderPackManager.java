@@ -32,37 +32,95 @@ public final class ShaderPackManager {
         private final long size;
         private final boolean valid;        // 是否含 shaders/ 目录
         private final boolean active;       // 是否为当前选中
+        private final boolean disabled;     // 是否被禁用（.zip.disabled）
+        private String source;              // 来源标签（"全局" / "外部" 等）
 
-        public ShaderPack(String name, Path path, long size, boolean valid, boolean active) {
+        public ShaderPack(String name, Path path, long size, boolean valid,
+                          boolean active, boolean disabled, String source) {
             this.name = name; this.path = path;
             this.size = size; this.valid = valid; this.active = active;
+            this.disabled = disabled; this.source = source;
         }
         public String getName() { return name; }
         public Path getPath() { return path; }
         public long getSize() { return size; }
         public boolean isValid() { return valid; }
         public boolean isActive() { return active; }
+        public boolean isDisabled() { return disabled; }
+        public String getSource() { return source; }
+        public void setSource(String source) { this.source = source; }
     }
 
     public List<ShaderPack> list() throws IOException {
+        return list(shaderPacksDir, "全局");
+    }
+
+    /** 扫描指定目录下的光影包，附带来源标签 */
+    public List<ShaderPack> list(Path dir, String source) throws IOException {
         List<ShaderPack> result = new ArrayList<>();
-        if (!Files.isDirectory(shaderPacksDir)) return result;
+        if (!Files.isDirectory(dir)) return result;
         String active = readActiveShaderPack();
-        try (Stream<Path> stream = Files.list(shaderPacksDir)) {
+        try (Stream<Path> stream = Files.list(dir)) {
             stream.filter(Files::isRegularFile)
-                    .filter(p -> p.getFileName().toString().toLowerCase().endsWith(".zip"))
                     .forEach(p -> {
-                        String name = p.getFileName().toString();
+                        String fileName = p.getFileName().toString();
+                        String lower = fileName.toLowerCase();
+                        boolean disabled = false;
+                        String display;
+                        // 识别 .zip.disabled 与 .zip 两种文件
+                        if (lower.endsWith(".zip.disabled")) {
+                            disabled = true;
+                            display = fileName.substring(0, fileName.length() - ".disabled".length());
+                        } else if (lower.endsWith(".zip")) {
+                            display = fileName;
+                        } else {
+                            return;
+                        }
                         try {
                             long size = Files.size(p);
                             boolean valid = hasShadersDir(p);
-                            boolean isActive = name.equals(active) ||
-                                    stripZipSuffix(name).equals(active);
-                            result.add(new ShaderPack(name, p, size, valid, isActive));
+                            // active 比较时使用去除 .disabled 后的显示名
+                            boolean isActive = display.equals(active) ||
+                                    stripZipSuffix(display).equals(active);
+                            result.add(new ShaderPack(display, p, size, valid, isActive, disabled, source));
                         } catch (Throwable ignored) {}
                     });
         }
         return result;
+    }
+
+    /**
+     * 启用光影包：将 xxx.zip.disabled 重命名为 xxx.zip。
+     * 已启用的文件不变；若目标 xxx.zip 已存在，则删除 .disabled 副本。
+     * @return 新文件名（启用后）
+     */
+    public String enable(String fileName) throws IOException {
+        if (!fileName.toLowerCase().endsWith(".disabled")) return fileName;
+        Path src = shaderPacksDir.resolve(fileName);
+        String enabledName = fileName.substring(0, fileName.length() - ".disabled".length());
+        Path dst = shaderPacksDir.resolve(enabledName);
+        if (!Files.exists(src)) throw new IOException("文件不存在: " + fileName);
+        // 目标已存在（同名 zip 已启用）→ 删除禁用副本
+        if (Files.exists(dst)) {
+            Files.delete(src);
+            return enabledName;
+        }
+        Files.move(src, dst);
+        return enabledName;
+    }
+
+    /**
+     * 禁用光影包：将 xxx.zip 重命名为 xxx.zip.disabled。
+     * 已禁用的文件不变。
+     * @return 新文件名（禁用后）
+     */
+    public String disable(String fileName) throws IOException {
+        if (fileName.toLowerCase().endsWith(".disabled")) return fileName;
+        Path src = shaderPacksDir.resolve(fileName);
+        Path dst = shaderPacksDir.resolve(fileName + ".disabled");
+        if (!Files.exists(src)) throw new IOException("文件不存在: " + fileName);
+        Files.move(src, dst);
+        return dst.getFileName().toString();
     }
 
     public void delete(ShaderPack pack) throws IOException {

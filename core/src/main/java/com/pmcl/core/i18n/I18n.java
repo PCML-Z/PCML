@@ -271,6 +271,7 @@ public final class I18n {
         ZH.put("modpack.update_no_updates", "所有 mod 已是最新（检查了 {0} 个）");
         ZH.put("modpack.update_has_updates", "发现 {0} 个可更新的 mod（共检查 {1} 个）");
         ZH.put("modpack.update_unknown", "未知");
+        ZH.put("modpack.source", "来源：{0}");
 
         // ===== 实例页 =====
         ZH.put("instance.title", "实例管理");
@@ -733,6 +734,7 @@ public final class I18n {
         EN.put("modpack.update_no_updates", "All mods are up to date ({0} checked)");
         EN.put("modpack.update_has_updates", "{0} mod(s) can be updated ({1} checked)");
         EN.put("modpack.update_unknown", "unknown");
+        EN.put("modpack.source", "Source: {0}");
 
         // ===== Instance page =====
         EN.put("instance.title", "Instance Manager");
@@ -1182,6 +1184,7 @@ public final class I18n {
         JA.put("modpack.update_no_updates", "すべてのModは最新です（{0}個確認）");
         JA.put("modpack.update_has_updates", "{0}個のModが更新可能（{1}個確認）");
         JA.put("modpack.update_unknown", "不明");
+        JA.put("modpack.source", "ソース: {0}");
 
         // ===== インスタンスページ =====
         JA.put("instance.title", "インスタンス管理");
