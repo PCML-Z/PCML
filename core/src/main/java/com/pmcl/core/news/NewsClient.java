@@ -160,6 +160,57 @@ public final class NewsClient {
     }
 
     /**
+     * 异步抓取文章页 HTML，仅提取封面图 URL。
+     * 比 fetchArticle 轻量：不解析正文，只提取 hero/首张 article-media 图片。
+     * 用于 RSS 列表加载后回填 NewsItem.imageUrl。
+     *
+     * @param articleUrl 文章链接
+     * @return CompletableFuture<String>，封面图 URL（失败返回空串）
+     */
+    public CompletableFuture<String> fetchCoverImage(String articleUrl) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                String html;
+                if (CurlFallback.isAvailable()) {
+                    html = CurlFallback.getString(articleUrl);
+                } else {
+                    Request req = new Request.Builder()
+                            .url(articleUrl)
+                            .header("User-Agent", "PMCL/1.0")
+                            .header("Accept", "text/html, */*")
+                            .get()
+                            .build();
+                    try (Response resp = http.newCall(req).execute()) {
+                        if (!resp.isSuccessful()) return "";
+                        byte[] bytes = resp.body() != null ? resp.body().bytes() : new byte[0];
+                        html = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+                    }
+                }
+                return extractCoverImageFromHtml(html);
+            } catch (Exception e) {
+                return "";
+            }
+        });
+    }
+
+    /** 从文章 HTML 提取封面图 URL：优先 hero 区，其次首张 article-media 图片 */
+    private String extractCoverImageFromHtml(String html) {
+        String heroImg = extractFirstGroup(html,
+                "<div class=\"MC_articleHeroA\".*?<img[^>]+src=\"([^\"]+)\"", 1);
+        if (heroImg != null && !heroImg.isEmpty()) {
+            if (heroImg.startsWith("/")) heroImg = "https://www.minecraft.net" + heroImg;
+            return heroImg;
+        }
+        Matcher imgM = ARTICLE_MEDIA_IMG_PATTERN.matcher(html);
+        if (imgM.find()) {
+            String src = imgM.group(1);
+            if (src.startsWith("/")) src = "https://www.minecraft.net" + src;
+            return src;
+        }
+        return "";
+    }
+
+    /**
      * 异步抓取并提取单篇新闻的正文 HTML。
      * 从 minecraft.net 文章页面提取 class="article-text" 内的富文本（含 <p>、<h2> 等），
      * 拼接为 HTML 片段供 UI 层渲染。同时提取页面内的所有图片 URL。

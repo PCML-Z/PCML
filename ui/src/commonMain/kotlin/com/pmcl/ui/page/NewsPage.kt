@@ -608,7 +608,14 @@ private fun NewsCard(
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()
                     )
+                } else if (item.getImageUrl().isNotEmpty()) {
+                    // 图片 URL 已知，正在下载解码
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        strokeWidth = 2.dp
+                    )
                 } else {
+                    // 图片 URL 尚未抓取或无图
                     Text("📰", style = MaterialTheme.typography.headlineMedium)
                 }
             }

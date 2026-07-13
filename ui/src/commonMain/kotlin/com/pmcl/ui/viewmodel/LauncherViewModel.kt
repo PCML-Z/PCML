@@ -44,11 +44,14 @@ import com.pmcl.core.web.WikiBrowser
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.nio.file.Path
 import java.nio.file.Paths
@@ -3235,6 +3238,7 @@ class LauncherViewModel {
                 if (data.isNotEmpty()) {
                     _newsItems.value = data
                     _newsLoading.value = false
+                    fetchNewsCoverImages(data)
                 }
                 // 缓存未过期：后台静默刷新（stale-while-revalidate）
                 if (!DataCache.isExpired(savedAt, 60 * 60 * 1000L)) {
@@ -3243,7 +3247,9 @@ class LauncherViewModel {
                             val list = withContext(Dispatchers.IO) {
                                 core.news().fetch(20).join()
                             }
+                            transferNewsImageUrls(list)
                             _newsItems.value = list
+                            fetchNewsCoverImages(list)
                             DataCache.save("news_list", list)
                             _status.value = if (list.isEmpty()) "暂无新闻" else "已加载 ${list.size} 条新闻"
                         } catch (_: Throwable) {
@@ -3261,7 +3267,9 @@ class LauncherViewModel {
                 val list = withContext(Dispatchers.IO) {
                     core.news().fetch(20).join()
                 }
+                transferNewsImageUrls(list)
                 _newsItems.value = list
+                fetchNewsCoverImages(list)
                 _status.value = if (list.isEmpty()) "暂无新闻" else "已加载 ${list.size} 条新闻"
                 DataCache.save("news_list", list)
             } catch (e: Throwable) {
@@ -3269,6 +3277,51 @@ class LauncherViewModel {
             } finally {
                 _newsLoading.value = false
             }
+        }
+    }
+
+    /** 封面图后台抓取 Job，可取消 */
+    private var newsImageJob: kotlinx.coroutines.Job? = null
+
+    /** 将旧列表中已抓取的 imageUrl 按 link 迁移到新列表，避免后台刷新时重复抓取 */
+    private fun transferNewsImageUrls(newItems: List<com.pmcl.core.news.NewsItem>) {
+        val oldMap = _newsItems.value.associateBy { it.getLink() }
+        newItems.forEach { newItem ->
+            val old = oldMap[newItem.getLink()]
+            if (old != null && old.getImageUrl().isNotEmpty()) {
+                newItem.setImageUrl(old.getImageUrl())
+            }
+        }
+    }
+
+    /**
+     * RSS 不含图片 URL，异步抓取每篇文章页提取封面图并回填到 NewsItem。
+     * 并发限制 5，完成后更新缓存。已有 imageUrl 的条目跳过。
+     */
+    private fun fetchNewsCoverImages(items: List<com.pmcl.core.news.NewsItem>) {
+        newsImageJob?.cancel()
+        val toFetch = items.filter { it.getImageUrl().isEmpty() && it.getLink().isNotEmpty() }
+        if (toFetch.isEmpty()) return
+        newsImageJob = scope.launch {
+            val semaphore = Semaphore(5)
+            coroutineScope {
+                toFetch.forEach { item ->
+                    launch {
+                        semaphore.withPermit {
+                            try {
+                                val url = withContext(Dispatchers.IO) {
+                                    core.news().fetchCoverImage(item.getLink()).join()
+                                }
+                                if (url.isNotEmpty()) {
+                                    item.setImageUrl(url)
+                                    _newsItems.value = _newsItems.value.toList()
+                                }
+                            } catch (_: Throwable) {}
+                        }
+                    }
+                }
+            }
+            DataCache.save("news_list", _newsItems.value)
         }
     }
 

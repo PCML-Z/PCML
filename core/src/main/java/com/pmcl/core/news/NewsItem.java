@@ -30,4 +30,7 @@ public final class NewsItem {
     public String getPubDate() { return pubDate; }
     public String getCategory() { return category; }
     public String getImageUrl() { return imageUrl; }
+
+    /** RSS 不含图片 URL 时，异步抓取文章页后回填封面图 */
+    public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
 }
