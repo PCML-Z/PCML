@@ -2490,6 +2490,43 @@ class LauncherViewModel {
         }
     }
 
+    /** 列出指定世界的所有备份文件 */
+    suspend fun listBackups(worldName: String): List<java.nio.file.Path> {
+        return withContext(Dispatchers.IO) {
+            try {
+                core.worlds().listBackups(worldName)
+            } catch (e: Throwable) {
+                emptyList()
+            }
+        }
+    }
+
+    /** 从备份 zip 恢复世界（覆盖现有同名世界） */
+    fun restoreWorld(zipFile: java.nio.file.Path, worldName: String) {
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) { core.worlds().restore(zipFile, worldName) }
+                _status.value = "已恢复世界 $worldName"
+                refreshWorlds()
+            } catch (e: Throwable) {
+                _status.value = "恢复失败：${e.message}"
+            }
+        }
+    }
+
+    /** 从 zip 导入世界（世界名取自 zip 文件名） */
+    fun importWorld(zipFile: java.nio.file.Path) {
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) { core.worlds().importWorld(zipFile) }
+                _status.value = "已导入世界 ${zipFile.fileName}"
+                refreshWorlds()
+            } catch (e: Throwable) {
+                _status.value = "导入失败：${e.message}"
+            }
+        }
+    }
+
     // ============ 截图 ============
 
     fun refreshScreenshots() {

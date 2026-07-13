@@ -11,17 +11,24 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.gamecontent.WorldManager
 import com.pmcl.ui.animation.StaggeredAppear
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import kotlinx.coroutines.launch
+import java.awt.FileDialog
+import java.awt.Frame
+import java.io.FilenameFilter
+import java.nio.file.Path
 import java.text.SimpleDateFormat
 import java.util.Date
 
@@ -62,6 +69,21 @@ fun WorldsPage(vm: LauncherViewModel) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("世界管理", style = MaterialTheme.typography.headlineSmall,
                  fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            OutlinedButton(onClick = {
+                val fd = FileDialog(null as Frame?, "导入世界存档", FileDialog.LOAD)
+                fd.file = "*.zip"
+                fd.filenameFilter = FilenameFilter { _, name -> name.endsWith(".zip") }
+                fd.isVisible = true
+                if (fd.file != null) {
+                    val zipPath = java.io.File(fd.directory, fd.file).toPath()
+                    vm.importWorld(zipPath)
+                }
+            }) {
+                Icon(Icons.Filled.Upload, null, Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("导入")
+            }
+            Spacer(Modifier.width(8.dp))
             OutlinedButton(onClick = { vm.refreshWorlds() }) {
                 Icon(Icons.Filled.Refresh, null, Modifier.size(16.dp))
                 Spacer(Modifier.width(4.dp))
@@ -178,6 +200,9 @@ private fun WorldRow(
 ) {
     val scope = rememberCoroutineScope()
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var showRestoreDialog by remember { mutableStateOf(false) }
+    var backups by remember { mutableStateOf<List<Path>>(emptyList()) }
+    var loadingBackups by remember { mutableStateOf(false) }
 
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant,
@@ -215,6 +240,18 @@ private fun WorldRow(
                     Text("备份")
                 }
                 OutlinedButton(onClick = {
+                    loadingBackups = true
+                    showRestoreDialog = true
+                    scope.launch {
+                        backups = vm.listBackups(world.name)
+                        loadingBackups = false
+                    }
+                }) {
+                    Icon(Icons.Filled.Restore, null, Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("恢复")
+                }
+                OutlinedButton(onClick = {
                     scope.launch { vm.refreshDatapacks(world.dir) }
                 }) {
                     Icon(Icons.Filled.Folder, null, Modifier.size(16.dp))
@@ -230,6 +267,65 @@ private fun WorldRow(
                 }
             }
         }
+    }
+
+    // 恢复对话框：列出该世界的所有备份
+    if (showRestoreDialog) {
+        AlertDialog(
+            onDismissRequest = { showRestoreDialog = false },
+            title = { Text("恢复世界 — ${world.name}") },
+            text = {
+                Column {
+                    Text("选择要恢复的备份（将覆盖当前世界）：",
+                         style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(8.dp))
+                    when {
+                        loadingBackups -> {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                Spacer(Modifier.width(8.dp))
+                                Text("加载备份列表…", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                        backups.isEmpty() -> {
+                            Text("暂无备份。请先点击「备份」创建一个。",
+                                 style = MaterialTheme.typography.bodySmall,
+                                 color = MaterialTheme.colorScheme.outline)
+                        }
+                        else -> {
+                            backups.forEach { zip ->
+                                val fileName = zip.fileName.toString()
+                                Surface(
+                                    color = MaterialTheme.colorScheme.surface,
+                                    shape = RoundedCornerShape(6.dp),
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(Icons.Filled.Archive, null,
+                                             Modifier.size(16.dp),
+                                             tint = MaterialTheme.colorScheme.outline)
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(fileName, style = MaterialTheme.typography.bodySmall,
+                                             maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                             modifier = Modifier.weight(1f))
+                                        TextButton(onClick = {
+                                            vm.restoreWorld(zip, world.name)
+                                            showRestoreDialog = false
+                                        }) { Text("恢复") }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showRestoreDialog = false }) { Text("关闭") }
+            }
+        )
     }
 
     if (showDeleteDialog) {
