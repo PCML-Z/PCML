@@ -235,8 +235,9 @@ public final class CurlFallback {
             Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            p.destroyForcibly();
             throw new IOException("curl 下载被中断: " + url, e);
+        } finally {
+            p.destroyForcibly();
         }
     }
 

@@ -343,7 +343,7 @@ public final class TerracottaManager {
     }
 
     /** 停止 Terracotta 进程 */
-    public void stop() {
+    public synchronized void stop() {
         // 先尝试 HTTP /panic?peaceful=true 优雅关闭
         if (httpPort > 0) {
             try {

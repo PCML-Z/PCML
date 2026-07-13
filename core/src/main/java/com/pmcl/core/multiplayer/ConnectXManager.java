@@ -149,6 +149,7 @@ public final class ConnectXManager {
                 }
                 return (Void) null;
             } catch (Exception e) {
+                stop();
                 throw new RuntimeException("启动 ConnectX 失败：" + e.getMessage(), e);
             }
         });

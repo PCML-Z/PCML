@@ -66,6 +66,11 @@ public final class MicrosoftAuthFlow {
                 .build();
     }
 
+    /** 关闭内部调度线程，释放资源。关闭后不可再用，仅供应用退出时调用。 */
+    public void shutdown() {
+        scheduler.shutdownNow();
+    }
+
     /**
      * 第一步：请求设备码。用户需要在浏览器中打开 verificationUri 并输入 userCode。
      */

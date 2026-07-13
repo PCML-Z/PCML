@@ -79,11 +79,11 @@ public final class DownloadManager {
     /** 分片下载器（复用线程池，避免每次创建） */
     private volatile ChunkedDownloader chunked;
 
-    // 网络参数（由 reconfigure 设置）
-    private int speedLimitBytesPerSec = 0;     // 0 = 不限速
-    private int retryCount = 3;
-    private boolean enableResume = true;
-    private int chunkedDownloadThreads = 4;    // 单文件分片连接数
+    // 网络参数（由 reconfigure 设置，跨线程可见）
+    private volatile int speedLimitBytesPerSec = 0;     // 0 = 不限速
+    private volatile int retryCount = 3;
+    private volatile boolean enableResume = true;
+    private volatile int chunkedDownloadThreads = 4;    // 单文件分片连接数
 
     public DownloadManager(LauncherConfig config) {
         this.config = config;

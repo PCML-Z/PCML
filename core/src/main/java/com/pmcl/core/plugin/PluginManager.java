@@ -827,14 +827,18 @@ public final class PluginManager {
 
         @Override
         public String getConfig(String key) {
-            Map<String, String> cfg = pluginConfigs.get(pluginId);
-            return cfg != null ? cfg.get(key) : null;
+            synchronized (PluginManager.this) {
+                Map<String, String> cfg = pluginConfigs.get(pluginId);
+                return cfg != null ? cfg.get(key) : null;
+            }
         }
 
         @Override
         public void setConfig(String key, String value) {
-            pluginConfigs.computeIfAbsent(pluginId, k -> new HashMap<>()).put(key, value);
-            saveState();
+            synchronized (PluginManager.this) {
+                pluginConfigs.computeIfAbsent(pluginId, k -> new HashMap<>()).put(key, value);
+                saveState();
+            }
         }
 
         @Override
@@ -877,18 +881,20 @@ public final class PluginManager {
             if (handler == null) {
                 throw new NullPointerException("Command handler must not be null (command: " + name + ", plugin: " + pluginId + ")");
             }
-            // Check for duplicate command name within the same plugin
-            List<RegisteredCommand> existing = customCommands.get(pluginId);
-            if (existing != null) {
-                for (RegisteredCommand c : existing) {
-                    if (c.name.equals(name)) {
-                        throw new IllegalStateException(
-                                "Duplicate command name '" + name + "' in plugin '" + pluginId + "'");
+            synchronized (PluginManager.this) {
+                // Check for duplicate command name within the same plugin
+                List<RegisteredCommand> existing = customCommands.get(pluginId);
+                if (existing != null) {
+                    for (RegisteredCommand c : existing) {
+                        if (c.name.equals(name)) {
+                            throw new IllegalStateException(
+                                    "Duplicate command name '" + name + "' in plugin '" + pluginId + "'");
+                        }
                     }
                 }
+                RegisteredCommand cmd = new RegisteredCommand(pluginId, name, description, handler);
+                customCommands.computeIfAbsent(pluginId, k -> new ArrayList<>()).add(cmd);
             }
-            RegisteredCommand cmd = new RegisteredCommand(pluginId, name, description, handler);
-            customCommands.computeIfAbsent(pluginId, k -> new ArrayList<>()).add(cmd);
         }
 
         @Override
@@ -910,18 +916,20 @@ public final class PluginManager {
             if (content == null) {
                 throw new NullPointerException("Page content must not be null (page: " + id + ", plugin: " + pluginId + ")");
             }
-            // Check for duplicate page id within the same plugin
-            List<RegisteredPage> existingPages = customPages.get(pluginId);
-            if (existingPages != null) {
-                for (RegisteredPage p : existingPages) {
-                    if (p.id.equals(id)) {
-                        throw new IllegalStateException(
-                                "Duplicate page id '" + id + "' in plugin '" + pluginId + "'");
+            synchronized (PluginManager.this) {
+                // Check for duplicate page id within the same plugin
+                List<RegisteredPage> existingPages = customPages.get(pluginId);
+                if (existingPages != null) {
+                    for (RegisteredPage p : existingPages) {
+                        if (p.id.equals(id)) {
+                            throw new IllegalStateException(
+                                    "Duplicate page id '" + id + "' in plugin '" + pluginId + "'");
+                        }
                     }
                 }
+                RegisteredPage page = new RegisteredPage(pluginId, id, title, content);
+                customPages.computeIfAbsent(pluginId, k -> new ArrayList<>()).add(page);
             }
-            RegisteredPage page = new RegisteredPage(pluginId, id, title, content);
-            customPages.computeIfAbsent(pluginId, k -> new ArrayList<>()).add(page);
         }
 
         @Override

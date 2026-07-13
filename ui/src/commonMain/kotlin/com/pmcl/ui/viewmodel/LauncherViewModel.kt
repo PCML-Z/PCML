@@ -42,6 +42,7 @@ import com.pmcl.core.instance.InstanceInfo
 import com.pmcl.core.instance.InstanceManager
 import com.pmcl.core.web.WikiBrowser
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.coroutineScope
@@ -61,7 +62,11 @@ import java.nio.file.Paths
  */
 class LauncherViewModel {
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default +
+        CoroutineExceptionHandler { _, throwable ->
+            System.err.println("[LauncherViewModel] 未捕获的协程异常: ${throwable.message}")
+            throwable.printStackTrace()
+        })
 
     val core = LauncherCore()
 
@@ -2179,7 +2184,9 @@ class LauncherViewModel {
                         }
                         // 仅当此实例为活跃时更新 UI
                         if (_runningInstances.value.any { it.id == instanceId && it.active }) {
-                            _gameLogs.value = instanceLogs[instanceId]?.toList() ?: emptyList()
+                            _gameLogs.value = instanceLogs[instanceId]?.let { logs ->
+                                synchronized(logs) { logs.toList() }
+                            } ?: emptyList()
                         }
                     },
                     instLogger
@@ -2240,7 +2247,9 @@ class LauncherViewModel {
                     // 更新 UI 日志为新的活跃实例
                     val activeInst = _runningInstances.value.firstOrNull { it.active }
                     if (activeInst != null) {
-                        _gameLogs.value = instanceLogs[activeInst.id]?.toList() ?: emptyList()
+                        _gameLogs.value = instanceLogs[activeInst.id]?.let { logs ->
+                            synchronized(logs) { logs.toList() }
+                        } ?: emptyList()
                     }
                     _gameRunning.value = _runningInstances.value.isNotEmpty()
                     // 清理此实例的日志资源
@@ -2259,7 +2268,9 @@ class LauncherViewModel {
         _runningInstances.update { list ->
             list.map { it.copy(active = it.id == instanceId) }
         }
-        _gameLogs.value = instanceLogs[instanceId]?.toList() ?: emptyList()
+        _gameLogs.value = instanceLogs[instanceId]?.let { logs ->
+            synchronized(logs) { logs.toList() }
+        } ?: emptyList()
     }
 
     // ============ Java 运行时管理 ============
@@ -2354,7 +2365,12 @@ class LauncherViewModel {
                     val workDir = java.io.File(launcher.gameDir).let {
                         if (it.isDirectory) it else java.io.File(System.getProperty("user.home"))
                     }
-                    ProcessBuilder(cmd).directory(workDir).start()
+                    val proc = ProcessBuilder(cmd).directory(workDir)
+                        .redirectErrorStream(true).start()
+                    // 消费合并输出流，防止管道缓冲区满导致进程挂起
+                    Thread({
+                        try { proc.inputStream.use { it.readBytes() } } catch (_: Throwable) {}
+                    }, "ext-launcher-drain").apply { isDaemon = true }.start()
                 }
                 _status.value = "已打开 ${launcher.name}，请在 ${launcher.name} 中启动 $versionId"
             } catch (e: Throwable) {
@@ -2904,9 +2920,9 @@ class LauncherViewModel {
                     val disabledDir = modsDir.resolve("disabled")
                     java.nio.file.Files.createDirectories(disabledDir)
                     // 列出 .jar 并按 mtime 降序（最近添加的在前）
-                    val jars = java.nio.file.Files.list(modsDir)
-                        .filter { it.fileName.toString().endsWith(".jar") }
-                        .toList()
+                    val jars = java.nio.file.Files.list(modsDir).use { stream ->
+                        stream.filter { it.fileName.toString().endsWith(".jar") }.toList()
+                    }
                     val sorted = jars.sortedByDescending {
                         try { java.nio.file.Files.getLastModifiedTime(it).toMillis() }
                         catch (_: Throwable) { 0L }
@@ -2939,9 +2955,10 @@ class LauncherViewModel {
                 withContext(Dispatchers.IO) {
                     val versionDir = config.getVersionsDir().resolve(versionId)
                     if (java.nio.file.Files.exists(versionDir)) {
-                        java.nio.file.Files.walk(versionDir)
-                            .sorted(java.util.Comparator.reverseOrder())
-                            .forEach { p -> try { java.nio.file.Files.deleteIfExists(p) } catch (_: Throwable) {} }
+                        java.nio.file.Files.walk(versionDir).use { stream ->
+                            stream.sorted(java.util.Comparator.reverseOrder())
+                                .forEach { p -> try { java.nio.file.Files.deleteIfExists(p) } catch (_: Throwable) {} }
+                        }
                     }
                 }
                 _recoveryMessage.value = "$versionId 旧文件已清除，正在重新安装…"
@@ -3337,6 +3354,7 @@ class LauncherViewModel {
     }
 
     /** 封面图后台抓取 Job，可取消 */
+    @Volatile
     private var newsImageJob: kotlinx.coroutines.Job? = null
 
     /** 将旧列表中已抓取的 imageUrl 按 link 迁移到新列表，避免后台刷新时重复抓取 */

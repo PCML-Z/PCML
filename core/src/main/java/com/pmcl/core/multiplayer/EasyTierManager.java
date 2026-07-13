@@ -403,7 +403,7 @@ public final class EasyTierManager {
     }
 
     /** 停止正在运行的 easytier-core 进程 */
-    public void stop() {
+    public synchronized void stop() {
         Process p = process;
         if (p != null && p.isAlive()) {
             p.destroy();
