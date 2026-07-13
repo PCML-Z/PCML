@@ -2664,6 +2664,62 @@ class LauncherViewModel {
         }
     }
 
+    /** 复制截图到系统剪贴板（作为图片） */
+    fun copyScreenshotToClipboard(shot: ScreenshotManager.Screenshot) {
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val img = javax.imageio.ImageIO.read(shot.getPath().toFile())
+                    if (img != null) {
+                        val selection = object : java.awt.datatransfer.Transferable {
+                            override fun getTransferDataFlavors() = arrayOf(java.awt.datatransfer.DataFlavor.imageFlavor)
+                            override fun isDataFlavorSupported(f: java.awt.datatransfer.DataFlavor) =
+                                f == java.awt.datatransfer.DataFlavor.imageFlavor
+                            override fun getTransferData(f: java.awt.datatransfer.DataFlavor): Any {
+                                if (f != java.awt.datatransfer.DataFlavor.imageFlavor)
+                                    throw java.awt.datatransfer.UnsupportedFlavorException(f)
+                                return img
+                            }
+                        }
+                        java.awt.Toolkit.getDefaultToolkit().systemClipboard.setContents(selection, null)
+                    }
+                }
+                _status.value = "已复制 ${shot.name} 到剪贴板"
+            } catch (e: Throwable) {
+                _status.value = "复制失败：${e.message}"
+            }
+        }
+    }
+
+    /** 导出多张截图为 ZIP 文件 */
+    fun exportScreenshotsZip(shots: List<ScreenshotManager.Screenshot>, targetPath: String) {
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    java.nio.file.Files.newOutputStream(java.nio.file.Paths.get(targetPath)).use { fos ->
+                        java.util.zip.ZipOutputStream(fos).use { zos ->
+                            val usedNames = mutableSetOf<String>()
+                            for (shot in shots) {
+                                var name = shot.getName()
+                                while (!usedNames.add(name)) {
+                                    val dot = name.lastIndexOf('.')
+                                    name = if (dot > 0) name.substring(0, dot) + "_1" + name.substring(dot)
+                                           else name + "_1"
+                                }
+                                zos.putNextEntry(java.util.zip.ZipEntry(name))
+                                java.nio.file.Files.copy(shot.getPath(), zos)
+                                zos.closeEntry()
+                            }
+                        }
+                    }
+                }
+                _status.value = "已导出 ${shots.size} 张截图到 $targetPath"
+            } catch (e: Throwable) {
+                _status.value = "导出失败：${e.message}"
+            }
+        }
+    }
+
     // ============ 资源包 ============
 
     fun refreshResourcePacks() {

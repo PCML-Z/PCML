@@ -5,7 +5,9 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -14,6 +16,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import kotlinx.coroutines.launch
+import java.awt.FileDialog
+import java.awt.Frame
 import java.text.SimpleDateFormat
 import java.util.Date
 
@@ -30,6 +34,26 @@ fun ScreenshotsPage(vm: LauncherViewModel) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("截图", style = MaterialTheme.typography.headlineSmall,
                  fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            // 导出 ZIP
+            OutlinedButton(
+                onClick = {
+                    if (shots.isEmpty()) return@OutlinedButton
+                    val fd = FileDialog(null as Frame?, "导出截图 ZIP", FileDialog.SAVE)
+                    fd.file = "screenshots.zip"
+                    fd.isVisible = true
+                    if (fd.file != null) {
+                        val target = java.io.File(fd.directory, fd.file).absolutePath
+                        vm.exportScreenshotsZip(shots, target)
+                    }
+                },
+                enabled = shots.isNotEmpty()
+            ) {
+                Icon(Icons.Filled.Download, contentDescription = null,
+                     modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("导出 ZIP")
+            }
+            Spacer(Modifier.width(8.dp))
             OutlinedButton(onClick = { vm.refreshScreenshots() }) { Text("刷新") }
         }
         Spacer(Modifier.height(8.dp))
@@ -65,6 +89,18 @@ fun ScreenshotsPage(vm: LauncherViewModel) {
                                  style = MaterialTheme.typography.labelSmall,
                                  color = MaterialTheme.colorScheme.outline)
                             Spacer(Modifier.height(4.dp))
+                            // 复制到剪贴板
+                            OutlinedButton(
+                                onClick = { vm.copyScreenshotToClipboard(shot) },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(Icons.Filled.ContentCopy, contentDescription = null,
+                                     modifier = Modifier.size(14.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("复制", style = MaterialTheme.typography.labelSmall)
+                            }
+                            Spacer(Modifier.height(4.dp))
+                            // 删除
                             OutlinedButton(onClick = {
                                 scope.launch { vm.deleteScreenshot(shot) }
                             }, modifier = Modifier.fillMaxWidth()) {
