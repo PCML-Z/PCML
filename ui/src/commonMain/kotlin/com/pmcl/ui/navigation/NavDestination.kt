@@ -1,6 +1,7 @@
 package com.pmcl.ui.navigation
 
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Dashboard
@@ -38,6 +39,7 @@ sealed class NavDestination(val route: String, val labelKey: String, val icon: I
     data object Terminal    : NavDestination("terminal",    "nav.terminal",    Icons.Filled.Terminal)
     data object Plugins     : NavDestination("plugins",     "nav.plugins",     Icons.Filled.Extension)
     data object Instances   : NavDestination("instances",   "nav.instances",   Icons.Filled.Dashboard)
+    data object NbtEditor   : NavDestination("nbt",         "nav.nbt",         Icons.Filled.AccountTree)
 }
 
 val allDestinations = listOf(
@@ -52,5 +54,6 @@ val allDestinations = listOf(
     NavDestination.Settings,
     NavDestination.Terminal,
     NavDestination.Plugins,
-    NavDestination.Instances
+    NavDestination.Instances,
+    NavDestination.NbtEditor
 )

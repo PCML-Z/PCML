@@ -23,6 +23,9 @@ import com.pmcl.core.mods.ModDependencyResolver
 import com.pmcl.core.modpack.ModpackManager
 import com.pmcl.core.modpack.ModpackManager.ModpackUpdateResult
 import com.pmcl.core.modpack.ModpackManager.ModUpdate
+import com.pmcl.core.nbt.NbtReader
+import com.pmcl.core.nbt.NbtTag
+import com.pmcl.core.nbt.NbtWriter
 import com.pmcl.core.preferences.Preferences
 import com.pmcl.core.stats.PlayTimeTracker
 import com.pmcl.core.version.McVersion
@@ -173,6 +176,16 @@ class LauncherViewModel {
     val modpackUpdateResult: StateFlow<ModpackUpdateResult?> = _modpackUpdateResult.asStateFlow()
     private val _modpackUpdateChecking = MutableStateFlow(false)
     val modpackUpdateChecking: StateFlow<Boolean> = _modpackUpdateChecking.asStateFlow()
+
+    // ===== NBT 编辑器 =====
+    private val _nbtRoot = MutableStateFlow<NbtTag?>(null)
+    val nbtRoot: StateFlow<NbtTag?> = _nbtRoot.asStateFlow()
+    private val _nbtFilePath = MutableStateFlow<String?>(null)
+    val nbtFilePath: StateFlow<String?> = _nbtFilePath.asStateFlow()
+    private val _nbtDirty = MutableStateFlow(false)
+    val nbtDirty: StateFlow<Boolean> = _nbtDirty.asStateFlow()
+    private val _nbtError = MutableStateFlow<String?>(null)
+    val nbtError: StateFlow<String?> = _nbtError.asStateFlow()
 
     // ===== 下载队列 =====
     private val _queueTasks = MutableStateFlow<List<DownloadQueueManager.QueueTask>>(emptyList())
@@ -1489,6 +1502,60 @@ class LauncherViewModel {
     /** 清除更新检查结果 */
     fun clearModpackUpdateResult() {
         _modpackUpdateResult.value = null
+    }
+
+    // ===== NBT 编辑器方法 =====
+
+    /** 打开 NBT 文件（gzip 压缩，如 level.dat） */
+    fun openNbtFile(path: String) {
+        scope.launch {
+            _nbtError.value = null
+            try {
+                val tag = withContext(Dispatchers.IO) {
+                    NbtReader.read(java.nio.file.Paths.get(path))
+                }
+                _nbtRoot.value = tag
+                _nbtFilePath.value = path
+                _nbtDirty.value = false
+                _status.value = "已加载: $path"
+            } catch (e: Throwable) {
+                _nbtError.value = "读取 NBT 失败: ${e.message}"
+                _status.value = "读取 NBT 失败: ${e.message}"
+            }
+        }
+    }
+
+    /** 保存 NBT 到当前文件 */
+    fun saveNbtFile() {
+        val root = _nbtRoot.value ?: return
+        val path = _nbtFilePath.value ?: return
+        scope.launch {
+            _nbtError.value = null
+            try {
+                withContext(Dispatchers.IO) {
+                    NbtWriter.write(root, java.nio.file.Paths.get(path))
+                }
+                _nbtDirty.value = false
+                _status.value = "已保存: $path"
+            } catch (e: Throwable) {
+                _nbtError.value = "保存 NBT 失败: ${e.message}"
+                _status.value = "保存 NBT 失败: ${e.message}"
+            }
+        }
+    }
+
+    /** 更新 NBT 树中某个节点的值（标记为 dirty） */
+    fun updateNbtValue() {
+        _nbtDirty.value = true
+        _nbtRoot.value = _nbtRoot.value // 触发 StateFlow 更新
+    }
+
+    /** 关闭当前 NBT 文件 */
+    fun closeNbtFile() {
+        _nbtRoot.value = null
+        _nbtFilePath.value = null
+        _nbtDirty.value = false
+        _nbtError.value = null
     }
 
     /** 删除整合包实例 */

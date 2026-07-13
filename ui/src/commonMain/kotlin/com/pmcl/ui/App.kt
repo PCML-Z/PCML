@@ -22,6 +22,7 @@ import com.pmcl.ui.page.ContentHubPage
 import com.pmcl.ui.page.DownloadHubPage
 import com.pmcl.ui.page.InstancesPage
 import com.pmcl.ui.page.LaunchPage
+import com.pmcl.ui.page.NbtEditorPage
 import com.pmcl.ui.page.MultiplayerPage
 import com.pmcl.ui.page.NewsPage
 import com.pmcl.ui.page.PluginPage
@@ -200,6 +201,7 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                             NavDestination.Terminal    -> TerminalPage(vm)
                             NavDestination.Plugins     -> PluginPage(vm)
                             NavDestination.Instances   -> InstancesPage(vm)
+                            NavDestination.NbtEditor   -> NbtEditorPage(vm)
                         }
                         is NavTarget.PluginPage -> {
                             target.page.content.invoke()
