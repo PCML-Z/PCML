@@ -1,5 +1,8 @@
+@file:OptIn(ExperimentalFoundationApi::class)
+
 package com.pmcl.ui.page
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -138,8 +141,10 @@ fun DatapacksPage(vm: LauncherViewModel) {
                     modifier = Modifier.weight(1f)
                 ) {
                     itemsIndexed(filteredWorlds, key = { _, w -> w.dir.toString() }) { index, world ->
-                        StaggeredAppear(index) {
-                            WorldSelectRow(world, vm)
+                        Box(Modifier.animateItemPlacement()) {
+                            StaggeredAppear(index) {
+                                WorldSelectRow(world, vm)
+                            }
                         }
                     }
                 }
@@ -180,8 +185,10 @@ fun DatapacksPage(vm: LauncherViewModel) {
                     modifier = Modifier.weight(1f)
                 ) {
                     itemsIndexed(filteredDatapacks, key = { _, d -> d.path.toString() }) { index, dp ->
-                        StaggeredAppear(index) {
-                            DatapackRow(dp, vm)
+                        Box(Modifier.animateItemPlacement()) {
+                            StaggeredAppear(index) {
+                                DatapackRow(dp, vm)
+                            }
                         }
                     }
                 }

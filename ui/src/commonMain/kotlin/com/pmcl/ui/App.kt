@@ -109,6 +109,8 @@ private sealed class NavTarget {
 @Composable
 private fun MainWindowContent(vm: LauncherViewModel) {
     var current by remember { mutableStateOf<NavTarget>(NavTarget.BuiltIn(NavDestination.Launch)) }
+    // 导航方向：1=前进，-1=后退，0=初始
+    var navDirection by remember { mutableIntStateOf(0) }
 
     // Collect plugin-provided pages (refreshable via revision polling)
     var pluginPages by remember { mutableStateOf<List<PluginManager.RegisteredPage>>(emptyList()) }
@@ -165,7 +167,12 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                         val selected = current == target
                         NavigationRailItem(
                             selected = selected,
-                            onClick = { current = target },
+                            onClick = {
+                            val oldIndex = navItems.indexOf(current)
+                            val newIndex = navItems.indexOf(target)
+                            navDirection = if (newIndex > oldIndex) 1 else if (newIndex < oldIndex) -1 else 0
+                            current = target
+                        },
                             icon = {
                                 when (target) {
                                     is NavTarget.BuiltIn -> Icon(target.dest.icon, contentDescription = I18n.t(target.dest.labelKey))
@@ -186,7 +193,7 @@ private fun MainWindowContent(vm: LauncherViewModel) {
 
         Box(Modifier.weight(1f).fillMaxHeight()) {
             EntranceAnimation(delayMs = 120, durationMs = 400, offsetDp = 32) {
-                AnimatedPageSwitch(targetState = current) { target ->
+                AnimatedPageSwitch(targetState = current, direction = navDirection) { target ->
                     when (target) {
                         is NavTarget.BuiltIn -> when (target.dest) {
                             NavDestination.Launch      -> LaunchPage(vm)
@@ -234,7 +241,11 @@ private fun MainWindowContent(vm: LauncherViewModel) {
         // 匹配目标页面
         val target = allDestinations.firstOrNull { it.route == req }
         if (target != null) {
-            current = NavTarget.BuiltIn(target)
+            val newTarget = NavTarget.BuiltIn(target)
+            val oldIndex = navItems.indexOf(current)
+            val newIndex = navItems.indexOf(newTarget)
+            navDirection = if (newIndex > oldIndex) 1 else if (newIndex < oldIndex) -1 else 0
+            current = newTarget
         }
         vm.clearNavigationRequest()
     }

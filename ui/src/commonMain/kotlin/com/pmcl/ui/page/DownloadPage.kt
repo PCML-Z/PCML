@@ -1,5 +1,8 @@
+@file:OptIn(ExperimentalFoundationApi::class)
+
 package com.pmcl.ui.page
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -158,6 +161,7 @@ fun DownloadPage(vm: LauncherViewModel) {
 
             LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 itemsIndexed(filtered, key = { _, v -> v.getId() }) { index, v ->
+                    Box(Modifier.animateItemPlacement()) {
                     StaggeredAppear(index) {
                     DownloadRow(
                         title = v.getId(),
@@ -167,12 +171,14 @@ fun DownloadPage(vm: LauncherViewModel) {
                         onAction = { vm.enqueueVersionInstall(v.getId()) }
                     )
                     }
+                    }
                 }
             }
         } else {
             // 加载器列表
             LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 itemsIndexed(modLoaderVersions, key = { _, lv -> lv.getLoaderVersion() }) { index, lv ->
+                    Box(Modifier.animateItemPlacement()) {
                     StaggeredAppear(index) {
                     DownloadRow(
                         title = lv.getLoaderVersion(),
@@ -191,6 +197,7 @@ fun DownloadPage(vm: LauncherViewModel) {
                             vm.enqueueModLoaderInstall(loader.name, lv.getGameVersion(), lv.getLoaderVersion())
                         }
                     )
+                    }
                     }
                 }
             }

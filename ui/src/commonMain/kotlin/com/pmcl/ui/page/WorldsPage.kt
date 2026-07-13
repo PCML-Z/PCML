@@ -1,5 +1,8 @@
+@file:OptIn(ExperimentalFoundationApi::class)
+
 package com.pmcl.ui.page
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -174,8 +177,10 @@ fun WorldsPage(vm: LauncherViewModel) {
                 modifier = Modifier.weight(1f)
             ) {
                 itemsIndexed(processedWorlds, key = { _, w -> w.dir.toString() }) { index, world ->
-                    StaggeredAppear(index) {
-                        WorldRow(world, vm, format)
+                    Box(Modifier.animateItemPlacement()) {
+                        StaggeredAppear(index) {
+                            WorldRow(world, vm, format)
+                        }
                     }
                 }
             }

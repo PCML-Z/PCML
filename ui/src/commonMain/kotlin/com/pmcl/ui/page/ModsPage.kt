@@ -1,5 +1,8 @@
+@file:OptIn(ExperimentalFoundationApi::class)
+
 package com.pmcl.ui.page
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -297,9 +300,11 @@ fun ModsPage(vm: LauncherViewModel) {
                 modifier = Modifier.weight(1f)
             ) {
                 itemsIndexed(processedMods, key = { _, m -> System.identityHashCode(m) }) { index, m ->
-                    StaggeredAppear(index) {
-                        val updateInfo = updateInfoMap[m.getModId() ?: ""]
-                        ModRow(m, vm, translateEnabled, translationCache, updateInfo, updatingMod)
+                    Box(Modifier.animateItemPlacement()) {
+                        StaggeredAppear(index) {
+                            val updateInfo = updateInfoMap[m.getModId() ?: ""]
+                            ModRow(m, vm, translateEnabled, translationCache, updateInfo, updatingMod)
+                        }
                     }
                 }
             }

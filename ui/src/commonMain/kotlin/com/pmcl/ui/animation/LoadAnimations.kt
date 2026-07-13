@@ -72,6 +72,8 @@ fun SlideInFromBottom(
 
 /**
  * 列表项交错入场：根据 index 计算延迟，前 N 项有动画，之后立即显示。
+ * 使用 [MutableTransitionState] 确保动画仅在首次进入组合时触发一次，
+ * 避免列表项滚出可视区域再滚回时重播入场动画。
  * 用法：
  * ```
  * itemsIndexed(items) { index, item ->
@@ -87,19 +89,28 @@ fun StaggeredAppear(
     durationMs: Int = MotionTokens.DURATION_MEDIUM,
     content: @Composable () -> Unit
 ) {
-    var visible by remember { mutableStateOf(false) }
-    androidx.compose.runtime.LaunchedEffect(Unit) {
-        val delay = (index * StaggerTokens.ITEM_DELAY_MS).coerceAtMost(
-            StaggerTokens.MAX_ITEMS_ANIMATED * StaggerTokens.ITEM_DELAY_MS
-        )
-        kotlinx.coroutines.delay(delay.toLong())
-        visible = true
+    val transitionState = remember {
+        MutableTransitionState(false).apply { targetState = true }
     }
-    SlideInFromBottom(
-        visible = visible,
-        durationMs = durationMs,
-        offsetDp = 24
-    ) { content() }
+    // 仅在首次进入组合时执行延迟，滚回时直接显示（targetState 已为 true）
+    if (!transitionState.currentState) {
+        LaunchedEffect(Unit) {
+            val delay = (index * StaggerTokens.ITEM_DELAY_MS).coerceAtMost(
+                StaggerTokens.MAX_ITEMS_ANIMATED * StaggerTokens.ITEM_DELAY_MS
+            )
+            kotlinx.coroutines.delay(delay.toLong())
+        }
+    }
+    AnimatedVisibility(
+        visibleState = transitionState,
+        enter = slideInVertically(
+            animationSpec = tween(durationMs, easing = MotionTokens.EasingEmphasizedDecelerate),
+            initialOffsetY = { 24 }
+        ) + fadeIn(tween(durationMs, easing = MotionTokens.EasingEmphasizedDecelerate)),
+        exit = fadeOut(tween(durationMs / 2))
+    ) {
+        content()
+    }
 }
 
 /**
@@ -147,15 +158,25 @@ fun Modifier.pulseLoading(): Modifier = composed {
 }
 
 /**
- * 点击缩放反馈：按下时缩放至 0.97
+ * 点击缩放反馈：按下时缩放至 [scale]，松开时弹回 1.0。
+ * 使用 spring 物理动画实现丝滑过渡和轻微回弹效果。
  */
 fun Modifier.pressScale(
     pressed: Boolean,
     scale: Float = 0.97f
-): Modifier = this.graphicsLayer {
-    val target = if (pressed) scale else 1f
-    scaleX = target
-    scaleY = target
+): Modifier = composed {
+    val animScale by animateFloatAsState(
+        targetValue = if (pressed) scale else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMedium
+        ),
+        label = "pressScale"
+    )
+    this.graphicsLayer {
+        scaleX = animScale
+        scaleY = animScale
+    }
 }
 
 /**

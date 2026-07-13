@@ -1,5 +1,8 @@
+@file:OptIn(ExperimentalFoundationApi::class)
+
 package com.pmcl.ui.page
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -126,8 +129,10 @@ fun ShaderPacksPage(vm: LauncherViewModel) {
                 modifier = Modifier.weight(1f)
             ) {
                 itemsIndexed(filtered, key = { _, p -> p.path.toString() }) { index, pack ->
-                    StaggeredAppear(index) {
-                        ShaderPackRow(pack, vm, isActive = pack.isActive)
+                    Box(Modifier.animateItemPlacement()) {
+                        StaggeredAppear(index) {
+                            ShaderPackRow(pack, vm, isActive = pack.isActive)
+                        }
                     }
                 }
             }

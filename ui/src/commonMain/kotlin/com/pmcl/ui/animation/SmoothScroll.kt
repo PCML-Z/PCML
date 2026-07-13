@@ -1,9 +1,7 @@
 package com.pmcl.ui.animation
 
-import androidx.compose.foundation.gestures.ScrollScope
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
@@ -27,20 +25,15 @@ fun LazyListState.smoothScrollToItem(
     }
 }
 
-/** 平滑滚动指定像素距离（带缓动） */
-suspend fun LazyListState.smoothScrollBy(
-    scope: CoroutineScope,
-    delta: Float
-) {
-    scope.launch {
-        animateScrollBy(
-            value = delta,
-            animationSpec = androidx.compose.animation.core.tween(
-                durationMillis = MotionTokens.DURATION_LONG,
-                easing = MotionTokens.EasingEmphasized
-            )
+/** 平滑滚动指定像素距离（带缓动）。suspend 直到滚动完成。 */
+suspend fun LazyListState.smoothScrollBy(delta: Float) {
+    animateScrollBy(
+        value = delta,
+        animationSpec = androidx.compose.animation.core.tween(
+            durationMillis = MotionTokens.DURATION_LONG,
+            easing = MotionTokens.EasingEmphasized
         )
-    }
+    )
 }
 
 /** 滚动到列表顶部 */

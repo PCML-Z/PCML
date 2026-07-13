@@ -44,11 +44,13 @@ fun PageShell(
 }
 
 /**
- * 页面切换过渡：左滑出/右滑入 + 淡入淡出。
+ * 页面切换过渡：根据导航方向滑动 + 淡入淡出。
+ * @param direction 1=前进（新页从右滑入），-1=后退（新页从左滑入），0=同级切换（交叉淡入淡出）
  */
 @Composable
 fun <T> AnimatedPageSwitch(
     targetState: T,
+    direction: Int = 0,
     modifier: Modifier = Modifier,
     content: @Composable (T) -> Unit
 ) {
@@ -56,15 +58,27 @@ fun <T> AnimatedPageSwitch(
         targetState = targetState,
         modifier = modifier,
         transitionSpec = {
-            val direction = if (targetState.hashCode() > initialState.hashCode()) 1 else -1
-            slideIntoContainer(
-                towards = AnimatedContentTransitionScope.SlideDirection.Start,
-                animationSpec = tween(MotionTokens.DURATION_LONG, easing = MotionTokens.EasingEmphasized)
-            ) + fadeIn(tween(MotionTokens.DURATION_LONG, delayMillis = 100)) togetherWith
-                    slideOutOfContainer(
-                        towards = AnimatedContentTransitionScope.SlideDirection.Start,
-                        animationSpec = tween(MotionTokens.DURATION_LONG, easing = MotionTokens.EasingEmphasized)
-                    ) + fadeOut(tween(MotionTokens.DURATION_LONG / 2))
+            if (direction >= 0) {
+                // 前进：新页从右滑入，旧页向左滑出
+                slideIntoContainer(
+                    towards = AnimatedContentTransitionScope.SlideDirection.Start,
+                    animationSpec = tween(MotionTokens.DURATION_LONG, easing = MotionTokens.EasingEmphasized)
+                ) + fadeIn(tween(MotionTokens.DURATION_LONG, delayMillis = 100)) togetherWith
+                        slideOutOfContainer(
+                            towards = AnimatedContentTransitionScope.SlideDirection.Start,
+                            animationSpec = tween(MotionTokens.DURATION_LONG, easing = MotionTokens.EasingEmphasized)
+                        ) + fadeOut(tween(MotionTokens.DURATION_LONG / 2))
+            } else {
+                // 后退：新页从左滑入，旧页向右滑出
+                slideIntoContainer(
+                    towards = AnimatedContentTransitionScope.SlideDirection.End,
+                    animationSpec = tween(MotionTokens.DURATION_LONG, easing = MotionTokens.EasingEmphasized)
+                ) + fadeIn(tween(MotionTokens.DURATION_LONG, delayMillis = 100)) togetherWith
+                        slideOutOfContainer(
+                            towards = AnimatedContentTransitionScope.SlideDirection.End,
+                            animationSpec = tween(MotionTokens.DURATION_LONG, easing = MotionTokens.EasingEmphasized)
+                        ) + fadeOut(tween(MotionTokens.DURATION_LONG / 2))
+            }
         },
         label = "pageSwitch"
     ) { state ->
