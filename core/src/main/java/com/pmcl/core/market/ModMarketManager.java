@@ -43,6 +43,14 @@ public final class ModMarketManager {
         return clients.stream().anyMatch(c -> "curseforge".equals(c.source()));
     }
 
+    /** 获取 Modrinth 客户端实例（用于整合包更新检查等高级 API） */
+    public ModrinthClient getModrinthClient() {
+        return (ModrinthClient) clients.stream()
+                .filter(c -> "modrinth".equals(c.source()))
+                .findFirst()
+                .orElse(null);
+    }
+
     /**
      * 更新所有客户端的 OkHttpClient 引用（用户在设置中修改代理后调用）。
      * 让 mod 市场请求也能立即走代理。

@@ -1,11 +1,14 @@
 package com.pmcl.core.modpack;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.pmcl.core.LauncherConfig;
 import com.pmcl.core.download.DownloadManager;
 import com.pmcl.core.install.InstallProgress;
 import com.pmcl.core.install.VersionInstaller;
+import com.pmcl.core.market.ModMarketManager;
 import com.pmcl.core.modloader.ModLoader;
 import com.pmcl.core.modloader.ModLoaderManager;
 import com.pmcl.core.preferences.Preferences;
@@ -48,16 +51,19 @@ public final class ModpackManager {
     private final VersionInstaller versionInstaller;
     private final ModLoaderManager modLoaderManager;
     private final Preferences preferences;
+    private final ModMarketManager modMarketManager;
 
     public ModpackManager(LauncherConfig config, DownloadManager downloads,
                           VersionInstaller versionInstaller,
                           ModLoaderManager modLoaderManager,
-                          Preferences preferences) {
+                          Preferences preferences,
+                          ModMarketManager modMarketManager) {
         this.config = config;
         this.downloads = downloads;
         this.versionInstaller = versionInstaller;
         this.modLoaderManager = modLoaderManager;
         this.preferences = preferences;
+        this.modMarketManager = modMarketManager;
     }
 
     // ===== 数据类 =====
@@ -100,6 +106,45 @@ public final class ModpackManager {
             this.projectId = projectId;
             this.fileId = fileId;
         }
+    }
+
+    /** 单个 mod 的更新信息 */
+    public static final class ModUpdate {
+        public final String fileName;
+        public final String currentVersion;  // 当前版本号（可能为空）
+        public final String latestVersion;   // 最新版本号
+        public final String projectId;
+        public final String downloadUrl;     // 最新版本下载 URL
+        public final String loader;          // 加载器
+
+        public ModUpdate(String fileName, String currentVersion, String latestVersion,
+                         String projectId, String downloadUrl, String loader) {
+            this.fileName = fileName;
+            this.currentVersion = currentVersion != null ? currentVersion : "";
+            this.latestVersion = latestVersion != null ? latestVersion : "";
+            this.projectId = projectId;
+            this.downloadUrl = downloadUrl;
+            this.loader = loader;
+        }
+    }
+
+    /** 整合包更新检查结果 */
+    public static final class ModpackUpdateResult {
+        public final String instanceName;
+        public final List<ModUpdate> updates;  // 有更新的 mod 列表
+        public final int totalChecked;         // 已检查的 mod 数
+        public final String error;             // 错误信息（null 表示成功）
+
+        public ModpackUpdateResult(String instanceName, List<ModUpdate> updates,
+                                   int totalChecked, String error) {
+            this.instanceName = instanceName;
+            this.updates = updates != null ? updates : new ArrayList<>();
+            this.totalChecked = totalChecked;
+            this.error = error;
+        }
+
+        public boolean isSuccess() { return error == null; }
+        public boolean hasUpdates() { return !updates.isEmpty(); }
     }
 
     /** 已安装的整合包实例 */
@@ -588,6 +633,150 @@ public final class ModpackManager {
         Files.deleteIfExists(path);
     }
 
+    // ===== 更新检查 =====
+
+    /**
+     * 检查已安装整合包的 mod 是否有更新。
+     * <p>
+     * 流程：
+     * <ol>
+     *   <li>读取实例目录下的 source.json（导入时保存的原始 manifest）</li>
+     *   <li>提取每个 mod 的 SHA1 哈希</li>
+     *   <li>调用 Modrinth API {@code POST /version_files} 批量查询当前版本</li>
+     *   <li>对每个 mod 的 project_id 调用 {@code GET /project/{id}/version} 获取最新版本</li>
+     *   <li>对比 version_id，有差异的加入更新列表</li>
+     * </ol>
+     * 仅对 Modrinth 格式的整合包有效（CF 格式需要 CF API，FTB 格式 mods 已打包无哈希）。
+     *
+     * @param instanceName 实例名称（目录名）
+     * @return 更新检查结果
+     */
+    public CompletableFuture<ModpackUpdateResult> checkForUpdates(String instanceName) {
+        return CompletableFuture.supplyAsync(() -> {
+            Path instanceDir = config.getWorkDir().resolve("instances").resolve(instanceName);
+            Path sourceFile = instanceDir.resolve("source.json");
+            if (!Files.isRegularFile(sourceFile)) {
+                return new ModpackUpdateResult(instanceName, new ArrayList<>(), 0,
+                        "缺少 source.json，无法检查更新（仅 Modrinth 格式支持）");
+            }
+            try {
+                JsonObject source = JsonParser.parseString(Files.readString(sourceFile,
+                        java.nio.charset.StandardCharsets.UTF_8)).getAsJsonObject();
+                String gameVersion = safeStr(source, "gameVersion", "");
+                String loader = safeStr(source, "loader", "");
+
+                if (!source.has("files") || !source.get("files").isJsonArray()) {
+                    return new ModpackUpdateResult(instanceName, new ArrayList<>(), 0, null);
+                }
+
+                JsonArray filesArr = source.getAsJsonArray("files");
+                if (filesArr.isEmpty()) {
+                    return new ModpackUpdateResult(instanceName, new ArrayList<>(), 0, null);
+                }
+
+                // 收集有 SHA1 哈希的 mod 文件
+                List<String> hashes = new ArrayList<>();
+                java.util.Map<String, String> hashToFile = new java.util.LinkedHashMap<>();
+                for (JsonElement e : filesArr) {
+                    JsonObject fo = e.getAsJsonObject();
+                    String path = safeStr(fo, "path", "");
+                    String hash = safeStr(fo, "hash", "");
+                    if (!hash.isEmpty() && !path.isEmpty()) {
+                        hashes.add(hash);
+                        hashToFile.put(hash, path);
+                    }
+                }
+
+                if (hashes.isEmpty()) {
+                    return new ModpackUpdateResult(instanceName, new ArrayList<>(), 0, null);
+                }
+
+                // 批量查询当前哈希对应的版本信息
+                com.pmcl.core.market.ModrinthClient modrinth = modMarketManager != null
+                        ? modMarketManager.getModrinthClient() : null;
+                if (modrinth == null) {
+                    return new ModpackUpdateResult(instanceName, new ArrayList<>(), 0,
+                            "Modrinth 客户端不可用");
+                }
+                java.util.Map<String, JsonObject> currentVersions = modrinth.batchCheckBySha1(hashes);
+
+                // 收集需要查询最新版本的 project_id（去重）
+                // hash -> { projectId, currentVersionId, currentVersionNumber, fileName }
+                java.util.Map<String, String> hashToProjectId = new java.util.HashMap<>();
+                java.util.Set<String> projectIds = new java.util.LinkedHashSet<>();
+                java.util.Map<String, String> hashToCurrentVersionId = new java.util.HashMap<>();
+                java.util.Map<String, String> hashToCurrentVersionNumber = new java.util.HashMap<>();
+
+                for (String hash : hashes) {
+                    JsonObject verInfo = currentVersions.get(hash);
+                    if (verInfo == null) continue;
+                    String pid = safeStr(verInfo, "project_id", "");
+                    String vid = safeStr(verInfo, "id", "");
+                    String vnum = safeStr(verInfo, "version_number", "");
+                    if (!pid.isEmpty()) {
+                        hashToProjectId.put(hash, pid);
+                        hashToCurrentVersionId.put(hash, vid);
+                        hashToCurrentVersionNumber.put(hash, vnum);
+                        projectIds.add(pid);
+                    }
+                }
+
+                // 查询每个 project 的最新版本
+                List<ModUpdate> updates = new ArrayList<>();
+                int checkedCount = hashToProjectId.size();
+
+                for (String hash : hashToProjectId.keySet()) {
+                    String pid = hashToProjectId.get(hash);
+                    String currentVid = hashToCurrentVersionId.get(hash);
+                    String currentVnum = hashToCurrentVersionNumber.get(hash);
+                    String fileName = hashToFile.get(hash);
+                    if (fileName.startsWith("mods/")) {
+                        fileName = fileName.substring("mods/".length());
+                    }
+
+                    try {
+                        JsonObject latest = modrinth.getLatestVersion(pid, gameVersion, loader);
+                        if (latest == null) continue;
+
+                        String latestVid = safeStr(latest, "id", "");
+                        String latestVnum = safeStr(latest, "version_number", "");
+
+                        // 对比 version_id，不同则有更新
+                        if (!latestVid.isEmpty() && !latestVid.equals(currentVid)) {
+                            // 提取下载 URL
+                            String downloadUrl = "";
+                            if (latest.has("files") && latest.get("files").isJsonArray()) {
+                                for (JsonElement fe : latest.getAsJsonArray("files")) {
+                                    JsonObject fobj = fe.getAsJsonObject();
+                                    boolean primary = !fobj.has("primary") || fobj.get("primary").getAsBoolean();
+                                    if (primary) {
+                                        downloadUrl = safeStr(fobj, "url", "");
+                                        break;
+                                    }
+                                }
+                                // 如果没有 primary 文件，取第一个
+                                if (downloadUrl.isEmpty() && latest.getAsJsonArray("files").size() > 0) {
+                                    downloadUrl = safeStr(latest.getAsJsonArray("files").get(0).getAsJsonObject(), "url", "");
+                                }
+                            }
+
+                            updates.add(new ModUpdate(fileName, currentVnum, latestVnum,
+                                    pid, downloadUrl, loader));
+                        }
+                    } catch (Exception e) {
+                        // 单个 mod 查询失败不中断整体检查
+                        System.err.println("[ModpackManager] 查询 " + pid + " 最新版本失败: " + e.getMessage());
+                    }
+                }
+
+                return new ModpackUpdateResult(instanceName, updates, checkedCount, null);
+            } catch (Exception e) {
+                return new ModpackUpdateResult(instanceName, new ArrayList<>(), 0,
+                        "检查更新失败: " + e.getMessage());
+            }
+        });
+    }
+
     // ===== 内部方法 =====
 
     private ParsedManifest parseManifest(Path file) throws IOException {
@@ -855,6 +1044,23 @@ public final class ModpackManager {
 
         Files.writeString(instanceDir.resolve("modpack.json"),
                 info.toString(), java.nio.charset.StandardCharsets.UTF_8);
+
+        // 保存完整 source manifest（含 files 数组及 SHA1 哈希），用于更新检查
+        JsonObject source = info.deepCopy();
+        JsonArray filesArr = new JsonArray();
+        for (ModpackFile mf : manifest.files) {
+            JsonObject fo = new JsonObject();
+            fo.addProperty("path", mf.path);
+            fo.addProperty("hash", mf.hash != null ? mf.hash : "");
+            fo.addProperty("size", mf.size);
+            fo.addProperty("downloadUrl", mf.downloadUrl != null ? mf.downloadUrl : "");
+            if (mf.projectId != null) fo.addProperty("projectId", mf.projectId);
+            if (mf.fileId != null) fo.addProperty("fileId", mf.fileId);
+            filesArr.add(fo);
+        }
+        source.add("files", filesArr);
+        Files.writeString(instanceDir.resolve("source.json"),
+                source.toString(), java.nio.charset.StandardCharsets.UTF_8);
     }
 
     private ModLoader parseLoader(String loader) {

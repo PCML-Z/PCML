@@ -273,6 +273,114 @@ public final class ModrinthClient implements ModMarketClient {
         });
     }
 
+    /**
+     * 批量通过 SHA1 哈希查询文件对应的版本信息。
+     * <p>
+     * 调用 {@code POST /version_files}，返回每个哈希对应的版本（含 project_id / version_id / version_number）。
+     * 未找到的哈希返回 null 值。
+     *
+     * @param sha1Hashes SHA1 哈希列表
+     * @return 哈希 -> 版本信息 JsonObject 的映射（project_id, id, version_number, files）
+     */
+    public java.util.Map<String, JsonObject> batchCheckBySha1(List<String> sha1Hashes) {
+        if (sha1Hashes == null || sha1Hashes.isEmpty()) return Collections.emptyMap();
+        JsonObject body = new JsonObject();
+        JsonArray arr = new JsonArray();
+        for (String h : sha1Hashes) arr.add(h);
+        body.add("hashes", arr);
+        body.addProperty("algorithm", "sha1");
+
+        Request req = new Request.Builder()
+                .url(BASE + "/version_files")
+                .header("User-Agent", "PMCL/1.0")
+                .post(RequestBody.create(body.toString(), JSON))
+                .build();
+
+        Exception last = null;
+        for (int attempt = 0; attempt <= RETRY; attempt++) {
+            try (Response resp = http.newCall(req).execute()) {
+                String respBody = resp.body() != null ? resp.body().string() : "{}";
+                if (!resp.isSuccessful()) {
+                    throw new IOException("HTTP " + resp.code() + ": " + respBody);
+                }
+                JsonObject result = JsonParser.parseString(respBody).getAsJsonObject();
+                java.util.Map<String, JsonObject> map = new java.util.HashMap<>();
+                for (String hash : sha1Hashes) {
+                    if (result.has(hash) && result.get(hash).isJsonObject()) {
+                        map.put(hash, result.getAsJsonObject(hash));
+                    }
+                }
+                return map;
+            } catch (Exception e) {
+                last = e;
+                if (attempt < RETRY) {
+                    try { Thread.sleep(RETRY_BASE_MS * (1L << attempt)); }
+                    catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }
+                }
+            }
+        }
+        String msg = last != null ? last.getMessage() : "未知错误";
+        throw new RuntimeException("Modrinth 批量哈希查询失败：" + friendlyError(msg), last);
+    }
+
+    /**
+     * 获取项目在指定游戏版本和加载器下的最新版本。
+     * <p>
+     * 调用 {@code GET /project/{id}/version?game_versions=[...]&loaders=[...]}，
+     * 返回第一个（最新）版本的信息。gameVersion 或 loader 为空时不进行过滤。
+     *
+     * @param projectId   Modrinth 项目 ID
+     * @param gameVersion Minecraft 版本（如 "1.20.1"），可为空
+     * @param loader      加载器（如 "fabric"），可为空
+     * @return 最新版本 JsonObject（含 id, version_number, files），无匹配返回 null
+     */
+    public JsonObject getLatestVersion(String projectId, String gameVersion, String loader) {
+        StringBuilder url = new StringBuilder(BASE + "/project/").append(projectId).append("/version");
+        List<String> params = new ArrayList<>();
+        if (gameVersion != null && !gameVersion.isEmpty()) {
+            params.add("game_versions=" + java.net.URLEncoder.encode("[\"" + gameVersion + "\"]",
+                    java.nio.charset.StandardCharsets.UTF_8));
+        }
+        if (loader != null && !loader.isEmpty()) {
+            params.add("loaders=" + java.net.URLEncoder.encode("[\"" + loader + "\"]",
+                    java.nio.charset.StandardCharsets.UTF_8));
+        }
+        if (!params.isEmpty()) {
+            url.append("?").append(String.join("&", params));
+        }
+
+        Request req = new Request.Builder().url(url.toString())
+                .header("User-Agent", "PMCL/1.0").get().build();
+        Exception last = null;
+        for (int attempt = 0; attempt <= RETRY; attempt++) {
+            try (Response resp = http.newCall(req).execute()) {
+                String body = resp.body() != null ? resp.body().string() : "[]";
+                if (!resp.isSuccessful()) {
+                    throw new IOException("HTTP " + resp.code() + ": " + body);
+                }
+                JsonArray versions = JsonParser.parseString(body).getAsJsonArray();
+                if (versions.isEmpty()) return null;
+                // 过滤 release 类型优先（除非只有 beta/alpha）
+                JsonObject latest = null;
+                for (JsonElement e : versions) {
+                    JsonObject v = e.getAsJsonObject();
+                    String vt = v.has("version_type") ? v.get("version_type").getAsString() : "release";
+                    if ("release".equals(vt)) { latest = v; break; }
+                    if (latest == null) latest = v;
+                }
+                return latest != null ? latest : versions.get(0).getAsJsonObject();
+            } catch (Exception e) {
+                last = e;
+                if (attempt < RETRY) {
+                    try { Thread.sleep(RETRY_BASE_MS * (1L << attempt)); }
+                    catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }
+                }
+            }
+        }
+        String msg = last != null ? last.getMessage() : "未知错误";
+        throw new RuntimeException("Modrinth 获取最新版本失败：" + friendlyError(msg), last);
+    }
+
     private List<String> jsonArrToStrings(JsonObject o, String key) {
         if (!o.has(key)) return Collections.emptyList();
         List<String> list = new ArrayList<>();

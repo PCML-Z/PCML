@@ -28,6 +28,8 @@ fun ModpacksPage(vm: LauncherViewModel) {
     val progress by vm.modpackProgress.collectAsState()
     val busy by vm.modpackBusy.collectAsState()
     val selectedVersion by vm.selectedVersion.collectAsState()
+    val updateChecking by vm.modpackUpdateChecking.collectAsState()
+    val updateResult by vm.modpackUpdateResult.collectAsState()
 
     var showImportDialog by remember { mutableStateOf(false) }
     var showExportDialog by remember { mutableStateOf(false) }
@@ -102,7 +104,7 @@ fun ModpacksPage(vm: LauncherViewModel) {
                 contentPadding = PaddingValues(bottom = 16.dp)
             ) {
                 itemsIndexed(modpacks, key = { _, m -> m.instanceDir.toString() }) { _, mp ->
-                    ModpackCard(vm, mp, busy)
+                    ModpackCard(vm, mp, busy, updateChecking)
                 }
             }
         }
@@ -130,10 +132,19 @@ fun ModpacksPage(vm: LauncherViewModel) {
             }
         )
     }
+
+    // 更新检查结果对话框
+    updateResult?.let { result ->
+        ModpackUpdateDialog(
+            result = result,
+            onDismiss = { vm.clearModpackUpdateResult() }
+        )
+    }
 }
 
 @Composable
-private fun ModpackCard(vm: LauncherViewModel, mp: ModpackManager.InstalledModpack, busy: Boolean) {
+private fun ModpackCard(vm: LauncherViewModel, mp: ModpackManager.InstalledModpack,
+                        busy: Boolean, updateChecking: Boolean) {
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
     Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
@@ -167,6 +178,18 @@ private fun ModpackCard(vm: LauncherViewModel, mp: ModpackManager.InstalledModpa
                     )
                 }
             }
+            // 检查更新按钮
+            IconButton(
+                onClick = { vm.checkModpackUpdates(mp.name) },
+                enabled = !busy && !updateChecking
+            ) {
+                if (updateChecking) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                } else {
+                    Icon(Icons.Filled.SystemUpdate, contentDescription = I18n.t("modpack.check_update"),
+                         modifier = Modifier.size(18.dp))
+                }
+            }
             IconButton(onClick = { showDeleteConfirm = true }, enabled = !busy) {
                 Icon(Icons.Filled.Delete, contentDescription = I18n.t("common.delete"),
                      tint = MaterialTheme.colorScheme.error)
@@ -190,6 +213,90 @@ private fun ModpackCard(vm: LauncherViewModel, mp: ModpackManager.InstalledModpa
             }
         )
     }
+}
+
+/**
+ * 整合包更新检查结果对话框：显示有更新的 mod 列表。
+ */
+@Composable
+private fun ModpackUpdateDialog(
+    result: ModpackManager.ModpackUpdateResult,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(I18n.t("modpack.update_result_title", result.instanceName)) },
+        text = {
+            Column {
+                if (!result.isSuccess()) {
+                    Text(
+                        result.error ?: "",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                } else if (!result.hasUpdates()) {
+                    Text(
+                        I18n.t("modpack.update_no_updates", result.totalChecked),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    Text(
+                        I18n.t("modpack.update_has_updates", result.updates.size, result.totalChecked),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    // 有更新的 mod 列表
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier.heightIn(max = 300.dp)
+                    ) {
+                        items(result.updates.size) { idx ->
+                            val u = result.updates[idx]
+                            Surface(
+                                tonalElevation = 1.dp,
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(Modifier.padding(8.dp)) {
+                                    Text(
+                                        u.fileName,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Spacer(Modifier.height(2.dp))
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            u.currentVersion.ifEmpty { I18n.t("modpack.update_unknown") },
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Icon(Icons.Filled.ArrowForward,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(12.dp).padding(horizontal = 4.dp),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(
+                                            u.latestVersion,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(I18n.t("common.confirm")) }
+        }
+    )
 }
 
 @Composable

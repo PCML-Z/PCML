@@ -257,6 +257,11 @@ public final class I18n {
         ZH.put("modpack.save_file", "保存整合包");
         ZH.put("modpack.export_content", "导出包含：mods/、config/、resourcepacks/、shaderpacks/、options.txt");
         ZH.put("modpack.export_content_cf", "CurseForge 格式：manifest.json + overrides/mods/，可被 HMCL/PCL2/CurseForge 导入");
+        ZH.put("modpack.check_update", "检查更新");
+        ZH.put("modpack.update_result_title", "「{0}」更新检查结果");
+        ZH.put("modpack.update_no_updates", "所有 mod 已是最新（检查了 {0} 个）");
+        ZH.put("modpack.update_has_updates", "发现 {0} 个可更新的 mod（共检查 {1} 个）");
+        ZH.put("modpack.update_unknown", "未知");
 
         // ===== 实例页 =====
         ZH.put("instance.title", "实例管理");
@@ -699,6 +704,11 @@ public final class I18n {
         EN.put("modpack.save_file", "Save modpack");
         EN.put("modpack.export_content", "Includes: mods/, config/, resourcepacks/, shaderpacks/, options.txt");
         EN.put("modpack.export_content_cf", "CurseForge format: manifest.json + overrides/mods/, importable by HMCL/PCL2/CurseForge");
+        EN.put("modpack.check_update", "Check Updates");
+        EN.put("modpack.update_result_title", "Update check: \"{0}\"");
+        EN.put("modpack.update_no_updates", "All mods are up to date ({0} checked)");
+        EN.put("modpack.update_has_updates", "{0} mod(s) can be updated ({1} checked)");
+        EN.put("modpack.update_unknown", "unknown");
 
         // ===== Instance page =====
         EN.put("instance.title", "Instance Manager");
@@ -1128,6 +1138,11 @@ public final class I18n {
         JA.put("modpack.save_file", "Modpackを保存");
         JA.put("modpack.export_content", "含む: mods/、config/、resourcepacks/、shaderpacks/、options.txt");
         JA.put("modpack.export_content_cf", "CurseForge形式: manifest.json + overrides/mods/、HMCL/PCL2/CurseForgeでインポート可能");
+        JA.put("modpack.check_update", "更新確認");
+        JA.put("modpack.update_result_title", "「{0}」更新確認結果");
+        JA.put("modpack.update_no_updates", "すべてのModは最新です（{0}個確認）");
+        JA.put("modpack.update_has_updates", "{0}個のModが更新可能（{1}個確認）");
+        JA.put("modpack.update_unknown", "不明");
 
         // ===== インスタンスページ =====
         JA.put("instance.title", "インスタンス管理");

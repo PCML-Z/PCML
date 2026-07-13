@@ -21,6 +21,8 @@ import com.pmcl.core.mods.ModScanner
 import com.pmcl.core.mods.ModUpdateChecker
 import com.pmcl.core.mods.ModDependencyResolver
 import com.pmcl.core.modpack.ModpackManager
+import com.pmcl.core.modpack.ModpackManager.ModpackUpdateResult
+import com.pmcl.core.modpack.ModpackManager.ModUpdate
 import com.pmcl.core.preferences.Preferences
 import com.pmcl.core.stats.PlayTimeTracker
 import com.pmcl.core.version.McVersion
@@ -165,6 +167,12 @@ class LauncherViewModel {
 
     private val _modpackBusy = MutableStateFlow(false)
     val modpackBusy: StateFlow<Boolean> = _modpackBusy.asStateFlow()
+
+    // ===== 整合包更新检查 =====
+    private val _modpackUpdateResult = MutableStateFlow<ModpackUpdateResult?>(null)
+    val modpackUpdateResult: StateFlow<ModpackUpdateResult?> = _modpackUpdateResult.asStateFlow()
+    private val _modpackUpdateChecking = MutableStateFlow(false)
+    val modpackUpdateChecking: StateFlow<Boolean> = _modpackUpdateChecking.asStateFlow()
 
     // ===== 下载队列 =====
     private val _queueTasks = MutableStateFlow<List<DownloadQueueManager.QueueTask>>(emptyList())
@@ -1447,6 +1455,40 @@ class LauncherViewModel {
                 _modpackProgress.value = null
             }
         }
+    }
+
+    /** 检查已安装整合包的 mod 更新 */
+    fun checkModpackUpdates(instanceName: String) {
+        if (_modpackUpdateChecking.value) return
+        scope.launch {
+            _modpackUpdateChecking.value = true
+            _modpackUpdateResult.value = null
+            _status.value = "正在检查「$instanceName」的更新..."
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    core.modpacks().checkForUpdates(instanceName).join()
+                }
+                _modpackUpdateResult.value = result
+                if (result.isSuccess()) {
+                    if (result.hasUpdates()) {
+                        _status.value = "「$instanceName」有 ${result.updates.size} 个 mod 可更新"
+                    } else {
+                        _status.value = "「$instanceName」已是最新（检查了 ${result.totalChecked} 个 mod）"
+                    }
+                } else {
+                    _status.value = result.error ?: "检查更新失败"
+                }
+            } catch (e: Throwable) {
+                _status.value = "检查更新失败：${e.message}"
+            } finally {
+                _modpackUpdateChecking.value = false
+            }
+        }
+    }
+
+    /** 清除更新检查结果 */
+    fun clearModpackUpdateResult() {
+        _modpackUpdateResult.value = null
     }
 
     /** 删除整合包实例 */

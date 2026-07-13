@@ -105,7 +105,7 @@ public final class LauncherCore {
         this.modMarketManager = new ModMarketManager(config, downloadManager);
         this.modManager = new ModManager(config.getWorkDir().resolve("mods"));
         this.modpackManager = new ModpackManager(config, downloadManager, versionInstaller,
-                modLoaderManager, preferences);
+                modLoaderManager, preferences, modMarketManager);
         this.downloadQueue = new DownloadQueueManager(config, downloadManager, versionInstaller,
                 modMarketManager, modLoaderManager, preferences);
         this.modUpdateChecker = new ModUpdateChecker(config, modMarketManager, preferences);
