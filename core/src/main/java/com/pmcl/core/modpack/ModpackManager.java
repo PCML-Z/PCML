@@ -352,6 +352,152 @@ public final class ModpackManager {
                 "整合包已导出: " + targetPath));
     }
 
+    /**
+     * 导出 CurseForge 格式整合包（manifest.json + overrides）。
+     * <p>
+     * 离线导出：files 数组留空（无 projectID/fileID），所有 mods 直接放入
+     * overrides/mods/。此格式可被 HMCL / PCL2 / MultiMC / CurseForge 客户端导入。
+     *
+     * @param versionId  基础版本 ID
+     * @param targetPath 目标 .zip 路径
+     * @param onProgress 进度回调
+     */
+    public CompletableFuture<Void> exportCurseForge(String versionId, Path targetPath,
+                                                    Consumer<InstallProgress> onProgress) {
+        return CompletableFuture.runAsync(() -> {
+            try {
+                doExportCurseForge(versionId, targetPath, onProgress);
+            } catch (Throwable e) {
+                if (onProgress != null) {
+                    onProgress.accept(new InstallProgress(InstallProgress.Stage.FAILED, 0, 0,
+                            "CurseForge 整合包导出失败: " + e.getMessage()));
+                }
+                throw new RuntimeException("CurseForge 整合包导出失败", e);
+            }
+        });
+    }
+
+    private void doExportCurseForge(String versionId, Path targetPath,
+                                    Consumer<InstallProgress> progress) throws Exception {
+        // 确定 gameDir（与 doExport 一致）
+        Path gameDir;
+        if (preferences.isVersionIsolation()) {
+            gameDir = config.getWorkDir().resolve("instances").resolve(versionId);
+        } else {
+            gameDir = config.getWorkDir();
+        }
+        if (!Files.isDirectory(gameDir)) {
+            throw new IOException("版本目录不存在: " + gameDir);
+        }
+        Path modsDir = gameDir.resolve("mods");
+        if (!Files.isDirectory(modsDir)) {
+            throw new IOException("mods 目录不存在，无法导出整合包");
+        }
+
+        if (progress != null) progress.accept(new InstallProgress(
+                InstallProgress.Stage.DOWNLOAD_VERSION_JSON, 0, 0,
+                "正在收集模组信息..."));
+
+        // 尝试从 modpack.json 读取 loader 信息
+        String loader = "";
+        String loaderVersion = "";
+        String author = "PMCL";
+        Path modpackJson = gameDir.resolve("modpack.json");
+        if (Files.isRegularFile(modpackJson)) {
+            try {
+                JsonObject info = JsonParser.parseString(Files.readString(modpackJson)).getAsJsonObject();
+                if (info.has("loader")) loader = safeStr(info, "loader", "");
+                if (info.has("loaderVersion")) loaderVersion = safeStr(info, "loaderVersion", "");
+                if (info.has("author")) author = safeStr(info, "author", "PMCL");
+            } catch (Exception ignored) {
+            }
+        }
+
+        // 收集 mods 列表
+        List<Path> modFiles = new ArrayList<>();
+        try (var stream = Files.list(modsDir)) {
+            stream.filter(p -> p.toString().endsWith(".jar")
+                    && !p.toString().endsWith(".disabled"))
+                    .forEach(modFiles::add);
+        }
+
+        // 构建 CurseForge manifest.json
+        JsonObject manifest = new JsonObject();
+        manifest.addProperty("manifestType", "minecraftModpack");
+        manifest.addProperty("manifestVersion", 1);
+        manifest.addProperty("name", versionId);
+        manifest.addProperty("version", versionId);
+        manifest.addProperty("author", author);
+
+        // minecraft.version + modLoaders
+        JsonObject minecraft = new JsonObject();
+        minecraft.addProperty("version", versionId);
+        var modLoaders = new com.google.gson.JsonArray();
+        if (!loader.isEmpty()) {
+            // CF 格式: "fabric-<ver>" / "forge-<ver>" / "quilt-<ver>" / "neoforge-<ver>"
+            String loaderId = loader.toLowerCase();
+            if (!loaderVersion.isEmpty()) {
+                loaderId = loaderId + "-" + loaderVersion;
+            }
+            JsonObject ml = new JsonObject();
+            ml.addProperty("id", loaderId);
+            ml.addProperty("primary", true);
+            modLoaders.add(ml);
+        }
+        minecraft.add("modLoaders", modLoaders);
+        manifest.add("minecraft", minecraft);
+
+        // files 数组留空（离线导出无 projectID/fileID）
+        manifest.add("files", new com.google.gson.JsonArray());
+        manifest.addProperty("overrides", "overrides");
+
+        // 打包 zip
+        if (progress != null) progress.accept(new InstallProgress(
+                InstallProgress.Stage.DOWNLOAD_ASSET_INDEX, 0, 0,
+                "正在打包整合包..."));
+
+        Files.createDirectories(targetPath.getParent());
+        try (ZipOutputStream zos = new ZipOutputStream(Files.newOutputStream(targetPath))) {
+            // 写入 manifest.json
+            zos.putNextEntry(new ZipEntry("manifest.json"));
+            zos.write(manifest.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            zos.closeEntry();
+
+            // 写入 modlist.html（CF 标准可选文件，列出模组名）
+            StringBuilder html = new StringBuilder();
+            html.append("<ul>");
+            for (int i = 0; i < modFiles.size(); i++) {
+                String name = modFiles.get(i).getFileName().toString();
+                html.append("<li>").append(name).append("</li>");
+                if (progress != null) progress.accept(new InstallProgress(
+                        InstallProgress.Stage.DOWNLOAD_CLIENT, i + 1, modFiles.size(),
+                        "正在处理模组 (" + (i + 1) + "/" + modFiles.size() + ")..."));
+            }
+            html.append("</ul>");
+            zos.putNextEntry(new ZipEntry("modlist.html"));
+            zos.write(html.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            zos.closeEntry();
+
+            // 写入 overrides/mods/*.jar
+            for (Path mod : modFiles) {
+                String entryName = "overrides/mods/" + mod.getFileName().toString();
+                zos.putNextEntry(new ZipEntry(entryName));
+                Files.copy(mod, zos);
+                zos.closeEntry();
+            }
+
+            // 写入 overrides 中的其他目录
+            addOverrideDir(zos, gameDir, "config");
+            addOverrideDir(zos, gameDir, "resourcepacks");
+            addOverrideDir(zos, gameDir, "shaderpacks");
+            addOverrideFile(zos, gameDir, "options.txt");
+        }
+
+        if (progress != null) progress.accept(new InstallProgress(
+                InstallProgress.Stage.DONE, 0, 0,
+                "CurseForge 整合包已导出: " + targetPath));
+    }
+
     private void addOverrideDir(ZipOutputStream zos, Path gameDir, String dirName) throws IOException {
         Path dir = gameDir.resolve(dirName);
         if (!Files.isDirectory(dir)) return;

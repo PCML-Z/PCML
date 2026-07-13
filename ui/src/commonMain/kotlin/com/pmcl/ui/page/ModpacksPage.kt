@@ -124,9 +124,9 @@ fun ModpacksPage(vm: LauncherViewModel) {
         ExportModpackDialog(
             versionId = selectedVersion ?: "",
             onDismiss = { showExportDialog = false },
-            onConfirm = { path ->
+            onConfirm = { path, format ->
                 showExportDialog = false
-                vm.exportModpack(path)
+                vm.exportModpack(path, format)
             }
         )
     }
@@ -242,13 +242,16 @@ private fun ImportModpackDialog(onDismiss: () -> Unit, onConfirm: (String) -> Un
 private fun ExportModpackDialog(
     versionId: String,
     onDismiss: () -> Unit,
-    onConfirm: (String) -> Unit
+    onConfirm: (String, String) -> Unit
 ) {
     var path by remember { mutableStateOf("") }
+    // 0 = Modrinth (.mrpack)，1 = CurseForge (.zip)
+    var format by remember { mutableStateOf(0) }
 
-    LaunchedEffect(versionId) {
+    LaunchedEffect(versionId, format) {
         val home = System.getProperty("user.home")
-        path = "$home/Downloads/$versionId.mrpack"
+        path = if (format == 0) "$home/Downloads/$versionId.mrpack"
+               else "$home/Downloads/$versionId.zip"
     }
 
     AlertDialog(
@@ -259,6 +262,21 @@ private fun ExportModpackDialog(
                 Text(I18n.t("modpack.export_hint", versionId),
                      style = MaterialTheme.typography.bodySmall)
                 Spacer(Modifier.height(8.dp))
+                // 格式选择
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    FilterChip(
+                        selected = format == 0,
+                        onClick = { format = 0 },
+                        label = { Text("Modrinth (.mrpack)") }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    FilterChip(
+                        selected = format == 1,
+                        onClick = { format = 1 },
+                        label = { Text("CurseForge (.zip)") }
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
                     value = path,
                     onValueChange = { path = it },
@@ -267,9 +285,9 @@ private fun ExportModpackDialog(
                     trailingIcon = {
                         IconButton(onClick = {
                             val fd = FileDialog(null as Frame?, I18n.t("modpack.save_file"), FileDialog.SAVE)
-                            fd.file = "$versionId.mrpack"
+                            fd.file = if (format == 0) "$versionId.mrpack" else "$versionId.zip"
                             fd.filenameFilter = FilenameFilter { _, name ->
-                                name.endsWith(".mrpack")
+                                name.endsWith(".mrpack") || name.endsWith(".zip")
                             }
                             fd.isVisible = true
                             if (fd.file != null) {
@@ -281,14 +299,20 @@ private fun ExportModpackDialog(
                     }
                 )
                 Spacer(Modifier.height(4.dp))
-                Text(I18n.t("modpack.export_content"),
+                Text(if (format == 0) I18n.t("modpack.export_content")
+                     else I18n.t("modpack.export_content_cf"),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
             }
         },
         confirmButton = {
             TextButton(
-                onClick = { if (path.isNotEmpty()) onConfirm(path) },
+                onClick = {
+                    if (path.isNotEmpty()) {
+                        val fmt = if (format == 0) "modrinth" else "curseforge"
+                        onConfirm(path, fmt)
+                    }
+                },
                 enabled = path.isNotEmpty()
             ) { Text(I18n.t("common.export")) }
         },

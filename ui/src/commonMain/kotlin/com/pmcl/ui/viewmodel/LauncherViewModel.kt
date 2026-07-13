@@ -1405,6 +1405,14 @@ class LauncherViewModel {
 
     /** 导出当前选中版本为 Modrinth .mrpack 整合包 */
     fun exportModpack(targetPath: String) {
+        exportModpack(targetPath, "modrinth")
+    }
+
+    /**
+     * 导出当前选中版本为整合包。
+     * @param format "modrinth" 导出 .mrpack；"curseforge" 导出 CF manifest.json 格式 .zip
+     */
+    fun exportModpack(targetPath: String, format: String) {
         val versionId = _selectedVersion.value ?: run {
             _status.value = "请先选择版本"
             return
@@ -1420,9 +1428,16 @@ class LauncherViewModel {
             try {
                 withContext(Dispatchers.IO) {
                     val path = java.nio.file.Paths.get(targetPath)
-                    core.modpacks().exportModpack(versionId, path) { p ->
-                        _modpackProgress.value = p
-                    }.join()
+                    val future = if (format == "curseforge") {
+                        core.modpacks().exportCurseForge(versionId, path) { p ->
+                            _modpackProgress.value = p
+                        }
+                    } else {
+                        core.modpacks().exportModpack(versionId, path) { p ->
+                            _modpackProgress.value = p
+                        }
+                    }
+                    future.join()
                 }
                 _status.value = "整合包已导出：$targetPath"
             } catch (e: Throwable) {

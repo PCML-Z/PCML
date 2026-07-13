@@ -256,6 +256,7 @@ public final class I18n {
         ZH.put("modpack.save_path", "保存路径");
         ZH.put("modpack.save_file", "保存整合包");
         ZH.put("modpack.export_content", "导出包含：mods/、config/、resourcepacks/、shaderpacks/、options.txt");
+        ZH.put("modpack.export_content_cf", "CurseForge 格式：manifest.json + overrides/mods/，可被 HMCL/PCL2/CurseForge 导入");
 
         // ===== 实例页 =====
         ZH.put("instance.title", "实例管理");
@@ -697,6 +698,7 @@ public final class I18n {
         EN.put("modpack.save_path", "Save path");
         EN.put("modpack.save_file", "Save modpack");
         EN.put("modpack.export_content", "Includes: mods/, config/, resourcepacks/, shaderpacks/, options.txt");
+        EN.put("modpack.export_content_cf", "CurseForge format: manifest.json + overrides/mods/, importable by HMCL/PCL2/CurseForge");
 
         // ===== Instance page =====
         EN.put("instance.title", "Instance Manager");
@@ -1125,6 +1127,7 @@ public final class I18n {
         JA.put("modpack.save_path", "保存先");
         JA.put("modpack.save_file", "Modpackを保存");
         JA.put("modpack.export_content", "含む: mods/、config/、resourcepacks/、shaderpacks/、options.txt");
+        JA.put("modpack.export_content_cf", "CurseForge形式: manifest.json + overrides/mods/、HMCL/PCL2/CurseForgeでインポート可能");
 
         // ===== インスタンスページ =====
         JA.put("instance.title", "インスタンス管理");
