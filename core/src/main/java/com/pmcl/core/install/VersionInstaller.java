@@ -51,6 +51,18 @@ public final class VersionInstaller {
             try {
                 doInstall(versionId, onProgress);
             } catch (Throwable e) {
+                // 安装失败：清理半成品版本目录，避免残留损坏状态
+                try {
+                    Path versionDir = config.getVersionsDir().resolve(versionId);
+                    if (Files.exists(versionDir)) {
+                        try (var stream = Files.walk(versionDir)) {
+                            stream.sorted(java.util.Comparator.reverseOrder())
+                                    .forEach(p -> { try { Files.delete(p); } catch (IOException ignored) {} });
+                        }
+                    }
+                } catch (Throwable cleanupErr) {
+                    System.err.println("[VersionInstaller] 清理失败版本目录异常: " + cleanupErr.getMessage());
+                }
                 if (onProgress != null)
                     onProgress.accept(new InstallProgress(
                             InstallProgress.Stage.FAILED, 0, 0, e.getMessage()));

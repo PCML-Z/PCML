@@ -2296,7 +2296,7 @@ class LauncherViewModel {
         return try {
             val custom = preferences.getJavaPath()
             if (custom.isNotEmpty()) custom
-            else JavaRuntimeFinder.findJavaExecutable(config.getRuntimesDir())
+            else JavaRuntimeFinder.findJavaExecutable(config.getRuntimesDir()) ?: "未找到"
         } catch (e: Throwable) {
             "未找到"
         }
@@ -2466,7 +2466,7 @@ class LauncherViewModel {
                         _javaDownloadStatus.value = msg
                     }.join()
                 }
-                val detected = JavaRuntimeFinder.findJavaExecutable(config.getRuntimesDir())
+                val detected = JavaRuntimeFinder.findJavaExecutable(config.getRuntimesDir()) ?: "未找到"
                 _javaDownloadStatus.value = "完成：$detected"
                 _status.value = "Java $version 安装完成，可启动游戏"
             } catch (e: Throwable) {

@@ -96,9 +96,11 @@ public final class ShaderPackManager {
      */
     public String enable(String fileName) throws IOException {
         if (!fileName.toLowerCase().endsWith(".disabled")) return fileName;
-        Path src = shaderPacksDir.resolve(fileName);
+        Path src = shaderPacksDir.resolve(fileName).normalize();
+        if (!src.startsWith(shaderPacksDir)) throw new IOException("非法文件名: " + fileName);
         String enabledName = fileName.substring(0, fileName.length() - ".disabled".length());
-        Path dst = shaderPacksDir.resolve(enabledName);
+        Path dst = shaderPacksDir.resolve(enabledName).normalize();
+        if (!dst.startsWith(shaderPacksDir)) throw new IOException("非法文件名: " + enabledName);
         if (!Files.exists(src)) throw new IOException("文件不存在: " + fileName);
         // 目标已存在（同名 zip 已启用）→ 删除禁用副本
         if (Files.exists(dst)) {
@@ -116,8 +118,10 @@ public final class ShaderPackManager {
      */
     public String disable(String fileName) throws IOException {
         if (fileName.toLowerCase().endsWith(".disabled")) return fileName;
-        Path src = shaderPacksDir.resolve(fileName);
-        Path dst = shaderPacksDir.resolve(fileName + ".disabled");
+        Path src = shaderPacksDir.resolve(fileName).normalize();
+        if (!src.startsWith(shaderPacksDir)) throw new IOException("非法文件名: " + fileName);
+        Path dst = shaderPacksDir.resolve(fileName + ".disabled").normalize();
+        if (!dst.startsWith(shaderPacksDir)) throw new IOException("非法文件名: " + fileName);
         if (!Files.exists(src)) throw new IOException("文件不存在: " + fileName);
         Files.move(src, dst);
         return dst.getFileName().toString();

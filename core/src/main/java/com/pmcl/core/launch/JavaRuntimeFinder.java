@@ -131,8 +131,8 @@ public final class JavaRuntimeFinder {
         } catch (IOException | InterruptedException ignored) {
         }
 
-        // 5. 最终兜底
-        return "java";
+        // 5. 未找到任何 Java 运行时（返回 null 让调用方引导用户安装）
+        return null;
     }
 
     /**

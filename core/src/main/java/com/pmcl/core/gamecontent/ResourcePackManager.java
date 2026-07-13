@@ -92,9 +92,11 @@ public final class ResourcePackManager {
      */
     public String enable(String fileName) throws IOException {
         if (!fileName.toLowerCase().endsWith(".disabled")) return fileName;
-        Path src = resourcePacksDir.resolve(fileName);
+        Path src = resourcePacksDir.resolve(fileName).normalize();
+        if (!src.startsWith(resourcePacksDir)) throw new IOException("非法文件名: " + fileName);
         String enabledName = fileName.substring(0, fileName.length() - ".disabled".length());
-        Path dst = resourcePacksDir.resolve(enabledName);
+        Path dst = resourcePacksDir.resolve(enabledName).normalize();
+        if (!dst.startsWith(resourcePacksDir)) throw new IOException("非法文件名: " + enabledName);
         if (!Files.exists(src)) throw new IOException("文件不存在: " + fileName);
         // 目标已存在 → 删除禁用副本
         if (Files.exists(dst)) {
@@ -121,8 +123,10 @@ public final class ResourcePackManager {
      */
     public String disable(String fileName) throws IOException {
         if (fileName.toLowerCase().endsWith(".disabled")) return fileName;
-        Path src = resourcePacksDir.resolve(fileName);
-        Path dst = resourcePacksDir.resolve(fileName + ".disabled");
+        Path src = resourcePacksDir.resolve(fileName).normalize();
+        if (!src.startsWith(resourcePacksDir)) throw new IOException("非法文件名: " + fileName);
+        Path dst = resourcePacksDir.resolve(fileName + ".disabled").normalize();
+        if (!dst.startsWith(resourcePacksDir)) throw new IOException("非法文件名: " + fileName);
         if (!Files.exists(src)) throw new IOException("文件不存在: " + fileName);
         Files.move(src, dst);
         return dst.getFileName().toString();

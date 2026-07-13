@@ -95,8 +95,12 @@ public final class LauncherCore {
 
         this.versionManager = new VersionManager(config);
         this.downloadManager = new DownloadManager(config);
-        // 启动时根据偏好初始化镜像/代理/限速
-        this.downloadManager.reconfigure(preferences);
+        // 启动时根据偏好初始化镜像/代理/限速（失败不中断，使用默认网络配置）
+        try {
+            this.downloadManager.reconfigure(preferences);
+        } catch (Throwable e) {
+            System.err.println("[LauncherCore] 网络配置初始化失败，使用默认配置: " + e.getMessage());
+        }
         this.authService = new AuthService();
         this.runtimeManager = new RuntimeManager();
         this.launchManager = new LaunchManager(config);
@@ -123,20 +127,41 @@ public final class LauncherCore {
         this.integrityChecker = new IntegrityChecker(config);
         this.crashAnalyzer = new CrashAnalyzer();
         this.processMonitor = new ProcessMonitor();
-        this.selfUpdater = new SelfUpdater(downloadManager, "", "0.0.0");
-        this.newsClient = new NewsClient(downloadManager.httpClient());
-        this.multiplayerManager = new MultiplayerManager();
+
+        // 可选子系统：失败不中断启动器，对应功能降级不可用
+        this.selfUpdater = initOptional("SelfUpdater",
+                () -> new SelfUpdater(downloadManager, "", "0.0.0"));
+        this.newsClient = initOptional("NewsClient",
+                () -> new NewsClient(downloadManager.httpClient()));
+        this.multiplayerManager = initOptional("MultiplayerManager",
+                () -> new MultiplayerManager());
         this.migrationManager = new MigrationManager(config.getWorkDir());
+        this.pluginManager = initOptional("PluginManager",
+                () -> new PluginManager(this));
+        this.translateClient = initOptional("TranslateClient",
+                () -> new TranslateClient(downloadManager));
 
-        // Plugin system
-        this.pluginManager = new PluginManager(this);
         // Inject plugin manager into launch manager for hooks/events
-        this.launchManager.setPluginManager(pluginManager);
+        if (this.pluginManager != null) {
+            this.launchManager.setPluginManager(this.pluginManager);
+        }
 
-        this.translateClient = new TranslateClient(downloadManager);
+        // 应用持久化的语言偏好（失败不中断）
+        try {
+            applyLanguage(preferences.getLanguage());
+        } catch (Throwable e) {
+            System.err.println("[LauncherCore] 语言设置失败: " + e.getMessage());
+        }
+    }
 
-        // 应用持久化的语言偏好
-        applyLanguage(preferences.getLanguage());
+    /** 初始化可选子系统，失败时记录日志并返回 null，不中断启动流程 */
+    private static <T> T initOptional(String name, java.util.function.Supplier<T> supplier) {
+        try {
+            return supplier.get();
+        } catch (Throwable e) {
+            System.err.println("[LauncherCore] 可选子系统 " + name + " 初始化失败（已降级）: " + e.getMessage());
+            return null;
+        }
     }
 
     /** 应用语言（zh_CN / en_US / ja_JP） */
@@ -159,10 +184,10 @@ public final class LauncherCore {
         downloadManager.reconfigure(preferences);
         // 同步更新各模块的 http 客户端，让代理配置对新闻/模组市场请求生效
         OkHttpClient http = downloadManager.httpClient();
-        newsClient.updateHttpClient(http);
+        if (newsClient != null) newsClient.updateHttpClient(http);
         modMarketManager.updateHttpClients(http);
         pastebinClient.updateHttpClient(http);
-        translateClient.updateHttpClient(http);
+        if (translateClient != null) translateClient.updateHttpClient(http);
     }
 
     public AuthService auth() { return authService; }

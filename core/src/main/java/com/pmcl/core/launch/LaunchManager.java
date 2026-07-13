@@ -152,10 +152,13 @@ public final class LaunchManager {
                 return code;
             } catch (IOException | InterruptedException e) {
                 if (e instanceof InterruptedException) Thread.currentThread().interrupt();
-                String errMsg = "[PMCL] 启动失败: " + e.getMessage();
+                // 提取根因消息，避免 UI 显示 "启动失败：启动失败"
+                Throwable root = e;
+                while (root.getCause() != null && root.getCause() != root) root = root.getCause();
+                String errMsg = "[PMCL] 启动失败: " + root.getMessage();
                 if (logger != null) logger.append(errMsg);
                 if (onLog != null) onLog.accept(errMsg);
-                throw new RuntimeException("启动失败", e);
+                throw new RuntimeException("启动失败: " + root.getMessage(), e);
             }
         });
     }

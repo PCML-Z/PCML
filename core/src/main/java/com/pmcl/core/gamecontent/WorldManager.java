@@ -117,7 +117,8 @@ public final class WorldManager {
 
     /** 从 zip 恢复世界（覆盖现有世界） */
     public void restore(Path zipFile, String worldName) throws IOException {
-        Path target = savesDir.resolve(worldName);
+        Path target = savesDir.resolve(worldName).normalize();
+        if (!target.startsWith(savesDir)) throw new IOException("非法世界名: " + worldName);
         Files.createDirectories(savesDir);
         if (Files.exists(target)) deleteRecursive(target);
         Files.createDirectories(target);

@@ -598,7 +598,16 @@ public final class Preferences {
                     } catch (Exception ignored2) {}
                 }
             }
-        } catch (Throwable ignored) {
+        } catch (Throwable e) {
+            // 配置文件损坏：备份后保持默认，避免静默丢失用户数据
+            System.err.println("[Preferences] 配置文件解析失败，将备份后使用默认配置: " + e.getMessage());
+            try {
+                java.nio.file.Path backup = file.resolveSibling(file.getFileName() + ".corrupt");
+                Files.move(file, backup, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                System.err.println("[Preferences] 损坏文件已备份至: " + backup);
+            } catch (Throwable backupErr) {
+                System.err.println("[Preferences] 备份损坏文件失败: " + backupErr.getMessage());
+            }
         }
     }
 
@@ -616,7 +625,8 @@ public final class Preferences {
         }
     }
 
-    /** 后台线程执行的实际写盘操作，在 synchronized 块内构建 JSON 快照后异步写盘 */
+    /** 后台线程执行的实际写盘操作，在 synchronized 块内构建 JSON 快照后异步写盘。
+     *  采用 tmp + ATOMIC_MOVE 原子写入，防止崩溃导致配置文件损坏。 */
     private void doSave() {
         JsonObject snapshot;
         synchronized (this) {
@@ -624,11 +634,25 @@ public final class Preferences {
             dirty = false;
             snapshot = buildJson();
         }
+        java.nio.file.Path tmp = null;
         try {
             java.nio.file.Path parent = file.getParent();
             if (parent != null) Files.createDirectories(parent);
-            Files.writeString(file, gson.toJson(snapshot));
-        } catch (Throwable ignored) {
+            // 写入临时文件后原子移动到目标，避免崩溃中途写入损坏文件
+            tmp = parent == null
+                    ? java.nio.file.Paths.get(file.getFileName() + ".tmp")
+                    : parent.resolve(file.getFileName() + ".tmp");
+            Files.writeString(tmp, gson.toJson(snapshot));
+            Files.move(tmp, file,
+                    java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            tmp = null; // 移动成功，无需清理
+        } catch (Throwable e) {
+            System.err.println("[Preferences] 配置保存失败: " + e.getMessage());
+            // 清理残留临时文件
+            if (tmp != null) {
+                try { Files.deleteIfExists(tmp); } catch (Throwable ignored) {}
+            }
         }
     }
 

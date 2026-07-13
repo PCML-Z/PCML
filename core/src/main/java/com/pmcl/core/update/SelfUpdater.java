@@ -82,15 +82,15 @@ public final class SelfUpdater {
     /** 下载更新到临时文件（不替换当前 jar） */
     public CompletableFuture<Path> downloadUpdate(UpdateInfo info, Consumer<Long> onProgress) {
         return CompletableFuture.supplyAsync(() -> {
+            Path tmp = null;
             try {
-                Path tmp = Files.createTempFile("pmcl-update-", ".jar");
+                tmp = Files.createTempFile("pmcl-update-", ".jar");
                 Files.deleteIfExists(tmp);
                 downloadManager.downloadTo(info.getUrl(), tmp);
                 // 校验
                 if (info.getSha1() != null && !info.getSha1().isEmpty()) {
                     String actual = sha1(tmp);
                     if (!actual.equalsIgnoreCase(info.getSha1())) {
-                        Files.deleteIfExists(tmp);
                         throw new IOException("更新文件 SHA1 校验失败");
                     }
                 }
@@ -99,10 +99,15 @@ public final class SelfUpdater {
                 Files.createDirectories(updatesDir);
                 Path target = updatesDir.resolve("pmcl-" + info.getVersion() + ".jar");
                 Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
+                tmp = null; // 已移动，无需清理
                 if (onProgress != null) onProgress.accept(info.getSize());
                 return target;
             } catch (IOException e) {
                 throw new RuntimeException("下载更新失败: " + e.getMessage(), e);
+            } finally {
+                if (tmp != null) {
+                    try { Files.deleteIfExists(tmp); } catch (IOException ignored) {}
+                }
             }
         });
     }

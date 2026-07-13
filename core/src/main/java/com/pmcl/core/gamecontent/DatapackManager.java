@@ -81,9 +81,11 @@ public final class DatapackManager {
     public String enable(Path worldDir, String fileName) throws IOException {
         if (!fileName.toLowerCase().endsWith(".disabled")) return fileName;
         Path dpDir = worldDir.resolve("datapacks");
-        Path src = dpDir.resolve(fileName);
+        Path src = dpDir.resolve(fileName).normalize();
+        if (!src.startsWith(dpDir)) throw new IOException("非法文件名: " + fileName);
         String enabledName = fileName.substring(0, fileName.length() - ".disabled".length());
-        Path dst = dpDir.resolve(enabledName);
+        Path dst = dpDir.resolve(enabledName).normalize();
+        if (!dst.startsWith(dpDir)) throw new IOException("非法文件名: " + enabledName);
         if (!Files.exists(src)) throw new IOException("文件不存在: " + fileName);
         // 目标已存在 → 删除禁用副本
         if (Files.exists(dst)) {
@@ -111,8 +113,10 @@ public final class DatapackManager {
     public String disable(Path worldDir, String fileName) throws IOException {
         if (fileName.toLowerCase().endsWith(".disabled")) return fileName;
         Path dpDir = worldDir.resolve("datapacks");
-        Path src = dpDir.resolve(fileName);
-        Path dst = dpDir.resolve(fileName + ".disabled");
+        Path src = dpDir.resolve(fileName).normalize();
+        if (!src.startsWith(dpDir)) throw new IOException("非法文件名: " + fileName);
+        Path dst = dpDir.resolve(fileName + ".disabled").normalize();
+        if (!dst.startsWith(dpDir)) throw new IOException("非法文件名: " + fileName);
         if (!Files.exists(src)) throw new IOException("文件不存在: " + fileName);
         Files.move(src, dst);
         return dst.getFileName().toString();

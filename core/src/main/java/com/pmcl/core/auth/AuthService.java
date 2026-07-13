@@ -78,6 +78,15 @@ public final class AuthService {
         try {
             root = JsonParser.parseString(Files.readString(file)).getAsJsonObject();
         } catch (Throwable t) {
+            // 账号文件损坏：备份后返回空，避免静默丢失用户数据
+            System.err.println("[AuthService] 账号文件解析失败: " + t.getMessage());
+            try {
+                java.nio.file.Path backup = file.resolveSibling(file.getFileName() + ".corrupt");
+                Files.move(file, backup, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                System.err.println("[AuthService] 损坏文件已备份至: " + backup);
+            } catch (Throwable backupErr) {
+                System.err.println("[AuthService] 备份损坏文件失败: " + backupErr.getMessage());
+            }
             return new AccountStore(new ArrayList<>(), null);
         }
         List<Account> accounts = new ArrayList<>();

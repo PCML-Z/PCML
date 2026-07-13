@@ -255,7 +255,11 @@ public final class ModpackManager {
         int[] completed = {0};
         for (ModpackFile mf : manifest.files) {
             if (mf.downloadUrl != null && !mf.downloadUrl.isEmpty()) {
-                Path target = instanceDir.resolve(mf.path);
+                Path target = instanceDir.resolve(mf.path).normalize();
+                if (!target.startsWith(instanceDir)) {
+                    System.err.println("[ModpackManager] 跳过非法路径: " + mf.path);
+                    continue;
+                }
                 Files.createDirectories(target.getParent());
                 try {
                     downloads.downloadTo(mf.downloadUrl, target);

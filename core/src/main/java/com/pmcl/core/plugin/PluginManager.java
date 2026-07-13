@@ -229,6 +229,8 @@ public final class PluginManager {
             plugin.onLoad();
         } catch (Exception e) {
             System.err.println("[PluginManager] onLoad failed for " + info.getId() + ": " + e.getMessage());
+            entry.state = PluginState.FAILED;
+            fireEvent(new PluginErrorEvent(info.getId(), e));
         }
 
         System.out.println("[PluginManager] Loaded plugin: " + info.getId() + " v" + info.getVersion());
@@ -431,6 +433,8 @@ public final class PluginManager {
             plugin.onLoad();
         } catch (Exception e) {
             System.err.println("[PluginManager] onLoad failed for " + info.getId() + ": " + e.getMessage());
+            entry.state = PluginState.FAILED;
+            fireEvent(new PluginErrorEvent(info.getId(), e));
         }
 
         System.out.println("[PluginManager] Loaded plugin package: " + info.getId() + " v" + info.getVersion() +
