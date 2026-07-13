@@ -248,7 +248,7 @@ public final class I18n {
         ZH.put("modpack.delete_title", "删除整合包");
         ZH.put("modpack.delete_confirm", "确定要删除整合包「{0}」吗？\n这将删除该实例的所有 mods、saves 和 config。");
         ZH.put("modpack.import_title", "导入整合包");
-        ZH.put("modpack.import_hint", "选择 .mrpack (Modrinth) 或 .zip (CurseForge) 整合包文件");
+        ZH.put("modpack.import_hint", "选择 .mrpack (Modrinth) 或 .zip (CurseForge/FTB) 整合包文件");
         ZH.put("modpack.file_path", "文件路径");
         ZH.put("modpack.select_file", "选择整合包文件");
         ZH.put("modpack.export_title", "导出整合包");
@@ -690,7 +690,7 @@ public final class I18n {
         EN.put("modpack.delete_title", "Delete modpack");
         EN.put("modpack.delete_confirm", "Delete modpack \"{0}\"?\nThis will remove all mods, saves and config in this instance.");
         EN.put("modpack.import_title", "Import modpack");
-        EN.put("modpack.import_hint", "Select .mrpack (Modrinth) or .zip (CurseForge) file");
+        EN.put("modpack.import_hint", "Select .mrpack (Modrinth) or .zip (CurseForge/FTB) file");
         EN.put("modpack.file_path", "File path");
         EN.put("modpack.select_file", "Select modpack file");
         EN.put("modpack.export_title", "Export modpack");
@@ -1119,7 +1119,7 @@ public final class I18n {
         JA.put("modpack.delete_title", "Modpack削除");
         JA.put("modpack.delete_confirm", "Modpack「{0}」を削除しますか？\nこのインスタンスの全てのmod、セーブ、設定が削除されます。");
         JA.put("modpack.import_title", "Modpackインポート");
-        JA.put("modpack.import_hint", ".mrpack (Modrinth) または.zip (CurseForge)を選択");
+        JA.put("modpack.import_hint", ".mrpack (Modrinth) または.zip (CurseForge/FTB)を選択");
         JA.put("modpack.file_path", "ファイルパス");
         JA.put("modpack.select_file", "Modpackファイルを選択");
         JA.put("modpack.export_title", "Modpackエクスポート");

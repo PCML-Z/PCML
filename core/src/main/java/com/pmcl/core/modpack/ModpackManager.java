@@ -602,7 +602,17 @@ public final class ModpackManager {
             if (cfEntry != null) {
                 return parseCurseForgeManifest(zf, cfEntry);
             }
-            throw new IOException("无法识别的整合包格式：缺少 modrinth.index.json 或 manifest.json");
+            // 尝试 FTB 格式（modpack.json + minecraft/ 目录）
+            ZipEntry ftbEntry = zf.getEntry("modpack.json");
+            if (ftbEntry != null) {
+                // 确认是 FTB 格式而非其他工具的 modpack.json：检查是否有 minecraft/ 目录
+                if (zf.getEntry("minecraft/") != null || zf.getEntry("minecraft/mods/") != null) {
+                    return parseFtbManifest(zf, ftbEntry);
+                }
+                // 即使没有 minecraft/ 前缀，也尝试按 FTB 解析（某些 FTB 包用 overrides/）
+                return parseFtbManifest(zf, ftbEntry);
+            }
+            throw new IOException("无法识别的整合包格式：缺少 modrinth.index.json、manifest.json 或 modpack.json");
         }
     }
 
@@ -724,17 +734,101 @@ public final class ModpackManager {
                 "curseforge", files, author);
     }
 
+    /**
+     * 解析 FTB 整合包清单（modpack.json）。
+     * <p>
+     * FTB 格式有两种常见变体：
+     * <ul>
+     *   <li>扁平结构：顶层字段 minecraftVersion / modLoader / modLoaderVersion</li>
+     *   <li>嵌套结构：minecraft.version / minecraft.modLoaders[].id（与 CF 类似）</li>
+     * </ul>
+     * 内容目录前缀为 {@code minecraft/}（而非 overrides/），但也可能使用 overrides/。
+     * FTB 包通常将 mods 直接打包在 minecraft/mods/ 中，无需通过 API 下载。
+     */
+    private ParsedManifest parseFtbManifest(ZipFile zf, ZipEntry entry) throws IOException {
+        String json;
+        try (InputStream in = zf.getInputStream(entry)) {
+            json = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        }
+        JsonObject root = JsonParser.parseString(json).getAsJsonObject();
+
+        String name = safeStr(root, "name", "未命名整合包");
+        String author = safeStr(root, "author", "");
+        String gameVersion;
+        String loader = null;
+        String loaderVersion = null;
+
+        // 变体1：嵌套 minecraft 对象（与 CF 类似）
+        if (root.has("minecraft") && root.get("minecraft").isJsonObject()) {
+            JsonObject mc = root.getAsJsonObject("minecraft");
+            gameVersion = safeStr(mc, "version", "");
+            if (mc.has("modLoaders") && mc.get("modLoaders").isJsonArray()) {
+                for (var ml : mc.getAsJsonArray("modLoaders")) {
+                    JsonObject mlObj = ml.getAsJsonObject();
+                    String id = safeStr(mlObj, "id", "");
+                    if (id.startsWith("fabric-")) {
+                        loader = "fabric";
+                        loaderVersion = id.substring("fabric-".length());
+                        break;
+                    } else if (id.startsWith("forge-")) {
+                        loader = "forge";
+                        loaderVersion = id.substring("forge-".length());
+                        break;
+                    } else if (id.startsWith("quilt-")) {
+                        loader = "quilt";
+                        loaderVersion = id.substring("quilt-".length());
+                        break;
+                    } else if (id.startsWith("neoforge-")) {
+                        loader = "neoforge";
+                        loaderVersion = id.substring("neoforge-".length());
+                        break;
+                    }
+                }
+            }
+        } else {
+            // 变体2：扁平字段
+            gameVersion = safeStr(root, "minecraftVersion", safeStr(root, "version", ""));
+            String ml = safeStr(root, "modLoader", safeStr(root, "loader", ""));
+            String mlv = safeStr(root, "modLoaderVersion", safeStr(root, "loaderVersion", ""));
+            if (!ml.isEmpty()) {
+                loader = ml.toLowerCase();
+                loaderVersion = mlv;
+            }
+        }
+
+        // FTB 包通常将 mods 直接打包在 minecraft/mods/ 中，files 数组为空
+        // mods 通过 extractOverrides 从 minecraft/mods/ 解压到实例目录
+        List<ModpackFile> files = new ArrayList<>();
+
+        return new ParsedManifest(name, gameVersion, loader, loaderVersion,
+                "ftb", files, author);
+    }
+
     private void extractOverrides(Path file, Path instanceDir, String format) throws IOException {
-        String prefix = format.equals("modrinth") ? "overrides/" : "overrides/";
+        // modrinth/curseforge 用 "overrides/" 前缀
+        // FTB 用 "minecraft/" 前缀，但某些 FTB 包也可能用 "overrides/"，所以两者都尝试
+        List<String> prefixes;
+        if (format.equals("ftb")) {
+            prefixes = List.of("minecraft/", "overrides/");
+        } else {
+            prefixes = List.of("overrides/");
+        }
         try (ZipFile zf = new ZipFile(file.toFile())) {
             var entries = zf.entries();
             while (entries.hasMoreElements()) {
                 ZipEntry entry = entries.nextElement();
                 if (entry.isDirectory()) continue;
                 String name = entry.getName();
-                if (!name.startsWith(prefix)) continue;
 
-                String relative = name.substring(prefix.length());
+                String relative = null;
+                for (String prefix : prefixes) {
+                    if (name.startsWith(prefix)) {
+                        relative = name.substring(prefix.length());
+                        break;
+                    }
+                }
+                if (relative == null || relative.isEmpty()) continue;
+
                 // ZIP SLIP 防护
                 Path target = instanceDir.resolve(relative).normalize();
                 if (!target.startsWith(instanceDir)) continue;
