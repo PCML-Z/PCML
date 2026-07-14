@@ -58,7 +58,7 @@ fun <T> AnimatedPageSwitch(
         targetState = targetState,
         modifier = modifier,
         transitionSpec = {
-            val duration = 200 // 缩短至 200ms，避免新旧页面长时间同时渲染
+            val duration = 300 // 平衡流畅度与响应感
             if (direction >= 0) {
                 // 前进：新页从右滑入，旧页向左滑出
                 slideIntoContainer(
