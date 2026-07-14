@@ -50,9 +50,22 @@ object Live2dWebView {
         val webView = WebView()
         webView.isCache = true
         webView.setPrefSize(300.0, 400.0)
+        // WebView 默认白色背景，用 CSS 强制透明
+        webView.setStyle("-fx-background-color: transparent;")
 
         val engine = webView.getEngine()
         engine.setJavaScriptEnabled(true)
+        // 页面加载完成后强制设置透明背景
+        engine.documentProperty().addListener { _, _, doc ->
+            if (doc != null) {
+                try {
+                    engine.executeScript(
+                        "document.body.style.background='transparent';" +
+                        "document.documentElement.style.background='transparent';"
+                    )
+                } catch (_: Throwable) {}
+            }
+        }
 
         // 加载 HTML 内容（从插件资源读取，注入模型 URL）
         val html = loadHtml(modelUrl)
@@ -120,6 +133,37 @@ object Live2dWebView {
         </script>
         </body></html>
     """.trimIndent()
+
+    /** 重新加载指定模型 URL */
+    fun reloadModel(modelUrl: String) {
+        Platform.runLater {
+            try {
+                val panel = panelRef.get() ?: return@runLater
+                val root = panel.scene?.root
+                if (root is Group && root.children.isNotEmpty()) {
+                    val webView = root.children[0] as? WebView ?: return@runLater
+                    val html = loadHtml(modelUrl)
+                    webView.getEngine().loadContent(html)
+                }
+            } catch (_: Throwable) {}
+        }
+    }
+
+    /** 调整模型缩放比例（0.1 - 3.0） */
+    fun setScale(scale: Float) {
+        Platform.runLater {
+            try {
+                val panel = panelRef.get() ?: return@runLater
+                val root = panel.scene?.root
+                if (root is Group && root.children.isNotEmpty()) {
+                    val webView = root.children[0] as? WebView ?: return@runLater
+                    webView.getEngine().executeScript(
+                        "if(window.app&&window.model){var s=Math.min(app.renderer.width/model.internalModel.width,app.renderer.height/model.internalModel.height)*$scale*0.85;model.scale.set(s);model.x=(app.renderer.width-model.width)/2;model.y=(app.renderer.height-model.height)/2;}"
+                    )
+                }
+            } catch (_: Throwable) {}
+        }
+    }
 
     /** 关闭 WebView，释放 JavaFX 资源 */
     fun shutdown() {

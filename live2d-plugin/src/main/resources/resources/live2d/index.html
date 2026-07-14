@@ -27,30 +27,30 @@
 // 注册 Ticker，让模型自动更新
 PIXI.live2d.Live2DModel.registerTicker(PIXI.Ticker);
 
-// 创建 Pixi 应用，透明背景
-const app = new PIXI.Application({
+// 创建 Pixi 应用，透明背景，变量挂载到 window 供外部调用
+window.app = new PIXI.Application({
     width: 300,
     height: 400,
     backgroundAlpha: 0,
     antialias: true
 });
-document.body.appendChild(app.view);
+document.body.appendChild(window.app.view);
 
-let model = null;
+window.model = null;
 
 // 加载 Live2D 模型
 async function loadModel(url) {
     try {
-        model = await PIXI.live2d.Live2DModel.from(url);
+        window.model = await PIXI.live2d.Live2DModel.from(url);
         // 等比缩放，居中显示
         const scale = Math.min(
-            app.renderer.width / model.width,
-            app.renderer.height / model.height
+            window.app.renderer.width / window.model.width,
+            window.app.renderer.height / window.model.height
         ) * 0.85;
-        model.scale.set(scale);
-        model.x = (app.renderer.width - model.width) / 2;
-        model.y = (app.renderer.height - model.height) / 2;
-        app.stage.addChild(model);
+        window.model.scale.set(scale);
+        window.model.x = (window.app.renderer.width - window.model.width) / 2;
+        window.model.y = (window.app.renderer.height - window.model.height) / 2;
+        window.app.stage.addChild(window.model);
     } catch (e) {
         console.error('Failed to load Live2D model:', e);
     }
@@ -65,20 +65,19 @@ let lastX = 0;
 let lastY = 0;
 const DRAG_THRESHOLD = 3; // 像素，超过此距离判定为拖拽
 
-app.view.addEventListener('mousedown', function(e) {
+window.app.view.addEventListener('mousedown', function(e) {
     isDragging = true;
     hasMoved = false;
     lastX = e.screenX;
     lastY = e.screenY;
 });
 
-app.view.addEventListener('mousemove', function(e) {
+window.app.view.addEventListener('mousemove', function(e) {
     if (isDragging && e.buttons === 1) {
         var dx = e.screenX - lastX;
         var dy = e.screenY - lastY;
         if (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD) {
             hasMoved = true;
-            // 通过 Java 桥接对象将拖拽增量传给 Kotlin
             if (window.dragBridge) {
                 window.dragBridge.drag(dx, dy);
             }
@@ -88,17 +87,15 @@ app.view.addEventListener('mousemove', function(e) {
     }
 });
 
-app.view.addEventListener('mouseup', function(e) {
-    if (isDragging && !hasMoved && model) {
-        // 点击（非拖拽）：触发随机动作/表情
-        model.tap();
+window.app.view.addEventListener('mouseup', function(e) {
+    if (isDragging && !hasMoved && window.model) {
+        window.model.tap();
     }
     isDragging = false;
     hasMoved = false;
 });
 
-// 防止拖拽时选中文本
-app.view.addEventListener('selectstart', function(e) { e.preventDefault(); });
+window.app.view.addEventListener('selectstart', function(e) { e.preventDefault(); });
 
 // 加载默认模型（由 Kotlin 端注入 URL）
 var modelUrl = '__MODEL_URL__';
