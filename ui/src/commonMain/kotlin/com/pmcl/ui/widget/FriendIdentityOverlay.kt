@@ -21,9 +21,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pmcl.core.friend.FriendIdentityManager
-import java.awt.Desktop
-import java.net.URI
-import java.net.URLEncoder
 import org.jetbrains.skia.Image as SkiaImage
 
 /**
@@ -183,63 +180,6 @@ fun IdentityCard(
                             modifier = Modifier.size(if (expanded) 20.dp else 16.dp)
                         )
                     }
-                }
-
-                Spacer(Modifier.height(if (expanded) 16.dp else 12.dp))
-
-                // 分享好友卡片到社交平台
-                val shareText = identityManager.getShareText()
-                val inviteMsg = "来 PMCL 一起玩 Minecraft！我的好友码：$shareText"
-                val shareLabelSize = if (expanded) 13.sp else 11.sp
-                val shareBtnHeight = if (expanded) 36.dp else 30.dp
-
-                Text(
-                    "分享好友卡片",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontSize = shareLabelSize,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                )
-                Spacer(Modifier.height(6.dp))
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // QQ
-                    FilledTonalButton(
-                        onClick = {
-                            val title = URLEncoder.encode("PMCL 好友邀请 - ${identityManager.displayName}", "UTF-8")
-                            val desc = URLEncoder.encode(inviteMsg, "UTF-8")
-                            Desktop.getDesktop().browse(URI(
-                                "https://connect.qq.com/widget/shareqq/index.html?title=$title&desc=$desc"
-                            ))
-                        },
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                        modifier = Modifier.height(shareBtnHeight)
-                    ) { Text("QQ", fontSize = shareLabelSize, maxLines = 1) }
-
-                    // Telegram
-                    FilledTonalButton(
-                        onClick = {
-                            val text = URLEncoder.encode(inviteMsg, "UTF-8")
-                            Desktop.getDesktop().browse(URI(
-                                "https://t.me/share/url?url=&text=$text"
-                            ))
-                        },
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                        modifier = Modifier.height(shareBtnHeight)
-                    ) { Text("Telegram", fontSize = shareLabelSize, maxLines = 1) }
-
-                    // X
-                    FilledTonalButton(
-                        onClick = {
-                            val text = URLEncoder.encode(inviteMsg, "UTF-8")
-                            Desktop.getDesktop().browse(URI(
-                                "https://twitter.com/intent/tweet?text=$text"
-                            ))
-                        },
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                        modifier = Modifier.height(shareBtnHeight)
-                    ) { Text("X", fontSize = shareLabelSize, maxLines = 1) }
                 }
             }
         }
