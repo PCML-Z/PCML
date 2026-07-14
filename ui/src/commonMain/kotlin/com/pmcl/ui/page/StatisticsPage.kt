@@ -39,7 +39,7 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
 /**
- * 游戏时长统计页：实时设备性能 + 总览 + 每日趋势折线图 + 版本分布柱状图。
+ * 统计页：左侧实时设备性能负载 + 右侧游玩统计（总览/趋势/版本分布）。
  */
 @Composable
 fun StatisticsPage(vm: LauncherViewModel) {
@@ -50,27 +50,38 @@ fun StatisticsPage(vm: LauncherViewModel) {
     // 进入页面时刷新数据
     LaunchedEffect(Unit) { if (stats == null) vm.refreshPlayTimeStats() }
 
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+    Row(
+        Modifier.fillMaxSize().padding(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // ===== 实时设备性能负载卡片 =====
-        RealtimePerformanceCard()
-
-        // ===== 总览卡片 =====
-        OverviewCard(stats)
-
-        // ===== 天数选择器 =====
-        DaysSelector(days, onSelect = { vm.setStatsDays(it) })
-
-        // ===== 每日趋势折线图 =====
-        if (dailyStats.isNotEmpty()) {
-            DailyTrendCard(dailyStats, days)
+        // ===== 左栏：实时设备性能负载 =====
+        Column(
+            modifier = Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            RealtimePerformanceCard()
         }
 
-        // ===== 版本分布柱状图 =====
-        if (stats != null && stats!!.versions.isNotEmpty()) {
-            VersionDistributionCard(stats!!.versions)
+        // ===== 右栏：游玩统计 =====
+        Column(
+            modifier = Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // 总览卡片
+            OverviewCard(stats)
+
+            // 天数选择器
+            DaysSelector(days, onSelect = { vm.setStatsDays(it) })
+
+            // 每日趋势折线图
+            if (dailyStats.isNotEmpty()) {
+                DailyTrendCard(dailyStats, days)
+            }
+
+            // 版本分布柱状图
+            if (stats != null && stats!!.versions.isNotEmpty()) {
+                VersionDistributionCard(stats!!.versions)
+            }
         }
     }
 }
@@ -188,65 +199,55 @@ private fun RealtimePerformanceCard() {
             Spacer(Modifier.height(12.dp))
 
             sample?.let { s ->
-                // ===== 左右两列布局：左列 CPU + JVM 堆，右列 系统内存 + 磁盘 =====
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    // ----- 左列 -----
-                    Column(Modifier.weight(1f)) {
-                        // CPU 使用率
-                        PerformanceRow(
-                            icon = Icons.Filled.Speed,
-                            label = "CPU",
-                            valueText = "${"%.1f".format(s.cpuLoad * 100)}%",
-                            subText = "${s.cpuName}  ·  ${s.cpuPhysicalCores}P/${s.cpuLogicalCores}L 核",
-                            progress = s.cpuLoad.toFloat(),
-                            history = cpuHistory,
-                            color = Color(0xFF2196F3)
-                        )
+                // ===== CPU 使用率 =====
+                PerformanceRow(
+                    icon = Icons.Filled.Speed,
+                    label = "CPU",
+                    valueText = "${"%.1f".format(s.cpuLoad * 100)}%",
+                    subText = "${s.cpuName}  ·  ${s.cpuPhysicalCores}P/${s.cpuLogicalCores}L 核",
+                    progress = s.cpuLoad.toFloat(),
+                    history = cpuHistory,
+                    color = Color(0xFF2196F3)
+                )
 
-                        Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(14.dp))
 
-                        // JVM 堆内存
-                        PerformanceRow(
-                            icon = Icons.Filled.DeveloperBoard,
-                            label = "JVM 堆",
-                            valueText = "${"%.1f".format(s.jvmHeapLoad * 100)}%",
-                            subText = "${s.jvmHeapUsedMb} / ${s.jvmHeapAllocatedMb} MB (上限 ${s.jvmHeapMaxMb} MB)  ·  ${s.threadCount} 线程",
-                            progress = s.jvmHeapLoad.toFloat(),
-                            history = jvmHistory,
-                            color = Color(0xFFFF9800)
-                        )
-                    }
+                // ===== 系统内存 =====
+                PerformanceRow(
+                    icon = Icons.Filled.Memory,
+                    label = "系统内存",
+                    valueText = "${"%.1f".format(s.memLoad * 100)}%",
+                    subText = "${((s.totalMemMb - s.availableMemMb) / 1024.0).format(1)} / ${(s.totalMemMb / 1024.0).format(1)} GB",
+                    progress = s.memLoad.toFloat(),
+                    history = memHistory,
+                    color = Color(0xFF4CAF50)
+                )
 
-                    // ----- 右列 -----
-                    Column(Modifier.weight(1f)) {
-                        // 系统内存
-                        PerformanceRow(
-                            icon = Icons.Filled.Memory,
-                            label = "系统内存",
-                            valueText = "${"%.1f".format(s.memLoad * 100)}%",
-                            subText = "${((s.totalMemMb - s.availableMemMb) / 1024.0).format(1)} / ${(s.totalMemMb / 1024.0).format(1)} GB",
-                            progress = s.memLoad.toFloat(),
-                            history = memHistory,
-                            color = Color(0xFF4CAF50)
-                        )
+                Spacer(Modifier.height(14.dp))
 
-                        Spacer(Modifier.height(16.dp))
+                // ===== JVM 堆内存 =====
+                PerformanceRow(
+                    icon = Icons.Filled.DeveloperBoard,
+                    label = "JVM 堆",
+                    valueText = "${"%.1f".format(s.jvmHeapLoad * 100)}%",
+                    subText = "${s.jvmHeapUsedMb} / ${s.jvmHeapAllocatedMb} MB (上限 ${s.jvmHeapMaxMb} MB)  ·  ${s.threadCount} 线程",
+                    progress = s.jvmHeapLoad.toFloat(),
+                    history = jvmHistory,
+                    color = Color(0xFFFF9800)
+                )
 
-                        // 磁盘使用率
-                        PerformanceRow(
-                            icon = Icons.Filled.Storage,
-                            label = "磁盘",
-                            valueText = "${"%.1f".format(s.diskLoad * 100)}%",
-                            subText = "${"%.1f".format(s.diskUsedGb)} / ${"%.1f".format(s.diskTotalGb)} GB",
-                            progress = s.diskLoad.toFloat(),
-                            history = null,
-                            color = Color(0xFF9C27B0)
-                        )
-                    }
-                }
+                Spacer(Modifier.height(14.dp))
+
+                // ===== 磁盘使用率 =====
+                PerformanceRow(
+                    icon = Icons.Filled.Storage,
+                    label = "磁盘",
+                    valueText = "${"%.1f".format(s.diskLoad * 100)}%",
+                    subText = "${"%.1f".format(s.diskUsedGb)} / ${"%.1f".format(s.diskTotalGb)} GB",
+                    progress = s.diskLoad.toFloat(),
+                    history = null,
+                    color = Color(0xFF9C27B0)
+                )
             } ?: run {
                 Box(Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
@@ -285,7 +286,7 @@ private fun PerformanceRow(
                 Text(valueText, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = color)
             }
             Spacer(Modifier.height(2.dp))
-            Text(subText, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline, maxLines = 2)
+            Text(subText, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline, maxLines = 1)
             Spacer(Modifier.height(4.dp))
             // 进度条
             LinearProgressIndicator(
