@@ -76,10 +76,12 @@ public final class JavaRuntimeDownloader {
     public CompletableFuture<List<RuntimeEntry>> listRuntimes(RuntimeType type) {
         return CompletableFuture.supplyAsync(() -> {
             try {
+                String arch = resolveArch(type);
+                // 龙芯等 Mojang 清单不支持的架构：返回空列表
+                if (arch == null) return new ArrayList<>();
                 String json = downloadManager.downloadString(MANIFEST_URL);
                 JsonObject root = JsonParser.parseString(json).getAsJsonObject();
                 // 结构: [arch][type][entry...]
-                String arch = resolveArch(type);
                 if (!root.has(arch)) return new ArrayList<>();
                 JsonObject archObj = root.getAsJsonObject(arch);
                 if (!archObj.has(type.getMojangId())) return new ArrayList<>();
@@ -112,8 +114,12 @@ public final class JavaRuntimeDownloader {
                                            Consumer<String> onStatus) {
         return CompletableFuture.runAsync(() -> {
             try {
+                String arch = resolveArch(type);
+                if (arch == null) {
+                    throw new RuntimeException("龙芯架构不支持自动下载 Java，请手动安装龙芯版 JDK");
+                }
                 Path runtimesDir = config.getRuntimesDir();
-                Path archDir = runtimesDir.resolve(resolveArch(type));
+                Path archDir = runtimesDir.resolve(arch);
                 Path targetDir = archDir.resolve(type.name() + "-" + entry.getVersion());
                 if (Files.exists(targetDir) && Files.exists(targetDir.resolve("bin"))) {
                     if (onStatus != null) onStatus.accept("已存在：" + targetDir);
@@ -180,8 +186,15 @@ public final class JavaRuntimeDownloader {
      * Apple Silicon Mac 上，老版本 Minecraft（1.12.2 及更早）的 LWJGL 2.x 原生库
      * 只有 x86_64 版本，必须通过 Rosetta 2 运行 x86_64 Java 8。
      * 因此 Java 8 在 Apple Silicon 上强制下载 macos-amd64 版本。
+     * <p>
+     * 龙芯（LoongArch64 / MIPS64el）架构在 Mojang 清单中不存在，
+     * 返回 null 表示无法自动下载，调用方应提示用户手动安装龙芯版 JDK。
      */
     private static String resolveArch(RuntimeType type) {
+        // 龙芯架构：Mojang 清单无对应包，返回 null
+        if (com.pmcl.core.launch.JavaRuntimeFinder.isLoongson()) {
+            return null;
+        }
         String arch = currentArch();
         if (type == RuntimeType.JAVA_8 && "macos-arm64".equals(arch)) {
             return "macos-amd64"; // Rosetta 2
@@ -200,6 +213,14 @@ public final class JavaRuntimeDownloader {
             return arch.contains("aarch64") || arch.contains("arm64")
                     ? "windows-arm64" : "windows-x64";
         } else {
+            // 龙芯 LoongArch64
+            if (arch.contains("loongarch64") || arch.contains("la64") || arch.contains("la464")) {
+                return "linux-loongarch64";
+            }
+            // 龙芯旧版 MIPS64el
+            if (arch.contains("mips64el") || arch.contains("mips64")) {
+                return "linux-mips64el";
+            }
             return arch.contains("aarch64") || arch.contains("arm64")
                     ? "linux-arm64" : "linux-x64";
         }

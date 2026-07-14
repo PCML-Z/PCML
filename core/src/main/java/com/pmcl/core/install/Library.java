@@ -105,6 +105,33 @@ public final class Library {
     }
 
     /**
+     * 判断当前架构（或覆盖架构）是否为龙芯 LoongArch64。
+     */
+    private static boolean isLoongArch64() {
+        String override = ARCH_OVERRIDE.get();
+        String arch = (override != null && !override.isEmpty()
+                ? override : System.getProperty("os.arch", "")).toLowerCase();
+        return arch.contains("loongarch64") || arch.contains("la64") || arch.contains("la464");
+    }
+
+    /**
+     * 判断当前架构（或覆盖架构）是否为龙芯旧版 MIPS64el。
+     */
+    private static boolean isMips64el() {
+        String override = ARCH_OVERRIDE.get();
+        String arch = (override != null && !override.isEmpty()
+                ? override : System.getProperty("os.arch", "")).toLowerCase();
+        return arch.contains("mips64el") || arch.contains("mips64");
+    }
+
+    /**
+     * 判断当前架构是否为任意龙芯架构。
+     */
+    private static boolean isLoongson() {
+        return isLoongArch64() || isMips64el();
+    }
+
+    /**
      * 当前 OS 的 ARM64 native classifier（如 "natives-macos-arm64"）。
      */
     private static String arm64ClassifierForCurrentOs() {
@@ -142,12 +169,25 @@ public final class Library {
      * ARM64 架构优先策略：当检测到 ARM64 时，先尝试查找 arm64 classifier
      * （如 "natives-macos-arm64"），若版本 JSON 的 classifiers 中存在则使用它；
      * 否则回退到 x86_64 版本（需配合 x86_64 Java + Rosetta 2 运行）。
+     * <p>
+     * 龙芯 LoongArch64 策略：优先查找 natives-linux-loongarch64（社区移植版 LWJGL），
+     * 若不存在则回退到 x86_64（需配合 LATX 二进制翻译运行 x86_64 Java）。
+     * 龙芯 MIPS64el（旧 3A 系列）：无原生 native，直接使用 x86_64 + 二进制翻译。
      */
     public String getNativeClassifier() {
         if (natives == null) return null;
         String os = currentOsName();
         if (!natives.has(os) || natives.get(os).isJsonNull()) return null;
         String classifier = natives.get(os).getAsString();
+
+        // 龙芯 LoongArch64：优先使用社区移植的原生 native
+        if (isLoongArch64()) {
+            String loongsonCls = "natives-linux-loongarch64";
+            if (classifiers.containsKey(loongsonCls)) {
+                return loongsonCls;
+            }
+            // 无原生 native，回退到 x86_64（需 LATX 二进制翻译 + x86_64 Java）
+        }
 
         // ARM64 架构：优先尝试 arm64 classifier（LWJGL 3.x 提供原生 arm64 支持）
         if (isArm64()) {
@@ -228,6 +268,8 @@ public final class Library {
      * Windows ARM64: "natives-windows-arm64"
      * Linux x86_64: "natives-linux"
      * Linux ARM64: "natives-linux-arm64"
+     * Linux LoongArch64（龙芯）: "natives-linux-loongarch64"
+     * Linux MIPS64el（龙芯旧版）: 回退 "natives-linux"（依赖 LATX 二进制翻译）
      */
     public static String currentNativeClassifier() {
         String os = System.getProperty("os.name", "").toLowerCase();
@@ -238,16 +280,29 @@ public final class Library {
         if (os.contains("win")) {
             return arm ? "natives-windows-arm64" : "natives-windows";
         }
+        // Linux：龙芯 LoongArch64 优先使用原生 native（社区 LWJGL 移植版）
+        if (isLoongArch64()) {
+            return "natives-linux-loongarch64";
+        }
         return arm ? "natives-linux-arm64" : "natives-linux";
     }
 
     /**
      * 判断此 library 的 nameClassifier 是否匹配当前平台的 native。
      * 用于 MC 1.18+ 新格式：native 库以独立 library 条目存在，name 带 ":natives-macos" 等。
+     * <p>
+     * 龙芯平台特殊处理：LoongArch64 优先匹配 natives-linux-loongarch64，
+     * 若无则也接受 natives-linux（x86_64 回退，依赖 LATX 翻译）。
      */
     public boolean matchesCurrentNative() {
         if (nameClassifier == null) return false;
         String want = currentNativeClassifier();
-        return nameClassifier.equals(want);
+        if (nameClassifier.equals(want)) return true;
+        // 龙芯 LoongArch64 回退：也接受 natives-linux（x86_64 via LATX）
+        if (isLoongArch64() && "natives-linux-loongarch64".equals(want)
+                && "natives-linux".equals(nameClassifier)) {
+            return true;
+        }
+        return false;
     }
 }

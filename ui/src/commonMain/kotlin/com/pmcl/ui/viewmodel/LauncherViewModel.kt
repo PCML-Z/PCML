@@ -2235,6 +2235,53 @@ class LauncherViewModel {
                 val javaArch = withContext(Dispatchers.IO) {
                     JavaRuntimeFinder.getArchitecture(javaExe)
                 }
+                // 龙芯平台兼容性检测：native 库可能不完整，提示用户
+                if (JavaRuntimeFinder.isLoongson()) {
+                    val isLoongArch = JavaRuntimeFinder.isLoongArch64()
+                    val archName = if (isLoongArch) "LoongArch64" else "MIPS64el"
+                    val isOldVersion = requiredJavaVer in 1..10
+
+                    if (isOldVersion || !isLoongArch) {
+                        // 旧版本（LWJGL 2.x）或 MIPS64el：无原生 native，需 x86_64 + 二进制翻译
+                        _status.value = "兼容性提示：龙芯 $archName"
+                        val options = mutableListOf<CompatOption>()
+
+                        // 选项1：仍尝试启动（可能因 native 库缺失而崩溃）
+                        options.add(CompatOption(
+                            title = "仍尝试启动",
+                            description = "龙芯 $archName 上旧版本 Minecraft 的 LWJGL 原生库可能缺失。\n" +
+                                    if (isLoongArch)
+                                        "若已安装 LATX 二进制翻译 + x86_64 Java，native 库可通过翻译层运行。\n游戏可能崩溃，请知悉风险。"
+                                    else
+                                        "MIPS64el 龙芯无 x86 二进制翻译能力，旧版本大概率无法运行。\n游戏可能崩溃，请知悉风险。",
+                            action = { launchWithSpecificJava(versionId, javaExe, javaMajorVer, javaArch) }
+                        ))
+
+                        // 选项2：安装龙芯版 JDK（打开龙芯开源社区）
+                        options.add(CompatOption(
+                            title = "前往龙芯开源社区下载 JDK",
+                            description = "打开浏览器访问龙芯开源社区，下载 LoongArch64 版 JDK\n" +
+                                    "安装后 PMCL 会自动检测并使用",
+                            action = {
+                                try {
+                                    val url = "https://www.loongnix.cn/zh/api/java/"
+                                    if (System.getProperty("os.name", "").lowercase().contains("linux")) {
+                                        Runtime.getRuntime().exec(arrayOf("xdg-open", url))
+                                    } else {
+                                        java.awt.Desktop.getDesktop().browse(java.net.URI(url))
+                                    }
+                                } catch (e: Throwable) {
+                                    _status.value = "无法打开浏览器: ${e.message}"
+                                }
+                            }
+                        ))
+
+                        _compatTitle.value = "龙芯 $archName 兼容性提示"
+                        _compatOptions.value = options
+                        return@launch
+                    }
+                }
+
                 // Apple Silicon Mac 上旧版本 + arm64 Java 检测：native 库只有 x86_64，会加载失败
                 val isArchMismatch = requiredJavaVer in 1..10
                         && (javaArch.contains("aarch64") || javaArch.contains("arm64"))

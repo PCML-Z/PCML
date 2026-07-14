@@ -939,29 +939,72 @@ private fun JavaRuntimeCard(vm: LauncherViewModel, pref: com.pmcl.core.preferenc
 
             Spacer(Modifier.height(12.dp))
 
-            // 一键下载 Java 8 / 17 / 21
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(
-                    onClick = { vm.downloadJava(8) },
-                    enabled = !downloading
-                ) { Text("Java 8") }
-                OutlinedButton(
-                    onClick = { vm.downloadJava(17) },
-                    enabled = !downloading
-                ) { Text("Java 17") }
-                Button(
-                    onClick = { vm.downloadJava(21) },
-                    enabled = !downloading
+            // 龙芯架构检测：Mojang 清单无龙芯 Java，禁用自动下载
+            val isLoongson = com.pmcl.core.launch.JavaRuntimeFinder.isLoongson()
+            if (isLoongson) {
+                val loongArchName = if (com.pmcl.core.launch.JavaRuntimeFinder.isLoongArch64()) "LoongArch64" else "MIPS64el"
+                Surface(
+                    color = MaterialTheme.colorScheme.errorContainer,
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    if (downloading) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp),
-                            strokeWidth = 2.dp
+                    Column(Modifier.padding(12.dp)) {
+                        Text(
+                            "龙芯 $loongArchName 架构不支持自动下载 Java",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            fontWeight = FontWeight.SemiBold
                         )
-                        Spacer(Modifier.width(8.dp))
-                        Text("正在下载…")
-                    } else {
-                        Text("Java 21")
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "Mojang Java 运行时清单不包含龙芯架构。请从龙芯开源社区手动安装龙芯版 JDK，PMCL 会自动检测系统中的 Java。",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedButton(
+                            onClick = {
+                                try {
+                                    val url = "https://www.loongnix.cn/zh/api/java/"
+                                    if (System.getProperty("os.name", "").lowercase().contains("linux")) {
+                                        Runtime.getRuntime().exec(arrayOf("xdg-open", url))
+                                    } else {
+                                        java.awt.Desktop.getDesktop().browse(java.net.URI(url))
+                                    }
+                                } catch (_: Throwable) {}
+                            }
+                        ) {
+                            Icon(Icons.Filled.OpenInNew, null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("前往龙芯开源社区")
+                        }
+                    }
+                }
+            } else {
+                // 一键下载 Java 8 / 17 / 21
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = { vm.downloadJava(8) },
+                        enabled = !downloading
+                    ) { Text("Java 8") }
+                    OutlinedButton(
+                        onClick = { vm.downloadJava(17) },
+                        enabled = !downloading
+                    ) { Text("Java 17") }
+                    Button(
+                        onClick = { vm.downloadJava(21) },
+                        enabled = !downloading
+                    ) {
+                        if (downloading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text("正在下载…")
+                        } else {
+                            Text("Java 21")
+                        }
                     }
                 }
             }

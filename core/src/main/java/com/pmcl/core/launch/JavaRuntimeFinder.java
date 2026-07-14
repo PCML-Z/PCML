@@ -104,6 +104,17 @@ public final class JavaRuntimeFinder {
             candidates.add("/usr/lib/jvm/java-17-openjdk");
             candidates.add("/usr/lib/jvm/java-8-openjdk");
             candidates.add("/usr/lib/jvm/java-8-oracle");
+            // 龙芯（LoongArch64）常见 JDK 路径
+            candidates.add("/usr/lib/jvm/java-21-openjdk-loongarch64");
+            candidates.add("/usr/lib/jvm/java-17-openjdk-loongarch64");
+            candidates.add("/usr/lib/jvm/java-8-openjdk-loongarch64");
+            candidates.add("/usr/lib/jvm/loongson-jdk-21");
+            candidates.add("/usr/lib/jvm/loongson-jdk-17");
+            candidates.add("/usr/lib/jvm/loongson-jdk-8");
+            candidates.add("/opt/loongarch64-jdk");
+            // 龙芯（MIPS64el，旧 3A 系列）常见路径
+            candidates.add("/usr/lib/jvm/java-8-openjdk-mips64el");
+            candidates.add("/opt/jdk8-mips64el");
         }
 
         // 从候选中按目标版本选最佳
@@ -225,6 +236,31 @@ public final class JavaRuntimeFinder {
     private static boolean isX86Arch(String javaExe) {
         String arch = getArchitecture(javaExe).toLowerCase();
         return arch.contains("x86_64") || arch.contains("amd64") || arch.contains("x64");
+    }
+
+    /**
+     * 判断当前系统是否为龙芯（LoongArch64）架构。
+     * 龙芯 3A5000/3A6000 及以后使用 LoongArch64 架构。
+     */
+    public static boolean isLoongArch64() {
+        String arch = System.getProperty("os.arch", "").toLowerCase();
+        return arch.contains("loongarch64") || arch.contains("la64") || arch.contains("la464");
+    }
+
+    /**
+     * 判断当前系统是否为龙芯旧版（MIPS64el）架构。
+     * 龙芯 3A3000/3A4000 等使用 MIPS64el 架构。
+     */
+    public static boolean isMips64el() {
+        String arch = System.getProperty("os.arch", "").toLowerCase();
+        return arch.contains("mips64el") || arch.contains("mips64");
+    }
+
+    /**
+     * 判断当前系统是否为任意龙芯架构（LoongArch64 或 MIPS64el）。
+     */
+    public static boolean isLoongson() {
+        return isLoongArch64() || isMips64el();
     }
 
     /**
