@@ -25,7 +25,6 @@ import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.WindowScope
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
-import com.pmcl.core.preferences.Preferences
 import com.pmcl.ui.page.TopBarSearchField
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import java.awt.Frame
@@ -42,11 +41,10 @@ import java.nio.file.Paths
  * 运行方式：./gradlew :ui:run
  */
 fun main() = application {
-    // 启动时读取偏好设置，决定是否使用无边框窗口
-    val pref = remember {
-        Preferences(Paths.get(System.getProperty("user.home"), ".pmcl", "preferences.json"))
-    }
-    val borderless = pref.isBorderlessWindow()
+    // 启动时仅轻量读取窗口/主题偏好（不构造完整 Preferences，避免与 LauncherCore 重复加载）
+    val prefPath = Paths.get(System.getProperty("user.home"), ".pmcl", "preferences.json")
+    val borderless = remember { readBorderlessPref(prefPath.toString()) }
+    val useDark = remember { readDarkThemePref(prefPath.toString()) }
     val vm = remember { LauncherViewModel() }
     val searchFocusRequester = remember { FocusRequester() }
 
@@ -78,7 +76,7 @@ fun main() = application {
             if (borderless) {
                 // 无边框模式：transparent=true 让边缘像素 alpha 混合（抗锯齿），
                 // 拖动期间临时设为不透明矩形避免 SwingPanel 重绘延迟导致闪烁
-                val isDark = pref.isUseDarkTheme()
+                val isDark = useDark
                 val scheme = if (isDark) darkColorScheme() else lightColorScheme()
                 val surfaceColor = scheme.surface
                 val isDragging = remember { mutableStateOf(false) }
@@ -159,6 +157,30 @@ fun main() = application {
             }
         }
     }
+}
+
+/**
+ * 轻量读取 borderlessWindow 偏好（仅正则匹配 JSON 字段，不构造完整 Preferences，
+ * 避免与 LauncherCore 中的 Preferences 重复加载文件+解析+创建线程池）。
+ */
+private fun readBorderlessPref(path: String): Boolean {
+    return try {
+        val json = java.nio.file.Files.readString(java.nio.file.Paths.get(path))
+        // 简单正则提取，避免完整 JSON 解析开销
+        val m = Regex("\"borderlessWindow\"\\s*:\\s*(true|false)").find(json)
+        m?.groupValues?.get(1)?.toBoolean() ?: false
+    } catch (_: Throwable) { false }
+}
+
+/**
+ * 轻量读取 useDarkTheme 偏好。
+ */
+private fun readDarkThemePref(path: String): Boolean {
+    return try {
+        val json = java.nio.file.Files.readString(java.nio.file.Paths.get(path))
+        val m = Regex("\"useDarkTheme\"\\s*:\\s*(true|false)").find(json)
+        m?.groupValues?.get(1)?.toBoolean() ?: false
+    } catch (_: Throwable) { false }
 }
 
 /**

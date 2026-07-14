@@ -86,13 +86,40 @@ public final class DownloadManager {
     private volatile int chunkedDownloadThreads = 4;    // 单文件分片连接数
 
     public DownloadManager(LauncherConfig config) {
+        this(config, null);
+    }
+
+    /** 带 Preferences 的构造函数：一次性构建正确的 HttpClient，避免构造后再 reconfigure 重复构建 */
+    public DownloadManager(LauncherConfig config, Preferences pref) {
         this.config = config;
         this.pool = Executors.newFixedThreadPool(config.getDownloadThreads());
         this.chunkedPool = Executors.newFixedThreadPool(
                 Math.min(16, config.getDownloadThreads()));
         this.downloadLimiter = new Semaphore(config.getDownloadThreads());
-        this.http = buildClient(null, 15, false, null, null);
+        if (pref != null) {
+            // 直接按偏好构建，跳过默认 client 的无谓构建+丢弃
+            Proxy proxy = null;
+            if (pref.isUseProxy() && !pref.getProxyHost().isEmpty() && pref.getProxyPort() > 0) {
+                proxy = new Proxy(Proxy.Type.HTTP,
+                        new InetSocketAddress(pref.getProxyHost(), pref.getProxyPort()));
+            }
+            this.http = buildClient(proxy, 15,
+                    pref.isUseProxy() && pref.isUseHttpAuth(),
+                    pref.getProxyUsername(), pref.getProxyPassword());
+            String mt = pref.getMirrorType();
+            if ("BMCLAPI".equals(mt)) mirror.setType(MirrorManager.MirrorType.BMCLAPI);
+            else if ("CUSTOM".equals(mt)) mirror.setType(MirrorManager.MirrorType.CUSTOM);
+            else mirror.setType(MirrorManager.MirrorType.OFFICIAL);
+            mirror.setCustomBase(pref.getCustomMirrorBase());
+            speedLimitBytesPerSec = pref.getDownloadSpeedLimitKb() * 1024;
+            retryCount = Math.max(0, pref.getDownloadRetryCount());
+            enableResume = pref.isEnableResume();
+            chunkedDownloadThreads = Math.max(1, pref.getChunkedDownloadThreads());
+        } else {
+            this.http = buildClient(null, 15, false, null, null);
+        }
         this.chunked = new ChunkedDownloader(http, chunkedDownloadThreads, chunkedPool);
+        if (pref != null) chunked.setSpeedLimit(speedLimitBytesPerSec);
     }
 
     /**

@@ -116,7 +116,8 @@ private fun MainWindowContent(vm: LauncherViewModel) {
     var pluginPages by remember { mutableStateOf<List<PluginManager.RegisteredPage>>(emptyList()) }
     var lastRevision by remember { mutableStateOf(-1L) }
     LaunchedEffect(Unit) {
-        // Discover and load plugins on startup
+        // 延迟 1.5 秒加载插件，让首屏 UI 先完成渲染（插件加载涉及 JAR 读取+ClassLoader+反射，开销大）
+        kotlinx.coroutines.delay(1500)
         try {
             vm.core.plugins().discoverAndLoadAll()
         } catch (e: Throwable) {

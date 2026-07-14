@@ -469,7 +469,6 @@ class LauncherViewModel {
 
     init {
         loadSavedAccount()
-        refreshInstalledMods()
         // 加载已固定的版本磁贴 + 自定义名称 + 最近使用 + 最后游玩时间
         _pinnedVersions.value = preferences.getPinnedVersions()
         _pinnedTileLabels.value = HashMap(preferences.getPinnedTileLabelsRaw())
@@ -483,11 +482,9 @@ class LauncherViewModel {
         }
         // 初始化联机后端
         core.multiplayer().setBackend(mpBackend)
-        // 连接预热：提前对常见下载源建立 TCP+TLS 连接，减少首次下载延迟
-        core.downloads().warmupConnections(java.util.List.of(
-                "https://piston-meta.mojang.com/",
-                "https://bmclapi2.bangbang93.com/"
-        ))
+        // 注：refreshInstalledMods 和 warmupConnections 已延迟到首次需要时执行，
+        // 避免冷启动时阻塞首屏渲染（ModsPage LaunchedEffect 会触发 mod 扫描，
+        // warmupConnections 延迟到首次下载时由 DownloadManager 内部触发）
     }
 
     /** 扫描本地已安装版本（详细信息），自动检测 .pmcl/versions + 系统默认 Minecraft 目录，带进度回调 */

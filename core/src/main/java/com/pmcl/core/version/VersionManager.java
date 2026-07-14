@@ -259,6 +259,12 @@ public final class VersionManager {
      * </ul>
      */
     public static java.util.List<Path> detectAllMinecraftVersionsDirs() {
+        // TTL 缓存：同一启动会话内 30 秒不重复 stat，避免 refreshLocalVersions 和
+        // refreshInstalledMods 各自调用导致的重复磁盘 I/O
+        long now = System.currentTimeMillis();
+        if (cachedMinecraftDirs != null && (now - cachedMinecraftDirsTime) < 30_000L) {
+            return cachedMinecraftDirs;
+        }
         java.util.List<Path> result = new java.util.ArrayList<>();
         String home = System.getProperty("user.home");
         String os = System.getProperty("os.name", "").toLowerCase();
@@ -280,8 +286,14 @@ public final class VersionManager {
             Path p = Paths.get(home, ".minecraft", "versions");
             if (Files.isDirectory(p)) result.add(p);
         }
+        cachedMinecraftDirs = result;
+        cachedMinecraftDirsTime = now;
         return result;
     }
+
+    /** detectAllMinecraftVersionsDirs 的 TTL 缓存 */
+    private static volatile java.util.List<Path> cachedMinecraftDirs = null;
+    private static volatile long cachedMinecraftDirsTime = 0L;
 
     /**
      * 扫描所有已知 versions 目录，支持进度回调。

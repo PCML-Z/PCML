@@ -94,13 +94,8 @@ public final class LauncherCore {
         this.instanceManager = new InstanceManager(config);
 
         this.versionManager = new VersionManager(config);
-        this.downloadManager = new DownloadManager(config);
-        // 启动时根据偏好初始化镜像/代理/限速（失败不中断，使用默认网络配置）
-        try {
-            this.downloadManager.reconfigure(preferences);
-        } catch (Throwable e) {
-            System.err.println("[LauncherCore] 网络配置初始化失败，使用默认配置: " + e.getMessage());
-        }
+        // 直接传入 preferences 一次性构建正确的 HttpClient，避免构造+reconfigure 重复构建
+        this.downloadManager = new DownloadManager(config, preferences);
         this.authService = new AuthService();
         this.runtimeManager = new RuntimeManager();
         this.launchManager = new LaunchManager(config);
