@@ -10,9 +10,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Article
 import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.FolderOpen
@@ -22,7 +24,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
@@ -349,6 +354,8 @@ fun SettingsPage(vm: LauncherViewModel) {
 
 @Composable
 private fun AboutCard(vm: LauncherViewModel) {
+    var showLicenseDialog by remember { mutableStateOf(false) }
+
     Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -410,6 +417,11 @@ private fun AboutCard(vm: LauncherViewModel) {
                 OutlinedButton(onClick = {
                     try { com.pmcl.core.web.WikiBrowser.open("https://github.com/peddlejumper") } catch (_: Throwable) {}
                 }) { Text("作者 GitHub"); Icon(Icons.Filled.OpenInNew, null, modifier = Modifier.size(14.dp).padding(start = 2.dp)) }
+                OutlinedButton(onClick = { showLicenseDialog = true }) {
+                    Icon(Icons.Filled.Article, null, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("查看许可证")
+                }
                 OutlinedButton(onClick = {
                     try { com.pmcl.core.web.WikiBrowser.open("https://github.com/EasyTier/EasyTier") } catch (_: Throwable) {}
                 }) { Text("EasyTier 项目") }
@@ -425,6 +437,10 @@ private fun AboutCard(vm: LauncherViewModel) {
                  style = MaterialTheme.typography.labelSmall,
                  color = MaterialTheme.colorScheme.outline)
         }
+    }
+
+    if (showLicenseDialog) {
+        LicenseViewerDialog(onDismiss = { showLicenseDialog = false })
     }
 }
 
@@ -1056,4 +1072,108 @@ private fun AccentColorPicker(
                  color = MaterialTheme.colorScheme.outline)
         }
     }
+}
+
+/**
+ * 许可证查看器对话框：支持中英文切换、滚动阅读、复制全文。
+ * 从 JAR 资源中加载 LICENSE.zh.txt / LICENSE.en.txt。
+ */
+@Composable
+private fun LicenseViewerDialog(onDismiss: () -> Unit) {
+    var isEnglish by remember { mutableStateOf(false) }
+    val clipboardManager = LocalClipboardManager.current
+
+    // 懒加载许可证文本
+    val licenseText by remember(isEnglish) {
+        mutableStateOf(
+            runCatching {
+                val resName = if (isEnglish) "LICENSE.en.txt" else "LICENSE.zh.txt"
+                Thread.currentThread().contextClassLoader
+                    ?.getResourceAsStream(resName)
+                    ?.bufferedReader()
+                    ?.use { it.readText() }
+                    ?: "许可证文件未找到。"
+            }.getOrElse { "加载许可证失败：${it.message}" }
+        )
+    }
+
+    val scrollState = rememberScrollState()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.Article, null, Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("PMCL 软件技术许可证 v1.1")
+            }
+        },
+        text = {
+            Column(Modifier.fillMaxWidth()) {
+                // 语言切换 + 复制按钮
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row {
+                        FilterChip(
+                            selected = !isEnglish,
+                            onClick = { isEnglish = false },
+                            label = { Text("中文") }
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        FilterChip(
+                            selected = isEnglish,
+                            onClick = { isEnglish = true },
+                            label = { Text("English") }
+                        )
+                    }
+                    TextButton(onClick = {
+                        clipboardManager.setText(AnnotatedString(licenseText))
+                    }) {
+                        Icon(Icons.Filled.ContentCopy, null, Modifier.size(14.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("复制")
+                    }
+                }
+
+                Spacer(Modifier.height(8.dp))
+
+                // 许可证正文（可滚动）
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth().height(420.dp)
+                ) {
+                    Text(
+                        text = licenseText,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier
+                            .verticalScroll(scrollState)
+                            .padding(12.dp)
+                    )
+                }
+
+                Spacer(Modifier.height(4.dp))
+                if (isEnglish) {
+                    Text(
+                        "此为英文参考翻译,中文版本为权威版本(见第 13.4 条)。",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                } else {
+                    Text(
+                        "此为中文权威版本。",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("关闭") }
+        }
+    )
 }
