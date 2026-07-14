@@ -2,8 +2,7 @@ package com.pmcl.ui.widget
 
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
@@ -18,6 +17,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.*
@@ -62,8 +62,24 @@ fun IdentityCard(
     val slideDuration = MotionTokens.DURATION_MEDIUM
     val slideEasing = MotionTokens.EasingEmphasized
 
+    // 追踪动画进行状态：expanded 变化时立即置 true，动画时长后置 false
+    var isAnimating by remember { mutableStateOf(false) }
+    LaunchedEffect(expanded) {
+        isAnimating = true
+        kotlinx.coroutines.delay(slideDuration.toLong())
+        isAnimating = false
+    }
+    // 模糊半径：动画进行时 12dp，静止时 0dp
+    val blurRadius by animateFloatAsState(
+        targetValue = if (isAnimating) 12f else 0f,
+        animationSpec = tween(slideDuration, easing = slideEasing),
+        label = "blurRadius"
+    )
+
     Card(
-        modifier = modifier.clipToBounds(),
+        modifier = modifier
+            .clipToBounds()
+            .clip(RoundedCornerShape(16.dp)),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = Color.Transparent)
     ) {
@@ -89,6 +105,7 @@ fun IdentityCard(
             }
 
             // 内容层：展开/收起时内容横向滑动切换（AnimatedContent 自带 SizeTransform 平滑过渡尺寸）
+            // 整个内容层在动画进行时应用高斯模糊
             AnimatedContent(
                 targetState = expanded,
                 transitionSpec = {
@@ -103,7 +120,9 @@ fun IdentityCard(
                     }
                 },
                 contentKey = { it },
-                modifier = Modifier.padding(16.dp),
+                modifier = Modifier
+                    .padding(16.dp)
+                    .blur(blurRadius.dp),
                 contentAlignment = Alignment.Center
             ) { isExpanded ->
                 Column(
@@ -115,21 +134,13 @@ fun IdentityCard(
                         // ===== 展开布局 =====
                         // QR 码
                         if (qrBitmap != null) {
-                            Surface(
-                                modifier = Modifier.size(200.dp),
-                                shape = RoundedCornerShape(12.dp),
-                                color = Color.White
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Image(
-                                        bitmap = qrBitmap,
-                                        contentDescription = "好友二维码",
-                                        modifier = Modifier.size(180.dp)
-                                    )
-                                }
-                            }
+                            Image(
+                                bitmap = qrBitmap,
+                                contentDescription = "好友二维码",
+                                modifier = Modifier.size(180.dp)
+                            )
                         } else {
-                            Box(Modifier.size(200.dp), contentAlignment = Alignment.Center) {
+                            Box(Modifier.size(180.dp), contentAlignment = Alignment.Center) {
                                 Text("QR 生成中...",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f))
@@ -198,21 +209,13 @@ fun IdentityCard(
                         // ===== 收起布局 =====
                         // QR 码
                         if (qrBitmap != null) {
-                            Surface(
-                                modifier = Modifier.size(140.dp),
-                                shape = RoundedCornerShape(12.dp),
-                                color = Color.White
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Image(
-                                        bitmap = qrBitmap,
-                                        contentDescription = "好友二维码",
-                                        modifier = Modifier.size(120.dp)
-                                    )
-                                }
-                            }
+                            Image(
+                                bitmap = qrBitmap,
+                                contentDescription = "好友二维码",
+                                modifier = Modifier.size(120.dp)
+                            )
                         } else {
-                            Box(Modifier.size(140.dp), contentAlignment = Alignment.Center) {
+                            Box(Modifier.size(120.dp), contentAlignment = Alignment.Center) {
                                 Text("QR 生成中...",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f))
