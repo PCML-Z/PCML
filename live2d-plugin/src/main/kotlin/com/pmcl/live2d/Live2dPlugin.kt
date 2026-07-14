@@ -22,7 +22,7 @@ class Live2dPlugin : PmclPlugin {
     override fun onEnable(ctx: PluginContext) {
         ctx.info("Live2D plugin enabled — registering overlay")
         val modelUrl = ctx.getConfig("modelUrl")
-            ?: "https://cdn.jsdelivr.net/gh/guansss/pixi-live2d-display/test/assets/shizuku/shizuku.model.json"
+            ?: "https://testingcf.jsdelivr.net/gh/guansss/pixi-live2d-display@master/test/assets/shizuku/shizuku.model.json"
         ctx.registerOverlay(
             id = "live2d-model",
             content = Live2dOverlayContent(ctx, modelUrl),

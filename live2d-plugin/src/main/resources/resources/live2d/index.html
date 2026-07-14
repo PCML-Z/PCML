@@ -92,24 +92,41 @@ window.addEventListener('load', function() {
 
         setStatus('App ready, loading model...');
 
-        // 加载模型
+        // 加载模型（支持多 CDN fallback）
         var modelUrl = '__MODEL_URL__';
-        PIXI.live2d.Live2DModel.from(modelUrl).then(function(m) {
-            window.model = m;
-            // 等比缩放，居中显示
-            var scale = Math.min(
-                window.app.renderer.width / m.width,
-                window.app.renderer.height / m.height
-            ) * 0.85;
-            m.scale.set(scale);
-            m.x = (window.app.renderer.width - m.width) / 2;
-            m.y = (window.app.renderer.height - m.height) / 2;
-            window.app.stage.addChild(m);
-            setStatus('Model loaded');
-        }).catch(function(e) {
-            setStatus('ERROR: ' + e.message);
-            console.error('[Live2D] Model load failed:', e);
-        });
+        // 生成 fallback URL 列表：替换 CDN 域名
+        var cdnList = ['testingcf.jsdelivr.net', 'fastly.jsdelivr.net', 'cdn.jsdelivr.net', 'unpkg.com'];
+        var urls = [modelUrl];
+        for (var i = 0; i < cdnList.length; i++) {
+            var alt = modelUrl.replace(/testingcf\.jsdelivr\.net|fastly\.jsdelivr\.net|cdn\.jsdelivr\.net|unpkg\.com/g, cdnList[i]);
+            if (urls.indexOf(alt) === -1) urls.push(alt);
+        }
+
+        function tryLoad(urls, idx) {
+            if (idx >= urls.length) {
+                setStatus('ERROR: All CDN sources failed');
+                console.error('[Live2D] All CDN sources failed');
+                return;
+            }
+            var url = urls[idx];
+            setStatus('Loading from: ' + url.split('/')[2]);
+            PIXI.live2d.Live2DModel.from(url).then(function(m) {
+                window.model = m;
+                var scale = Math.min(
+                    window.app.renderer.width / m.width,
+                    window.app.renderer.height / m.height
+                ) * 0.85;
+                m.scale.set(scale);
+                m.x = (window.app.renderer.width - m.width) / 2;
+                m.y = (window.app.renderer.height - m.height) / 2;
+                window.app.stage.addChild(m);
+                setStatus('Model loaded');
+            }).catch(function(e) {
+                console.warn('[Live2D] Failed ' + url + ': ' + e.message);
+                tryLoad(urls, idx + 1);
+            });
+        }
+        tryLoad(urls, 0);
 
         // ===== 交互：鼠标跟随、点击动作、拖拽移动 =====
         var isDragging = false;

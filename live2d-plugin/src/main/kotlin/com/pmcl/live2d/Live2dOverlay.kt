@@ -193,7 +193,7 @@ private fun Live2dOverlay(ctx: PluginContext, initialModelUrl: String) {
                 showSettings = false
             },
             onReset = {
-                val defaultUrl = "https://cdn.jsdelivr.net/gh/guansss/pixi-live2d-display/test/assets/shizuku/shizuku.model.json"
+                val defaultUrl = "https://testingcf.jsdelivr.net/gh/guansss/pixi-live2d-display@master/test/assets/shizuku/shizuku.model.json"
                 modelUrl = defaultUrl
                 scale = 1.0f
                 ctx.setConfig("modelUrl", defaultUrl)
@@ -257,9 +257,9 @@ private fun Live2dSettingsDialog(
                 // 常用模型快速选择
                 Text("快速选择", style = MaterialTheme.typography.labelMedium)
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    PresetModelButton("Shizuku (Cubism 2)", "https://cdn.jsdelivr.net/gh/guansss/pixi-live2d-display/test/assets/shizuku/shizuku.model.json") { editUrl = it }
-                    PresetModelButton("Histoire (Cubism 4)", "https://cdn.jsdelivr.net/gh/Eikanya/Live2d-model/Live2D/Senko_Normals/senko.model3.json") { editUrl = it }
-                    PresetModelButton("Pio (Cubism 2)", "https://cdn.jsdelivr.net/gh/guansss/pixi-live2d-display/test/assets/haru/haru_pro.model3.json") { editUrl = it }
+                    PresetModelButton("Shizuku (Cubism 2)", "https://testingcf.jsdelivr.net/gh/guansss/pixi-live2d-display@master/test/assets/shizuku/shizuku.model.json") { editUrl = it }
+                    PresetModelButton("Senko (Cubism 4)", "https://testingcf.jsdelivr.net/gh/Eikanya/Live2d-model@master/Live2D/Senko_Normals/senko.model3.json") { editUrl = it }
+                    PresetModelButton("Haru (Cubism 4)", "https://testingcf.jsdelivr.net/gh/guansss/pixi-live2d-display@master/test/assets/haru/haru_pro.model3.json") { editUrl = it }
                 }
             }
         },

@@ -93,13 +93,47 @@ object Live2dWebView {
         initialized = true
     }
 
-    /** 从插件资源读取 HTML 模板并注入模型 URL */
+    /** 从插件资源读取 HTML 模板，内联 JS 库并注入模型 URL */
     private fun loadHtml(modelUrl: String): String {
         val cl = javaClass.classLoader
-        val stream = cl.getResourceAsStream("resources/live2d/index.html")
+        // 内联所有 JS 库（避免依赖 CDN，国内访问不稳定）
+        val cubismCore = readResource(cl, "resources/live2d/lib/live2dcubismcore.min.js")
+        val live2d = readResource(cl, "resources/live2d/lib/live2d.min.js")
+        val pixi = readResource(cl, "resources/live2d/lib/pixi.min.js")
+        val pixiLive2d = readResource(cl, "resources/live2d/lib/pixi-live2d-display.min.js")
+
+        if (cubismCore == null || live2d == null || pixi == null || pixiLive2d == null) {
+            return fallbackHtml(modelUrl)
+        }
+
+        val htmlStream = cl.getResourceAsStream("resources/live2d/index.html")
             ?: return fallbackHtml(modelUrl)
-        val html = stream.bufferedReader().use { it.readText() }
-        return html.replace("__MODEL_URL__", modelUrl)
+        val html = htmlStream.bufferedReader().use { it.readText() }
+
+        // 替换 CDN script 标签为内联 script
+        return html
+            .replace(
+                """<script src="https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js"></script>""",
+                "<script>$cubismCore</script>"
+            )
+            .replace(
+                """<script src="https://cdn.jsdelivr.net/gh/dylanNew/live2d/webgl/Live2D/lib/live2d.min.js"></script>""",
+                "<script>$live2d</script>"
+            )
+            .replace(
+                """<script src="https://cdn.jsdelivr.net/npm/pixi.js@6.5.10/dist/browser/pixi.min.js"></script>""",
+                "<script>$pixi</script>"
+            )
+            .replace(
+                """<script src="https://cdn.jsdelivr.net/npm/pixi-live2d-display@0.4.0/dist/index.min.js"></script>""",
+                "<script>$pixiLive2d</script>"
+            )
+            .replace("__MODEL_URL__", modelUrl)
+    }
+
+    private fun readResource(cl: ClassLoader, path: String): String? {
+        val stream = cl.getResourceAsStream(path) ?: return null
+        return stream.bufferedReader().use { it.readText() }
     }
 
     /** 资源读取失败时的内联降级 HTML */
