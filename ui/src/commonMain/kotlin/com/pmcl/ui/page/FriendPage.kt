@@ -19,7 +19,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -29,10 +28,14 @@ import com.pmcl.core.friend.FriendManager
 import com.pmcl.core.friend.FriendStore
 import com.pmcl.core.i18n.I18n
 import com.pmcl.ui.viewmodel.LauncherViewModel
+import com.pmcl.ui.widget.IdentityCard
 import kotlinx.coroutines.launch
 import org.jetbrains.skia.Image as SkiaImage
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
+import javax.swing.JFileChooser
+import javax.swing.filechooser.FileNameExtensionFilter
 
 @Composable
 fun FriendPage(vm: LauncherViewModel) {
@@ -45,17 +48,41 @@ fun FriendPage(vm: LauncherViewModel) {
     }
 
     val scope = rememberCoroutineScope()
-    val scrollState = rememberScrollState()
+    val identityManager = friendManager.identityManager
 
     var friends by remember { mutableStateOf(friendManager.getFriends()) }
     var selectedFriendId by remember { mutableStateOf<String?>(null) }
     var messages by remember { mutableStateOf<List<FriendStore.StoredMessage>>(emptyList()) }
     var inputText by remember { mutableStateOf("") }
-    var showQrDialog by remember { mutableStateOf(false) }
     var showAddDialog by remember { mutableStateOf(false) }
     var addFriendCode by remember { mutableStateOf("") }
-    var showIdentityCard by remember { mutableStateOf(false) }
     val pendingRequests = remember { mutableStateListOf<FriendManager.PendingRequest>() }
+
+    // 身份卡片状态
+    var cardExpanded by remember { mutableStateOf(false) }
+    var bgImagePath by remember { mutableStateOf<String?>(null) }
+    val bgBitmap = remember(bgImagePath) {
+        if (bgImagePath != null) {
+            try {
+                val file = File(bgImagePath)
+                if (file.exists()) {
+                    val bytes = file.readBytes()
+                    SkiaImage.makeFromEncoded(bytes).toComposeImageBitmap()
+                } else null
+            } catch (_: Exception) { null }
+        } else null
+    }
+
+    // 选择背景图片
+    val pickBackground: () -> Unit = {
+        val chooser = JFileChooser()
+        chooser.dialogTitle = "选择卡片背景图片"
+        chooser.fileFilter = FileNameExtensionFilter("图片文件 (*.png, *.jpg, *.jpeg)", "png", "jpg", "jpeg")
+        val result = chooser.showOpenDialog(null)
+        if (result == JFileChooser.APPROVE_OPTION) {
+            bgImagePath = chooser.selectedFile.absolutePath
+        }
+    }
 
     // 刷新回调
     val refresh = {
@@ -80,17 +107,15 @@ fun FriendPage(vm: LauncherViewModel) {
             Icon(Icons.Filled.People, null, tint = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.width(8.dp))
             Text(I18n.t("nav.friends"), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-
             Spacer(Modifier.weight(1f))
 
-            // 身份卡片按钮
-            IconButton(onClick = { showIdentityCard = true }) {
-                Icon(Icons.Filled.Badge, "身份", tint = MaterialTheme.colorScheme.primary)
-            }
-
-            // 二维码按钮
-            IconButton(onClick = { showQrDialog = true }) {
-                Icon(Icons.Filled.QrCode, "二维码", tint = MaterialTheme.colorScheme.primary)
+            // 清除背景
+            if (bgImagePath != null) {
+                IconButton(onClick = { bgImagePath = null }, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Filled.HideImage, "清除背景",
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
 
             // 添加好友按钮
@@ -101,7 +126,7 @@ fun FriendPage(vm: LauncherViewModel) {
 
         Spacer(Modifier.height(12.dp))
 
-        // 在线/离线状态提示
+        // 离线提示
         if (friendManager.getState() != FriendManager.State.RUNNING) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -127,26 +152,41 @@ fun FriendPage(vm: LauncherViewModel) {
         }
 
         if (friends.isEmpty() && pendingRequests.isEmpty()) {
-            // 空状态
-            Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Filled.PeopleOutline, null,
-                        modifier = Modifier.size(64.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
-                    Spacer(Modifier.height(8.dp))
-                    Text("还没有好友", style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
-                    Spacer(Modifier.height(4.dp))
-                    Text("加入联机房间后，可识别附近玩家并互加好友",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+            // 空状态（带身份卡片）
+            Row(Modifier.fillMaxWidth().weight(1f)) {
+                Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Filled.PeopleOutline, null,
+                            modifier = Modifier.size(64.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+                        Spacer(Modifier.height(8.dp))
+                        Text("还没有好友", style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
+                        Spacer(Modifier.height(4.dp))
+                        Text("加入联机房间后，可识别附近玩家并互加好友",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+                    }
                 }
+
+                Spacer(Modifier.width(12.dp))
+
+                // 右侧身份卡片
+                IdentityCard(
+                    identityManager = identityManager,
+                    expanded = cardExpanded,
+                    onToggleExpand = { cardExpanded = !cardExpanded },
+                    backgroundBitmap = bgBitmap,
+                    onPickBackground = pickBackground,
+                    modifier = Modifier
+                        .width(if (cardExpanded) 300.dp else 200.dp)
+                        .fillMaxHeight()
+                )
             }
         } else {
             Row(Modifier.fillMaxWidth().weight(1f)) {
                 // 左侧：好友列表
                 Column(Modifier.width(200.dp).fillMaxHeight()) {
-                    // 待处理请求
                     if (pendingRequests.isNotEmpty()) {
                         Text("好友请求", style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.primary,
@@ -187,7 +227,7 @@ fun FriendPage(vm: LauncherViewModel) {
 
                 VerticalDivider(Modifier.padding(horizontal = 8.dp))
 
-                // 右侧：聊天区
+                // 中间：聊天区
                 Column(Modifier.weight(1f).fillMaxHeight()) {
                     if (selectedFriendId != null) {
                         val selectedFriend = friends.find { it.identity == selectedFriendId }
@@ -224,16 +264,22 @@ fun FriendPage(vm: LauncherViewModel) {
                         }
                     }
                 }
+
+                Spacer(Modifier.width(12.dp))
+
+                // 右侧：身份卡片
+                IdentityCard(
+                    identityManager = identityManager,
+                    expanded = cardExpanded,
+                    onToggleExpand = { cardExpanded = !cardExpanded },
+                    backgroundBitmap = bgBitmap,
+                    onPickBackground = pickBackground,
+                    modifier = Modifier
+                        .width(if (cardExpanded) 300.dp else 200.dp)
+                        .fillMaxHeight()
+                )
             }
         }
-    }
-
-    // 二维码弹窗
-    if (showQrDialog) {
-        QrCodeDialog(
-            identityManager = friendManager.getIdentityManager(),
-            onDismiss = { showQrDialog = false }
-        )
     }
 
     // 添加好友弹窗
@@ -248,23 +294,13 @@ fun FriendPage(vm: LauncherViewModel) {
                     friendManager.sendFriendRequest(
                         info.identity.toString(),
                         info.displayName,
-                        "",   // 需要知道 IP，留空让发现机制补充
+                        "",
                         0
                     )
                     addFriendCode = ""
                 }
             },
-            onScanStart = {
-                // TODO: 扫描二维码（可后续集成摄像头或文件选择）
-            }
-        )
-    }
-
-    // 身份卡片弹窗
-    if (showIdentityCard) {
-        IdentityCardDialog(
-            identityManager = friendManager.getIdentityManager(),
-            onDismiss = { showIdentityCard = false }
+            onScanStart = { }
         )
     }
 }
@@ -288,7 +324,6 @@ private fun FriendListItem(
         shape = RoundedCornerShape(8.dp)
     ) {
         Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            // 在线状态指示器
             Box(Modifier.size(10.dp).padding(1.dp)) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
@@ -298,7 +333,6 @@ private fun FriendListItem(
             }
             Spacer(Modifier.width(8.dp))
 
-            // 昵称首字母头像
             Surface(
                 modifier = Modifier.size(36.dp),
                 shape = CircleShape,
@@ -374,11 +408,9 @@ private fun ChatView(
     onDeleteFriend: () -> Unit
 ) {
     val listState = rememberLazyListState()
-    val scope = rememberCoroutineScope()
     val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
 
     Column(Modifier.fillMaxSize()) {
-        // 聊天标题
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(friendName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
             Spacer(Modifier.width(8.dp))
@@ -397,7 +429,6 @@ private fun ChatView(
 
         HorizontalDivider(Modifier.padding(vertical = 8.dp))
 
-        // 消息列表
         LazyColumn(
             Modifier.weight(1f).fillMaxWidth(),
             state = listState,
@@ -412,14 +443,12 @@ private fun ChatView(
             }
         }
 
-        // 滚动到底部
         LaunchedEffect(messages.size) {
             if (messages.isNotEmpty()) {
                 listState.animateScrollToItem(messages.size - 1)
             }
         }
 
-        // 输入框
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.Bottom) {
             OutlinedTextField(
                 value = inputText,
@@ -474,76 +503,6 @@ private fun MessageBubble(text: String, time: String, fromMe: Boolean) {
 }
 
 // =============================================================================
-// 二维码弹窗
-// =============================================================================
-
-@Composable
-private fun QrCodeDialog(
-    identityManager: FriendIdentityManager,
-    onDismiss: () -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("我的二维码", fontWeight = FontWeight.Bold) },
-        text = {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                val qrBytes = remember { identityManager.qrCodeBytes }
-                val bitmap = remember(qrBytes) {
-                    if (qrBytes != null && qrBytes.isNotEmpty()) {
-                        try {
-                            SkiaImage.makeFromEncoded(qrBytes).toComposeImageBitmap()
-                        } catch (e: Exception) {
-                            null as ImageBitmap?
-                        }
-                    } else null
-                }
-
-                if (bitmap != null) {
-                    Image(
-                        bitmap = bitmap,
-                        contentDescription = "好友二维码",
-                        modifier = Modifier.size(200.dp),
-                        contentScale = ContentScale.Fit
-                    )
-                } else {
-                    Box(Modifier.size(200.dp), contentAlignment = Alignment.Center) {
-                        Text("二维码生成失败", style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error)
-                    }
-                }
-
-                Spacer(Modifier.height(12.dp))
-
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Text(
-                        text = identityManager.identity.toString(),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                    )
-                }
-
-                Spacer(Modifier.height(8.dp))
-
-                Text(
-                    text = identityManager.displayName,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("关闭")
-            }
-        }
-    )
-}
-
-// =============================================================================
 // 添加好友弹窗
 // =============================================================================
 
@@ -563,9 +522,7 @@ private fun AddFriendDialog(
                 Text("请输入好友的邀请码或粘贴分享文本",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
-
                 Spacer(Modifier.height(12.dp))
-
                 OutlinedTextField(
                     value = code,
                     onValueChange = onCodeChange,
@@ -574,95 +531,16 @@ private fun AddFriendDialog(
                     singleLine = false,
                     minLines = 2
                 )
-
-                Spacer(Modifier.height(8.dp))
-
-                OutlinedButton(
-                    onClick = onScanStart,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Filled.QrCodeScanner, null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("扫描二维码")
-                }
             }
         },
         confirmButton = {
-            TextButton(
-                onClick = onAdd,
-                enabled = code.isNotBlank()
-            ) {
+            TextButton(onClick = onAdd, enabled = code.isNotBlank()) {
                 Text("添加")
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
                 Text("取消")
-            }
-        }
-    )
-}
-
-// =============================================================================
-// 身份卡片弹窗
-// =============================================================================
-
-@Composable
-private fun IdentityCardDialog(
-    identityManager: FriendIdentityManager,
-    onDismiss: () -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("我的身份", fontWeight = FontWeight.Bold) },
-        text = {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                // 头像区域
-                Surface(
-                    modifier = Modifier.size(72.dp),
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primaryContainer
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text(
-                            text = identityManager.displayName.take(1).uppercase(),
-                            style = MaterialTheme.typography.headlineLarge,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                    }
-                }
-
-                Spacer(Modifier.height(12.dp))
-
-                Text(identityManager.displayName,
-                    style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-
-                Spacer(Modifier.height(8.dp))
-
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Text(
-                        text = identityManager.identity.toString(),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                    )
-                }
-
-                Spacer(Modifier.height(8.dp))
-
-                Text(
-                    text = "P2P 加密聊天 · 基于联机网络",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("关闭")
             }
         }
     )

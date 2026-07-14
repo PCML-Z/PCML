@@ -39,7 +39,6 @@ import com.pmcl.ui.theme.LauncherTheme
 import com.pmcl.ui.theme.LocalThemeState
 import com.pmcl.ui.theme.ThemeState
 import com.pmcl.ui.viewmodel.LauncherViewModel
-import com.pmcl.ui.widget.FriendIdentityOverlay
 
 @Composable
 fun App(vm: LauncherViewModel) {
@@ -245,12 +244,6 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                     }
                 }
             }
-
-            // 身份卡片浮层（全局可访问）
-            FriendIdentityOverlay(
-                friendManager = vm.core.friend(),
-                modifier = Modifier.fillMaxSize()
-            )
         }
     } // close Row
 
