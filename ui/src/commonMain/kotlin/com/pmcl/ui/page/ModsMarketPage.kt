@@ -1,7 +1,7 @@
 package com.pmcl.ui.page
 
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp as lerpDp
 import com.pmcl.core.i18n.I18n
 import com.pmcl.core.market.ModProject
+import com.pmcl.ui.animation.MotionTokens
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -94,10 +95,7 @@ fun ModsMarketPage(vm: LauncherViewModel) {
 
     val expandProgress by animateFloatAsState(
         targetValue = transitionTarget,
-        animationSpec = spring(
-            dampingRatio = 0.62f,
-            stiffness = 480f
-        ),
+        animationSpec = tween(380, easing = MotionTokens.EasingEmphasizedDecelerate),
         finishedListener = { value ->
             if (value >= 0.99f) {
                 // 放大完成：overlay 消失，详情页已提前加载并淡入完成
@@ -110,9 +108,6 @@ fun ModsMarketPage(vm: LauncherViewModel) {
             }
         }
     )
-
-    // spring 动画会 overshoot，clamp 到 [0,1] 防止 lerp/size 计算出错
-    val progress = expandProgress.coerceIn(0f, 1f)
 
     // 提前加载详情页数据（progress > 0.85），让详情页在 overlay 消失前就开始渲染
     // 避免 overlay 消失瞬间详情页尚未加载导致的卡顿
@@ -129,8 +124,8 @@ fun ModsMarketPage(vm: LauncherViewModel) {
     val detailAlpha = when {
         !detailOpened -> 0f
         !transitionActive -> 1f
-        transitionTarget > 0.5f -> ((progress - 0.85f) / 0.15f).coerceIn(0f, 1f)
-        else -> progress.coerceIn(0f, 1f)
+        transitionTarget > 0.5f -> ((expandProgress - 0.85f) / 0.15f).coerceIn(0f, 1f)
+        else -> expandProgress.coerceIn(0f, 1f)
     }
 
     val onCardClick: (ModProject) -> Unit = { project ->
@@ -175,7 +170,7 @@ fun ModsMarketPage(vm: LauncherViewModel) {
     Box(Modifier.fillMaxSize()) {
         // 列表层在卡片放大动画期间应用高斯模糊（iOS 风格：背景逐渐模糊）
         // 降低到 14dp 平衡视觉效果与渲染性能
-        val listBlurRadius = if (transitionActive) (progress * 14f).dp else 0.dp
+        val listBlurRadius = if (transitionActive) (expandProgress * 14f).dp else 0.dp
         Column(
             Modifier
                 .fillMaxSize()
@@ -273,7 +268,7 @@ fun ModsMarketPage(vm: LauncherViewModel) {
                     if (dp != null) {
                         // 详情页从模糊状态淡入到清晰，与 overlay 放大衔接避免硬切
                         // blur 跟随 expandProgress：打开时 14→0，关闭时 0→14
-                        val detailBlurRadius = if (transitionActive) ((1f - progress) * 14f).dp else 0.dp
+                        val detailBlurRadius = if (transitionActive) ((1f - expandProgress) * 14f).dp else 0.dp
                         Column(
                             Modifier
                                 .fillMaxSize()
@@ -426,7 +421,7 @@ fun ModsMarketPage(vm: LauncherViewModel) {
             CardExpandOverlay(
                 project = transitionProject!!,
                 startBounds = transitionStartBounds!!,
-                progress = progress,
+                progress = expandProgress,
                 modifier = Modifier.fillMaxSize()
             )
         }
@@ -883,8 +878,8 @@ private fun CardExpandOverlay(
             progress
         )
 
-        // 圆角在前 80% 保持 10dp（卡片外观），后 20% 才渐变到 0dp（接近全屏时变直角）
-        val cornerRadius = if (progress < 0.8f) 10.dp else lerpDp(10.dp, 0.dp, (progress - 0.8f) / 0.2f)
+        // 圆角从 10dp 渐变到 0dp（放大到全屏时变成直角）
+        val cornerRadius = lerpDp(10.dp, 0.dp, progress)
 
         // 内容 alpha：progress < 0.9 时完全可见，之后快速淡出
         // 与详情页 alpha（progress 0.85→1 对应 0→1）完美互补，消除交接间隙
