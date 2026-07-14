@@ -2,7 +2,9 @@ package com.pmcl.ui.widget
 
 import androidx.compose.animation.*
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import com.pmcl.ui.animation.MotionTokens
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -20,6 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.Dp
 import com.pmcl.core.friend.FriendIdentityManager
 import org.jetbrains.skia.Image as SkiaImage
 
@@ -51,6 +54,21 @@ fun IdentityCard(
             catch (_: Exception) { null }
         } else null
     }
+
+    // 展开/收起动画值（统一使用 MotionTokens 缓动曲线）
+    val spec = MotionTokens.tweenEmphasized<Dp>()
+    val specF = MotionTokens.tweenEmphasized<Float>()
+    val qrSize by animateDpAsState(if (expanded) 200.dp else 140.dp, spec, label = "qrSize")
+    val qrImgSize by animateDpAsState(if (expanded) 180.dp else 120.dp, spec, label = "qrImgSize")
+    val qrSpacer by animateDpAsState(if (expanded) 20.dp else 12.dp, spec, label = "qrSpacer")
+    val avatarSize by animateDpAsState(if (expanded) 56.dp else 40.dp, spec, label = "avatarSize")
+    val avatarFont by animateFloatAsState(if (expanded) 22f else 16f, specF, label = "avatarFont")
+    val avatarSpacer by animateDpAsState(if (expanded) 12.dp else 8.dp, spec, label = "avatarSpacer")
+    val nameFont by animateFloatAsState(if (expanded) 22f else 16f, specF, label = "nameFont")
+    val idFont by animateFloatAsState(if (expanded) 14f else 11f, specF, label = "idFont")
+    val idSpacer by animateDpAsState(if (expanded) 12.dp else 10.dp, spec, label = "idSpacer")
+    val btnSize by animateDpAsState(if (expanded) 42.dp else 34.dp, spec, label = "btnSize")
+    val btnIconSize by animateDpAsState(if (expanded) 20.dp else 16.dp, spec, label = "btnIconSize")
 
     Card(
         modifier = modifier,
@@ -87,7 +105,7 @@ fun IdentityCard(
                 // QR 码
                 if (qrBitmap != null) {
                     Surface(
-                        modifier = Modifier.size(if (expanded) 200.dp else 140.dp),
+                        modifier = Modifier.size(qrSize),
                         shape = RoundedCornerShape(12.dp),
                         color = Color.White
                     ) {
@@ -95,13 +113,13 @@ fun IdentityCard(
                             Image(
                                 bitmap = qrBitmap,
                                 contentDescription = "好友二维码",
-                                modifier = Modifier.size(if (expanded) 180.dp else 120.dp)
+                                modifier = Modifier.size(qrImgSize)
                             )
                         }
                     }
                 } else {
                     Box(
-                        Modifier.size(if (expanded) 200.dp else 140.dp),
+                        Modifier.size(qrSize),
                         contentAlignment = Alignment.Center
                     ) {
                         Text("QR 生成中...",
@@ -110,11 +128,11 @@ fun IdentityCard(
                     }
                 }
 
-                Spacer(Modifier.height(if (expanded) 20.dp else 12.dp))
+                Spacer(Modifier.height(qrSpacer))
 
                 // 头像
                 Surface(
-                    modifier = Modifier.size(if (expanded) 56.dp else 40.dp),
+                    modifier = Modifier.size(avatarSize),
                     shape = CircleShape,
                     color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
                 ) {
@@ -122,19 +140,19 @@ fun IdentityCard(
                         Text(
                             identityManager.displayName.take(1).uppercase(),
                             fontWeight = FontWeight.Bold,
-                            fontSize = if (expanded) 22.sp else 16.sp,
+                            fontSize = avatarFont.sp,
                             color = MaterialTheme.colorScheme.primary
                         )
                     }
                 }
 
-                Spacer(Modifier.height(if (expanded) 12.dp else 8.dp))
+                Spacer(Modifier.height(avatarSpacer))
 
                 // 名称
                 Text(
                     identityManager.displayName,
-                    style = if (expanded) MaterialTheme.typography.titleLarge
-                            else MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontSize = nameFont.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -145,39 +163,39 @@ fun IdentityCard(
                 // 身份 ID
                 Text(
                     identityManager.identity.toString(),
-                    style = if (expanded) MaterialTheme.typography.bodyMedium
-                            else MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontSize = idFont.sp,
                     letterSpacing = 1.sp,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
 
-                Spacer(Modifier.height(if (expanded) 12.dp else 10.dp))
+                Spacer(Modifier.height(idSpacer))
 
                 // 操作按钮
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     // 自定义背景
                     FilledTonalIconButton(
                         onClick = onPickBackground,
-                        modifier = Modifier.size(if (expanded) 42.dp else 34.dp)
+                        modifier = Modifier.size(btnSize)
                     ) {
                         Icon(
                             Icons.Filled.Image,
                             "更换背景",
-                            modifier = Modifier.size(if (expanded) 20.dp else 16.dp)
+                            modifier = Modifier.size(btnIconSize)
                         )
                     }
 
                     // 展开/收起
                     FilledTonalIconButton(
                         onClick = onToggleExpand,
-                        modifier = Modifier.size(if (expanded) 42.dp else 34.dp)
+                        modifier = Modifier.size(btnSize)
                     ) {
                         Icon(
                             if (expanded) Icons.Filled.FullscreenExit else Icons.Filled.Fullscreen,
                             if (expanded) "收起" else "展开",
-                            modifier = Modifier.size(if (expanded) 20.dp else 16.dp)
+                            modifier = Modifier.size(btnIconSize)
                         )
                     }
                 }
