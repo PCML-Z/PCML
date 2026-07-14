@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -406,6 +407,9 @@ private fun AboutCard(vm: LauncherViewModel) {
 
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = {
+                    try { com.pmcl.core.web.WikiBrowser.open("https://github.com/peddlejumper") } catch (_: Throwable) {}
+                }) { Text("作者 GitHub"); Icon(Icons.Filled.OpenInNew, null, modifier = Modifier.size(14.dp).padding(start = 2.dp)) }
                 OutlinedButton(onClick = {
                     try { com.pmcl.core.web.WikiBrowser.open("https://github.com/EasyTier/EasyTier") } catch (_: Throwable) {}
                 }) { Text("EasyTier 项目") }
