@@ -1,201 +1,288 @@
-                                 Apache License
-                           Version 2.0, January 2004
-                        http://www.apache.org/licenses/
+                      PMCL 软件技术许可证
+                        PMCL Software Technical License
+                            版本 1.0 / Version 1.0
+                              2026 年发布
 
-   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+版权所有 (C) 2026 peddlejumper
+Copyright (C) 2026 peddlejumper
+https://github.com/peddlejumper
 
-   1. Definitions.
+========================================================================
 
-      "License" shall mean the terms and conditions for use, reproduction,
-      and distribution as defined by Sections 1 through 9 of this document.
+在行使本许可证授予的任何权利之前,请仔细阅读以下条款。通过使用、复制、修改
+或分发本软件(定义见下文),即表示您接受本许可证的全部条款并同意受其约束。
+若您不同意任何条款,请立即停止使用并删除本软件。
 
-      "Licensor" shall mean the copyright owner or entity authorized by
-      the copyright owner that is granting the License.
+========================================================================
 
-      "Legal Entity" shall mean the union of the acting entity and all
-      other entities that control, are controlled by, or are under common
-      control with that entity. For the purposes of this definition,
-      "control" means (i) the power, direct or indirect, to cause the
-      direction or management of such entity, whether by contract or
-      otherwise, or (ii) ownership of fifty percent (50%) or more of the
-      outstanding shares, or (iii) beneficial ownership of such entity.
+第 1 条 定义
 
-      "You" (or "Your") shall mean an individual or Legal Entity
-      exercising permissions granted by this License.
+  1.1 "本软件" 指由 peddlejumper 开发的 PMCL(PMCL Minecraft Launcher)启动器
+      及其全部源代码、二进制文件、资源文件、配置文件、文档及相关材料,无论
+      以源代码形式还是目标代码形式存在。
 
-      "Source" form shall mean the preferred form for making modifications,
-      including but not limited to software source code, documentation
-      source, and configuration files.
+  1.2 "许可证" 指本文件所定义的全部条款和条件。
 
-      "Object" form shall mean any form resulting from mechanical
-      transformation or translation of a Source form, including but
-      not limited to compiled object code, generated documentation,
-      and conversions to other media types.
+  1.3 "许可人" 指本软件的版权所有者 peddlejumper。
 
-      "Work" shall mean the work of authorship, whether in Source or
-      Object form, made available under the License, as indicated by a
-      copyright notice that is included in or attached to the work
-      (an example is provided in the Appendix below).
+  1.4 "您" 或 "您的" 指行使本许可证所授予权利的个人或法人实体。
 
-      "Derivative Works" shall mean any work, whether in Source or Object
-      form, that is based on (or derived from) the Work and for which the
-      editorial revisions, annotations, elaborations, or other modifications
-      represent, as a whole, an original work of authorship. For the purposes
-      of this License, Derivative Works shall not include works that remain
-      separable from, or merely link (or bind by name) to the interfaces of,
-      the Work and Derivative Works thereof.
+  1.5 "源代码形式" 指用于进行修改的首选形式,包括但不限于软件源代码、文档
+      源文件和配置文件。
 
-      "Contribution" shall mean any work of authorship, including
-      the original version of the Work and any modifications or additions
-      to that Work or Derivative Works thereof, that is intentionally
-      submitted to Licensor for inclusion in the Work by the copyright owner
-      or by an individual or Legal Entity authorized to submit on behalf of
-      the copyright owner. For the purposes of this definition, "submitted"
-      means any form of electronic, verbal, or written communication sent
-      to the Licensor or its representatives, including but not limited to
-      communication on electronic mailing lists, source code control systems,
-      and issue tracking systems that are managed by, or on behalf of, the
-      Licensor for the purpose of discussing and improving the Work, but
-      excluding communication that is conspicuously marked or otherwise
-      designated in writing by the copyright owner as "Not a Contribution."
+  1.6 "目标代码形式" 指由源代码形式经机械转换或翻译而产生的任何形式,包括
+      但不限于编译后的目标代码、生成的文档及其他媒体类型的转换结果。
 
-      "Contributor" shall mean Licensor and any individual or Legal Entity
-      on behalf of whom a Contribution has been received by Licensor and
-      subsequently incorporated within the Work.
+  1.7 "衍生作品" 指基于本软件而创作的任何作品,无论以源代码形式还是目标代码
+      形式存在,其编辑修订、注释、 elaboration 或其他修改作为一个整体代表了
+      一项原创性的作者作品。
 
-   2. Grant of Copyright License. Subject to the terms and conditions of
-      this License, each Contributor hereby grants to You a perpetual,
-      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
-      copyright license to reproduce, prepare Derivative Works of,
-      publicly display, publicly perform, sublicense, and distribute the
-      Work and such Derivative Works in Source or Object form.
+  1.8 "第三方组件" 指本软件所引用的、由第三方版权所有者发布的独立组件及其
+      各自的许可证(见第 7 条)。
 
-   3. Grant of Patent License. Subject to the terms and conditions of
-      this License, each Contributor hereby grants to You a perpetual,
-      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
-      (except as stated in this section) patent license to make, have made,
-      use, offer to sell, sell, import, and otherwise transfer the Work,
-      where such license applies only to those patent claims licensable
-      by such Contributor that are necessarily infringed by their
-      Contribution(s) alone or by combination of their Contribution(s)
-      with the Work to which such Contribution(s) was submitted. If You
-      institute patent litigation against any entity (including a
-      cross-claim or counterclaim in a lawsuit) alleging that the Work
-      or a Contribution incorporated within the Work constitutes direct
-      or contributory patent infringement, then any patent licenses
-      granted to You under this License for that Work shall terminate
-      as of the date such litigation is filed.
+  1.9 "商业用途" 指以直接或间接获取经济利益为目的的使用,包括但不限于销售、
+      租赁、订阅收费、作为付费服务的一部分提供、嵌入付费产品中分发,或用于
+      内部商业运营。个人学习、教学示范、学术研究及非营利性技术交流不属于
+      商业用途。
 
-   4. Redistribution. You may reproduce and distribute copies of the
-      Work or Derivative Works thereof in any medium, with or without
-      modifications, and in Source or Object form, provided that You
-      meet the following conditions:
+========================================================================
 
-      (a) You must give any other recipients of the Work or
-          Derivative Works a copy of this License; and
+第 2 条授权范围
 
-      (b) You must cause any modified files to carry prominent notices
-          stating that You changed the files; and
+  2.1 学习与交流授权。在遵守本许可证全部条款的前提下,许可人授予您一项全球
+      范围内、非独占、免费、不可再许可、不可转让的版权许可,允许您出于个人
+      学习、技术研究和非营利性交流目的,以源代码形式或目标代码形式:
 
-      (c) You must retain, in the Source form of any Derivative Works
-          that You distribute, all copyright, patent, trademark, and
-          attribution notices from the Source form of the Work,
-          excluding those notices that do not pertain to any part of
-          the Derivative Works; and
+      (a) 使用、运行和安装本软件;
+      (b) 复制本软件;
+      (c) 研究、分析和反向理解本软件的源代码;
+      (d) 修改本软件并创作衍生作品(以下简称 "修改版")。
 
-      (d) If the Work includes a "NOTICE" text file as part of its
-          distribution, then any Derivative Works that You distribute must
-          include a readable copy of the attribution notices contained
-          within such NOTICE file, excluding those notices that do not
-          pertain to any part of the Derivative Works, in at least one
-          of the following places: within a NOTICE text file distributed
-          as part of the Derivative Works; within the Source form or
-          documentation, if provided along with the Derivative Works; or,
-          within a display generated by the Derivative Works, if and
-          wherever such third-party notices normally appear. The contents
-          of the NOTICE file are for informational purposes only and
-          do not modify the License. You may add Your own attribution
-          notices within Derivative Works that You distribute, alongside
-          or as an addendum to the NOTICE text from the Work, provided
-          that such additional attribution notices cannot be construed
-          as modifying the License.
+  2.2 非商业用途限制。本软件仅供非商业用途使用。未经许可人事先书面同意,
+      您不得将本软件或其修改版用于任何商业用途。若您希望将本软件用于商业
+      用途,请通过 https://github.com/peddlejumper 与许可人联系以获取商业
+      授权。
 
-      You may add Your own copyright statement to Your modifications and
-      may provide additional or different license terms and conditions
-      for use, reproduction, or distribution of Your modifications, or
-      for any such Derivative Works as a whole, provided Your use,
-      reproduction, and distribution of the Work otherwise complies with
-      the conditions stated in this License.
+  2.3 分发授权。在遵守第 4 条的前提下,您可以以源代码形式或目标代码形式
+      分发本软件的未经修改的原版副本,以及您的修改版。
 
-   5. Submission of Contributions. Unless You explicitly state otherwise,
-      any Contribution intentionally submitted for inclusion in the Work
-      by You to the Licensor shall be under the terms and conditions of
-      this License, without any additional terms or conditions.
-      Notwithstanding the above, nothing herein shall supersede or modify
-      the terms of any separate license agreement you may have executed
-      with Licensor regarding such Contributions.
+========================================================================
 
-   6. Trademarks. This License does not grant permission to use the trade
-      names, trademarks, service marks, or product names of the Licensor,
-      except as required for reasonable and customary use in describing the
-      origin of the Work and reproducing the content of the NOTICE file.
+第 3 条修改与衍生作品
 
-   7. Disclaimer of Warranty. Unless required by applicable law or
-      agreed to in writing, Licensor provides the Work (and each
-      Contributor provides its Contributions) on an "AS IS" BASIS,
-      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
-      implied, including, without limitation, any warranties or conditions
-      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
-      PARTICULAR PURPOSE. You are solely responsible for determining the
-      appropriateness of using or redistributing the Work and assume any
-      risks associated with Your exercise of permissions under this License.
+  3.1 您可以对本软件进行修改并创作衍生作品,但须遵守以下条件:
 
-   8. Limitation of Liability. In no event and under no legal theory,
-      whether in tort (including negligence), contract, or otherwise,
-      unless required by applicable law (such as deliberate and grossly
-      negligent acts) or agreed to in writing, shall any Contributor be
-      liable to You for damages, including any direct, indirect, special,
-      incidental, or consequential damages of any character arising as a
-      result of this License or out of the use or inability to use the
-      Work (including but not limited to damages for loss of goodwill,
-      work stoppage, computer failure or malfunction, or any and all
-      other commercial damages or losses), even if such Contributor
-      has been advised of the possibility of such damages.
+      (a) 您必须在您修改过的文件中加入显著的声明,说明您更改了该文件及更改
+          的日期;
 
-   9. Accepting Warranty or Additional Liability. While redistributing
-      the Work or Derivative Works thereof, You may choose to offer,
-      and charge a fee for, acceptance of support, warranty, indemnity,
-      or other liability obligations and/or rights consistent with this
-      License. However, in accepting such obligations, You may act only
-      on Your own behalf and on Your sole responsibility, not on behalf
-      of any other Contributor, and only if You agree to indemnify,
-      defend, and hold each Contributor harmless for any liability
-      incurred by, or claims asserted against, such Contributor by reason
-      of your accepting any such warranty or additional liability.
+      (b) 您的修改版必须保留本软件原有的版权声明、专利声明、商标声明和归属
+          通知;
 
-   END OF TERMS AND CONDITIONS
+      (c) 您的修改版必须以本许可证或与之一致的条款进行分发,且不得施加比本
+          许可证更为严格的限制性条款;
 
-   APPENDIX: How to apply the Apache License to your work.
+      (d) 您不得以任何方式暗示修改版由原许可人背书或由原许可人赞助。
 
-      To apply the Apache License to your work, attach the following
-      boilerplate notice, with the fields enclosed by brackets "[]"
-      replaced with your own identifying information. (Don't include
-      the brackets!)  The text should be enclosed in the appropriate
-      comment syntax for the file format. We also recommend that a
-      file or class name and description of purpose be included on the
-      same "printed page" as the copyright notice for easier
-      identification within third-party archives.
+  3.2 您的修改版须在源代码形式的分发中,以显著位置标注以下信息:
 
-   Copyright [yyyy] [name of copyright owner]
+      原作品:PMCL Minecraft Launcher(https://github.com/peddlejumper)
+      原版权所有者:peddlejumper
+      修改者:[您的名称]
+      修改日期:[YYYY-MM-DD]
 
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
+========================================================================
 
-       http://www.apache.org/licenses/LICENSE-2.0
+第 4 条分发条件
 
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
+  4.1 您可以分发本软件或其修改版的副本,但须同时满足以下条件:
+
+      (a) 您必须向接收者提供本许可证的完整副本;
+
+      (b) 若分发的是修改版,您必须向接收者提供修改说明,包括修改的文件清单
+          及修改内容的简要描述;
+
+      (c) 您不得对接收者施加本许可证之外的额外限制;
+
+      (d) 您不得将本软件或其修改版与任何恶意软件、间谍软件、广告软件或任何
+          旨在损害用户系统安全或隐私的代码一同分发。
+
+  4.2 若您以目标代码形式分发本软件或其修改版,您应当同时提供获取对应源代码
+      形式的途径说明。建议(但不强制要求)您直接随附源代码。
+
+========================================================================
+
+第 5 条商标与归属
+
+  5.1 本许可证不授予您使用许可人 trade names、商标、服务标记或产品名称的
+      权利,但为合理且惯常地描述本软件来源及复制 NOTICE 文件内容所必需的
+      使用除外。
+
+  5.2 "PMCL" 为许可人使用的项目名称,未经许可人事先书面同意,您不得将
+      "PMCL" 用于以下情形:
+
+      (a) 将您的修改版命名为 "PMCL" 或包含 "PMCL" 的名称,可能造成与原作品
+          混淆的;
+      (b) 以 "PMCL" 名义发布任何产品或服务;
+      (c) 将 "PMCL" 注册为商标、域名或其他商业标识。
+
+  5.3 本软件的 About(关于)界面中显示的版权信息应当被保留,不得移除或篡改。
+
+========================================================================
+
+第 6 条第三方商标声明
+
+  6.1 "Minecraft" 是 Mojang AB(及其母公司 Microsoft Corporation)的注册商标。
+      本软件为第三方启动器,与 Mojang AB 或 Microsoft Corporation 无任何
+      关联、赞助或背书关系。
+
+  6.2 本软件不包含或分发 Minecraft 游戏本体。用户须自行购买正版 Minecraft
+      以获得合法的游戏授权。本软件仅提供游戏启动的技术辅助功能,不涉及任何
+      游戏内容的破解、绕过验证或盗版分发。
+
+  6.3 本软件可能引用以下第三方商标或服务名称,其权利归各自所有者:
+
+      - Java 是 Oracle 和/或其附属公司的注册商标
+      - Kotlin 是 JetBrains s.r.o. 的商标
+      - Mojang 和 Minecraft 是 Mojang AB 的商标
+      - Forge、Fabric、Quilt 等模组加载器名称归各自项目所有
+
+  6.4 本许可证不对上述第三方商标授予任何权利。
+
+========================================================================
+
+第 7 条第三方组件
+
+  7.1 本软件的开发依赖若干第三方开源组件,这些组件受其各自的许可证约束。
+      您在使用、修改或分发本软件时,须同时遵守这些第三方组件的许可证条款。
+
+  7.2 本软件主要引用的第三方组件包括但不限于:
+
+      - Kotlin 标准库(Apache License 2.0)
+      - Compose Multiplatform / Jetpack Compose(Apache License 2.0)
+      - OkHttp(Apache License 2.0)
+      - Gson(Apache License 2.0)
+      - EasyTier(其各自许可证)
+      - 其他在 build.gradle.kts 中声明的依赖项
+
+  7.3 第三方组件的版权声明和许可证文本保留在其各自的源代码或分发文件中。
+      本许可证不覆盖这些第三方组件,它们的使用须遵循各自的原许可证。
+
+  7.4 若任何第三方组件的许可证与本许可证存在冲突,以该第三方组件的许可证
+      为准,但仅限于该第三方组件的范围内。
+
+========================================================================
+
+第 8 条免责声明
+
+  8.1 除非适用法律要求或以书面形式另行约定,许可人按 "现状" 和 "可获得" 的
+      基础提供本软件,不提供任何明示或暗示的担保或条件,包括但不限于对适销
+      性、特定用途适用性、所有权和不侵权的担保。
+
+  8.2 您须自行判断使用或分发本软件的适当性,并承担行使本许可证所授予权利
+      的任何风险。
+
+  8.3 许可人不对本软件的以下方面作出保证:
+
+      (a) 本软件的功能完全符合您的需求;
+      (b) 本软件运行不会中断或无错误;
+      (c) 本软件中的缺陷将被更正;
+      (d) 本软件与所有系统环境的兼容性。
+
+  8.4 本软件涉及游戏文件的读取、修改和写入操作(包括但不限于世界存档、
+      NBT 数据、配置文件等)。您在使用此类功能前应当自行备份相关数据。
+      许可人对因使用本软件导致的任何数据丢失或损坏不承担责任。
+
+========================================================================
+
+第 9 条责任限制
+
+  9.1 在任何法律理论下(无论是侵权行为包括过失、合同或其他),除非适用法律
+      要求(如故意和重大过失行为)或以书面形式约定,任何贡献者均不对您承担
+      因本许可证或因使用或无法使用本软件而产生的任何损害赔偿责任。
+
+  9.2 上述责任限制包括但不限于:直接损害、间接损害、特殊损害、附带损害或
+      后果性损害,以及因商誉损失、工作停滞、计算机故障或故障、或任何其他
+      商业损害或损失而产生的损害,即使该贡献者已被告知此类损害的可能性。
+
+  9.3 在任何情况下,许可人的总责任不超过您为获取本软件所实际支付的金额
+      (鉴于本软件为免费提供,该金额通常为零)。
+
+========================================================================
+
+第 10 条终止
+
+  10.1 若您违反本许可证的任何条款,本许可证及其授予的权利将自动终止,无需
+       许可人另行通知。在此情况下,您应当立即:
+
+       (a) 停止使用本软件;
+       (b) 销毁所有本软件及其修改版的副本;
+       (c) 从任何分发渠道撤回已分发的副本。
+
+  10.2 第 1 条(定义)、第 6 条(第三方商标声明)、第 7 条(第三方组件)、
+       第 8 条(免责声明)、第 9 条(责任限制)和第 10 条(终止)在本许可证
+       终止后继续有效。
+
+  10.3 许可人保留在任何时间以任何理由修改本许可证的权利。修改后的许可证
+       适用于修改日期之后获取的本软件副本。您在修改日期之前合法获取的本
+       软件副本,可继续在原许可证条款下使用。
+
+========================================================================
+
+第 11 条适用法律与争议解决
+
+  11.1 本许可证的解释、效力和执行均适用中华人民共和国法律(不含其法律
+       冲突规则)。
+
+  11.2 因本许可证或本软件的使用而产生的任何争议,双方应首先通过友好协商
+       解决;协商不成的,任何一方均可向许可人所在地有管辖权的人民法院
+       提起诉讼。
+
+========================================================================
+
+第 12 条杂项
+
+  12.1 若本许可证的任何条款被有管辖权的法院或仲裁机构认定为无效、非法或
+       不可执行,该条款应在该无效、非法或不可执行的范围内被视为删除,但
+       其余条款的效力不受影响。
+
+  12.2 许可人未行使或延迟行使本许可证下的任何权利,不构成对该权利的放弃。
+       单次或部分行使任何权利,不妨碍今后行使该权利或任何其他权利。
+
+  12.3 本许可证构成双方之间关于本软件的完整协议,取代之前所有关于本软件
+       的口头或书面的沟通、谅解和协议。
+
+  12.4 本许可证的中文版本为权威版本。如与其他语言版本的翻译存在歧义,以
+       中文版本为准。
+
+========================================================================
+
+                            许可证结束
+
+========================================================================
+
+附录:如何将本许可证应用于您的修改版
+
+  若您基于本软件创作衍生作品并希望分发,请在您的修改版的显著位置(如
+  README、源代码文件头部或 About 界面)加入以下声明:
+
+  --------------------------------------------------------------------
+  原作品:PMCL Minecraft Launcher
+  原作者:peddlejumper(https://github.com/peddlejumper)
+  原许可证:PMCL 软件技术许可证 v1.0
+
+  本修改版基于 PMCL 原版进行修改,修改者:[您的名称]
+  修改日期:[YYYY-MM-DD]
+  修改内容:[简要描述]
+
+  本修改版同样遵循 PMCL 软件技术许可证 v1.0 条款。
+  --------------------------------------------------------------------
+
+========================================================================
+
+  本软件仅供学习交流使用 / For educational and technical exchange use only
+
+  Minecraft 是 Mojang AB 的商标,本软件与 Mojang AB 无任何关联。
+  Minecraft is a trademark of Mojang AB. This software is not affiliated
+  with Mojang AB in any way.
+
+  Copyright (C) 2026 peddlejumper. All rights reserved.
