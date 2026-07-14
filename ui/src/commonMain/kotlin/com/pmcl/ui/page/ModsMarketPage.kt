@@ -1,5 +1,6 @@
 package com.pmcl.ui.page
 
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
@@ -95,7 +96,7 @@ fun ModsMarketPage(vm: LauncherViewModel) {
 
     val expandProgress by animateFloatAsState(
         targetValue = transitionTarget,
-        animationSpec = tween(380, easing = MotionTokens.EasingEmphasizedDecelerate),
+        animationSpec = tween(380, easing = LinearEasing),
         finishedListener = { value ->
             if (value >= 0.99f) {
                 // 放大完成：overlay 消失，详情页已提前加载并淡入完成
