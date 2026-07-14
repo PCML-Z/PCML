@@ -39,6 +39,9 @@ public final class FriendIdentityManager {
     private String displayName;
     private String backgroundPath;
     private byte[] qrCodeBytes;
+    /** QR 码原始矩阵（用于 Canvas 自定义渲染） */
+    private boolean[] qrModules;
+    private int qrSize;
 
     public FriendIdentityManager(Path dataDir) {
         this.dataDir = dataDir;
@@ -82,6 +85,16 @@ public final class FriendIdentityManager {
     /** 二维码 PNG 字节 */
     public byte[] getQrCodeBytes() {
         return qrCodeBytes;
+    }
+
+    /** QR 码矩阵数据：每个元素 true=深色模块, false=浅色模块 */
+    public boolean[] getQrModules() {
+        return qrModules;
+    }
+
+    /** QR 码矩阵边长（模块数） */
+    public int getQrSize() {
+        return qrSize;
     }
 
     /** 卡片背景图片路径（本地文件） */
@@ -181,9 +194,21 @@ public final class FriendIdentityManager {
 
             BitMatrix matrix = new QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, 300, 300, hints);
 
-            BufferedImage image = new BufferedImage(300, 300, BufferedImage.TYPE_INT_RGB);
-            for (int x = 0; x < 300; x++) {
-                for (int y = 0; y < 300; y++) {
+            // 提取矩阵数据
+            int w = matrix.getWidth();
+            int h = matrix.getHeight();
+            this.qrSize = Math.max(w, h);
+            this.qrModules = new boolean[qrSize * qrSize];
+            for (int y = 0; y < qrSize; y++) {
+                for (int x = 0; x < qrSize; x++) {
+                    qrModules[y * qrSize + x] = matrix.get(x, y);
+                }
+            }
+
+            // 同时生成 PNG（向后兼容）
+            BufferedImage image = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+            for (int x = 0; x < w; x++) {
+                for (int y = 0; y < h; y++) {
                     image.setRGB(x, y, matrix.get(x, y) ? Color.BLACK.getRGB() : Color.WHITE.getRGB());
                 }
             }
@@ -194,6 +219,8 @@ public final class FriendIdentityManager {
         } catch (WriterException | IOException e) {
             System.err.println("[FriendIdentity] 二维码生成失败: " + e.getMessage());
             this.qrCodeBytes = new byte[0];
+            this.qrModules = new boolean[0];
+            this.qrSize = 0;
         }
     }
 

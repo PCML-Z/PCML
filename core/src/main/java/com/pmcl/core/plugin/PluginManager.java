@@ -9,7 +9,6 @@ import com.pmcl.plugin.ComposableContent;
 import com.pmcl.plugin.CommandHandler;
 import com.pmcl.plugin.EventListener;
 import com.pmcl.plugin.LaunchHook;
-import com.pmcl.plugin.OverlayConfig;
 import com.pmcl.plugin.PmclEvent;
 import com.pmcl.plugin.PmclPlugin;
 import com.pmcl.plugin.PluginContext;
@@ -89,8 +88,6 @@ public final class PluginManager {
     private final Map<String, List<RegisteredCommand>> customCommands = new HashMap<>();
     // Registered pages (pluginId -> list of pages)
     private final Map<String, List<RegisteredPage>> customPages = new HashMap<>();
-    // Registered overlays (pluginId -> list of overlays)
-    private final Map<String, List<RegisteredOverlay>> customOverlays = new HashMap<>();
     // Event listeners
     private final List<EventListener> eventListeners = new CopyOnWriteArrayList<>();
     // Launch hooks
@@ -284,7 +281,6 @@ public final class PluginManager {
         // Unregister extensions
         customCommands.remove(pluginId);
         customPages.remove(pluginId);
-        customOverlays.remove(pluginId);
         eventListeners.removeIf(l -> l instanceof TrackedEventListener &&
                 ((TrackedEventListener) l).pluginId.equals(pluginId));
         launchHooks.removeIf(h -> h instanceof TrackedLaunchHook &&
@@ -313,7 +309,6 @@ public final class PluginManager {
         }
         customCommands.remove(pluginId);
         customPages.remove(pluginId);
-        customOverlays.remove(pluginId);
         System.out.println("[PluginManager] Unloaded plugin: " + pluginId);
         bumpRevision();
     }
@@ -556,14 +551,6 @@ public final class PluginManager {
         return all;
     }
 
-    public synchronized List<RegisteredOverlay> getCustomOverlays() {
-        List<RegisteredOverlay> all = new ArrayList<>();
-        for (List<RegisteredOverlay> overlays : customOverlays.values()) {
-            all.addAll(overlays);
-        }
-        return all;
-    }
-
     public List<LaunchHook> getLaunchHooks() {
         return Collections.unmodifiableList(launchHooks);
     }
@@ -762,21 +749,6 @@ public final class PluginManager {
         }
     }
 
-    /** A registered global overlay */
-    public static class RegisteredOverlay {
-        public final String pluginId;
-        public final String id;
-        public final ComposableContent content;
-        public final OverlayConfig config;
-
-        RegisteredOverlay(String pluginId, String id, ComposableContent content, OverlayConfig config) {
-            this.pluginId = pluginId;
-            this.id = id;
-            this.content = content;
-            this.config = config;
-        }
-    }
-
     // Tracking wrappers for cleanup
     private static class TrackedEventListener implements EventListener {
         final String pluginId;
@@ -961,36 +933,6 @@ public final class PluginManager {
                 }
                 RegisteredPage page = new RegisteredPage(pluginId, id, title, content);
                 customPages.computeIfAbsent(pluginId, k -> new ArrayList<>()).add(page);
-            }
-        }
-
-        @Override
-        public void registerOverlay(String id, ComposableContent content, OverlayConfig config) {
-            if (id == null || id.isBlank()) {
-                throw new IllegalArgumentException("Overlay id must not be null or blank (plugin: " + pluginId + ")");
-            }
-            if (!PluginInfo.isValidCommandName(id)) {
-                throw new IllegalArgumentException(
-                        "Invalid overlay id '" + id + "' in plugin '" + pluginId + "': " +
-                        "must be 1-32 chars, lowercase alphanumeric + hyphens, " +
-                        "start with a letter, end with alphanumeric, no consecutive hyphens");
-            }
-            if (content == null) {
-                throw new NullPointerException("Overlay content must not be null (overlay: " + id + ", plugin: " + pluginId + ")");
-            }
-            OverlayConfig cfg = config != null ? config : OverlayConfig.DEFAULT;
-            synchronized (PluginManager.this) {
-                List<RegisteredOverlay> existing = customOverlays.get(pluginId);
-                if (existing != null) {
-                    for (RegisteredOverlay o : existing) {
-                        if (o.id.equals(id)) {
-                            throw new IllegalStateException(
-                                    "Duplicate overlay id '" + id + "' in plugin '" + pluginId + "'");
-                        }
-                    }
-                }
-                RegisteredOverlay overlay = new RegisteredOverlay(pluginId, id, content, cfg);
-                customOverlays.computeIfAbsent(pluginId, k -> new ArrayList<>()).add(overlay);
             }
         }
 

@@ -70,17 +70,6 @@ interface PluginContext {
     fun registerPage(id: String, title: String, content: ComposableContent)
 
     /**
-     * Register a global overlay that floats above the main window content.
-     * Overlays are rendered on top of all pages, positioned by the overlay's own
-     * Composable (e.g. using Modifier.align or Modifier.offset).
-     *
-     * @param id Overlay identifier (lowercase, alphanumeric, 1-32 chars, same rules as page id)
-     * @param content Composable that renders the overlay content
-     * @param config Positioning/behavior config (z-index, click-through, initial visibility)
-     */
-    fun registerOverlay(id: String, content: ComposableContent, config: OverlayConfig = OverlayConfig.DEFAULT)
-
-    /**
      * Register a launch hook that runs before/after Minecraft launches.
      */
     fun registerLaunchHook(hook: LaunchHook)
@@ -124,22 +113,4 @@ fun interface CommandHandler {
 fun interface ComposableContent {
     @Composable
     fun invoke()
-}
-
-/**
- * Configuration for a plugin overlay registered via [PluginContext.registerOverlay].
- *
- * @param zIndex Layering order among multiple overlays (higher = on top)
- * @param clickThrough If true, mouse events pass through to underlying content
- * @param initialVisible Whether the overlay is visible when first registered
- */
-data class OverlayConfig(
-    val zIndex: Int = 0,
-    val clickThrough: Boolean = false,
-    val initialVisible: Boolean = true
-) {
-    companion object {
-        @JvmField
-        val DEFAULT = OverlayConfig()
-    }
 }
