@@ -1,14 +1,7 @@
 package com.pmcl.ui.page
 
-import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -28,16 +21,25 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.lerp as lerpRect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.lerp as lerpColor
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.lerp as lerpDp
 import com.pmcl.core.i18n.I18n
 import com.pmcl.core.market.ModProject
 import com.pmcl.ui.animation.MotionTokens
@@ -48,6 +50,8 @@ import org.jetbrains.skia.Image as SkiaImage
 import java.awt.Desktop
 import java.net.URI
 import java.net.URL
+import kotlin.math.max
+import kotlin.math.roundToInt
 
 @Composable
 fun ModsMarketPage(vm: LauncherViewModel) {
@@ -78,264 +82,322 @@ fun ModsMarketPage(vm: LauncherViewModel) {
         }
     }
 
-    Column(Modifier.fillMaxSize().padding(16.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("模组市场", style = MaterialTheme.typography.headlineSmall,
-                 fontWeight = FontWeight.Bold)
-            Spacer(Modifier.weight(1f))
-            FilterChip(
-                selected = translateEnabled,
-                onClick = {
-                    translateEnabled = !translateEnabled
-                    if (translateEnabled) {
-                        val texts = (popularMods + categoryResults + results).flatMap {
-                            listOfNotNull(it.getName(), it.getSummary())
-                        }.distinct()
-                        vm.translateBatch(texts)
-                    }
-                },
-                label = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            if (translateEnabled) Icons.Filled.Translate else Icons.Outlined.Translate,
-                            contentDescription = null,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Text(if (translating) "翻译中…" else "翻译")
-                    }
+    // iOS 风格卡片放大动画状态
+    // 点击卡片时，卡片从其原始位置/大小平滑放大到全屏（overlay），完成后切换到详情页
+    // 返回时反向：详情页淡出，overlay 从全屏缩回到卡片原位置
+    var transitionProject by remember { mutableStateOf<ModProject?>(null) }
+    var transitionStartBounds by remember { mutableStateOf<Rect?>(null) }
+    var transitionTarget by remember { mutableStateOf(0f) }
+    var transitionActive by remember { mutableStateOf(false) }
+    var detailVisible by remember { mutableStateOf(false) }
+    val cardBoundsCache = remember { mutableStateMapOf<String, Rect>() }
+
+    val expandProgress by animateFloatAsState(
+        targetValue = transitionTarget,
+        animationSpec = tween(380, easing = MotionTokens.EasingEmphasizedDecelerate),
+        finishedListener = { value ->
+            if (value >= 0.99f) {
+                // 放大完成：打开详情页
+                transitionProject?.let { proj ->
+                    vm.openModDetail(proj)
+                    detailVisible = true
                 }
-            )
+                transitionActive = false
+            } else if (value <= 0.01f && transitionActive) {
+                // 缩回完成：关闭详情页
+                vm.closeModDetail()
+                detailVisible = false
+                transitionActive = false
+            }
         }
-        Spacer(Modifier.height(8.dp))
-        Text("聚合 Modrinth + CurseForge。CurseForge 需配置 CURSEFORGE_API_KEY 环境变量。",
-             style = MaterialTheme.typography.labelSmall,
-             color = MaterialTheme.colorScheme.outline)
+    )
 
-        Spacer(Modifier.height(16.dp))
+    val detailAlpha by animateFloatAsState(
+        targetValue = if (detailVisible) 1f else 0f,
+        animationSpec = tween(200)
+    )
 
-        // 搜索栏
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(
-                value = query, onValueChange = { query = it },
-                label = { Text("搜索模组（回车搜索）") }, singleLine = true,
-                modifier = Modifier.weight(1f),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(
-                    onSearch = {
-                        if (query.isNotBlank() && !loading) {
-                            vm.searchMods(query, gameVersion, loader, selectedCategory)
+    val onCardClick: (ModProject) -> Unit = { project ->
+        if (!transitionActive) {
+            val key = project.getSource() + "/" + project.getId()
+            val bounds = cardBoundsCache[key]
+            if (bounds != null) {
+                transitionProject = project
+                transitionStartBounds = bounds
+                transitionTarget = 1f
+                transitionActive = true
+            } else {
+                vm.openModDetail(project)
+                detailVisible = true
+            }
+        }
+    }
+
+    val onBack: () -> Unit = {
+        if (!transitionActive) {
+            val proj = detailProject
+            if (proj != null) {
+                val key = proj.getSource() + "/" + proj.getId()
+                val bounds = cardBoundsCache[key]
+                if (bounds != null) {
+                    transitionProject = proj
+                    transitionStartBounds = bounds
+                    transitionTarget = 0f
+                    transitionActive = true
+                    detailVisible = false
+                } else {
+                    vm.closeModDetail()
+                    detailVisible = false
+                }
+            } else {
+                vm.closeModDetail()
+                detailVisible = false
+            }
+        }
+    }
+
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize().padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("模组市场", style = MaterialTheme.typography.headlineSmall,
+                     fontWeight = FontWeight.Bold)
+                Spacer(Modifier.weight(1f))
+                FilterChip(
+                    selected = translateEnabled,
+                    onClick = {
+                        translateEnabled = !translateEnabled
+                        if (translateEnabled) {
+                            val texts = (popularMods + categoryResults + results).flatMap {
+                                listOfNotNull(it.getName(), it.getSummary())
+                            }.distinct()
+                            vm.translateBatch(texts)
+                        }
+                    },
+                    label = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                if (translateEnabled) Icons.Filled.Translate else Icons.Outlined.Translate,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(if (translating) "翻译中…" else "翻译")
                         }
                     }
                 )
-            )
-            Spacer(Modifier.width(12.dp))
-            OutlinedTextField(
-                value = gameVersion, onValueChange = { gameVersion = it },
-                label = { Text("目标版本") }, singleLine = true,
-                modifier = Modifier.width(120.dp)
-            )
-            Spacer(Modifier.width(12.dp))
-            LoaderDropdown(loader) { loader = it }
-            Spacer(Modifier.width(12.dp))
-            Button(onClick = {
-                vm.searchMods(query, gameVersion, loader, selectedCategory)
-            }, enabled = !loading && query.isNotBlank()) {
-                Text(if (loading) "搜索中…" else "搜索")
             }
-        }
+            Spacer(Modifier.height(8.dp))
+            Text("聚合 Modrinth + CurseForge。CurseForge 需配置 CURSEFORGE_API_KEY 环境变量。",
+                 style = MaterialTheme.typography.labelSmall,
+                 color = MaterialTheme.colorScheme.outline)
 
-        Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(16.dp))
 
-        // 分类推荐标签栏（横向滚动）
-        CategoryBar(
-            selectedCategory = selectedCategory,
-            onSelect = { cat ->
-                if (cat.isEmpty()) {
-                    vm.clearCategory()
-                } else {
-                    vm.loadCategoryMods(cat, gameVersion, loader)
+            // 搜索栏
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = query, onValueChange = { query = it },
+                    label = { Text("搜索模组（回车搜索）") }, singleLine = true,
+                    modifier = Modifier.weight(1f),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(
+                        onSearch = {
+                            if (query.isNotBlank() && !loading) {
+                                vm.searchMods(query, gameVersion, loader, selectedCategory)
+                            }
+                        }
+                    )
+                )
+                Spacer(Modifier.width(12.dp))
+                OutlinedTextField(
+                    value = gameVersion, onValueChange = { gameVersion = it },
+                    label = { Text("目标版本") }, singleLine = true,
+                    modifier = Modifier.width(120.dp)
+                )
+                Spacer(Modifier.width(12.dp))
+                LoaderDropdown(loader) { loader = it }
+                Spacer(Modifier.width(12.dp))
+                Button(onClick = {
+                    vm.searchMods(query, gameVersion, loader, selectedCategory)
+                }, enabled = !loading && query.isNotBlank()) {
+                    Text(if (loading) "搜索中…" else "搜索")
                 }
             }
-        )
 
-        Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(12.dp))
 
-        val installedModIds = remember(installedMods) { installedMods.map { it.getModId() }.toSet() }
-
-        // iOS 风格应用打开动画：点击卡片时详情页从小到大缩放展开，返回时缩收回退
-        val isInDetail = detailProject != null
-        AnimatedContent(
-            targetState = isInDetail,
-            modifier = Modifier.weight(1f).clipToBounds(),
-            transitionSpec = {
-                val duration = 380
-                if (targetState && !initialState) {
-                    // 打开详情：详情页从 0.82 缩放放大进入 + 轻微上滑 + 渐显
-                    // 列表页轻微放大到 1.08 + 快速淡出（模拟应用从图标位置展开覆盖）
-                    (scaleIn(initialScale = 0.82f,
-                            animationSpec = tween(duration, easing = MotionTokens.EasingEmphasizedDecelerate)) +
-                     fadeIn(tween(duration, delayMillis = 40)) +
-                     slideInVertically(
-                         animationSpec = tween(duration, easing = MotionTokens.EasingEmphasizedDecelerate),
-                         initialOffsetY = { it / 10 })) togetherWith
-                    (scaleOut(targetScale = 1.08f,
-                            animationSpec = tween(duration, easing = MotionTokens.EasingEmphasizedAccelerate)) +
-                     fadeOut(tween(duration / 2)))
-                } else {
-                    // 关闭详情：列表页从 1.05 缩放回归 + 渐显
-                    // 详情页缩放到 0.82 + 轻微下滑 + 渐隐（模拟应用缩回图标）
-                    (scaleIn(initialScale = 1.05f,
-                            animationSpec = tween(duration, easing = MotionTokens.EasingEmphasizedDecelerate)) +
-                     fadeIn(tween(duration / 2, delayMillis = 60))) togetherWith
-                    (scaleOut(targetScale = 0.82f,
-                            animationSpec = tween(duration, easing = MotionTokens.EasingEmphasizedAccelerate)) +
-                     fadeOut(tween(duration, delayMillis = 40)) +
-                     slideOutVertically(
-                         animationSpec = tween(duration, easing = MotionTokens.EasingEmphasizedAccelerate),
-                         targetOffsetY = { it / 10 }))
+            // 分类推荐标签栏（横向滚动）
+            CategoryBar(
+                selectedCategory = selectedCategory,
+                onSelect = { cat ->
+                    if (cat.isEmpty()) {
+                        vm.clearCategory()
+                    } else {
+                        vm.loadCategoryMods(cat, gameVersion, loader)
+                    }
                 }
-            },
-            contentAlignment = Alignment.Center,
-            label = "modDetailTransition"
-        ) { inDetail ->
-            Column(Modifier.fillMaxSize()) {
-                when {
-                    // 详情视图：点击卡片后进入
-                    inDetail && detailProject != null -> {
-                        val dp = detailProject
-                        if (dp != null) {
+            )
+
+            Spacer(Modifier.height(12.dp))
+
+            val installedModIds = remember(installedMods) { installedMods.map { it.getModId() }.toSet() }
+
+            when {
+                // 详情视图：点击卡片后进入（带淡入，与 overlay 放大衔接）
+                detailProject != null -> {
+                    val dp = detailProject
+                    if (dp != null) {
+                        Column(Modifier.fillMaxSize().alpha(detailAlpha)) {
                             ModDetailView(
                                 project = dp,
                                 vm = vm,
                                 searchGameVersion = gameVersion,
                                 translateEnabled = translateEnabled,
                                 translationCache = translationCache,
-                                onBack = { vm.closeModDetail() }
+                                onBack = onBack
                             )
                         }
                     }
-                    // 搜索结果视图（用户主动搜索后）
-                    results.isNotEmpty() -> {
-                        Text("搜索结果（${results.size}）",
+                }
+                // 搜索结果视图（用户主动搜索后）
+                results.isNotEmpty() -> {
+                    Text("搜索结果（${results.size}）",
+                         style = MaterialTheme.typography.titleMedium,
+                         fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(8.dp))
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        items(results, key = { p -> p.getSource() + "/" + p.getId() }) { project ->
+                            SearchResultCard(
+                                project = project,
+                                onClick = { onCardClick(project) },
+                                installedModIds = installedModIds,
+                                translateEnabled = translateEnabled,
+                                translationCache = translationCache,
+                                onPositioned = { rect ->
+                                    cardBoundsCache[project.getSource() + "/" + project.getId()] = rect
+                                }
+                            )
+                        }
+                    }
+                }
+                // 分类推荐网格（用户选择分类标签后）
+                selectedCategory.isNotEmpty() -> {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("分类推荐：${categoryLabel(selectedCategory)}",
                              style = MaterialTheme.typography.titleMedium,
-                             fontWeight = FontWeight.SemiBold)
-                        Spacer(Modifier.height(8.dp))
-                        LazyColumn(
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                             fontWeight = FontWeight.SemiBold,
+                             modifier = Modifier.weight(1f))
+                        if (categoryLoading) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        } else {
+                            TextButton(onClick = {
+                                vm.loadCategoryMods(selectedCategory, gameVersion, loader)
+                            }) { Text("刷新") }
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    if (categoryResults.isEmpty() && !categoryLoading) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth().weight(1f)
+                        ) {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text("该分类下暂无模组，点击刷新重试",
+                                     color = MaterialTheme.colorScheme.outline)
+                            }
+                        }
+                    } else {
+                        LazyVerticalGrid(
+                            columns = GridCells.Adaptive(220.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
                             modifier = Modifier.weight(1f)
                         ) {
-                            items(results, key = { p -> p.getSource() + "/" + p.getId() }) { project ->
-                                SearchResultCard(
+                            itemsIndexed(categoryResults,
+                                    key = { _, p -> p.getSource() + "/" + p.getId() }) { _, project ->
+                                PopularCard(
                                     project = project,
-                                    vm = vm,
-                                    searchGameVersion = gameVersion,
-                                    installedModIds = installedModIds,
+                                    onClick = { onCardClick(project) },
                                     translateEnabled = translateEnabled,
-                                    translationCache = translationCache
+                                    translationCache = translationCache,
+                                    onPositioned = { rect ->
+                                        cardBoundsCache[project.getSource() + "/" + project.getId()] = rect
+                                    }
                                 )
                             }
                         }
                     }
-                    // 分类推荐网格（用户选择分类标签后）
-                    selectedCategory.isNotEmpty() -> {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("分类推荐：${categoryLabel(selectedCategory)}",
-                                 style = MaterialTheme.typography.titleMedium,
-                                 fontWeight = FontWeight.SemiBold,
-                                 modifier = Modifier.weight(1f))
-                            if (categoryLoading) {
-                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                            } else {
-                                TextButton(onClick = {
-                                    vm.loadCategoryMods(selectedCategory, gameVersion, loader)
-                                }) { Text("刷新") }
-                            }
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        if (categoryResults.isEmpty() && !categoryLoading) {
-                            Surface(
-                                color = MaterialTheme.colorScheme.surfaceVariant,
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.fillMaxWidth().weight(1f)
-                            ) {
-                                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    Text("该分类下暂无模组，点击刷新重试",
-                                         color = MaterialTheme.colorScheme.outline)
-                                }
-                            }
+                }
+                // 热门推荐网格（默认视图）
+                else -> {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("🔥 热门推荐",
+                             style = MaterialTheme.typography.titleMedium,
+                             fontWeight = FontWeight.SemiBold,
+                             modifier = Modifier.weight(1f))
+                        if (popularLoading) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                         } else {
-                            LazyVerticalGrid(
-                                columns = GridCells.Adaptive(220.dp),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                itemsIndexed(categoryResults,
-                                        key = { _, p -> p.getSource() + "/" + p.getId() }) { _, project ->
-                                    PopularCard(
-                                        project = project,
-                                        onClick = { vm.openModDetail(project) },
-                                        translateEnabled = translateEnabled,
-                                        translationCache = translationCache
-                                    )
-                                }
+                            TextButton(onClick = { vm.loadPopularMods(gameVersion, loader) }) {
+                                Text("刷新")
                             }
                         }
                     }
-                    // 热门推荐网格（默认视图）
-                    else -> {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("🔥 热门推荐",
-                                 style = MaterialTheme.typography.titleMedium,
-                                 fontWeight = FontWeight.SemiBold,
-                                 modifier = Modifier.weight(1f))
-                            if (popularLoading) {
-                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                            } else {
-                                TextButton(onClick = { vm.loadPopularMods(gameVersion, loader) }) {
-                                    Text("刷新")
-                                }
+                    Spacer(Modifier.height(8.dp))
+                    if (popularMods.isEmpty() && !popularLoading) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth().weight(1f)
+                        ) {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text("加载失败或无数据，点击刷新重试",
+                                     color = MaterialTheme.colorScheme.outline)
                             }
                         }
-                        Spacer(Modifier.height(8.dp))
-                        if (popularMods.isEmpty() && !popularLoading) {
-                            Surface(
-                                color = MaterialTheme.colorScheme.surfaceVariant,
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.fillMaxWidth().weight(1f)
-                            ) {
-                                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    Text("加载失败或无数据，点击刷新重试",
-                                         color = MaterialTheme.colorScheme.outline)
-                                }
-                            }
-                        } else {
-                            LazyVerticalGrid(
-                                columns = GridCells.Adaptive(220.dp),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                itemsIndexed(popularMods,
-                                        key = { _, p -> p.getSource() + "/" + p.getId() }) { _, project ->
-                                    PopularCard(
-                                        project = project,
-                                        onClick = { vm.openModDetail(project) },
-                                        translateEnabled = translateEnabled,
-                                        translationCache = translationCache
-                                    )
-                                }
+                    } else {
+                        LazyVerticalGrid(
+                            columns = GridCells.Adaptive(220.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            itemsIndexed(popularMods,
+                                    key = { _, p -> p.getSource() + "/" + p.getId() }) { _, project ->
+                                PopularCard(
+                                    project = project,
+                                    onClick = { onCardClick(project) },
+                                    translateEnabled = translateEnabled,
+                                    translationCache = translationCache,
+                                    onPositioned = { rect ->
+                                        cardBoundsCache[project.getSource() + "/" + project.getId()] = rect
+                                    }
+                                )
                             }
                         }
                     }
                 }
             }
+
+            Spacer(Modifier.height(8.dp))
+            Text("状态：$status", style = MaterialTheme.typography.labelSmall,
+                 color = MaterialTheme.colorScheme.outline)
         }
 
-        Spacer(Modifier.height(8.dp))
-        Text("状态：$status", style = MaterialTheme.typography.labelSmall,
-             color = MaterialTheme.colorScheme.outline)
+        // iOS 风格卡片放大 overlay：覆盖在 Column 之上，不被 grid 的 clip 裁剪
+        // 卡片从其原始位置/大小平滑放大到全屏，完成后移除 overlay 由详情页接管
+        if (transitionActive && transitionProject != null && transitionStartBounds != null) {
+            CardExpandOverlay(
+                project = transitionProject!!,
+                startBounds = transitionStartBounds!!,
+                progress = expandProgress,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
     }
 
     // 依赖安装结果对话框
@@ -439,14 +501,15 @@ private fun DependencyResultDialog(
 
 /**
  * 热门推荐卡片：图标 + 名字 + 简介 + 来源标签 + 下载量。
- * 点击整个卡片进入详情界面。
+ * 点击整个卡片进入详情界面。onPositioned 回调报告卡片在窗口中的位置用于放大动画。
  */
 @Composable
 private fun PopularCard(
     project: ModProject,
     onClick: () -> Unit,
     translateEnabled: Boolean = false,
-    translationCache: Map<String, String> = emptyMap()
+    translationCache: Map<String, String> = emptyMap(),
+    onPositioned: ((Rect) -> Unit)? = null
 ) {
     val displayName = if (translateEnabled) translationCache[project.getName()] ?: project.getName() else project.getName()
     val displaySummary = if (translateEnabled) translationCache[project.getSummary()] ?: project.getSummary() else project.getSummary()
@@ -454,7 +517,12 @@ private fun PopularCard(
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant,
         shape = RoundedCornerShape(10.dp),
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)
+        modifier = Modifier
+            .fillMaxWidth()
+            .onGloballyPositioned { coords ->
+                onPositioned?.invoke(coords.boundsInWindow())
+            }
+            .clickable(onClick = onClick)
     ) {
         Column(Modifier.padding(10.dp)) {
             // 图标
@@ -655,15 +723,16 @@ private fun ColumnScope.ModDetailView(
 
 /**
  * 搜索结果卡片（用于主动搜索后的列表展示），点击也可进入详情。
+ * onPositioned 回调报告卡片在窗口中的位置用于放大动画。
  */
 @Composable
 private fun SearchResultCard(
     project: ModProject,
-    vm: LauncherViewModel,
-    searchGameVersion: String,
+    onClick: () -> Unit,
     installedModIds: Set<String>,
     translateEnabled: Boolean = false,
-    translationCache: Map<String, String> = emptyMap()
+    translationCache: Map<String, String> = emptyMap(),
+    onPositioned: ((Rect) -> Unit)? = null
 ) {
     val isInstalled = installedModIds.contains(project.getSlug())
             || installedModIds.contains(project.getId())
@@ -674,7 +743,12 @@ private fun SearchResultCard(
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant,
         shape = RoundedCornerShape(8.dp),
-        modifier = Modifier.fillMaxWidth().clickable { vm.openModDetail(project) }
+        modifier = Modifier
+            .fillMaxWidth()
+            .onGloballyPositioned { coords ->
+                onPositioned?.invoke(coords.boundsInWindow())
+            }
+            .clickable(onClick = onClick)
     ) {
         Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
             // 小图标
@@ -714,6 +788,91 @@ private fun SearchResultCard(
             }
             Text("›", style = MaterialTheme.typography.titleLarge,
                  color = MaterialTheme.colorScheme.outline)
+        }
+    }
+}
+
+/**
+ * iOS 风格卡片放大 overlay：从卡片原始位置/大小平滑放大到全屏。
+ *
+ * - progress=0：位于卡片原位（startBounds），保持卡片外观（圆角、背景色）
+ * - progress=1：铺满全屏，圆角归零，背景色切换为详情页色
+ * - 内部渲染图标作为视觉锚点，放大接近全屏时图标淡出，为详情页接管做准备
+ *
+ * 配合外层状态机：放大完成后调用 openModDetail 由详情页接管，
+ * 返回时反向缩回至卡片原位置，实现 iOS「app 从图标位置展开」的连续动画。
+ */
+@Composable
+private fun CardExpandOverlay(
+    project: ModProject,
+    startBounds: Rect,
+    progress: Float,
+    modifier: Modifier = Modifier
+) {
+    var containerSize by remember { mutableStateOf(IntSize.Zero) }
+    val density = LocalDensity.current
+
+    Box(
+        modifier.onGloballyPositioned { containerSize = it.size }
+    ) {
+        // 背景遮罩：随放大进度加深，模拟 app 覆盖桌面
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.scrim.copy(alpha = progress * 0.35f))
+        )
+
+        // 目标 bounds（全屏 overlay 区域）
+        val targetBounds = if (containerSize != IntSize.Zero) {
+            Rect(0f, 0f, containerSize.width.toFloat(), containerSize.height.toFloat())
+        } else startBounds
+
+        // 插值当前 bounds：从卡片原位到全屏
+        val current = lerpRect(startBounds, targetBounds, progress)
+
+        val widthDp = with(density) { current.width.toDp() }
+        val heightDp = with(density) { current.height.toDp() }
+
+        // 背景色从卡片色（surfaceVariant）渐变到详情页色（surface）
+        val bgColor = lerpColor(
+            MaterialTheme.colorScheme.surfaceVariant,
+            MaterialTheme.colorScheme.surface,
+            progress
+        )
+
+        // 圆角从 10dp 渐变到 0dp（放大到全屏时变成直角）
+        val cornerRadius = lerpDp(10.dp, 0.dp, progress)
+
+        // 内容 alpha：progress < 0.65 时完全可见，之后淡出（为详情页淡入留出空间）
+        val contentAlpha = (1f - max(0f, (progress - 0.65f) / 0.35f)).coerceIn(0f, 1f)
+
+        Surface(
+            color = bgColor,
+            shape = RoundedCornerShape(cornerRadius),
+            modifier = Modifier
+                .offset { IntOffset(current.left.roundToInt(), current.top.roundToInt()) }
+                .size(widthDp, heightDp)
+        ) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .alpha(contentAlpha)
+                    .padding(20.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                // 图标作为视觉锚点：放大过程中保持可见，让用户看到「卡片在被放大」
+                val image = rememberUrlImage(project.getIconUrl())
+                if (image != null) {
+                    Image(
+                        bitmap = image,
+                        contentDescription = project.getName(),
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Text("🎮", style = MaterialTheme.typography.displayLarge)
+                }
+            }
         }
     }
 }
