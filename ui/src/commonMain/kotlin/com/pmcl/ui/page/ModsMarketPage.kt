@@ -809,11 +809,14 @@ private fun CardExpandOverlay(
     progress: Float,
     modifier: Modifier = Modifier
 ) {
-    var containerSize by remember { mutableStateOf(IntSize.Zero) }
+    // overlay 容器在窗口中的位置和大小，用于把 startBounds（窗口坐标）转换到容器本地坐标
+    var containerBounds by remember { mutableStateOf(Rect.Zero) }
     val density = LocalDensity.current
 
     Box(
-        modifier.onGloballyPositioned { containerSize = it.size }
+        modifier.onGloballyPositioned { coords ->
+            containerBounds = coords.boundsInWindow()
+        }
     ) {
         // 背景遮罩：随放大进度加深，模拟 app 覆盖桌面
         Box(
@@ -822,13 +825,21 @@ private fun CardExpandOverlay(
                 .background(MaterialTheme.colorScheme.scrim.copy(alpha = progress * 0.35f))
         )
 
-        // 目标 bounds（全屏 overlay 区域）
-        val targetBounds = if (containerSize != IntSize.Zero) {
-            Rect(0f, 0f, containerSize.width.toFloat(), containerSize.height.toFloat())
-        } else startBounds
+        // 把 startBounds 从窗口坐标转换为容器本地坐标
+        val localStart = Rect(
+            left = startBounds.left - containerBounds.left,
+            top = startBounds.top - containerBounds.top,
+            right = startBounds.right - containerBounds.left,
+            bottom = startBounds.bottom - containerBounds.top
+        )
 
-        // 插值当前 bounds：从卡片原位到全屏
-        val current = lerpRect(startBounds, targetBounds, progress)
+        // 目标 bounds（容器本地坐标，铺满 overlay 区域）
+        val targetBounds = if (containerBounds.width > 0f) {
+            Rect(0f, 0f, containerBounds.width, containerBounds.height)
+        } else localStart
+
+        // 插值当前 bounds：从卡片原位（本地坐标）到全屏
+        val current = lerpRect(localStart, targetBounds, progress)
 
         val widthDp = with(density) { current.width.toDp() }
         val heightDp = with(density) { current.height.toDp() }
