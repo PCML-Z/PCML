@@ -132,6 +132,16 @@ public final class Library {
     }
 
     /**
+     * 判断当前架构（或覆盖架构）是否为 RISC-V 64。
+     */
+    private static boolean isRiscV64() {
+        String override = ARCH_OVERRIDE.get();
+        String arch = (override != null && !override.isEmpty()
+                ? override : System.getProperty("os.arch", "")).toLowerCase();
+        return arch.contains("riscv64") || arch.contains("risc-v64") || arch.contains("rv64");
+    }
+
+    /**
      * 当前 OS 的 ARM64 native classifier（如 "natives-macos-arm64"）。
      */
     private static String arm64ClassifierForCurrentOs() {
@@ -173,6 +183,9 @@ public final class Library {
      * 龙芯 LoongArch64 策略：优先查找 natives-linux-loongarch64（社区移植版 LWJGL），
      * 若不存在则回退到 x86_64（需配合 LATX 二进制翻译运行 x86_64 Java）。
      * 龙芯 MIPS64el（旧 3A 系列）：无原生 native，直接使用 x86_64 + 二进制翻译。
+     * <p>
+     * RISC-V 64 策略：优先查找 natives-linux-riscv64（社区移植版 LWJGL），
+     * 若不存在则回退到 x86_64（需配合 QEMU 用户态翻译运行 x86_64 Java）。
      */
     public String getNativeClassifier() {
         if (natives == null) return null;
@@ -187,6 +200,15 @@ public final class Library {
                 return loongsonCls;
             }
             // 无原生 native，回退到 x86_64（需 LATX 二进制翻译 + x86_64 Java）
+        }
+
+        // RISC-V 64：优先使用社区移植的原生 native
+        if (isRiscV64()) {
+            String riscvCls = "natives-linux-riscv64";
+            if (classifiers.containsKey(riscvCls)) {
+                return riscvCls;
+            }
+            // 无原生 native，回退到 x86_64（需 QEMU 用户态翻译 + x86_64 Java）
         }
 
         // ARM64 架构：优先尝试 arm64 classifier（LWJGL 3.x 提供原生 arm64 支持）
@@ -270,6 +292,7 @@ public final class Library {
      * Linux ARM64: "natives-linux-arm64"
      * Linux LoongArch64（龙芯）: "natives-linux-loongarch64"
      * Linux MIPS64el（龙芯旧版）: 回退 "natives-linux"（依赖 LATX 二进制翻译）
+     * Linux RISC-V 64: "natives-linux-riscv64"
      */
     public static String currentNativeClassifier() {
         String os = System.getProperty("os.name", "").toLowerCase();
@@ -284,6 +307,10 @@ public final class Library {
         if (isLoongArch64()) {
             return "natives-linux-loongarch64";
         }
+        // Linux：RISC-V 64 优先使用原生 native（社区 LWJGL 移植版）
+        if (isRiscV64()) {
+            return "natives-linux-riscv64";
+        }
         return arm ? "natives-linux-arm64" : "natives-linux";
     }
 
@@ -293,6 +320,9 @@ public final class Library {
      * <p>
      * 龙芯平台特殊处理：LoongArch64 优先匹配 natives-linux-loongarch64，
      * 若无则也接受 natives-linux（x86_64 回退，依赖 LATX 翻译）。
+     * <p>
+     * RISC-V 平台特殊处理：优先匹配 natives-linux-riscv64，
+     * 若无则也接受 natives-linux（x86_64 回退，依赖 QEMU 用户态翻译）。
      */
     public boolean matchesCurrentNative() {
         if (nameClassifier == null) return false;
@@ -300,6 +330,11 @@ public final class Library {
         if (nameClassifier.equals(want)) return true;
         // 龙芯 LoongArch64 回退：也接受 natives-linux（x86_64 via LATX）
         if (isLoongArch64() && "natives-linux-loongarch64".equals(want)
+                && "natives-linux".equals(nameClassifier)) {
+            return true;
+        }
+        // RISC-V 64 回退：也接受 natives-linux（x86_64 via QEMU 用户态翻译）
+        if (isRiscV64() && "natives-linux-riscv64".equals(want)
                 && "natives-linux".equals(nameClassifier)) {
             return true;
         }

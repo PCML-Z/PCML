@@ -939,10 +939,21 @@ private fun JavaRuntimeCard(vm: LauncherViewModel, pref: com.pmcl.core.preferenc
 
             Spacer(Modifier.height(12.dp))
 
-            // 龙芯架构检测：Mojang 清单无龙芯 Java，禁用自动下载
+            // 龙芯/RISC-V 架构检测：Mojang 清单无对应 Java，禁用自动下载
             val isLoongson = com.pmcl.core.launch.JavaRuntimeFinder.isLoongson()
-            if (isLoongson) {
-                val loongArchName = if (com.pmcl.core.launch.JavaRuntimeFinder.isLoongArch64()) "LoongArch64" else "MIPS64el"
+            val isRiscV = com.pmcl.core.launch.JavaRuntimeFinder.isRiscV()
+            if (isLoongson || isRiscV) {
+                val archName = when {
+                    com.pmcl.core.launch.JavaRuntimeFinder.isLoongArch64() -> "LoongArch64"
+                    com.pmcl.core.launch.JavaRuntimeFinder.isMips64el() -> "MIPS64el"
+                    com.pmcl.core.launch.JavaRuntimeFinder.isRiscV64() -> "RISC-V 64"
+                    else -> "未知"
+                }
+                val (downloadUrl, downloadLabel) = when {
+                    isLoongson -> "https://www.loongnix.cn/zh/api/java/" to "前往龙芯开源社区"
+                    isRiscV -> "https://adoptium.net/temurin/releases/?version=17&arch=riscv64" to "前往 Adoptium"
+                    else -> "" to ""
+                }
                 Surface(
                     color = MaterialTheme.colorScheme.errorContainer,
                     shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
@@ -950,14 +961,14 @@ private fun JavaRuntimeCard(vm: LauncherViewModel, pref: com.pmcl.core.preferenc
                 ) {
                     Column(Modifier.padding(12.dp)) {
                         Text(
-                            "龙芯 $loongArchName 架构不支持自动下载 Java",
+                            "$archName 架构不支持自动下载 Java",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onErrorContainer,
                             fontWeight = FontWeight.SemiBold
                         )
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            "Mojang Java 运行时清单不包含龙芯架构。请从龙芯开源社区手动安装龙芯版 JDK，PMCL 会自动检测系统中的 Java。",
+                            "Mojang Java 运行时清单不包含 $archName 架构。请从对应开源社区手动安装 $archName 版 JDK，PMCL 会自动检测系统中的 Java。",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onErrorContainer
                         )
@@ -965,18 +976,17 @@ private fun JavaRuntimeCard(vm: LauncherViewModel, pref: com.pmcl.core.preferenc
                         OutlinedButton(
                             onClick = {
                                 try {
-                                    val url = "https://www.loongnix.cn/zh/api/java/"
                                     if (System.getProperty("os.name", "").lowercase().contains("linux")) {
-                                        Runtime.getRuntime().exec(arrayOf("xdg-open", url))
+                                        Runtime.getRuntime().exec(arrayOf("xdg-open", downloadUrl))
                                     } else {
-                                        java.awt.Desktop.getDesktop().browse(java.net.URI(url))
+                                        java.awt.Desktop.getDesktop().browse(java.net.URI(downloadUrl))
                                     }
                                 } catch (_: Throwable) {}
                             }
                         ) {
                             Icon(Icons.Filled.OpenInNew, null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text("前往龙芯开源社区")
+                            Text(downloadLabel)
                         }
                     }
                 }

@@ -115,6 +115,13 @@ public final class JavaRuntimeFinder {
             // 龙芯（MIPS64el，旧 3A 系列）常见路径
             candidates.add("/usr/lib/jvm/java-8-openjdk-mips64el");
             candidates.add("/opt/jdk8-mips64el");
+            // RISC-V 64 位常见 JDK 路径
+            candidates.add("/usr/lib/jvm/java-21-openjdk-riscv64");
+            candidates.add("/usr/lib/jvm/java-17-openjdk-riscv64");
+            candidates.add("/usr/lib/jvm/java-11-openjdk-riscv64");
+            candidates.add("/usr/lib/jvm/java-8-openjdk-riscv64");
+            candidates.add("/opt/jdk-riscv64");
+            candidates.add("/opt/riscv64-jdk");
         }
 
         // 从候选中按目标版本选最佳
@@ -261,6 +268,22 @@ public final class JavaRuntimeFinder {
      */
     public static boolean isLoongson() {
         return isLoongArch64() || isMips64el();
+    }
+
+    /**
+     * 判断当前系统是否为 RISC-V 64 位架构。
+     * 常见于 RVV 开发板（如 VisionFive 2）、SiFive、阿里平头哥 C910 等硬件。
+     */
+    public static boolean isRiscV64() {
+        String arch = System.getProperty("os.arch", "").toLowerCase();
+        return arch.contains("riscv64") || arch.contains("risc-v64") || arch.contains("rv64");
+    }
+
+    /**
+     * 判断当前系统是否为任意 RISC-V 架构（当前仅支持 64 位）。
+     */
+    public static boolean isRiscV() {
+        return isRiscV64();
     }
 
     /**

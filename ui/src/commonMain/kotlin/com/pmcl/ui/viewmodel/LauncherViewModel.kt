@@ -2282,6 +2282,49 @@ class LauncherViewModel {
                     }
                 }
 
+                // RISC-V 平台兼容性检测：native 库可能不完整，提示用户
+                if (JavaRuntimeFinder.isRiscV()) {
+                    val isOldVersion = requiredJavaVer in 1..10
+
+                    if (isOldVersion) {
+                        // 旧版本（LWJGL 2.x）：无原生 native，需 x86_64 + QEMU 用户态翻译
+                        _status.value = "兼容性提示：RISC-V 64"
+                        val options = mutableListOf<CompatOption>()
+
+                        // 选项1：仍尝试启动（可能因 native 库缺失而崩溃）
+                        options.add(CompatOption(
+                            title = "仍尝试启动",
+                            description = "RISC-V 64 上旧版本 Minecraft 的 LWJGL 2.x 原生库无 RISC-V 版本。\n" +
+                                    "若已安装 QEMU 用户态翻译 + x86_64 Java，native 库可通过翻译层运行。\n" +
+                                    "游戏可能崩溃或性能较差，请知悉风险。",
+                            action = { launchWithSpecificJava(versionId, javaExe, javaMajorVer, javaArch) }
+                        ))
+
+                        // 选项2：安装 RISC-V 版 JDK（打开 Adoptium）
+                        options.add(CompatOption(
+                            title = "前往 Adoptium 下载 RISC-V JDK",
+                            description = "打开浏览器访问 Adoptium，下载 RISC-V 64 版 JDK\n" +
+                                    "安装后 PMCL 会自动检测并使用",
+                            action = {
+                                try {
+                                    val url = "https://adoptium.net/temurin/releases/?version=17&arch=riscv64"
+                                    if (System.getProperty("os.name", "").lowercase().contains("linux")) {
+                                        Runtime.getRuntime().exec(arrayOf("xdg-open", url))
+                                    } else {
+                                        java.awt.Desktop.getDesktop().browse(java.net.URI(url))
+                                    }
+                                } catch (e: Throwable) {
+                                    _status.value = "无法打开浏览器: ${e.message}"
+                                }
+                            }
+                        ))
+
+                        _compatTitle.value = "RISC-V 64 兼容性提示"
+                        _compatOptions.value = options
+                        return@launch
+                    }
+                }
+
                 // Apple Silicon Mac 上旧版本 + arm64 Java 检测：native 库只有 x86_64，会加载失败
                 val isArchMismatch = requiredJavaVer in 1..10
                         && (javaArch.contains("aarch64") || javaArch.contains("arm64"))

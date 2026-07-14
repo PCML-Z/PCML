@@ -116,7 +116,7 @@ public final class JavaRuntimeDownloader {
             try {
                 String arch = resolveArch(type);
                 if (arch == null) {
-                    throw new RuntimeException("龙芯架构不支持自动下载 Java，请手动安装龙芯版 JDK");
+                    throw new RuntimeException("当前架构不支持自动下载 Java（Mojang 清单无对应包），请手动安装对应架构的 JDK");
                 }
                 Path runtimesDir = config.getRuntimesDir();
                 Path archDir = runtimesDir.resolve(arch);
@@ -187,12 +187,16 @@ public final class JavaRuntimeDownloader {
      * 只有 x86_64 版本，必须通过 Rosetta 2 运行 x86_64 Java 8。
      * 因此 Java 8 在 Apple Silicon 上强制下载 macos-amd64 版本。
      * <p>
-     * 龙芯（LoongArch64 / MIPS64el）架构在 Mojang 清单中不存在，
-     * 返回 null 表示无法自动下载，调用方应提示用户手动安装龙芯版 JDK。
+     * 龙芯（LoongArch64 / MIPS64el）与 RISC-V 64 架构在 Mojang 清单中不存在，
+     * 返回 null 表示无法自动下载，调用方应提示用户手动安装对应架构的 JDK。
      */
     private static String resolveArch(RuntimeType type) {
         // 龙芯架构：Mojang 清单无对应包，返回 null
         if (com.pmcl.core.launch.JavaRuntimeFinder.isLoongson()) {
+            return null;
+        }
+        // RISC-V 架构：Mojang 清单无对应包，返回 null
+        if (com.pmcl.core.launch.JavaRuntimeFinder.isRiscV()) {
             return null;
         }
         String arch = currentArch();
@@ -220,6 +224,10 @@ public final class JavaRuntimeDownloader {
             // 龙芯旧版 MIPS64el
             if (arch.contains("mips64el") || arch.contains("mips64")) {
                 return "linux-mips64el";
+            }
+            // RISC-V 64
+            if (arch.contains("riscv64") || arch.contains("risc-v64") || arch.contains("rv64")) {
+                return "linux-riscv64";
             }
             return arch.contains("aarch64") || arch.contains("arm64")
                     ? "linux-arm64" : "linux-x64";
