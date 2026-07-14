@@ -8,12 +8,14 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import com.pmcl.ui.animation.MotionTokens
 import androidx.compose.foundation.*
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -134,13 +136,22 @@ fun IdentityCard(
                         // ===== 展开布局 =====
                         // QR 码
                         if (qrBitmap != null) {
-                            Image(
-                                bitmap = qrBitmap,
-                                contentDescription = "好友二维码",
-                                modifier = Modifier.size(180.dp)
-                            )
+                            Surface(
+                                modifier = Modifier.size(200.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                color = Color.White,
+                                border = BorderStroke(2.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Image(
+                                        bitmap = qrBitmap,
+                                        contentDescription = "好友二维码",
+                                        modifier = Modifier.size(180.dp)
+                                    )
+                                }
+                            }
                         } else {
-                            Box(Modifier.size(180.dp), contentAlignment = Alignment.Center) {
+                            Box(Modifier.size(200.dp), contentAlignment = Alignment.Center) {
                                 Text("QR 生成中...",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f))
@@ -209,13 +220,22 @@ fun IdentityCard(
                         // ===== 收起布局 =====
                         // QR 码
                         if (qrBitmap != null) {
-                            Image(
-                                bitmap = qrBitmap,
-                                contentDescription = "好友二维码",
-                                modifier = Modifier.size(120.dp)
-                            )
+                            Surface(
+                                modifier = Modifier.size(140.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                color = Color.White,
+                                border = BorderStroke(2.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Image(
+                                        bitmap = qrBitmap,
+                                        contentDescription = "好友二维码",
+                                        modifier = Modifier.size(120.dp)
+                                    )
+                                }
+                            }
                         } else {
-                            Box(Modifier.size(120.dp), contentAlignment = Alignment.Center) {
+                            Box(Modifier.size(140.dp), contentAlignment = Alignment.Center) {
                                 Text("QR 生成中...",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f))
