@@ -60,7 +60,7 @@ fun FriendPage(vm: LauncherViewModel) {
 
     // 身份卡片状态
     var cardExpanded by remember { mutableStateOf(false) }
-    var bgImagePath by remember { mutableStateOf<String?>(null) }
+    var bgImagePath by remember { mutableStateOf(identityManager.backgroundPath) }
     val bgBitmap = remember(bgImagePath) {
         if (bgImagePath != null) {
             try {
@@ -81,6 +81,7 @@ fun FriendPage(vm: LauncherViewModel) {
         val result = chooser.showOpenDialog(null)
         if (result == JFileChooser.APPROVE_OPTION) {
             bgImagePath = chooser.selectedFile.absolutePath
+            identityManager.backgroundPath = chooser.selectedFile.absolutePath
         }
     }
 
@@ -111,7 +112,7 @@ fun FriendPage(vm: LauncherViewModel) {
 
             // 清除背景
             if (bgImagePath != null) {
-                IconButton(onClick = { bgImagePath = null }, modifier = Modifier.size(36.dp)) {
+                IconButton(onClick = { bgImagePath = null; identityManager.backgroundPath = null }, modifier = Modifier.size(36.dp)) {
                     Icon(Icons.Filled.HideImage, "清除背景",
                         modifier = Modifier.size(18.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant)

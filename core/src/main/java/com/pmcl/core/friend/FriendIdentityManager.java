@@ -37,6 +37,7 @@ public final class FriendIdentityManager {
     private final Path dataDir;
     private FriendIdentity identity;
     private String displayName;
+    private String backgroundPath;
     private byte[] qrCodeBytes;
 
     public FriendIdentityManager(Path dataDir) {
@@ -81,6 +82,17 @@ public final class FriendIdentityManager {
     /** 二维码 PNG 字节 */
     public byte[] getQrCodeBytes() {
         return qrCodeBytes;
+    }
+
+    /** 卡片背景图片路径（本地文件） */
+    public String getBackgroundPath() {
+        return backgroundPath;
+    }
+
+    /** 设置卡片背景图片路径并持久化 */
+    public void setBackgroundPath(String path) {
+        this.backgroundPath = path;
+        saveIdentity();
     }
 
     /** 分享文本：用于生成二维码，"pmcl-friend:" 协议 */
@@ -138,6 +150,7 @@ public final class FriendIdentityManager {
             }
             this.identity = FriendIdentity.parse(idStr);
             this.displayName = data.getOrDefault("name", System.getProperty("user.name", "Player"));
+            this.backgroundPath = data.getOrDefault("bg", null);
         } catch (Exception e) {
             generateNewIdentity();
         }
@@ -148,6 +161,9 @@ public final class FriendIdentityManager {
             Map<String, String> data = new LinkedHashMap<>();
             data.put("id", identity.toString());
             data.put("name", displayName);
+            if (backgroundPath != null && !backgroundPath.isEmpty()) {
+                data.put("bg", backgroundPath);
+            }
             String json = GSON.toJson(data);
             Files.writeString(dataDir.resolve("identity.json"), json, StandardCharsets.UTF_8);
         } catch (IOException e) {

@@ -69,7 +69,7 @@ fun IdentityCard(
                 // 半透明遮罩确保内容可读
                 Box(
                     Modifier.fillMaxSize()
-                        .background(Color.White.copy(alpha = 0.75f))
+                        .background(Color.White.copy(alpha = 0.4f))
                 )
             } else {
                 Box(
