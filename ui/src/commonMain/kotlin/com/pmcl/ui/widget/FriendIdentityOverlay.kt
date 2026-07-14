@@ -2,7 +2,6 @@ package com.pmcl.ui.widget
 
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -20,6 +19,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -63,7 +63,7 @@ fun IdentityCard(
     val slideEasing = MotionTokens.EasingEmphasized
 
     Card(
-        modifier = modifier.animateContentSize(tween(slideDuration, easing = slideEasing)),
+        modifier = modifier.clipToBounds(),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = Color.Transparent)
     ) {
@@ -88,31 +88,26 @@ fun IdentityCard(
                 )
             }
 
-            // 内容层：展开/收起时内容横向滑动切换
+            // 内容层：展开/收起时内容横向滑动切换（AnimatedContent 自带 SizeTransform 平滑过渡尺寸）
             AnimatedContent(
                 targetState = expanded,
                 transitionSpec = {
-                    val enter = slideInHorizontally(tween(slideDuration, easing = slideEasing)) { fullWidth -> fullWidth } +
-                        fadeIn(tween(slideDuration, easing = slideEasing))
-                    val exit = slideOutHorizontally(tween(slideDuration, easing = slideEasing)) { fullWidth -> -fullWidth } +
-                        fadeOut(tween(slideDuration, easing = slideEasing))
                     if (targetState) {
                         // 展开：新内容从右侧滑入，旧内容向左滑出
-                        enter togetherWith exit
+                        slideInHorizontally(tween(slideDuration, easing = slideEasing)) { fullWidth -> fullWidth } togetherWith
+                        slideOutHorizontally(tween(slideDuration, easing = slideEasing)) { fullWidth -> -fullWidth }
                     } else {
                         // 收起：新内容从左侧滑入，旧内容向右滑出
-                        slideInHorizontally(tween(slideDuration, easing = slideEasing)) { fullWidth -> -fullWidth } +
-                            fadeIn(tween(slideDuration, easing = slideEasing)) togetherWith
-                        slideOutHorizontally(tween(slideDuration, easing = slideEasing)) { fullWidth -> fullWidth } +
-                            fadeOut(tween(slideDuration, easing = slideEasing))
+                        slideInHorizontally(tween(slideDuration, easing = slideEasing)) { fullWidth -> -fullWidth } togetherWith
+                        slideOutHorizontally(tween(slideDuration, easing = slideEasing)) { fullWidth -> fullWidth }
                     }
                 },
                 contentKey = { it },
-                modifier = Modifier.fillMaxSize().padding(16.dp),
+                modifier = Modifier.padding(16.dp),
                 contentAlignment = Alignment.Center
             ) { isExpanded ->
                 Column(
-                    Modifier.fillMaxSize(),
+                    Modifier.fillMaxWidth().wrapContentHeight(),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
