@@ -26,6 +26,7 @@ import com.pmcl.ui.page.InstancesPage
 import com.pmcl.ui.page.LaunchPage
 import com.pmcl.ui.page.NbtEditorPage
 import com.pmcl.ui.page.MultiplayerPage
+import com.pmcl.ui.page.FriendPage
 import com.pmcl.ui.page.NewsPage
 import com.pmcl.ui.page.PluginPage
 import com.pmcl.ui.page.QuickLaunchPage
@@ -209,6 +210,7 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                             NavDestination.Launch      -> LaunchPage(vm)
                             NavDestination.News        -> NewsPage(vm)
                             NavDestination.Multiplayer -> MultiplayerPage(vm)
+                            NavDestination.Friends     -> FriendPage(vm)
                             NavDestination.Download    -> DownloadHubPage(vm)
                             NavDestination.Content     -> ContentHubPage(vm)
                             NavDestination.Saves       -> SavesHubPage(vm)

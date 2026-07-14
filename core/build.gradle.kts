@@ -20,6 +20,9 @@ dependencies {
     implementation(libs.oshi)
     // 日志
     implementation(libs.slf4j.simple)
+    // QR code generation
+    implementation(libs.zxing.core)
+    implementation(libs.zxing.javase)
 
     // 测试
     testImplementation(libs.junit.jupiter)

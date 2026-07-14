@@ -60,6 +60,7 @@ public final class I18n {
         ZH.put("nav.launch", "启动");
         ZH.put("nav.news", "新闻");
         ZH.put("nav.multiplayer", "联机");
+        ZH.put("nav.friends", "好友");
         ZH.put("nav.download", "下载");
         ZH.put("nav.content", "内容");
         ZH.put("nav.saves", "存档");
@@ -146,6 +147,7 @@ public final class I18n {
         ZH.put("search.nav.launch", "启动游戏、版本选择、模组加载器");
         ZH.put("search.nav.news", "查看 Minecraft 最新资讯");
         ZH.put("search.nav.multiplayer", "联机服务器列表");
+        ZH.put("search.nav.friends", "好友管理、聊天、添加好友");
         ZH.put("search.nav.download", "版本安装、模组市场、下载队列");
         ZH.put("search.nav.content", "模组、整合包、光影包、资源包、配置文件");
         ZH.put("search.nav.saves", "世界存档、截图管理");
@@ -563,6 +565,7 @@ public final class I18n {
         EN.put("nav.launch", "Launch");
         EN.put("nav.news", "News");
         EN.put("nav.multiplayer", "Multiplayer");
+        EN.put("nav.friends", "Friends");
         EN.put("nav.download", "Download");
         EN.put("nav.content", "Content");
         EN.put("nav.saves", "Saves");
@@ -646,6 +649,7 @@ public final class I18n {
         EN.put("search.nav.launch", "Launch game, version selection, mod loaders");
         EN.put("search.nav.news", "Latest Minecraft news");
         EN.put("search.nav.multiplayer", "Multiplayer server list");
+        EN.put("search.nav.friends", "Friend management, chat, add friends");
         EN.put("search.nav.download", "Version install, mod market, download queue");
         EN.put("search.nav.content", "Mods, modpacks, shaders, resource packs, configs");
         EN.put("search.nav.saves", "World saves, screenshots");
@@ -1042,6 +1046,7 @@ public final class I18n {
         JA.put("nav.launch", "起動");
         JA.put("nav.news", "ニュース");
         JA.put("nav.multiplayer", "マルチプレイ");
+        JA.put("nav.friends", "フレンド");
         JA.put("nav.download", "ダウンロード");
         JA.put("nav.content", "コンテンツ");
         JA.put("nav.saves", "セーブ");
@@ -1125,6 +1130,7 @@ public final class I18n {
         JA.put("search.nav.launch", "ゲーム起動、バージョン選択、Modローダー");
         JA.put("search.nav.news", "Minecraft最新ニュース");
         JA.put("search.nav.multiplayer", "マルチプレイサーバーリスト");
+        JA.put("search.nav.friends", "フレンド管理、チャット、フレンド追加");
         JA.put("search.nav.download", "バージョンインストール、Mod市場、ダウンロードキュー");
         JA.put("search.nav.content", "Mod、Modpack、シェーダー、リソースパック、設定");
         JA.put("search.nav.saves", "ワールドセーブ、スクリーンショット");

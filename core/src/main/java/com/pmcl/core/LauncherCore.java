@@ -13,6 +13,7 @@ import com.pmcl.core.mods.ModUpdateChecker;
 import com.pmcl.core.mods.ModDependencyResolver;
 import com.pmcl.core.modpack.ModpackManager;
 import com.pmcl.core.multiplayer.MultiplayerManager;
+import com.pmcl.core.friend.FriendManager;
 import com.pmcl.core.migration.MigrationManager;
 import com.pmcl.core.news.NewsClient;
 import com.pmcl.core.instance.InstanceManager;
@@ -78,6 +79,7 @@ public final class LauncherCore {
     private final SelfUpdater selfUpdater;
     private final NewsClient newsClient;
     private final MultiplayerManager multiplayerManager;
+    private final FriendManager friendManager;
     private final MigrationManager migrationManager;
     private final PluginManager pluginManager;
     private final TranslateClient translateClient;
@@ -130,6 +132,12 @@ public final class LauncherCore {
                 () -> new NewsClient(downloadManager.httpClient()));
         this.multiplayerManager = initOptional("MultiplayerManager",
                 () -> new MultiplayerManager());
+        this.friendManager = initOptional("FriendManager",
+                () -> {
+                    FriendManager fm = new FriendManager();
+                    fm.initialize();
+                    return fm;
+                });
         this.migrationManager = new MigrationManager(config.getWorkDir());
         this.pluginManager = initOptional("PluginManager",
                 () -> new PluginManager(this));
@@ -214,6 +222,7 @@ public final class LauncherCore {
     public TranslateClient translate() { return translateClient; }
 
     public MultiplayerManager multiplayer() { return multiplayerManager; }
+    public FriendManager friend() { return friendManager; }
 
     public MigrationManager migration() { return migrationManager; }
 
