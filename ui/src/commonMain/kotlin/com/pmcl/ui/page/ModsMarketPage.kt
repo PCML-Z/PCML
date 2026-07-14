@@ -90,7 +90,7 @@ fun ModsMarketPage(vm: LauncherViewModel) {
     var transitionStartBounds by remember { mutableStateOf<Rect?>(null) }
     var transitionTarget by remember { mutableStateOf(0f) }
     var transitionActive by remember { mutableStateOf(false) }
-    var detailVisible by remember { mutableStateOf(false) }
+    var detailOpened by remember { mutableStateOf(false) }
     val cardBoundsCache = remember { mutableStateMapOf<String, Rect>() }
 
     val expandProgress by animateFloatAsState(
@@ -98,25 +98,35 @@ fun ModsMarketPage(vm: LauncherViewModel) {
         animationSpec = tween(380, easing = MotionTokens.EasingEmphasizedDecelerate),
         finishedListener = { value ->
             if (value >= 0.99f) {
-                // 放大完成：打开详情页
-                transitionProject?.let { proj ->
-                    vm.openModDetail(proj)
-                    detailVisible = true
-                }
+                // 放大完成：overlay 消失，详情页已提前加载并淡入完成
                 transitionActive = false
             } else if (value <= 0.01f && transitionActive) {
                 // 缩回完成：关闭详情页
                 vm.closeModDetail()
-                detailVisible = false
+                detailOpened = false
                 transitionActive = false
             }
         }
     )
 
-    val detailAlpha by animateFloatAsState(
-        targetValue = if (detailVisible) 1f else 0f,
-        animationSpec = tween(200)
-    )
+    // 提前加载详情页数据（progress > 0.85），让详情页在 overlay 消失前就开始渲染
+    // 避免 overlay 消失瞬间详情页尚未加载导致的卡顿
+    LaunchedEffect(expandProgress, transitionActive, transitionTarget) {
+        if (transitionActive && transitionTarget > 0.5f && expandProgress > 0.85f && !detailOpened) {
+            transitionProject?.let { vm.openModDetail(it) }
+            detailOpened = true
+        }
+    }
+
+    // 详情页 alpha 直接跟随 expandProgress，与 overlay 淡出完美互补，消除交接间隙：
+    // 打开时 progress 0.85→1，alpha 0→1（overlay contentAlpha 同步 1→0）
+    // 关闭时 progress 1→0，alpha 1→0
+    val detailAlpha = when {
+        !detailOpened -> 0f
+        !transitionActive -> 1f
+        transitionTarget > 0.5f -> ((expandProgress - 0.85f) / 0.15f).coerceIn(0f, 1f)
+        else -> expandProgress.coerceIn(0f, 1f)
+    }
 
     val onCardClick: (ModProject) -> Unit = { project ->
         if (!transitionActive) {
@@ -129,7 +139,7 @@ fun ModsMarketPage(vm: LauncherViewModel) {
                 transitionActive = true
             } else {
                 vm.openModDetail(project)
-                detailVisible = true
+                detailOpened = true
             }
         }
     }
@@ -145,22 +155,22 @@ fun ModsMarketPage(vm: LauncherViewModel) {
                     transitionStartBounds = bounds
                     transitionTarget = 0f
                     transitionActive = true
-                    detailVisible = false
+                    // detailOpened 保持 true，关闭动画期间详情页淡出
                 } else {
                     vm.closeModDetail()
-                    detailVisible = false
+                    detailOpened = false
                 }
             } else {
                 vm.closeModDetail()
-                detailVisible = false
+                detailOpened = false
             }
         }
     }
 
     Box(Modifier.fillMaxSize()) {
         // 列表层在卡片放大动画期间应用高斯模糊（iOS 风格：背景逐渐模糊）
-        // 仅在列表可见时（详情页未打开）应用，避免对详情页产生双重模糊
-        val listBlurRadius = if (transitionActive && detailProject == null) (expandProgress * 24f).dp else 0.dp
+        // 降低到 14dp 平衡视觉效果与渲染性能
+        val listBlurRadius = if (transitionActive) (expandProgress * 14f).dp else 0.dp
         Column(
             Modifier
                 .fillMaxSize()
@@ -257,7 +267,8 @@ fun ModsMarketPage(vm: LauncherViewModel) {
                     val dp = detailProject
                     if (dp != null) {
                         // 详情页从模糊状态淡入到清晰，与 overlay 放大衔接避免硬切
-                        val detailBlurRadius = ((1f - detailAlpha) * 24f).dp
+                        // blur 跟随 expandProgress：打开时 14→0，关闭时 0→14
+                        val detailBlurRadius = if (transitionActive) ((1f - expandProgress) * 14f).dp else 0.dp
                         Column(
                             Modifier
                                 .fillMaxSize()
@@ -870,8 +881,9 @@ private fun CardExpandOverlay(
         // 圆角从 10dp 渐变到 0dp（放大到全屏时变成直角）
         val cornerRadius = lerpDp(10.dp, 0.dp, progress)
 
-        // 内容 alpha：progress < 0.65 时完全可见，之后淡出（为详情页淡入留出空间）
-        val contentAlpha = (1f - max(0f, (progress - 0.65f) / 0.35f)).coerceIn(0f, 1f)
+        // 内容 alpha：progress < 0.9 时完全可见，之后快速淡出
+        // 与详情页 alpha（progress 0.85→1 对应 0→1）完美互补，消除交接间隙
+        val contentAlpha = (1f - max(0f, (progress - 0.9f) / 0.1f)).coerceIn(0f, 1f)
 
         Surface(
             color = bgColor,
