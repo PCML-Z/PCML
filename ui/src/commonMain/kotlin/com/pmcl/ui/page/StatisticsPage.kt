@@ -188,55 +188,65 @@ private fun RealtimePerformanceCard() {
             Spacer(Modifier.height(12.dp))
 
             sample?.let { s ->
-                // ===== CPU 使用率 =====
-                PerformanceRow(
-                    icon = Icons.Filled.Speed,
-                    label = "CPU",
-                    valueText = "${"%.1f".format(s.cpuLoad * 100)}%",
-                    subText = "${s.cpuName}  ·  ${s.cpuPhysicalCores}P/${s.cpuLogicalCores}L 核",
-                    progress = s.cpuLoad.toFloat(),
-                    history = cpuHistory,
-                    color = Color(0xFF2196F3)
-                )
+                // ===== 左右两列布局：左列 CPU + JVM 堆，右列 系统内存 + 磁盘 =====
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    // ----- 左列 -----
+                    Column(Modifier.weight(1f)) {
+                        // CPU 使用率
+                        PerformanceRow(
+                            icon = Icons.Filled.Speed,
+                            label = "CPU",
+                            valueText = "${"%.1f".format(s.cpuLoad * 100)}%",
+                            subText = "${s.cpuName}  ·  ${s.cpuPhysicalCores}P/${s.cpuLogicalCores}L 核",
+                            progress = s.cpuLoad.toFloat(),
+                            history = cpuHistory,
+                            color = Color(0xFF2196F3)
+                        )
 
-                Spacer(Modifier.height(12.dp))
+                        Spacer(Modifier.height(16.dp))
 
-                // ===== 系统内存 =====
-                PerformanceRow(
-                    icon = Icons.Filled.Memory,
-                    label = "系统内存",
-                    valueText = "${"%.1f".format(s.memLoad * 100)}%",
-                    subText = "${((s.totalMemMb - s.availableMemMb) / 1024.0).format(1)} / ${(s.totalMemMb / 1024.0).format(1)} GB",
-                    progress = s.memLoad.toFloat(),
-                    history = memHistory,
-                    color = Color(0xFF4CAF50)
-                )
+                        // JVM 堆内存
+                        PerformanceRow(
+                            icon = Icons.Filled.DeveloperBoard,
+                            label = "JVM 堆",
+                            valueText = "${"%.1f".format(s.jvmHeapLoad * 100)}%",
+                            subText = "${s.jvmHeapUsedMb} / ${s.jvmHeapAllocatedMb} MB (上限 ${s.jvmHeapMaxMb} MB)  ·  ${s.threadCount} 线程",
+                            progress = s.jvmHeapLoad.toFloat(),
+                            history = jvmHistory,
+                            color = Color(0xFFFF9800)
+                        )
+                    }
 
-                Spacer(Modifier.height(12.dp))
+                    // ----- 右列 -----
+                    Column(Modifier.weight(1f)) {
+                        // 系统内存
+                        PerformanceRow(
+                            icon = Icons.Filled.Memory,
+                            label = "系统内存",
+                            valueText = "${"%.1f".format(s.memLoad * 100)}%",
+                            subText = "${((s.totalMemMb - s.availableMemMb) / 1024.0).format(1)} / ${(s.totalMemMb / 1024.0).format(1)} GB",
+                            progress = s.memLoad.toFloat(),
+                            history = memHistory,
+                            color = Color(0xFF4CAF50)
+                        )
 
-                // ===== JVM 堆内存 =====
-                PerformanceRow(
-                    icon = Icons.Filled.DeveloperBoard,
-                    label = "JVM 堆",
-                    valueText = "${"%.1f".format(s.jvmHeapLoad * 100)}%",
-                    subText = "${s.jvmHeapUsedMb} / ${s.jvmHeapAllocatedMb} MB (上限 ${s.jvmHeapMaxMb} MB)  ·  ${s.threadCount} 线程",
-                    progress = s.jvmHeapLoad.toFloat(),
-                    history = jvmHistory,
-                    color = Color(0xFFFF9800)
-                )
+                        Spacer(Modifier.height(16.dp))
 
-                Spacer(Modifier.height(12.dp))
-
-                // ===== 磁盘使用率 =====
-                PerformanceRow(
-                    icon = Icons.Filled.Storage,
-                    label = "磁盘",
-                    valueText = "${"%.1f".format(s.diskLoad * 100)}%",
-                    subText = "${"%.1f".format(s.diskUsedGb)} / ${"%.1f".format(s.diskTotalGb)} GB",
-                    progress = s.diskLoad.toFloat(),
-                    history = null,
-                    color = Color(0xFF9C27B0)
-                )
+                        // 磁盘使用率
+                        PerformanceRow(
+                            icon = Icons.Filled.Storage,
+                            label = "磁盘",
+                            valueText = "${"%.1f".format(s.diskLoad * 100)}%",
+                            subText = "${"%.1f".format(s.diskUsedGb)} / ${"%.1f".format(s.diskTotalGb)} GB",
+                            progress = s.diskLoad.toFloat(),
+                            history = null,
+                            color = Color(0xFF9C27B0)
+                        )
+                    }
+                }
             } ?: run {
                 Box(Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
@@ -275,7 +285,7 @@ private fun PerformanceRow(
                 Text(valueText, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = color)
             }
             Spacer(Modifier.height(2.dp))
-            Text(subText, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline, maxLines = 1)
+            Text(subText, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline, maxLines = 2)
             Spacer(Modifier.height(4.dp))
             // 进度条
             LinearProgressIndicator(
