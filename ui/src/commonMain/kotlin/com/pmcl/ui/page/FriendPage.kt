@@ -179,7 +179,10 @@ fun FriendPage(vm: LauncherViewModel) {
                     backgroundBitmap = bgBitmap,
                     onPickBackground = pickBackground,
                     modifier = Modifier
-                        .width(if (cardExpanded) 300.dp else 200.dp)
+                        .then(
+                            if (cardExpanded) Modifier.weight(1f)
+                            else Modifier.width(200.dp)
+                        )
                         .fillMaxHeight()
                 )
             }
@@ -275,7 +278,10 @@ fun FriendPage(vm: LauncherViewModel) {
                     backgroundBitmap = bgBitmap,
                     onPickBackground = pickBackground,
                     modifier = Modifier
-                        .width(if (cardExpanded) 300.dp else 200.dp)
+                        .then(
+                            if (cardExpanded) Modifier.weight(1f)
+                            else Modifier.width(200.dp)
+                        )
                         .fillMaxHeight()
                 )
             }

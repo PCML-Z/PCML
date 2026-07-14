@@ -153,54 +153,7 @@ fun IdentityCard(
                     overflow = TextOverflow.Ellipsis
                 )
 
-                if (expanded) {
-                    Spacer(Modifier.height(16.dp))
-
-                    // 展开额外信息
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f)
-                    ) {
-                        Column(Modifier.padding(12.dp)) {
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("P2P 加密聊天",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
-                                Text("基于联机网络",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f))
-                            }
-                            Spacer(Modifier.height(4.dp))
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("分享方式",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
-                                Text("入房自动发现",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f))
-                            }
-                        }
-                    }
-
-                    Spacer(Modifier.height(12.dp))
-
-                    // 分享文本
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f)
-                    ) {
-                        Text(
-                            identityManager.shareText,
-                            style = MaterialTheme.typography.labelSmall,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-
-                Spacer(Modifier.height(if (expanded) 16.dp else 10.dp))
+                Spacer(Modifier.height(if (expanded) 12.dp else 10.dp))
 
                 // 操作按钮
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
