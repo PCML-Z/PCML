@@ -85,23 +85,23 @@ fun IdentityCard(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = Color.Transparent)
     ) {
-        Box(Modifier.fillMaxSize()) {
-            // 背景层
+        Box(Modifier.wrapContentSize()) {
+            // 背景层（使用 matchParentSize 跟随 Box 实际尺寸，不影响测量）
             if (backgroundBitmap != null) {
                 Image(
                     bitmap = backgroundBitmap,
                     contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.matchParentSize(),
                     contentScale = ContentScale.Crop
                 )
                 // 半透明遮罩确保内容可读
                 Box(
-                    Modifier.fillMaxSize()
+                    Modifier.matchParentSize()
                         .background(Color.White.copy(alpha = 0.4f))
                 )
             } else {
                 Box(
-                    Modifier.fillMaxSize()
+                    Modifier.matchParentSize()
                         .background(MaterialTheme.colorScheme.surfaceVariant)
                 )
             }
