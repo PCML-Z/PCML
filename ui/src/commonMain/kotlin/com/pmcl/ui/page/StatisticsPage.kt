@@ -33,7 +33,7 @@ fun StatisticsPage(vm: LauncherViewModel) {
     val days by vm.statsDays.collectAsState()
 
     // 进入页面时刷新数据
-    LaunchedEffect(Unit) { vm.refreshPlayTimeStats() }
+    LaunchedEffect(Unit) { if (stats == null) vm.refreshPlayTimeStats() }
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),

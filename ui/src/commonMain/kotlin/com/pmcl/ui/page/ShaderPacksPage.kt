@@ -38,7 +38,7 @@ fun ShaderPacksPage(vm: LauncherViewModel) {
     var sortExpanded by remember { mutableStateOf(false) }
     var sortBy by remember { mutableStateOf(ShaderSort.NAME) }
 
-    LaunchedEffect(Unit) { vm.refreshShaderPacks() }
+    LaunchedEffect(Unit) { if (packs.isEmpty()) vm.refreshShaderPacks() }
 
     val filtered = remember(packs, query, sortBy) {
         var list = if (query.isBlank()) packs

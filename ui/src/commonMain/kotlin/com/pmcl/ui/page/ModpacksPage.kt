@@ -34,7 +34,7 @@ fun ModpacksPage(vm: LauncherViewModel) {
     var showImportDialog by remember { mutableStateOf(false) }
     var showExportDialog by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) { vm.refreshModpacks() }
+    LaunchedEffect(Unit) { if (modpacks.isEmpty()) vm.refreshModpacks() }
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         // 顶部操作栏

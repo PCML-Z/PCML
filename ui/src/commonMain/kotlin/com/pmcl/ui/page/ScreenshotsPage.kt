@@ -28,7 +28,7 @@ fun ScreenshotsPage(vm: LauncherViewModel) {
     val status by vm.status.collectAsState()
     val format = remember { SimpleDateFormat("yyyy-MM-dd HH:mm") }
 
-    LaunchedEffect(Unit) { vm.refreshScreenshots() }
+    LaunchedEffect(Unit) { if (shots.isEmpty()) vm.refreshScreenshots() }
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {

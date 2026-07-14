@@ -41,7 +41,7 @@ fun DatapacksPage(vm: LauncherViewModel) {
     var worldQuery by remember { mutableStateOf("") }
     var dpQuery by remember { mutableStateOf("") }
 
-    LaunchedEffect(Unit) { vm.refreshWorlds() }
+    LaunchedEffect(Unit) { if (worlds.isEmpty()) vm.refreshWorlds() }
 
     val filteredWorlds = remember(worlds, worldQuery) {
         if (worldQuery.isBlank()) worlds

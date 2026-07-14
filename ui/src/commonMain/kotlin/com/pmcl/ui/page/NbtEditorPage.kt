@@ -297,7 +297,9 @@ private fun NbtTreeNode(
     isRoot: Boolean,
     vm: LauncherViewModel,
     onAddChild: (NbtTag.CompoundTag) -> Unit,
-    onEditArray: (NbtTag) -> Unit
+    onEditArray: (NbtTag) -> Unit,
+    parent: NbtTag? = null,
+    parentKey: String? = null
 ) {
     // 搜索匹配判断
     val matchesSearch = searchQuery.isEmpty() || name.contains(searchQuery, ignoreCase = true)
@@ -314,8 +316,7 @@ private fun NbtTreeNode(
     var renameValue by remember { mutableStateOf(name) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
-    // 父引用（用于删除/重命名）
-    val parentRef = remember(tag, name) { findParent(vm.nbtRoot.value, tag, name) }
+    // 父引用直接通过参数传递（O(1)，原 findParent 递归搜索为 O(n²)）
 
     Column(modifier = Modifier.padding(start = (depth * 20).dp)) {
         Row(
@@ -349,10 +350,8 @@ private fun NbtTreeNode(
                 )
                 IconButton(onClick = {
                     if (renameValue.isNotBlank() && renameValue != name) {
-                        parentRef?.let { (parent, oldName) ->
-                            if (parent is NbtTag.CompoundTag) {
-                                vm.renameNbtChild(parent, oldName, renameValue)
-                            }
+                        if (parent is NbtTag.CompoundTag && parentKey != null) {
+                            vm.renameNbtChild(parent, parentKey, renameValue)
                         }
                     }
                     renameMode = false
@@ -477,7 +476,9 @@ private fun NbtTreeNode(
                                 isRoot = false,
                                 vm = vm,
                                 onAddChild = onAddChild,
-                                onEditArray = onEditArray
+                                onEditArray = onEditArray,
+                                parent = tag,
+                                parentKey = key
                             )
                         }
                     }
@@ -512,7 +513,9 @@ private fun NbtTreeNode(
                                     isRoot = false,
                                     vm = vm,
                                     onAddChild = onAddChild,
-                                    onEditArray = onEditArray
+                                    onEditArray = onEditArray,
+                                    parent = tag,
+                                    parentKey = "[$index]"
                                 )
                             }
                         }
@@ -530,12 +533,11 @@ private fun NbtTreeNode(
             text = { Text(I18n.t("nbt.confirm_delete_msg").format(name)) },
             confirmButton = {
                 TextButton(onClick = {
-                    parentRef?.let { (parent, oldName) ->
-                        if (parent is NbtTag.CompoundTag) vm.removeNbtChild(parent, oldName)
-                        else if (parent is NbtTag.ListTag) {
-                            val idx = oldName.removePrefix("[").removeSuffix("]").toIntOrNull()
-                            if (idx != null) vm.removeNbtListItem(parent, idx)
-                        }
+                    if (parent is NbtTag.CompoundTag && parentKey != null) {
+                        vm.removeNbtChild(parent, parentKey)
+                    } else if (parent is NbtTag.ListTag) {
+                        val idx = parentKey?.removePrefix("[")?.removeSuffix("]")?.toIntOrNull()
+                        if (idx != null) vm.removeNbtListItem(parent, idx)
                     }
                     showDeleteConfirm = false
                 }) { Text(I18n.t("nbt.delete"), color = MaterialTheme.colorScheme.error) }
@@ -820,28 +822,4 @@ private fun hasMatchingDescendant(tag: NbtTag, query: String): Boolean {
     }
 }
 
-/** 在 NBT 树中查找标签的父节点和键名/索引 */
-private fun findParent(root: NbtTag?, target: NbtTag, name: String): Pair<NbtTag, String>? {
-    if (root == null) return null
-    return findParentRecursive(root, target, name)
-}
-
-private fun findParentRecursive(current: NbtTag, target: NbtTag, name: String): Pair<NbtTag, String>? {
-    when (current) {
-        is NbtTag.CompoundTag -> {
-            for ((key, child) in current.getChildren()) {
-                if (child === target) return current to key
-                val found = findParentRecursive(child, target, child.getName().ifEmpty { key })
-                if (found != null) return found
-            }
-        }
-        is NbtTag.ListTag -> {
-            for ((index, item) in current.getItems().withIndex()) {
-                if (item === target) return current to "[$index]"
-                val found = findParentRecursive(item, target, item.getName().ifEmpty { "[$index]" })
-                if (found != null) return found
-            }
-        }
-    }
-    return null
-}
+// findParent/findParentRecursive 已删除：parent 和 parentKey 现在通过参数传递（O(1)）

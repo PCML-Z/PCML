@@ -58,26 +58,27 @@ fun <T> AnimatedPageSwitch(
         targetState = targetState,
         modifier = modifier,
         transitionSpec = {
+            val duration = 200 // 缩短至 200ms，避免新旧页面长时间同时渲染
             if (direction >= 0) {
                 // 前进：新页从右滑入，旧页向左滑出
                 slideIntoContainer(
                     towards = AnimatedContentTransitionScope.SlideDirection.Start,
-                    animationSpec = tween(MotionTokens.DURATION_LONG, easing = MotionTokens.EasingEmphasized)
-                ) + fadeIn(tween(MotionTokens.DURATION_LONG, delayMillis = 100)) togetherWith
+                    animationSpec = tween(duration, easing = MotionTokens.EasingEmphasized)
+                ) + fadeIn(tween(duration)) togetherWith
                         slideOutOfContainer(
                             towards = AnimatedContentTransitionScope.SlideDirection.Start,
-                            animationSpec = tween(MotionTokens.DURATION_LONG, easing = MotionTokens.EasingEmphasized)
-                        ) + fadeOut(tween(MotionTokens.DURATION_LONG / 2))
+                            animationSpec = tween(duration, easing = MotionTokens.EasingEmphasized)
+                        ) + fadeOut(tween(duration / 2))
             } else {
                 // 后退：新页从左滑入，旧页向右滑出
                 slideIntoContainer(
                     towards = AnimatedContentTransitionScope.SlideDirection.End,
-                    animationSpec = tween(MotionTokens.DURATION_LONG, easing = MotionTokens.EasingEmphasized)
-                ) + fadeIn(tween(MotionTokens.DURATION_LONG, delayMillis = 100)) togetherWith
+                    animationSpec = tween(duration, easing = MotionTokens.EasingEmphasized)
+                ) + fadeIn(tween(duration)) togetherWith
                         slideOutOfContainer(
                             towards = AnimatedContentTransitionScope.SlideDirection.End,
-                            animationSpec = tween(MotionTokens.DURATION_LONG, easing = MotionTokens.EasingEmphasized)
-                        ) + fadeOut(tween(MotionTokens.DURATION_LONG / 2))
+                            animationSpec = tween(duration, easing = MotionTokens.EasingEmphasized)
+                        ) + fadeOut(tween(duration / 2))
             }
         },
         label = "pageSwitch"

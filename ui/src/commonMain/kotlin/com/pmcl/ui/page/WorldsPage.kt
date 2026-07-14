@@ -47,7 +47,7 @@ fun WorldsPage(vm: LauncherViewModel) {
     var sortExpanded by remember { mutableStateOf(false) }
     var sortBy by remember { mutableStateOf(WorldSort.NAME) }
 
-    LaunchedEffect(Unit) { vm.refreshWorlds() }
+    LaunchedEffect(Unit) { if (worlds.isEmpty()) vm.refreshWorlds() }
 
     val sources = remember(worlds) {
         worlds.map { it.source ?: "未知" }.distinct().sorted()

@@ -45,15 +45,18 @@ fun ContentHubPage(vm: LauncherViewModel) {
     val configFiles by vm.configFiles.collectAsState()
 
     data class TabSpec(val label: String, val icon: ImageVector, val count: Int)
-    val tabs = remember(mods, shaders, resources, datapacks, modpacks, configFiles) {
-        listOf(
-            TabSpec(I18n.t("nav.mods"), Icons.Filled.Extension, mods.size),
-            TabSpec(I18n.t("nav.modpacks"), Icons.Filled.Inventory2, modpacks.size),
-            TabSpec(I18n.t("nav.shaders"), Icons.Filled.WbSunny, shaders.size),
-            TabSpec(I18n.t("nav.resourcepacks"), Icons.Filled.Palette, resources.size),
-            TabSpec(I18n.t("nav.datapacks"), Icons.Filled.Dataset, datapacks.size),
-            TabSpec(I18n.t("nav.configs"), Icons.Filled.Edit, configFiles.size)
-        )
+    // 用 derivedStateOf 只在 size 变化时才让 tabs 重组（而非任一流引用变化）
+    val tabs by remember {
+        derivedStateOf {
+            listOf(
+                TabSpec(I18n.t("nav.mods"), Icons.Filled.Extension, mods.size),
+                TabSpec(I18n.t("nav.modpacks"), Icons.Filled.Inventory2, modpacks.size),
+                TabSpec(I18n.t("nav.shaders"), Icons.Filled.WbSunny, shaders.size),
+                TabSpec(I18n.t("nav.resourcepacks"), Icons.Filled.Palette, resources.size),
+                TabSpec(I18n.t("nav.datapacks"), Icons.Filled.Dataset, datapacks.size),
+                TabSpec(I18n.t("nav.configs"), Icons.Filled.Edit, configFiles.size)
+            )
+        }
     }
 
     Column(Modifier.fillMaxSize()) {

@@ -79,7 +79,6 @@ fun LaunchPage(vm: LauncherViewModel) {
     val selected by vm.selectedVersion.collectAsState()
     val status by vm.status.collectAsState()
     val account by vm.account.collectAsState()
-    val gameLogs by vm.gameLogs.collectAsState()
     val gameRunning by vm.gameRunning.collectAsState()
     val installing by vm.installing.collectAsState()
     val installProgress by vm.installProgress.collectAsState()
@@ -831,7 +830,7 @@ fun LaunchPage(vm: LauncherViewModel) {
                 var copied by remember { mutableStateOf(false) }
                 TextButton(
                     onClick = {
-                        val text = gameLogs.joinToString("\n")
+                        val text = vm.gameLogs.value.joinToString("\n")
                         try {
                             val toolkit = java.awt.Toolkit.getDefaultToolkit()
                             val clipboard = toolkit.systemClipboard
@@ -839,7 +838,7 @@ fun LaunchPage(vm: LauncherViewModel) {
                             copied = true
                         } catch (_: Throwable) {}
                     },
-                    enabled = gameLogs.isNotEmpty(),
+                    enabled = vm.gameLogs.value.isNotEmpty(),
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(
                         horizontal = 8.dp, vertical = 0.dp
                     )
@@ -864,7 +863,7 @@ fun LaunchPage(vm: LauncherViewModel) {
                 var showExportDialog by remember { mutableStateOf(false) }
                 TextButton(
                     onClick = { showExportDialog = true },
-                    enabled = gameLogs.isNotEmpty(),
+                    enabled = vm.gameLogs.value.isNotEmpty(),
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(
                         horizontal = 8.dp, vertical = 0.dp
                     )
@@ -927,7 +926,7 @@ fun LaunchPage(vm: LauncherViewModel) {
                 // 分享到 pastebin
                 TextButton(
                     onClick = { vm.shareLogs() },
-                    enabled = gameLogs.isNotEmpty() && !logSharing,
+                    enabled = vm.gameLogs.value.isNotEmpty() && !logSharing,
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(
                         horizontal = 8.dp, vertical = 0.dp
                     )
@@ -1001,30 +1000,7 @@ fun LaunchPage(vm: LauncherViewModel) {
                 shape = RoundedCornerShape(8.dp),
                 modifier = Modifier.fillMaxWidth().heightIn(min = 300.dp)
             ) {
-                if (gameLogs.isEmpty()) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("（暂无日志）", color = MaterialTheme.colorScheme.outline)
-                    }
-                } else {
-                    val logListState = rememberLazyListState()
-                    // remember 缓存避免每次重组都创建新列表
-                    val displayedLogs = remember(gameLogs) { gameLogs.takeLast(500) }
-                    // 日志更新时滚动到底部（高频更新用 scrollToItem 避免 animate 互相取消导致卡顿）
-                    LaunchedEffect(displayedLogs.size) {
-                        if (displayedLogs.isNotEmpty()) {
-                            logListState.scrollToItem(displayedLogs.lastIndex)
-                        }
-                    }
-                    LazyColumn(
-                        modifier = Modifier.padding(8.dp),
-                        state = logListState
-                    ) {
-                        itemsIndexed(displayedLogs, key = { index, _ -> "log-$index" }) { _, line ->
-                            Text(line, style = MaterialTheme.typography.bodySmall,
-                                 fontFamily = FontFamily.Monospace)
-                        }
-                    }
-                }
+                GameLogPanel(vm)
             }
         }
     }
@@ -1907,6 +1883,36 @@ private fun AvatarImage(url: String) {
             modifier = Modifier.size(40.dp)
         ) {
             Icon(Icons.Filled.Star, "加载中", modifier = Modifier.padding(10.dp))
+        }
+    }
+}
+
+/**
+ * 游戏日志面板（独立 Composable，隔离 gameLogs 高频更新，避免触发整个 LaunchPage 重组）
+ */
+@Composable
+private fun GameLogPanel(vm: LauncherViewModel) {
+    val gameLogs by vm.gameLogs.collectAsState()
+    if (gameLogs.isEmpty()) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("（暂无日志）", color = MaterialTheme.colorScheme.outline)
+        }
+    } else {
+        val logListState = rememberLazyListState()
+        val displayedLogs = remember(gameLogs) { gameLogs.takeLast(500) }
+        LaunchedEffect(displayedLogs.size) {
+            if (displayedLogs.isNotEmpty()) {
+                logListState.scrollToItem(displayedLogs.lastIndex)
+            }
+        }
+        LazyColumn(
+            modifier = Modifier.padding(8.dp),
+            state = logListState
+        ) {
+            itemsIndexed(displayedLogs, key = { index, _ -> "log-$index" }) { _, line ->
+                Text(line, style = MaterialTheme.typography.bodySmall,
+                     fontFamily = FontFamily.Monospace)
+            }
         }
     }
 }

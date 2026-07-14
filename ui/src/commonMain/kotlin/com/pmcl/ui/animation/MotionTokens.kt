@@ -49,6 +49,6 @@ object MotionTokens {
  * 列表项交错动画的配置：每项延迟递增。
  */
 object StaggerTokens {
-    const val ITEM_DELAY_MS = 40            // 每项延迟
-    const val MAX_ITEMS_ANIMATED = 12       // 最多前 N 项有交错（之后立即显示，避免长列表等待）
+    const val ITEM_DELAY_MS = 30            // 每项延迟（降低以加快列表入场体感）
+    const val MAX_ITEMS_ANIMATED = 6        // 最多前 N 项有交错（之后立即显示，避免长列表等待）
 }

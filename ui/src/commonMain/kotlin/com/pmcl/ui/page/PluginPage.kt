@@ -35,12 +35,16 @@ fun PluginPage(vm: LauncherViewModel) {
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var showInstallDialog by remember { mutableStateOf(false) }
 
-    // Load plugins on startup
+    // Load plugins on startup（仅首次且在 IO 线程执行，避免主线程卡顿）
     LaunchedEffect(Unit) {
-        try {
-            pm.discoverAndLoadAll()
-        } catch (e: Throwable) {
-            // Non-fatal
+        if (plugins.isEmpty()) {
+            try {
+                withContext(Dispatchers.IO) {
+                    pm.discoverAndLoadAll()
+                }
+            } catch (e: Throwable) {
+                // Non-fatal
+            }
         }
         plugins = pm.getLoadedPlugins()
         revision = pm.getRevision()

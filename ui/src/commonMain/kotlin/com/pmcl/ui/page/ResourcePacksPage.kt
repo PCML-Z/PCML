@@ -35,7 +35,7 @@ fun ResourcePacksPage(vm: LauncherViewModel) {
     var sortExpanded by remember { mutableStateOf(false) }
     var sortBy by remember { mutableStateOf(ResourceSort.NAME) }
 
-    LaunchedEffect(Unit) { vm.refreshResourcePacks() }
+    LaunchedEffect(Unit) { if (packs.isEmpty()) vm.refreshResourcePacks() }
 
     val filtered = remember(packs, query, sortBy) {
         var list = if (query.isBlank()) packs
