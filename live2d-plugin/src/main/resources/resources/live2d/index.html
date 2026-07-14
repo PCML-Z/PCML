@@ -11,95 +11,150 @@
             overflow: hidden;
         }
         canvas { display: block; }
+        #status {
+            position: absolute;
+            top: 4px;
+            left: 4px;
+            font-size: 10px;
+            color: rgba(128,128,128,0.5);
+            font-family: monospace;
+            pointer-events: none;
+        }
     </style>
 </head>
 <body>
-<!-- PixiJS v6（pixi-live2d-display 要求 v6.x） -->
-<script src="https://cdn.jsdelivr.net/npm/pixi.js@6.5.10/dist/browser/pixi.min.js"></script>
-<!-- pixi-live2d-display：Live2D Cubism 2/3/4 的 Pixi 渲染器 -->
-<script src="https://cdn.jsdelivr.net/npm/pixi-live2d-display/dist/index.min.js"></script>
-<!-- Cubism 4 Core SDK（Cubism 4 模型需要） -->
+<div id="status">Loading...</div>
+
+<!-- 加载顺序很重要：Cubism Core → Live2D Framework → PixiJS → pixi-live2d-display -->
+
+<!-- Cubism 4 Core SDK（Cubism 4 模型需要，必须在 pixi-live2d-display 之前） -->
 <script src="https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js"></script>
-<!-- Cubism 2 Framework（Cubism 2 模型如 Shizuku 需要） -->
+
+<!-- Cubism 2 Framework（Cubism 2 模型如 Shizuku 需要，必须在 pixi-live2d-display 之前） -->
 <script src="https://cdn.jsdelivr.net/gh/dylanNew/live2d/webgl/Live2D/lib/live2d.min.js"></script>
 
+<!-- PixiJS v6（pixi-live2d-display 要求 v6.x） -->
+<script src="https://cdn.jsdelivr.net/npm/pixi.js@6.5.10/dist/browser/pixi.min.js"></script>
+
+<!-- pixi-live2d-display -->
+<script src="https://cdn.jsdelivr.net/npm/pixi-live2d-display@0.4.0/dist/index.min.js"></script>
+
 <script>
-// 注册 Ticker，让模型自动更新
-PIXI.live2d.Live2DModel.registerTicker(PIXI.Ticker);
-
-// 创建 Pixi 应用，透明背景，变量挂载到 window 供外部调用
-window.app = new PIXI.Application({
-    width: 300,
-    height: 400,
-    backgroundAlpha: 0,
-    antialias: true
-});
-document.body.appendChild(window.app.view);
-
-window.model = null;
-
-// 加载 Live2D 模型
-async function loadModel(url) {
-    try {
-        window.model = await PIXI.live2d.Live2DModel.from(url);
-        // 等比缩放，居中显示
-        const scale = Math.min(
-            window.app.renderer.width / window.model.width,
-            window.app.renderer.height / window.model.height
-        ) * 0.85;
-        window.model.scale.set(scale);
-        window.model.x = (window.app.renderer.width - window.model.width) / 2;
-        window.model.y = (window.app.renderer.height - window.model.height) / 2;
-        window.app.stage.addChild(window.model);
-    } catch (e) {
-        console.error('Failed to load Live2D model:', e);
-    }
+var statusEl = document.getElementById('status');
+function setStatus(msg) {
+    if (statusEl) statusEl.textContent = msg;
+    console.log('[Live2D] ' + msg);
 }
 
-// ===== 交互：鼠标跟随、点击动作、拖拽移动 =====
-// pixi-live2d-display 内置鼠标跟随（focus tracking），无需额外代码
+// 等待所有脚本加载完成后再初始化
+window.addEventListener('load', function() {
+    try {
+        setStatus('Checking PIXI...');
 
-let isDragging = false;
-let hasMoved = false;
-let lastX = 0;
-let lastY = 0;
-const DRAG_THRESHOLD = 3; // 像素，超过此距离判定为拖拽
+        if (typeof PIXI === 'undefined') {
+            setStatus('ERROR: PIXI not loaded');
+            return;
+        }
 
-window.app.view.addEventListener('mousedown', function(e) {
-    isDragging = true;
-    hasMoved = false;
-    lastX = e.screenX;
-    lastY = e.screenY;
-});
+        // 检测 WebGL 支持，不支持则回退到 Canvas 2D
+        var useWebGL = false;
+        try {
+            var testCanvas = document.createElement('canvas');
+            var gl = testCanvas.getContext('webgl') || testCanvas.getContext('experimental-webgl');
+            useWebGL = !!gl;
+        } catch (e) {
+            useWebGL = false;
+        }
+        setStatus('WebGL: ' + useWebGL);
 
-window.app.view.addEventListener('mousemove', function(e) {
-    if (isDragging && e.buttons === 1) {
-        var dx = e.screenX - lastX;
-        var dy = e.screenY - lastY;
-        if (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD) {
-            hasMoved = true;
-            if (window.dragBridge) {
-                window.dragBridge.drag(dx, dy);
-            }
+        // 注册 Ticker
+        if (PIXI.live2d && PIXI.live2d.Live2DModel) {
+            PIXI.live2d.Live2DModel.registerTicker(PIXI.Ticker);
+        } else {
+            setStatus('ERROR: Live2DModel not found');
+            return;
+        }
+
+        // 创建 Pixi 应用
+        // JavaFX WebView 的 WebGL 支持不稳定，优先使用 Canvas 2D renderer
+        var appOptions = {
+            width: 300,
+            height: 400,
+            backgroundAlpha: 0,
+            antialias: true,
+            forceCanvas: !useWebGL  // WebGL 不稳定时强制 Canvas 2D
+        };
+
+        setStatus('Creating PIXI app...');
+        window.app = new PIXI.Application(appOptions);
+        document.body.appendChild(window.app.view);
+        window.model = null;
+
+        setStatus('App ready, loading model...');
+
+        // 加载模型
+        var modelUrl = '__MODEL_URL__';
+        PIXI.live2d.Live2DModel.from(modelUrl).then(function(m) {
+            window.model = m;
+            // 等比缩放，居中显示
+            var scale = Math.min(
+                window.app.renderer.width / m.width,
+                window.app.renderer.height / m.height
+            ) * 0.85;
+            m.scale.set(scale);
+            m.x = (window.app.renderer.width - m.width) / 2;
+            m.y = (window.app.renderer.height - m.height) / 2;
+            window.app.stage.addChild(m);
+            setStatus('Model loaded');
+        }).catch(function(e) {
+            setStatus('ERROR: ' + e.message);
+            console.error('[Live2D] Model load failed:', e);
+        });
+
+        // ===== 交互：鼠标跟随、点击动作、拖拽移动 =====
+        var isDragging = false;
+        var hasMoved = false;
+        var lastX = 0;
+        var lastY = 0;
+        var DRAG_THRESHOLD = 3;
+
+        window.app.view.addEventListener('mousedown', function(e) {
+            isDragging = true;
+            hasMoved = false;
             lastX = e.screenX;
             lastY = e.screenY;
-        }
+        });
+
+        window.app.view.addEventListener('mousemove', function(e) {
+            if (isDragging && e.buttons === 1) {
+                var dx = e.screenX - lastX;
+                var dy = e.screenY - lastY;
+                if (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD) {
+                    hasMoved = true;
+                    if (window.dragBridge) {
+                        window.dragBridge.drag(dx, dy);
+                    }
+                    lastX = e.screenX;
+                    lastY = e.screenY;
+                }
+            }
+        });
+
+        window.app.view.addEventListener('mouseup', function(e) {
+            if (isDragging && !hasMoved && window.model) {
+                try { window.model.tap(); } catch(ex) {}
+            }
+            isDragging = false;
+            hasMoved = false;
+        });
+
+        window.app.view.addEventListener('selectstart', function(e) { e.preventDefault(); });
+
+    } catch (e) {
+        setStatus('FATAL: ' + e.message);
+        console.error('[Live2D] Fatal:', e);
     }
 });
-
-window.app.view.addEventListener('mouseup', function(e) {
-    if (isDragging && !hasMoved && window.model) {
-        window.model.tap();
-    }
-    isDragging = false;
-    hasMoved = false;
-});
-
-window.app.view.addEventListener('selectstart', function(e) { e.preventDefault(); });
-
-// 加载默认模型（由 Kotlin 端注入 URL）
-var modelUrl = '__MODEL_URL__';
-loadModel(modelUrl);
 </script>
 </body>
 </html>

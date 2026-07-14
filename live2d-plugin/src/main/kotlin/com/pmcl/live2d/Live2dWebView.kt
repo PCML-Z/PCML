@@ -55,21 +55,15 @@ object Live2dWebView {
 
         val engine = webView.getEngine()
         engine.setJavaScriptEnabled(true)
-        // 页面加载完成后强制设置透明背景
-        engine.documentProperty().addListener { _, _, doc ->
-            if (doc != null) {
-                try {
-                    engine.executeScript(
-                        "document.body.style.background='transparent';" +
-                        "document.documentElement.style.background='transparent';"
-                    )
-                } catch (_: Throwable) {}
-            }
-        }
 
         // 加载 HTML 内容（从插件资源读取，注入模型 URL）
         val html = loadHtml(modelUrl)
         engine.loadContent(html)
+
+        // 监听控制台输出，方便调试
+        engine.setOnError { event ->
+            System.err.println("[Live2D WebView Error] " + event.message)
+        }
 
         // 暴露拖拽桥接对象给 JavaScript（延迟注入，确保页面已加载）
         val bridge = object {
@@ -111,25 +105,30 @@ object Live2dWebView {
     /** 资源读取失败时的内联降级 HTML */
     private fun fallbackHtml(modelUrl: String): String = """
         <!DOCTYPE html><html><head><meta charset="UTF-8">
-        <style>*{margin:0;padding:0}html,body{background:transparent;overflow:hidden}</style>
+        <style>*{margin:0;padding:0}html,body{background:transparent;overflow:hidden}canvas{display:block}</style>
         </head><body>
-        <script src="https://cdn.jsdelivr.net/npm/pixi.js@6.5.10/dist/browser/pixi.min.js"></script>
-        <script src="https://cdn.jsdelivr.net/npm/pixi-live2d-display/dist/index.min.js"></script>
         <script src="https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/gh/dylanNew/live2d/webgl/Live2D/lib/live2d.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/pixi.js@6.5.10/dist/browser/pixi.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/pixi-live2d-display@0.4.0/dist/index.min.js"></script>
         <script>
-        PIXI.live2d.Live2DModel.registerTicker(PIXI.Ticker);
-        const app=new PIXI.Application({width:300,height:400,backgroundAlpha:0,antialias:true});
-        document.body.appendChild(app.view);
-        let model;
-        PIXI.live2d.Live2DModel.from("$modelUrl").then(m=>{
-            model=m;const s=Math.min(app.renderer.width/model.width,app.renderer.height/model.height)*0.9;
-            model.scale.set(s);model.x=(app.renderer.width-model.width)/2;model.y=(app.renderer.height-model.height)/2;
-            app.stage.addChild(model);
+        window.addEventListener('load',function(){
+            PIXI.live2d.Live2DModel.registerTicker(PIXI.Ticker);
+            var opts={width:300,height:400,backgroundAlpha:0,antialias:true,forceCanvas:true};
+            window.app=new PIXI.Application(opts);
+            document.body.appendChild(window.app.view);
+            window.model=null;
+            PIXI.live2d.Live2DModel.from("$modelUrl").then(function(m){
+                window.model=m;
+                var s=Math.min(app.renderer.width/m.width,app.renderer.height/m.height)*0.85;
+                m.scale.set(s);m.x=(app.renderer.width-m.width)/2;m.y=(app.renderer.height-m.height)/2;
+                window.app.stage.addChild(m);
+            }).catch(function(e){console.error(e);});
+            var dragging=false,moved=false,lx=0,ly=0;
+            window.app.view.addEventListener('mousedown',function(e){dragging=true;moved=false;lx=e.screenX;ly=e.screenY;});
+            window.app.view.addEventListener('mousemove',function(e){if(dragging&&e.buttons===1){var dx=e.screenX-lx,dy=e.screenY-ly;if(Math.abs(dx)>3||Math.abs(dy)>3){moved=true;if(window.dragBridge)window.dragBridge.drag(dx,dy);lx=e.screenX;ly=e.screenY;}}});
+            window.app.view.addEventListener('mouseup',function(e){if(dragging&&!moved&&window.model){try{window.model.tap();}catch(ex){}}dragging=false;moved=false;});
         });
-        let dragging=false,moved=false,lx=0,ly=0;
-        app.view.addEventListener('mousedown',e=>{dragging=true;moved=false;lx=e.screenX;ly=e.screenY;});
-        app.view.addEventListener('mousemove',e=>{if(dragging&&e.buttons===1){const dx=e.screenX-lx,dy=e.screenY-ly;if(Math.abs(dx)>2||Math.abs(dy)>2){moved=true;if(window.dragBridge)window.dragBridge.drag(dx,dy);lx=e.screenX;ly=e.screenY;}}});
-        app.view.addEventListener('mouseup',e=>{if(dragging&&!moved&&model)model.tap();dragging=false;moved=false;});
         </script>
         </body></html>
     """.trimIndent()
