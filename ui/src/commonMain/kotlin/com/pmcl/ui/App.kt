@@ -10,6 +10,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import com.pmcl.core.i18n.I18n
 import com.pmcl.core.plugin.PluginManager
 import com.pmcl.ui.animation.AnimatedPageSwitch
@@ -119,6 +120,7 @@ private fun MainWindowContent(vm: LauncherViewModel) {
 
     // Collect plugin-provided pages (refreshable via revision polling)
     var pluginPages by remember { mutableStateOf<List<PluginManager.RegisteredPage>>(emptyList()) }
+    var pluginOverlays by remember { mutableStateOf<List<PluginManager.RegisteredOverlay>>(emptyList()) }
     var lastRevision by remember { mutableStateOf(-1L) }
     LaunchedEffect(Unit) {
         // 延迟 1.5 秒加载插件，让首屏 UI 先完成渲染（插件加载涉及 JAR 读取+ClassLoader+反射，开销大）
@@ -129,6 +131,7 @@ private fun MainWindowContent(vm: LauncherViewModel) {
             // Non-fatal: plugins are optional
         }
         pluginPages = vm.core.plugins().getCustomPages()
+        pluginOverlays = vm.core.plugins().getCustomOverlays()
         lastRevision = vm.core.plugins().getRevision()
     }
     // Poll for plugin changes (install/uninstall/enable/disable via terminal)
@@ -139,6 +142,7 @@ private fun MainWindowContent(vm: LauncherViewModel) {
             if (rev != lastRevision) {
                 lastRevision = rev
                 pluginPages = vm.core.plugins().getCustomPages()
+                pluginOverlays = vm.core.plugins().getCustomOverlays()
             }
         }
     }
@@ -226,6 +230,18 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                 hostState = snackbarHostState,
                 modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp)
             )
+            // 插件注册的全局 overlay（如 Live2D 模型），按 zIndex 排序后叠加渲染
+            pluginOverlays.sortedBy { it.config.zIndex }.forEach { overlay ->
+                androidx.compose.runtime.key(overlay.pluginId + ":" + overlay.id) {
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .zIndex(overlay.config.zIndex.toFloat())
+                    ) {
+                        overlay.content.invoke()
+                    }
+                }
+            }
         }
     } // close Row
 

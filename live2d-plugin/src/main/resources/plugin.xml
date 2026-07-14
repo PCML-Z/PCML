@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<pmcl-plugin-package
+    xmlns="https://pmcl.dev/plugin"
+    format-version="1.0">
+
+    <info>
+        <id>live2d</id>
+        <name>Live2D Companion</name>
+        <version>1.0.0</version>
+        <author>PMCL</author>
+        <description>Displays a Live2D model in the bottom-right corner with mouse tracking, click interaction, and drag support</description>
+        <api-version>1.0</api-version>
+        <main-class>com.pmcl.live2d.Live2dPlugin</main-class>
+        <license>MIT</license>
+    </info>
+
+    <sources>
+        <kotlin>
+            <file path="src/kt/com/pmcl/live2d/Live2dPlugin.kt" main="true"/>
+            <file path="src/kt/com/pmcl/live2d/Live2dOverlay.kt"/>
+            <file path="src/kt/com/pmcl/live2d/Live2dWebView.kt"/>
+        </kotlin>
+    </sources>
+
+    <libraries>
+        <library path="lib/javafx-base-25-mac-aarch64.jar"/>
+        <library path="lib/javafx-graphics-25-mac-aarch64.jar"/>
+        <library path="lib/javafx-controls-25-mac-aarch64.jar"/>
+        <library path="lib/javafx-swing-25-mac-aarch64.jar"/>
+        <library path="lib/javafx-web-25-mac-aarch64.jar"/>
+    </libraries>
+
+    <versions>
+        <version number="1.0.0" date="2026-07-14" author="PMCL">
+            Initial release. Displays Live2D model overlay in the bottom-right
+            corner of the main window using JavaFX WebView + pixi-live2d-display.
+            Supports mouse tracking, click-triggered motions, and drag-to-move.
+        </version>
+    </versions>
+
+</pmcl-plugin-package>

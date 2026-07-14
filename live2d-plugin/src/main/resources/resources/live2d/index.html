@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        * { margin: 0; padding: 0; }
+        html, body {
+            width: 100%;
+            height: 100%;
+            background: transparent;
+            overflow: hidden;
+        }
+        canvas { display: block; }
+    </style>
+</head>
+<body>
+<!-- PixiJS v6（pixi-live2d-display 要求 v6.x） -->
+<script src="https://cdn.jsdelivr.net/npm/pixi.js@6.5.10/dist/browser/pixi.min.js"></script>
+<!-- pixi-live2d-display：Live2D Cubism 2/3/4 的 Pixi 渲染器 -->
+<script src="https://cdn.jsdelivr.net/npm/pixi-live2d-display/dist/index.min.js"></script>
+<!-- Cubism 4 Core SDK（Cubism 4 模型需要） -->
+<script src="https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js"></script>
+<!-- Cubism 2 Framework（Cubism 2 模型如 Shizuku 需要） -->
+<script src="https://cdn.jsdelivr.net/gh/dylanNew/live2d/webgl/Live2D/lib/live2d.min.js"></script>
+
+<script>
+// 注册 Ticker，让模型自动更新
+PIXI.live2d.Live2DModel.registerTicker(PIXI.Ticker);
+
+// 创建 Pixi 应用，透明背景
+const app = new PIXI.Application({
+    width: 300,
+    height: 400,
+    backgroundAlpha: 0,
+    antialias: true
+});
+document.body.appendChild(app.view);
+
+let model = null;
+
+// 加载 Live2D 模型
+async function loadModel(url) {
+    try {
+        model = await PIXI.live2d.Live2DModel.from(url);
+        // 等比缩放，居中显示
+        const scale = Math.min(
+            app.renderer.width / model.width,
+            app.renderer.height / model.height
+        ) * 0.85;
+        model.scale.set(scale);
+        model.x = (app.renderer.width - model.width) / 2;
+        model.y = (app.renderer.height - model.height) / 2;
+        app.stage.addChild(model);
+    } catch (e) {
+        console.error('Failed to load Live2D model:', e);
+    }
+}
+
+// ===== 交互：鼠标跟随、点击动作、拖拽移动 =====
+// pixi-live2d-display 内置鼠标跟随（focus tracking），无需额外代码
+
+let isDragging = false;
+let hasMoved = false;
+let lastX = 0;
+let lastY = 0;
+const DRAG_THRESHOLD = 3; // 像素，超过此距离判定为拖拽
+
+app.view.addEventListener('mousedown', function(e) {
+    isDragging = true;
+    hasMoved = false;
+    lastX = e.screenX;
+    lastY = e.screenY;
+});
+
+app.view.addEventListener('mousemove', function(e) {
+    if (isDragging && e.buttons === 1) {
+        var dx = e.screenX - lastX;
+        var dy = e.screenY - lastY;
+        if (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD) {
+            hasMoved = true;
+            // 通过 Java 桥接对象将拖拽增量传给 Kotlin
+            if (window.dragBridge) {
+                window.dragBridge.drag(dx, dy);
+            }
+            lastX = e.screenX;
+            lastY = e.screenY;
+        }
+    }
+});
+
+app.view.addEventListener('mouseup', function(e) {
+    if (isDragging && !hasMoved && model) {
+        // 点击（非拖拽）：触发随机动作/表情
+        model.tap();
+    }
+    isDragging = false;
+    hasMoved = false;
+});
+
+// 防止拖拽时选中文本
+app.view.addEventListener('selectstart', function(e) { e.preventDefault(); });
+
+// 加载默认模型（由 Kotlin 端注入 URL）
+var modelUrl = '__MODEL_URL__';
+loadModel(modelUrl);
+</script>
+</body>
+</html>
