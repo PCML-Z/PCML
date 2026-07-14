@@ -1,5 +1,14 @@
 package com.pmcl.ui.page
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -20,6 +29,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
@@ -30,6 +40,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
 import com.pmcl.core.market.ModProject
+import com.pmcl.ui.animation.MotionTokens
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -152,129 +163,170 @@ fun ModsMarketPage(vm: LauncherViewModel) {
 
         val installedModIds = remember(installedMods) { installedMods.map { it.getModId() }.toSet() }
 
-        when {
-            // 详情视图：点击卡片后进入
-            detailProject != null -> {
-                val dp = detailProject ?: return@Column
-                ModDetailView(
-                    project = dp,
-                    vm = vm,
-                    searchGameVersion = gameVersion,
-                    translateEnabled = translateEnabled,
-                    translationCache = translationCache,
-                    onBack = { vm.closeModDetail() }
-                )
-            }
-            // 搜索结果视图（用户主动搜索后）
-            results.isNotEmpty() -> {
-                Text("搜索结果（${results.size}）",
-                     style = MaterialTheme.typography.titleMedium,
-                     fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.height(8.dp))
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    items(results, key = { p -> p.getSource() + "/" + p.getId() }) { project ->
-                        SearchResultCard(
-                            project = project,
-                            vm = vm,
-                            searchGameVersion = gameVersion,
-                            installedModIds = installedModIds,
-                            translateEnabled = translateEnabled,
-                            translationCache = translationCache
-                        )
-                    }
-                }
-            }
-            // 分类推荐网格（用户选择分类标签后）
-            selectedCategory.isNotEmpty() -> {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("分类推荐：${categoryLabel(selectedCategory)}",
-                         style = MaterialTheme.typography.titleMedium,
-                         fontWeight = FontWeight.SemiBold,
-                         modifier = Modifier.weight(1f))
-                    if (categoryLoading) {
-                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                    } else {
-                        TextButton(onClick = {
-                            vm.loadCategoryMods(selectedCategory, gameVersion, loader)
-                        }) { Text("刷新") }
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-                if (categoryResults.isEmpty() && !categoryLoading) {
-                    Surface(
-                        color = MaterialTheme.colorScheme.surfaceVariant,
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.fillMaxWidth().weight(1f)
-                    ) {
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text("该分类下暂无模组，点击刷新重试",
-                                 color = MaterialTheme.colorScheme.outline)
-                        }
-                    }
+        // iOS 风格应用打开动画：点击卡片时详情页从小到大缩放展开，返回时缩收回退
+        val isInDetail = detailProject != null
+        AnimatedContent(
+            targetState = isInDetail,
+            modifier = Modifier.weight(1f).clipToBounds(),
+            transitionSpec = {
+                val duration = 380
+                if (targetState && !initialState) {
+                    // 打开详情：详情页从 0.82 缩放放大进入 + 轻微上滑 + 渐显
+                    // 列表页轻微放大到 1.08 + 快速淡出（模拟应用从图标位置展开覆盖）
+                    (scaleIn(initialScale = 0.82f,
+                            animationSpec = tween(duration, easing = MotionTokens.EasingEmphasizedDecelerate)) +
+                     fadeIn(tween(duration, delayMillis = 40)) +
+                     slideInVertically(
+                         animationSpec = tween(duration, easing = MotionTokens.EasingEmphasizedDecelerate),
+                         initialOffsetY = { it / 10 })) togetherWith
+                    (scaleOut(targetScale = 1.08f,
+                            animationSpec = tween(duration, easing = MotionTokens.EasingEmphasizedAccelerate)) +
+                     fadeOut(tween(duration / 2)))
                 } else {
-                    LazyVerticalGrid(
-                        columns = GridCells.Adaptive(220.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        itemsIndexed(categoryResults,
-                                key = { _, p -> p.getSource() + "/" + p.getId() }) { _, project ->
-                            PopularCard(
-                                project = project,
-                                onClick = { vm.openModDetail(project) },
+                    // 关闭详情：列表页从 1.05 缩放回归 + 渐显
+                    // 详情页缩放到 0.82 + 轻微下滑 + 渐隐（模拟应用缩回图标）
+                    (scaleIn(initialScale = 1.05f,
+                            animationSpec = tween(duration, easing = MotionTokens.EasingEmphasizedDecelerate)) +
+                     fadeIn(tween(duration / 2, delayMillis = 60))) togetherWith
+                    (scaleOut(targetScale = 0.82f,
+                            animationSpec = tween(duration, easing = MotionTokens.EasingEmphasizedAccelerate)) +
+                     fadeOut(tween(duration, delayMillis = 40)) +
+                     slideOutVertically(
+                         animationSpec = tween(duration, easing = MotionTokens.EasingEmphasizedAccelerate),
+                         targetOffsetY = { it / 10 }))
+                }
+            },
+            contentAlignment = Alignment.Center,
+            label = "modDetailTransition"
+        ) { inDetail ->
+            Column(Modifier.fillMaxSize()) {
+                when {
+                    // 详情视图：点击卡片后进入
+                    inDetail && detailProject != null -> {
+                        val dp = detailProject
+                        if (dp != null) {
+                            ModDetailView(
+                                project = dp,
+                                vm = vm,
+                                searchGameVersion = gameVersion,
                                 translateEnabled = translateEnabled,
-                                translationCache = translationCache
+                                translationCache = translationCache,
+                                onBack = { vm.closeModDetail() }
                             )
                         }
                     }
-                }
-            }
-            // 热门推荐网格（默认视图）
-            else -> {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("🔥 热门推荐",
-                         style = MaterialTheme.typography.titleMedium,
-                         fontWeight = FontWeight.SemiBold,
-                         modifier = Modifier.weight(1f))
-                    if (popularLoading) {
-                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                    } else {
-                        TextButton(onClick = { vm.loadPopularMods(gameVersion, loader) }) {
-                            Text("刷新")
+                    // 搜索结果视图（用户主动搜索后）
+                    results.isNotEmpty() -> {
+                        Text("搜索结果（${results.size}）",
+                             style = MaterialTheme.typography.titleMedium,
+                             fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.height(8.dp))
+                        LazyColumn(
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            items(results, key = { p -> p.getSource() + "/" + p.getId() }) { project ->
+                                SearchResultCard(
+                                    project = project,
+                                    vm = vm,
+                                    searchGameVersion = gameVersion,
+                                    installedModIds = installedModIds,
+                                    translateEnabled = translateEnabled,
+                                    translationCache = translationCache
+                                )
+                            }
                         }
                     }
-                }
-                Spacer(Modifier.height(8.dp))
-                if (popularMods.isEmpty() && !popularLoading) {
-                    Surface(
-                        color = MaterialTheme.colorScheme.surfaceVariant,
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.fillMaxWidth().weight(1f)
-                    ) {
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text("加载失败或无数据，点击刷新重试",
-                                 color = MaterialTheme.colorScheme.outline)
+                    // 分类推荐网格（用户选择分类标签后）
+                    selectedCategory.isNotEmpty() -> {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("分类推荐：${categoryLabel(selectedCategory)}",
+                                 style = MaterialTheme.typography.titleMedium,
+                                 fontWeight = FontWeight.SemiBold,
+                                 modifier = Modifier.weight(1f))
+                            if (categoryLoading) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            } else {
+                                TextButton(onClick = {
+                                    vm.loadCategoryMods(selectedCategory, gameVersion, loader)
+                                }) { Text("刷新") }
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        if (categoryResults.isEmpty() && !categoryLoading) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.fillMaxWidth().weight(1f)
+                            ) {
+                                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    Text("该分类下暂无模组，点击刷新重试",
+                                         color = MaterialTheme.colorScheme.outline)
+                                }
+                            }
+                        } else {
+                            LazyVerticalGrid(
+                                columns = GridCells.Adaptive(220.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                itemsIndexed(categoryResults,
+                                        key = { _, p -> p.getSource() + "/" + p.getId() }) { _, project ->
+                                    PopularCard(
+                                        project = project,
+                                        onClick = { vm.openModDetail(project) },
+                                        translateEnabled = translateEnabled,
+                                        translationCache = translationCache
+                                    )
+                                }
+                            }
                         }
                     }
-                } else {
-                    LazyVerticalGrid(
-                        columns = GridCells.Adaptive(220.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        itemsIndexed(popularMods,
-                                key = { _, p -> p.getSource() + "/" + p.getId() }) { _, project ->
-                            PopularCard(
-                                project = project,
-                                onClick = { vm.openModDetail(project) },
-                                translateEnabled = translateEnabled,
-                                translationCache = translationCache
-                            )
+                    // 热门推荐网格（默认视图）
+                    else -> {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("🔥 热门推荐",
+                                 style = MaterialTheme.typography.titleMedium,
+                                 fontWeight = FontWeight.SemiBold,
+                                 modifier = Modifier.weight(1f))
+                            if (popularLoading) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            } else {
+                                TextButton(onClick = { vm.loadPopularMods(gameVersion, loader) }) {
+                                    Text("刷新")
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        if (popularMods.isEmpty() && !popularLoading) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.fillMaxWidth().weight(1f)
+                            ) {
+                                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    Text("加载失败或无数据，点击刷新重试",
+                                         color = MaterialTheme.colorScheme.outline)
+                                }
+                            }
+                        } else {
+                            LazyVerticalGrid(
+                                columns = GridCells.Adaptive(220.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                itemsIndexed(popularMods,
+                                        key = { _, p -> p.getSource() + "/" + p.getId() }) { _, project ->
+                                    PopularCard(
+                                        project = project,
+                                        onClick = { vm.openModDetail(project) },
+                                        translateEnabled = translateEnabled,
+                                        translationCache = translationCache
+                                    )
+                                }
+                            }
                         }
                     }
                 }
