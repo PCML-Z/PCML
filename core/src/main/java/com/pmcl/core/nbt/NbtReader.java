@@ -1,5 +1,6 @@
 package com.pmcl.core.nbt;
 
+import java.io.BufferedInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -17,13 +18,21 @@ public final class NbtReader {
     private NbtReader() {}
 
     /**
-     * 读取 gzip 压缩的 NBT 文件（level.dat 标准格式）。
+     * 读取 NBT 文件，自动检测 gzip 压缩（魔数 0x1f 0x8b）。
+     * 兼容 gzip 压缩和未压缩的 NBT 文件。
      */
     public static NbtTag read(java.nio.file.Path file) throws IOException {
         try (InputStream fis = java.nio.file.Files.newInputStream(file);
-             GZIPInputStream gz = new GZIPInputStream(fis);
-             DataInputStream dis = new DataInputStream(gz)) {
-            return readRoot(dis);
+             BufferedInputStream bis = new BufferedInputStream(fis)) {
+            bis.mark(2);
+            int b1 = bis.read();
+            int b2 = bis.read();
+            bis.reset();
+            boolean gzipped = (b1 == 0x1f && b2 == 0x8b);
+            InputStream stream = gzipped ? new GZIPInputStream(bis) : bis;
+            try (DataInputStream dis = new DataInputStream(stream)) {
+                return readRoot(dis);
+            }
         }
     }
 

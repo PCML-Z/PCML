@@ -44,6 +44,55 @@ public abstract class NbtTag {
     /** 转为可读的字符串值（用于 UI 展示叶节点值） */
     public abstract String getValueString();
 
+    /** SNBT 字符串表示（用于导出/复制）。默认返回 getValueString()，子类按需覆写。 */
+    public String toSnbt() { return getValueString(); }
+
+    /** 根据类型 ID 获取类型名称（静态方法，用于 UI 类型选择器） */
+    public static String getTypeName(int type) {
+        switch (type) {
+            case TYPE_BYTE: return "Byte";
+            case TYPE_SHORT: return "Short";
+            case TYPE_INT: return "Int";
+            case TYPE_LONG: return "Long";
+            case TYPE_FLOAT: return "Float";
+            case TYPE_DOUBLE: return "Double";
+            case TYPE_BYTE_ARRAY: return "ByteArray";
+            case TYPE_STRING: return "String";
+            case TYPE_LIST: return "List";
+            case TYPE_COMPOUND: return "Compound";
+            case TYPE_INT_ARRAY: return "IntArray";
+            case TYPE_LONG_ARRAY: return "LongArray";
+            default: return "Unknown";
+        }
+    }
+
+    /** 所有可创建的标签类型 ID 列表（用于 UI 类型选择器） */
+    public static final int[] CREATABLE_TYPES = {
+            TYPE_BYTE, TYPE_SHORT, TYPE_INT, TYPE_LONG,
+            TYPE_FLOAT, TYPE_DOUBLE, TYPE_STRING,
+            TYPE_BYTE_ARRAY, TYPE_INT_ARRAY, TYPE_LONG_ARRAY,
+            TYPE_LIST, TYPE_COMPOUND
+    };
+
+    /** 创建指定类型的默认标签实例 */
+    public static NbtTag createDefault(int type) {
+        switch (type) {
+            case TYPE_BYTE: return new ByteTag((byte) 0);
+            case TYPE_SHORT: return new ShortTag((short) 0);
+            case TYPE_INT: return new IntTag(0);
+            case TYPE_LONG: return new LongTag(0L);
+            case TYPE_FLOAT: return new FloatTag(0f);
+            case TYPE_DOUBLE: return new DoubleTag(0d);
+            case TYPE_BYTE_ARRAY: return new ByteArrayTag(new byte[0]);
+            case TYPE_STRING: return new StringTag("");
+            case TYPE_LIST: return new ListTag();
+            case TYPE_COMPOUND: return new CompoundTag();
+            case TYPE_INT_ARRAY: return new IntArrayTag(new int[0]);
+            case TYPE_LONG_ARRAY: return new LongArrayTag(new long[0]);
+            default: throw new IllegalArgumentException("Unknown NBT type: " + type);
+        }
+    }
+
     // ===== 子类 =====
 
     /** TAG_Byte */
@@ -55,6 +104,7 @@ public abstract class NbtTag {
         @Override public int getType() { return TYPE_BYTE; }
         @Override public String getTypeName() { return "Byte"; }
         @Override public String getValueString() { return String.valueOf(value); }
+        @Override public String toSnbt() { return value + "b"; }
     }
 
     /** TAG_Short */
@@ -66,6 +116,7 @@ public abstract class NbtTag {
         @Override public int getType() { return TYPE_SHORT; }
         @Override public String getTypeName() { return "Short"; }
         @Override public String getValueString() { return String.valueOf(value); }
+        @Override public String toSnbt() { return value + "s"; }
     }
 
     /** TAG_Int */
@@ -99,6 +150,7 @@ public abstract class NbtTag {
         @Override public int getType() { return TYPE_FLOAT; }
         @Override public String getTypeName() { return "Float"; }
         @Override public String getValueString() { return String.valueOf(value) + "F"; }
+        @Override public String toSnbt() { return value + "f"; }
     }
 
     /** TAG_Double */
@@ -110,6 +162,7 @@ public abstract class NbtTag {
         @Override public int getType() { return TYPE_DOUBLE; }
         @Override public String getTypeName() { return "Double"; }
         @Override public String getValueString() { return String.valueOf(value) + "D"; }
+        @Override public String toSnbt() { return value + "d"; }
     }
 
     /** TAG_Byte_Array */
@@ -121,6 +174,14 @@ public abstract class NbtTag {
         @Override public int getType() { return TYPE_BYTE_ARRAY; }
         @Override public String getTypeName() { return "ByteArray"; }
         @Override public String getValueString() { return "[" + value.length + " bytes]"; }
+        @Override public String toSnbt() {
+            StringBuilder sb = new StringBuilder("[B;");
+            for (int i = 0; i < value.length; i++) {
+                if (i > 0) sb.append(",");
+                sb.append(value[i]);
+            }
+            return sb.append("]").toString();
+        }
     }
 
     /** TAG_String */
@@ -143,6 +204,14 @@ public abstract class NbtTag {
         @Override public int getType() { return TYPE_INT_ARRAY; }
         @Override public String getTypeName() { return "IntArray"; }
         @Override public String getValueString() { return "[" + value.length + " ints]"; }
+        @Override public String toSnbt() {
+            StringBuilder sb = new StringBuilder("[I;");
+            for (int i = 0; i < value.length; i++) {
+                if (i > 0) sb.append(",");
+                sb.append(value[i]);
+            }
+            return sb.append("]").toString();
+        }
     }
 
     /** TAG_Long_Array */
@@ -154,6 +223,14 @@ public abstract class NbtTag {
         @Override public int getType() { return TYPE_LONG_ARRAY; }
         @Override public String getTypeName() { return "LongArray"; }
         @Override public String getValueString() { return "[" + value.length + " longs]"; }
+        @Override public String toSnbt() {
+            StringBuilder sb = new StringBuilder("[L;");
+            for (int i = 0; i < value.length; i++) {
+                if (i > 0) sb.append(",");
+                sb.append(value[i]).append("L");
+            }
+            return sb.append("]").toString();
+        }
     }
 
     /**
@@ -174,6 +251,12 @@ public abstract class NbtTag {
             if (listType == TYPE_END) listType = tag.getType();
         }
 
+        /** 在指定位置插入元素 */
+        public void add(int index, NbtTag tag) {
+            items.add(index, tag);
+            if (listType == TYPE_END) listType = tag.getType();
+        }
+
         public void remove(int index) {
             if (index >= 0 && index < items.size()) items.remove(index);
         }
@@ -183,6 +266,14 @@ public abstract class NbtTag {
         @Override public int getType() { return TYPE_LIST; }
         @Override public String getTypeName() { return "List"; }
         @Override public String getValueString() { return "[" + items.size() + " items]"; }
+        @Override public String toSnbt() {
+            StringBuilder sb = new StringBuilder("[");
+            for (int i = 0; i < items.size(); i++) {
+                if (i > 0) sb.append(",");
+                sb.append(items.get(i).toSnbt());
+            }
+            return sb.append("]").toString();
+        }
     }
 
     /**
@@ -210,5 +301,15 @@ public abstract class NbtTag {
         @Override public int getType() { return TYPE_COMPOUND; }
         @Override public String getTypeName() { return "Compound"; }
         @Override public String getValueString() { return "{" + children.size() + " entries}"; }
+        @Override public String toSnbt() {
+            StringBuilder sb = new StringBuilder("{");
+            boolean first = true;
+            for (Map.Entry<String, NbtTag> e : children.entrySet()) {
+                if (!first) sb.append(",");
+                first = false;
+                sb.append(e.getKey()).append(":").append(e.getValue().toSnbt());
+            }
+            return sb.append("}").toString();
+        }
     }
 }

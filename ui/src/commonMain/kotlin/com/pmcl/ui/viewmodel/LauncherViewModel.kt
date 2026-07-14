@@ -198,6 +198,9 @@ class LauncherViewModel {
     val nbtDirty: StateFlow<Boolean> = _nbtDirty.asStateFlow()
     private val _nbtError = MutableStateFlow<String?>(null)
     val nbtError: StateFlow<String?> = _nbtError.asStateFlow()
+    /** 修订计数器：每次树结构修改时递增，强制 Compose 重组（解决同引用 StateFlow 不刷新问题） */
+    private val _nbtRevision = MutableStateFlow(0)
+    val nbtRevision: StateFlow<Int> = _nbtRevision.asStateFlow()
 
     // ===== 下载队列 =====
     private val _queueTasks = MutableStateFlow<List<DownloadQueueManager.QueueTask>>(emptyList())
@@ -1569,7 +1572,7 @@ class LauncherViewModel {
 
     // ===== NBT 编辑器方法 =====
 
-    /** 打开 NBT 文件（gzip 压缩，如 level.dat） */
+    /** 打开 NBT 文件（自动检测 gzip 压缩，如 level.dat） */
     fun openNbtFile(path: String) {
         scope.launch {
             _nbtError.value = null
@@ -1580,6 +1583,7 @@ class LauncherViewModel {
                 _nbtRoot.value = tag
                 _nbtFilePath.value = path
                 _nbtDirty.value = false
+                _nbtRevision.value++
                 _status.value = "已加载: $path"
             } catch (e: Throwable) {
                 _nbtError.value = "读取 NBT 失败: ${e.message}"
@@ -1588,7 +1592,7 @@ class LauncherViewModel {
         }
     }
 
-    /** 保存 NBT 到当前文件 */
+    /** 保存 NBT 到当前文件（保存前自动创建 .bak 备份） */
     fun saveNbtFile() {
         val root = _nbtRoot.value ?: return
         val path = _nbtFilePath.value ?: return
@@ -1596,7 +1600,13 @@ class LauncherViewModel {
             _nbtError.value = null
             try {
                 withContext(Dispatchers.IO) {
-                    NbtWriter.write(root, java.nio.file.Paths.get(path))
+                    val file = java.nio.file.Paths.get(path)
+                    // 保存前备份
+                    if (java.nio.file.Files.exists(file)) {
+                        val bak = file.resolveSibling(file.fileName.toString() + ".bak")
+                        java.nio.file.Files.copy(file, bak, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+                    }
+                    NbtWriter.write(root, file)
                 }
                 _nbtDirty.value = false
                 _status.value = "已保存: $path"
@@ -1607,10 +1617,29 @@ class LauncherViewModel {
         }
     }
 
-    /** 更新 NBT 树中某个节点的值（标记为 dirty） */
+    /** 另存为指定路径 */
+    fun saveNbtFileAs(targetPath: String) {
+        val root = _nbtRoot.value ?: return
+        scope.launch {
+            _nbtError.value = null
+            try {
+                withContext(Dispatchers.IO) {
+                    NbtWriter.write(root, java.nio.file.Paths.get(targetPath))
+                }
+                _nbtFilePath.value = targetPath
+                _nbtDirty.value = false
+                _status.value = "已保存: $targetPath"
+            } catch (e: Throwable) {
+                _nbtError.value = "保存 NBT 失败: ${e.message}"
+                _status.value = "保存 NBT 失败: ${e.message}"
+            }
+        }
+    }
+
+    /** 标记 NBT 树已修改，触发 UI 重组 */
     fun updateNbtValue() {
         _nbtDirty.value = true
-        _nbtRoot.value = _nbtRoot.value // 触发 StateFlow 更新
+        _nbtRevision.value++
     }
 
     /** 关闭当前 NBT 文件 */
@@ -1619,6 +1648,152 @@ class LauncherViewModel {
         _nbtFilePath.value = null
         _nbtDirty.value = false
         _nbtError.value = null
+        _nbtRevision.value++
+    }
+
+    // ===== 树结构编辑 =====
+
+    /** 向 Compound 添加子标签 */
+    fun addNbtChild(parent: NbtTag.CompoundTag, name: String, type: Int) {
+        if (parent.contains(name)) return
+        parent.put(name, NbtTag.createDefault(type))
+        updateNbtValue()
+    }
+
+    /** 从 Compound 删除子标签 */
+    fun removeNbtChild(parent: NbtTag.CompoundTag, name: String) {
+        parent.remove(name)
+        updateNbtValue()
+    }
+
+    /** 重命名 Compound 子标签 */
+    fun renameNbtChild(parent: NbtTag.CompoundTag, oldName: String, newName: String) {
+        if (oldName == newName || parent.contains(newName)) return
+        val tag = parent.get(oldName) ?: return
+        parent.remove(oldName)
+        parent.put(newName, tag)
+        updateNbtValue()
+    }
+
+    /** 向 List 添加元素（使用 listType 创建默认值） */
+    fun addNbtListItem(list: NbtTag.ListTag) {
+        val type = if (list.getListType() == NbtTag.TYPE_END) NbtTag.TYPE_COMPOUND else list.getListType()
+        list.add(NbtTag.createDefault(type))
+        updateNbtValue()
+    }
+
+    /** 删除 List 元素 */
+    fun removeNbtListItem(list: NbtTag.ListTag, index: Int) {
+        list.remove(index)
+        updateNbtValue()
+    }
+
+    /** 移动 List 元素（up=true 上移，up=false 下移） */
+    fun moveNbtListItem(list: NbtTag.ListTag, index: Int, up: Boolean) {
+        val target = if (up) index - 1 else index + 1
+        if (target < 0 || target >= list.size()) return
+        val item = list.getItems()[index]
+        list.remove(index)
+        list.add(target, item)
+        updateNbtValue()
+    }
+
+    // ===== 数组编辑 =====
+
+    /** 设置数组元素值 */
+    fun setNbtArrayElement(array: NbtTag, index: Int, value: String): Boolean {
+        try {
+            when (array) {
+                is NbtTag.ByteArrayTag -> {
+                    val arr = array.getValue()
+                    if (index < 0 || index >= arr.size) return false
+                    arr[index] = value.toByte()
+                }
+                is NbtTag.IntArrayTag -> {
+                    val arr = array.getValue()
+                    if (index < 0 || index >= arr.size) return false
+                    arr[index] = value.toInt()
+                }
+                is NbtTag.LongArrayTag -> {
+                    val arr = array.getValue()
+                    if (index < 0 || index >= arr.size) return false
+                    arr[index] = value.toLong()
+                }
+                else -> return false
+            }
+            updateNbtValue()
+            return true
+        } catch (_: NumberFormatException) {
+            return false
+        }
+    }
+
+    /** 添加数组元素 */
+    fun addNbtArrayElement(array: NbtTag, value: String): Boolean {
+        try {
+            when (array) {
+                is NbtTag.ByteArrayTag -> {
+                    val old = array.getValue()
+                    val newArr = java.util.Arrays.copyOf(old, old.size + 1)
+                    newArr[old.size] = value.toByte()
+                    array.setValue(newArr)
+                }
+                is NbtTag.IntArrayTag -> {
+                    val old = array.getValue()
+                    val newArr = java.util.Arrays.copyOf(old, old.size + 1)
+                    newArr[old.size] = value.toInt()
+                    array.setValue(newArr)
+                }
+                is NbtTag.LongArrayTag -> {
+                    val old = array.getValue()
+                    val newArr = java.util.Arrays.copyOf(old, old.size + 1)
+                    newArr[old.size] = value.toLong()
+                    array.setValue(newArr)
+                }
+                else -> return false
+            }
+            updateNbtValue()
+            return true
+        } catch (_: NumberFormatException) {
+            return false
+        }
+    }
+
+    /** 删除数组元素 */
+    fun removeNbtArrayElement(array: NbtTag, index: Int) {
+        when (array) {
+            is NbtTag.ByteArrayTag -> {
+                val old = array.getValue()
+                if (index < 0 || index >= old.size) return
+                val newArr = java.util.Arrays.copyOf(old, old.size - 1)
+                var j = 0
+                for (i in old.indices) { if (i != index) newArr[j++] = old[i] }
+                array.setValue(newArr)
+            }
+            is NbtTag.IntArrayTag -> {
+                val old = array.getValue()
+                if (index < 0 || index >= old.size) return
+                val newArr = java.util.Arrays.copyOf(old, old.size - 1)
+                var j = 0
+                for (i in old.indices) { if (i != index) newArr[j++] = old[i] }
+                array.setValue(newArr)
+            }
+            is NbtTag.LongArrayTag -> {
+                val old = array.getValue()
+                if (index < 0 || index >= old.size) return
+                val newArr = java.util.Arrays.copyOf(old, old.size - 1)
+                var j = 0
+                for (i in old.indices) { if (i != index) newArr[j++] = old[i] }
+                array.setValue(newArr)
+            }
+            else -> return
+        }
+        updateNbtValue()
+    }
+
+    /** 导出 NBT 为 SNBT 字符串 */
+    fun exportNbtSnbt(): String {
+        return _nbtRoot.value?.toSnbt() ?: ""
     }
 
     /** 删除整合包实例 */
