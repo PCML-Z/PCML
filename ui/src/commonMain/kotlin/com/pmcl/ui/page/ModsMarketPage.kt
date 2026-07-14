@@ -22,6 +22,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.lerp as lerpRect
@@ -157,7 +158,15 @@ fun ModsMarketPage(vm: LauncherViewModel) {
     }
 
     Box(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().padding(16.dp)) {
+        // 列表层在卡片放大动画期间应用高斯模糊（iOS 风格：背景逐渐模糊）
+        // 仅在列表可见时（详情页未打开）应用，避免对详情页产生双重模糊
+        val listBlurRadius = if (transitionActive && detailProject == null) (expandProgress * 24f).dp else 0.dp
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(16.dp)
+                .blur(listBlurRadius)
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("模组市场", style = MaterialTheme.typography.headlineSmall,
                      fontWeight = FontWeight.Bold)
@@ -247,7 +256,14 @@ fun ModsMarketPage(vm: LauncherViewModel) {
                 detailProject != null -> {
                     val dp = detailProject
                     if (dp != null) {
-                        Column(Modifier.fillMaxSize().alpha(detailAlpha)) {
+                        // 详情页从模糊状态淡入到清晰，与 overlay 放大衔接避免硬切
+                        val detailBlurRadius = ((1f - detailAlpha) * 24f).dp
+                        Column(
+                            Modifier
+                                .fillMaxSize()
+                                .alpha(detailAlpha)
+                                .blur(detailBlurRadius)
+                        ) {
                             ModDetailView(
                                 project = dp,
                                 vm = vm,
