@@ -16,8 +16,11 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Gavel
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -355,6 +358,8 @@ fun SettingsPage(vm: LauncherViewModel) {
 @Composable
 private fun AboutCard(vm: LauncherViewModel) {
     var showLicenseDialog by remember { mutableStateOf(false) }
+    var showAgreementDialog by remember { mutableStateOf(false) }
+    var showDisclaimerDialog by remember { mutableStateOf(false) }
 
     Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) {
         Column(Modifier.padding(16.dp)) {
@@ -422,6 +427,16 @@ private fun AboutCard(vm: LauncherViewModel) {
                     Spacer(Modifier.width(4.dp))
                     Text("查看许可证")
                 }
+                OutlinedButton(onClick = { showAgreementDialog = true }) {
+                    Icon(Icons.Filled.Gavel, null, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("用户协议")
+                }
+                OutlinedButton(onClick = { showDisclaimerDialog = true }) {
+                    Icon(Icons.Filled.Shield, null, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("免责协议")
+                }
                 OutlinedButton(onClick = {
                     try { com.pmcl.core.web.WikiBrowser.open("https://github.com/EasyTier/EasyTier") } catch (_: Throwable) {}
                 }) { Text("EasyTier 项目") }
@@ -441,6 +456,20 @@ private fun AboutCard(vm: LauncherViewModel) {
 
     if (showLicenseDialog) {
         LicenseViewerDialog(onDismiss = { showLicenseDialog = false })
+    }
+    if (showAgreementDialog) {
+        DocumentViewerDialog(
+            title = "PMCL 用户协议",
+            resourceName = "USER_AGREEMENT.txt",
+            onDismiss = { showAgreementDialog = false }
+        )
+    }
+    if (showDisclaimerDialog) {
+        DocumentViewerDialog(
+            title = "PMCL 免责协议",
+            resourceName = "DISCLAIMER.txt",
+            onDismiss = { showDisclaimerDialog = false }
+        )
     }
 }
 
@@ -1168,6 +1197,80 @@ private fun LicenseViewerDialog(onDismiss: () -> Unit) {
                         "此为中文权威版本。",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.outline
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("关闭") }
+        }
+    )
+}
+
+/**
+ * 通用文档查看器对话框:从 JAR 资源加载文本并展示,支持滚动阅读和复制全文。
+ * 用于《用户协议》《免责协议》等单语言文档。
+ */
+@Composable
+private fun DocumentViewerDialog(
+    title: String,
+    resourceName: String,
+    onDismiss: () -> Unit
+) {
+    val clipboardManager = LocalClipboardManager.current
+
+    val docText by remember(resourceName) {
+        mutableStateOf(
+            runCatching {
+                Thread.currentThread().contextClassLoader
+                    ?.getResourceAsStream(resourceName)
+                    ?.bufferedReader()
+                    ?.use { it.readText() }
+                    ?: "文档未找到:$resourceName"
+            }.getOrElse { "加载失败:${it.message}" }
+        )
+    }
+
+    val scrollState = rememberScrollState()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.Description, null, Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(title)
+            }
+        },
+        text = {
+            Column(Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = {
+                        clipboardManager.setText(AnnotatedString(docText))
+                    }) {
+                        Icon(Icons.Filled.ContentCopy, null, Modifier.size(14.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("复制全文")
+                    }
+                }
+
+                Spacer(Modifier.height(4.dp))
+
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth().height(440.dp)
+                ) {
+                    Text(
+                        text = docText,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier
+                            .verticalScroll(scrollState)
+                            .padding(12.dp)
                     )
                 }
             }
