@@ -18,6 +18,7 @@ import com.pmcl.ui.animation.SlideInFromStart
 import com.pmcl.ui.navigation.NavDestination
 import com.pmcl.ui.navigation.allDestinations
 import com.pmcl.ui.page.AccountsPage
+import com.pmcl.ui.page.AgreementGatePage
 import com.pmcl.ui.page.ContentHubPage
 import com.pmcl.ui.page.DownloadHubPage
 import com.pmcl.ui.page.InstancesPage
@@ -75,9 +76,13 @@ fun App(vm: LauncherViewModel) {
     ) {
         CompositionLocalProvider(LocalThemeState provides themeState) {
             Surface(modifier = Modifier.fillMaxSize()) {
+                val agreementAccepted by vm.agreementAccepted.collectAsState()
                 val firstLaunchDone by vm.firstLaunchCompleted.collectAsState()
 
-                if (!firstLaunchDone) {
+                if (!agreementAccepted) {
+                    // 首次打开：必须同意用户协议、免责协议与许可证
+                    AgreementGatePage(vm)
+                } else if (!firstLaunchDone) {
                     // 首次启动：迁移引导页
                     WelcomePage(vm)
                 } else {

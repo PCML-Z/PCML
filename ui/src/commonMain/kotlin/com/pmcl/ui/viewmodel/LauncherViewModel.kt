@@ -443,6 +443,10 @@ class LauncherViewModel {
     private val _firstLaunchCompleted = MutableStateFlow(preferences.isFirstLaunchCompleted())
     val firstLaunchCompleted: StateFlow<Boolean> = _firstLaunchCompleted.asStateFlow()
 
+    // ===== 协议同意门控 =====
+    private val _agreementAccepted = MutableStateFlow(preferences.isAgreementAccepted())
+    val agreementAccepted: StateFlow<Boolean> = _agreementAccepted.asStateFlow()
+
     private val _migrationSources = MutableStateFlow<List<com.pmcl.core.migration.MigrationManager.Source>>(emptyList())
     val migrationSources: StateFlow<List<com.pmcl.core.migration.MigrationManager.Source>> = _migrationSources.asStateFlow()
 
@@ -4142,5 +4146,11 @@ class LauncherViewModel {
     fun completeFirstLaunch() {
         preferences.setFirstLaunchCompleted(true)
         _firstLaunchCompleted.value = true
+    }
+
+    /** 用户同意用户协议、免责协议与许可证 */
+    fun acceptAgreements() {
+        preferences.setAgreementAccepted(true)
+        _agreementAccepted.value = true
     }
 }

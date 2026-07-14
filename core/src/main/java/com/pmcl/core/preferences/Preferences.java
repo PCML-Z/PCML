@@ -31,6 +31,7 @@ public final class Preferences {
     private float uiScale = 1.0f;             // UI 缩放系数（0.8~1.5），1.0 = 默认大小
     private String language = "zh_CN";             // zh_CN / en_US
     private boolean firstLaunchCompleted = false;  // 是否完成首次启动欢迎流程
+    private boolean agreementAccepted = false;     // 用户是否已同意用户协议、免责协议与许可证
     private java.util.List<String> pinnedVersions = new java.util.ArrayList<>();
     private java.util.List<String> recentVersions = new java.util.ArrayList<>();  // 最近使用（LRU，最多 5 个）
     private String lastSelectedVersion = "";       // 上次选中的版本（启动时恢复）
@@ -120,6 +121,10 @@ public final class Preferences {
     /** 首次启动欢迎流程是否已完成 */
     public synchronized boolean isFirstLaunchCompleted() { return firstLaunchCompleted; }
     public synchronized void setFirstLaunchCompleted(boolean v) { firstLaunchCompleted = v; scheduleSave(); }
+
+    /** 用户是否已同意用户协议、免责协议与许可证 */
+    public synchronized boolean isAgreementAccepted() { return agreementAccepted; }
+    public synchronized void setAgreementAccepted(boolean v) { agreementAccepted = v; scheduleSave(); }
 
     /** 返回固定磁贴列表的副本（避免外部原地修改导致 StateFlow 引用比较失效） */
     public synchronized java.util.List<String> getPinnedVersions() {
@@ -488,6 +493,7 @@ public final class Preferences {
             if (o.has("uiScale")) uiScale = o.get("uiScale").getAsFloat();
             if (o.has("language") && !o.get("language").isJsonNull()) language = o.get("language").getAsString();
             if (o.has("firstLaunchCompleted")) firstLaunchCompleted = o.get("firstLaunchCompleted").getAsBoolean();
+            if (o.has("agreementAccepted")) agreementAccepted = o.get("agreementAccepted").getAsBoolean();
             if (o.has("pinnedVersions")) {
                 pinnedVersions = new java.util.ArrayList<>();
                 for (var e : o.getAsJsonArray("pinnedVersions")) {
@@ -666,6 +672,7 @@ public final class Preferences {
         o.addProperty("uiScale", uiScale);
         o.addProperty("language", language);
         o.addProperty("firstLaunchCompleted", firstLaunchCompleted);
+        o.addProperty("agreementAccepted", agreementAccepted);
         com.google.gson.JsonArray pinArr = new com.google.gson.JsonArray();
         for (String v : pinnedVersions) pinArr.add(v);
         o.add("pinnedVersions", pinArr);
