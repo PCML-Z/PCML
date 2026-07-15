@@ -71,6 +71,11 @@ public final class FriendManager implements AutoCloseable {
             MESSAGE_RECEIVED,
             FRIEND_REQUEST_RECEIVED,
             PEERS_UPDATED,
+            CALL_INVITE_RECEIVED,
+            CALL_ACCEPTED,
+            CALL_REJECTED,
+            CALL_ENDED,
+            CALL_ICE_CANDIDATE,
         }
 
         public final Type type;
@@ -419,6 +424,116 @@ public final class FriendManager implements AutoCloseable {
     }
 
     // ---------------------------------------------------------------------------
+    // 通话操作（信令层，不涉及实际媒体）
+    // ---------------------------------------------------------------------------
+
+    /** 发起通话邀请，返回生成的 callId（好友不存在或无网络地址时返回 null） */
+    public String sendCallInvite(String identity, String mediaType) {
+        FriendStore.FriendEntry friend = store.getFriend(identity);
+        if (friend == null) return null;
+
+        String callId = UUID.randomUUID().toString();
+        FriendProtocol.CallInvite invite = new FriendProtocol.CallInvite();
+        invite.callId = callId;
+        invite.from = identityManager.getIdentity().toString();
+        invite.fromName = identityManager.getDisplayName();
+        invite.mediaType = mediaType;
+
+        if (friend.lastIp == null || friend.lastIp.isEmpty() || friend.lastPort <= 0) return null;
+
+        FriendChatClient client = getOrCreateClient(identity, friend.lastIp, friend.lastPort);
+        if (client != null && client.isConnected()) {
+            client.send(invite.toJson());
+        } else if (client != null) {
+            enqueuePending(identity, () -> client.send(invite.toJson()));
+        }
+        return callId;
+    }
+
+    /** 接受通话 */
+    public void sendCallAccept(String identity, String callId, String sdpOffer) {
+        FriendStore.FriendEntry friend = store.getFriend(identity);
+        if (friend == null) return;
+
+        FriendProtocol.CallAccept accept = new FriendProtocol.CallAccept();
+        accept.callId = callId;
+        accept.from = identityManager.getIdentity().toString();
+        accept.accept = true;
+        accept.sdpOffer = sdpOffer != null ? sdpOffer : "";
+
+        if (friend.lastIp == null || friend.lastIp.isEmpty() || friend.lastPort <= 0) return;
+
+        FriendChatClient client = getOrCreateClient(identity, friend.lastIp, friend.lastPort);
+        if (client != null && client.isConnected()) {
+            client.send(accept.toJson());
+        } else if (client != null) {
+            enqueuePending(identity, () -> client.send(accept.toJson()));
+        }
+    }
+
+    /** 拒绝通话 */
+    public void sendCallReject(String identity, String callId, String reason) {
+        FriendStore.FriendEntry friend = store.getFriend(identity);
+        if (friend == null) return;
+
+        FriendProtocol.CallReject reject = new FriendProtocol.CallReject();
+        reject.callId = callId;
+        reject.from = identityManager.getIdentity().toString();
+        reject.reason = reason != null ? reason : "";
+
+        if (friend.lastIp == null || friend.lastIp.isEmpty() || friend.lastPort <= 0) return;
+
+        FriendChatClient client = getOrCreateClient(identity, friend.lastIp, friend.lastPort);
+        if (client != null && client.isConnected()) {
+            client.send(reject.toJson());
+        } else if (client != null) {
+            enqueuePending(identity, () -> client.send(reject.toJson()));
+        }
+    }
+
+    /** 结束通话 */
+    public void sendCallEnd(String identity, String callId, String reason) {
+        FriendStore.FriendEntry friend = store.getFriend(identity);
+        if (friend == null) return;
+
+        FriendProtocol.CallEnd end = new FriendProtocol.CallEnd();
+        end.callId = callId;
+        end.from = identityManager.getIdentity().toString();
+        end.reason = reason != null ? reason : "";
+
+        if (friend.lastIp == null || friend.lastIp.isEmpty() || friend.lastPort <= 0) return;
+
+        FriendChatClient client = getOrCreateClient(identity, friend.lastIp, friend.lastPort);
+        if (client != null && client.isConnected()) {
+            client.send(end.toJson());
+        } else if (client != null) {
+            enqueuePending(identity, () -> client.send(end.toJson()));
+        }
+    }
+
+    /** 发送 ICE 候选 */
+    public void sendCallIceCandidate(String identity, String callId, String candidate, int sdpMLineIndex, String sdpMid) {
+        FriendStore.FriendEntry friend = store.getFriend(identity);
+        if (friend == null) return;
+
+        FriendProtocol.CallIceCandidate ice = new FriendProtocol.CallIceCandidate();
+        ice.callId = callId;
+        ice.from = identityManager.getIdentity().toString();
+        ice.candidate = candidate != null ? candidate : "";
+        ice.sdpMLineIndex = sdpMLineIndex;
+        ice.sdpMid = sdpMid != null ? sdpMid : "";
+
+        if (friend.lastIp == null || friend.lastIp.isEmpty() || friend.lastPort <= 0) return;
+
+        FriendChatClient client = getOrCreateClient(identity, friend.lastIp, friend.lastPort);
+        if (client != null && client.isConnected()) {
+            client.send(ice.toJson());
+        } else if (client != null) {
+            enqueuePending(identity, () -> client.send(ice.toJson()));
+        }
+    }
+
+    // ---------------------------------------------------------------------------
     // 内部实现
     // ---------------------------------------------------------------------------
 
@@ -514,6 +629,37 @@ public final class FriendManager implements AutoCloseable {
                             fireEvent(status.online ? FriendEvent.Type.FRIEND_ONLINE : FriendEvent.Type.FRIEND_OFFLINE, entry);
                         }
                     }
+                }
+            }
+            case "call_invite" -> {
+                FriendProtocol.CallInvite invite = FriendProtocol.CallInvite.fromJson(jsonLine);
+                // 忽略来自自己的消息（回环）
+                if (invite.from != null && !invite.from.equals(myId)) {
+                    fireEvent(FriendEvent.Type.CALL_INVITE_RECEIVED, invite);
+                }
+            }
+            case "call_accept" -> {
+                FriendProtocol.CallAccept accept = FriendProtocol.CallAccept.fromJson(jsonLine);
+                if (accept.from != null && !accept.from.equals(myId)) {
+                    fireEvent(FriendEvent.Type.CALL_ACCEPTED, accept);
+                }
+            }
+            case "call_reject" -> {
+                FriendProtocol.CallReject reject = FriendProtocol.CallReject.fromJson(jsonLine);
+                if (reject.from != null && !reject.from.equals(myId)) {
+                    fireEvent(FriendEvent.Type.CALL_REJECTED, reject);
+                }
+            }
+            case "call_end" -> {
+                FriendProtocol.CallEnd end = FriendProtocol.CallEnd.fromJson(jsonLine);
+                if (end.from != null && !end.from.equals(myId)) {
+                    fireEvent(FriendEvent.Type.CALL_ENDED, end);
+                }
+            }
+            case "call_ice" -> {
+                FriendProtocol.CallIceCandidate ice = FriendProtocol.CallIceCandidate.fromJson(jsonLine);
+                if (ice.from != null && !ice.from.equals(myId)) {
+                    fireEvent(FriendEvent.Type.CALL_ICE_CANDIDATE, ice);
                 }
             }
         }

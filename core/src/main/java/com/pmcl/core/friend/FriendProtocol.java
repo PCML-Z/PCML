@@ -16,6 +16,11 @@ import java.util.List;
  *   <li>{@code friend_req}  — TCP 好友请求</li>
  *   <li>{@code friend_ack}  — TCP 好友请求应答</li>
  *   <li>{@code status}      — TCP 在线状态变更</li>
+ *   <li>{@code call_invite} — TCP 通话邀请</li>
+ *   <li>{@code call_accept} — TCP 接受通话</li>
+ *   <li>{@code call_reject} — TCP 拒绝通话</li>
+ *   <li>{@code call_end}    — TCP 结束通话</li>
+ *   <li>{@code call_ice}    — TCP ICE 候选交换</li>
  * </ul>
  */
 public final class FriendProtocol {
@@ -107,6 +112,93 @@ public final class FriendProtocol {
 
         public static StatusMessage fromJson(String json) {
             return GSON.fromJson(json, StatusMessage.class);
+        }
+
+        public String toJson() {
+            return GSON.toJson(this);
+        }
+    }
+
+    /** 通话邀请 */
+    public static final class CallInvite {
+        public String type = "call_invite";
+        public String callId;
+        public String from;
+        public String fromName;
+        /** 媒体类型：video / audio / screen */
+        public String mediaType;
+
+        public static CallInvite fromJson(String json) {
+            return GSON.fromJson(json, CallInvite.class);
+        }
+
+        public String toJson() {
+            return GSON.toJson(this);
+        }
+    }
+
+    /** 接受通话 */
+    public static final class CallAccept {
+        public String type = "call_accept";
+        public String callId;
+        public String from;
+        public boolean accept = true;
+        /** SDP Offer（信令先于媒体层实现，可能为空字符串） */
+        public String sdpOffer;
+
+        public static CallAccept fromJson(String json) {
+            return GSON.fromJson(json, CallAccept.class);
+        }
+
+        public String toJson() {
+            return GSON.toJson(this);
+        }
+    }
+
+    /** 拒绝通话 */
+    public static final class CallReject {
+        public String type = "call_reject";
+        public String callId;
+        public String from;
+        public String reason;
+
+        public static CallReject fromJson(String json) {
+            return GSON.fromJson(json, CallReject.class);
+        }
+
+        public String toJson() {
+            return GSON.toJson(this);
+        }
+    }
+
+    /** 结束通话 */
+    public static final class CallEnd {
+        public String type = "call_end";
+        public String callId;
+        public String from;
+        public String reason;
+
+        public static CallEnd fromJson(String json) {
+            return GSON.fromJson(json, CallEnd.class);
+        }
+
+        public String toJson() {
+            return GSON.toJson(this);
+        }
+    }
+
+    /** ICE 候选交换 */
+    public static final class CallIceCandidate {
+        public String type = "call_ice";
+        public String callId;
+        public String from;
+        /** SDP 候选字符串（信令先于媒体层实现，可能为空字符串） */
+        public String candidate;
+        public int sdpMLineIndex;
+        public String sdpMid;
+
+        public static CallIceCandidate fromJson(String json) {
+            return GSON.fromJson(json, CallIceCandidate.class);
         }
 
         public String toJson() {
