@@ -1,6 +1,13 @@
 package com.pmcl.ui.page
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
@@ -20,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -640,7 +648,14 @@ private fun ChatView(
                 MessageBubble(
                     text = msg.text,
                     time = timeFormat.format(Date(msg.timestamp)),
-                    fromMe = msg.fromMe
+                    fromMe = msg.fromMe,
+                    modifier = Modifier.animateItem(
+                        fadeInSpec = tween(250, easing = FastOutSlowInEasing),
+                        placementSpec = spring(
+                            dampingRatio = Spring.DampingRatioLowBouncy,
+                            stiffness = Spring.StiffnessMediumLow
+                        )
+                    )
                 )
             }
         }
@@ -676,35 +691,66 @@ private fun ChatView(
                     )
                 )
                 Spacer(Modifier.width(4.dp))
-                Surface(
-                    modifier = Modifier.size(38.dp).clip(CircleShape)
-                        .clickable(enabled = canSend, onClick = onSend),
-                    shape = CircleShape,
-                    color = if (canSend) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.surface
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.Send, "发送",
-                            modifier = Modifier.size(18.dp),
-                            tint = if (canSend) MaterialTheme.colorScheme.onPrimary
-                                   else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
-                        )
-                    }
-                }
+                SendButton(canSend = canSend, onClick = onSend)
             }
         }
     }
 }
 
 // =============================================================================
-// 消息气泡
+// 发送按钮（带按压缩放动画）
 // =============================================================================
 
 @Composable
-private fun MessageBubble(text: String, time: String, fromMe: Boolean) {
+private fun SendButton(canSend: Boolean, onClick: () -> Unit) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed && canSend) 0.82f else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessHigh),
+        label = "sendScale"
+    )
+
+    Surface(
+        modifier = Modifier.size(38.dp).clip(CircleShape)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                enabled = canSend,
+                onClick = onClick
+            ),
+        shape = CircleShape,
+        color = if (canSend) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.surface
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                Icons.AutoMirrored.Filled.Send, "发送",
+                modifier = Modifier.size(18.dp),
+                tint = if (canSend) MaterialTheme.colorScheme.onPrimary
+                       else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+            )
+        }
+    }
+}
+
+// =============================================================================
+// 消息气泡（带滑入动画）
+// =============================================================================
+
+@Composable
+private fun MessageBubble(
+    text: String,
+    time: String,
+    fromMe: Boolean,
+    modifier: Modifier = Modifier
+) {
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+        modifier.fillMaxWidth().padding(horizontal = 4.dp),
         horizontalArrangement = if (fromMe) Arrangement.End else Arrangement.Start
     ) {
         Surface(
