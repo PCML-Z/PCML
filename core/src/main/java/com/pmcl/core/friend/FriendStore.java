@@ -163,32 +163,36 @@ public final class FriendStore {
             entry.addedAt = System.currentTimeMillis();
             return entry;
         });
-        // 更新 IP/端口
         FriendEntry entry = friends.get(identity);
         if (entry != null) {
-            entry.lastIp = ip;
-            entry.lastPort = port;
+            // 不用空值覆盖已有的有效值
+            if (ip != null && !ip.isEmpty()) {
+                entry.lastIp = ip;
+            }
+            if (port > 0) {
+                entry.lastPort = port;
+            }
             entry.lastSeen = System.currentTimeMillis();
         }
         saveFriends();
     }
 
-    /** 更新好友在线状态 */
-    public void updateOnlineStatus(String identity, boolean online, String ip, int port) {
+    /** 更新好友在线状态，返回状态是否实际变化 */
+    public boolean updateOnlineStatus(String identity, boolean online, String ip, int port) {
         FriendEntry entry = friends.get(identity);
-        if (entry != null) {
-            boolean changed = entry.online != online;
-            entry.online = online;
-            if (online) {
-                changed = changed || !Objects.equals(entry.lastIp, ip) || entry.lastPort != port;
-                entry.lastIp = ip;
-                entry.lastPort = port;
-                entry.lastSeen = System.currentTimeMillis();
-            }
-            if (changed) {
-                saveFriends();
-            }
+        if (entry == null) return false;
+        boolean changed = entry.online != online;
+        entry.online = online;
+        if (online) {
+            changed = changed || !Objects.equals(entry.lastIp, ip) || entry.lastPort != port;
+            entry.lastIp = ip;
+            entry.lastPort = port;
+            entry.lastSeen = System.currentTimeMillis();
         }
+        if (changed) {
+            saveFriends();
+        }
+        return changed;
     }
 
     /** 删除好友 */
@@ -199,6 +203,14 @@ public final class FriendStore {
         try {
             Files.deleteIfExists(messagesDir.resolve(identity.replace("-", "") + ".json"));
         } catch (IOException ignored) {}
+    }
+
+    /** 重置所有好友为离线状态 */
+    public void resetAllOnline() {
+        for (FriendEntry entry : friends.values()) {
+            entry.online = false;
+        }
+        saveFriends();
     }
 
     // ---------------------------------------------------------------------------
@@ -219,6 +231,14 @@ public final class FriendStore {
         msg.fromMe = fromMe;
 
         List<StoredMessage> msgs = conversations.computeIfAbsent(peerIdentity, k -> new CopyOnWriteArrayList<>());
+
+        // 消息去重：检查 msgId 是否已存在
+        for (StoredMessage existing : msgs) {
+            if (msgId != null && msgId.equals(existing.id)) {
+                return; // 已存在，不重复添加
+            }
+        }
+
         msgs.add(msg);
 
         // 限制最多 500 条
@@ -236,12 +256,12 @@ public final class FriendStore {
     /** 好友条目 */
     public static final class FriendEntry {
         public String identity;
-        public String displayName;
-        public String lastIp;
-        public int lastPort;
-        public boolean online;
-        public long addedAt;
-        public long lastSeen;
+        public volatile String displayName;
+        public volatile String lastIp;
+        public volatile int lastPort;
+        public volatile boolean online;
+        public volatile long addedAt;
+        public volatile long lastSeen;
     }
 
     /** 聊天消息 */

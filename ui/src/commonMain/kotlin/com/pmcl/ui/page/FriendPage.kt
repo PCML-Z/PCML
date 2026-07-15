@@ -62,6 +62,7 @@ fun FriendPage(vm: LauncherViewModel) {
     var addFriendCode by remember { mutableStateOf("") }
     var addFriendError by remember { mutableStateOf<String?>(null) }
     val pendingRequests = remember { mutableStateListOf<FriendManager.PendingRequest>() }
+    var friendSystemState by remember { mutableStateOf(friendManager.state) }
 
     // 身份卡片状态
     var cardExpanded by remember { mutableStateOf(false) }
@@ -106,12 +107,18 @@ fun FriendPage(vm: LauncherViewModel) {
     // 监听事件
     DisposableEffect(friendManager) {
         val listener: (FriendManager.FriendEvent) -> Unit = { event ->
+            if (event.type == FriendManager.FriendEvent.Type.STATE_CHANGED) {
+                friendSystemState = event.data as? FriendManager.State ?: friendManager.state
+            }
             scope.launch {
                 when (event.type) {
                     FriendManager.FriendEvent.Type.FRIEND_REQUEST_RECEIVED -> {
                         val request = event.data as? FriendManager.PendingRequest
                         if (request != null) {
-                            pendingRequests.add(request)
+                            // 去重：检查是否已存在相同 identity 的请求
+                            if (pendingRequests.none { it.identity == request.identity }) {
+                                pendingRequests.add(request)
+                            }
                         }
                     }
                     FriendManager.FriendEvent.Type.FRIEND_REMOVED -> {
@@ -153,7 +160,7 @@ fun FriendPage(vm: LauncherViewModel) {
         Spacer(Modifier.height(12.dp))
 
         // 离线提示
-        if (friendManager.getState() != FriendManager.State.RUNNING) {
+        if (friendSystemState != FriendManager.State.RUNNING) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(

@@ -6,6 +6,7 @@ import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * TCP 聊天服务器：监听虚拟 IP 上的随机端口，接收来自好友的消息。
@@ -20,6 +21,9 @@ public final class FriendChatServer implements AutoCloseable {
     private int port = 0;
 
     private final CopyOnWriteArrayList<MessageListener> listeners = new CopyOnWriteArrayList<>();
+
+    private final AtomicInteger connectionCount = new AtomicInteger(0);
+    private static final int MAX_CONNECTIONS = 50;
 
     // ---------------------------------------------------------------------------
     // 公共 API
@@ -86,12 +90,24 @@ public final class FriendChatServer implements AutoCloseable {
         while (running.get()) {
             try {
                 Socket client = serverSocket.accept();
-                Thread handle = new Thread(() -> handleClient(client), "FriendChat-Handler");
+                if (connectionCount.get() >= MAX_CONNECTIONS) {
+                    try { client.close(); } catch (IOException ignored) {}
+                    continue;
+                }
+                Thread handle = new Thread(() -> {
+                    connectionCount.incrementAndGet();
+                    try {
+                        handleClient(client);
+                    } finally {
+                        connectionCount.decrementAndGet();
+                    }
+                }, "FriendChat-Handler");
                 handle.setDaemon(true);
                 handle.start();
             } catch (IOException e) {
                 if (running.get()) {
                     System.err.println("[FriendChatServer] Accept 错误: " + e.getMessage());
+                    try { Thread.sleep(1000); } catch (InterruptedException ie) { break; }
                 }
             }
         }
@@ -104,7 +120,7 @@ public final class FriendChatServer implements AutoCloseable {
             String remoteAddr = socket.getInetAddress().getHostAddress();
 
             String line;
-            while ((line = reader.readLine()) != null) {
+            while (running.get() && (line = reader.readLine()) != null) {
                 if (line.length() > FriendProtocol.MAX_MESSAGE_LENGTH) continue;
 
                 for (MessageListener listener : listeners) {
@@ -116,7 +132,7 @@ public final class FriendChatServer implements AutoCloseable {
                 }
             }
         } catch (IOException e) {
-            // 客户端断开连接
+            // 客户端断开连接或服务器已关闭
         }
     }
 

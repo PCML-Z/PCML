@@ -3945,7 +3945,11 @@ class LauncherViewModel {
                 _status.value = if (core.multiplayer().state ==
                     com.pmcl.core.multiplayer.MultiplayerManager.State.CONNECTED) {
                     // 启动好友系统网络服务
-                    try { core.friend()?.start() } catch (_: Exception) {}
+                    withContext(Dispatchers.IO) {
+                        try { core.friend()?.start() } catch (e: Exception) {
+                            System.err.println("[LauncherVM] 启动好友系统失败: ${e.message}")
+                        }
+                    }
                     if (isTerracotta && core.multiplayer().localMcAddr.isNotEmpty()) {
                         "已加入房间，MC 地址：${core.multiplayer().localMcAddr}（直接连接用此地址）"
                     } else {
@@ -3968,7 +3972,11 @@ class LauncherViewModel {
         scope.launch {
             try {
                 // 停止好友系统网络服务
-                try { core.friend()?.stop() } catch (_: Exception) {}
+                withContext(Dispatchers.IO) {
+                    try { core.friend()?.stop() } catch (e: Exception) {
+                        System.err.println("[LauncherVM] 停止好友系统失败: ${e.message}")
+                    }
+                }
                 withContext(Dispatchers.IO) { core.multiplayer().leaveRoom() }
             } catch (e: Throwable) {
                 _status.value = "离开房间失败：${e.message}"

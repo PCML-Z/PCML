@@ -81,8 +81,11 @@ public final class FriendChatClient implements AutoCloseable {
 
     /** 异步连接 */
     public void connectAsync() {
-        if (connecting.get() || running.get()) return;
-        connecting.set(true);
+        if (!connecting.compareAndSet(false, true)) return;
+        if (running.get()) {
+            connecting.set(false);
+            return;
+        }
 
         new Thread(() -> {
             try {
@@ -94,27 +97,33 @@ public final class FriendChatClient implements AutoCloseable {
                     callback.onConnectFailed(e.getMessage());
                 }
             }
-        }, "FriendChat-Connect").start();
+        }, "FriendChat-Connect-" + host + ":" + port).start();
     }
 
     /** 同步连接（阻塞） */
     public void connect() throws IOException {
-        socket = new Socket();
-        socket.connect(new InetSocketAddress(host, port), 5000);
-        writer = new PrintWriter(new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8), true);
-        running.set(true);
+        Socket s = new Socket();
+        try {
+            s.connect(new InetSocketAddress(host, port), 5000);
+            socket = s;
+            writer = new PrintWriter(new OutputStreamWriter(s.getOutputStream(), StandardCharsets.UTF_8), true);
+            running.set(true);
 
-        // 启动读取线程
-        readThread = new Thread(this::readLoop, "FriendChat-Read");
-        readThread.setDaemon(true);
-        readThread.start();
+            // 启动读取线程
+            readThread = new Thread(this::readLoop, "FriendChat-Read-" + host + ":" + port);
+            readThread.setDaemon(true);
+            readThread.start();
 
-        // 启动写入线程
-        writeThread = new Thread(this::writeLoop, "FriendChat-Write");
-        writeThread.setDaemon(true);
-        writeThread.start();
+            // 启动写入线程
+            writeThread = new Thread(this::writeLoop, "FriendChat-Write-" + host + ":" + port);
+            writeThread.setDaemon(true);
+            writeThread.start();
 
-        if (callback != null) callback.onConnected();
+            if (callback != null) callback.onConnected();
+        } catch (IOException e) {
+            try { s.close(); } catch (IOException ignored) {}
+            throw e;
+        }
     }
 
     /** 发送消息（非阻塞，入队） */
@@ -163,6 +172,7 @@ public final class FriendChatClient implements AutoCloseable {
     @Override
     public void close() {
         running.set(false);
+        connecting.set(false);
         if (writeThread != null) writeThread.interrupt();
         if (readThread != null) readThread.interrupt();
         writeThread = null;
@@ -171,7 +181,7 @@ public final class FriendChatClient implements AutoCloseable {
             if (writer != null) writer.close();
         } catch (Exception ignored) {}
         try {
-            if (socket != null) socket.close();
+            if (socket != null && !socket.isClosed()) socket.close();
         } catch (IOException ignored) {}
     }
 
@@ -182,12 +192,23 @@ public final class FriendChatClient implements AutoCloseable {
     private void writeLoop() {
         while (running.get()) {
             try {
-                String msg = sendQueue.poll(1, TimeUnit.SECONDS);
+                String msg = sendQueue.poll(15, TimeUnit.SECONDS);
                 if (msg != null && writer != null && !writer.checkError()) {
                     writer.println(msg);
                     if (writer.checkError()) {
                         handleDisconnect("写入失败");
                         break;
+                    }
+                } else if (msg == null) {
+                    // 队列空 15 秒，发送心跳
+                    if (writer != null && !writer.checkError()) {
+                        FriendProtocol.StatusMessage heartbeat = new FriendProtocol.StatusMessage();
+                        heartbeat.online = true;
+                        writer.println(heartbeat.toJson());
+                        if (writer.checkError()) {
+                            handleDisconnect("心跳写入失败");
+                            break;
+                        }
                     }
                 }
             } catch (InterruptedException e) {
@@ -199,6 +220,7 @@ public final class FriendChatClient implements AutoCloseable {
     private void readLoop() {
         try (BufferedReader reader = new BufferedReader(
                 new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8))) {
+            socket.setSoTimeout(30000); // 30 秒读超时
             String line;
             while (running.get() && (line = reader.readLine()) != null) {
                 if (callback != null) {
@@ -209,6 +231,14 @@ public final class FriendChatClient implements AutoCloseable {
                     }
                 }
             }
+            // readLine 返回 null 表示对端正常关闭
+            if (running.get()) {
+                handleDisconnect("连接已关闭");
+            }
+        } catch (java.net.SocketTimeoutException e) {
+            if (running.get()) {
+                handleDisconnect("读超时");
+            }
         } catch (IOException e) {
             if (running.get()) {
                 handleDisconnect("连接断开: " + e.getMessage());
@@ -217,9 +247,10 @@ public final class FriendChatClient implements AutoCloseable {
     }
 
     private void handleDisconnect(String reason) {
-        running.set(false);
-        if (callback != null) {
-            callback.onDisconnected(reason);
+        if (running.compareAndSet(true, false)) {
+            if (callback != null) {
+                callback.onDisconnected(reason);
+            }
         }
     }
 }

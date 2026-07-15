@@ -118,15 +118,23 @@ public final class FriendManager implements AutoCloseable {
 
         identityManager.initialize();
         store.load();
+        store.resetAllOnline(); // 启动时重置在线状态
 
         // 监听聊天服务器消息
         chatServer.addListener((remoteIp, jsonLine) -> handleIncomingMessage(remoteIp, jsonLine));
 
         // 监听对等发现
         discovery.addListener(peer -> {
-            if (store.isFriend(peer.identity.toString())) {
-                store.updateOnlineStatus(peer.identity.toString(), true, peer.ip, peer.chatPort);
-                fireEvent(FriendEvent.Type.FRIEND_ONLINE, store.getFriend(peer.identity.toString()));
+            String peerId = peer.identity.toString();
+            if (store.isFriend(peerId)) {
+                boolean changed = store.updateOnlineStatus(peerId, true, peer.ip, peer.chatPort);
+                if (changed) {
+                    fireEvent(FriendEvent.Type.FRIEND_ONLINE, store.getFriend(peerId));
+                    // 主动建立 TCP 连接
+                    if (peer.ip != null && !peer.ip.isEmpty() && peer.chatPort > 0) {
+                        getOrCreateClient(peerId, peer.ip, peer.chatPort);
+                    }
+                }
             }
             fireEvent(FriendEvent.Type.PEERS_UPDATED, peer);
         });
@@ -138,15 +146,23 @@ public final class FriendManager implements AutoCloseable {
     public void start() throws IOException {
         if (state != State.READY && state != State.STOPPED) return;
 
-        // 启动聊天服务器
-        chatServer.start();
+        try {
+            chatServer.start();
+        } catch (IOException e) {
+            throw new IOException("启动聊天服务器失败: " + e.getMessage(), e);
+        }
 
-        // 启动 UDP 发现
-        discovery.start(
-                identityManager.getIdentity().toString(),
-                identityManager.getDisplayName(),
-                chatServer.getPort()
-        );
+        try {
+            discovery.start(
+                    identityManager.getIdentity().toString(),
+                    identityManager.getDisplayName(),
+                    chatServer.getPort()
+            );
+        } catch (IOException e) {
+            // 回滚：关闭已启动的聊天服务器
+            chatServer.close();
+            throw new IOException("启动对等发现失败: " + e.getMessage(), e);
+        }
 
         state = State.RUNNING;
         fireEvent(FriendEvent.Type.STATE_CHANGED, state);
@@ -154,6 +170,11 @@ public final class FriendManager implements AutoCloseable {
 
     /** 离开联机网络时停止 */
     public void stop() {
+        if (state != State.RUNNING) return;
+
+        // 清理待发操作
+        pendingOnConnect.clear();
+
         // 断开所有客户端连接
         for (FriendChatClient client : activeClients.values()) {
             try { client.close(); } catch (Exception ignored) {}
@@ -222,7 +243,7 @@ public final class FriendManager implements AutoCloseable {
     /** 删除好友 */
     public void removeFriend(String identity) {
         store.removeFriend(identity);
-        // 断开与该好友的连接
+        pendingOnConnect.remove(identity);
         FriendChatClient client = activeClients.remove(identity);
         if (client != null) {
             client.close();
@@ -262,6 +283,8 @@ public final class FriendManager implements AutoCloseable {
         store.addMessage(identity, msgId, text, timestamp, true);
 
         // 通过网络发送
+        if (friend.lastIp == null || friend.lastIp.isEmpty() || friend.lastPort <= 0) return;
+
         FriendChatClient client = getOrCreateClient(identity, friend.lastIp, friend.lastPort);
         if (client != null && client.isConnected()) {
             FriendProtocol.ChatMessage msg = new FriendProtocol.ChatMessage();
@@ -269,6 +292,13 @@ public final class FriendManager implements AutoCloseable {
             msg.text = text;
             msg.timestamp = timestamp;
             client.send(msg.toJson());
+        } else if (client != null) {
+            // 连接未建立，加入待发队列
+            FriendProtocol.ChatMessage msg = new FriendProtocol.ChatMessage();
+            msg.id = msgId;
+            msg.text = text;
+            msg.timestamp = timestamp;
+            pendingOnConnect.put(identity, () -> client.send(msg.toJson()));
         }
     }
 
@@ -317,19 +347,16 @@ public final class FriendManager implements AutoCloseable {
         String type = FriendProtocol.peekType(jsonLine);
         if (type == null) return;
 
+        // 判断 remoteIp 是 IP 地址还是 identity
+        // 客户端路径传的是 identity，服务器路径传的是 IP
+        boolean isIdentity = store.isFriend(remoteIp);
+        String actualIp = isIdentity ? null : remoteIp;
+
         switch (type) {
             case "msg" -> {
                 FriendProtocol.ChatMessage msg = FriendProtocol.ChatMessage.fromJson(jsonLine);
                 if (msg.text != null && msg.id != null) {
-                    // remoteIp 可能是 IP 地址（来自服务器路径）或 identity（来自客户端路径）
-                    String senderId = null;
-                    if (store.isFriend(remoteIp)) {
-                        // 客户端路径：remoteIp 实际是 identity
-                        senderId = remoteIp;
-                    } else {
-                        // 服务器路径：remoteIp 是 IP 地址
-                        senderId = findIdentityByIp(remoteIp);
-                    }
+                    String senderId = isIdentity ? remoteIp : findIdentityByIp(remoteIp);
                     if (senderId != null) {
                         store.addMessage(senderId, msg.id, msg.text, msg.timestamp, false);
                         fireEvent(FriendEvent.Type.MESSAGE_RECEIVED, msg);
@@ -340,20 +367,36 @@ public final class FriendManager implements AutoCloseable {
                 FriendProtocol.FriendRequest req = FriendProtocol.FriendRequest.fromJson(jsonLine);
                 if (req.identity != null) {
                     FriendIdentity peerId = FriendIdentity.parse(req.identity);
-                    int peerPort = req.port > 0 ? req.port : chatServer.getPort();
+                    String reqIp = actualIp != null ? actualIp : "";
+                    int peerPort = req.port > 0 ? req.port : 0;
                     PendingRequest pending = new PendingRequest(peerId,
                             req.name != null ? req.name : req.identity,
-                            remoteIp, peerPort);
+                            reqIp, peerPort);
                     fireEvent(FriendEvent.Type.FRIEND_REQUEST_RECEIVED, pending);
                 }
             }
             case "friend_ack" -> {
                 FriendProtocol.FriendAck ack = FriendProtocol.FriendAck.fromJson(jsonLine);
                 if (ack.accepted && ack.identity != null) {
-                    int peerPort = ack.port > 0 ? ack.port : chatServer.getPort();
+                    String ackIp = actualIp != null ? actualIp : "";
+                    int ackPort = ack.port > 0 ? ack.port : 0;
                     store.addFriend(ack.identity, ack.name != null ? ack.name : ack.identity,
-                            remoteIp, peerPort);
+                            ackIp, ackPort);
                     fireEvent(FriendEvent.Type.FRIEND_ADDED, store.getFriend(ack.identity));
+                }
+            }
+            case "status" -> {
+                FriendProtocol.StatusMessage status = FriendProtocol.StatusMessage.fromJson(jsonLine);
+                // 心跳/状态消息：客户端路径（isIdentity=true）下更新好友在线状态
+                if (isIdentity) {
+                    FriendStore.FriendEntry entry = store.getFriend(remoteIp);
+                    if (entry != null) {
+                        boolean changed = store.updateOnlineStatus(remoteIp, status.online,
+                                entry.lastIp, entry.lastPort);
+                        if (changed) {
+                            fireEvent(status.online ? FriendEvent.Type.FRIEND_ONLINE : FriendEvent.Type.FRIEND_OFFLINE, entry);
+                        }
+                    }
                 }
             }
         }
@@ -367,6 +410,9 @@ public final class FriendManager implements AutoCloseable {
     }
 
     private FriendChatClient getOrCreateClient(String identity, String ip, int port) {
+        if (ip == null || ip.isEmpty() || port <= 0) {
+            return null;
+        }
         return activeClients.computeIfAbsent(identity, k -> {
             FriendChatClient client = new FriendChatClient(ip, port,
                     identityManager.getIdentity().toString(),
@@ -388,10 +434,12 @@ public final class FriendManager implements AutoCloseable {
             @Override
             public void onDisconnected(String reason) {
                 activeClients.remove(identity);
-                store.updateOnlineStatus(identity, false, "", 0);
-                FriendStore.FriendEntry entry = store.getFriend(identity);
-                if (entry != null) {
-                    fireEvent(FriendEvent.Type.FRIEND_OFFLINE, entry);
+                boolean changed = store.updateOnlineStatus(identity, false, "", 0);
+                if (changed) {
+                    FriendStore.FriendEntry entry = store.getFriend(identity);
+                    if (entry != null) {
+                        fireEvent(FriendEvent.Type.FRIEND_OFFLINE, entry);
+                    }
                 }
             }
 
