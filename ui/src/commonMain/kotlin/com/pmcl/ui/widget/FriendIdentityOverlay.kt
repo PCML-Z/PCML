@@ -193,7 +193,8 @@ fun IdentityCard(
                         // 身份 ID
                         Text(
                             identityManager.identity.toString(),
-                            style = MaterialTheme.typography.bodySmall,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Medium,
                             letterSpacing = 1.sp,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
                             maxLines = 1,
@@ -277,7 +278,8 @@ fun IdentityCard(
                         // 身份 ID
                         Text(
                             identityManager.identity.toString(),
-                            style = MaterialTheme.typography.labelSmall,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
                             letterSpacing = 1.sp,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
                             maxLines = 1,
