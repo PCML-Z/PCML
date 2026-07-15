@@ -52,7 +52,9 @@ fun FriendPage(vm: LauncherViewModel) {
     }
 
     val scope = rememberCoroutineScope()
-    val identityManager = friendManager.identityManager
+    var friendSystemState by remember { mutableStateOf(friendManager.state) }
+    // 每次状态变化（含账户切换）时重新获取 identityManager 实例
+    val identityManager = remember(friendSystemState) { friendManager.identityManager }
 
     var friends by remember { mutableStateOf(friendManager.getFriends()) }
     var selectedFriendId by remember { mutableStateOf<String?>(null) }
@@ -62,11 +64,12 @@ fun FriendPage(vm: LauncherViewModel) {
     var addFriendCode by remember { mutableStateOf("") }
     var addFriendError by remember { mutableStateOf<String?>(null) }
     val pendingRequests = remember { mutableStateListOf<FriendManager.PendingRequest>() }
-    var friendSystemState by remember { mutableStateOf(friendManager.state) }
 
     // 身份卡片状态
     var cardExpanded by remember { mutableStateOf(false) }
-    var bgImagePath by remember { mutableStateOf(identityManager.backgroundPath) }
+    // 用 identityManager.version 作为 key，账户切换/背景图变化时重新加载
+    val identityVersion = identityManager.version
+    var bgImagePath by remember(identityVersion) { mutableStateOf(identityManager.backgroundPath) }
     val bgBitmap by produceState<ImageBitmap?>(null, bgImagePath) {
         if (bgImagePath != null) {
             value = withContext(Dispatchers.IO) {
