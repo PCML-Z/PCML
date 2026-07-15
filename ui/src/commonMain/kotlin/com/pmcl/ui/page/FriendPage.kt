@@ -230,7 +230,7 @@ fun FriendPage(vm: LauncherViewModel) {
         } else {
             Row(Modifier.fillMaxWidth().weight(1f)) {
                 // 左侧：好友列表
-                Column(Modifier.width(200.dp).fillMaxHeight()) {
+                Column(Modifier.width(220.dp).fillMaxHeight()) {
                     if (pendingRequests.isNotEmpty()) {
                         Text("好友请求", style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.primary,
@@ -269,9 +269,9 @@ fun FriendPage(vm: LauncherViewModel) {
                     }
                 }
 
-                VerticalDivider(Modifier.padding(horizontal = 8.dp))
+                VerticalDivider(Modifier.padding(horizontal = 10.dp))
 
-                // 中间：聊天区
+                // 中间：聊天区（占据主要空间）
                 Column(Modifier.weight(1f).fillMaxHeight()) {
                     if (selectedFriendId != null) {
                         val selectedFriend = friends.find { it.identity == selectedFriendId }
@@ -298,11 +298,11 @@ fun FriendPage(vm: LauncherViewModel) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Icon(Icons.AutoMirrored.Filled.Chat, null,
-                                    modifier = Modifier.size(48.dp),
+                                    modifier = Modifier.size(56.dp),
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f))
-                                Spacer(Modifier.height(8.dp))
+                                Spacer(Modifier.height(12.dp))
                                 Text("选择一个好友开始聊天",
-                                    style = MaterialTheme.typography.bodyMedium,
+                                    style = MaterialTheme.typography.bodyLarge,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
                             }
                         }
@@ -320,7 +320,7 @@ fun FriendPage(vm: LauncherViewModel) {
                     onPickBackground = pickBackground,
                     modifier = Modifier
                         .then(
-                            if (cardExpanded) Modifier.weight(2f)
+                            if (cardExpanded) Modifier.weight(1.5f)
                             else Modifier.width(160.dp)
                         )
                         .fillMaxHeight()
@@ -432,45 +432,48 @@ private fun FriendListItem(
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
-            .clip(RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(10.dp))
             .clickable(onClick = onClick),
         color = if (selected) MaterialTheme.colorScheme.primaryContainer
                 else MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(8.dp)
+        shape = RoundedCornerShape(10.dp)
     ) {
-        Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(10.dp).padding(1.dp)) {
+        Row(Modifier.padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            // 头像 + 在线状态角标
+            Box(contentAlignment = Alignment.BottomEnd) {
                 Surface(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.size(38.dp),
                     shape = CircleShape,
-                    color = if (friend.online) Color(0xFF4CAF50) else Color(0xFFBDBDBD)
+                    color = MaterialTheme.colorScheme.secondaryContainer
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            text = friend.displayName.take(1).uppercase(),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    }
+                }
+                // 在线状态小圆点叠加在头像右下角
+                Surface(
+                    modifier = Modifier.size(11.dp),
+                    shape = CircleShape,
+                    color = if (friend.online) Color(0xFF4CAF50) else Color(0xFFBDBDBD),
+                    border = androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.surface)
                 ) {}
             }
-            Spacer(Modifier.width(8.dp))
 
-            Surface(
-                modifier = Modifier.size(36.dp),
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.secondaryContainer
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        text = friend.displayName.take(1).uppercase(),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer
-                    )
-                }
-            }
-
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(10.dp))
 
             Column(Modifier.weight(1f)) {
                 Text(friend.displayName, style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(if (friend.online) "在线" else "离线",
-                    style = MaterialTheme.typography.bodySmall,
+                Text(
+                    if (friend.online) "在线" else "离线",
+                    style = MaterialTheme.typography.labelSmall,
                     color = if (friend.online) Color(0xFF4CAF50)
-                            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+                            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                )
             }
         }
     }
@@ -488,21 +491,46 @@ private fun FriendRequestCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+        shape = RoundedCornerShape(10.dp)
     ) {
-        Column(Modifier.padding(8.dp)) {
-            Text(request.displayName, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
-            Text(request.identity.toString(), style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.6f))
-            Spacer(Modifier.height(4.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                TextButton(onClick = onAccept, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) {
-                    Text("接受", style = MaterialTheme.typography.labelSmall)
+        Row(Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            // 头像首字母
+            Surface(
+                modifier = Modifier.size(32.dp),
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primaryContainer
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        request.displayName.take(1).uppercase(),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
                 }
-                TextButton(onClick = onReject, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) {
-                    Text("拒绝", style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.error)
-                }
+            }
+            Spacer(Modifier.width(8.dp))
+            Column(Modifier.weight(1f)) {
+                Text(request.displayName, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    request.identity.toString().take(13) + "...",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.6f),
+                    maxLines = 1
+                )
+            }
+            Spacer(Modifier.width(4.dp))
+            IconButton(onClick = onAccept, modifier = Modifier.size(28.dp)) {
+                Icon(Icons.Filled.Check, "接受",
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.primary)
+            }
+            IconButton(onClick = onReject, modifier = Modifier.size(28.dp)) {
+                Icon(Icons.Filled.Close, "拒绝",
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.error)
             }
         }
     }
@@ -524,30 +552,61 @@ private fun ChatView(
 ) {
     val listState = rememberLazyListState()
     val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
+    val canSend = inputText.isNotBlank()
 
     Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(friendName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
-            Spacer(Modifier.width(8.dp))
+        // 聊天头部：好友信息 + 操作
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Surface(
-                modifier = Modifier.size(8.dp),
+                modifier = Modifier.size(36.dp),
                 shape = CircleShape,
-                color = if (friendOnline) Color(0xFF4CAF50) else Color(0xFFBDBDBD)
-            ) {}
-            Spacer(Modifier.weight(1f))
+                color = MaterialTheme.colorScheme.secondaryContainer
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        friendName.take(1).uppercase(),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                }
+            }
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(friendName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Surface(
+                        modifier = Modifier.size(6.dp),
+                        shape = CircleShape,
+                        color = if (friendOnline) Color(0xFF4CAF50) else Color(0xFFBDBDBD)
+                    ) {}
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        if (friendOnline) "在线" else "离线",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (friendOnline) Color(0xFF4CAF50)
+                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                    )
+                }
+            }
             IconButton(onClick = onDeleteFriend, modifier = Modifier.size(32.dp)) {
                 Icon(Icons.Filled.PersonRemove, "删除好友",
                     modifier = Modifier.size(18.dp),
-                    tint = MaterialTheme.colorScheme.error)
+                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f))
             }
         }
 
-        HorizontalDivider(Modifier.padding(vertical = 8.dp))
+        HorizontalDivider(Modifier.padding(vertical = 6.dp))
 
+        // 消息列表
         LazyColumn(
             Modifier.weight(1f).fillMaxWidth(),
             state = listState,
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp)
         ) {
             items(messages.toList(), key = { it.id }) { msg ->
                 MessageBubble(
@@ -564,24 +623,47 @@ private fun ChatView(
             }
         }
 
-        Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.Bottom) {
-            OutlinedTextField(
-                value = inputText,
-                onValueChange = onInputChange,
-                modifier = Modifier.weight(1f),
-                placeholder = { Text("输入消息...", style = MaterialTheme.typography.bodySmall) },
-                singleLine = false,
-                maxLines = 4
-            )
-            Spacer(Modifier.width(8.dp))
-            IconButton(
-                onClick = onSend,
-                enabled = inputText.isNotBlank(),
-                modifier = Modifier.size(40.dp)
+        // 统一输入区：圆角容器包裹输入框 + 发送按钮
+        Surface(
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        ) {
+            Row(
+                Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.Bottom
             ) {
-                Icon(Icons.AutoMirrored.Filled.Send, "发送",
-                    tint = if (inputText.isNotBlank()) MaterialTheme.colorScheme.primary
-                           else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f))
+                OutlinedTextField(
+                    value = inputText,
+                    onValueChange = onInputChange,
+                    modifier = Modifier.weight(1f),
+                    placeholder = { Text("输入消息...", style = MaterialTheme.typography.bodyMedium) },
+                    singleLine = false,
+                    maxLines = 4,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color.Transparent,
+                        unfocusedBorderColor = Color.Transparent,
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent
+                    )
+                )
+                Spacer(Modifier.width(4.dp))
+                Surface(
+                    modifier = Modifier.size(38.dp).clip(CircleShape)
+                        .clickable(enabled = canSend, onClick = onSend),
+                    shape = CircleShape,
+                    color = if (canSend) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.surface
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.Send, "发送",
+                            modifier = Modifier.size(18.dp),
+                            tint = if (canSend) MaterialTheme.colorScheme.onPrimary
+                                   else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                        )
+                    }
+                }
             }
         }
     }
@@ -598,11 +680,11 @@ private fun MessageBubble(text: String, time: String, fromMe: Boolean) {
         horizontalArrangement = if (fromMe) Arrangement.End else Arrangement.Start
     ) {
         Surface(
-            modifier = Modifier.widthIn(max = 280.dp),
+            modifier = Modifier.widthIn(max = 320.dp),
             shape = RoundedCornerShape(
-                topStart = 12.dp, topEnd = 12.dp,
-                bottomStart = if (fromMe) 12.dp else 4.dp,
-                bottomEnd = if (fromMe) 4.dp else 12.dp
+                topStart = 14.dp, topEnd = 14.dp,
+                bottomStart = if (fromMe) 14.dp else 4.dp,
+                bottomEnd = if (fromMe) 4.dp else 14.dp
             ),
             color = if (fromMe) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
                     else MaterialTheme.colorScheme.surfaceVariant
@@ -610,8 +692,12 @@ private fun MessageBubble(text: String, time: String, fromMe: Boolean) {
             Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
                 Text(text, style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(2.dp))
-                Text(time, style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+                Text(
+                    time,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.align(Alignment.End)
+                )
             }
         }
     }
