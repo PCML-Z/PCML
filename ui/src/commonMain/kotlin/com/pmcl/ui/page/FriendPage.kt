@@ -63,6 +63,9 @@ fun FriendPage(vm: LauncherViewModel) {
     var friendSystemState by remember { mutableStateOf(friendManager.state) }
     // 每次状态变化（含账户切换）时重新获取 identityManager 实例
     val identityManager = remember(friendSystemState) { friendManager.identityManager }
+    // 账号登录状态：未登录时身份卡片数据留空
+    val account by vm.account.collectAsState()
+    val hasAccount = account != null
 
     var friends by remember { mutableStateOf(friendManager.getFriends()) }
     var selectedFriendId by remember { mutableStateOf<String?>(null) }
@@ -324,6 +327,7 @@ fun FriendPage(vm: LauncherViewModel) {
                 // 右侧身份卡片
                 IdentityCard(
                     identityManager = identityManager,
+                    hasAccount = hasAccount,
                     expanded = cardExpanded,
                     onToggleExpand = { cardExpanded = !cardExpanded },
                     backgroundBitmap = bgBitmap,
@@ -477,6 +481,7 @@ fun FriendPage(vm: LauncherViewModel) {
                 // 右侧：身份卡片
                 IdentityCard(
                     identityManager = identityManager,
+                    hasAccount = hasAccount,
                     expanded = cardExpanded,
                     onToggleExpand = { cardExpanded = !cardExpanded },
                     backgroundBitmap = bgBitmap,

@@ -35,8 +35,10 @@ import org.jetbrains.skia.Image as SkiaImage
  * 身份卡片：嵌入好友界面右侧，展示 QR 码 + 身份 ID。
  *
  * 支持自定义背景图片（本地 PNG/JPG 加载）和拉伸全屏。
+ * 当未登录账号时（hasAccount=false），卡片数据留空以保护隐私。
  *
  * @param identityManager   身份管理器
+ * @param hasAccount        是否已登录账号（false 时留空卡片数据）
  * @param expanded          是否展开（全屏拉伸）
  * @param onToggleExpand    展开/收起回调
  * @param backgroundBitmap  自定义背景图（null 则使用默认颜色）
@@ -46,6 +48,7 @@ import org.jetbrains.skia.Image as SkiaImage
 @Composable
 fun IdentityCard(
     identityManager: FriendIdentityManager,
+    hasAccount: Boolean,
     expanded: Boolean,
     onToggleExpand: () -> Unit,
     backgroundBitmap: ImageBitmap?,
@@ -54,12 +57,12 @@ fun IdentityCard(
 ) {
     // 用 version 作为 key，displayName/backgroundPath 变化时触发重组
     val version = identityManager.version
-    val displayName = identityManager.displayName
+    val displayName = if (hasAccount) identityManager.displayName else ""
     val qrBytes = remember(identityManager.identity, version) {
         identityManager.qrCodeBytes
     }
     val qrBitmap = remember(qrBytes) {
-        if (qrBytes != null && qrBytes.isNotEmpty()) {
+        if (hasAccount && qrBytes != null && qrBytes.isNotEmpty()) {
             try { SkiaImage.makeFromEncoded(qrBytes).toComposeImageBitmap() }
             catch (_: Exception) { null }
         } else null
@@ -140,6 +143,37 @@ fun IdentityCard(
                 ) {
                     if (isExpanded) {
                         // ===== 展开布局 =====
+                        if (!hasAccount) {
+                            // 未登录：留空卡片数据
+                            Surface(
+                                modifier = Modifier.size(160.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
+                                border = BorderStroke(2.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Filled.Lock, "未登录",
+                                        modifier = Modifier.size(40.dp),
+                                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.25f))
+                                }
+                            }
+                            Spacer(Modifier.height(16.dp))
+                            Text("未登录账号",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f))
+                            Spacer(Modifier.height(4.dp))
+                            Text("登录后显示身份信息",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f))
+                            Spacer(Modifier.height(10.dp))
+                            FilledTonalIconButton(
+                                onClick = onToggleExpand,
+                                modifier = Modifier.size(38.dp)
+                            ) {
+                                Icon(Icons.Filled.FullscreenExit, "收起", modifier = Modifier.size(18.dp))
+                            }
+                        } else {
                         // QR 码
                         if (qrBitmap != null) {
                             Surface(
@@ -223,8 +257,42 @@ fun IdentityCard(
                                 Icon(Icons.Filled.FullscreenExit, "收起", modifier = Modifier.size(18.dp))
                             }
                         }
+                        }
                     } else {
                         // ===== 收起布局 =====
+                        if (!hasAccount) {
+                            // 未登录：留空卡片数据
+                            Surface(
+                                modifier = Modifier.size(100.dp),
+                                shape = RoundedCornerShape(10.dp),
+                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
+                                border = BorderStroke(2.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Filled.Lock, "未登录",
+                                        modifier = Modifier.size(28.dp),
+                                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.25f))
+                                }
+                            }
+                            Spacer(Modifier.height(10.dp))
+                            Text("未登录账号",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis)
+                            Spacer(Modifier.height(2.dp))
+                            Text("登录后显示",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f))
+                            Spacer(Modifier.height(8.dp))
+                            FilledTonalIconButton(
+                                onClick = onToggleExpand,
+                                modifier = Modifier.size(30.dp)
+                            ) {
+                                Icon(Icons.Filled.Fullscreen, "展开", modifier = Modifier.size(14.dp))
+                            }
+                        } else {
                         // QR 码
                         if (qrBitmap != null) {
                             Surface(
@@ -307,6 +375,7 @@ fun IdentityCard(
                             ) {
                                 Icon(Icons.Filled.Fullscreen, "展开", modifier = Modifier.size(14.dp))
                             }
+                        }
                         }
                     }
                 }
