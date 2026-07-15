@@ -86,8 +86,8 @@ public final class FriendManager implements AutoCloseable {
     // 内部组件
     // ---------------------------------------------------------------------------
 
-    private final FriendIdentityManager identityManager;
-    private final FriendStore store;
+    private volatile FriendIdentityManager identityManager;
+    private volatile FriendStore store;
     private final FriendChatServer chatServer;
     private final FriendPeerDiscovery discovery;
     private final Map<String, FriendChatClient> activeClients = new ConcurrentHashMap<>();
@@ -142,6 +142,68 @@ public final class FriendManager implements AutoCloseable {
         });
 
         state = State.READY;
+    }
+
+    /**
+     * 切换账户：基于 Minecraft 账户 UUID 派生好友身份。
+     * <p>
+     * 同一账户 UUID 始终派生出同一好友身份（跨设备一致）。
+     * 不同账户的身份和数据完全隔离，存储在各自子目录中。
+     * 如果派生身份与当前一致，仅更新显示名称；否则切换数据集。
+     *
+     * @param accountUuid Minecraft 账户 UUID
+     * @param displayName 显示名称（账户用户名）
+     */
+    public void switchAccount(String accountUuid, String displayName) {
+        if (accountUuid == null || accountUuid.isEmpty()) return;
+
+        FriendIdentity newId = FriendIdentity.derive("pmcl-friend:" + accountUuid);
+
+        // 身份未变，仅更新名称
+        if (identityManager.getIdentity() != null && newId.equals(identityManager.getIdentity())) {
+            identityManager.setDisplayName(displayName);
+            return;
+        }
+
+        // 身份变化，需要切换数据集
+        boolean wasRunning = (state == State.RUNNING);
+        if (wasRunning) {
+            try { stop(); } catch (Exception e) {
+                System.err.println("[FriendManager] 切换账户时停止服务失败: " + e.getMessage());
+            }
+        }
+
+        // 关闭所有活跃连接（它们属于旧身份）
+        for (FriendChatClient client : activeClients.values()) {
+            try { client.close(); } catch (Exception ignored) {}
+        }
+        activeClients.clear();
+        pendingOnConnect.clear();
+
+        // 切换到新身份的数据目录
+        String idKey = newId.toString().replace("-", "");
+        Path newDir = dataDir.resolve(idKey);
+
+        FriendIdentityManager newIdMgr = new FriendIdentityManager(newDir);
+        newIdMgr.initialize();
+        newIdMgr.setIdentity(newId, displayName);
+
+        FriendStore newStore = new FriendStore(newDir);
+        newStore.load();
+        newStore.resetAllOnline();
+
+        this.identityManager = newIdMgr;
+        this.store = newStore;
+
+        System.out.println("[FriendManager] 已切换到账户身份: " + newId + " (" + displayName + ")");
+
+        if (wasRunning) {
+            try { start(); } catch (Exception e) {
+                System.err.println("[FriendManager] 切换账户后启动服务失败: " + e.getMessage());
+            }
+        }
+
+        fireEvent(FriendEvent.Type.STATE_CHANGED, state);
     }
 
     /** 加入联机网络后启动服务 */

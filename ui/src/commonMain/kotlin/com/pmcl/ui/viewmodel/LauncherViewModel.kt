@@ -645,8 +645,10 @@ class LauncherViewModel {
                 val sel = store.getSelected().orElse(null)
                 _account.value = sel
                 if (sel != null) {
-                    // 同步账户用户名到好友身份系统
-                    core.friend()?.identityManager?.setDisplayName(sel.getUsername())
+                    // 基于账户 UUID 派生好友身份
+                    withContext(Dispatchers.IO) {
+                        core.friend()?.switchAccount(sel.getUuid(), sel.getUsername())
+                    }
                     _status.value = "已加载账号：${sel.getUsername()}（${sel.getType()}）"
                 }
             } catch (e: Throwable) {
@@ -659,9 +661,13 @@ class LauncherViewModel {
     private fun saveStore(store: AccountStore) {
         _accounts.value = store.getAccounts()
         _account.value = store.getSelected().orElse(null)
-        // 同步当前账户用户名到好友身份系统
+        // 同步当前账户到好友身份系统（基于 UUID 派生身份，切换数据集）
         store.getSelected().ifPresent { acc ->
-            core.friend()?.identityManager?.setDisplayName(acc.getUsername())
+            scope.launch {
+                withContext(Dispatchers.IO) {
+                    core.friend()?.switchAccount(acc.getUuid(), acc.getUsername())
+                }
+            }
         }
         scope.launch {
             try {

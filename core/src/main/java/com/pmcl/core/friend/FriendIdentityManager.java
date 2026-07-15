@@ -95,6 +95,22 @@ public final class FriendIdentityManager {
         version.incrementAndGet();
     }
 
+    /**
+     * 直接设置身份（用于基于账户 UUID 派生）。
+     * 如果身份与当前相同则仅更新名称，否则覆盖身份、重新生成 QR。
+     */
+    public void setIdentity(FriendIdentity newIdentity, String displayName) {
+        boolean identityChanged = this.identity == null || !newIdentity.equals(this.identity);
+        boolean nameChanged = displayName != null && !displayName.equals(this.displayName);
+        if (!identityChanged && !nameChanged) return;
+
+        this.identity = newIdentity;
+        if (displayName != null) this.displayName = displayName;
+        saveIdentity();
+        generateQrCode();
+        version.incrementAndGet();
+    }
+
     /** 二维码 PNG 字节 */
     public byte[] getQrCodeBytes() {
         return qrCodeBytes;

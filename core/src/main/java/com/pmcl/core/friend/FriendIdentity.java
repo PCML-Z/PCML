@@ -45,6 +45,14 @@ public final class FriendIdentity {
         }
     }
 
+    /**
+     * 基于种子确定性派生身份 ID。同一种子始终产生同一身份。
+     * 用于基于 Minecraft 账户 UUID 派生好友身份，确保跨设备一致。
+     */
+    public static FriendIdentity derive(String seed) {
+        return fallback(seed);
+    }
+
     /** 获取原始字符串 */
     public String getRaw() {
         return raw;
