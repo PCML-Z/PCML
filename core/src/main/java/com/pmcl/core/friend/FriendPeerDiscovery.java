@@ -3,30 +3,33 @@ package com.pmcl.core.friend;
 import java.io.IOException;
 import java.net.*;
 import java.nio.charset.StandardCharsets;
+import java.util.Enumeration;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * P2P 对等发现：通过 UDP 广播在虚拟网络上发现附近的好友。
+ * P2P 对等发现：通过 UDP 组播在本地网络上发现附近的好友。
  * <p>
- * 默认端口：{@code 25410}。
+ * 使用组播组 {@code 239.254.10.10}，默认端口 {@code 25410}。
  * <p>
- * 工作方式：
- * <ol>
- *   <li>加入联机房间后监听 UDP 广播</li>
- *   <li>定时发送自己的身份信息</li>
- *   <li>收到其他用户的广播时通知监听器</li>
- * </ol>
+ * 组播相比广播的优势：
+ * <ul>
+ *   <li>同机器多实例：所有加入组播组的 socket 都能收到数据包（SO_REUSEADDR 即可）</li>
+ *   <li>跨机器：局域网内组播通常可达</li>
+ *   <li>不会像 SO_REUSEPORT 那样只分发到一个 socket</li>
+ * </ul>
  */
 public final class FriendPeerDiscovery implements AutoCloseable {
     public static final int DEFAULT_PORT = 25410;
+    public static final String MULTICAST_GROUP = "239.254.10.10";
+    public static final int MULTICAST_TTL = 1; // 本地网络
 
     private final AtomicBoolean running = new AtomicBoolean(false);
-    private DatagramSocket socket;
+    private MulticastSocket socket;
+    private InetAddress group;
     private Thread listenerThread;
     private Thread broadcasterThread;
     private int port;
-    private int broadcastPort = DEFAULT_PORT;
 
     private String myIdentity;
     private String myName;
@@ -74,43 +77,41 @@ public final class FriendPeerDiscovery implements AutoCloseable {
     }
 
     /**
-     * 启动对等发现（使用默认端口）。
+     * 启动对等发现（使用默认端口和组播组）。
      *
      * @param myIdentity  我的身份 ID
      * @param myName      我的显示名称
      * @param myChatPort  我的聊天服务器端口
      */
     public void start(String myIdentity, String myName, int myChatPort) throws IOException {
-        start(myIdentity, myName, myChatPort, DEFAULT_PORT);
-    }
-
-    /**
-     * 启动对等发现。
-     */
-    public void start(String myIdentity, String myName, int myChatPort, int listenPort) throws IOException {
         if (running.get()) return;
 
         this.myIdentity = myIdentity;
         this.myName = myName;
         this.myChatPort = myChatPort;
-        this.port = listenPort;
-        this.broadcastPort = DEFAULT_PORT;
 
+        group = InetAddress.getByName(MULTICAST_GROUP);
+
+        // 单一 MulticastSocket：绑定 DEFAULT_PORT，加入组播组
+        // SO_REUSEADDR 允许多个实例绑定同一端口，组播保证所有成员都能收到
+        socket = new MulticastSocket(null);
+        socket.setReuseAddress(true);
+        socket.bind(new InetSocketAddress(DEFAULT_PORT));
+        socket.setTimeToLive(MULTICAST_TTL);
+        // setLoopbackMode(false) = 启用回环，确保同机器多实例能收到彼此的组播
+        socket.setLoopbackMode(false);
+        socket.setSoTimeout(1000);
+        this.port = socket.getLocalPort();
+
+        // 加入组播组（在所有可用接口上）
         try {
-            socket = new DatagramSocket(null);
-            socket.setReuseAddress(true);
-            socket.bind(new InetSocketAddress(listenPort));
-            socket.setBroadcast(true);
-            socket.setSoTimeout(1000); // 1 秒超时，实现响应式关闭
-        } catch (SocketException e) {
-            // 端口被占用，尝试随机端口
-            socket = new DatagramSocket(null);
-            socket.setReuseAddress(true);
-            socket.bind(new InetSocketAddress(0));
-            socket.setBroadcast(true);
-            try { socket.setSoTimeout(1000); } catch (SocketException ignored) {}
-            this.port = socket.getLocalPort();
+            socket.joinGroup(new InetSocketAddress(group, DEFAULT_PORT), null);
+        } catch (IOException e) {
+            // 退回旧式 joinGroup
+            socket.joinGroup(group);
         }
+
+        System.out.println("[FriendDiscovery] 已启动, port=" + port + " group=" + MULTICAST_GROUP);
 
         running.set(true);
 
@@ -134,6 +135,11 @@ public final class FriendPeerDiscovery implements AutoCloseable {
         if (listenerThread != null) listenerThread.interrupt();
         if (broadcasterThread != null) broadcasterThread.interrupt();
         if (socket != null && !socket.isClosed()) {
+            try {
+                socket.leaveGroup(new InetSocketAddress(group, DEFAULT_PORT), null);
+            } catch (Exception ignored) {
+                try { socket.leaveGroup(group); } catch (Exception ignored2) {}
+            }
             socket.close();
         }
     }
@@ -143,14 +149,12 @@ public final class FriendPeerDiscovery implements AutoCloseable {
     // ---------------------------------------------------------------------------
 
     private void listenLoop() {
-        // 捕获本地引用，防止 stop/start 竞态时旧线程使用新 socket
-        DatagramSocket localSocket = socket;
         byte[] buffer = new byte[2048];
         DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
 
-        while (running.get()) {
+        while (running.get() && socket != null && !socket.isClosed()) {
             try {
-                localSocket.receive(packet);
+                socket.receive(packet);
                 String json = new String(packet.getData(), 0, packet.getLength(), StandardCharsets.UTF_8);
                 String senderIp = packet.getAddress().getHostAddress();
 
@@ -214,16 +218,47 @@ public final class FriendPeerDiscovery implements AutoCloseable {
 
         byte[] data = msg.toJson().getBytes(StandardCharsets.UTF_8);
 
+        // 1. 发送到组播组（主要路径，同机器+局域网均可达）
         try {
-            // 广播到 255.255.255.255
             DatagramPacket packet = new DatagramPacket(
-                    data, data.length,
-                    InetAddress.getByName("255.255.255.255"),
-                    broadcastPort
+                data, data.length, group, DEFAULT_PORT
             );
             socket.send(packet);
         } catch (IOException e) {
-            // 网络不可用时静默失败
+            System.err.println("[FriendDiscovery] 组播发送失败: " + e.getMessage());
+        }
+
+        // 2. 发送到本机回环地址（额外保险，确保同机器多实例可达）
+        try {
+            DatagramPacket loopback = new DatagramPacket(
+                data, data.length,
+                InetAddress.getByName("127.0.0.1"),
+                DEFAULT_PORT
+            );
+            socket.send(loopback);
+        } catch (IOException ignored) {
+        }
+
+        // 3. 广播到所有网络接口的广播地址（跨机器局域网兼容）
+        try {
+            Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+            while (interfaces != null && interfaces.hasMoreElements()) {
+                NetworkInterface ni = interfaces.nextElement();
+                if (!ni.isUp() || ni.isLoopback()) continue;
+                for (InterfaceAddress addr : ni.getInterfaceAddresses()) {
+                    InetAddress broadcast = addr.getBroadcast();
+                    if (broadcast != null) {
+                        try {
+                            DatagramPacket packet = new DatagramPacket(
+                                data, data.length, broadcast, DEFAULT_PORT
+                            );
+                            socket.send(packet);
+                        } catch (IOException ignored) {
+                        }
+                    }
+                }
+            }
+        } catch (Exception ignored) {
         }
     }
 }

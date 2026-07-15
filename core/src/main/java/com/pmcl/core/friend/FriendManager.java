@@ -129,13 +129,18 @@ public final class FriendManager implements AutoCloseable {
         discovery.addListener(peer -> {
             String peerId = peer.identity.toString();
             if (store.isFriend(peerId)) {
+                // 已有活跃客户端时跳过，避免同机器多源 IP（组播/回环）导致反复重连
+                if (activeClients.containsKey(peerId)) {
+                    fireEvent(FriendEvent.Type.PEERS_UPDATED, peer);
+                    return;
+                }
                 boolean changed = store.updateOnlineStatus(peerId, true, peer.ip, peer.chatPort);
                 if (changed) {
                     fireEvent(FriendEvent.Type.FRIEND_ONLINE, store.getFriend(peerId));
-                    // 主动建立 TCP 连接
-                    if (peer.ip != null && !peer.ip.isEmpty() && peer.chatPort > 0) {
-                        getOrCreateClient(peerId, peer.ip, peer.chatPort);
-                    }
+                }
+                // 主动建立 TCP 连接
+                if (peer.ip != null && !peer.ip.isEmpty() && peer.chatPort > 0) {
+                    getOrCreateClient(peerId, peer.ip, peer.chatPort);
                 }
             }
             fireEvent(FriendEvent.Type.PEERS_UPDATED, peer);
@@ -212,6 +217,7 @@ public final class FriendManager implements AutoCloseable {
 
         try {
             chatServer.start();
+            System.out.println("[FriendManager] 聊天服务器已启动, 端口=" + chatServer.getPort());
         } catch (IOException e) {
             throw new IOException("启动聊天服务器失败: " + e.getMessage(), e);
         }

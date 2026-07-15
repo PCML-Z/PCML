@@ -191,6 +191,31 @@ fun FriendPage(vm: LauncherViewModel) {
                     Text("P2P 聊天基于联机网络，无需服务器", style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f))
                 }
+                // 本地测试模式：直接启动网络服务
+                Surface(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(bottom = 12.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable {
+                            scope.launch {
+                                withContext(Dispatchers.IO) {
+                                    try { friendManager.start() } catch (e: Exception) {
+                                        System.err.println("[FriendPage] 启动好友网络失败: ${e.message}")
+                                    }
+                                }
+                                friendSystemState = friendManager.state
+                            }
+                        },
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                ) {
+                    Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center) {
+                        Icon(Icons.Filled.Wifi, null, modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(6.dp))
+                        Text("启动本地网络（测试）", style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary)
+                    }
+                }
             }
             Spacer(Modifier.height(12.dp))
         }
