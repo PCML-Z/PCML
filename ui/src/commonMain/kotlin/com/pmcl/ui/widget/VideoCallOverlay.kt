@@ -1,6 +1,7 @@
 package com.pmcl.ui.widget
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -15,12 +16,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.awt.SwingPanel
 import com.pmcl.video.VideoCallSession
 import kotlinx.coroutines.delay
+import java.awt.Component
+import java.awt.FlowLayout
+import javax.swing.JPanel
 
 /**
- * 视频通话浮层：显示通话状态、控制按钮。
- * 视频渲染区域预留给 SwingPanel 嵌入 AWT Component。
+ * 视频通话浮层：显示远端/本地视频画面、通话状态、控制按钮。
+ * 视频渲染使用 SwingPanel 嵌入 libjitsi 的 AWT Component。
  */
 @Composable
 fun VideoCallOverlay(
@@ -33,6 +38,32 @@ fun VideoCallOverlay(
     var callDuration by remember { mutableStateOf(0L) }
     var isMuted by remember { mutableStateOf(false) }
     var isCameraOn by remember { mutableStateOf(true) }
+
+    // 视频组件状态（通过 VideoListener 回调更新）
+    var remoteComponent by remember { mutableStateOf<Component?>(null) }
+    var localComponent by remember { mutableStateOf<Component?>(null) }
+
+    // 注册 VideoListener
+    DisposableEffect(session) {
+        val listener = object : VideoCallSession.CallListener {
+            override fun onStateChanged(state: VideoCallSession.State) {}
+            override fun onLocalCandidate(candidateSdp: String) {}
+            override fun onRemoteVideoComponent(component: Component?) {
+                remoteComponent = component
+            }
+            override fun onLocalVideoComponent(component: Component?) {
+                localComponent = component
+            }
+            override fun onError(message: String) {}
+        }
+        session.addListener(listener)
+
+        // 尝试获取已存在的组件
+        remoteComponent = session.remoteVideoComponent
+        localComponent = session.localVideoComponent
+
+        onDispose { session.removeListener(listener) }
+    }
 
     // 通话计时
     LaunchedEffect(session.state) {
@@ -48,14 +79,80 @@ fun VideoCallOverlay(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.85f))
+            .background(Color.Black)
     ) {
+        // 远端视频画面（全屏）
+        remoteComponent?.let { comp ->
+            SwingPanel(
+                background = Color.Black,
+                modifier = Modifier.fillMaxSize(),
+                factory = {
+                    JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
+                        isOpaque = true
+                        background = java.awt.Color.BLACK
+                        add(comp)
+                    }
+                }
+            )
+        } ?: run {
+            // 无视频时显示等待提示
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        Icons.Filled.VideocamOff, null,
+                        modifier = Modifier.size(64.dp),
+                        tint = Color.White.copy(alpha = 0.3f)
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        when (session.state) {
+                            VideoCallSession.State.RINGING -> if (session.isInitiator) "等待对方接听..." else "来电中..."
+                            VideoCallSession.State.NEGOTIATING -> "正在建立连接..."
+                            VideoCallSession.State.IN_CALL -> "等待视频画面..."
+                            VideoCallSession.State.ENDED -> "通话结束"
+                        },
+                        color = Color.White.copy(alpha = 0.6f),
+                        style = MaterialTheme.typography.bodyLarge
+                    )
+                }
+            }
+        }
+
+        // 本地视频预览（右上角小窗）
+        if (isCameraOn) {
+            localComponent?.let { comp ->
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(12.dp)
+                        .size(width = 160.dp, height = 120.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .border(2.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                ) {
+                    SwingPanel(
+                        background = Color.Black,
+                        modifier = Modifier.fillMaxSize(),
+                        factory = {
+                            JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
+                                isOpaque = true
+                                background = java.awt.Color.BLACK
+                                add(comp)
+                            }
+                        }
+                    )
+                }
+            }
+        }
+
         // 顶部：通话信息
         Row(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .fillMaxWidth()
-                .padding(16.dp),
+                .padding(top = 16.dp),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
         ) {

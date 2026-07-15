@@ -8,6 +8,8 @@ import org.ice4j.ice.harvest.TurnCandidateHarvester;
 import org.ice4j.security.LongTermCredential;
 import org.jitsi.service.neomedia.*;
 import org.jitsi.service.neomedia.device.MediaDevice;
+import org.jitsi.util.event.VideoEvent;
+import org.jitsi.util.event.VideoListener;
 
 import java.net.InetSocketAddress;
 import java.util.List;
@@ -54,7 +56,10 @@ public final class VideoCallSession {
     public interface CallListener {
         void onStateChanged(State state);
         void onLocalCandidate(String candidateSdp);
+        /** 远端视频组件就绪（或被移除，component=null） */
         void onRemoteVideoComponent(java.awt.Component component);
+        /** 本地视频预览组件就绪（或被移除，component=null） */
+        void onLocalVideoComponent(java.awt.Component component);
         void onError(String message);
     }
 
@@ -104,6 +109,23 @@ public final class VideoCallSession {
     public boolean isInitiator() { return isInitiator; }
     public MediaType getMediaType() { return mediaType; }
     public State getState() { return state; }
+
+    /** 获取远端视频组件（可能为 null，尚未就绪） */
+    public java.awt.Component getRemoteVideoComponent() {
+        return remoteVideoComponent.get();
+    }
+
+    /** 获取本地视频预览组件（可能为 null） */
+    public java.awt.Component getLocalVideoComponent() {
+        if (videoStream instanceof VideoMediaStream) {
+            try {
+                return ((VideoMediaStream) videoStream).getLocalVisualComponent();
+            } catch (Exception e) {
+                return null;
+            }
+        }
+        return null;
+    }
 
     public void addListener(CallListener listener) { listeners.add(listener); }
     public void removeListener(CallListener listener) { listeners.remove(listener); }
@@ -312,6 +334,60 @@ public final class VideoCallSession {
                     MediaStreamTarget videoTarget = createTargetFromIce(videoIce);
                     boolean screenShare = (mediaType == MediaType.SCREEN_SHARE);
                     videoStream = VideoCallManager.createVideoStream(videoConn, videoTarget, screenShare, screenShare);
+
+                    // 注册 VideoListener 捕获远端视频组件
+                    if (videoStream instanceof VideoMediaStream) {
+                        VideoMediaStream vms = (VideoMediaStream) videoStream;
+                        vms.addVideoListener(new VideoListener() {
+                            @Override
+                            public void videoAdded(VideoEvent e) {
+                                java.awt.Component comp = e.getVisualComponent();
+                                if (comp != null) {
+                                    if (e.getOrigin() == VideoEvent.REMOTE) {
+                                        System.out.println("[VideoCall] 远端视频组件就绪: " + comp.getSize());
+                                        remoteVideoComponent.set(comp);
+                                        for (CallListener l : listeners) {
+                                            try { l.onRemoteVideoComponent(comp); } catch (Exception ignored) {}
+                                        }
+                                    } else if (e.getOrigin() == VideoEvent.LOCAL) {
+                                        System.out.println("[VideoCall] 本地视频组件就绪: " + comp.getSize());
+                                        for (CallListener l : listeners) {
+                                            try { l.onLocalVideoComponent(comp); } catch (Exception ignored) {}
+                                        }
+                                    }
+                                }
+                            }
+
+                            @Override
+                            public void videoRemoved(VideoEvent e) {
+                                if (e.getOrigin() == VideoEvent.REMOTE) {
+                                    remoteVideoComponent.set(null);
+                                    for (CallListener l : listeners) {
+                                        try { l.onRemoteVideoComponent(null); } catch (Exception ignored) {}
+                                    }
+                                } else if (e.getOrigin() == VideoEvent.LOCAL) {
+                                    for (CallListener l : listeners) {
+                                        try { l.onLocalVideoComponent(null); } catch (Exception ignored) {}
+                                    }
+                                }
+                            }
+
+                            @Override
+                            public void videoUpdate(VideoEvent e) {}
+                        });
+
+                        // 尝试获取已存在的本地视频组件（摄像头预览）
+                        try {
+                            java.awt.Component localComp = vms.getLocalVisualComponent();
+                            if (localComp != null) {
+                                System.out.println("[VideoCall] 本地视频预览组件已就绪");
+                                for (CallListener l : listeners) {
+                                    try { l.onLocalVideoComponent(localComp); } catch (Exception ignored) {}
+                                }
+                            }
+                        } catch (Exception ignored) {}
+                    }
+
                     videoStream.start();
                     System.out.println("[VideoCall] 视频流已启动, screenShare=" + screenShare);
                 }

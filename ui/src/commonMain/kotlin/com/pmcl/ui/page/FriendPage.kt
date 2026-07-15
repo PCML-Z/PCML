@@ -402,6 +402,7 @@ fun FriendPage(vm: LauncherViewModel) {
                                                     selectedFriendId!!, callId, candidateSdp, 0, "1")
                                             }
                                             override fun onRemoteVideoComponent(component: java.awt.Component) {}
+                                            override fun onLocalVideoComponent(component: java.awt.Component?) {}
                                             override fun onError(message: String) {
                                                 System.err.println("[VideoCall] $message")
                                                 activeCallSession = null
@@ -580,6 +581,7 @@ fun FriendPage(vm: LauncherViewModel) {
                                 friendManager.sendCallIceCandidate(callerId, callId, candidateSdp, 0, "1")
                             }
                             override fun onRemoteVideoComponent(component: java.awt.Component) {}
+                            override fun onLocalVideoComponent(component: java.awt.Component?) {}
                             override fun onError(message: String) {
                                 System.err.println("[VideoCall] $message")
                                 activeCallSession = null
