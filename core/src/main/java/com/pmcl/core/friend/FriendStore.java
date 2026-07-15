@@ -9,6 +9,7 @@ import java.lang.reflect.Type;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -71,13 +72,21 @@ public final class FriendStore {
         }
 
         // 加载聊天记录
-        try {
-            Path[] msgFiles = Files.list(messagesDir)
+        try (var stream = Files.list(messagesDir)) {
+            Path[] msgFiles = stream
                     .filter(p -> p.toString().endsWith(".json"))
                     .toArray(Path[]::new);
             for (Path file : msgFiles) {
                 String fileName = file.getFileName().toString();
-                String identity = fileName.substring(0, fileName.length() - 5); // 去掉 .json
+                String fileIdentity = fileName.substring(0, fileName.length() - 5); // 去掉 .json（无连字符）
+                // 文件名是无连字符格式，需还原为带连字符的 identity 作为 conversations 的键
+                String identity;
+                try {
+                    identity = FriendIdentity.parse(fileIdentity).toString();
+                } catch (IllegalArgumentException e) {
+                    System.err.println("[FriendStore] 跳过无效身份的聊天记录文件: " + fileName);
+                    continue;
+                }
                 try {
                     String json = Files.readString(file, StandardCharsets.UTF_8);
                     Type type = new TypeToken<List<StoredMessage>>() {}.getType();
@@ -89,7 +98,9 @@ public final class FriendStore {
                     System.err.println("[FriendStore] 加载聊天记录失败 (" + identity + "): " + e.getMessage());
                 }
             }
-        } catch (IOException ignored) {}
+        } catch (IOException e) {
+            System.err.println("[FriendStore] 列出聊天记录文件失败: " + e.getMessage());
+        }
     }
 
     /** 保存好友列表 */
@@ -97,7 +108,7 @@ public final class FriendStore {
         try {
             List<FriendEntry> entries = new ArrayList<>(friends.values());
             String json = GSON.toJson(entries);
-            Files.writeString(friendsFile, json, StandardCharsets.UTF_8);
+            atomicWrite(friendsFile, json);
         } catch (IOException e) {
             System.err.println("[FriendStore] 保存好友列表失败: " + e.getMessage());
         }
@@ -109,10 +120,17 @@ public final class FriendStore {
             List<StoredMessage> msgs = conversations.getOrDefault(identity, Collections.emptyList());
             String json = GSON.toJson(msgs);
             Path file = messagesDir.resolve(identity.replace("-", "") + ".json");
-            Files.writeString(file, json, StandardCharsets.UTF_8);
+            atomicWrite(file, json);
         } catch (IOException e) {
             System.err.println("[FriendStore] 保存聊天记录失败 (" + identity + "): " + e.getMessage());
         }
+    }
+
+    /** 原子写入：先写临时文件，再原子移动覆盖目标文件 */
+    private void atomicWrite(Path target, String content) throws IOException {
+        Path tmp = target.resolveSibling(target.getFileName() + ".tmp");
+        Files.writeString(tmp, content, StandardCharsets.UTF_8);
+        Files.move(tmp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
     }
 
     // ---------------------------------------------------------------------------
@@ -159,13 +177,17 @@ public final class FriendStore {
     public void updateOnlineStatus(String identity, boolean online, String ip, int port) {
         FriendEntry entry = friends.get(identity);
         if (entry != null) {
+            boolean changed = entry.online != online;
             entry.online = online;
             if (online) {
+                changed = changed || !Objects.equals(entry.lastIp, ip) || entry.lastPort != port;
                 entry.lastIp = ip;
                 entry.lastPort = port;
                 entry.lastSeen = System.currentTimeMillis();
             }
-            saveFriends();
+            if (changed) {
+                saveFriends();
+            }
         }
     }
 

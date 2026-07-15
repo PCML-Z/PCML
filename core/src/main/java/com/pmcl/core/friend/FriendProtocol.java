@@ -62,6 +62,8 @@ public final class FriendProtocol {
         public String type = "friend_req";
         public String identity;
         public String name;
+        /** 发送方的聊天服务器端口 */
+        public int port;
 
         public static FriendRequest fromJson(String json) {
             return GSON.fromJson(json, FriendRequest.class);
@@ -78,6 +80,8 @@ public final class FriendProtocol {
         public String identity;
         public String name;
         public boolean accepted;
+        /** 发送方的聊天服务器端口 */
+        public int port;
 
         public static FriendAck fromJson(String json) {
             return GSON.fromJson(json, FriendAck.class);

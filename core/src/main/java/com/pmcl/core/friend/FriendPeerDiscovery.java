@@ -26,6 +26,7 @@ public final class FriendPeerDiscovery implements AutoCloseable {
     private Thread listenerThread;
     private Thread broadcasterThread;
     private int port;
+    private int broadcastPort = DEFAULT_PORT;
 
     private String myIdentity;
     private String myName;
@@ -93,6 +94,7 @@ public final class FriendPeerDiscovery implements AutoCloseable {
         this.myName = myName;
         this.myChatPort = myChatPort;
         this.port = listenPort;
+        this.broadcastPort = DEFAULT_PORT;
 
         try {
             socket = new DatagramSocket(null);
@@ -161,11 +163,13 @@ public final class FriendPeerDiscovery implements AutoCloseable {
                     continue;
                 }
 
+                if (msg.port <= 0) continue;
+
                 DiscoveredPeer peer = new DiscoveredPeer(
                         peerId,
                         msg.name != null ? msg.name : msg.identity,
                         senderIp,
-                        msg.port > 0 ? msg.port : myChatPort
+                        msg.port
                 );
 
                 for (PeerListener listener : listeners) {
@@ -209,7 +213,7 @@ public final class FriendPeerDiscovery implements AutoCloseable {
             DatagramPacket packet = new DatagramPacket(
                     data, data.length,
                     InetAddress.getByName("255.255.255.255"),
-                    port
+                    broadcastPort
             );
             socket.send(packet);
         } catch (IOException e) {

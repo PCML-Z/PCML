@@ -18,6 +18,7 @@ import java.lang.reflect.Type;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.util.*;
@@ -35,13 +36,13 @@ public final class FriendIdentityManager {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
     private final Path dataDir;
-    private FriendIdentity identity;
-    private String displayName;
-    private String backgroundPath;
-    private byte[] qrCodeBytes;
+    private volatile FriendIdentity identity;
+    private volatile String displayName;
+    private volatile String backgroundPath;
+    private volatile byte[] qrCodeBytes;
     /** QR 码原始矩阵（用于 Canvas 自定义渲染） */
-    private boolean[] qrModules;
-    private int qrSize;
+    private volatile boolean[] qrModules;
+    private volatile int qrSize;
 
     public FriendIdentityManager(Path dataDir) {
         this.dataDir = dataDir;
@@ -80,6 +81,7 @@ public final class FriendIdentityManager {
     public void setDisplayName(String name) {
         this.displayName = name;
         saveIdentity();
+        generateQrCode();
     }
 
     /** 二维码 PNG 字节 */
@@ -110,6 +112,7 @@ public final class FriendIdentityManager {
 
     /** 分享文本：用于生成二维码，"pmcl-friend:" 协议 */
     public String getShareText() {
+        if (identity == null) return "";
         return "pmcl-friend:" + identity.toString() + ":" + urlEncode(displayName);
     }
 
@@ -126,7 +129,7 @@ public final class FriendIdentityManager {
         String idStr = parts[0].trim();
         if (!FriendIdentity.isValid(idStr)) return null;
         FriendIdentity id = FriendIdentity.parse(idStr);
-        String name = parts.length > 1 ? urlDecode(parts[1].trim()) : id.toString().substring(0, 10);
+        String name = parts.length > 1 ? urlDecode(parts[1].trim()) : id.toString().replace("-", "").substring(0, 8);
         return new IdentityInfo(id, name);
     }
 
@@ -178,7 +181,10 @@ public final class FriendIdentityManager {
                 data.put("bg", backgroundPath);
             }
             String json = GSON.toJson(data);
-            Files.writeString(dataDir.resolve("identity.json"), json, StandardCharsets.UTF_8);
+            Path target = dataDir.resolve("identity.json");
+            Path tmp = dataDir.resolve("identity.json.tmp");
+            Files.writeString(tmp, json, StandardCharsets.UTF_8);
+            Files.move(tmp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
         } catch (IOException e) {
             System.err.println("[FriendIdentity] 保存身份失败: " + e.getMessage());
         }

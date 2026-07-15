@@ -52,7 +52,9 @@ fun IdentityCard(
     onPickBackground: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val qrBytes = remember { identityManager.qrCodeBytes }
+    val qrBytes = remember(identityManager.identity, identityManager.displayName) {
+        identityManager.qrCodeBytes
+    }
     val qrBitmap = remember(qrBytes) {
         if (qrBytes != null && qrBytes.isNotEmpty()) {
             try { SkiaImage.makeFromEncoded(qrBytes).toComposeImageBitmap() }

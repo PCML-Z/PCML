@@ -20,15 +20,16 @@ public final class FriendChatClient implements AutoCloseable {
     private final int port;
     private final String myIdentity;
     private final String myName;
+    private int myChatPort;
 
-    private Socket socket;
-    private PrintWriter writer;
+    private volatile Socket socket;
+    private volatile PrintWriter writer;
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicBoolean connecting = new AtomicBoolean(false);
     private Thread writeThread;
     private Thread readThread;
 
-    private final BlockingQueue<String> sendQueue = new LinkedBlockingQueue<>();
+    private final BlockingQueue<String> sendQueue = new LinkedBlockingQueue<>(1000);
 
     private MessageCallback callback;
 
@@ -54,8 +55,28 @@ public final class FriendChatClient implements AutoCloseable {
         this.callback = callback;
     }
 
+    /** 设置我的聊天服务器端口（用于在好友请求/应答中携带） */
+    public void setMyChatPort(int port) {
+        this.myChatPort = port;
+    }
+
     public boolean isConnected() {
         return running.get() && socket != null && socket.isConnected() && !socket.isClosed();
+    }
+
+    /** 返回远程主机地址 */
+    public String getRemoteHost() {
+        return host;
+    }
+
+    /** 返回远程主机端口 */
+    public int getRemotePort() {
+        return port;
+    }
+
+    @Override
+    public String toString() {
+        return host + ":" + port;
     }
 
     /** 异步连接 */
@@ -98,7 +119,9 @@ public final class FriendChatClient implements AutoCloseable {
 
     /** 发送消息（非阻塞，入队） */
     public void send(String jsonLine) {
-        sendQueue.offer(jsonLine);
+        if (!sendQueue.offer(jsonLine)) {
+            System.err.println("[FriendChatClient] 发送队列已满，丢弃消息: " + jsonLine);
+        }
     }
 
     /** 发送聊天文本 */
@@ -115,6 +138,7 @@ public final class FriendChatClient implements AutoCloseable {
         FriendProtocol.FriendRequest req = new FriendProtocol.FriendRequest();
         req.identity = myIdentity;
         req.name = myName;
+        req.port = myChatPort;
         send(req.toJson());
     }
 
@@ -124,6 +148,7 @@ public final class FriendChatClient implements AutoCloseable {
         ack.identity = myIdentity;
         ack.name = myName;
         ack.accepted = accepted;
+        ack.port = myChatPort;
         send(ack.toJson());
     }
 
@@ -138,6 +163,8 @@ public final class FriendChatClient implements AutoCloseable {
     @Override
     public void close() {
         running.set(false);
+        if (writeThread != null) writeThread.interrupt();
+        if (readThread != null) readThread.interrupt();
         writeThread = null;
         readThread = null;
         try {
@@ -175,7 +202,11 @@ public final class FriendChatClient implements AutoCloseable {
             String line;
             while (running.get() && (line = reader.readLine()) != null) {
                 if (callback != null) {
-                    callback.onMessageReceived(line);
+                    try {
+                        callback.onMessageReceived(line);
+                    } catch (RuntimeException e) {
+                        System.err.println("[FriendChatClient] 回调处理异常: " + e.getMessage());
+                    }
                 }
             }
         } catch (IOException e) {

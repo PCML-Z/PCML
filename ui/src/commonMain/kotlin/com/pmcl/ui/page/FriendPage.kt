@@ -29,7 +29,9 @@ import com.pmcl.core.friend.FriendStore
 import com.pmcl.core.i18n.I18n
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import com.pmcl.ui.widget.IdentityCard
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.jetbrains.skia.Image as SkiaImage
 import java.io.File
 import java.text.SimpleDateFormat
@@ -56,32 +58,38 @@ fun FriendPage(vm: LauncherViewModel) {
     var inputText by remember { mutableStateOf("") }
     var showAddDialog by remember { mutableStateOf(false) }
     var addFriendCode by remember { mutableStateOf("") }
+    var addFriendError by remember { mutableStateOf<String?>(null) }
     val pendingRequests = remember { mutableStateListOf<FriendManager.PendingRequest>() }
 
     // 身份卡片状态
     var cardExpanded by remember { mutableStateOf(false) }
     var bgImagePath by remember { mutableStateOf(identityManager.backgroundPath) }
-    val bgBitmap = remember(bgImagePath) {
+    val bgBitmap by produceState<ImageBitmap?>(null, bgImagePath) {
         if (bgImagePath != null) {
-            try {
-                val file = File(bgImagePath)
-                if (file.exists()) {
-                    val bytes = file.readBytes()
-                    SkiaImage.makeFromEncoded(bytes).toComposeImageBitmap()
-                } else null
-            } catch (_: Exception) { null }
-        } else null
+            value = withContext(Dispatchers.IO) {
+                try {
+                    val file = File(bgImagePath)
+                    if (file.exists()) {
+                        val bytes = file.readBytes()
+                        SkiaImage.makeFromEncoded(bytes).toComposeImageBitmap()
+                    } else null
+                } catch (_: Exception) { null }
+            }
+        }
     }
 
     // 选择背景图片
     val pickBackground: () -> Unit = {
-        val chooser = JFileChooser()
-        chooser.dialogTitle = "选择卡片背景图片"
-        chooser.fileFilter = FileNameExtensionFilter("图片文件 (*.png, *.jpg, *.jpeg)", "png", "jpg", "jpeg")
-        val result = chooser.showOpenDialog(null)
-        if (result == JFileChooser.APPROVE_OPTION) {
-            bgImagePath = chooser.selectedFile.absolutePath
-            identityManager.backgroundPath = chooser.selectedFile.absolutePath
+        scope.launch(Dispatchers.IO) {
+            val chooser = JFileChooser()
+            chooser.dialogTitle = "选择卡片背景图片"
+            chooser.fileFilter = FileNameExtensionFilter("图片文件 (*.png, *.jpg, *.jpeg)", "png", "jpg", "jpeg")
+            val result = chooser.showOpenDialog(null)
+            if (result == JFileChooser.APPROVE_OPTION) {
+                val path = chooser.selectedFile.absolutePath
+                identityManager.backgroundPath = path
+                bgImagePath = path
+            }
         }
     }
 
@@ -95,8 +103,23 @@ fun FriendPage(vm: LauncherViewModel) {
 
     // 监听事件
     DisposableEffect(friendManager) {
-        val listener: (FriendManager.FriendEvent) -> Unit = {
-            scope.launch { refresh() }
+        val listener: (FriendManager.FriendEvent) -> Unit = { event ->
+            scope.launch {
+                when (event.type) {
+                    FriendManager.FriendEvent.Type.FRIEND_REQUEST_RECEIVED -> {
+                        val request = event.data as? FriendManager.PendingRequest
+                        if (request != null) {
+                            pendingRequests.add(request)
+                        }
+                    }
+                    FriendManager.FriendEvent.Type.FRIEND_REMOVED -> {
+                        refresh()
+                    }
+                    else -> {
+                        refresh()
+                    }
+                }
+            }
         }
         friendManager.addListener(listener)
         onDispose { friendManager.removeListener(listener) }
@@ -293,6 +316,7 @@ fun FriendPage(vm: LauncherViewModel) {
     if (showAddDialog) {
         AddFriendDialog(
             code = addFriendCode,
+            error = addFriendError,
             onCodeChange = { addFriendCode = it },
             onDismiss = { showAddDialog = false },
             onAdd = {
@@ -305,6 +329,10 @@ fun FriendPage(vm: LauncherViewModel) {
                         0
                     )
                     addFriendCode = ""
+                    addFriendError = null
+                    showAddDialog = false
+                } else {
+                    addFriendError = "无效的邀请码"
                 }
             },
             onScanStart = { }
@@ -516,6 +544,7 @@ private fun MessageBubble(text: String, time: String, fromMe: Boolean) {
 @Composable
 private fun AddFriendDialog(
     code: String,
+    error: String?,
     onCodeChange: (String) -> Unit,
     onDismiss: () -> Unit,
     onAdd: () -> Unit,
@@ -538,6 +567,10 @@ private fun AddFriendDialog(
                     singleLine = false,
                     minLines = 2
                 )
+                error?.let {
+                    Spacer(Modifier.height(4.dp))
+                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
             }
         },
         confirmButton = {
