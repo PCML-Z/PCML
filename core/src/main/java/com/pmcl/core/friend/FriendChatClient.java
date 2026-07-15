@@ -139,6 +139,8 @@ public final class FriendChatClient implements AutoCloseable {
         msg.id = java.util.UUID.randomUUID().toString();
         msg.text = text;
         msg.timestamp = System.currentTimeMillis();
+        msg.from = myIdentity;
+        msg.fromName = myName;
         send(msg.toJson());
     }
 
@@ -165,12 +167,23 @@ public final class FriendChatClient implements AutoCloseable {
     public void sendStatus(boolean online) {
         FriendProtocol.StatusMessage status = new FriendProtocol.StatusMessage();
         status.online = online;
+        status.from = myIdentity;
         send(status.toJson());
     }
 
     /** 断开连接 */
     @Override
     public void close() {
+        // 先发送离线状态，让对端立即感知
+        if (running.get() && writer != null && !writer.checkError()) {
+            try {
+                FriendProtocol.StatusMessage offline = new FriendProtocol.StatusMessage();
+                offline.online = false;
+                offline.from = myIdentity;
+                writer.println(offline.toJson());
+                writer.flush();
+            } catch (Exception ignored) {}
+        }
         running.set(false);
         connecting.set(false);
         if (writeThread != null) writeThread.interrupt();
@@ -204,6 +217,7 @@ public final class FriendChatClient implements AutoCloseable {
                     if (writer != null && !writer.checkError()) {
                         FriendProtocol.StatusMessage heartbeat = new FriendProtocol.StatusMessage();
                         heartbeat.online = true;
+                        heartbeat.from = myIdentity;
                         writer.println(heartbeat.toJson());
                         if (writer.checkError()) {
                             handleDisconnect("心跳写入失败");

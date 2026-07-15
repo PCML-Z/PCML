@@ -101,12 +101,14 @@ public final class FriendPeerDiscovery implements AutoCloseable {
             socket.setReuseAddress(true);
             socket.bind(new InetSocketAddress(listenPort));
             socket.setBroadcast(true);
+            socket.setSoTimeout(1000); // 1 秒超时，实现响应式关闭
         } catch (SocketException e) {
             // 端口被占用，尝试随机端口
             socket = new DatagramSocket(null);
             socket.setReuseAddress(true);
             socket.bind(new InetSocketAddress(0));
             socket.setBroadcast(true);
+            try { socket.setSoTimeout(1000); } catch (SocketException ignored) {}
             this.port = socket.getLocalPort();
         }
 
@@ -179,9 +181,11 @@ public final class FriendPeerDiscovery implements AutoCloseable {
                         System.err.println("[FriendDiscovery] 监听器异常: " + e.getMessage());
                     }
                 }
+            } catch (java.net.SocketTimeoutException e) {
+                // 正常超时，继续循环
             } catch (IOException e) {
                 if (running.get()) {
-                    // Socket 可能被关闭
+                    System.err.println("[FriendDiscovery] 接收错误: " + e.getMessage());
                 }
             }
         }

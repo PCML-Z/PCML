@@ -47,6 +47,10 @@ public final class FriendProtocol {
         public String id;
         public String text;
         public long timestamp;
+        /** 发送方身份 ID（用于服务器路径识别来源） */
+        public String from;
+        /** 发送方显示名称 */
+        public String fromName;
 
         public static ChatMessage fromJson(String json) {
             return GSON.fromJson(json, ChatMessage.class);
@@ -96,6 +100,8 @@ public final class FriendProtocol {
     public static final class StatusMessage {
         public String type = "status";
         public boolean online;
+        /** 发送方身份 ID（用于服务器路径识别来源） */
+        public String from;
         /** 已知在线的好友身份列表（批量同步） */
         public List<String> knownPeers;
 

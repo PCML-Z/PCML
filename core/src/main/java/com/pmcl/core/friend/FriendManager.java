@@ -5,6 +5,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 
@@ -90,7 +91,8 @@ public final class FriendManager implements AutoCloseable {
     private final FriendChatServer chatServer;
     private final FriendPeerDiscovery discovery;
     private final Map<String, FriendChatClient> activeClients = new ConcurrentHashMap<>();
-    private final Map<String, Runnable> pendingOnConnect = new ConcurrentHashMap<>();
+    /** 连接建立后待执行的操作队列（每个 identity 一个队列，防止 put 覆盖） */
+    private final Map<String, Queue<Runnable>> pendingOnConnect = new ConcurrentHashMap<>();
     private final List<Consumer<FriendEvent>> eventListeners = new CopyOnWriteArrayList<>();
 
     private volatile State state = State.UNINITIALIZED;
@@ -188,9 +190,7 @@ public final class FriendManager implements AutoCloseable {
         chatServer.close();
 
         // 标记所有好友离线
-        for (FriendStore.FriendEntry entry : store.getAllFriends()) {
-            store.updateOnlineStatus(entry.identity, false, "", 0);
-        }
+        store.resetAllOnline();
 
         state = State.STOPPED;
         fireEvent(FriendEvent.Type.STATE_CHANGED, state);
@@ -251,19 +251,31 @@ public final class FriendManager implements AutoCloseable {
         fireEvent(FriendEvent.Type.FRIEND_REMOVED, identity);
     }
 
+    /** 添加待发操作到队列 */
+    private void enqueuePending(String identity, Runnable action) {
+        pendingOnConnect.computeIfAbsent(identity, k -> new ConcurrentLinkedQueue<>()).add(action);
+    }
+
     /** 发送好友请求到指定 IP + port */
     public void sendFriendRequest(String identity, String displayName, String ip, int port) {
-        if (ip == null || ip.isEmpty() || port <= 0) {
-            // 无网络地址，仅添加为离线好友
-            store.addFriend(identity, displayName, "", 0);
-            fireEvent(FriendEvent.Type.FRIEND_ADDED, store.getFriend(identity));
-            return;
-        }
-        FriendChatClient client = getOrCreateClient(identity, ip, port);
-        if (client.isConnected()) {
-            client.sendFriendRequest();
+        // 先添加到本地存储
+        store.addFriend(identity, displayName, ip, port);
+        fireEvent(FriendEvent.Type.FRIEND_ADDED, store.getFriend(identity));
+
+        if (ip != null && !ip.isEmpty() && port > 0) {
+            // 有地址，尝试连接并发送
+            FriendChatClient client = getOrCreateClient(identity, ip, port);
+            if (client != null && client.isConnected()) {
+                client.sendFriendRequest();
+            } else if (client != null) {
+                enqueuePending(identity, () -> client.sendFriendRequest());
+            }
         } else {
-            pendingOnConnect.put(identity, () -> client.sendFriendRequest());
+            // 无地址，排队等待发现后自动发送
+            enqueuePending(identity, () -> {
+                FriendChatClient c = activeClients.get(identity);
+                if (c != null) c.sendFriendRequest();
+            });
         }
     }
 
@@ -274,31 +286,30 @@ public final class FriendManager implements AutoCloseable {
     /** 发送文字消息给好友 */
     public void sendMessage(String identity, String text) {
         FriendStore.FriendEntry friend = store.getFriend(identity);
-        if (friend == null || !friend.online) return;
+        if (friend == null) return;
 
         String msgId = UUID.randomUUID().toString();
         long timestamp = System.currentTimeMillis();
 
-        // 本地存储
+        // 始终本地存储（即使好友离线，消息也不丢失）
         store.addMessage(identity, msgId, text, timestamp, true);
 
-        // 通过网络发送
+        // 无网络地址则仅本地存储
         if (friend.lastIp == null || friend.lastIp.isEmpty() || friend.lastPort <= 0) return;
 
         FriendChatClient client = getOrCreateClient(identity, friend.lastIp, friend.lastPort);
+        FriendProtocol.ChatMessage msg = new FriendProtocol.ChatMessage();
+        msg.id = msgId;
+        msg.text = text;
+        msg.timestamp = timestamp;
+        msg.from = identityManager.getIdentity().toString();
+        msg.fromName = identityManager.getDisplayName();
+
         if (client != null && client.isConnected()) {
-            FriendProtocol.ChatMessage msg = new FriendProtocol.ChatMessage();
-            msg.id = msgId;
-            msg.text = text;
-            msg.timestamp = timestamp;
             client.send(msg.toJson());
         } else if (client != null) {
             // 连接未建立，加入待发队列
-            FriendProtocol.ChatMessage msg = new FriendProtocol.ChatMessage();
-            msg.id = msgId;
-            msg.text = text;
-            msg.timestamp = timestamp;
-            pendingOnConnect.put(identity, () -> client.send(msg.toJson()));
+            enqueuePending(identity, () -> client.send(msg.toJson()));
         }
     }
 
@@ -310,10 +321,10 @@ public final class FriendManager implements AutoCloseable {
         // 发送接受应答
         if (request.ip != null && !request.ip.isEmpty() && request.port > 0) {
             FriendChatClient client = getOrCreateClient(request.identity.toString(), request.ip, request.port);
-            if (client.isConnected()) {
+            if (client != null && client.isConnected()) {
                 client.sendFriendAck(request.identity.toString(), true);
-            } else {
-                pendingOnConnect.put(request.identity.toString(),
+            } else if (client != null) {
+                enqueuePending(request.identity.toString(),
                         () -> client.sendFriendAck(request.identity.toString(), true));
             }
         }
@@ -323,10 +334,10 @@ public final class FriendManager implements AutoCloseable {
     public void rejectFriendRequest(PendingRequest request) {
         if (request.ip != null && !request.ip.isEmpty() && request.port > 0) {
             FriendChatClient client = getOrCreateClient(request.identity.toString(), request.ip, request.port);
-            if (client.isConnected()) {
+            if (client != null && client.isConnected()) {
                 client.sendFriendAck(request.identity.toString(), false);
-            } else {
-                pendingOnConnect.put(request.identity.toString(),
+            } else if (client != null) {
+                enqueuePending(request.identity.toString(),
                         () -> client.sendFriendAck(request.identity.toString(), false));
             }
         }
@@ -356,8 +367,16 @@ public final class FriendManager implements AutoCloseable {
             case "msg" -> {
                 FriendProtocol.ChatMessage msg = FriendProtocol.ChatMessage.fromJson(jsonLine);
                 if (msg.text != null && msg.id != null) {
-                    String senderId = isIdentity ? remoteIp : findIdentityByIp(remoteIp);
-                    if (senderId != null) {
+                    // 优先使用消息中的 from 字段识别发送者
+                    String senderId;
+                    if (msg.from != null && FriendIdentity.isValid(msg.from)) {
+                        senderId = FriendIdentity.parse(msg.from).toString();
+                    } else if (isIdentity) {
+                        senderId = remoteIp;
+                    } else {
+                        senderId = findIdentityByIp(remoteIp);
+                    }
+                    if (senderId != null && store.isFriend(senderId)) {
                         store.addMessage(senderId, msg.id, msg.text, msg.timestamp, false);
                         fireEvent(FriendEvent.Type.MESSAGE_RECEIVED, msg);
                     }
@@ -366,32 +385,58 @@ public final class FriendManager implements AutoCloseable {
             case "friend_req" -> {
                 FriendProtocol.FriendRequest req = FriendProtocol.FriendRequest.fromJson(jsonLine);
                 if (req.identity != null) {
-                    FriendIdentity peerId = FriendIdentity.parse(req.identity);
-                    String reqIp = actualIp != null ? actualIp : "";
-                    int peerPort = req.port > 0 ? req.port : 0;
-                    PendingRequest pending = new PendingRequest(peerId,
-                            req.name != null ? req.name : req.identity,
-                            reqIp, peerPort);
-                    fireEvent(FriendEvent.Type.FRIEND_REQUEST_RECEIVED, pending);
+                    if (store.isFriend(req.identity)) {
+                        // 已是好友，自动应答 accepted 并更新地址
+                        String ackIp = actualIp != null ? actualIp : "";
+                        int ackPort = req.port > 0 ? req.port : 0;
+                        store.addFriend(req.identity,
+                                req.name != null ? req.name : req.identity, ackIp, ackPort);
+                        FriendChatClient client = getOrCreateClient(req.identity, ackIp, ackPort);
+                        if (client != null && client.isConnected()) {
+                            client.sendFriendAck(req.identity, true);
+                        } else if (client != null) {
+                            enqueuePending(req.identity, () -> client.sendFriendAck(req.identity, true));
+                        }
+                    } else {
+                        // 新好友请求
+                        FriendIdentity peerId = FriendIdentity.parse(req.identity);
+                        String reqIp = actualIp != null ? actualIp : "";
+                        int peerPort = req.port > 0 ? req.port : 0;
+                        PendingRequest pending = new PendingRequest(peerId,
+                                req.name != null ? req.name : req.identity,
+                                reqIp, peerPort);
+                        fireEvent(FriendEvent.Type.FRIEND_REQUEST_RECEIVED, pending);
+                    }
                 }
             }
             case "friend_ack" -> {
                 FriendProtocol.FriendAck ack = FriendProtocol.FriendAck.fromJson(jsonLine);
-                if (ack.accepted && ack.identity != null) {
-                    String ackIp = actualIp != null ? actualIp : "";
-                    int ackPort = ack.port > 0 ? ack.port : 0;
-                    store.addFriend(ack.identity, ack.name != null ? ack.name : ack.identity,
-                            ackIp, ackPort);
-                    fireEvent(FriendEvent.Type.FRIEND_ADDED, store.getFriend(ack.identity));
+                if (ack.identity != null) {
+                    if (ack.accepted) {
+                        String ackIp = actualIp != null ? actualIp : "";
+                        int ackPort = ack.port > 0 ? ack.port : 0;
+                        store.addFriend(ack.identity, ack.name != null ? ack.name : ack.identity,
+                                ackIp, ackPort);
+                        fireEvent(FriendEvent.Type.FRIEND_ADDED, store.getFriend(ack.identity));
+                    } else {
+                        // 好友请求被拒绝
+                        System.err.println("[FriendManager] 好友请求被拒绝 (" + ack.identity + ")");
+                    }
                 }
             }
             case "status" -> {
                 FriendProtocol.StatusMessage status = FriendProtocol.StatusMessage.fromJson(jsonLine);
-                // 心跳/状态消息：客户端路径（isIdentity=true）下更新好友在线状态
-                if (isIdentity) {
-                    FriendStore.FriendEntry entry = store.getFriend(remoteIp);
+                // 识别发送者：优先用 from 字段，其次用 remoteIp（客户端路径）
+                String statusSenderId = null;
+                if (status.from != null && FriendIdentity.isValid(status.from)) {
+                    statusSenderId = FriendIdentity.parse(status.from).toString();
+                } else if (isIdentity) {
+                    statusSenderId = remoteIp;
+                }
+                if (statusSenderId != null && store.isFriend(statusSenderId)) {
+                    FriendStore.FriendEntry entry = store.getFriend(statusSenderId);
                     if (entry != null) {
-                        boolean changed = store.updateOnlineStatus(remoteIp, status.online,
+                        boolean changed = store.updateOnlineStatus(statusSenderId, status.online,
                                 entry.lastIp, entry.lastPort);
                         if (changed) {
                             fireEvent(status.online ? FriendEvent.Type.FRIEND_ONLINE : FriendEvent.Type.FRIEND_OFFLINE, entry);
@@ -413,7 +458,15 @@ public final class FriendManager implements AutoCloseable {
         if (ip == null || ip.isEmpty() || port <= 0) {
             return null;
         }
-        return activeClients.computeIfAbsent(identity, k -> {
+        return activeClients.compute(identity, (k, existing) -> {
+            if (existing != null) {
+                // 地址未变，复用现有连接
+                if (existing.getRemoteHost().equals(ip) && existing.getRemotePort() == port) {
+                    return existing;
+                }
+                // 地址已变，关闭旧连接重建
+                try { existing.close(); } catch (Exception ignored) {}
+            }
             FriendChatClient client = new FriendChatClient(ip, port,
                     identityManager.getIdentity().toString(),
                     identityManager.getDisplayName());
@@ -445,15 +498,20 @@ public final class FriendManager implements AutoCloseable {
 
             @Override
             public void onConnected() {
-                store.updateOnlineStatus(identity, true, client.getRemoteHost(), client.getRemotePort());
-                fireEvent(FriendEvent.Type.FRIEND_ONLINE, store.getFriend(identity));
-                // 执行待发的操作
-                Runnable action = pendingOnConnect.remove(identity);
-                if (action != null) {
-                    try {
-                        action.run();
-                    } catch (Exception e) {
-                        System.err.println("[FriendManager] 待发操作失败 (" + identity + "): " + e.getMessage());
+                boolean changed = store.updateOnlineStatus(identity, true,
+                        client.getRemoteHost(), client.getRemotePort());
+                if (changed) {
+                    fireEvent(FriendEvent.Type.FRIEND_ONLINE, store.getFriend(identity));
+                }
+                // 排空待发队列
+                Queue<Runnable> actions = pendingOnConnect.remove(identity);
+                if (actions != null) {
+                    for (Runnable action : actions) {
+                        try {
+                            action.run();
+                        } catch (Exception e) {
+                            System.err.println("[FriendManager] 待发操作失败 (" + identity + "): " + e.getMessage());
+                        }
                     }
                 }
             }
