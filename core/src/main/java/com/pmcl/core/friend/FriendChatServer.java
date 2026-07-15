@@ -117,6 +117,7 @@ public final class FriendChatServer implements AutoCloseable {
         try (socket;
              BufferedReader reader = new BufferedReader(
                      new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8))) {
+            socket.setSoTimeout(60000); // 60 秒读超时，防止空闲连接泄漏线程
             String remoteAddr = socket.getInetAddress().getHostAddress();
 
             String line;
@@ -131,6 +132,8 @@ public final class FriendChatServer implements AutoCloseable {
                     }
                 }
             }
+        } catch (java.net.SocketTimeoutException e) {
+            // 60 秒无数据，关闭空闲连接
         } catch (IOException e) {
             // 客户端断开连接或服务器已关闭
         }

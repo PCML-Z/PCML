@@ -358,6 +358,8 @@ public final class FriendManager implements AutoCloseable {
         String type = FriendProtocol.peekType(jsonLine);
         if (type == null) return;
 
+        String myId = identityManager.getIdentity().toString();
+
         // 判断 remoteIp 是 IP 地址还是 identity
         // 客户端路径传的是 identity，服务器路径传的是 IP
         boolean isIdentity = store.isFriend(remoteIp);
@@ -367,6 +369,8 @@ public final class FriendManager implements AutoCloseable {
             case "msg" -> {
                 FriendProtocol.ChatMessage msg = FriendProtocol.ChatMessage.fromJson(jsonLine);
                 if (msg.text != null && msg.id != null) {
+                    // 忽略来自自己的消息（回环）
+                    if (msg.from != null && msg.from.equals(myId)) return;
                     // 优先使用消息中的 from 字段识别发送者
                     String senderId;
                     if (msg.from != null && FriendIdentity.isValid(msg.from)) {
@@ -384,7 +388,7 @@ public final class FriendManager implements AutoCloseable {
             }
             case "friend_req" -> {
                 FriendProtocol.FriendRequest req = FriendProtocol.FriendRequest.fromJson(jsonLine);
-                if (req.identity != null) {
+                if (req.identity != null && !req.identity.equals(myId)) {
                     if (store.isFriend(req.identity)) {
                         // 已是好友，自动应答 accepted 并更新地址
                         String ackIp = actualIp != null ? actualIp : "";
@@ -411,7 +415,7 @@ public final class FriendManager implements AutoCloseable {
             }
             case "friend_ack" -> {
                 FriendProtocol.FriendAck ack = FriendProtocol.FriendAck.fromJson(jsonLine);
-                if (ack.identity != null) {
+                if (ack.identity != null && !ack.identity.equals(myId)) {
                     if (ack.accepted) {
                         String ackIp = actualIp != null ? actualIp : "";
                         int ackPort = ack.port > 0 ? ack.port : 0;
@@ -519,7 +523,7 @@ public final class FriendManager implements AutoCloseable {
             @Override
             public void onConnectFailed(String reason) {
                 activeClients.remove(identity);
-                pendingOnConnect.remove(identity);
+                // 不清除 pendingOnConnect：保留待发操作，等发现后重连时自动发送
                 System.err.println("[FriendManager] 连接好友失败 (" + identity + "): " + reason);
             }
         });

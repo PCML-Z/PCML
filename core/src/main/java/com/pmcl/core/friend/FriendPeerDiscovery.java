@@ -143,12 +143,14 @@ public final class FriendPeerDiscovery implements AutoCloseable {
     // ---------------------------------------------------------------------------
 
     private void listenLoop() {
+        // 捕获本地引用，防止 stop/start 竞态时旧线程使用新 socket
+        DatagramSocket localSocket = socket;
         byte[] buffer = new byte[2048];
         DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
 
         while (running.get()) {
             try {
-                socket.receive(packet);
+                localSocket.receive(packet);
                 String json = new String(packet.getData(), 0, packet.getLength(), StandardCharsets.UTF_8);
                 String senderIp = packet.getAddress().getHostAddress();
 
