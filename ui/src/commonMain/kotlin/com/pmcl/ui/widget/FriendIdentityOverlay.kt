@@ -85,7 +85,7 @@ fun IdentityCard(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = Color.Transparent)
     ) {
-        Box(Modifier.wrapContentSize()) {
+        Box(Modifier.fillMaxSize()) {
             // 背景层（使用 matchParentSize 跟随 Box 实际尺寸，不影响测量）
             if (backgroundBitmap != null) {
                 Image(
@@ -123,12 +123,13 @@ fun IdentityCard(
                 },
                 contentKey = { it },
                 modifier = Modifier
+                    .fillMaxSize()
                     .padding(16.dp)
                     .blur(blurRadius.dp),
-                contentAlignment = Alignment.TopCenter
+                contentAlignment = Alignment.Center
             ) { isExpanded ->
                 Column(
-                    Modifier.wrapContentWidth().wrapContentHeight(),
+                    Modifier.fillMaxWidth().wrapContentHeight(),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterVertically)
                 ) {
