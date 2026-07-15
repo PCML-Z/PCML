@@ -52,7 +52,10 @@ fun IdentityCard(
     onPickBackground: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val qrBytes = remember(identityManager.identity, identityManager.displayName) {
+    // 用 version 作为 key，displayName/backgroundPath 变化时触发重组
+    val version = identityManager.version
+    val displayName = identityManager.displayName
+    val qrBytes = remember(identityManager.identity, version) {
         identityManager.qrCodeBytes
     }
     val qrBitmap = remember(qrBytes) {
@@ -171,7 +174,7 @@ fun IdentityCard(
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Text(
-                                    identityManager.displayName.take(1).uppercase(),
+                                    displayName.take(1).uppercase(),
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 20.sp,
                                     color = MaterialTheme.colorScheme.primary
@@ -183,7 +186,7 @@ fun IdentityCard(
 
                         // 名称
                         Text(
-                            identityManager.displayName,
+                            displayName,
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
@@ -268,7 +271,7 @@ fun IdentityCard(
 
                         // 名称
                         Text(
-                            identityManager.displayName,
+                            displayName,
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,

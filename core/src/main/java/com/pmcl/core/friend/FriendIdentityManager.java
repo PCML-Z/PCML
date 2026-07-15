@@ -28,6 +28,7 @@ import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * 管理好友身份：生成、加载、持久化、二维码生成。
@@ -49,6 +50,8 @@ public final class FriendIdentityManager {
     /** QR 码原始矩阵（用于 Canvas 自定义渲染） */
     private volatile boolean[] qrModules;
     private volatile int qrSize;
+    /** 版本号：displayName/backgroundPath 变化时递增，供 Compose 观察 */
+    private final AtomicLong version = new AtomicLong(0);
 
     public FriendIdentityManager(Path dataDir) {
         this.dataDir = dataDir;
@@ -85,9 +88,11 @@ public final class FriendIdentityManager {
 
     /** 设置显示名称 */
     public void setDisplayName(String name) {
+        if (name == null || name.equals(this.displayName)) return;
         this.displayName = name;
         saveIdentity();
         generateQrCode();
+        version.incrementAndGet();
     }
 
     /** 二维码 PNG 字节 */
@@ -114,6 +119,12 @@ public final class FriendIdentityManager {
     public void setBackgroundPath(String path) {
         this.backgroundPath = path;
         saveIdentity();
+        version.incrementAndGet();
+    }
+
+    /** 获取版本号（displayName/backgroundPath 变化时递增） */
+    public long getVersion() {
+        return version.get();
     }
 
     /** 分享文本：用于生成二维码，"pmcl-friend:" 协议 */
