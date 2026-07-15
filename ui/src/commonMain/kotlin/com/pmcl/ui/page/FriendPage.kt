@@ -2,6 +2,8 @@ package com.pmcl.ui.page
 
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -335,7 +337,61 @@ fun FriendPage(vm: LauncherViewModel) {
                     addFriendError = "无效的邀请码"
                 }
             },
-            onScanStart = { }
+            onScanStart = {
+                scope.launch(Dispatchers.IO) {
+                    val chooser = JFileChooser()
+                    chooser.dialogTitle = "选择二维码图片"
+                    chooser.fileFilter = FileNameExtensionFilter("图片文件 (*.png, *.jpg, *.jpeg, *.bmp, *.gif)", "png", "jpg", "jpeg", "bmp", "gif")
+                    val result = chooser.showOpenDialog(null)
+                    if (result == JFileChooser.APPROVE_OPTION) {
+                        val decoded = FriendIdentityManager.decodeQrCode(chooser.selectedFile)
+                        if (decoded != null) {
+                            val info = FriendIdentityManager.parseInvite(decoded)
+                            if (info != null) {
+                                addFriendCode = decoded
+                                addFriendError = null
+                            } else {
+                                addFriendError = "图片中的二维码不是有效的好友邀请"
+                            }
+                        } else {
+                            addFriendError = "未在图片中找到二维码"
+                        }
+                    }
+                }
+            },
+            onScanClipboard = {
+                scope.launch(Dispatchers.IO) {
+                    try {
+                        val clipboard = java.awt.Toolkit.getDefaultToolkit().systemClipboard
+                        val contents = clipboard.getContents(null)
+                        if (contents != null && contents.isDataFlavorSupported(java.awt.datatransfer.DataFlavor.imageFlavor)) {
+                            val img = contents.getTransferData(java.awt.datatransfer.DataFlavor.imageFlavor) as java.awt.Image
+                            val bufferedImg = java.awt.image.BufferedImage(
+                                img.getWidth(null), img.getHeight(null), java.awt.image.BufferedImage.TYPE_INT_RGB
+                            )
+                            val g = bufferedImg.createGraphics()
+                            g.drawImage(img, 0, 0, null)
+                            g.dispose()
+                            val decoded = FriendIdentityManager.decodeQrCode(bufferedImg)
+                            if (decoded != null) {
+                                val info = FriendIdentityManager.parseInvite(decoded)
+                                if (info != null) {
+                                    addFriendCode = decoded
+                                    addFriendError = null
+                                } else {
+                                    addFriendError = "剪贴板中的二维码不是有效的好友邀请"
+                                }
+                            } else {
+                                addFriendError = "未在剪贴板图片中找到二维码"
+                            }
+                        } else {
+                            addFriendError = "剪贴板中没有图片"
+                        }
+                    } catch (e: Exception) {
+                        addFriendError = "读取剪贴板失败: ${e.message}"
+                    }
+                }
+            }
         )
     }
 }
@@ -548,7 +604,8 @@ private fun AddFriendDialog(
     onCodeChange: (String) -> Unit,
     onDismiss: () -> Unit,
     onAdd: () -> Unit,
-    onScanStart: () -> Unit
+    onScanStart: () -> Unit,
+    onScanClipboard: () -> Unit
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -570,6 +627,19 @@ private fun AddFriendDialog(
                 error?.let {
                     Spacer(Modifier.height(4.dp))
                     Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = onScanStart, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)) {
+                        Icon(Icons.Filled.Image, "扫描图片", modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("扫描图片", style = MaterialTheme.typography.labelMedium)
+                    }
+                    OutlinedButton(onClick = onScanClipboard, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)) {
+                        Icon(Icons.Filled.ContentPaste, "剪贴板", modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("剪贴板", style = MaterialTheme.typography.labelMedium)
+                    }
                 }
             }
         },

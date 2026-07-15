@@ -4,11 +4,17 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 import com.google.zxing.BarcodeFormat;
+import com.google.zxing.BinaryBitmap;
+import com.google.zxing.DecodeHintType;
 import com.google.zxing.EncodeHintType;
+import com.google.zxing.MultiFormatReader;
+import com.google.zxing.NotFoundException;
 import com.google.zxing.WriterException;
 import com.google.zxing.common.BitMatrix;
+import com.google.zxing.common.HybridBinarizer;
 import com.google.zxing.qrcode.QRCodeWriter;
 import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel;
+import com.google.zxing.client.j2se.BufferedImageLuminanceSource;
 
 import javax.imageio.ImageIO;
 import java.awt.*;
@@ -136,6 +142,46 @@ public final class FriendIdentityManager {
     /** 从分享文本解析好友身份（便捷方法） */
     public static IdentityInfo fromShareText(String text) {
         return parseInvite(text);
+    }
+
+    /**
+     * 从图片解码二维码内容。支持 PNG/JPG 等常见格式。
+     * @param image 已解码的图片
+     * @return 解码出的文本，失败返回 null
+     */
+    public static String decodeQrCode(java.awt.image.BufferedImage image) {
+        if (image == null) return null;
+        try {
+            var source = new BufferedImageLuminanceSource(image);
+            var bitmap = new BinaryBitmap(new HybridBinarizer(source));
+            var hints = new java.util.HashMap<DecodeHintType, Object>();
+            hints.put(DecodeHintType.CHARACTER_SET, "UTF-8");
+            hints.put(DecodeHintType.TRY_HARDER, Boolean.TRUE);
+            var reader = new MultiFormatReader();
+            var result = reader.decode(bitmap, hints);
+            return result.getText();
+        } catch (NotFoundException e) {
+            return null;
+        } catch (Exception e) {
+            System.err.println("[FriendIdentity] 二维码解码失败: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 从图片文件解码二维码内容。
+     * @param file 图片文件
+     * @return 解码出的文本，失败返回 null
+     */
+    public static String decodeQrCode(java.io.File file) {
+        if (file == null || !file.exists()) return null;
+        try {
+            var image = ImageIO.read(file);
+            return decodeQrCode(image);
+        } catch (Exception e) {
+            System.err.println("[FriendIdentity] 读取图片失败: " + e.getMessage());
+            return null;
+        }
     }
 
     // ---------------------------------------------------------------------------
