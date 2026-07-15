@@ -32,6 +32,7 @@ kotlin {
 
                 implementation(project(":core"))
                 implementation(project(":cli"))
+                implementation(project(":video"))
             }
         }
     }

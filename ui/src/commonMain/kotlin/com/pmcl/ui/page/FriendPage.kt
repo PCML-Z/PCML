@@ -73,6 +73,10 @@ fun FriendPage(vm: LauncherViewModel) {
     var addFriendError by remember { mutableStateOf<String?>(null) }
     val pendingRequests = remember { mutableStateListOf<FriendManager.PendingRequest>() }
 
+    // 视频通话状态
+    var activeCallSession by remember { mutableStateOf<com.pmcl.video.VideoCallSession?>(null) }
+    var incomingCall by remember { mutableStateOf<Pair<String, String>?>(null) } // (identity, name)
+
     // 身份卡片状态
     var cardExpanded by remember { mutableStateOf(false) }
     // 用 identityManager.version 作为 key，账户切换/背景图变化时重新加载
@@ -138,6 +142,53 @@ fun FriendPage(vm: LauncherViewModel) {
                             if (pendingRequests.none { it.identity == request.identity }) {
                                 pendingRequests.add(request)
                             }
+                        }
+                    }
+                    FriendManager.FriendEvent.Type.CALL_INVITE_RECEIVED -> {
+                        // 收到视频通话邀请
+                        val data = event.data
+                        if (data != null && activeCallSession == null) {
+                            try {
+                                val fields = data.javaClass.declaredFields
+                                var fromId = ""
+                                var fromName = ""
+                                for (f in fields) {
+                                    f.isAccessible = true
+                                    when (f.name) {
+                                        "from" -> fromId = f.get(data) as? String ?: ""
+                                        "fromName" -> fromName = f.get(data) as? String ?: ""
+                                    }
+                                }
+                                if (fromId.isNotEmpty()) {
+                                    incomingCall = Pair(fromId, fromName.ifEmpty { fromId })
+                                }
+                            } catch (_: Exception) {}
+                        }
+                    }
+                    FriendManager.FriendEvent.Type.CALL_ACCEPTED -> {
+                        // 对方接听，开始 ICE 协商
+                        activeCallSession?.startIceNegotiation()
+                    }
+                    FriendManager.FriendEvent.Type.CALL_REJECTED,
+                    FriendManager.FriendEvent.Type.CALL_ENDED -> {
+                        activeCallSession?.end()
+                        activeCallSession = null
+                    }
+                    FriendManager.FriendEvent.Type.CALL_ICE_CANDIDATE -> {
+                        // 收到远端 ICE 候选
+                        val data = event.data
+                        if (data != null && activeCallSession != null) {
+                            try {
+                                val fields = data.javaClass.declaredFields
+                                var candidate = ""
+                                for (f in fields) {
+                                    f.isAccessible = true
+                                    if (f.name == "candidate") candidate = f.get(data) as? String ?: ""
+                                }
+                                if (candidate.isNotEmpty()) {
+                                    activeCallSession?.addRemoteCandidate(candidate)
+                                }
+                            } catch (_: Exception) {}
                         }
                     }
                     FriendManager.FriendEvent.Type.FRIEND_REMOVED -> {
@@ -328,6 +379,38 @@ fun FriendPage(vm: LauncherViewModel) {
                                 friendManager.removeFriend(selectedFriendId!!)
                                 selectedFriendId = null
                                 refresh()
+                            },
+                            onVideoCall = {
+                                // 发起视频通话
+                                scope.launch {
+                                    withContext(Dispatchers.IO) {
+                                        com.pmcl.video.VideoCallManager.init()
+                                        val callId = java.util.UUID.randomUUID().toString()
+                                        val friendEntry = selectedFriend
+                                        val session = com.pmcl.video.VideoCallSession(
+                                            callId, selectedFriendId!!, friendEntry?.displayName ?: "",
+                                            true, com.pmcl.video.VideoCallSession.MediaType.AUDIO_VIDEO
+                                        )
+                                        session.addListener(object : com.pmcl.video.VideoCallSession.CallListener {
+                                            override fun onStateChanged(state: com.pmcl.video.VideoCallSession.State) {
+                                                if (state == com.pmcl.video.VideoCallSession.State.ENDED) {
+                                                    activeCallSession = null
+                                                }
+                                            }
+                                            override fun onLocalCandidate(candidateSdp: String) {
+                                                friendManager.sendCallIceCandidate(
+                                                    selectedFriendId!!, callId, candidateSdp, 0, "1")
+                                            }
+                                            override fun onRemoteVideoComponent(component: java.awt.Component) {}
+                                            override fun onError(message: String) {
+                                                System.err.println("[VideoCall] $message")
+                                                activeCallSession = null
+                                            }
+                                        })
+                                        activeCallSession = session
+                                        friendManager.sendCallInvite(selectedFriendId!!, "video")
+                                    }
+                                }
                             }
                         )
                     } else {
@@ -453,6 +536,69 @@ fun FriendPage(vm: LauncherViewModel) {
                 }
             }
         )
+    }
+
+    // 视频通话浮层
+    activeCallSession?.let { session ->
+        com.pmcl.ui.widget.VideoCallOverlay(
+            session = session,
+            onEndCall = {
+                scope.launch(Dispatchers.IO) {
+                    session.end()
+                    friendManager.sendCallEnd(session.remoteIdentity, session.callId, "用户挂断")
+                    activeCallSession = null
+                }
+            },
+            onToggleMute = { muted -> session.setMute(muted) },
+            onToggleCamera = { enabled -> session.setCameraEnabled(enabled) }
+        )
+    }
+
+    // 来电提示
+    incomingCall?.let { (callerId, callerName) ->
+        Box(
+            Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            com.pmcl.ui.widget.IncomingCallCard(
+                callerName = callerName,
+                onAccept = {
+                    scope.launch(Dispatchers.IO) {
+                        com.pmcl.video.VideoCallManager.init()
+                        val callId = java.util.UUID.randomUUID().toString()
+                        val session = com.pmcl.video.VideoCallSession(
+                            callId, callerId, callerName,
+                            false, com.pmcl.video.VideoCallSession.MediaType.AUDIO_VIDEO
+                        )
+                        session.addListener(object : com.pmcl.video.VideoCallSession.CallListener {
+                            override fun onStateChanged(state: com.pmcl.video.VideoCallSession.State) {
+                                if (state == com.pmcl.video.VideoCallSession.State.ENDED) {
+                                    activeCallSession = null
+                                }
+                            }
+                            override fun onLocalCandidate(candidateSdp: String) {
+                                friendManager.sendCallIceCandidate(callerId, callId, candidateSdp, 0, "1")
+                            }
+                            override fun onRemoteVideoComponent(component: java.awt.Component) {}
+                            override fun onError(message: String) {
+                                System.err.println("[VideoCall] $message")
+                                activeCallSession = null
+                            }
+                        })
+                        activeCallSession = session
+                        friendManager.sendCallAccept(callerId, callId, "")
+                        incomingCall = null
+                        session.startIceNegotiation()
+                    }
+                },
+                onReject = {
+                    scope.launch(Dispatchers.IO) {
+                        friendManager.sendCallReject(callerId, "", "拒绝通话")
+                        incomingCall = null
+                    }
+                }
+            )
+        }
     }
 }
 
@@ -584,7 +730,8 @@ private fun ChatView(
     inputText: String,
     onInputChange: (String) -> Unit,
     onSend: () -> Unit,
-    onDeleteFriend: () -> Unit
+    onDeleteFriend: () -> Unit,
+    onVideoCall: () -> Unit = {}
 ) {
     val listState = rememberLazyListState()
     val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
@@ -627,6 +774,13 @@ private fun ChatView(
                                 else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                     )
                 }
+            }
+            // 视频通话按钮（仅在线时可点击）
+            IconButton(onClick = onVideoCall, modifier = Modifier.size(32.dp), enabled = friendOnline) {
+                Icon(Icons.Filled.Videocam, "视频通话",
+                    modifier = Modifier.size(18.dp),
+                    tint = if (friendOnline) MaterialTheme.colorScheme.primary
+                           else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f))
             }
             IconButton(onClick = onDeleteFriend, modifier = Modifier.size(32.dp)) {
                 Icon(Icons.Filled.PersonRemove, "删除好友",
