@@ -127,6 +127,8 @@ public final class FriendProtocol {
         public String fromName;
         /** 媒体类型：video / audio / screen */
         public String mediaType;
+        /** 发起方的视频 UDP 端口 */
+        public int videoPort;
 
         public static CallInvite fromJson(String json) {
             return GSON.fromJson(json, CallInvite.class);
@@ -145,6 +147,8 @@ public final class FriendProtocol {
         public boolean accept = true;
         /** SDP Offer（信令先于媒体层实现，可能为空字符串） */
         public String sdpOffer;
+        /** 接受方的视频 UDP 端口 */
+        public int videoPort;
 
         public static CallAccept fromJson(String json) {
             return GSON.fromJson(json, CallAccept.class);
@@ -196,6 +200,10 @@ public final class FriendProtocol {
         public String candidate;
         public int sdpMLineIndex;
         public String sdpMid;
+        /** 本地 ICE ufrag（首次发送候选时带上，用于远端设置） */
+        public String ufrag;
+        /** 本地 ICE password（首次发送候选时带上，用于远端设置） */
+        public String pwd;
 
         public static CallIceCandidate fromJson(String json) {
             return GSON.fromJson(json, CallIceCandidate.class);

@@ -76,6 +76,7 @@ fun FriendPage(vm: LauncherViewModel) {
     // 视频通话状态
     var activeCallSession by remember { mutableStateOf<com.pmcl.video.VideoCallSession?>(null) }
     var incomingCall by remember { mutableStateOf<Pair<String, String>?>(null) } // (identity, name)
+    var pendingCallerVideoPort by remember { mutableStateOf(0) } // 来电者的视频端口
 
     // 身份卡片状态
     var cardExpanded by remember { mutableStateOf(false) }
@@ -145,28 +146,43 @@ fun FriendPage(vm: LauncherViewModel) {
                         }
                     }
                     FriendManager.FriendEvent.Type.CALL_INVITE_RECEIVED -> {
-                        // 收到视频通话邀请
+                        // 收到视频通话邀请，提取来电者和对方的视频端口
                         val data = event.data
                         if (data != null && activeCallSession == null) {
                             try {
                                 val fields = data.javaClass.declaredFields
                                 var fromId = ""
                                 var fromName = ""
+                                var callerVideoPort = 0
                                 for (f in fields) {
                                     f.isAccessible = true
                                     when (f.name) {
                                         "from" -> fromId = f.get(data) as? String ?: ""
                                         "fromName" -> fromName = f.get(data) as? String ?: ""
+                                        "videoPort" -> callerVideoPort = f.getInt(data)
                                     }
                                 }
                                 if (fromId.isNotEmpty()) {
                                     incomingCall = Pair(fromId, fromName.ifEmpty { fromId })
+                                    // 保存来电者视频端口，以便在接听时使用
+                                    pendingCallerVideoPort = callerVideoPort
                                 }
                             } catch (_: Exception) {}
                         }
                     }
                     FriendManager.FriendEvent.Type.CALL_ACCEPTED -> {
-                        // 对方接听，开始 ICE 协商
+                        // 对方接听，提取视频端口并开始 ICE 协商
+                        val data = event.data
+                        if (data != null && activeCallSession != null) {
+                            try {
+                                val f = data.javaClass.getDeclaredField("videoPort")
+                                f.isAccessible = true
+                                val remotePort = f.getInt(data)
+                                if (remotePort > 0) {
+                                    activeCallSession?.onRemoteVideoPort(remotePort)
+                                }
+                            } catch (_: Exception) {}
+                        }
                         activeCallSession?.startIceNegotiation()
                     }
                     FriendManager.FriendEvent.Type.CALL_REJECTED,
@@ -181,12 +197,18 @@ fun FriendPage(vm: LauncherViewModel) {
                             try {
                                 val fields = data.javaClass.declaredFields
                                 var candidate = ""
+                                var ufrag = ""
+                                var pwd = ""
                                 for (f in fields) {
                                     f.isAccessible = true
-                                    if (f.name == "candidate") candidate = f.get(data) as? String ?: ""
+                                    when (f.name) {
+                                        "candidate" -> candidate = f.get(data) as? String ?: ""
+                                        "ufrag" -> ufrag = f.get(data) as? String ?: ""
+                                        "pwd" -> pwd = f.get(data) as? String ?: ""
+                                    }
                                 }
                                 if (candidate.isNotEmpty()) {
-                                    activeCallSession?.addRemoteCandidate(candidate)
+                                    activeCallSession?.addRemoteCandidate(candidate, ufrag, pwd)
                                 }
                             } catch (_: Exception) {}
                         }
@@ -387,6 +409,11 @@ fun FriendPage(vm: LauncherViewModel) {
                                         com.pmcl.video.VideoCallManager.init()
                                         val callId = java.util.UUID.randomUUID().toString()
                                         val friendEntry = selectedFriend
+                                        
+                                        // 创建视频 socket 并获取端口
+                                        val videoSocket = java.net.DatagramSocket()
+                                        val videoPort = videoSocket.localPort
+                                        
                                         val session = com.pmcl.video.VideoCallSession(
                                             callId, selectedFriendId!!, friendEntry?.displayName ?: "",
                                             true, com.pmcl.video.VideoCallSession.MediaType.AUDIO_VIDEO
@@ -397,19 +424,35 @@ fun FriendPage(vm: LauncherViewModel) {
                                                     activeCallSession = null
                                                 }
                                             }
-                                            override fun onLocalCandidate(candidateSdp: String) {
+                                            override fun onLocalCandidate(candidateSdp: String, ufrag: String, pwd: String) {
                                                 friendManager.sendCallIceCandidate(
-                                                    selectedFriendId!!, callId, candidateSdp, 0, "1")
+                                                    selectedFriendId!!, callId, candidateSdp, 0, "1", ufrag, pwd)
                                             }
-                                            override fun onRemoteVideoComponent(component: java.awt.Component) {}
-                                            override fun onLocalVideoComponent(component: java.awt.Component?) {}
+                                            override fun onRemoteFrame(frame: java.awt.image.BufferedImage?) {}
+                                            override fun onLocalFrame(frame: java.awt.image.BufferedImage?) {}
+                                            override fun onVideoPortReady(port: Int) {}
                                             override fun onError(message: String) {
                                                 System.err.println("[VideoCall] $message")
                                                 activeCallSession = null
                                             }
                                         })
                                         activeCallSession = session
-                                        friendManager.sendCallInvite(selectedFriendId!!, "video")
+                                        // 将视频 socket 附加到 session（用反射设置 videoSocket 字段）
+                                        try {
+                                            val f = com.pmcl.video.VideoCallSession::class.java.getDeclaredField("videoSocket")
+                                            f.isAccessible = true
+                                            f.set(session, videoSocket)
+                                        } catch (_: Exception) {}
+                                        
+                                        val inviteResult = friendManager.sendCallInvite(selectedFriendId!!, "video", videoPort)
+                                        if (inviteResult == null) {
+                                            System.err.println("[VideoCall] 无法发送通话邀请：好友无网络地址")
+                                            videoSocket.close()
+                                            session.end()
+                                            activeCallSession = null
+                                        } else {
+                                            System.out.println("[VideoCall] 通话邀请已发送 callId=$inviteResult -> ${selectedFriendId}")
+                                        }
                                     }
                                 }
                             }
@@ -567,28 +610,46 @@ fun FriendPage(vm: LauncherViewModel) {
                     scope.launch(Dispatchers.IO) {
                         com.pmcl.video.VideoCallManager.init()
                         val callId = java.util.UUID.randomUUID().toString()
+                        val callerPort = pendingCallerVideoPort
+                        
                         val session = com.pmcl.video.VideoCallSession(
                             callId, callerId, callerName,
                             false, com.pmcl.video.VideoCallSession.MediaType.AUDIO_VIDEO
                         )
+                        
+                        // 创建视频 socket
+                        val videoSocket = java.net.DatagramSocket()
+                        val videoPort = videoSocket.localPort
+                        try {
+                            val f = com.pmcl.video.VideoCallSession::class.java.getDeclaredField("videoSocket")
+                            f.isAccessible = true
+                            f.set(session, videoSocket)
+                        } catch (_: Exception) {}
+                        
+                        // 设置远端视频端口
+                        if (callerPort > 0) {
+                            session.onRemoteVideoPort(callerPort)
+                        }
+                        
                         session.addListener(object : com.pmcl.video.VideoCallSession.CallListener {
                             override fun onStateChanged(state: com.pmcl.video.VideoCallSession.State) {
                                 if (state == com.pmcl.video.VideoCallSession.State.ENDED) {
                                     activeCallSession = null
                                 }
                             }
-                            override fun onLocalCandidate(candidateSdp: String) {
-                                friendManager.sendCallIceCandidate(callerId, callId, candidateSdp, 0, "1")
+                            override fun onLocalCandidate(candidateSdp: String, ufrag: String, pwd: String) {
+                                friendManager.sendCallIceCandidate(callerId, callId, candidateSdp, 0, "1", ufrag, pwd)
                             }
-                            override fun onRemoteVideoComponent(component: java.awt.Component) {}
-                            override fun onLocalVideoComponent(component: java.awt.Component?) {}
+                            override fun onRemoteFrame(frame: java.awt.image.BufferedImage?) {}
+                            override fun onLocalFrame(frame: java.awt.image.BufferedImage?) {}
+                            override fun onVideoPortReady(port: Int) {}
                             override fun onError(message: String) {
                                 System.err.println("[VideoCall] $message")
                                 activeCallSession = null
                             }
                         })
                         activeCallSession = session
-                        friendManager.sendCallAccept(callerId, callId, "")
+                        friendManager.sendCallAccept(callerId, callId, "", videoPort)
                         incomingCall = null
                         session.startIceNegotiation()
                     }

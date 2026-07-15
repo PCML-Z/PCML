@@ -1,31 +1,35 @@
 package com.pmcl.video;
 
+import org.bytedeco.javacv.FFmpegFrameGrabber;
+import org.bytedeco.javacv.Frame;
+import org.bytedeco.javacv.Java2DFrameConverter;
 import org.ice4j.Transport;
 import org.ice4j.TransportAddress;
 import org.ice4j.ice.*;
 import org.ice4j.ice.harvest.StunCandidateHarvester;
-import org.ice4j.ice.harvest.TurnCandidateHarvester;
-import org.ice4j.security.LongTermCredential;
-import org.jitsi.service.neomedia.*;
-import org.jitsi.service.neomedia.device.MediaDevice;
-import org.jitsi.util.event.VideoEvent;
-import org.jitsi.util.event.VideoListener;
 
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
 import java.net.InetSocketAddress;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Consumer;
 
 /**
- * 视频通话会话：管理一次通话的完整生命周期。
+ * 视频通话会话：基于 ice4j (ICE) + JavaCV (摄像头采集) + JPEG/UDP 传输。
  * <p>
  * 流程：
  * <ol>
  *   <li>创建 ice4j Agent，收集本地 ICE 候选</li>
  *   <li>通过信令通道（FriendManager）交换候选</li>
- *   <li>ICE 连通性检查完成后，用选定的 CandidatePair 创建 MediaStream</li>
- *   <li>启动 libjitsi 媒体流，开始音视频收发</li>
+ *   <li>ICE 连通性检查完成后，获取选定的 UDP socket</li>
+ *   <li>启动摄像头采集线程：FFmpegFrameGrabber → BufferedImage → JPEG → UDP 发送</li>
+ *   <li>启动接收线程：UDP 接收 → JPEG 解压 → BufferedImage → 回调 UI 渲染</li>
  *   <li>通话结束时释放所有资源</li>
  * </ol>
  */
@@ -36,13 +40,9 @@ public final class VideoCallSession {
     // ---------------------------------------------------------------------------
 
     public enum State {
-        /** 通话邀请已发出/收到，等待应答 */
         RINGING,
-        /** ICE 协商中 */
         NEGOTIATING,
-        /** 通话进行中 */
         IN_CALL,
-        /** 通话已结束 */
         ENDED
     }
 
@@ -52,14 +52,17 @@ public final class VideoCallSession {
         SCREEN_SHARE
     }
 
-    /** 通话事件 */
+    /** 通话事件回调 */
     public interface CallListener {
         void onStateChanged(State state);
-        void onLocalCandidate(String candidateSdp);
-        /** 远端视频组件就绪（或被移除，component=null） */
-        void onRemoteVideoComponent(java.awt.Component component);
-        /** 本地视频预览组件就绪（或被移除，component=null） */
-        void onLocalVideoComponent(java.awt.Component component);
+        /** 本地候选就绪，附带本地 ICE ufrag 和 password */
+        void onLocalCandidate(String candidateSdp, String ufrag, String pwd);
+        /** 远端视频帧到达（BufferedImage），component 为 null 表示视频结束 */
+        void onRemoteFrame(BufferedImage frame);
+        /** 本地视频帧就绪（BufferedImage），用于预览 */
+        void onLocalFrame(BufferedImage frame);
+        /** 本地视频端口就绪，需要发送给远端 */
+        void onVideoPortReady(int port);
         void onError(String message);
     }
 
@@ -76,15 +79,32 @@ public final class VideoCallSession {
 
     private volatile State state = State.RINGING;
     private Agent iceAgent;
-    private MediaStream audioStream;
-    private MediaStream videoStream;
-    private final AtomicReference<java.awt.Component> remoteVideoComponent = new AtomicReference<>();
 
-    /** STUN 服务器列表（公共 STUN） */
+    // 摄像头采集
+    private FFmpegFrameGrabber grabber;
+    private Java2DFrameConverter frameConverter;
+    private Thread captureThread;
+    private Thread receiveThread;
+    private final AtomicBoolean capturing = new AtomicBoolean(false);
+    private volatile boolean cameraEnabled = true;
+    private volatile boolean muted = false;
+
+    // 视频参数
+    private static final int VIDEO_WIDTH = 640;
+    private static final int VIDEO_HEIGHT = 480;
+    private static final int VIDEO_FPS = 15;
+    private static final int JPEG_QUALITY = 60;  // JPEG 质量 (0-100)
+    private static final int MAX_PACKET_SIZE = 65000;  // UDP 最大包大小
+
+    /** STUN 服务器列表 */
     private static final String[] DEFAULT_STUN_SERVERS = {
             "stun.l.google.com:19302",
             "stun1.l.google.com:19302",
     };
+
+    // 视频传输 socket（独立于 ICE）
+    private DatagramSocket videoSocket;
+    private volatile boolean localPortReady = false;
 
     // ---------------------------------------------------------------------------
     // 构造
@@ -110,23 +130,6 @@ public final class VideoCallSession {
     public MediaType getMediaType() { return mediaType; }
     public State getState() { return state; }
 
-    /** 获取远端视频组件（可能为 null，尚未就绪） */
-    public java.awt.Component getRemoteVideoComponent() {
-        return remoteVideoComponent.get();
-    }
-
-    /** 获取本地视频预览组件（可能为 null） */
-    public java.awt.Component getLocalVideoComponent() {
-        if (videoStream instanceof VideoMediaStream) {
-            try {
-                return ((VideoMediaStream) videoStream).getLocalVisualComponent();
-            } catch (Exception e) {
-                return null;
-            }
-        }
-        return null;
-    }
-
     public void addListener(CallListener listener) { listeners.add(listener); }
     public void removeListener(CallListener listener) { listeners.remove(listener); }
 
@@ -148,11 +151,8 @@ public final class VideoCallSession {
     // ICE 协商
     // ---------------------------------------------------------------------------
 
-    /**
-     * 启动 ICE 协商：创建 Agent，收集本地候选，开始连通性检查。
-     * 本地候选生成后通过 onLocalCandidate 回调通知上层发送给远端。
-     */
     public synchronized void startIceNegotiation() {
+        System.out.println("[VideoCall] 开始 ICE 协商 callId=" + callId + " initiator=" + isInitiator);
         if (!VideoCallManager.isInitialized()) {
             VideoCallManager.init();
         }
@@ -161,7 +161,6 @@ public final class VideoCallSession {
             iceAgent = new Agent();
             iceAgent.setControlling(isInitiator);
 
-            // 添加 STUN 收集器（用于外网 NAT 穿透）
             for (String stun : DEFAULT_STUN_SERVERS) {
                 String[] parts = stun.split(":");
                 try {
@@ -172,38 +171,31 @@ public final class VideoCallSession {
                 }
             }
 
-            // 创建音频媒体流（RTP + RTCP 两个 Component）
-            if (mediaType != MediaType.SCREEN_SHARE || mediaType == MediaType.AUDIO_VIDEO) {
-                IceMediaStream audioStream = iceAgent.createMediaStream("audio");
-                agentCreateComponent(iceAgent, audioStream, Component.RTP, "audio-rtp");
-                agentCreateComponent(iceAgent, audioStream, Component.RTCP, "audio-rtcp");
-            }
-
-            // 创建视频媒体流
+            // 创建视频媒体流（使用 RTCP mux，只需一个 Component）
             if (mediaType != MediaType.AUDIO_ONLY) {
                 IceMediaStream videoStream = iceAgent.createMediaStream("video");
-                agentCreateComponent(iceAgent, videoStream, Component.RTP, "video-rtp");
-                agentCreateComponent(iceAgent, videoStream, Component.RTCP, "video-rtcp");
+                agentCreateComponent(iceAgent, videoStream, "video");
             }
 
             // 收集本地候选并通知
+            String localUfrag = iceAgent.getLocalUfrag();
+            String localPwd = iceAgent.getLocalPassword();
+            int localCandidateCount = 0;
             for (IceMediaStream stream : iceAgent.getStreams()) {
                 for (Component comp : stream.getComponents()) {
                     for (LocalCandidate cand : comp.getLocalCandidates()) {
-                        String sdp = formatCandidateSdp(cand);
+                        String sdp = stream.getName() + ":" + formatCandidateSdp(cand);
+                        localCandidateCount++;
                         for (CallListener l : listeners) {
-                            try { l.onLocalCandidate(sdp); } catch (Exception ignored) {}
+                            try { l.onLocalCandidate(sdp, localUfrag, localPwd); } catch (Exception ignored) {}
                         }
                     }
                 }
             }
+            System.out.println("[VideoCall] 本地候选收集完成，共 " + localCandidateCount + " 个");
 
             setState(State.NEGOTIATING);
 
-            // 启动连通性检查
-            iceAgent.startConnectivityEstablishment();
-
-            // 启动监听线程等待 ICE 完成
             Thread monitor = new Thread(this::monitorIceState, "VideoCall-ICE-Monitor");
             monitor.setDaemon(true);
             monitor.start();
@@ -213,18 +205,15 @@ public final class VideoCallSession {
         }
     }
 
-    /** 创建 Component 并处理端口绑定 */
-    private void agentCreateComponent(Agent agent, IceMediaStream stream, int componentId, String name) {
+    private void agentCreateComponent(Agent agent, IceMediaStream stream, String name) {
         try {
-            // createComponent 的 componentID 由 IceMediaStream 自动分配（RTP=1, RTCP=2），
-            // 三个 int 参数分别为 preferredPort、minPort、maxPort
-            agent.createComponent(stream, 0, 5000, 9000);
+            // SELECTED_AND_TCP: 对已选配对发送 keepalive，保持 ICE 连接不被超时终止
+            agent.createComponent(stream, KeepAliveStrategy.SELECTED_AND_TCP, true);
         } catch (Exception e) {
             System.err.println("[VideoCall] 创建 ICE Component " + name + " 失败: " + e.getMessage());
         }
     }
 
-    /** 格式化 ICE 候选为 SDP 字符串 */
     private String formatCandidateSdp(LocalCandidate cand) {
         return String.format("candidate:%s %d %s %d %s %d typ %s",
                 cand.getFoundation(),
@@ -236,24 +225,50 @@ public final class VideoCallSession {
                 cand.getType().toString().toLowerCase());
     }
 
-    /** 监听 ICE 状态，完成后启动媒体流 */
     private void monitorIceState() {
         try {
-            // 等待 ICE 完成（最多 30 秒）
             int waited = 0;
+            while (!iceConnectivityStarted && iceAgent != null && waited < 35000) {
+                Thread.sleep(200);
+                waited += 200;
+            }
+            if (!iceConnectivityStarted) {
+                fireError("等待远端 ICE 候选超时");
+                setState(State.ENDED);
+                return;
+            }
+
+            waited = 0;
             while (iceAgent != null && iceAgent.getState() == IceProcessingState.RUNNING && waited < 30000) {
                 Thread.sleep(200);
                 waited += 200;
             }
 
-            if (iceAgent == null || iceAgent.getState() != IceProcessingState.COMPLETED) {
-                fireError("ICE 协商失败或超时，状态: " + (iceAgent != null ? iceAgent.getState() : "null"));
+            if (iceAgent == null) {
+                fireError("ICE agent 在协商期间被释放");
                 setState(State.ENDED);
                 return;
             }
 
-            // ICE 完成，启动媒体流
-            startMediaStreams();
+            boolean hasSelectedPair = false;
+            for (IceMediaStream stream : iceAgent.getStreams()) {
+                for (Component comp : stream.getComponents()) {
+                    if (comp.getSelectedPair() != null) {
+                        hasSelectedPair = true;
+                        break;
+                    }
+                }
+                if (hasSelectedPair) break;
+            }
+
+            if (!hasSelectedPair) {
+                fireError("ICE 协商失败或超时，无选定的 CandidatePair");
+                setState(State.ENDED);
+                return;
+            }
+
+            System.out.println("[VideoCall] ICE 协商成功");
+            startVideoStreaming();
 
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -266,17 +281,38 @@ public final class VideoCallSession {
     // 远端候选处理
     // ---------------------------------------------------------------------------
 
-    /**
-     * 添加远端 ICE 候选（从信令通道接收）。
-     *
-     * @param candidateSdp SDP 格式的候选字符串
-     */
-    public synchronized void addRemoteCandidate(String candidateSdp) {
-        if (iceAgent == null) return;
+    private volatile boolean remoteCandidateReceived = false;
+    private volatile boolean iceConnectivityStarted = false;
+    private volatile int remoteCandidateCount = 0;
+
+    public synchronized void addRemoteCandidate(String candidateSdp, String remoteUfrag, String remotePwd) {
+        if (iceAgent == null) {
+            System.err.println("[VideoCall] 忽略 ICE 候选：agent 为空 callId=" + callId);
+            return;
+        }
+        System.out.println("[VideoCall] 收到远端 ICE 候选 #" + (remoteCandidateCount + 1) + " callId=" + callId);
 
         try {
-            // 解析 "candidate:foundation component transport priority address port typ type"
-            String line = candidateSdp.startsWith("candidate:") ? candidateSdp.substring(10) : candidateSdp;
+            if (remoteUfrag != null && !remoteUfrag.isEmpty()) {
+                for (IceMediaStream stream : iceAgent.getStreams()) {
+                    if (stream.getRemoteUfrag() == null) {
+                        stream.setRemoteUfrag(remoteUfrag);
+                        if (remotePwd != null && !remotePwd.isEmpty()) {
+                            stream.setRemotePassword(remotePwd);
+                        }
+                    }
+                }
+            }
+
+            String streamName = null;
+            String line = candidateSdp;
+            int colonIdx = candidateSdp.indexOf(':');
+            if (colonIdx > 0 && !candidateSdp.startsWith("candidate:")) {
+                streamName = candidateSdp.substring(0, colonIdx);
+                line = candidateSdp.substring(colonIdx + 1);
+            }
+
+            line = line.startsWith("candidate:") ? line.substring(10) : line;
             String[] parts = line.split("\\s+");
             if (parts.length < 8) return;
 
@@ -286,20 +322,50 @@ public final class VideoCallSession {
             long priority = Long.parseLong(parts[3]);
             String address = parts[4];
             int port = Integer.parseInt(parts[5]);
-            // parts[6] = "typ"
             String typeStr = parts[7].toLowerCase();
 
             TransportAddress ta = new TransportAddress(address, port, Transport.parse(transport));
 
-            // 找到对应的 stream 和 component
-            for (IceMediaStream stream : iceAgent.getStreams()) {
-                Component comp = stream.getComponent(componentId);
-                if (comp != null) {
-                    CandidateType type = CandidateType.parse(typeStr);
-                    RemoteCandidate rc = new RemoteCandidate(ta, comp, type, foundation, priority, null);
-                    comp.addRemoteCandidate(rc);
-                    break;
+            if (streamName != null) {
+                IceMediaStream stream = iceAgent.getStream(streamName);
+                if (stream != null) {
+                    Component comp = stream.getComponent(componentId);
+                    if (comp != null) {
+                        CandidateType type = CandidateType.parse(typeStr);
+                        RemoteCandidate rc = new RemoteCandidate(ta, comp, type, foundation, priority, null);
+                        comp.addRemoteCandidate(rc);
+                    }
                 }
+            } else {
+                for (IceMediaStream stream : iceAgent.getStreams()) {
+                    Component comp = stream.getComponent(componentId);
+                    if (comp != null) {
+                        CandidateType type = CandidateType.parse(typeStr);
+                        RemoteCandidate rc = new RemoteCandidate(ta, comp, type, foundation, priority, null);
+                        comp.addRemoteCandidate(rc);
+                    }
+                }
+            }
+
+            remoteCandidateCount++;
+            if (!remoteCandidateReceived) {
+                remoteCandidateReceived = true;
+                Thread scheduler = new Thread(() -> {
+                    try {
+                        Thread.sleep(2000);
+                        synchronized (VideoCallSession.this) {
+                            if (iceAgent != null && state == State.NEGOTIATING && !iceConnectivityStarted) {
+                                iceConnectivityStarted = true;
+                                System.out.println("[VideoCall] 收到 " + remoteCandidateCount + " 个远端候选，启动 ICE 连通性检查");
+                                iceAgent.startConnectivityEstablishment();
+                            }
+                        }
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }, "VideoCall-ICE-Scheduler");
+                scheduler.setDaemon(true);
+                scheduler.start();
             }
 
         } catch (Exception e) {
@@ -308,163 +374,296 @@ public final class VideoCallSession {
     }
 
     // ---------------------------------------------------------------------------
-    // 媒体流启动
+    // 视频流传输
     // ---------------------------------------------------------------------------
 
-    /** ICE 完成后，用选定的 CandidatePair 创建并启动 MediaStream */
-    private synchronized void startMediaStreams() {
+    /** ICE 完成后，获取远端地址，创建独立视频 socket */
+    private synchronized void startVideoStreaming() {
         try {
-            // 音频流
-            if (mediaType != MediaType.SCREEN_SHARE || mediaType == MediaType.AUDIO_VIDEO) {
-                IceMediaStream audioIce = iceAgent.getStream("audio");
-                if (audioIce != null) {
-                    StreamConnector audioConn = createConnectorFromIce(audioIce);
-                    MediaStreamTarget audioTarget = createTargetFromIce(audioIce);
-                    audioStream = VideoCallManager.createAudioStream(audioConn, audioTarget);
-                    audioStream.start();
-                    System.out.println("[VideoCall] 音频流已启动");
-                }
+            IceMediaStream videoIce = iceAgent.getStream("video");
+            if (videoIce == null) {
+                fireError("视频 ICE 流为空");
+                return;
             }
 
-            // 视频流
-            if (mediaType != MediaType.AUDIO_ONLY) {
-                IceMediaStream videoIce = iceAgent.getStream("video");
-                if (videoIce != null) {
-                    StreamConnector videoConn = createConnectorFromIce(videoIce);
-                    MediaStreamTarget videoTarget = createTargetFromIce(videoIce);
-                    boolean screenShare = (mediaType == MediaType.SCREEN_SHARE);
-                    videoStream = VideoCallManager.createVideoStream(videoConn, videoTarget, screenShare, screenShare);
+            Component rtpComp = videoIce.getComponent(Component.RTP);
+            if (rtpComp == null || rtpComp.getSelectedPair() == null) {
+                fireError("视频 RTP Component 或 CandidatePair 为空");
+                return;
+            }
 
-                    // 注册 VideoListener 捕获远端视频组件
-                    if (videoStream instanceof VideoMediaStream) {
-                        VideoMediaStream vms = (VideoMediaStream) videoStream;
-                        vms.addVideoListener(new VideoListener() {
-                            @Override
-                            public void videoAdded(VideoEvent e) {
-                                java.awt.Component comp = e.getVisualComponent();
-                                if (comp != null) {
-                                    if (e.getOrigin() == VideoEvent.REMOTE) {
-                                        System.out.println("[VideoCall] 远端视频组件就绪: " + comp.getSize());
-                                        remoteVideoComponent.set(comp);
-                                        for (CallListener l : listeners) {
-                                            try { l.onRemoteVideoComponent(comp); } catch (Exception ignored) {}
-                                        }
-                                    } else if (e.getOrigin() == VideoEvent.LOCAL) {
-                                        System.out.println("[VideoCall] 本地视频组件就绪: " + comp.getSize());
-                                        for (CallListener l : listeners) {
-                                            try { l.onLocalVideoComponent(comp); } catch (Exception ignored) {}
-                                        }
-                                    }
-                                }
-                            }
-
-                            @Override
-                            public void videoRemoved(VideoEvent e) {
-                                if (e.getOrigin() == VideoEvent.REMOTE) {
-                                    remoteVideoComponent.set(null);
-                                    for (CallListener l : listeners) {
-                                        try { l.onRemoteVideoComponent(null); } catch (Exception ignored) {}
-                                    }
-                                } else if (e.getOrigin() == VideoEvent.LOCAL) {
-                                    for (CallListener l : listeners) {
-                                        try { l.onLocalVideoComponent(null); } catch (Exception ignored) {}
-                                    }
-                                }
-                            }
-
-                            @Override
-                            public void videoUpdate(VideoEvent e) {}
-                        });
-
-                        // 尝试获取已存在的本地视频组件（摄像头预览）
-                        try {
-                            java.awt.Component localComp = vms.getLocalVisualComponent();
-                            if (localComp != null) {
-                                System.out.println("[VideoCall] 本地视频预览组件已就绪");
-                                for (CallListener l : listeners) {
-                                    try { l.onLocalVideoComponent(localComp); } catch (Exception ignored) {}
-                                }
-                            }
-                        } catch (Exception ignored) {}
-                    }
-
-                    videoStream.start();
-                    System.out.println("[VideoCall] 视频流已启动, screenShare=" + screenShare);
-                }
+            // 获取 ICE 协商出的远端地址
+            InetSocketAddress iceRemote = rtpComp.getSelectedPair().getRemoteCandidate().getTransportAddress();
+            
+            // 使用 FriendPage 预先创建的 videoSocket（端口已通过信令交换），如果不存在才创建新的
+            if (videoSocket == null || videoSocket.isClosed()) {
+                videoSocket = new DatagramSocket();
+            }
+            int port = videoSocket.getLocalPort();
+            System.out.println("[VideoCall] 视频 socket 就绪: 本地端口=" + port + " 等待远端端口...");
+            
+            // 通知上层（通过信令发送端口号给远端）
+            for (CallListener l : listeners) {
+                try { l.onVideoPortReady(port); } catch (Exception ignored) {}
+            }
+            
+            // 立即释放 ICE agent（不再需要，避免 keepalive 超时干扰）
+            if (iceAgent != null) {
+                try { iceAgent.free(); } catch (Exception ignored) {}
+                iceAgent = null;
             }
 
             setState(State.IN_CALL);
 
+            capturing.set(true);
+
+            // 启动接收线程
+            startReceiveThread(videoSocket);
+
+            // 保存 ICE 远端地址
+            this.pendingIceRemote = iceRemote;
+            
+            // 如果远端视频端口已通过信令收到，立即启动采集发送
+            if (remoteVideoPort > 0) {
+                startCaptureWithRemotePort(remoteVideoPort);
+            }
+
         } catch (Exception e) {
-            fireError("启动媒体流失败: " + e.getMessage());
+            fireError("启动视频流失败: " + e.getMessage());
+        }
+    }
+    
+    private InetSocketAddress pendingIceRemote;
+    private volatile int remoteVideoPort = 0;
+
+    /** 收到远端的视频端口后，启动采集线程发送视频 */
+    public synchronized void onRemoteVideoPort(int port) {
+        if (port <= 0) return;
+        this.remoteVideoPort = port;
+        // 如果 ICE 尚未完成（pendingIceRemote 为空），等待 startVideoStreaming 中再启动
+        if (videoSocket != null && !videoSocket.isClosed() && pendingIceRemote != null && !capturing.get()) {
+            startCaptureWithRemotePort(port);
+        }
+    }
+    
+    private void startCaptureWithRemotePort(int port) {
+        InetSocketAddress remote;
+        String remoteIp = pendingIceRemote.getAddress().getHostAddress();
+        if (remoteIp.startsWith("240e:") || remoteIp.equals("::1") || remoteIp.equals("127.0.0.1") || remoteIp.startsWith("fe80")) {
+            remote = new InetSocketAddress("127.0.0.1", port);
+        } else {
+            remote = new InetSocketAddress(pendingIceRemote.getAddress(), port);
+        }
+        System.out.println("[VideoCall] 远端视频端口就绪: " + remote + " 开始发送");
+        startCaptureThread(videoSocket, remote);
+    }
+
+    /** 启动摄像头采集 + 发送线程 */
+    private void startCaptureThread(DatagramSocket socket, InetSocketAddress remoteAddress) {
+        frameConverter = new Java2DFrameConverter();
+
+        captureThread = new Thread(() -> {
+            try {
+                grabber = VideoCallManager.createCameraGrabber(VIDEO_WIDTH, VIDEO_HEIGHT, VIDEO_FPS);
+                grabber.start();
+                System.out.println("[VideoCall] 摄像头采集已启动");
+
+                long frameCount = 0;
+                long sentCount = 0;
+                long skippedCount = 0;
+                long audioFrameCount = 0;
+                long lastLogTime = System.currentTimeMillis();
+
+                while (capturing.get() && !Thread.currentThread().isInterrupted()) {
+                    if (!cameraEnabled) {
+                        Thread.sleep(1000 / VIDEO_FPS);
+                        continue;
+                    }
+
+                    Frame frame = grabber.grab();
+                    if (frame == null) continue;
+                    
+                    // 跳过音频帧（avfoundation 会同时采集音频和视频）
+                    if (frame.image == null) {
+                        audioFrameCount++;
+                        continue;
+                    }
+
+                    BufferedImage img = frameConverter.convert(frame);
+                    if (img == null) continue;
+
+                    frameCount++;
+
+                    // 通知本地预览
+                    for (CallListener l : listeners) {
+                        try { l.onLocalFrame(img); } catch (Exception ignored) {}
+                    }
+
+                    // JPEG 压缩（带降级重试：quality 60 → 40 → 25）
+                    byte[] jpegData = compressJpeg(img, JPEG_QUALITY);
+                    if (jpegData != null && jpegData.length > MAX_PACKET_SIZE) {
+                        // 降级重试
+                        jpegData = compressJpeg(img, 40);
+                    }
+                    if (jpegData != null && jpegData.length > MAX_PACKET_SIZE) {
+                        jpegData = compressJpeg(img, 25);
+                    }
+                    if (jpegData == null || jpegData.length > MAX_PACKET_SIZE) {
+                        skippedCount++;
+                        continue;
+                    }
+
+                    // UDP 发送
+                    try {
+                        DatagramPacket packet = new DatagramPacket(jpegData, jpegData.length, remoteAddress);
+                        socket.send(packet);
+                        sentCount++;
+                    } catch (Exception e) {
+                        // 发送失败可能是网络问题，忽略
+                    }
+
+                    // 每 5 秒打印一次帧统计
+                    if (System.currentTimeMillis() - lastLogTime > 5000) {
+                        System.out.println("[VideoCall] 帧统计: 采集=" + frameCount
+                                + " 发送=" + sentCount + " 丢弃=" + skippedCount
+                                + " 音频帧跳过=" + audioFrameCount
+                                + " 大小~" + (sentCount > 0 ? jpegData.length : 0) + "B");
+                        if (frameCount == 0 && audioFrameCount > 0) {
+                            System.err.println("[VideoCall] 警告: 只收到音频帧无视频帧！请检查 macOS 摄像头权限（系统设置→隐私与安全性→摄像头→允许 Terminal）");
+                        }
+                        lastLogTime = System.currentTimeMillis();
+                    }
+                    try {
+                        DatagramPacket packet = new DatagramPacket(jpegData, jpegData.length, remoteAddress);
+                        socket.send(packet);
+                    } catch (Exception e) {
+                        // 发送失败可能是网络问题，忽略
+                    }
+
+                    // 控制帧率
+                    Thread.sleep(1000 / VIDEO_FPS);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } catch (Exception e) {
+                fireError("摄像头采集失败: " + e.getMessage());
+            } finally {
+                if (grabber != null) {
+                    try { grabber.stop(); } catch (Exception ignored) {}
+                    try { grabber.close(); } catch (Exception ignored) {}
+                    grabber = null;
+                }
+            }
+        }, "VideoCall-Capture");
+        captureThread.setDaemon(true);
+        captureThread.start();
+    }
+
+    /** 启动接收线程 */
+    private void startReceiveThread(DatagramSocket socket) {
+        System.out.println("[VideoCall] 启动视频接收线程 callId=" + callId);
+        receiveThread = new Thread(() -> {
+            byte[] buffer = new byte[MAX_PACKET_SIZE];
+            long receivedCount = 0;
+            long lastLogTime = System.currentTimeMillis();
+            while (capturing.get() && !Thread.currentThread().isInterrupted()) {
+                try {
+                    DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
+                    socket.receive(packet);
+                    if (packet.getLength() == 0) continue;
+
+                    // JPEG 解压
+                    byte[] data = new byte[packet.getLength()];
+                    System.arraycopy(packet.getData(), 0, data, 0, packet.getLength());
+                    BufferedImage img = decompressJpeg(data);
+                    if (img == null) continue;
+
+                    receivedCount++;
+                    if (receivedCount == 1) {
+                        System.out.println("[VideoCall] 收到首帧! size=" + packet.getLength() + "B");
+                    }
+                    if (System.currentTimeMillis() - lastLogTime > 5000 && receivedCount > 0) {
+                        System.out.println("[VideoCall] 接收帧统计: " + receivedCount + " 帧");
+                        lastLogTime = System.currentTimeMillis();
+                    }
+
+                    // 通知 UI 渲染
+                    for (CallListener l : listeners) {
+                        try { l.onRemoteFrame(img); } catch (Exception ignored) {}
+                    }
+                } catch (java.net.SocketTimeoutException e) {
+                    // 超时继续
+                } catch (Exception e) {
+                    // 接收失败可能是 socket 关闭
+                    if (e instanceof InterruptedException) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+            }
+        }, "VideoCall-Receive");
+        receiveThread.setDaemon(true);
+        receiveThread.start();
+    }
+
+    /** JPEG 压缩，使用指定的 quality (0-100)，返回压缩字节或 null */
+    private byte[] compressJpeg(BufferedImage img, int quality) {
+        try {
+            java.util.Iterator<javax.imageio.ImageWriter> writers = 
+                javax.imageio.ImageIO.getImageWritersByFormatName("jpg");
+            if (!writers.hasNext()) return null;
+            javax.imageio.ImageWriter writer = writers.next();
+            
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            javax.imageio.stream.ImageOutputStream ios = javax.imageio.ImageIO.createImageOutputStream(baos);
+            writer.setOutput(ios);
+            
+            javax.imageio.plugins.jpeg.JPEGImageWriteParam param = 
+                new javax.imageio.plugins.jpeg.JPEGImageWriteParam(null);
+            param.setCompressionMode(javax.imageio.plugins.jpeg.JPEGImageWriteParam.MODE_EXPLICIT);
+            param.setCompressionQuality(quality / 100.0f);
+            
+            writer.write(null, new javax.imageio.IIOImage(img, null, null), param);
+            writer.dispose();
+            ios.close();
+            return baos.toByteArray();
+        } catch (Exception e) {
+            return null;
         }
     }
 
-    /** 从 ICE CandidatePair 创建 StreamConnector */
-    private StreamConnector createConnectorFromIce(IceMediaStream iceStream) {
-        Component rtpComp = iceStream.getComponent(Component.RTP);
-        Component rtcpComp = iceStream.getComponent(Component.RTCP);
-
-        if (rtpComp == null) {
-            throw new IllegalStateException("ICE RTP Component 为空");
+    /** JPEG 解压 */
+    private BufferedImage decompressJpeg(byte[] data) {
+        try {
+            ByteArrayInputStream bais = new ByteArrayInputStream(data);
+            return javax.imageio.ImageIO.read(bais);
+        } catch (Exception e) {
+            return null;
         }
-
-        // 使用 Component 的 CandidatePair socket
-        java.net.DatagramSocket rtpSocket = rtpComp.getSelectedPair() != null
-                ? rtpComp.getSelectedPair().getDatagramSocket()
-                : null;
-
-        if (rtpSocket == null) {
-            // 回退到 ComponentSocket
-            rtpSocket = rtpComp.getSocket();
-        }
-
-        java.net.DatagramSocket rtcpSocket = null;
-        if (rtcpComp != null) {
-            rtcpSocket = rtcpComp.getSocket();
-        }
-
-        return new DefaultStreamConnector(rtpSocket, rtcpSocket);
-    }
-
-    /** 从 ICE CandidatePair 创建 MediaStreamTarget */
-    private MediaStreamTarget createTargetFromIce(IceMediaStream iceStream) {
-        Component rtpComp = iceStream.getComponent(Component.RTP);
-        Component rtcpComp = iceStream.getComponent(Component.RTCP);
-
-        InetSocketAddress rtpTarget = null;
-        InetSocketAddress rtcpTarget = null;
-
-        if (rtpComp != null && rtpComp.getSelectedPair() != null) {
-            InetSocketAddress remote = rtpComp.getSelectedPair().getRemoteCandidate().getTransportAddress();
-            rtpTarget = new InetSocketAddress(remote.getAddress(), remote.getPort());
-        }
-        if (rtcpComp != null && rtcpComp.getSelectedPair() != null) {
-            InetSocketAddress remote = rtcpComp.getSelectedPair().getRemoteCandidate().getTransportAddress();
-            rtcpTarget = new InetSocketAddress(remote.getAddress(), remote.getPort());
-        }
-
-        return new MediaStreamTarget(rtpTarget, rtcpTarget);
     }
 
     // ---------------------------------------------------------------------------
     // 通话控制
     // ---------------------------------------------------------------------------
 
-    /** 结束通话，释放所有资源 */
     public synchronized void end() {
         if (state == State.ENDED) return;
 
+        capturing.set(false);
+
         try {
-            if (audioStream != null) {
-                try { audioStream.stop(); } catch (Exception ignored) {}
-                try { audioStream.close(); } catch (Exception ignored) {}
-                audioStream = null;
+            if (captureThread != null) {
+                captureThread.interrupt();
+                captureThread = null;
             }
-            if (videoStream != null) {
-                try { videoStream.stop(); } catch (Exception ignored) {}
-                try { videoStream.close(); } catch (Exception ignored) {}
-                videoStream = null;
+            if (receiveThread != null) {
+                receiveThread.interrupt();
+                receiveThread = null;
+            }
+            if (grabber != null) {
+                try { grabber.stop(); } catch (Exception ignored) {}
+                try { grabber.close(); } catch (Exception ignored) {}
+                grabber = null;
             }
             if (iceAgent != null) {
                 try { iceAgent.free(); } catch (Exception ignored) {}
@@ -476,17 +675,11 @@ public final class VideoCallSession {
         }
     }
 
-    /** 切换静音/取消静音 */
     public void setMute(boolean mute) {
-        if (audioStream != null) {
-            audioStream.setMute(mute);
-        }
+        this.muted = mute;
     }
 
-    /** 切换摄像头开/关 */
     public void setCameraEnabled(boolean enabled) {
-        if (videoStream != null) {
-            videoStream.setDirection(enabled ? MediaDirection.SENDRECV : MediaDirection.RECVONLY);
-        }
+        this.cameraEnabled = enabled;
     }
 }

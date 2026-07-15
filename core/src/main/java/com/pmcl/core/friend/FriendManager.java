@@ -329,6 +329,19 @@ public final class FriendManager implements AutoCloseable {
         pendingOnConnect.computeIfAbsent(identity, k -> new ConcurrentLinkedQueue<>()).add(action);
     }
 
+    /** 如果 TCP 已连通，立即排空待发队列。修复 enqueue 后 client 已连通的竞态窗口 */
+    private void flushIfConnected(String identity) {
+        FriendChatClient c = activeClients.get(identity);
+        if (c != null && c.isConnected()) {
+            Queue<Runnable> actions = pendingOnConnect.remove(identity);
+            if (actions != null) {
+                for (Runnable action : actions) {
+                    try { action.run(); } catch (Exception ignored) {}
+                }
+            }
+        }
+    }
+
     /** 发送好友请求到指定 IP + port */
     public void sendFriendRequest(String identity, String displayName, String ip, int port) {
         // 先添加到本地存储
@@ -344,11 +357,17 @@ public final class FriendManager implements AutoCloseable {
                 enqueuePending(identity, () -> client.sendFriendRequest());
             }
         } else {
-            // 无地址，排队等待发现后自动发送
-            enqueuePending(identity, () -> {
-                FriendChatClient c = activeClients.get(identity);
-                if (c != null) c.sendFriendRequest();
-            });
+            // 无地址，先检查是否已有连通的 TCP 客户端（peer 发现可能已在连接），直接发送
+            FriendChatClient existing = activeClients.get(identity);
+            if (existing != null && existing.isConnected()) {
+                existing.sendFriendRequest();
+            } else {
+                // 排队等待连接建立后自动发送
+                enqueuePending(identity, () -> {
+                    FriendChatClient c = activeClients.get(identity);
+                    if (c != null) c.sendFriendRequest();
+                });
+            }
         }
     }
 
@@ -428,9 +447,18 @@ public final class FriendManager implements AutoCloseable {
     // ---------------------------------------------------------------------------
 
     /** 发起通话邀请，返回生成的 callId（好友不存在或无网络地址时返回 null） */
-    public String sendCallInvite(String identity, String mediaType) {
+    public String sendCallInvite(String identity, String mediaType, int videoPort) {
         FriendStore.FriendEntry friend = store.getFriend(identity);
-        if (friend == null) return null;
+        if (friend == null) {
+            System.err.println("[FriendManager] sendCallInvite 失败：好友不存在 identity=" + identity);
+            return null;
+        }
+
+        if (friend.lastIp == null || friend.lastIp.isEmpty() || friend.lastPort <= 0) {
+            System.err.println("[FriendManager] sendCallInvite 失败：好友无网络地址 identity=" + identity
+                    + " ip=" + friend.lastIp + " port=" + friend.lastPort);
+            return null;
+        }
 
         String callId = UUID.randomUUID().toString();
         FriendProtocol.CallInvite invite = new FriendProtocol.CallInvite();
@@ -438,6 +466,7 @@ public final class FriendManager implements AutoCloseable {
         invite.from = identityManager.getIdentity().toString();
         invite.fromName = identityManager.getDisplayName();
         invite.mediaType = mediaType;
+        invite.videoPort = videoPort;
 
         if (friend.lastIp == null || friend.lastIp.isEmpty() || friend.lastPort <= 0) return null;
 
@@ -446,12 +475,13 @@ public final class FriendManager implements AutoCloseable {
             client.send(invite.toJson());
         } else if (client != null) {
             enqueuePending(identity, () -> client.send(invite.toJson()));
+            flushIfConnected(identity);
         }
         return callId;
     }
 
     /** 接受通话 */
-    public void sendCallAccept(String identity, String callId, String sdpOffer) {
+    public void sendCallAccept(String identity, String callId, String sdpOffer, int videoPort) {
         FriendStore.FriendEntry friend = store.getFriend(identity);
         if (friend == null) return;
 
@@ -460,6 +490,7 @@ public final class FriendManager implements AutoCloseable {
         accept.from = identityManager.getIdentity().toString();
         accept.accept = true;
         accept.sdpOffer = sdpOffer != null ? sdpOffer : "";
+        accept.videoPort = videoPort;
 
         if (friend.lastIp == null || friend.lastIp.isEmpty() || friend.lastPort <= 0) return;
 
@@ -468,6 +499,7 @@ public final class FriendManager implements AutoCloseable {
             client.send(accept.toJson());
         } else if (client != null) {
             enqueuePending(identity, () -> client.send(accept.toJson()));
+            flushIfConnected(identity);
         }
     }
 
@@ -488,6 +520,7 @@ public final class FriendManager implements AutoCloseable {
             client.send(reject.toJson());
         } else if (client != null) {
             enqueuePending(identity, () -> client.send(reject.toJson()));
+            flushIfConnected(identity);
         }
     }
 
@@ -508,11 +541,13 @@ public final class FriendManager implements AutoCloseable {
             client.send(end.toJson());
         } else if (client != null) {
             enqueuePending(identity, () -> client.send(end.toJson()));
+            flushIfConnected(identity);
         }
     }
 
     /** 发送 ICE 候选 */
-    public void sendCallIceCandidate(String identity, String callId, String candidate, int sdpMLineIndex, String sdpMid) {
+    public void sendCallIceCandidate(String identity, String callId, String candidate, int sdpMLineIndex, String sdpMid,
+                                     String ufrag, String pwd) {
         FriendStore.FriendEntry friend = store.getFriend(identity);
         if (friend == null) return;
 
@@ -522,6 +557,8 @@ public final class FriendManager implements AutoCloseable {
         ice.candidate = candidate != null ? candidate : "";
         ice.sdpMLineIndex = sdpMLineIndex;
         ice.sdpMid = sdpMid != null ? sdpMid : "";
+        ice.ufrag = ufrag != null ? ufrag : "";
+        ice.pwd = pwd != null ? pwd : "";
 
         if (friend.lastIp == null || friend.lastIp.isEmpty() || friend.lastPort <= 0) return;
 
@@ -530,6 +567,7 @@ public final class FriendManager implements AutoCloseable {
             client.send(ice.toJson());
         } else if (client != null) {
             enqueuePending(identity, () -> client.send(ice.toJson()));
+            flushIfConnected(identity);
         }
     }
 

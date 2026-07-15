@@ -13,19 +13,27 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.awt.SwingPanel
 import com.pmcl.video.VideoCallSession
 import kotlinx.coroutines.delay
-import java.awt.Component
-import java.awt.FlowLayout
-import javax.swing.JPanel
+import org.jetbrains.skia.Image as SkiaImage
+import java.awt.image.BufferedImage
+import java.io.ByteArrayOutputStream
+import javax.imageio.ImageIO
+
+/** 将 BufferedImage 转为 Compose ImageBitmap */
+private fun BufferedImage.toImageBitmap(): androidx.compose.ui.graphics.ImageBitmap {
+    val baos = ByteArrayOutputStream()
+    ImageIO.write(this, "png", baos)
+    return SkiaImage.makeFromEncoded(baos.toByteArray()).toComposeImageBitmap()
+}
 
 /**
  * 视频通话浮层：显示远端/本地视频画面、通话状态、控制按钮。
- * 视频渲染使用 SwingPanel 嵌入 libjitsi 的 AWT Component。
+ * 视频渲染使用 Compose Image 直接绘制 BufferedImage。
  */
 @Composable
 fun VideoCallOverlay(
@@ -39,29 +47,25 @@ fun VideoCallOverlay(
     var isMuted by remember { mutableStateOf(false) }
     var isCameraOn by remember { mutableStateOf(true) }
 
-    // 视频组件状态（通过 VideoListener 回调更新）
-    var remoteComponent by remember { mutableStateOf<Component?>(null) }
-    var localComponent by remember { mutableStateOf<Component?>(null) }
+    // 视频帧状态（通过 CallListener 回调更新）
+    var remoteFrame by remember { mutableStateOf<BufferedImage?>(null) }
+    var localFrame by remember { mutableStateOf<BufferedImage?>(null) }
 
-    // 注册 VideoListener
+    // 注册 CallListener
     DisposableEffect(session) {
         val listener = object : VideoCallSession.CallListener {
             override fun onStateChanged(state: VideoCallSession.State) {}
-            override fun onLocalCandidate(candidateSdp: String) {}
-            override fun onRemoteVideoComponent(component: Component?) {
-                remoteComponent = component
+            override fun onLocalCandidate(candidateSdp: String, ufrag: String, pwd: String) {}
+            override fun onRemoteFrame(frame: BufferedImage?) {
+                remoteFrame = frame
             }
-            override fun onLocalVideoComponent(component: Component?) {
-                localComponent = component
+            override fun onLocalFrame(frame: BufferedImage?) {
+                localFrame = frame
             }
+            override fun onVideoPortReady(port: Int) {}
             override fun onError(message: String) {}
         }
         session.addListener(listener)
-
-        // 尝试获取已存在的组件
-        remoteComponent = session.remoteVideoComponent
-        localComponent = session.localVideoComponent
-
         onDispose { session.removeListener(listener) }
     }
 
@@ -82,17 +86,13 @@ fun VideoCallOverlay(
             .background(Color.Black)
     ) {
         // 远端视频画面（全屏）
-        remoteComponent?.let { comp ->
-            SwingPanel(
-                background = Color.Black,
+        remoteFrame?.let { img ->
+            val bitmap = remember(img) { img.toImageBitmap() }
+            androidx.compose.foundation.Image(
+                bitmap = bitmap,
+                contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
-                factory = {
-                    JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
-                        isOpaque = true
-                        background = java.awt.Color.BLACK
-                        add(comp)
-                    }
-                }
+                contentScale = androidx.compose.ui.layout.ContentScale.Fit
             )
         } ?: run {
             // 无视频时显示等待提示
@@ -123,7 +123,8 @@ fun VideoCallOverlay(
 
         // 本地视频预览（右上角小窗）
         if (isCameraOn) {
-            localComponent?.let { comp ->
+            localFrame?.let { img ->
+                val bitmap = remember(img) { img.toImageBitmap() }
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
@@ -132,16 +133,11 @@ fun VideoCallOverlay(
                         .clip(RoundedCornerShape(12.dp))
                         .border(2.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
                 ) {
-                    SwingPanel(
-                        background = Color.Black,
+                    androidx.compose.foundation.Image(
+                        bitmap = bitmap,
+                        contentDescription = null,
                         modifier = Modifier.fillMaxSize(),
-                        factory = {
-                            JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
-                                isOpaque = true
-                                background = java.awt.Color.BLACK
-                                add(comp)
-                            }
-                        }
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
                     )
                 }
             }
