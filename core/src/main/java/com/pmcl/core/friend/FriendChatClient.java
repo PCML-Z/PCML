@@ -234,7 +234,8 @@ public final class FriendChatClient implements AutoCloseable {
     private void readLoop() {
         try (BufferedReader reader = new BufferedReader(
                 new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8))) {
-            socket.setSoTimeout(30000); // 30 秒读超时
+            // 不设读超时：依赖 writeLoop 的心跳（15秒）检测连接活性
+            // 双向是两条独立 TCP 连接，对端不会通过本连接回发数据，短读超时会导致误断开
             String line;
             while (running.get() && (line = reader.readLine()) != null) {
                 if (callback != null) {
@@ -248,10 +249,6 @@ public final class FriendChatClient implements AutoCloseable {
             // readLine 返回 null 表示对端正常关闭
             if (running.get()) {
                 handleDisconnect("连接已关闭");
-            }
-        } catch (java.net.SocketTimeoutException e) {
-            if (running.get()) {
-                handleDisconnect("读超时");
             }
         } catch (IOException e) {
             if (running.get()) {

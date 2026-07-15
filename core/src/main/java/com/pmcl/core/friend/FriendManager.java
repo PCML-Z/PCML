@@ -532,11 +532,12 @@ public final class FriendManager implements AutoCloseable {
         }
         return activeClients.compute(identity, (k, existing) -> {
             if (existing != null) {
-                // 地址未变，复用现有连接
-                if (existing.getRemoteHost().equals(ip) && existing.getRemotePort() == port) {
+                // 地址未变且连接活跃，复用
+                if (existing.getRemoteHost().equals(ip) && existing.getRemotePort() == port
+                        && existing.isConnected()) {
                     return existing;
                 }
-                // 地址已变，关闭旧连接重建
+                // 地址已变或连接已断开，关闭旧连接重建
                 try { existing.close(); } catch (Exception ignored) {}
             }
             FriendChatClient client = new FriendChatClient(ip, port,
