@@ -81,15 +81,23 @@ fun FriendPage(vm: LauncherViewModel) {
         }
     }
 
-    // 选择背景图片
+    // 选择背景图片（JFileChooser 必须在 EDT 上显示，否则会崩溃）
     val pickBackground: () -> Unit = {
         scope.launch(Dispatchers.IO) {
-            val chooser = JFileChooser()
-            chooser.dialogTitle = "选择卡片背景图片"
-            chooser.fileFilter = FileNameExtensionFilter("图片文件 (*.png, *.jpg, *.jpeg)", "png", "jpg", "jpeg")
-            val result = chooser.showOpenDialog(null)
-            if (result == JFileChooser.APPROVE_OPTION) {
-                val path = chooser.selectedFile.absolutePath
+            var path: String? = null
+            try {
+                javax.swing.SwingUtilities.invokeAndWait {
+                    val chooser = JFileChooser()
+                    chooser.dialogTitle = "选择卡片背景图片"
+                    chooser.fileFilter = FileNameExtensionFilter("图片文件 (*.png, *.jpg, *.jpeg)", "png", "jpg", "jpeg")
+                    if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
+                        path = chooser.selectedFile.absolutePath
+                    }
+                }
+            } catch (e: Exception) {
+                System.err.println("[FriendPage] 选择背景图片失败: ${e.message}")
+            }
+            if (path != null) {
                 identityManager.backgroundPath = path
                 bgImagePath = path
             }
@@ -346,12 +354,21 @@ fun FriendPage(vm: LauncherViewModel) {
             },
             onScanStart = {
                 scope.launch(Dispatchers.IO) {
-                    val chooser = JFileChooser()
-                    chooser.dialogTitle = "选择二维码图片"
-                    chooser.fileFilter = FileNameExtensionFilter("图片文件 (*.png, *.jpg, *.jpeg, *.bmp, *.gif)", "png", "jpg", "jpeg", "bmp", "gif")
-                    val result = chooser.showOpenDialog(null)
-                    if (result == JFileChooser.APPROVE_OPTION) {
-                        val decoded = FriendIdentityManager.decodeQrCode(chooser.selectedFile)
+                    var selectedFile: java.io.File? = null
+                    try {
+                        javax.swing.SwingUtilities.invokeAndWait {
+                            val chooser = JFileChooser()
+                            chooser.dialogTitle = "选择二维码图片"
+                            chooser.fileFilter = FileNameExtensionFilter("图片文件 (*.png, *.jpg, *.jpeg, *.bmp, *.gif)", "png", "jpg", "jpeg", "bmp", "gif")
+                            if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
+                                selectedFile = chooser.selectedFile
+                            }
+                        }
+                    } catch (e: Exception) {
+                        System.err.println("[FriendPage] 选择二维码图片失败: ${e.message}")
+                    }
+                    if (selectedFile != null) {
+                        val decoded = FriendIdentityManager.decodeQrCode(selectedFile)
                         if (decoded != null) {
                             val info = FriendIdentityManager.parseInvite(decoded)
                             if (info != null) {
