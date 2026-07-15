@@ -125,19 +125,19 @@ fun IdentityCard(
                 modifier = Modifier
                     .padding(16.dp)
                     .blur(blurRadius.dp),
-                contentAlignment = Alignment.Center
+                contentAlignment = Alignment.TopCenter
             ) { isExpanded ->
                 Column(
-                    Modifier.fillMaxWidth().wrapContentHeight(),
+                    Modifier.wrapContentWidth().wrapContentHeight(),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
+                    verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterVertically)
                 ) {
                     if (isExpanded) {
                         // ===== 展开布局 =====
                         // QR 码
                         if (qrBitmap != null) {
                             Surface(
-                                modifier = Modifier.size(200.dp),
+                                modifier = Modifier.size(160.dp),
                                 shape = RoundedCornerShape(12.dp),
                                 color = Color.White,
                                 border = BorderStroke(2.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
@@ -146,23 +146,23 @@ fun IdentityCard(
                                     Image(
                                         bitmap = qrBitmap,
                                         contentDescription = "好友二维码",
-                                        modifier = Modifier.size(180.dp)
+                                        modifier = Modifier.size(144.dp)
                                     )
                                 }
                             }
                         } else {
-                            Box(Modifier.size(200.dp), contentAlignment = Alignment.Center) {
+                            Box(Modifier.size(160.dp), contentAlignment = Alignment.Center) {
                                 Text("QR 生成中...",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f))
                             }
                         }
 
-                        Spacer(Modifier.height(20.dp))
+                        Spacer(Modifier.height(16.dp))
 
                         // 头像
                         Surface(
-                            modifier = Modifier.size(56.dp),
+                            modifier = Modifier.size(48.dp),
                             shape = CircleShape,
                             color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
                         ) {
@@ -170,97 +170,13 @@ fun IdentityCard(
                                 Text(
                                     identityManager.displayName.take(1).uppercase(),
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = 22.sp,
+                                    fontSize = 20.sp,
                                     color = MaterialTheme.colorScheme.primary
                                 )
                             }
                         }
 
-                        Spacer(Modifier.height(12.dp))
-
-                        // 名称
-                        Text(
-                            identityManager.displayName,
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-
-                        Spacer(Modifier.height(4.dp))
-
-                        // 身份 ID
-                        Text(
-                            identityManager.identity.toString(),
-                            style = MaterialTheme.typography.bodyMedium,
-                            letterSpacing = 1.sp,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-
-                        Spacer(Modifier.height(12.dp))
-
-                        // 操作按钮
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            FilledTonalIconButton(
-                                onClick = onPickBackground,
-                                modifier = Modifier.size(42.dp)
-                            ) {
-                                Icon(Icons.Filled.Image, "更换背景", modifier = Modifier.size(20.dp))
-                            }
-                            FilledTonalIconButton(
-                                onClick = onToggleExpand,
-                                modifier = Modifier.size(42.dp)
-                            ) {
-                                Icon(Icons.Filled.FullscreenExit, "收起", modifier = Modifier.size(20.dp))
-                            }
-                        }
-                    } else {
-                        // ===== 收起布局 =====
-                        // QR 码
-                        if (qrBitmap != null) {
-                            Surface(
-                                modifier = Modifier.size(140.dp),
-                                shape = RoundedCornerShape(12.dp),
-                                color = Color.White,
-                                border = BorderStroke(2.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Image(
-                                        bitmap = qrBitmap,
-                                        contentDescription = "好友二维码",
-                                        modifier = Modifier.size(120.dp)
-                                    )
-                                }
-                            }
-                        } else {
-                            Box(Modifier.size(140.dp), contentAlignment = Alignment.Center) {
-                                Text("QR 生成中...",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f))
-                            }
-                        }
-
-                        Spacer(Modifier.height(12.dp))
-
-                        // 头像
-                        Surface(
-                            modifier = Modifier.size(40.dp),
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Text(
-                                    identityManager.displayName.take(1).uppercase(),
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 16.sp,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                        }
-
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(10.dp))
 
                         // 名称
                         Text(
@@ -276,7 +192,7 @@ fun IdentityCard(
                         // 身份 ID
                         Text(
                             identityManager.identity.toString(),
-                            style = MaterialTheme.typography.labelSmall,
+                            style = MaterialTheme.typography.bodySmall,
                             letterSpacing = 1.sp,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
                             maxLines = 1,
@@ -289,15 +205,99 @@ fun IdentityCard(
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             FilledTonalIconButton(
                                 onClick = onPickBackground,
-                                modifier = Modifier.size(34.dp)
+                                modifier = Modifier.size(38.dp)
                             ) {
-                                Icon(Icons.Filled.Image, "更换背景", modifier = Modifier.size(16.dp))
+                                Icon(Icons.Filled.Image, "更换背景", modifier = Modifier.size(18.dp))
                             }
                             FilledTonalIconButton(
                                 onClick = onToggleExpand,
-                                modifier = Modifier.size(34.dp)
+                                modifier = Modifier.size(38.dp)
                             ) {
-                                Icon(Icons.Filled.Fullscreen, "展开", modifier = Modifier.size(16.dp))
+                                Icon(Icons.Filled.FullscreenExit, "收起", modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    } else {
+                        // ===== 收起布局 =====
+                        // QR 码
+                        if (qrBitmap != null) {
+                            Surface(
+                                modifier = Modifier.size(100.dp),
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color.White,
+                                border = BorderStroke(2.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Image(
+                                        bitmap = qrBitmap,
+                                        contentDescription = "好友二维码",
+                                        modifier = Modifier.size(86.dp)
+                                    )
+                                }
+                            }
+                        } else {
+                            Box(Modifier.size(100.dp), contentAlignment = Alignment.Center) {
+                                Text("QR 生成中...",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f))
+                            }
+                        }
+
+                        Spacer(Modifier.height(10.dp))
+
+                        // 头像
+                        Surface(
+                            modifier = Modifier.size(32.dp),
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(
+                                    identityManager.displayName.take(1).uppercase(),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+
+                        Spacer(Modifier.height(6.dp))
+
+                        // 名称
+                        Text(
+                            identityManager.displayName,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+
+                        Spacer(Modifier.height(2.dp))
+
+                        // 身份 ID
+                        Text(
+                            identityManager.identity.toString(),
+                            style = MaterialTheme.typography.labelSmall,
+                            letterSpacing = 1.sp,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+
+                        Spacer(Modifier.height(8.dp))
+
+                        // 操作按钮
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            FilledTonalIconButton(
+                                onClick = onPickBackground,
+                                modifier = Modifier.size(30.dp)
+                            ) {
+                                Icon(Icons.Filled.Image, "更换背景", modifier = Modifier.size(14.dp))
+                            }
+                            FilledTonalIconButton(
+                                onClick = onToggleExpand,
+                                modifier = Modifier.size(30.dp)
+                            ) {
+                                Icon(Icons.Filled.Fullscreen, "展开", modifier = Modifier.size(14.dp))
                             }
                         }
                     }

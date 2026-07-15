@@ -182,7 +182,7 @@ fun FriendPage(vm: LauncherViewModel) {
                     modifier = Modifier
                         .then(
                             if (cardExpanded) Modifier.weight(2f)
-                            else Modifier.width(200.dp)
+                            else Modifier.width(160.dp)
                         )
                         .fillMaxHeight()
                 )
@@ -281,7 +281,7 @@ fun FriendPage(vm: LauncherViewModel) {
                     modifier = Modifier
                         .then(
                             if (cardExpanded) Modifier.weight(2f)
-                            else Modifier.width(200.dp)
+                            else Modifier.width(160.dp)
                         )
                         .fillMaxHeight()
                 )
