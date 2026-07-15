@@ -9,6 +9,8 @@ okhttp = "4.12.0"
 slf4j = "2.0.16"
 junit = "5.11.3"
 zxing-core = "3.5.3"
+libjitsi = "1.1-50-g6c95bf22"
+ice4j = "3.2-15-g6da2b08"
 
 [libraries]
 # Kotlin 协程
@@ -22,6 +24,11 @@ okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
 slf4j-simple = { module = "org.slf4j:slf4j-simple", version.ref = "slf4j" }
 zxing-core = { module = "com.google.zxing:core", version.ref = "zxing-core" }
 zxing-javase = { module = "com.google.zxing:javase", version.ref = "zxing-core" }
+
+# 视频通话
+libjitsi = { module = "org.jitsi:libjitsi", version.ref = "libjitsi" }
+jitsi-lgpl-dependencies = { module = "org.jitsi:jitsi-lgpl-dependencies", version = "1.2-23-g7b49874" }
+ice4j = { module = "org.jitsi:ice4j", version.ref = "ice4j" }
 
 # 测试
 junit-jupiter = { module = "org.junit.jupiter:junit-jupiter", version.ref = "junit" }
