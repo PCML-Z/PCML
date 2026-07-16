@@ -229,6 +229,18 @@ fun FriendPage(vm: LauncherViewModel) {
         onDispose { friendManager.removeListener(listener) }
     }
 
+    // 默认启动本地网络（进入好友页时自动启动，start() 幂等可安全重复调用）
+    LaunchedEffect(Unit) {
+        if (friendSystemState != FriendManager.State.RUNNING) {
+            withContext(Dispatchers.IO) {
+                try { friendManager.start() } catch (e: Exception) {
+                    System.err.println("[FriendPage] 自动启动好友网络失败: ${e.message}")
+                }
+            }
+            friendSystemState = friendManager.state
+        }
+    }
+
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         // 标题栏
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -253,56 +265,6 @@ fun FriendPage(vm: LauncherViewModel) {
         }
 
         Spacer(Modifier.height(12.dp))
-
-        // 离线提示
-        if (friendSystemState != FriendManager.State.RUNNING) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer
-                )
-            ) {
-                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.WifiOff, null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
-                    Spacer(Modifier.width(8.dp))
-                    Text("加入联机房间后可开始聊天", style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer)
-                }
-                Row(Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp)) {
-                    Icon(Icons.Filled.Link, null, modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.onSecondaryContainer)
-                    Spacer(Modifier.width(4.dp))
-                    Text("P2P 聊天基于联机网络，无需服务器", style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f))
-                }
-                // 本地测试模式：直接启动网络服务
-                Surface(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(bottom = 12.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable {
-                            scope.launch {
-                                withContext(Dispatchers.IO) {
-                                    try { friendManager.start() } catch (e: Exception) {
-                                        System.err.println("[FriendPage] 启动好友网络失败: ${e.message}")
-                                    }
-                                }
-                                friendSystemState = friendManager.state
-                            }
-                        },
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
-                ) {
-                    Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center) {
-                        Icon(Icons.Filled.Wifi, null, modifier = Modifier.size(16.dp),
-                            tint = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.width(6.dp))
-                        Text("启动本地网络（测试）", style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.primary)
-                    }
-                }
-            }
-            Spacer(Modifier.height(12.dp))
-        }
 
         if (friends.isEmpty() && pendingRequests.isEmpty()) {
             // 空状态（带身份卡片）
