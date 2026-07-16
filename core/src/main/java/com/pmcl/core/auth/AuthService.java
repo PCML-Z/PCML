@@ -33,6 +33,7 @@ import java.nio.charset.StandardCharsets;
 public final class AuthService {
 
     private final MicrosoftAuthFlow flow = new MicrosoftAuthFlow();
+    private final GitHubAuthFlow githubFlow = new GitHubAuthFlow();
     private final Gson gson = new Gson();
 
     /**
@@ -62,6 +63,29 @@ public final class AuthService {
                         return flow.completeLogin(token);
                     } catch (IOException e) {
                         throw new RuntimeException("微软登录失败", e);
+                    }
+                });
+    }
+
+    // ============ GitHub 登录 ============
+
+    /**
+     * 请求 GitHub 设备码（UI 层显示给用户）。
+     */
+    public DeviceCode requestGitHubDeviceCode() throws IOException {
+        return githubFlow.requestDeviceCode();
+    }
+
+    /**
+     * 异步等待用户完成 GitHub 授权，并获取用户信息，最终返回 Account。
+     */
+    public CompletableFuture<Account> loginGitHubAsync(DeviceCode dc, Consumer<String> onPending) {
+        return githubFlow.pollForAccessToken(dc, onPending)
+                .thenApplyAsync(token -> {
+                    try {
+                        return githubFlow.completeLogin(token);
+                    } catch (IOException e) {
+                        throw new RuntimeException("GitHub登录失败", e);
                     }
                 });
     }

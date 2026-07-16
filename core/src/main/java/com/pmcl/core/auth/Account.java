@@ -34,8 +34,10 @@ public final class Account {
     public String getSkinModel() { return skinModel; }
 
     /**
-     * 返回 Crafatar 头像 URL（2D 头部图）。
-     * 微软账号用 UUID 获取在线皮肤；离线账号若无自定义皮肤则返回空。
+     * 返回头像 URL。
+     * 微软账号用 Crafatar 通过 UUID 获取在线皮肤；
+     * GitHub 账号用 skinUrl 字段存储的 GitHub 头像 URL；
+     * 离线账号若无自定义皮肤则返回空。
      */
     public String getAvatarUrl() {
         if (type == AccountType.MICROSOFT) {
@@ -45,7 +47,7 @@ public final class Account {
     }
 
     /**
-     * 返回 Crafatar 全身渲染 URL。
+     * 返回全身渲染 URL（仅微软账号有效）。
      */
     public String getBodyRenderUrl() {
         if (type == AccountType.MICROSOFT) {
@@ -56,6 +58,7 @@ public final class Account {
 
     public enum AccountType {
         OFFLINE,
-        MICROSOFT
+        MICROSOFT,
+        GITHUB
     }
 }

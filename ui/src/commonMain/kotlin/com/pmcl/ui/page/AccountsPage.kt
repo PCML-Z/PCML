@@ -232,6 +232,47 @@ fun AccountsPage(vm: LauncherViewModel) {
         }
 
         Spacer(Modifier.height(16.dp))
+
+        // GitHub 登录卡片
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp)) {
+                Text("GitHub 登录", style = MaterialTheme.typography.titleSmall,
+                     fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(8.dp))
+                Text("使用设备码流程登录，无需输入密码。\n登录后可用 GitHub 头像和用户名。",
+                     style = MaterialTheme.typography.bodySmall,
+                     color = MaterialTheme.colorScheme.outline)
+                Spacer(Modifier.height(12.dp))
+
+                if (deviceCode != null) {
+                    val dc = deviceCode
+                    if (dc == null) return@Column
+                    Surface(
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(Modifier.padding(12.dp)) {
+                            Text("请打开浏览器访问：")
+                            Text(dc.getVerificationUri(),
+                                 fontWeight = FontWeight.Bold,
+                                 color = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.height(4.dp))
+                            Text("输入代码：")
+                            Text(dc.getUserCode(),
+                                 style = MaterialTheme.typography.headlineMedium,
+                                 color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                } else {
+                    Button(onClick = vm::startGitHubLogin, enabled = !loggingIn) {
+                        Text(if (loggingIn) I18n.t("accounts.logging_in") else "GitHub 登录")
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
         HorizontalDivider()
         Spacer(Modifier.height(8.dp))
         Text("${I18n.t("common.status")}: $status",

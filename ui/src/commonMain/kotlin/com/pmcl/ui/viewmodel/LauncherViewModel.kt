@@ -902,6 +902,33 @@ class LauncherViewModel {
         }
     }
 
+    /** GitHub 设备码登录 */
+    fun startGitHubLogin() {
+        scope.launch {
+            _loggingIn.value = true
+            _status.value = "请求 GitHub 设备码…"
+            try {
+                val dc = withContext(Dispatchers.IO) { core.auth().requestGitHubDeviceCode() }
+                _deviceCode.value = dc
+                _status.value = "请打开 ${dc.getVerificationUri()} 输入 ${dc.getUserCode()}"
+
+                val account = withContext(Dispatchers.IO) {
+                    core.auth().loginGitHubAsync(dc) { msg ->
+                        _status.value = msg
+                    }.join()
+                }
+                _account.value = account
+                upsertAccount(account)
+                _status.value = "已登录（GitHub）：${account.getUsername()}"
+                _deviceCode.value = null
+            } catch (e: Throwable) {
+                _status.value = "GitHub 登录失败：${e.message}"
+            } finally {
+                _loggingIn.value = false
+            }
+        }
+    }
+
     /**
      * 触发游戏安装流程：先弹窗询问是否同时安装模组加载器，用户确认后再执行实际安装。
      * 此方法不立即开始下载，仅触发 [preInstallEvent] 事件。
