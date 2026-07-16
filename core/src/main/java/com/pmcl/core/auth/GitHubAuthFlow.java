@@ -35,7 +35,7 @@ public final class GitHubAuthFlow {
     // TODO: 替换为你自己的 GitHub OAuth App Client ID
     // 注册地址：https://github.com/settings/applications/new
     // Authorization 类型选 "OAuth App"，回调 URL 随意填（设备码流程不用回调）
-    public static final String CLIENT_ID = "YOUR_GITHUB_CLIENT_ID";
+    public static final String CLIENT_ID = "Ov23liql9Lz1BxIbL1xX";
     public static final String SCOPE = "read:user";
 
     private static final String DEVICE_CODE_URL = "https://github.com/login/device/code";
