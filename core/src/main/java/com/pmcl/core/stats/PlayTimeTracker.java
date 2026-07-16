@@ -10,12 +10,14 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -91,6 +93,55 @@ public final class PlayTimeTracker {
             this.totalSessions = totalSessions;
             this.versions = versions != null ? versions : Collections.emptyList();
             this.daily = daily != null ? daily : Collections.emptyList();
+        }
+    }
+
+    /** 时段热力图：7天(周一~周日) × 24小时的时长矩阵 */
+    public static final class HeatmapStat {
+        /** durations[dayOfWeek][hour] = 毫秒，dayOfWeek: 0=周一...6=周日 */
+        public final long[][] durations;
+        public final long maxValue; // 最大单元格值，用于颜色映射
+        public final int recentDays;
+
+        public HeatmapStat(long[][] durations, long maxValue, int recentDays) {
+            this.durations = durations;
+            this.maxValue = maxValue;
+            this.recentDays = recentDays;
+        }
+    }
+
+    /** 周几分布统计 */
+    public static final class WeekdayStat {
+        public final int dayOfWeek;        // 0=周一...6=周日
+        public final String dayName;       // "周一"..."周日"
+        public final long totalDuration;   // 总时长（毫秒）
+        public final int sessionCount;     // 会话数
+
+        public WeekdayStat(int dayOfWeek, String dayName, long totalDuration, int sessionCount) {
+            this.dayOfWeek = dayOfWeek;
+            this.dayName = dayName;
+            this.totalDuration = totalDuration;
+            this.sessionCount = sessionCount;
+        }
+    }
+
+    /** 游玩记录（极值） */
+    public static final class RecordsStat {
+        public final Session longestSession;        // 最长单次会话
+        public final int longestStreakDays;          // 最长连续游玩天数
+        public final int currentStreakDays;          // 当前连续游玩天数
+        public final String firstPlayDate;           // 首次游玩日期 "yyyy-MM-dd"
+        public final String mostPlayedHour;          // 最常游玩时段 "HH:00"
+        public final long totalDays;                 // 总游玩天数
+
+        public RecordsStat(Session longestSession, int longestStreakDays, int currentStreakDays,
+                           String firstPlayDate, String mostPlayedHour, long totalDays) {
+            this.longestSession = longestSession;
+            this.longestStreakDays = longestStreakDays;
+            this.currentStreakDays = currentStreakDays;
+            this.firstPlayDate = firstPlayDate;
+            this.mostPlayedHour = mostPlayedHour;
+            this.totalDays = totalDays;
         }
     }
 
@@ -216,6 +267,162 @@ public final class PlayTimeTracker {
             }
         }
         return result;
+    }
+
+    /**
+     * 获取时段热力图：7天(周一~周日) × 24小时的时长矩阵。
+     * @param recentDays 统计最近多少天的数据，0 表示全部
+     */
+    public HeatmapStat getHeatmap(int recentDays) {
+        List<Session> snapshot;
+        synchronized (sessions) {
+            snapshot = new ArrayList<>(sessions);
+        }
+        long[][] durations = new long[7][24];
+        ZoneId zone = ZoneId.systemDefault();
+        LocalDate cutoff = recentDays > 0 ? LocalDate.now().minusDays(recentDays) : null;
+
+        for (Session s : snapshot) {
+            LocalDate ld = LocalDate.ofInstant(java.time.Instant.ofEpochMilli(s.start), zone);
+            if (cutoff != null && ld.isBefore(cutoff)) continue;
+            int dow = ld.getDayOfWeek().getValue() - 1; // 周一=1→0, 周日=7→6
+            int hour = ld.atStartOfDay(zone).getHour();
+            // 用会话开始时间的时段归属
+            hour = java.time.Instant.ofEpochMilli(s.start).atZone(zone).getHour();
+            durations[dow][hour] += s.duration;
+        }
+
+        long max = 0;
+        for (long[] row : durations) for (long v : row) if (v > max) max = v;
+        return new HeatmapStat(durations, max, recentDays);
+    }
+
+    /**
+     * 获取周几分布：周一~周日的时长与会话数。
+     * @param recentDays 统计最近多少天的数据，0 表示全部
+     */
+    public List<WeekdayStat> getWeekdayDistribution(int recentDays) {
+        List<Session> snapshot;
+        synchronized (sessions) {
+            snapshot = new ArrayList<>(sessions);
+        }
+        long[] durations = new long[7];
+        int[] counts = new int[7];
+        ZoneId zone = ZoneId.systemDefault();
+        LocalDate cutoff = recentDays > 0 ? LocalDate.now().minusDays(recentDays) : null;
+        String[] names = {"周一", "周二", "周三", "周四", "周五", "周六", "周日"};
+
+        for (Session s : snapshot) {
+            LocalDate ld = LocalDate.ofInstant(java.time.Instant.ofEpochMilli(s.start), zone);
+            if (cutoff != null && ld.isBefore(cutoff)) continue;
+            int dow = ld.getDayOfWeek().getValue() - 1;
+            durations[dow] += s.duration;
+            counts[dow]++;
+        }
+
+        List<WeekdayStat> result = new ArrayList<>();
+        for (int i = 0; i < 7; i++) {
+            result.add(new WeekdayStat(i, names[i], durations[i], counts[i]));
+        }
+        return result;
+    }
+
+    /**
+     * 获取游玩记录（极值）：最长会话、连续天数、首次游玩、最常时段。
+     */
+    public RecordsStat getRecords() {
+        List<Session> snapshot;
+        synchronized (sessions) {
+            snapshot = new ArrayList<>(sessions);
+        }
+        if (snapshot.isEmpty()) {
+            return new RecordsStat(null, 0, 0, "", "", 0);
+        }
+
+        ZoneId zone = ZoneId.systemDefault();
+        DateTimeFormatter dateFmt = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+
+        // 最长会话
+        Session longest = snapshot.get(0);
+        for (Session s : snapshot) {
+            if (s.duration > longest.duration) longest = s;
+        }
+
+        // 收集所有游玩日期（去重排序）
+        TreeMap<LocalDate, Boolean> playDays = new TreeMap<>();
+        for (Session s : snapshot) {
+            playDays.put(LocalDate.ofInstant(java.time.Instant.ofEpochMilli(s.start), zone), true);
+        }
+        long totalDays = playDays.size();
+
+        // 最长连续游玩天数
+        int longestStreak = 0;
+        int currentRun = 0;
+        LocalDate prev = null;
+        for (LocalDate ld : playDays.keySet()) {
+            if (prev != null && ld.equals(prev.plusDays(1))) {
+                currentRun++;
+            } else {
+                currentRun = 1;
+            }
+            if (currentRun > longestStreak) longestStreak = currentRun;
+            prev = ld;
+        }
+
+        // 当前连续天数（从今天/昨天往回数）
+        int currentStreak = 0;
+        LocalDate today = LocalDate.now();
+        LocalDate cursor = today;
+        // 如果今天没玩但昨天玩了，从昨天开始算
+        if (!playDays.containsKey(cursor)) {
+            cursor = today.minusDays(1);
+        }
+        while (playDays.containsKey(cursor)) {
+            currentStreak++;
+            cursor = cursor.minusDays(1);
+        }
+
+        // 首次游玩日期
+        String firstPlay = playDays.firstKey().format(dateFmt);
+
+        // 最常游玩时段
+        long[] hourDurations = new long[24];
+        for (Session s : snapshot) {
+            int hour = java.time.Instant.ofEpochMilli(s.start).atZone(zone).getHour();
+            hourDurations[hour] += s.duration;
+        }
+        int bestHour = 0;
+        for (int i = 1; i < 24; i++) {
+            if (hourDurations[i] > hourDurations[bestHour]) bestHour = i;
+        }
+        String mostPlayedHour = String.format("%02d:00", bestHour);
+
+        return new RecordsStat(longest, longestStreak, currentStreak,
+                firstPlay, mostPlayedHour, totalDays);
+    }
+
+    /**
+     * 分页获取会话列表（按开始时间降序）。
+     * @param offset 偏移量
+     * @param limit 数量上限
+     */
+    public List<Session> getSessions(int offset, int limit) {
+        List<Session> snapshot;
+        synchronized (sessions) {
+            snapshot = new ArrayList<>(sessions);
+        }
+        // 按开始时间降序
+        snapshot.sort((a, b) -> Long.compare(b.start, a.start));
+        if (offset >= snapshot.size()) return Collections.emptyList();
+        int end = Math.min(offset + limit, snapshot.size());
+        return new ArrayList<>(snapshot.subList(offset, end));
+    }
+
+    /** 获取总会话数 */
+    public int getSessionCount() {
+        synchronized (sessions) {
+            return sessions.size();
+        }
     }
 
     // ===== 持久化 =====

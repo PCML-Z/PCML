@@ -265,6 +265,18 @@ class LauncherViewModel {
     private val _statsDays = MutableStateFlow(7)
     val statsDays: StateFlow<Int> = _statsDays.asStateFlow()
 
+    /** 时段热力图数据 */
+    private val _heatmap = MutableStateFlow<PlayTimeTracker.HeatmapStat?>(null)
+    val heatmap: StateFlow<PlayTimeTracker.HeatmapStat?> = _heatmap.asStateFlow()
+
+    /** 周几分布数据 */
+    private val _weekdayDist = MutableStateFlow<List<PlayTimeTracker.WeekdayStat>>(emptyList())
+    val weekdayDist: StateFlow<List<PlayTimeTracker.WeekdayStat>> = _weekdayDist.asStateFlow()
+
+    /** 游玩记录（极值） */
+    private val _records = MutableStateFlow<PlayTimeTracker.RecordsStat?>(null)
+    val records: StateFlow<PlayTimeTracker.RecordsStat?> = _records.asStateFlow()
+
     // ===== 微软登录 =====
     private val _deviceCode = MutableStateFlow<DeviceCode?>(null)
     val deviceCode: StateFlow<DeviceCode?> = _deviceCode.asStateFlow()
@@ -1241,8 +1253,12 @@ class LauncherViewModel {
     /** 刷新统计数据（进入统计页时调用） */
     fun refreshPlayTimeStats() {
         val days = _statsDays.value
-        _playTimeStats.value = core.playTimeTracker().getOverallStats(days)
-        _dailyStats.value = core.playTimeTracker().getDailyStatsWithZeros(days)
+        val tracker = core.playTimeTracker()
+        _playTimeStats.value = tracker.getOverallStats(days)
+        _dailyStats.value = tracker.getDailyStatsWithZeros(days)
+        _heatmap.value = tracker.getHeatmap(days)
+        _weekdayDist.value = tracker.getWeekdayDistribution(days)
+        _records.value = tracker.getRecords()
     }
 
     /** 设置统计展示天数（7/14/30）并刷新 */

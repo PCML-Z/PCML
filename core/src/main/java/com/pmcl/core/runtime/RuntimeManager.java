@@ -3,7 +3,9 @@ package com.pmcl.core.runtime;
 import oshi.SystemInfo;
 import oshi.hardware.CentralProcessor;
 import oshi.hardware.GlobalMemory;
+import oshi.hardware.GraphicsCard;
 import oshi.hardware.HardwareAbstractionLayer;
+import oshi.hardware.NetworkIF;
 import oshi.software.os.OSFileStore;
 import oshi.software.os.OperatingSystem;
 
@@ -21,6 +23,12 @@ public final class RuntimeManager {
     // CPU 负载计算所需的上一次采样
     private long[] prevCpuTicks;
     private long prevCpuTimeNs;
+
+    // 网络流量计算所需的上一次采样
+    private long prevNetBytesSent;
+    private long prevNetBytesRecv;
+    private long prevNetTimeNs;
+    private boolean netInitialized = false;
 
     public RuntimeManager() {
         this.systemInfo = new SystemInfo();
@@ -195,6 +203,99 @@ public final class RuntimeManager {
      */
     public long getSystemUptimeSeconds() {
         return os.getSystemUptime();
+    }
+
+    // ===== 网络流量监控 =====
+
+    /**
+     * 获取当前网络速率（KB/s）。
+     * 基于两次调用间的字节差异计算，首次调用返回 [0,0]。
+     * @return [上传KB/s, 下载KB/s]
+     */
+    public synchronized double[] getNetworkSpeedKbS() {
+        long curSent = 0, curRecv = 0;
+        try {
+            List<NetworkIF> nifs = hardware.getNetworkIFs();
+            for (NetworkIF nif : nifs) {
+                // 跳过回环接口
+                try {
+                    java.net.NetworkInterface ni = java.net.NetworkInterface.getByName(nif.getName());
+                    if (ni != null && ni.isLoopback()) continue;
+                } catch (Throwable ignored) {}
+                nif.updateAttributes();
+                curSent += nif.getBytesSent();
+                curRecv += nif.getBytesRecv();
+            }
+        } catch (Throwable t) {
+            return new double[]{0, 0};
+        }
+
+        long nowNs = System.nanoTime();
+        if (!netInitialized) {
+            prevNetBytesSent = curSent;
+            prevNetBytesRecv = curRecv;
+            prevNetTimeNs = nowNs;
+            netInitialized = true;
+            return new double[]{0, 0};
+        }
+
+        long elapsedNs = nowNs - prevNetTimeNs;
+        if (elapsedNs <= 0) return new double[]{0, 0};
+
+        double elapsedSec = elapsedNs / 1_000_000_000.0;
+        double upKbS = (curSent - prevNetBytesSent) / 1024.0 / elapsedSec;
+        double downKbS = (curRecv - prevNetBytesRecv) / 1024.0 / elapsedSec;
+
+        prevNetBytesSent = curSent;
+        prevNetBytesRecv = curRecv;
+        prevNetTimeNs = nowNs;
+
+        return new double[]{Math.max(0, upKbS), Math.max(0, downKbS)};
+    }
+
+    // ===== 显卡信息 =====
+
+    /**
+     * 获取显卡信息列表。
+     * @return 显卡名称数组，无则返回空数组
+     */
+    public List<GraphicsCard> getGraphicsCards() {
+        try {
+            return hardware.getGraphicsCards();
+        } catch (Throwable t) {
+            return java.util.Collections.emptyList();
+        }
+    }
+
+    /**
+     * 获取主显卡名称（第一个非虚拟显卡）。
+     */
+    public String getPrimaryGpuName() {
+        try {
+            List<GraphicsCard> cards = hardware.getGraphicsCards();
+            for (GraphicsCard c : cards) {
+                String name = c.getName();
+                if (name != null && !name.isEmpty() && !name.toLowerCase().contains("virtual")) {
+                    return name;
+                }
+            }
+            if (!cards.isEmpty()) return cards.get(0).getName();
+        } catch (Throwable ignored) {}
+        return "未知";
+    }
+
+    /**
+     * 获取主显卡显存（MB），不可用时返回 -1。
+     */
+    public long getPrimaryGpuVramMb() {
+        try {
+            List<GraphicsCard> cards = hardware.getGraphicsCards();
+            for (GraphicsCard c : cards) {
+                long vram = c.getVRam();
+                if (vram > 0) return vram / (1024 * 1024);
+            }
+        } catch (Throwable ignored) {}
+        return -1;
     }
 }
 

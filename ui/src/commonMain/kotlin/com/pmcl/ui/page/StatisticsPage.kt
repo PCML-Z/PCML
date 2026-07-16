@@ -6,16 +6,17 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.DeveloperBoard
-import androidx.compose.material.icons.filled.Memory
-import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -24,8 +25,13 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pmcl.core.i18n.I18n
@@ -35,17 +41,24 @@ import com.pmcl.ui.viewmodel.LauncherViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import java.util.Date
+import java.util.Locale
+import kotlin.math.roundToInt
 
 /**
- * 统计页：左侧实时设备性能负载 + 右侧游玩统计（总览/趋势/版本分布）。
+ * 统计页：左侧实时设备性能负载 + 右侧游玩统计（总览/记录/趋势/热力图/周几/版本/会话）。
  */
 @Composable
 fun StatisticsPage(vm: LauncherViewModel) {
     val stats by vm.playTimeStats.collectAsState()
     val dailyStats by vm.dailyStats.collectAsState()
     val days by vm.statsDays.collectAsState()
+    val heatmap by vm.heatmap.collectAsState()
+    val weekdayDist by vm.weekdayDist.collectAsState()
+    val records by vm.records.collectAsState()
 
     // 进入页面时刷新数据
     LaunchedEffect(Unit) { if (stats == null) vm.refreshPlayTimeStats() }
@@ -70,18 +83,36 @@ fun StatisticsPage(vm: LauncherViewModel) {
             // 总览卡片
             OverviewCard(stats)
 
+            // 游玩记录卡片（极值）
+            if (records != null) {
+                RecordsCard(records!!)
+            }
+
             // 天数选择器
             DaysSelector(days, onSelect = { vm.setStatsDays(it) })
 
-            // 每日趋势折线图
+            // 每日趋势折线图（支持切换时长/会话数）
             if (dailyStats.isNotEmpty()) {
                 DailyTrendCard(dailyStats, days)
             }
 
-            // 版本分布柱状图
-            if (stats != null && stats!!.versions.isNotEmpty()) {
-                VersionDistributionCard(stats!!.versions)
+            // 时段热力图
+            if (heatmap != null) {
+                HeatmapCard(heatmap!!)
             }
+
+            // 周几分布
+            if (weekdayDist.isNotEmpty()) {
+                WeekdayDistributionCard(weekdayDist)
+            }
+
+            // 版本分布饼图
+            if (stats != null && stats!!.versions.isNotEmpty()) {
+                VersionPieCard(stats!!.versions)
+            }
+
+            // 会话详情列表
+            SessionListCard(vm)
         }
     }
 }
@@ -90,41 +121,53 @@ fun StatisticsPage(vm: LauncherViewModel) {
 
 /** 性能采样数据 */
 private data class PerformanceSample(
-    val cpuLoad: Double,          // 0.0 ~ 1.0
-    val memLoad: Double,          // 系统内存 0.0 ~ 1.0
-    val jvmHeapLoad: Double,      // JVM 堆 0.0 ~ 1.0
+    val cpuLoad: Double,
+    val memLoad: Double,
+    val jvmHeapLoad: Double,
     val jvmHeapUsedMb: Long,
     val jvmHeapAllocatedMb: Long,
     val jvmHeapMaxMb: Long,
     val threadCount: Int,
-    val diskLoad: Double,         // 磁盘 0.0 ~ 1.0
+    val diskLoad: Double,
     val cpuName: String,
     val cpuPhysicalCores: Int,
     val cpuLogicalCores: Int,
     val totalMemMb: Long,
     val availableMemMb: Long,
     val diskUsedGb: Double,
-    val diskTotalGb: Double
+    val diskTotalGb: Double,
+    val netUpKbS: Double,
+    val netDownKbS: Double,
+    val gpuName: String,
+    val gpuVramMb: Long,
+    val systemUptimeSec: Long
+)
+
+/** 历史峰值记录 */
+private data class PeakRecords(
+    var cpuPeak: Float = 0f,
+    var memPeak: Float = 0f,
+    var jvmPeak: Float = 0f,
+    var netUpPeak: Double = 0.0,
+    var netDownPeak: Double = 0.0
 )
 
 /**
- * 实时设备性能负载卡片：CPU、内存、JVM 堆、磁盘、线程的实时监控。
- * 每 1.5 秒采样一次，最多保留 40 个历史点用于绘制迷你折线图。
+ * 实时设备性能负载卡片：CPU、内存、JVM 堆、网络、GPU、磁盘的实时监控。
+ * 每 1.5 秒采样一次，最多保留 40 个历史点用于绘制迷你折线图，同时记录峰值。
  */
 @Composable
 private fun RealtimePerformanceCard() {
-    // 单例 RuntimeManager（避免每次采样重建 oshi）
     val runtime = remember { RuntimeManager() }
 
-    // 采样历史（用于迷你折线）
     val cpuHistory = remember { mutableStateListOf<Float>() }
     val memHistory = remember { mutableStateListOf<Float>() }
     val jvmHistory = remember { mutableStateListOf<Float>() }
+    val netHistory = remember { mutableStateListOf<Float>() }
 
-    // 最新一次采样
     var sample by remember { mutableStateOf<PerformanceSample?>(null) }
+    val peaks = remember { PeakRecords() }
 
-    // 启动后台采样协程
     LaunchedEffect(Unit) {
         while (true) {
             val s = withContext(Dispatchers.IO) {
@@ -132,6 +175,7 @@ private fun RealtimePerformanceCard() {
                 val mem = runtime.getMemoryLoad()
                 val jvmHeapLoad = runtime.getJvmHeapLoad()
                 val diskUsage = runtime.getPmclDiskUsage()
+                val netSpeed = runtime.getNetworkSpeedKbS()
                 PerformanceSample(
                     cpuLoad = cpu,
                     memLoad = mem,
@@ -147,19 +191,34 @@ private fun RealtimePerformanceCard() {
                     totalMemMb = runtime.getTotalMemoryMb(),
                     availableMemMb = runtime.getAvailableMemoryMb(),
                     diskUsedGb = diskUsage?.get(0) ?: 0.0,
-                    diskTotalGb = diskUsage?.get(1) ?: 0.0
+                    diskTotalGb = diskUsage?.get(1) ?: 0.0,
+                    netUpKbS = netSpeed[0],
+                    netDownKbS = netSpeed[1],
+                    gpuName = runtime.getPrimaryGpuName(),
+                    gpuVramMb = runtime.getPrimaryGpuVramMb(),
+                    systemUptimeSec = runtime.getSystemUptimeSeconds()
                 )
             }
             sample = s
 
-            // 更新历史数据
-            cpuHistory.add((s.cpuLoad * 100).toFloat())
-            memHistory.add((s.memLoad * 100).toFloat())
-            jvmHistory.add((s.jvmHeapLoad * 100).toFloat())
-            // 保留最近 40 个点
+            // 更新峰值
+            val cpuPct = (s.cpuLoad * 100).toFloat()
+            val memPct = (s.memLoad * 100).toFloat()
+            val jvmPct = (s.jvmHeapLoad * 100).toFloat()
+            if (cpuPct > peaks.cpuPeak) peaks.cpuPeak = cpuPct
+            if (memPct > peaks.memPeak) peaks.memPeak = memPct
+            if (jvmPct > peaks.jvmPeak) peaks.jvmPeak = jvmPct
+            if (s.netUpKbS > peaks.netUpPeak) peaks.netUpPeak = s.netUpKbS
+            if (s.netDownKbS > peaks.netDownPeak) peaks.netDownPeak = s.netDownKbS
+
+            cpuHistory.add(cpuPct)
+            memHistory.add(memPct)
+            jvmHistory.add(jvmPct)
+            netHistory.add((s.netUpKbS + s.netDownKbS).toFloat())
             while (cpuHistory.size > 40) cpuHistory.removeAt(0)
             while (memHistory.size > 40) memHistory.removeAt(0)
             while (jvmHistory.size > 40) jvmHistory.removeAt(0)
+            while (netHistory.size > 40) netHistory.removeAt(0)
 
             delay(1500)
         }
@@ -178,20 +237,13 @@ private fun RealtimePerformanceCard() {
                 Spacer(Modifier.width(8.dp))
                 Text("实时设备性能负载", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.weight(1f))
-                // 实时心跳指示
                 val infiniteTransition = rememberInfiniteTransition(label = "perfPulse")
                 val pulseAlpha by infiniteTransition.animateFloat(
-                    initialValue = 0.3f,
-                    targetValue = 1f,
-                    animationSpec = infiniteRepeatable(
-                        animation = tween(800, easing = LinearEasing),
-                        repeatMode = RepeatMode.Reverse
-                    ),
+                    initialValue = 0.3f, targetValue = 1f,
+                    animationSpec = infiniteRepeatable(tween(800, easing = LinearEasing), RepeatMode.Reverse),
                     label = "pulse"
                 )
-                Canvas(Modifier.size(8.dp)) {
-                    drawCircle(color = Color(0xFF4CAF50).copy(alpha = pulseAlpha))
-                }
+                Canvas(Modifier.size(8.dp)) { drawCircle(color = Color(0xFF4CAF50).copy(alpha = pulseAlpha)) }
                 Spacer(Modifier.width(4.dp))
                 Text("实时", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
             }
@@ -199,55 +251,65 @@ private fun RealtimePerformanceCard() {
             Spacer(Modifier.height(12.dp))
 
             sample?.let { s ->
-                // ===== CPU 使用率 =====
                 PerformanceRow(
-                    icon = Icons.Filled.Speed,
-                    label = "CPU",
+                    icon = Icons.Filled.Speed, label = "CPU",
                     valueText = "${"%.1f".format(s.cpuLoad * 100)}%",
-                    subText = "${s.cpuName}  ·  ${s.cpuPhysicalCores}P/${s.cpuLogicalCores}L 核",
-                    progress = s.cpuLoad.toFloat(),
-                    history = cpuHistory,
-                    color = Color(0xFF2196F3)
+                    subText = "${s.cpuName}  ·  ${s.cpuPhysicalCores}P/${s.cpuLogicalCores}L 核  ·  峰值 ${"%.0f".format(peaks.cpuPeak)}%",
+                    progress = s.cpuLoad.toFloat(), history = cpuHistory, color = Color(0xFF2196F3)
                 )
-
                 Spacer(Modifier.height(14.dp))
 
-                // ===== 系统内存 =====
                 PerformanceRow(
-                    icon = Icons.Filled.Memory,
-                    label = "系统内存",
+                    icon = Icons.Filled.Memory, label = "系统内存",
                     valueText = "${"%.1f".format(s.memLoad * 100)}%",
-                    subText = "${((s.totalMemMb - s.availableMemMb) / 1024.0).format(1)} / ${(s.totalMemMb / 1024.0).format(1)} GB",
-                    progress = s.memLoad.toFloat(),
-                    history = memHistory,
-                    color = Color(0xFF4CAF50)
+                    subText = "${((s.totalMemMb - s.availableMemMb) / 1024.0).format(1)} / ${(s.totalMemMb / 1024.0).format(1)} GB  ·  峰值 ${"%.0f".format(peaks.memPeak)}%",
+                    progress = s.memLoad.toFloat(), history = memHistory, color = Color(0xFF4CAF50)
                 )
-
                 Spacer(Modifier.height(14.dp))
 
-                // ===== JVM 堆内存 =====
                 PerformanceRow(
-                    icon = Icons.Filled.DeveloperBoard,
-                    label = "JVM 堆",
+                    icon = Icons.Filled.DeveloperBoard, label = "JVM 堆",
                     valueText = "${"%.1f".format(s.jvmHeapLoad * 100)}%",
-                    subText = "${s.jvmHeapUsedMb} / ${s.jvmHeapAllocatedMb} MB (上限 ${s.jvmHeapMaxMb} MB)  ·  ${s.threadCount} 线程",
-                    progress = s.jvmHeapLoad.toFloat(),
-                    history = jvmHistory,
-                    color = Color(0xFFFF9800)
+                    subText = "${s.jvmHeapUsedMb} / ${s.jvmHeapAllocatedMb} MB (上限 ${s.jvmHeapMaxMb} MB)  ·  ${s.threadCount} 线程  ·  峰值 ${"%.0f".format(peaks.jvmPeak)}%",
+                    progress = s.jvmHeapLoad.toFloat(), history = jvmHistory, color = Color(0xFFFF9800)
                 )
-
                 Spacer(Modifier.height(14.dp))
 
-                // ===== 磁盘使用率 =====
+                // 网络流量
                 PerformanceRow(
-                    icon = Icons.Filled.Storage,
-                    label = "磁盘",
+                    icon = Icons.Filled.NetworkCheck, label = "网络",
+                    valueText = "↑ ${formatNetSpeed(s.netUpKbS)}  ↓ ${formatNetSpeed(s.netDownKbS)}",
+                    subText = "峰值 ↑ ${formatNetSpeed(peaks.netUpPeak)}  ↓ ${formatNetSpeed(peaks.netDownPeak)}",
+                    progress = ((s.netUpKbS + s.netDownKbS) / 1024.0).coerceIn(0.0, 1.0).toFloat(),
+                    history = netHistory, color = Color(0xFF00BCD4)
+                )
+                Spacer(Modifier.height(14.dp))
+
+                // GPU 信息
+                PerformanceRow(
+                    icon = Icons.Filled.VideogameAsset, label = "显卡",
+                    valueText = if (s.gpuVramMb > 0) "${s.gpuVramMb} MB" else "N/A",
+                    subText = "${s.gpuName}",
+                    progress = -1f, history = null, color = Color(0xFFE91E63)
+                )
+                Spacer(Modifier.height(14.dp))
+
+                PerformanceRow(
+                    icon = Icons.Filled.Storage, label = "磁盘",
                     valueText = "${"%.1f".format(s.diskLoad * 100)}%",
                     subText = "${"%.1f".format(s.diskUsedGb)} / ${"%.1f".format(s.diskTotalGb)} GB",
-                    progress = s.diskLoad.toFloat(),
-                    history = null,
-                    color = Color(0xFF9C27B0)
+                    progress = s.diskLoad.toFloat(), history = null, color = Color(0xFF9C27B0)
                 )
+                Spacer(Modifier.height(14.dp))
+
+                // 系统运行时长
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Filled.Schedule, null, tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("系统已运行", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.outline)
+                    Spacer(Modifier.weight(1f))
+                    Text(formatUptime(s.systemUptimeSec), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium)
+                }
             } ?: run {
                 Box(Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
@@ -257,8 +319,22 @@ private fun RealtimePerformanceCard() {
     }
 }
 
+/** 格式化网络速率 */
+private fun formatNetSpeed(kbS: Double): String {
+    return if (kbS >= 1024) "${"%.1f".format(kbS / 1024)} MB/s" else "${"%.0f".format(kbS)} KB/s"
+}
+
+/** 格式化运行时长 */
+private fun formatUptime(seconds: Long): String {
+    val d = seconds / 86400
+    val h = (seconds % 86400) / 3600
+    val m = (seconds % 3600) / 60
+    return if (d > 0) "${d}d ${h}h ${m}m" else if (h > 0) "${h}h ${m}m" else "${m}m"
+}
+
 /**
  * 单行性能指标：图标+标签+数值+进度条+迷你折线图。
+ * progress < 0 表示不显示进度条（如 GPU）。
  */
 @Composable
 private fun PerformanceRow(
@@ -270,10 +346,7 @@ private fun PerformanceRow(
     history: List<Float>?,
     color: Color
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, null, tint = color, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(8.dp))
         Column(modifier = Modifier.weight(1f)) {
@@ -287,17 +360,15 @@ private fun PerformanceRow(
             }
             Spacer(Modifier.height(2.dp))
             Text(subText, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline, maxLines = 1)
-            Spacer(Modifier.height(4.dp))
-            // 进度条
-            LinearProgressIndicator(
-                progress = { progress },
-                modifier = Modifier.fillMaxWidth().height(6.dp),
-                color = color,
-                trackColor = MaterialTheme.colorScheme.surfaceVariant,
-                gapSize = 0.dp,
-                drawStopIndicator = {}
-            )
-            // 迷你折线图
+            if (progress >= 0f) {
+                Spacer(Modifier.height(4.dp))
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier.fillMaxWidth().height(6.dp),
+                    color = color, trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                    gapSize = 0.dp, drawStopIndicator = {}
+                )
+            }
             if (history != null && history.size > 1) {
                 Spacer(Modifier.height(4.dp))
                 MiniLineChart(history, color)
@@ -306,32 +377,25 @@ private fun PerformanceRow(
     }
 }
 
-/**
- * 迷你折线图：绘制历史趋势（无坐标轴，纯视觉指示）。
- */
+/** 迷你折线图 */
 @Composable
 private fun MiniLineChart(data: List<Float>, color: Color) {
     val trackColor = MaterialTheme.colorScheme.surfaceVariant
-    Canvas(
-        modifier = Modifier.fillMaxWidth().height(28.dp)
-    ) {
-        val w = size.width
-        val h = size.height
+    Canvas(modifier = Modifier.fillMaxWidth().height(28.dp)) {
+        val w = size.width; val h = size.height
         if (data.size < 2) return@Canvas
+        val maxVal = data.max().coerceAtLeast(1f)
         val stepX = w / (data.size - 1)
         val points = data.mapIndexed { i, v ->
-            val y = h - (h * (v / 100f)).coerceIn(0f, h)
+            val y = h - (h * (v / maxVal)).coerceIn(0f, h)
             Offset(i * stepX, y)
         }
-        // 填充区域
         val fillPath = Path().apply {
             moveTo(points.first().x, h)
             points.forEach { lineTo(it.x, it.y) }
-            lineTo(points.last().x, h)
-            close()
+            lineTo(points.last().x, h); close()
         }
         drawPath(path = fillPath, color = color.copy(alpha = 0.15f))
-        // 折线
         val linePath = Path().apply {
             moveTo(points.first().x, points.first().y)
             for (i in 1 until points.size) lineTo(points[i].x, points[i].y)
@@ -340,20 +404,15 @@ private fun MiniLineChart(data: List<Float>, color: Color) {
     }
 }
 
-/** Double 扩展：格式化保留指定小数位 */
 private fun Double.format(digits: Int) = "%.${digits}f".format(this)
 
-/**
- * 总览卡片：总时长 + 总会话数 + 平均每日时长
- */
+// ===== 总览卡片 =====
+
 @Composable
 private fun OverviewCard(stats: PlayTimeTracker.OverallStat?) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-        )
+        modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f))
     ) {
         Column(Modifier.padding(16.dp)) {
             Text(I18n.t("stats.overview"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
@@ -375,14 +434,52 @@ private fun StatItem(label: String, value: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(value, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold,
              color = MaterialTheme.colorScheme.primary)
-        Text(label, style = MaterialTheme.typography.labelSmall,
-             color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
-/**
- * 天数选择器：7天 / 14天 / 30天
- */
+// ===== 游玩记录卡片（极值） =====
+
+@Composable
+private fun RecordsCard(records: PlayTimeTracker.RecordsStat) {
+    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
+        Column(Modifier.padding(16.dp)) {
+            Text("游玩记录", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(12.dp))
+            // 4 列记录
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                RecordItem("最长会话", records.longestSession?.let {
+                    PlayTimeTracker.formatDurationShort(it.duration)
+                } ?: "—")
+                RecordItem("最长连续", "${records.longestStreakDays} 天")
+                RecordItem("当前连续", "${records.currentStreakDays} 天")
+                RecordItem("总天数", "${records.totalDays} 天")
+            }
+            Spacer(Modifier.height(12.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                RecordItem("首次游玩", records.firstPlayDate.ifEmpty { "—" })
+                RecordItem("最常时段", records.mostPlayedHour.ifEmpty { "—"})
+                RecordItem("最长版本", records.longestSession?.version ?: "—")
+                RecordItem("记录日期", records.longestSession?.let {
+                    SimpleDateFormat("MM/dd HH:mm", Locale.getDefault()).format(Date(it.start))
+                } ?: "—")
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecordItem(label: String, value: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(72.dp)) {
+        Text(value, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold,
+             color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+             maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+// ===== 天数选择器 =====
+
 @Composable
 private fun DaysSelector(selected: Int, onSelect: (Int) -> Unit) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -396,114 +493,152 @@ private fun DaysSelector(selected: Int, onSelect: (Int) -> Unit) {
     }
 }
 
-/**
- * 每日趋势折线图（Canvas 绘制）
- */
+// ===== 每日趋势折线图（支持切换时长/会话数 + 悬浮提示） =====
+
 @Composable
 private fun DailyTrendCard(dailyStats: List<PlayTimeTracker.DailyStat>, days: Int) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp)
-    ) {
+    var showSessions by remember { mutableStateOf(false) }
+    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
         Column(Modifier.padding(16.dp)) {
-            Text(I18n.t("stats.daily_trend"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(I18n.t("stats.daily_trend"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.weight(1f))
+                // 切换 时长/会话数
+                FilterChip(
+                    selected = !showSessions,
+                    onClick = { showSessions = false },
+                    label = { Text("时长", fontSize = 11.sp) }
+                )
+                Spacer(Modifier.width(4.dp))
+                FilterChip(
+                    selected = showSessions,
+                    onClick = { showSessions = true },
+                    label = { Text("次数", fontSize = 11.sp) }
+                )
+            }
             Spacer(Modifier.height(16.dp))
-            DailyTrendChart(dailyStats)
+            DailyTrendChart(dailyStats, showSessions)
         }
     }
 }
 
 @Composable
-private fun DailyTrendChart(dailyStats: List<PlayTimeTracker.DailyStat>) {
+private fun DailyTrendChart(dailyStats: List<PlayTimeTracker.DailyStat>, showSessions: Boolean) {
     val primaryColor = MaterialTheme.colorScheme.primary
     val trackColor = MaterialTheme.colorScheme.surfaceVariant
-    val textColor = MaterialTheme.colorScheme.onSurfaceVariant
 
-    val maxDuration = remember(dailyStats) {
-        dailyStats.maxOfOrNull { it.totalDuration } ?: 0L
+    val maxValue = remember(dailyStats, showSessions) {
+        if (showSessions) dailyStats.maxOfOrNull { it.sessionCount }?.toLong() ?: 0L
+        else dailyStats.maxOfOrNull { it.totalDuration } ?: 0L
     }
 
-    Canvas(
-        modifier = Modifier.fillMaxWidth().height(180.dp)
-    ) {
-        val canvasWidth = size.width
-        val canvasHeight = size.height
-        val padding = 40f
-        val chartWidth = canvasWidth - padding * 2
-        val chartHeight = canvasHeight - padding * 2
+    var hoverIndex by remember { mutableStateOf(-1) }
 
-        if (dailyStats.isEmpty() || maxDuration == 0L) {
-            // 空状态：画一条基线
-            drawLine(
-                color = trackColor,
-                start = Offset(padding, canvasHeight - padding),
-                end = Offset(canvasWidth - padding, canvasHeight - padding),
-                strokeWidth = 2f
-            )
-            return@Canvas
-        }
-
-        // 绘制水平网格线（4 条）
-        for (i in 0..4) {
-            val y = padding + chartHeight * (1f - i / 4f)
-            drawLine(
-                color = trackColor.copy(alpha = 0.3f),
-                start = Offset(padding, y),
-                end = Offset(canvasWidth - padding, y),
-                strokeWidth = 1f
-            )
-        }
-
-        // 计算每个点的位置
-        val stepX = if (dailyStats.size > 1) chartWidth / (dailyStats.size - 1) else 0f
-        val points = dailyStats.mapIndexed { i, stat ->
-            val x = padding + i * stepX
-            val yRatio = if (maxDuration > 0) stat.totalDuration.toFloat() / maxDuration.toFloat() else 0f
-            val y = padding + chartHeight * (1f - yRatio)
-            Offset(x, y)
-        }
-
-        // 绘制折线
-        if (points.size > 1) {
-            val path = Path().apply {
-                moveTo(points[0].x, points[0].y)
-                for (i in 1 until points.size) {
-                    lineTo(points[i].x, points[i].y)
+    Box {
+        Canvas(
+            modifier = Modifier.fillMaxWidth().height(180.dp)
+                .pointerInput(dailyStats, showSessions) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            if (event.type == PointerEventType.Exit) {
+                                hoverIndex = -1; continue
+                            }
+                            val pos = event.changes.firstOrNull()?.position ?: continue
+                            val padding = 40f
+                            val chartWidth = size.width - padding * 2
+                            val stepX = if (dailyStats.size > 1) chartWidth / (dailyStats.size - 1) else 0f
+                            if (stepX > 0) {
+                                val idx = ((pos.x - padding) / stepX).roundToInt().coerceIn(0, dailyStats.lastIndex)
+                                hoverIndex = idx
+                            }
+                        }
+                    }
                 }
-            }
-            drawPath(
-                path = path,
-                color = primaryColor,
-                style = Stroke(width = 3f)
-            )
+        ) {
+            val canvasWidth = size.width
+            val canvasHeight = size.height
+            val padding = 40f
+            val chartWidth = canvasWidth - padding * 2
+            val chartHeight = canvasHeight - padding * 2
 
-            // 绘制填充区域
-            val fillPath = Path().apply {
-                moveTo(points[0].x, canvasHeight - padding)
-                lineTo(points[0].x, points[0].y)
-                for (i in 1 until points.size) {
-                    lineTo(points[i].x, points[i].y)
-                }
-                lineTo(points.last().x, canvasHeight - padding)
-                close()
+            if (dailyStats.isEmpty() || maxValue == 0L) {
+                drawLine(trackColor, Offset(padding, canvasHeight - padding),
+                    Offset(canvasWidth - padding, canvasHeight - padding), strokeWidth = 2f)
+                return@Canvas
             }
-            drawPath(
-                path = fillPath,
-                color = primaryColor.copy(alpha = 0.15f)
-            )
+
+            // 网格线
+            for (i in 0..4) {
+                val y = padding + chartHeight * (1f - i / 4f)
+                drawLine(trackColor.copy(alpha = 0.3f), Offset(padding, y),
+                    Offset(canvasWidth - padding, y), strokeWidth = 1f)
+            }
+
+            val stepX = if (dailyStats.size > 1) chartWidth / (dailyStats.size - 1) else 0f
+            val points = dailyStats.mapIndexed { i, stat ->
+                val x = padding + i * stepX
+                val v = if (showSessions) stat.sessionCount.toLong() else stat.totalDuration
+                val yRatio = if (maxValue > 0) v.toFloat() / maxValue.toFloat() else 0f
+                Offset(x, padding + chartHeight * (1f - yRatio))
+            }
+
+            // 折线 + 填充
+            if (points.size > 1) {
+                val path = Path().apply {
+                    moveTo(points[0].x, points[0].y)
+                    for (i in 1 until points.size) lineTo(points[i].x, points[i].y)
+                }
+                drawPath(path, primaryColor, style = Stroke(width = 3f))
+                val fillPath = Path().apply {
+                    moveTo(points[0].x, canvasHeight - padding)
+                    lineTo(points[0].x, points[0].y)
+                    for (i in 1 until points.size) lineTo(points[i].x, points[i].y)
+                    lineTo(points.last().x, canvasHeight - padding); close()
+                }
+                drawPath(fillPath, primaryColor.copy(alpha = 0.15f))
+            }
+
+            // 数据点
+            points.forEachIndexed { i, point ->
+                drawCircle(
+                    color = if (i == hoverIndex) Color(0xFFFF5722) else primaryColor,
+                    radius = if (i == hoverIndex) 6f else 4f,
+                    center = point
+                )
+            }
+
+            // 悬浮提示竖线
+            if (hoverIndex in points.indices) {
+                val p = points[hoverIndex]
+                drawLine(
+                    Color(0xFFFF5722).copy(alpha = 0.5f),
+                    Offset(p.x, padding), Offset(p.x, canvasHeight - padding), strokeWidth = 1f
+                )
+            }
         }
 
-        // 绘制数据点
-        points.forEach { point ->
-            drawCircle(
-                color = primaryColor,
-                radius = 4f,
-                center = point
-            )
+        // 悬浮提示文字
+        if (hoverIndex in dailyStats.indices) {
+            val stat = dailyStats[hoverIndex]
+            val dateStr = try {
+                LocalDate.parse(stat.date).format(DateTimeFormatter.ofPattern("MM/dd"))
+            } catch (_: Throwable) { stat.date }
+            val valueStr = if (showSessions) "${stat.sessionCount} 次"
+                else PlayTimeTracker.formatDurationShort(stat.totalDuration)
+            Surface(
+                modifier = Modifier.padding(top = 4.dp, start = 48.dp),
+                shape = RoundedCornerShape(6.dp),
+                color = Color(0xFF424242)
+            ) {
+                Text("$dateStr  $valueStr", color = Color.White,
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp))
+            }
         }
     }
 
-    // X 轴日期标签（每隔合适间隔显示）
+    // X 轴标签
     Row(
         Modifier.fillMaxWidth().padding(top = 4.dp, start = 40.dp, end = 40.dp),
         horizontalArrangement = Arrangement.SpaceBetween
@@ -517,63 +652,269 @@ private fun DailyTrendChart(dailyStats: List<PlayTimeTracker.DailyStat>) {
             if (i % labelInterval == 0 || i == dailyStats.lastIndex) {
                 val date = try {
                     LocalDate.parse(stat.date).format(DateTimeFormatter.ofPattern("MM/dd"))
-                } catch (e: Throwable) {
-                    stat.date.substring(minOf(5, stat.date.length))
-                }
+                } catch (_: Throwable) { stat.date.substring(minOf(5, stat.date.length)) }
                 Text(date, fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            } else {
-                Text(" ", fontSize = 9.sp)
+            } else { Text(" ", fontSize = 9.sp) }
+        }
+    }
+}
+
+// ===== 时段热力图 =====
+
+@Composable
+private fun HeatmapCard(heatmap: PlayTimeTracker.HeatmapStat) {
+    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
+        Column(Modifier.padding(16.dp)) {
+            Text("时段热力图", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(4.dp))
+            Text("行=周几，列=小时，颜色越深游玩越多",
+                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+            Spacer(Modifier.height(12.dp))
+
+            val maxV = heatmap.maxValue.coerceAtLeast(1)
+            val primaryColor = MaterialTheme.colorScheme.primary
+            val emptyColor = MaterialTheme.colorScheme.surfaceVariant
+            val days = listOf("一", "二", "三", "四", "五", "六", "日")
+
+            // 表头：小时
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Text("", modifier = Modifier.width(20.dp))
+                (0..23).forEach { h ->
+                    if (h % 3 == 0) {
+                        Text("${h}", fontSize = 8.sp, color = MaterialTheme.colorScheme.outline,
+                            modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    } else {
+                        Spacer(Modifier.weight(1f))
+                    }
+                }
+            }
+            Spacer(Modifier.height(2.dp))
+
+            // 热力图主体
+            heatmap.durations.forEachIndexed { dayIdx, hours ->
+                Row(modifier = Modifier.fillMaxWidth().height(14.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Text(days[dayIdx], fontSize = 9.sp, color = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.width(20.dp))
+                    hours.forEachIndexed { hourIdx, duration ->
+                        val alpha = if (duration > 0) {
+                            0.1f + 0.9f * (duration.toFloat() / maxV.toFloat())
+                        } else 0f
+                        Box(modifier = Modifier.weight(1f).height(12.dp).padding(1.dp)) {
+                            Canvas(Modifier.fillMaxSize()) {
+                                if (duration > 0) {
+                                    drawRect(color = primaryColor.copy(alpha = alpha))
+                                } else {
+                                    drawRect(color = emptyColor, alpha = 0.3f)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(4.dp))
+            // 图例
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("少", fontSize = 9.sp, color = MaterialTheme.colorScheme.outline)
+                Spacer(Modifier.width(4.dp))
+                (1..5).forEach { i ->
+                    Box(Modifier.size(10.dp).padding(1.dp)) {
+                        Canvas(Modifier.fillMaxSize()) {
+                            drawRect(color = primaryColor.copy(alpha = 0.1f + 0.18f * i))
+                        }
+                    }
+                }
+                Spacer(Modifier.width(4.dp))
+                Text("多", fontSize = 9.sp, color = MaterialTheme.colorScheme.outline)
             }
         }
     }
 }
 
-/**
- * 版本分布柱状图（Canvas 绘制）
- */
+// ===== 周几分布柱状图 =====
+
 @Composable
-private fun VersionDistributionCard(versions: List<PlayTimeTracker.VersionStat>) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp)
-    ) {
+private fun WeekdayDistributionCard(weekdayDist: List<PlayTimeTracker.WeekdayStat>) {
+    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
+        Column(Modifier.padding(16.dp)) {
+            Text("周几分布", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(16.dp))
+            val maxDuration = weekdayDist.maxOfOrNull { it.totalDuration } ?: 0L
+            val primaryColor = MaterialTheme.colorScheme.primary
+            weekdayDist.forEach { stat ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(stat.dayName, style = MaterialTheme.typography.labelMedium,
+                         modifier = Modifier.width(32.dp), fontWeight = FontWeight.Medium)
+                    Spacer(Modifier.width(8.dp))
+                    Box(modifier = Modifier.weight(1f).height(16.dp)) {
+                        Canvas(Modifier.fillMaxSize()) {
+                            val ratio = if (maxDuration > 0) stat.totalDuration.toFloat() / maxDuration.toFloat() else 0f
+                            val w = size.width * ratio
+                            drawRect(color = primaryColor.copy(alpha = 0.2f))
+                            drawRect(color = primaryColor, size = Size(w, size.height))
+                        }
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        PlayTimeTracker.formatDurationShort(stat.totalDuration),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.width(56.dp),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.End
+                    )
+                }
+            }
+        }
+    }
+}
+
+// ===== 版本分布饼图 =====
+
+@Composable
+private fun VersionPieCard(versions: List<PlayTimeTracker.VersionStat>) {
+    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
         Column(Modifier.padding(16.dp)) {
             Text(I18n.t("stats.version_dist"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(16.dp))
-            // 只显示前 10 个版本
-            versions.take(10).forEach { stat ->
-                VersionBar(stat, versions.first().totalDuration)
+            val topVersions = versions.take(6)
+            val otherDuration = versions.drop(6).sumOf { it.totalDuration }
+            val pieData = topVersions.map { it to it.totalDuration } +
+                (if (otherDuration > 0) listOf(null to otherDuration) else emptyList())
+            val total = pieData.sumOf { it.second }
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // 饼图
+                Box(modifier = Modifier.size(120.dp)) {
+                    Canvas(Modifier.fillMaxSize()) {
+                        if (total <= 0) return@Canvas
+                        var startAngle = -90f
+                        pieData.forEachIndexed { i, pair ->
+                            val sweep = 360f * pair.second.toFloat() / total.toFloat()
+                            val color = PIE_COLORS[i % PIE_COLORS.size]
+                            drawArc(
+                                color = color,
+                                startAngle = startAngle,
+                                sweepAngle = sweep,
+                                useCenter = true
+                            )
+                            startAngle += sweep
+                        }
+                    }
+                }
+                Spacer(Modifier.width(16.dp))
+                // 图例
+                Column(modifier = Modifier.weight(1f)) {
+                    pieData.forEachIndexed { i, pair ->
+                        val version = pair.first?.version ?: "其他"
+                        val pct = if (total > 0) pair.second.toFloat() / total.toFloat() * 100 else 0f
+                        Row(verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(vertical = 2.dp)) {
+                            Box(Modifier.size(10.dp).clip(RoundedCornerShape(2.dp))
+                                .background(PIE_COLORS[i % PIE_COLORS.size]))
+                            Spacer(Modifier.width(6.dp))
+                            Text(version, style = MaterialTheme.typography.labelSmall,
+                                 modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text("${"%.0f".format(pct)}%", style = MaterialTheme.typography.labelSmall,
+                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private val PIE_COLORS = listOf(
+    Color(0xFF2196F3), Color(0xFF4CAF50), Color(0xFFFF9800),
+    Color(0xFF9C27B0), Color(0xFF00BCD4), Color(0xFFE91E63),
+    Color(0xFF607D8B)
+)
+
+// ===== 会话详情列表 =====
+
+@Composable
+private fun SessionListCard(vm: LauncherViewModel) {
+    var sessions by remember { mutableStateOf<List<PlayTimeTracker.Session>>(emptyList()) }
+    var totalCount by remember { mutableIntStateOf(0) }
+    var expanded by remember { mutableStateOf(false) }
+    val pageSize = 10
+    var currentPage by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(expanded) {
+        if (expanded && sessions.isEmpty()) {
+            withContext(Dispatchers.IO) {
+                val tracker = vm.core.playTimeTracker()
+                totalCount = tracker.getSessionCount()
+                sessions = tracker.getSessions(0, pageSize)
+            }
+        }
+    }
+
+    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
+        Column(Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded },
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("会话记录", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.weight(1f))
+                Text("共 ${totalCount} 条", style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.width(4.dp))
+                Icon(
+                    if (expanded) Icons.Filled.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    null, tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(18.dp)
+                )
+            }
+
+            if (expanded) {
                 Spacer(Modifier.height(8.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(4.dp))
+                sessions.forEach { session ->
+                    SessionRow(session)
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
+                }
+                // 分页加载更多
+                if ((currentPage + 1) * pageSize < totalCount) {
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = {
+                            currentPage++
+                            val tracker = vm.core.playTimeTracker()
+                            sessions = tracker.getSessions(currentPage * pageSize, pageSize) +
+                                sessions.take(currentPage * pageSize)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("加载更多", style = MaterialTheme.typography.labelMedium) }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun VersionBar(stat: PlayTimeTracker.VersionStat, maxDuration: Long) {
-    val primaryColor = MaterialTheme.colorScheme.primary
-    val trackColor = MaterialTheme.colorScheme.surfaceVariant
-    val ratio = if (maxDuration > 0) stat.totalDuration.toFloat() / maxDuration.toFloat() else 0f
-
-    Column(Modifier.fillMaxWidth()) {
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(stat.version, style = MaterialTheme.typography.bodySmall,
-                 fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f),
-                 maxLines = 1)
-            Text("${PlayTimeTracker.formatDurationShort(stat.totalDuration)} (${stat.sessionCount} ${I18n.t("common.times")})",
-                 style = MaterialTheme.typography.labelSmall,
-                 color = MaterialTheme.colorScheme.onSurfaceVariant)
+private fun SessionRow(session: PlayTimeTracker.Session) {
+    val timeFmt = remember { SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()) }
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(Icons.Filled.PlayCircle, null, tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(14.dp))
+        Spacer(Modifier.width(8.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(session.version, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium,
+                 maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(timeFmt.format(Date(session.start)), style = MaterialTheme.typography.labelSmall,
+                 color = MaterialTheme.colorScheme.outline)
         }
-        Spacer(Modifier.height(4.dp))
-        LinearProgressIndicator(
-            progress = { ratio },
-            modifier = Modifier.fillMaxWidth().height(8.dp),
-            color = primaryColor,
-            trackColor = trackColor
-        )
+        Text(PlayTimeTracker.formatDurationShort(session.duration),
+             style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold,
+             color = MaterialTheme.colorScheme.primary)
     }
 }
