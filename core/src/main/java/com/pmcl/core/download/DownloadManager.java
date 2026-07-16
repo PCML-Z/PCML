@@ -254,8 +254,8 @@ public final class DownloadManager {
                                                Consumer<Long> onBytes) {
         long total = tasks.stream().mapToLong(DownloadTask::getSize).sum();
         AtomicLong completed = new AtomicLong(0);
-        // 实时进度节流：避免高频回调导致 UI 线程过载
-        final long[] lastNotifyTime = {0};
+        // 实时进度节流：用 AtomicLong 避免多线程 check-then-act 竞态
+        final AtomicLong lastNotifyTime = new AtomicLong(0);
 
         CompletableFuture<?>[] futures = tasks.stream()
                 .map(t -> CompletableFuture.runAsync(() -> {
@@ -269,8 +269,8 @@ public final class DownloadManager {
                                 if (onBytes != null) {
                                     long now = completed.addAndGet(deltaBytes);
                                     long t2 = System.currentTimeMillis();
-                                    if (t2 - lastNotifyTime[0] >= PROGRESS_THROTTLE_MS) {
-                                        lastNotifyTime[0] = t2;
+                                    if (t2 - lastNotifyTime.get() >= PROGRESS_THROTTLE_MS) {
+                                        lastNotifyTime.set(t2);
                                         onBytes.accept(now);
                                     }
                                 }

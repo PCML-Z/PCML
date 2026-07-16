@@ -66,6 +66,8 @@ class LauncherViewModel {
         CoroutineExceptionHandler { _, throwable ->
             System.err.println("[LauncherViewModel] 未捕获的协程异常: ${throwable.message}")
             throwable.printStackTrace()
+            // 更新 UI 状态让用户感知到错误，而非完全静默
+            _status.value = "内部错误：${throwable.message ?: "未知异常"}"
         })
 
     val core = LauncherCore()
@@ -2254,6 +2256,7 @@ class LauncherViewModel {
         scope.launch {
             _status.value = "正在构建启动配置…"
             var instanceId: String? = null
+            var timeTracked = false
             try {
                 // 先读取版本要求的 Java 版本，用于选择合适的 Java 运行时
                 // alpha/beta/1.7- 无 javaVersion 字段返回 0，按旧版本处理（需 Java 8）
@@ -2506,6 +2509,7 @@ class LauncherViewModel {
                 _recentVersions.value = preferences.getRecentVersions()
                 _lastPlayedTimes.value = HashMap(preferences.getLastPlayedTimesRaw())
                 core.playTimeTracker().recordStart(versionId)
+                timeTracked = true
 
                 // launchAsync 返回 CompletableFuture，需等待进程退出，否则 gameRunning 会立即被 finally 重置
                 val future = core.launch().launchAsync(
@@ -2529,9 +2533,6 @@ class LauncherViewModel {
                 )
                 val exitCode = withContext(Dispatchers.IO) { future.join() }
                 _status.value = "游戏已退出（code=$exitCode） $versionId"
-
-                // 记录游玩时长
-                core.playTimeTracker().recordEnd(versionId)
 
                 // 异常退出检测：非 0 退出码视为崩溃
                 if (exitCode != 0) {
@@ -2565,6 +2566,10 @@ class LauncherViewModel {
                     }
                 }
             } finally {
+                // 确保 recordEnd 被调用：即使 launchAsync 抛异常也要记录时长
+                if (timeTracked) {
+                    core.playTimeTracker().recordEnd(versionId)
+                }
                 // 清除实例启动上下文
                 _pendingInstanceDir = null
                 _pendingInstanceInfo = null
@@ -2643,6 +2648,7 @@ class LauncherViewModel {
         dismissCompatOptions()
         scope.launch {
             _status.value = "使用指定 Java 启动…"
+            var timeTracked = false
             try {
                 val account = _account.value
                 if (account == null) {
@@ -2663,6 +2669,13 @@ class LauncherViewModel {
                 )
                 _gameRunning.value = true
                 _status.value = "启动中… java=$javaPath (Java $javaMajorVer $javaArch) version=$versionId"
+                // 记录游玩时长
+                core.playTimeTracker().recordStart(versionId)
+                timeTracked = true
+                preferences.recordRecentVersion(versionId)
+                preferences.setLastPlayedTime(versionId, System.currentTimeMillis())
+                _recentVersions.value = preferences.getRecentVersions()
+                _lastPlayedTimes.value = HashMap(preferences.getLastPlayedTimesRaw())
                 val future = core.launch().launchAsync(
                     profile, javaPath,
                     { line -> _gameLogs.update { old -> (old + line).takeLast(2000) } },
@@ -2674,6 +2687,10 @@ class LauncherViewModel {
             } catch (e: Throwable) {
                 _status.value = "启动失败: ${e.message}"
                 _gameLogs.update { old -> (old + "启动失败: ${e.message}").takeLast(2000) }
+            } finally {
+                if (timeTracked) {
+                    core.playTimeTracker().recordEnd(versionId)
+                }
             }
         }
     }

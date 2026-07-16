@@ -142,7 +142,7 @@ public final class AuthService {
     /**
      * 保存账号集合 + 选中状态。
      */
-    public void saveStore(AccountStore store, Path file) throws IOException {
+    public synchronized void saveStore(AccountStore store, Path file) throws IOException {
         JsonObject root = new JsonObject();
         if (store.getSelectedUuid() != null) {
             root.addProperty("selected", store.getSelectedUuid());
@@ -160,7 +160,11 @@ public final class AuthService {
         }
         root.add("accounts", arr);
         Files.createDirectories(file.getParent());
-        Files.writeString(file, gson.toJson(root));
+        // 原子写入：防止并发写损坏账号文件
+        Path tmp = file.resolveSibling(file.getFileName() + ".tmp");
+        Files.writeString(tmp, gson.toJson(root));
+        Files.move(tmp, file, java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING);
     }
 
     // ============ 兼容旧 API（单账号文件） ============

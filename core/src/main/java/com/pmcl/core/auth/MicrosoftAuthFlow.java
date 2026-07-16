@@ -66,9 +66,12 @@ public final class MicrosoftAuthFlow {
                 .build();
     }
 
-    /** 关闭内部调度线程，释放资源。关闭后不可再用，仅供应用退出时调用。 */
+    /** 关闭内部调度线程和 HTTP 连接池，释放资源。关闭后不可再用，仅供应用退出时调用。 */
     public void shutdown() {
         scheduler.shutdownNow();
+        // 关闭 OkHttpClient 的连接池和 dispatcher，防止线程泄漏阻止 JVM 退出
+        http.connectionPool().evictAll();
+        http.dispatcher().executorService().shutdown();
     }
 
     /**

@@ -59,13 +59,17 @@ public final class DataCache {
      * @param key  缓存键（用作文件名，如 "versions_remote"）
      * @param data 数据对象（会被 JSON 序列化）
      */
-    public static <T> void save(String key, T data) {
+    public static synchronized <T> void save(String key, T data) {
         try {
             Path file = CACHE_DIR.resolve(key + ".json");
             Map<String, Object> wrapper = new HashMap<>();
             wrapper.put("savedAt", Instant.now().toEpochMilli());
             wrapper.put("data", data);
-            Files.writeString(file, GSON.toJson(wrapper));
+            // 原子写入：防止并发写损坏
+            Path tmp = file.resolveSibling(file.getFileName() + ".tmp");
+            Files.writeString(tmp, GSON.toJson(wrapper));
+            Files.move(tmp, file, java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
             memCache.put(key, new CacheEntry<>(data, System.currentTimeMillis()));
         } catch (Exception e) {
             System.err.println("[DataCache] save failed for " + key + ": " + e.getMessage());

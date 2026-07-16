@@ -40,8 +40,8 @@ public final class ProcessMonitor {
 
     private final OperatingSystem os;
     private final GlobalMemory memory;
-    private long startTime = 0L;
-    private long lastPid = -1;
+    private volatile long startTime = 0L;
+    private volatile long lastPid = -1;
 
     public ProcessMonitor() {
         SystemInfo si = new SystemInfo();
@@ -70,11 +70,17 @@ public final class ProcessMonitor {
         return new Sample((int) pid, cpu, rss, vsize, uptime, alive);
     }
 
-    /** 强制销毁进程树 */
+    /** 强制销毁进程树（包括所有子进程） */
     public boolean forceKill(Process process) {
         if (!process.isAlive()) return true;
         try {
-            // 优先尝试 destroyForcibly
+            // 先杀所有子进程（Minecraft 会 fork LWJGL native 线程等），防止孤儿进程
+            try {
+                process.descendants().forEach(ph -> {
+                    try { ph.destroyForcibly(); } catch (Exception ignored) {}
+                });
+            } catch (Exception ignored) {}
+            // 再杀主进程
             process.destroyForcibly();
             boolean exited = process.waitFor(3, java.util.concurrent.TimeUnit.SECONDS);
             if (!exited) {
@@ -84,14 +90,15 @@ public final class ProcessMonitor {
                 String osName = System.getProperty("os.name").toLowerCase();
                 Process killer;
                 if (osName.contains("win")) {
-                    killer = rt.exec(new String[]{"taskkill", "/F", "/PID", String.valueOf(pid)});
+                    killer = rt.exec(new String[]{"taskkill", "/F", "/T", "/PID", String.valueOf(pid)});
                 } else {
                     killer = rt.exec(new String[]{"kill", "-9", String.valueOf(pid)});
                 }
-                killer.waitFor();
+                killer.waitFor(5, java.util.concurrent.TimeUnit.SECONDS);
             }
             return !process.isAlive();
         } catch (Exception e) {
+            System.err.println("[ProcessMonitor] forceKill 失败: " + e.getMessage());
             return false;
         }
     }

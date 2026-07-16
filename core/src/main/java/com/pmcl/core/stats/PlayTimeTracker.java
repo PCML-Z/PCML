@@ -452,7 +452,7 @@ public final class PlayTimeTracker {
         }
     }
 
-    private void save() {
+    private synchronized void save() {
         try {
             Files.createDirectories(dataFile.getParent());
             JsonObject root = new JsonObject();
@@ -470,9 +470,13 @@ public final class PlayTimeTracker {
                 arr.add(o);
             }
             root.add("sessions", arr);
-            Files.write(dataFile, gson.toJson(root).getBytes(StandardCharsets.UTF_8));
-        } catch (IOException ignored) {
-            // 保存失败不阻断运行
+            // 原子写入：先写临时文件再 move，防止并发写损坏或 JVM 崩溃截断
+            Path tmp = dataFile.resolveSibling(dataFile.getFileName() + ".tmp");
+            Files.write(tmp, gson.toJson(root).getBytes(StandardCharsets.UTF_8));
+            Files.move(tmp, dataFile, java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException e) {
+            System.err.println("[PlayTimeTracker] 保存失败: " + e.getMessage());
         }
     }
 

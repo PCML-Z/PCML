@@ -144,8 +144,8 @@ public final class ChunkedDownloader {
         for (int i = 0; i < actualChunks; i++) {
             completed.addAndGet(chunkCompleted[i]);
         }
-        // 进度节流：避免每 read 都通知造成 UI 抖动
-        final long[] lastNotifyTime = {0};
+        // 进度节流：用 AtomicLong 避免多分片线程 check-then-act 竞态
+        final AtomicLong lastNotifyTime = new AtomicLong(0);
         // 初始通知一次当前进度
         if (onProgress != null && completed.get() > 0) {
             onProgress.accept(completed.get());
@@ -171,8 +171,8 @@ public final class ChunkedDownloader {
                         long now = completed.addAndGet(deltaBytes);
                         // 节流：50ms 内只通知一次
                         long t = System.currentTimeMillis();
-                        if (onProgress != null && t - lastNotifyTime[0] >= PROGRESS_THROTTLE_MS) {
-                            lastNotifyTime[0] = t;
+                        if (onProgress != null && t - lastNotifyTime.get() >= PROGRESS_THROTTLE_MS) {
+                            lastNotifyTime.set(t);
                             onProgress.accept(now);
                         }
                     });

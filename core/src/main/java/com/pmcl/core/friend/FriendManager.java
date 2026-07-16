@@ -743,7 +743,9 @@ public final class FriendManager implements AutoCloseable {
 
             @Override
             public void onDisconnected(String reason) {
-                activeClients.remove(identity);
+                // 条件删除：仅当 map 中的 client 仍是当前 client 时才删除
+                // 避免旧 client 的异步回调误删已建立的新 client
+                activeClients.remove(identity, client);
                 boolean changed = store.updateOnlineStatus(identity, false, "", 0);
                 if (changed) {
                     FriendStore.FriendEntry entry = store.getFriend(identity);

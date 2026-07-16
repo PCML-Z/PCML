@@ -142,7 +142,11 @@ public final class PluginManager {
             Map<String, Object> state = new HashMap<>();
             state.put("enabled", enabledState);
             state.put("configs", pluginConfigs);
-            Files.writeString(stateFile, gson.toJson(state));
+            // 原子写入：防止 JVM 崩溃导致插件状态文件损坏
+            Path tmp = stateFile.resolveSibling(stateFile.getFileName() + ".tmp");
+            Files.writeString(tmp, gson.toJson(state));
+            Files.move(tmp, stateFile, java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
         } catch (IOException e) {
             System.err.println("[PluginManager] Failed to save state: " + e.getMessage());
         }
@@ -206,16 +210,20 @@ public final class PluginManager {
         URL[] urls = {jarPath.toUri().toURL()};
         URLClassLoader classLoader = new URLClassLoader(urls, getClass().getClassLoader());
 
-        // Load main class
-        Class<?> mainClass = classLoader.loadClass(info.getMainClass());
-        if (!PmclPlugin.class.isAssignableFrom(mainClass)) {
-            classLoader.close();
-            throw new ClassCastException("Main class " + info.getMainClass() +
-                    " does not implement PmclPlugin");
+        // Load main class — 异常路径关闭 classLoader 防止 jar 句柄泄漏
+        PmclPlugin plugin;
+        try {
+            Class<?> mainClass = classLoader.loadClass(info.getMainClass());
+            if (!PmclPlugin.class.isAssignableFrom(mainClass)) {
+                classLoader.close();
+                throw new ClassCastException("Main class " + info.getMainClass() +
+                        " does not implement PmclPlugin");
+            }
+            plugin = (PmclPlugin) mainClass.getDeclaredConstructor().newInstance();
+        } catch (Throwable t) {
+            try { classLoader.close(); } catch (Exception ignored) {}
+            throw t;
         }
-
-        // Instantiate
-        PmclPlugin plugin = (PmclPlugin) mainClass.getDeclaredConstructor().newInstance();
 
         // Create context
         PluginContextImpl ctx = new PluginContextImpl(info.getId());

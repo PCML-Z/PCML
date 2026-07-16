@@ -533,12 +533,6 @@ public final class VideoCallSession {
                         }
                         lastLogTime = System.currentTimeMillis();
                     }
-                    try {
-                        DatagramPacket packet = new DatagramPacket(jpegData, jpegData.length, remoteAddress);
-                        socket.send(packet);
-                    } catch (Exception e) {
-                        // 发送失败可能是网络问题，忽略
-                    }
 
                     // 控制帧率
                     Thread.sleep(1000 / VIDEO_FPS);
@@ -562,6 +556,8 @@ public final class VideoCallSession {
     /** 启动接收线程 */
     private void startReceiveThread(DatagramSocket socket) {
         System.out.println("[VideoCall] 启动视频接收线程 callId=" + callId);
+        // 设置接收超时，让循环能定期检查 capturing 标志，防止线程永久阻塞
+        try { socket.setSoTimeout(2000); } catch (java.net.SocketException ignored) {}
         receiveThread = new Thread(() -> {
             byte[] buffer = new byte[MAX_PACKET_SIZE];
             long receivedCount = 0;
@@ -608,27 +604,30 @@ public final class VideoCallSession {
 
     /** JPEG 压缩，使用指定的 quality (0-100)，返回压缩字节或 null */
     private byte[] compressJpeg(BufferedImage img, int quality) {
+        javax.imageio.ImageWriter writer = null;
+        javax.imageio.stream.ImageOutputStream ios = null;
         try {
-            java.util.Iterator<javax.imageio.ImageWriter> writers = 
+            java.util.Iterator<javax.imageio.ImageWriter> writers =
                 javax.imageio.ImageIO.getImageWritersByFormatName("jpg");
             if (!writers.hasNext()) return null;
-            javax.imageio.ImageWriter writer = writers.next();
-            
+            writer = writers.next();
+
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            javax.imageio.stream.ImageOutputStream ios = javax.imageio.ImageIO.createImageOutputStream(baos);
+            ios = javax.imageio.ImageIO.createImageOutputStream(baos);
             writer.setOutput(ios);
-            
-            javax.imageio.plugins.jpeg.JPEGImageWriteParam param = 
+
+            javax.imageio.plugins.jpeg.JPEGImageWriteParam param =
                 new javax.imageio.plugins.jpeg.JPEGImageWriteParam(null);
             param.setCompressionMode(javax.imageio.plugins.jpeg.JPEGImageWriteParam.MODE_EXPLICIT);
             param.setCompressionQuality(quality / 100.0f);
-            
+
             writer.write(null, new javax.imageio.IIOImage(img, null, null), param);
-            writer.dispose();
-            ios.close();
             return baos.toByteArray();
         } catch (Exception e) {
             return null;
+        } finally {
+            if (writer != null) try { writer.dispose(); } catch (Exception ignored) {}
+            if (ios != null) try { ios.close(); } catch (Exception ignored) {}
         }
     }
 
@@ -668,6 +667,11 @@ public final class VideoCallSession {
             if (iceAgent != null) {
                 try { iceAgent.free(); } catch (Exception ignored) {}
                 iceAgent = null;
+            }
+            // 关闭 videoSocket 防止文件描述符泄漏，同时让 receiveThread 的 receive() 抛异常退出
+            if (videoSocket != null && !videoSocket.isClosed()) {
+                try { videoSocket.close(); } catch (Exception ignored) {}
+                videoSocket = null;
             }
         } finally {
             setState(State.ENDED);

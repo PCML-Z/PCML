@@ -84,7 +84,10 @@ public final class LaunchManager {
                     if (logger != null) logger.append(line);
                     if (onLog != null) onLog.accept(line);
                 }
-            } catch (IOException ignored) {
+            } catch (IOException e) {
+                // 进程输出流读取失败时记录日志，避免静默丢失崩溃信息
+                System.err.println("[LaunchManager] 进程输出读取异常: " + e.getMessage());
+                if (onLog != null) onLog.accept("[PMCL] 进程输出读取异常: " + e.getMessage());
             }
         }, "mc-process-reader");
         reader.setDaemon(true);
@@ -113,6 +116,7 @@ public final class LaunchManager {
                                                   GameLogger logger) {
         String versionId = profile.getVersionId();
         return CompletableFuture.supplyAsync(() -> {
+            Process process = null;
             try {
                 // Plugin beforeLaunch hooks (can cancel launch)
                 if (pluginManager != null) {
@@ -126,7 +130,7 @@ public final class LaunchManager {
                 }
 
                 Thread[] readerHolder = new Thread[1];
-                Process process = launch(profile, javaExecutable, onLog, logger, readerHolder);
+                process = launch(profile, javaExecutable, onLog, logger, readerHolder);
 
                 // Fire GameLaunchedEvent
                 if (pluginManager != null) {
@@ -152,6 +156,10 @@ public final class LaunchManager {
                 return code;
             } catch (IOException | InterruptedException e) {
                 if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+                // 异常路径：销毁可能已启动的进程，防止僵尸进程残留
+                if (process != null && process.isAlive()) {
+                    try { process.destroyForcibly(); } catch (Exception ignored) {}
+                }
                 // 提取根因消息，避免 UI 显示 "启动失败：启动失败"
                 Throwable root = e;
                 while (root.getCause() != null && root.getCause() != root) root = root.getCause();
