@@ -217,9 +217,10 @@ public final class FriendStore {
     // 消息管理
     // ---------------------------------------------------------------------------
 
-    /** 获取与某好友的聊天记录（按时间排序） */
+    /** 获取与某好友的聊天记录（按时间排序）。返回新副本，确保 UI 状态能感知变化 */
     public List<StoredMessage> getMessages(String identity) {
-        return conversations.getOrDefault(identity, Collections.emptyList());
+        List<StoredMessage> msgs = conversations.get(identity);
+        return msgs != null ? new ArrayList<>(msgs) : Collections.emptyList();
     }
 
     /** 添加一条消息 */
