@@ -38,6 +38,9 @@ fun AccountsPage(vm: LauncherViewModel) {
     val deviceCode by vm.deviceCode.collectAsState()
     val loggingIn by vm.loggingIn.collectAsState()
 
+    // 当前登录流程类型：区分微软/GitHub，避免两卡片共用 deviceCode 状态导致同时显示
+    var loginMode by remember { mutableStateOf<String?>(null) } // "ms" | "github" | null
+
     var username by remember { mutableStateOf("Steve") }
     var customSkinUrl by remember { mutableStateOf("") }
     var skinModel by remember { mutableStateOf("classic") }
@@ -203,7 +206,7 @@ fun AccountsPage(vm: LauncherViewModel) {
                      color = MaterialTheme.colorScheme.outline)
                 Spacer(Modifier.height(12.dp))
 
-                if (deviceCode != null) {
+                if (deviceCode != null && loginMode == "ms") {
                     val dc = deviceCode
                     if (dc == null) return@Column
                     Surface(
@@ -224,7 +227,10 @@ fun AccountsPage(vm: LauncherViewModel) {
                         }
                     }
                 } else {
-                    Button(onClick = vm::startMicrosoftLogin, enabled = !loggingIn) {
+                    Button(onClick = {
+                        loginMode = "ms"
+                        vm.startMicrosoftLogin()
+                    }, enabled = !loggingIn) {
                         Text(if (loggingIn) I18n.t("accounts.logging_in") else I18n.t("accounts.start_ms_login"))
                     }
                 }
@@ -244,7 +250,7 @@ fun AccountsPage(vm: LauncherViewModel) {
                      color = MaterialTheme.colorScheme.outline)
                 Spacer(Modifier.height(12.dp))
 
-                if (deviceCode != null) {
+                if (deviceCode != null && loginMode == "github") {
                     val dc = deviceCode
                     if (dc == null) return@Column
                     Surface(
@@ -265,7 +271,10 @@ fun AccountsPage(vm: LauncherViewModel) {
                         }
                     }
                 } else {
-                    Button(onClick = vm::startGitHubLogin, enabled = !loggingIn) {
+                    Button(onClick = {
+                        loginMode = "github"
+                        vm.startGitHubLogin()
+                    }, enabled = !loggingIn) {
                         Text(if (loggingIn) I18n.t("accounts.logging_in") else "GitHub 登录")
                     }
                 }
