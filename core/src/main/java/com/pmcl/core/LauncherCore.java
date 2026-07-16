@@ -191,6 +191,48 @@ public final class LauncherCore {
         modMarketManager.updateHttpClients(http);
         pastebinClient.updateHttpClient(http);
         if (translateClient != null) translateClient.updateHttpClient(http);
+        // 同步 Java 全局代理系统属性，让 URL.readBytes() 等原生 HTTP 也走代理
+        applyJvmProxyProperties();
+    }
+
+    /**
+     * 设置 Java 全局代理系统属性（http.proxyHost / https.proxyHost 等）。
+     * 优先使用 Preferences 配置；若未配置则回退到环境变量 HTTP_PROXY/HTTPS_PROXY。
+     * 用于头像、皮肤图片等使用 java.net.URL 的下载场景。
+     */
+    private void applyJvmProxyProperties() {
+        String host = null;
+        String port = null;
+        if (preferences.isUseProxy()) {
+            host = preferences.getProxyHost();
+            int p = preferences.getProxyPort();
+            if (p > 0) port = String.valueOf(p);
+        } else {
+            // 回退到环境变量
+            String env = System.getenv("HTTPS_PROXY");
+            if (env == null || env.isEmpty()) env = System.getenv("https_proxy");
+            if (env == null || env.isEmpty()) env = System.getenv("HTTP_PROXY");
+            if (env == null || env.isEmpty()) env = System.getenv("http_proxy");
+            if (env != null && !env.isEmpty()) {
+                try {
+                    java.net.URI uri = java.net.URI.create(env);
+                    host = uri.getHost();
+                    int p = uri.getPort();
+                    if (p > 0) port = String.valueOf(p);
+                } catch (Exception ignored) {}
+            }
+        }
+        if (host != null && !host.isEmpty() && port != null) {
+            System.setProperty("http.proxyHost", host);
+            System.setProperty("http.proxyPort", port);
+            System.setProperty("https.proxyHost", host);
+            System.setProperty("https.proxyPort", port);
+        } else {
+            System.clearProperty("http.proxyHost");
+            System.clearProperty("http.proxyPort");
+            System.clearProperty("https.proxyHost");
+            System.clearProperty("https.proxyPort");
+        }
     }
 
     public AuthService auth() { return authService; }

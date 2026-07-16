@@ -486,6 +486,8 @@ class LauncherViewModel {
         }
         // 初始化联机后端
         core.multiplayer().setBackend(mpBackend)
+        // 启动时应用网络偏好（含 Java 全局代理系统属性，让头像/皮肤图片下载能走代理）
+        core.applyNetworkPreferences()
         // 注：refreshInstalledMods 和 warmupConnections 已延迟到首次需要时执行，
         // 避免冷启动时阻塞首屏渲染（ModsPage LaunchedEffect 会触发 mod 扫描，
         // warmupConnections 延迟到首次下载时由 DownloadManager 内部触发）
