@@ -1847,7 +1847,7 @@ private fun AccountCard(account: com.pmcl.core.auth.Account?, vm: LauncherViewMo
 }
 
 /** 启动页账号头像（40dp，带内存缓存） */
-private val launchAvatarCache = ConcurrentHashMap<String, ImageBitmap?>()
+private val launchAvatarCache = ConcurrentHashMap<String, ImageBitmap>()
 
 @Composable
 private fun AvatarImage(url: String) {
@@ -1864,7 +1864,7 @@ private fun AvatarImage(url: String) {
                 if (launchAvatarCache.size > 50) launchAvatarCache.clear()
                 image = bmp
             } catch (_: Throwable) {
-                launchAvatarCache[url] = null
+                // 下载/解码失败：不写入缓存（ConcurrentHashMap 不允许 null value），下次重试
                 image = null
             }
         }
