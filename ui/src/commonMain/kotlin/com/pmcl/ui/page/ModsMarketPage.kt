@@ -210,54 +210,57 @@ fun ModsMarketPage(vm: LauncherViewModel) {
                  style = MaterialTheme.typography.labelSmall,
                  color = MaterialTheme.colorScheme.outline)
 
-            Spacer(Modifier.height(16.dp))
+            // 搜索栏 + 分类标签：仅列表视图显示，进入详情页时隐藏
+            if (detailProject == null) {
+                Spacer(Modifier.height(16.dp))
 
-            // 搜索栏
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(
-                    value = query, onValueChange = { query = it },
-                    label = { Text("搜索模组（回车搜索）") }, singleLine = true,
-                    modifier = Modifier.weight(1f),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(
-                        onSearch = {
-                            if (query.isNotBlank() && !loading) {
-                                vm.searchMods(query, gameVersion, loader, selectedCategory)
+                // 搜索栏
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = query, onValueChange = { query = it },
+                        label = { Text("搜索模组（回车搜索）") }, singleLine = true,
+                        modifier = Modifier.weight(1f),
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(
+                            onSearch = {
+                                if (query.isNotBlank() && !loading) {
+                                    vm.searchMods(query, gameVersion, loader, selectedCategory)
+                                }
                             }
-                        }
+                        )
                     )
-                )
-                Spacer(Modifier.width(12.dp))
-                OutlinedTextField(
-                    value = gameVersion, onValueChange = { gameVersion = it },
-                    label = { Text("目标版本") }, singleLine = true,
-                    modifier = Modifier.width(120.dp)
-                )
-                Spacer(Modifier.width(12.dp))
-                LoaderDropdown(loader) { loader = it }
-                Spacer(Modifier.width(12.dp))
-                Button(onClick = {
-                    vm.searchMods(query, gameVersion, loader, selectedCategory)
-                }, enabled = !loading && query.isNotBlank()) {
-                    Text(if (loading) "搜索中…" else "搜索")
-                }
-            }
-
-            Spacer(Modifier.height(12.dp))
-
-            // 分类推荐标签栏（横向滚动）
-            CategoryBar(
-                selectedCategory = selectedCategory,
-                onSelect = { cat ->
-                    if (cat.isEmpty()) {
-                        vm.clearCategory()
-                    } else {
-                        vm.loadCategoryMods(cat, gameVersion, loader)
+                    Spacer(Modifier.width(12.dp))
+                    OutlinedTextField(
+                        value = gameVersion, onValueChange = { gameVersion = it },
+                        label = { Text("目标版本") }, singleLine = true,
+                        modifier = Modifier.width(120.dp)
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    LoaderDropdown(loader) { loader = it }
+                    Spacer(Modifier.width(12.dp))
+                    Button(onClick = {
+                        vm.searchMods(query, gameVersion, loader, selectedCategory)
+                    }, enabled = !loading && query.isNotBlank()) {
+                        Text(if (loading) "搜索中…" else "搜索")
                     }
                 }
-            )
 
-            Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(12.dp))
+
+                // 分类推荐标签栏（横向滚动）
+                CategoryBar(
+                    selectedCategory = selectedCategory,
+                    onSelect = { cat ->
+                        if (cat.isEmpty()) {
+                            vm.clearCategory()
+                        } else {
+                            vm.loadCategoryMods(cat, gameVersion, loader)
+                        }
+                    }
+                )
+
+                Spacer(Modifier.height(12.dp))
+            }
 
             val installedModIds = remember(installedMods) { installedMods.map { it.getModId() }.toSet() }
 
