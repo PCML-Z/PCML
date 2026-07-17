@@ -1,13 +1,8 @@
 package com.pmcl.ui.page
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.ExperimentalAnimationApi
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -44,7 +39,7 @@ import kotlinx.coroutines.launch
  * - 顶部栏：tonalElevation = 2.dp，状态徽章 10.dp 圆角
  * - 空状态：大图标 + 透明度递减三段文字
  */
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalAnimationApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AiAgentPage(vm: LauncherViewModel) {
     val ai = remember { vm.core.ai() }
@@ -84,16 +79,18 @@ fun AiAgentPage(vm: LauncherViewModel) {
             }
         )
 
-        // 设置面板（可折叠）
-        AnimatedVisibility(
-            visible = showSettings,
-            enter = expandVertically(tween(300, easing = FastOutSlowInEasing)) + fadeIn(tween(300)),
-            exit = shrinkVertically(tween(200, easing = FastOutSlowInEasing)) + fadeOut(tween(200))
+        // 设置面板（可折叠，用 animateContentSize 避免无边界高度测量）
+        Surface(
+            color = Color.Transparent,
+            tonalElevation = 0.dp,
+            modifier = Modifier.animateContentSize(tween(300, easing = FastOutSlowInEasing))
         ) {
-            AiSettingsPanel(
-                ai = ai,
-                onConfigured = { ai?.setStatusCallback { status -> toolStatus = status } }
-            )
+            if (showSettings) {
+                AiSettingsPanel(
+                    ai = ai,
+                    onConfigured = { ai?.setStatusCallback { status -> toolStatus = status } }
+                )
+            }
         }
 
         // 消息列表
