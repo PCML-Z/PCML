@@ -17,6 +17,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.input.pointer.PointerEventType
@@ -165,16 +166,49 @@ fun CompanionPairDialog(
 
                     // 二维码：高像素 bitmap + ContentScale.Fit 在显示框内等比放大
                     // 二维码内容 = 完整配对码（000-000 XXXXX-XXXXX-XXXXX，含字母部分）
+                    // 已配对设备时模糊二维码并叠加"已配对至 设备名"
+                    val paired = devices.isNotEmpty()
+                    val pairedName = devices.firstOrNull()?.deviceName
                     Surface(
                         shape = RoundedCornerShape(12.dp),
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
                     ) {
-                        Image(
-                            bitmap = qrBitmap,
-                            contentDescription = "配对码二维码",
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier.size(300.dp)
-                        )
+                        Box(
+                            Modifier.size(300.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Image(
+                                bitmap = qrBitmap,
+                                contentDescription = "配对码二维码",
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier.fillMaxSize()
+                                    .then(if (paired) Modifier.blur(16.dp) else Modifier)
+                            )
+                            if (paired && pairedName != null) {
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+                                    tonalElevation = 2.dp
+                                ) {
+                                    Column(
+                                        Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text(
+                                            "已配对至",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Text(
+                                            pairedName,
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                     Text(
                         "二维码",
@@ -192,16 +226,23 @@ fun CompanionPairDialog(
                     )
 
                     // 一维码：显示框比例与 bitmap(560:140=4:1) 一致，ContentScale.FillBounds 拉伸贴合
+                    // 已配对设备时同样模糊
                     Surface(
                         shape = RoundedCornerShape(12.dp),
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
                     ) {
-                        Image(
-                            bitmap = barBitmap,
-                            contentDescription = "配对码一维码",
-                            contentScale = ContentScale.FillBounds,
-                            modifier = Modifier.width(320.dp).height(80.dp)
-                        )
+                        Box(
+                            Modifier.width(320.dp).height(80.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Image(
+                                bitmap = barBitmap,
+                                contentDescription = "配对码一维码",
+                                contentScale = ContentScale.FillBounds,
+                                modifier = Modifier.fillMaxSize()
+                                    .then(if (paired) Modifier.blur(16.dp) else Modifier)
+                            )
+                        }
                     }
                     Text(
                         "Code 128 一维码",
