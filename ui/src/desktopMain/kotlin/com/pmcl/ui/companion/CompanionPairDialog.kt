@@ -24,7 +24,9 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.WindowPosition
+import androidx.compose.ui.window.rememberWindowState
 import java.net.Inet4Address
 import java.net.NetworkInterface
 import java.text.SimpleDateFormat
@@ -65,14 +67,23 @@ fun CompanionPairDialog(
         BarcodeGenerator.generateBarcode(pairingCode, 320, 80).toComposeImageBitmap()
     }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Window(
+        onCloseRequest = onDismiss,
+        title = "iOS 伴随 App 配对",
+        resizable = false,
+        state = rememberWindowState(
+            width = 900.dp,
+            height = 600.dp,
+            position = WindowPosition.Aligned(Alignment.Center)
+        )
+    ) {
         Surface(
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(0.dp),
             tonalElevation = 6.dp,
-            modifier = Modifier.width(880.dp)
+            modifier = Modifier.fillMaxSize()
         ) {
             Row(
-                Modifier.padding(24.dp),
+                Modifier.fillMaxSize().padding(24.dp),
                 horizontalArrangement = Arrangement.spacedBy(20.dp)
             ) {
                 // ===== 左侧：条码面板（固定宽度，不 fillMaxHeight）=====
@@ -144,9 +155,9 @@ fun CompanionPairDialog(
 
                 VerticalDivider(Modifier.fillMaxHeight().width(1.dp))
 
-                // ===== 右侧：配对码文字 + 已配对设备（固定宽度，不用 weight/scroll）=====
+                // ===== 右侧：配对码文字 + 已配对设备（weight 填充剩余宽度，支持滚动）=====
                 Column(
-                    Modifier.width(440.dp),
+                    Modifier.weight(1f).verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     Text(
