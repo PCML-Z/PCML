@@ -80,7 +80,7 @@ fun CompanionPairDialog(
 
     Window(
         onCloseRequest = onDismiss,
-        title = "iOS 伴随 App 配对",
+        title = "配对至 iPhone",
         undecorated = true,
         transparent = true,
         resizable = false,
@@ -131,7 +131,7 @@ fun CompanionPairDialog(
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            "iOS 伴随 App 配对",
+                            "配对至 iPhone",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
