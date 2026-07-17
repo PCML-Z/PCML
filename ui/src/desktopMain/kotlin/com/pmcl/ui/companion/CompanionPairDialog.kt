@@ -61,10 +61,10 @@ fun CompanionPairDialog(
     // 由当前配对码生成二维码与一维码（配对码变化时重新生成）
     // 关键：bitmap 像素尺寸 == 显示 dp 尺寸，并用 ContentScale.None 确保绝不缩放
     val qrBitmap = remember(pairingCode) {
-        BarcodeGenerator.generateQrCode(pairingCode, 280).toComposeImageBitmap()
+        BarcodeGenerator.generateQrCode(pairingCode, 420).toComposeImageBitmap()
     }
     val barBitmap = remember(pairingCode) {
-        BarcodeGenerator.generateBarcode(pairingCode, 320, 80).toComposeImageBitmap()
+        BarcodeGenerator.generateBarcode(pairingCode, 560, 140).toComposeImageBitmap()
     }
 
     Window(
@@ -72,8 +72,8 @@ fun CompanionPairDialog(
         title = "iOS 伴随 App 配对",
         resizable = false,
         state = rememberWindowState(
-            width = 900.dp,
-            height = 600.dp,
+            width = 1100.dp,
+            height = 760.dp,
             position = WindowPosition.Aligned(Alignment.Center)
         )
     ) {
@@ -84,12 +84,12 @@ fun CompanionPairDialog(
         ) {
             Row(
                 Modifier.fillMaxSize().padding(24.dp),
-                horizontalArrangement = Arrangement.spacedBy(20.dp)
+                horizontalArrangement = Arrangement.spacedBy(24.dp)
             ) {
-                // ===== 左侧：条码面板（固定宽度，不 fillMaxHeight）=====
+                // ===== 左侧：条码面板（固定宽度，容纳放大后的条码）=====
                 Column(
-                    Modifier.width(360.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                    Modifier.width(540.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     // 标题
@@ -125,12 +125,12 @@ fun CompanionPairDialog(
                             bitmap = qrBitmap,
                             contentDescription = "配对码二维码",
                             contentScale = ContentScale.None,
-                            modifier = Modifier.size(280.dp)
+                            modifier = Modifier.size(420.dp)
                         )
                     }
                     Text(
                         "二维码",
-                        style = MaterialTheme.typography.labelSmall,
+                        style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
@@ -143,12 +143,12 @@ fun CompanionPairDialog(
                             bitmap = barBitmap,
                             contentDescription = "配对码一维码",
                             contentScale = ContentScale.None,
-                            modifier = Modifier.width(320.dp).height(80.dp)
+                            modifier = Modifier.width(560.dp).height(140.dp)
                         )
                     }
                     Text(
                         "Code 128 一维码",
-                        style = MaterialTheme.typography.labelSmall,
+                        style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
