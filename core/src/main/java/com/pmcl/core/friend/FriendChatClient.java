@@ -180,7 +180,7 @@ public final class FriendChatClient implements AutoCloseable {
                 FriendProtocol.StatusMessage offline = new FriendProtocol.StatusMessage();
                 offline.online = false;
                 offline.from = myIdentity;
-                writer.print(offline.toJson() + "\n");
+                writer.write(offline.toJson() + "\n");
                 writer.flush();
             } catch (Exception ignored) {}
         }
@@ -207,7 +207,10 @@ public final class FriendChatClient implements AutoCloseable {
             try {
                 String msg = sendQueue.poll(15, TimeUnit.SECONDS);
                 if (msg != null && writer != null && !writer.checkError()) {
-                    writer.print(msg + "\n");
+                    // 用 write + 显式 flush：PrintWriter.print(String) 不触发 autoFlush
+                    // (autoFlush 仅对 println/printf/format 生效)，必须显式 flush 才能立即发送
+                    writer.write(msg + "\n");
+                    writer.flush();
                     if (writer.checkError()) {
                         handleDisconnect("写入失败");
                         break;
@@ -218,7 +221,8 @@ public final class FriendChatClient implements AutoCloseable {
                         FriendProtocol.StatusMessage heartbeat = new FriendProtocol.StatusMessage();
                         heartbeat.online = true;
                         heartbeat.from = myIdentity;
-                        writer.print(heartbeat.toJson() + "\n");
+                        writer.write(heartbeat.toJson() + "\n");
+                        writer.flush();
                         if (writer.checkError()) {
                             handleDisconnect("心跳写入失败");
                             break;

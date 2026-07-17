@@ -219,6 +219,15 @@ fun FriendPage(vm: LauncherViewModel) {
                     FriendManager.FriendEvent.Type.FRIEND_REMOVED -> {
                         refresh()
                     }
+                    FriendManager.FriendEvent.Type.MESSAGE_RECEIVED -> {
+                        // 收到新消息：刷新当前选中好友的消息列表。
+                        // store.addMessage 已按正确 identity 存储，getMessages(currentId)
+                        // 返回该好友最新消息；若消息来自其他好友则列表不变，无副作用。
+                        val currentId = selectedFriendId
+                        if (currentId != null) {
+                            messages = friendManager.getMessages(currentId)
+                        }
+                    }
                     else -> {
                         refresh()
                     }
