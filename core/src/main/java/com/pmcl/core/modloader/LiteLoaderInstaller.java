@@ -143,7 +143,7 @@ public final class LiteLoaderInstaller implements ModLoaderInstaller {
                 Path versionDir = config.getVersionsDir().resolve(versionId);
                 Files.createDirectories(versionDir);
                 Files.writeString(versionDir.resolve(versionId + ".json"),
-                        versionJson.toString());
+                        versionJson.toString(), java.nio.charset.StandardCharsets.UTF_8);
 
                 if (onProgress != null) onProgress.accept(new InstallProgress(
                         InstallProgress.Stage.DONE, 1, 1,
@@ -279,7 +279,7 @@ public final class LiteLoaderInstaller implements ModLoaderInstaller {
         Path parentJson = config.getVersionsDir().resolve(gameVersion).resolve(gameVersion + ".json");
         if (Files.exists(parentJson)) {
             try {
-                String content = Files.readString(parentJson);
+                String content = Files.readString(parentJson, java.nio.charset.StandardCharsets.UTF_8);
                 JsonObject parent = parseJsonObject(content, "父版本 " + gameVersion);
                 if (parent.has("minecraftArguments") && !parent.get("minecraftArguments").isJsonNull()) {
                     return parent.get("minecraftArguments").getAsString();

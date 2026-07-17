@@ -340,7 +340,11 @@ public final class DownloadManager {
                         " 期望=" + task.getSha1() + " 实际=" + actual);
             }
         }
-        Files.move(partFile, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        try {
+            Files.move(partFile, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+            Files.move(partFile, target, StandardCopyOption.REPLACE_EXISTING);
+        }
     }
 
     /**
@@ -556,7 +560,11 @@ public final class DownloadManager {
                     }
                 }
                 // 原子重命名
-                Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+                try {
+                    Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+                } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                    Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
+                }
                 return;
             } catch (IOException e) {
                 last = e;

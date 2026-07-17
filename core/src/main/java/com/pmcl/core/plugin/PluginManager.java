@@ -119,7 +119,7 @@ public final class PluginManager {
     private void loadState() {
         try {
             if (Files.exists(stateFile)) {
-                String json = Files.readString(stateFile);
+                String json = Files.readString(stateFile, java.nio.charset.StandardCharsets.UTF_8);
                 Map<String, Object> state = gson.fromJson(json, Map.class);
                 if (state != null) {
                     Object enabled = state.get("enabled");
@@ -144,9 +144,13 @@ public final class PluginManager {
             state.put("configs", pluginConfigs);
             // 原子写入：防止 JVM 崩溃导致插件状态文件损坏
             Path tmp = stateFile.resolveSibling(stateFile.getFileName() + ".tmp");
-            Files.writeString(tmp, gson.toJson(state));
-            Files.move(tmp, stateFile, java.nio.file.StandardCopyOption.ATOMIC_MOVE,
-                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            Files.writeString(tmp, gson.toJson(state), java.nio.charset.StandardCharsets.UTF_8);
+            try {
+                Files.move(tmp, stateFile, java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                Files.move(tmp, stateFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
         } catch (IOException e) {
             System.err.println("[PluginManager] Failed to save state: " + e.getMessage());
         }
@@ -161,11 +165,11 @@ public final class PluginManager {
     public synchronized void discoverAndLoadAll() {
         ensurePluginsDir();
         File[] files = pluginsDir.toFile().listFiles((dir, name) ->
-                (name.endsWith(".jar") || name.endsWith(".ppk")) && !name.equals(STATE_FILE));
+                (name.toLowerCase(java.util.Locale.ROOT).endsWith(".jar") || name.toLowerCase(java.util.Locale.ROOT).endsWith(".ppk")) && !name.equals(STATE_FILE));
         if (files == null) return;
         for (File file : files) {
             try {
-                if (file.getName().endsWith(".ppk")) {
+                if (file.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".ppk")) {
                     loadPluginPackage(file.toPath());
                 } else {
                     loadPlugin(file.toPath());

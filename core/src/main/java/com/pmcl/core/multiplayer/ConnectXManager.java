@@ -241,7 +241,7 @@ public final class ConnectXManager {
                     BufferedWriter w = stdin;
                     if (w == null) throw new IllegalStateException("stdin 不可用");
                     w.write(cmd);
-                    w.newLine();
+                    w.write("\n");
                     w.flush();
                 }
             } catch (IOException e) {

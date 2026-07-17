@@ -149,20 +149,60 @@ public final class JavaRuntimeDownloader {
     }
 
     private void extractArchive(Path archive, Path target) throws IOException {
-        String os = System.getProperty("os.name").toLowerCase();
         String name = archive.getFileName().toString();
-        ProcessBuilder pb;
         if (name.endsWith(".zip")) {
-            if (os.contains("win")) {
-                pb = new ProcessBuilder("powershell", "-Command",
-                        "Expand-Archive", "-Path", archive.toString(), "-DestinationPath", target.toString());
-            } else {
-                pb = new ProcessBuilder("unzip", "-q", "-o", archive.toString(), "-d", target.toString());
-            }
+            // 纯 Java 解压 zip，避免依赖外部 unzip/powershell
+            extractZip(archive, target);
+        } else if (name.endsWith(".tar.gz") || name.endsWith(".tgz")) {
+            // tar.gz 无法用 Java 内置 API 处理，保留外部 tar 命令
+            extractTarGz(archive, target);
         } else {
-            // .tar.gz
-            pb = new ProcessBuilder("tar", "-xzf", archive.toString(), "-C", target.toString());
+            throw new IOException("不支持的归档格式: " + name);
         }
+    }
+
+    private static void extractZip(Path archive, Path target) throws IOException {
+        try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(archive.toFile())) {
+            java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = zip.entries();
+            while (entries.hasMoreElements()) {
+                java.util.zip.ZipEntry entry = entries.nextElement();
+                java.nio.file.Path out = target.resolve(entry.getName()).normalize();
+                // 防止 zip slip 路径穿越
+                if (!out.startsWith(target)) continue;
+                if (entry.isDirectory()) {
+                    Files.createDirectories(out);
+                } else {
+                    if (out.getParent() != null) Files.createDirectories(out.getParent());
+                    try (java.io.InputStream is = zip.getInputStream(entry)) {
+                        Files.copy(is, out, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    }
+                }
+            }
+        } catch (java.io.IOException e) {
+            throw new IOException("解压 zip 失败: " + archive + " (" + e.getMessage() + ")", e);
+        }
+    }
+
+    private static void extractTarGz(Path archive, Path target) throws IOException {
+        // 先检查 tar 是否可用
+        try {
+            Process check = new ProcessBuilder("tar", "--version").redirectErrorStream(true).start();
+            try {
+                if (!check.waitFor(3, TimeUnit.SECONDS) || check.exitValue() != 0) {
+                    throw new IOException("tar 不可用");
+                }
+            } finally {
+                check.destroyForcibly();
+            }
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            throw new IOException("tar 可用性检查被中断", ie);
+        } catch (IOException ioe) {
+            throw new IOException("tar.gz 解压需要系统 tar 命令，但当前环境不可用。"
+                    + "请安装 tar（macOS/Linux 自带，Windows 需启用 WSL 或安装 bsdtar），"
+                    + "或手动解压 " + archive + " 到 " + target, ioe);
+        }
+        ProcessBuilder pb = new ProcessBuilder("tar", "-xzf", archive.toString(), "-C", target.toString());
         pb.inheritIO();
         Process p = null;
         try {
@@ -208,8 +248,8 @@ public final class JavaRuntimeDownloader {
 
     /** Mojang Java runtime 清单使用的架构标识 */
     private static String currentArch() {
-        String os = System.getProperty("os.name").toLowerCase();
-        String arch = System.getProperty("os.arch").toLowerCase();
+        String os = System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT);
+        String arch = System.getProperty("os.arch").toLowerCase(java.util.Locale.ROOT);
         if (os.contains("mac")) {
             return arch.contains("aarch64") || arch.contains("arm64")
                     ? "macos-arm64" : "macos-amd64";

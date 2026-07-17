@@ -83,7 +83,7 @@ public final class CrashAnalyzer {
         if (!Files.isDirectory(crashDir)) return result;
         try (Stream<Path> stream = Files.list(crashDir)) {
             List<Path> txtFiles = new ArrayList<>();
-            stream.filter(p -> p.getFileName().toString().endsWith(".txt"))
+            stream.filter(p -> p.getFileName().toString().toLowerCase(java.util.Locale.ROOT).endsWith(".txt"))
                   .forEach(txtFiles::add);
             // 预取 mtime，避免在排序比较器中重复 stat（O(n log n) → O(n)）
             Map<Path, Long> mtimeCache = new HashMap<>();
@@ -100,7 +100,7 @@ public final class CrashAnalyzer {
             });
             for (Path p : txtFiles) {
                 try {
-                    String content = Files.readString(p);
+                    String content = Files.readString(p, java.nio.charset.StandardCharsets.UTF_8);
                     result.add(analyze(content, p));
                 } catch (IOException ignored) {}
             }

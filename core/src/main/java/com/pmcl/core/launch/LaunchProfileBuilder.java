@@ -681,7 +681,7 @@ public final class LaunchProfileBuilder {
                 // 跳过 META-INF
                 if (name.startsWith("META-INF/")) continue;
                 // 只提取本地库文件
-                String lower = name.toLowerCase();
+                String lower = name.toLowerCase(java.util.Locale.ROOT);
                 if (!(lower.endsWith(".so") || lower.endsWith(".dylib") ||
                       lower.endsWith(".dll") || lower.endsWith(".jnilib"))) {
                     continue;
@@ -898,14 +898,14 @@ public final class LaunchProfileBuilder {
             // 需要改为绝对路径，否则 macOS 权限问题导致 FileAppender 创建失败
             Path mcRoot = resolveMcRoot(versionId);
             Path absLogs = mcRoot.resolve("logs").toAbsolutePath();
-            String content = java.nio.file.Files.readString(target);
+            String content = java.nio.file.Files.readString(target, java.nio.charset.StandardCharsets.UTF_8);
             // 简单替换：把 "logs/latest.log" 和 "logs/" 改为绝对路径
             content = content.replace("fileName=\"logs/latest.log\"",
                     "fileName=\"" + absLogs.resolve("latest.log") + "\"");
             content = content.replace("filePattern=\"logs/",
                     "filePattern=\"" + absLogs + "/");
             // 写回
-            java.nio.file.Files.writeString(target, content);
+            java.nio.file.Files.writeString(target, content, java.nio.charset.StandardCharsets.UTF_8);
             return target;
         } catch (Exception e) {
             return null;
@@ -925,7 +925,7 @@ public final class LaunchProfileBuilder {
             throw new IOException("版本未安装: " + versionId +
                 "（已查找: " + getVersionsDirs() + "）");
         }
-        String json = Files.readString(jsonPath);
+        String json = Files.readString(jsonPath, java.nio.charset.StandardCharsets.UTF_8);
         VersionJson vj = VersionJson.parse(json);
 
         if (vj.getInheritsFrom() != null && !vj.getInheritsFrom().equals(versionId)) {

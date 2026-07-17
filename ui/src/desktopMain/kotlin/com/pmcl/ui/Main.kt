@@ -165,7 +165,7 @@ fun main() = application {
  */
 private fun readBorderlessPref(path: String): Boolean {
     return try {
-        val json = java.nio.file.Files.readString(java.nio.file.Paths.get(path))
+        val json = java.nio.file.Files.readString(java.nio.file.Paths.get(path), java.nio.charset.StandardCharsets.UTF_8)
         // 简单正则提取，避免完整 JSON 解析开销
         val m = Regex("\"borderlessWindow\"\\s*:\\s*(true|false)").find(json)
         m?.groupValues?.get(1)?.toBoolean() ?: false
@@ -177,7 +177,7 @@ private fun readBorderlessPref(path: String): Boolean {
  */
 private fun readDarkThemePref(path: String): Boolean {
     return try {
-        val json = java.nio.file.Files.readString(java.nio.file.Paths.get(path))
+        val json = java.nio.file.Files.readString(java.nio.file.Paths.get(path), java.nio.charset.StandardCharsets.UTF_8)
         val m = Regex("\"useDarkTheme\"\\s*:\\s*(true|false)").find(json)
         m?.groupValues?.get(1)?.toBoolean() ?: false
     } catch (_: Throwable) { false }

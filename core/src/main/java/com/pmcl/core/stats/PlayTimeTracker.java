@@ -473,8 +473,12 @@ public final class PlayTimeTracker {
             // 原子写入：先写临时文件再 move，防止并发写损坏或 JVM 崩溃截断
             Path tmp = dataFile.resolveSibling(dataFile.getFileName() + ".tmp");
             Files.write(tmp, gson.toJson(root).getBytes(StandardCharsets.UTF_8));
-            Files.move(tmp, dataFile, java.nio.file.StandardCopyOption.ATOMIC_MOVE,
-                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            try {
+                Files.move(tmp, dataFile, java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                Files.move(tmp, dataFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
         } catch (IOException e) {
             System.err.println("[PlayTimeTracker] 保存失败: " + e.getMessage());
         }

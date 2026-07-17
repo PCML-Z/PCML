@@ -83,7 +83,7 @@ public final class ScreenshotManager {
     }
 
     private static boolean isImage(String name) {
-        String lower = name.toLowerCase();
+        String lower = name.toLowerCase(java.util.Locale.ROOT);
         return lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg")
                 || lower.endsWith(".gif") || lower.endsWith(".bmp");
     }

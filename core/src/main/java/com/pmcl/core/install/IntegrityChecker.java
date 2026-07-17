@@ -50,7 +50,7 @@ public final class IntegrityChecker {
             return result;
         }
 
-        JsonObject root = JsonParser.parseString(Files.readString(versionJson)).getAsJsonObject();
+        JsonObject root = JsonParser.parseString(Files.readString(versionJson, java.nio.charset.StandardCharsets.UTF_8)).getAsJsonObject();
 
         // client.jar
         if (root.has("downloads")) {

@@ -55,7 +55,7 @@ public final class DatapackManager {
         try (Stream<Path> stream = Files.list(dpDir)) {
             stream.forEach(p -> {
                 String name = p.getFileName().toString();
-                String lower = name.toLowerCase();
+                String lower = name.toLowerCase(java.util.Locale.ROOT);
                 Datapack dp;
                 if (lower.endsWith(".zip.disabled") && Files.isRegularFile(p)) {
                     dp = parseZip(p, true);
@@ -79,7 +79,7 @@ public final class DatapackManager {
      * @return 新文件名（启用后）
      */
     public String enable(Path worldDir, String fileName) throws IOException {
-        if (!fileName.toLowerCase().endsWith(".disabled")) return fileName;
+        if (!fileName.toLowerCase(java.util.Locale.ROOT).endsWith(".disabled")) return fileName;
         Path dpDir = worldDir.resolve("datapacks");
         Path src = dpDir.resolve(fileName).normalize();
         if (!src.startsWith(dpDir)) throw new IOException("非法文件名: " + fileName);
@@ -111,7 +111,7 @@ public final class DatapackManager {
      * @return 新文件名（禁用后）
      */
     public String disable(Path worldDir, String fileName) throws IOException {
-        if (fileName.toLowerCase().endsWith(".disabled")) return fileName;
+        if (fileName.toLowerCase(java.util.Locale.ROOT).endsWith(".disabled")) return fileName;
         Path dpDir = worldDir.resolve("datapacks");
         Path src = dpDir.resolve(fileName).normalize();
         if (!src.startsWith(dpDir)) throw new IOException("非法文件名: " + fileName);
@@ -162,7 +162,7 @@ public final class DatapackManager {
                 : dir.getFileName().toString();
         if (!Files.exists(meta)) return new Datapack(name, dir, 0, "", false, disabled);
         try {
-            return build(name, dir, Files.readString(meta), false, disabled);
+            return build(name, dir, Files.readString(meta, java.nio.charset.StandardCharsets.UTF_8), false, disabled);
         } catch (Throwable e) {
             return null;
         }
@@ -185,11 +185,11 @@ public final class DatapackManager {
     }
 
     private static String stripDisabledSuffix(String s) {
-        return s.toLowerCase().endsWith(".disabled")
+        return s.toLowerCase(java.util.Locale.ROOT).endsWith(".disabled")
                 ? s.substring(0, s.length() - ".disabled".length()) : s;
     }
 
     private static String stripZipSuffix(String s) {
-        return s.toLowerCase().endsWith(".zip") ? s.substring(0, s.length() - 4) : s;
+        return s.toLowerCase(java.util.Locale.ROOT).endsWith(".zip") ? s.substring(0, s.length() - 4) : s;
     }
 }

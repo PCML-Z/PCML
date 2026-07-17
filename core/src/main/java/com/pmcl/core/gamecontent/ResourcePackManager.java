@@ -64,7 +64,7 @@ public final class ResourcePackManager {
         try (Stream<Path> stream = Files.list(dir)) {
             stream.forEach(p -> {
                 String name = p.getFileName().toString();
-                String lower = name.toLowerCase();
+                String lower = name.toLowerCase(java.util.Locale.ROOT);
                 Pack pack;
                 if (lower.endsWith(".zip.disabled") && Files.isRegularFile(p)) {
                     pack = parseZipPack(p, true);
@@ -91,7 +91,7 @@ public final class ResourcePackManager {
      * @return 新文件名（启用后）
      */
     public String enable(String fileName) throws IOException {
-        if (!fileName.toLowerCase().endsWith(".disabled")) return fileName;
+        if (!fileName.toLowerCase(java.util.Locale.ROOT).endsWith(".disabled")) return fileName;
         Path src = resourcePacksDir.resolve(fileName).normalize();
         if (!src.startsWith(resourcePacksDir)) throw new IOException("非法文件名: " + fileName);
         String enabledName = fileName.substring(0, fileName.length() - ".disabled".length());
@@ -122,7 +122,7 @@ public final class ResourcePackManager {
      * @return 新文件名（禁用后）
      */
     public String disable(String fileName) throws IOException {
-        if (fileName.toLowerCase().endsWith(".disabled")) return fileName;
+        if (fileName.toLowerCase(java.util.Locale.ROOT).endsWith(".disabled")) return fileName;
         Path src = resourcePacksDir.resolve(fileName).normalize();
         if (!src.startsWith(resourcePacksDir)) throw new IOException("非法文件名: " + fileName);
         Path dst = resourcePacksDir.resolve(fileName + ".disabled").normalize();
@@ -174,7 +174,7 @@ public final class ResourcePackManager {
             return new Pack(display, dir, 0, "", false, disabled, null);
         }
         try {
-            String content = Files.readString(meta);
+            String content = Files.readString(meta, java.nio.charset.StandardCharsets.UTF_8);
             return buildPack(display, dir, content, false, disabled);
         } catch (Throwable e) {
             return null;
@@ -200,12 +200,12 @@ public final class ResourcePackManager {
     }
 
     private static String stripDisabledSuffix(String s) {
-        return s.toLowerCase().endsWith(".disabled")
+        return s.toLowerCase(java.util.Locale.ROOT).endsWith(".disabled")
                 ? s.substring(0, s.length() - ".disabled".length()) : s;
     }
 
     private static String stripZipSuffix(String s) {
-        return s.toLowerCase().endsWith(".zip") ? s.substring(0, s.length() - 4) : s;
+        return s.toLowerCase(java.util.Locale.ROOT).endsWith(".zip") ? s.substring(0, s.length() - 4) : s;
     }
 
     private static String readAll(InputStream in) throws IOException {

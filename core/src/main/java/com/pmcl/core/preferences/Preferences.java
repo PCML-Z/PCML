@@ -481,7 +481,7 @@ public final class Preferences {
     public synchronized void load() {
         if (!Files.exists(file)) return;
         try {
-            String content = Files.readString(file);
+            String content = Files.readString(file, java.nio.charset.StandardCharsets.UTF_8);
             if (content.isBlank()) return;
             var parsed = JsonParser.parseString(content);
             if (parsed == null || !parsed.isJsonObject()) return;
@@ -648,10 +648,15 @@ public final class Preferences {
             tmp = parent == null
                     ? java.nio.file.Paths.get(file.getFileName() + ".tmp")
                     : parent.resolve(file.getFileName() + ".tmp");
-            Files.writeString(tmp, gson.toJson(snapshot));
-            Files.move(tmp, file,
-                    java.nio.file.StandardCopyOption.ATOMIC_MOVE,
-                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            Files.writeString(tmp, gson.toJson(snapshot), java.nio.charset.StandardCharsets.UTF_8);
+            try {
+                Files.move(tmp, file,
+                        java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                Files.move(tmp, file,
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
             tmp = null; // 移动成功，无需清理
         } catch (Throwable e) {
             System.err.println("[Preferences] 配置保存失败: " + e.getMessage());
@@ -763,7 +768,7 @@ public final class Preferences {
             JsonObject o = buildJson();
             java.nio.file.Path parent = file.getParent();
             if (parent != null) Files.createDirectories(parent);
-            Files.writeString(file, gson.toJson(o));
+            Files.writeString(file, gson.toJson(o), java.nio.charset.StandardCharsets.UTF_8);
         } catch (Throwable ignored) {
         }
     }

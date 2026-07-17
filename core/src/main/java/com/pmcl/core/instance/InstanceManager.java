@@ -76,11 +76,11 @@ public final class InstanceManager {
             Path legacyMarker = instanceDir.resolve(LEGACY_MODPACK_MARKER);
 
             if (Files.exists(newMarker)) {
-                String json = Files.readString(newMarker);
+                String json = Files.readString(newMarker, java.nio.charset.StandardCharsets.UTF_8);
                 return InstanceInfo.fromJson(json, instanceDir);
             }
             if (Files.exists(legacyMarker)) {
-                String json = Files.readString(legacyMarker);
+                String json = Files.readString(legacyMarker, java.nio.charset.StandardCharsets.UTF_8);
                 return InstanceInfo.fromModpackJson(json, instanceDir);
             }
             // 无标记文件但存在 mods/ 子目录（versionIsolation 创建的目录）
@@ -188,7 +188,7 @@ public final class InstanceManager {
     /** 保存实例元数据到 instance.json */
     public void saveInstanceInfo(InstanceInfo info) throws IOException {
         Files.createDirectories(info.getInstanceDir());
-        Files.writeString(info.getInstanceDir().resolve(INSTANCE_MARKER), info.toJson());
+        Files.writeString(info.getInstanceDir().resolve(INSTANCE_MARKER), info.toJson(), java.nio.charset.StandardCharsets.UTF_8);
     }
 
     /** 获取实例目录（用于启动时设置 gameDir） */

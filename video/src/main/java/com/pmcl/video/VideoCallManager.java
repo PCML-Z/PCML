@@ -53,30 +53,38 @@ public final class VideoCallManager {
      * macOS 用 avfoundation，Linux 用 video4linux2，Windows 用 dshow。
      */
     public static FFmpegFrameGrabber createCameraGrabber(int width, int height, int fps) {
-        String osName = System.getProperty("os.name").toLowerCase();
+        String osName = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT);
         FFmpegFrameGrabber grabber;
 
-        if (osName.contains("mac")) {
-            // macOS: avfoundation, 格式为 "video:audio"
-            // "0:none" = 视频设备0（默认摄像头），无音频
-            grabber = new FFmpegFrameGrabber("0:none");
-            grabber.setFormat("avfoundation");
-            grabber.setOption("framerate", "30");
-            grabber.setFrameRate(30);
-        } else if (osName.contains("win")) {
-            // Windows: dshow, 设备名需要枚举，先用 "video=0" 占位
-            grabber = new FFmpegFrameGrabber("video=0");
-            grabber.setFormat("dshow");
-            grabber.setFrameRate(fps);
-        } else {
-            // Linux: video4linux2, /dev/video0
-            grabber = new FFmpegFrameGrabber("/dev/video0");
-            grabber.setFormat("v4l2");
-            grabber.setFrameRate(fps);
-        }
+        try {
+            if (osName.contains("mac")) {
+                // macOS: avfoundation, 格式为 "video:audio"
+                // "0:none" = 视频设备0（默认摄像头），无音频
+                // macOS 摄像头权限：Java 无法自动申请/检测授权，未授权时打开会失败，
+                // 仅提示用户在「系统设置 > 隐私与安全性 > 摄像头」中授权运行 PMCL 的应用。
+                System.err.println("[VideoCall] macOS 摄像头提示：若无法打开，请在「系统设置 > 隐私与安全性 > 摄像头」中授权运行 PMCL 的应用。");
+                grabber = new FFmpegFrameGrabber("0:none");
+                grabber.setFormat("avfoundation");
+                grabber.setOption("framerate", String.valueOf(fps));
+                grabber.setFrameRate(fps);
+            } else if (osName.contains("win")) {
+                // Windows: dshow, 设备名需要枚举，先用 "video=0" 占位
+                grabber = new FFmpegFrameGrabber("video=0");
+                grabber.setFormat("dshow");
+                grabber.setFrameRate(fps);
+            } else {
+                // Linux: video4linux2, /dev/video0
+                grabber = new FFmpegFrameGrabber("/dev/video0");
+                grabber.setFormat("v4l2");
+                grabber.setFrameRate(fps);
+            }
 
-        grabber.setImageWidth(width);
-        grabber.setImageHeight(height);
+            grabber.setImageWidth(width);
+            grabber.setImageHeight(height);
+        } catch (Throwable t) {
+            throw new RuntimeException("摄像头打开失败：" + t.getMessage()
+                    + "。请检查摄像头是否被占用、驱动是否正常、权限是否已授予。", t);
+        }
 
         return grabber;
     }

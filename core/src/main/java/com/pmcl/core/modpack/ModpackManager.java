@@ -339,7 +339,7 @@ public final class ModpackManager {
         // 收集 mods 列表
         List<Path> modFiles = new ArrayList<>();
         try (var stream = Files.list(modsDir)) {
-            stream.filter(p -> p.toString().endsWith(".jar")
+            stream.filter(p -> p.toString().toLowerCase(java.util.Locale.ROOT).endsWith(".jar")
                     && !p.toString().endsWith(".disabled"))
                     .forEach(modFiles::add);
         }
@@ -459,7 +459,7 @@ public final class ModpackManager {
         Path modpackJson = gameDir.resolve("modpack.json");
         if (Files.isRegularFile(modpackJson)) {
             try {
-                JsonObject info = JsonParser.parseString(Files.readString(modpackJson)).getAsJsonObject();
+                JsonObject info = JsonParser.parseString(Files.readString(modpackJson, java.nio.charset.StandardCharsets.UTF_8)).getAsJsonObject();
                 if (info.has("loader")) loader = safeStr(info, "loader", "");
                 if (info.has("loaderVersion")) loaderVersion = safeStr(info, "loaderVersion", "");
                 if (info.has("author")) author = safeStr(info, "author", "PMCL");
@@ -470,7 +470,7 @@ public final class ModpackManager {
         // 收集 mods 列表
         List<Path> modFiles = new ArrayList<>();
         try (var stream = Files.list(modsDir)) {
-            stream.filter(p -> p.toString().endsWith(".jar")
+            stream.filter(p -> p.toString().toLowerCase(java.util.Locale.ROOT).endsWith(".jar")
                     && !p.toString().endsWith(".disabled"))
                     .forEach(modFiles::add);
         }
@@ -648,7 +648,7 @@ public final class ModpackManager {
             Path modsDir = dir.resolve("mods");
             if (Files.isDirectory(modsDir)) {
                 try (var s = Files.list(modsDir)) {
-                    modCount = s.filter(p -> p.toString().endsWith(".jar")).count();
+                    modCount = s.filter(p -> p.toString().toLowerCase(java.util.Locale.ROOT).endsWith(".jar")).count();
                 }
             }
             return new InstalledModpack(name, gameVersion, loader,

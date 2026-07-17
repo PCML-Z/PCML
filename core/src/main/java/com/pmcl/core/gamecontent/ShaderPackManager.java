@@ -64,7 +64,7 @@ public final class ShaderPackManager {
             stream.filter(Files::isRegularFile)
                     .forEach(p -> {
                         String fileName = p.getFileName().toString();
-                        String lower = fileName.toLowerCase();
+                        String lower = fileName.toLowerCase(java.util.Locale.ROOT);
                         boolean disabled = false;
                         String display;
                         // 识别 .zip.disabled 与 .zip 两种文件
@@ -95,7 +95,7 @@ public final class ShaderPackManager {
      * @return 新文件名（启用后）
      */
     public String enable(String fileName) throws IOException {
-        if (!fileName.toLowerCase().endsWith(".disabled")) return fileName;
+        if (!fileName.toLowerCase(java.util.Locale.ROOT).endsWith(".disabled")) return fileName;
         Path src = shaderPacksDir.resolve(fileName).normalize();
         if (!src.startsWith(shaderPacksDir)) throw new IOException("非法文件名: " + fileName);
         String enabledName = fileName.substring(0, fileName.length() - ".disabled".length());
@@ -117,7 +117,7 @@ public final class ShaderPackManager {
      * @return 新文件名（禁用后）
      */
     public String disable(String fileName) throws IOException {
-        if (fileName.toLowerCase().endsWith(".disabled")) return fileName;
+        if (fileName.toLowerCase(java.util.Locale.ROOT).endsWith(".disabled")) return fileName;
         Path src = shaderPacksDir.resolve(fileName).normalize();
         if (!src.startsWith(shaderPacksDir)) throw new IOException("非法文件名: " + fileName);
         Path dst = shaderPacksDir.resolve(fileName + ".disabled").normalize();
@@ -157,7 +157,7 @@ public final class ShaderPackManager {
     private void writeOption(String key, String value) throws IOException {
         if (!Files.exists(optionsFile)) {
             if (optionsFile.getParent() != null) Files.createDirectories(optionsFile.getParent());
-            Files.writeString(optionsFile, key + ":" + value + "\n");
+            Files.writeString(optionsFile, key + ":" + value + "\n", java.nio.charset.StandardCharsets.UTF_8);
             return;
         }
         List<String> lines = new ArrayList<>(Files.readAllLines(optionsFile, java.nio.charset.StandardCharsets.UTF_8));
@@ -198,6 +198,6 @@ public final class ShaderPackManager {
     }
 
     private static String stripZipSuffix(String s) {
-        return s.toLowerCase().endsWith(".zip") ? s.substring(0, s.length() - 4) : s;
+        return s.toLowerCase(java.util.Locale.ROOT).endsWith(".zip") ? s.substring(0, s.length() - 4) : s;
     }
 }

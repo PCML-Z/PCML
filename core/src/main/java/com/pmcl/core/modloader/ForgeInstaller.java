@@ -134,7 +134,7 @@ public final class ForgeInstaller implements ModLoaderInstaller {
                 Path versionDir = config.getVersionsDir().resolve(versionId);
                 Files.createDirectories(versionDir);
                 Files.writeString(versionDir.resolve(versionId + ".json"),
-                        versionJson.toString());
+                        versionJson.toString(), java.nio.charset.StandardCharsets.UTF_8);
 
                 // 4. 提取 installer.jar 内嵌的 maven 库到 libraries
                 if (onProgress != null) onProgress.accept(new InstallProgress(

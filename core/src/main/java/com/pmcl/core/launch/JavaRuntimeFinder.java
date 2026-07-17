@@ -72,7 +72,7 @@ public final class JavaRuntimeFinder {
 
         // 2. 常见安装路径
         List<String> candidates = new ArrayList<>();
-        String os = System.getProperty("os.name").toLowerCase();
+        String os = System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT);
         if (os.contains("mac")) {
             Path jvmDir = Paths.get("/Library/Java/JavaVirtualMachines");
             if (Files.isDirectory(jvmDir)) {
@@ -231,9 +231,20 @@ public final class JavaRuntimeFinder {
      * 判断当前系统是否为 Apple Silicon Mac（arm64 架构的 macOS）。
      */
     private static boolean isAppleSiliconMac() {
-        String osName = System.getProperty("os.name", "").toLowerCase();
-        String osArch = System.getProperty("os.arch", "").toLowerCase();
-        return osName.contains("mac") && (osArch.contains("aarch64") || osArch.contains("arm64"));
+        if (!System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("mac")) return false;
+        // 优先用 sysctl 检测真实硬件架构（Rosetta 2 下 os.arch 不可靠）
+        try {
+            Process p = new ProcessBuilder("sysctl", "-n", "hw.optional.arm64").start();
+            try (var in = p.getInputStream()) {
+                String out = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8).trim();
+                if (p.waitFor(2, java.util.concurrent.TimeUnit.SECONDS) && p.exitValue() == 0) {
+                    return "1".equals(out);
+                }
+            }
+        } catch (Exception ignored) {}
+        // 回退：os.arch（非 Rosetta 场景可靠）
+        String arch = System.getProperty("os.arch", "");
+        return "aarch64".equals(arch);
     }
 
     /**
@@ -241,7 +252,7 @@ public final class JavaRuntimeFinder {
      * 用于 Apple Silicon Mac 上选择可通过 Rosetta 2 运行的 Java。
      */
     private static boolean isX86Arch(String javaExe) {
-        String arch = getArchitecture(javaExe).toLowerCase();
+        String arch = getArchitecture(javaExe).toLowerCase(java.util.Locale.ROOT);
         return arch.contains("x86_64") || arch.contains("amd64") || arch.contains("x64");
     }
 
@@ -250,7 +261,7 @@ public final class JavaRuntimeFinder {
      * 龙芯 3A5000/3A6000 及以后使用 LoongArch64 架构。
      */
     public static boolean isLoongArch64() {
-        String arch = System.getProperty("os.arch", "").toLowerCase();
+        String arch = System.getProperty("os.arch", "").toLowerCase(java.util.Locale.ROOT);
         return arch.contains("loongarch64") || arch.contains("la64") || arch.contains("la464");
     }
 
@@ -259,7 +270,7 @@ public final class JavaRuntimeFinder {
      * 龙芯 3A3000/3A4000 等使用 MIPS64el 架构。
      */
     public static boolean isMips64el() {
-        String arch = System.getProperty("os.arch", "").toLowerCase();
+        String arch = System.getProperty("os.arch", "").toLowerCase(java.util.Locale.ROOT);
         return arch.contains("mips64el") || arch.contains("mips64");
     }
 
@@ -275,7 +286,7 @@ public final class JavaRuntimeFinder {
      * 常见于 RVV 开发板（如 VisionFive 2）、SiFive、阿里平头哥 C910 等硬件。
      */
     public static boolean isRiscV64() {
-        String arch = System.getProperty("os.arch", "").toLowerCase();
+        String arch = System.getProperty("os.arch", "").toLowerCase(java.util.Locale.ROOT);
         return arch.contains("riscv64") || arch.contains("risc-v64") || arch.contains("rv64");
     }
 
@@ -333,8 +344,8 @@ public final class JavaRuntimeFinder {
             ARCH_CACHE.put(javaExe, result);
             return result;
         }
-        // 回退到启动器自身的 os.arch（不缓存，便于后续重试）
-        return System.getProperty("os.arch", "");
+        // 探测失败，返回 unknown（os.arch 是启动器自身架构，会误导目标 Java 架构判断）
+        return "unknown";
     }
 
     /** 实际通过 fork java -XshowSettings:properties -version 解析 os.arch */
@@ -361,7 +372,7 @@ public final class JavaRuntimeFinder {
     private static String resolveJava(String home) {
         Path p = Paths.get(home);
         if (!Files.isDirectory(p)) return null;
-        String os = System.getProperty("os.name").toLowerCase();
+        String os = System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT);
         // macOS: JDK 目录结构是 xxx.jdk/Contents/Home/bin/java
         if (os.contains("mac")) {
             Path contentsHome = p.resolve("Contents/Home");
@@ -377,7 +388,7 @@ public final class JavaRuntimeFinder {
     public static List<String> scanRuntimes(Path runtimesDir) {
         List<String> result = new ArrayList<>();
         if (!Files.isDirectory(runtimesDir)) return result;
-        String os = System.getProperty("os.name").toLowerCase();
+        String os = System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT);
         try (Stream<Path> stream = Files.list(runtimesDir)) {
             stream.filter(Files::isDirectory).forEach(archDir -> {
                 try (Stream<Path> inner = Files.list(archDir)) {

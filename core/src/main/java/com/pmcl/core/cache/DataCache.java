@@ -67,9 +67,13 @@ public final class DataCache {
             wrapper.put("data", data);
             // 原子写入：防止并发写损坏
             Path tmp = file.resolveSibling(file.getFileName() + ".tmp");
-            Files.writeString(tmp, GSON.toJson(wrapper));
-            Files.move(tmp, file, java.nio.file.StandardCopyOption.ATOMIC_MOVE,
-                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            Files.writeString(tmp, GSON.toJson(wrapper), java.nio.charset.StandardCharsets.UTF_8);
+            try {
+                Files.move(tmp, file, java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                Files.move(tmp, file, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
             memCache.put(key, new CacheEntry<>(data, System.currentTimeMillis()));
         } catch (Exception e) {
             System.err.println("[DataCache] save failed for " + key + ": " + e.getMessage());
@@ -93,7 +97,7 @@ public final class DataCache {
         try {
             Path file = CACHE_DIR.resolve(key + ".json");
             if (!Files.exists(file)) return null;
-            String json = Files.readString(file);
+            String json = Files.readString(file, java.nio.charset.StandardCharsets.UTF_8);
             JsonElement root = JsonParser.parseString(json);
             if (!root.isJsonObject()) return null;
             JsonElement dataEl = root.getAsJsonObject().get("data");
@@ -124,7 +128,7 @@ public final class DataCache {
         try {
             Path file = CACHE_DIR.resolve(key + ".json");
             if (!Files.exists(file)) return null;
-            String json = Files.readString(file);
+            String json = Files.readString(file, java.nio.charset.StandardCharsets.UTF_8);
             JsonElement root = JsonParser.parseString(json);
             if (!root.isJsonObject()) return null;
             JsonElement dataEl = root.getAsJsonObject().get("data");

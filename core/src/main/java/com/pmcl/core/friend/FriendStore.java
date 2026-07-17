@@ -74,7 +74,7 @@ public final class FriendStore {
         // 加载聊天记录
         try (var stream = Files.list(messagesDir)) {
             Path[] msgFiles = stream
-                    .filter(p -> p.toString().endsWith(".json"))
+                    .filter(p -> p.toString().toLowerCase(java.util.Locale.ROOT).endsWith(".json"))
                     .toArray(Path[]::new);
             for (Path file : msgFiles) {
                 String fileName = file.getFileName().toString();
@@ -130,7 +130,11 @@ public final class FriendStore {
     private void atomicWrite(Path target, String content) throws IOException {
         Path tmp = target.resolveSibling(target.getFileName() + ".tmp");
         Files.writeString(tmp, content, StandardCharsets.UTF_8);
-        Files.move(tmp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        try {
+            Files.move(tmp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+            Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
+        }
     }
 
     // ---------------------------------------------------------------------------

@@ -106,7 +106,7 @@ public final class OptiFineInstaller implements ModLoaderInstaller {
                 Path versionDir = config.getVersionsDir().resolve(versionId);
                 Files.createDirectories(versionDir);
                 Files.writeString(versionDir.resolve(versionId + ".json"),
-                        versionJsonStr);
+                        versionJsonStr, java.nio.charset.StandardCharsets.UTF_8);
 
                 if (onProgress != null) onProgress.accept(new InstallProgress(
                         InstallProgress.Stage.DONE, 1, 1,

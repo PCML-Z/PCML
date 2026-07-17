@@ -154,7 +154,7 @@ public final class ConfigFileManager {
         if (size > MAX_FILE_SIZE) {
             throw new IOException("文件过大（" + formatSize(size) + "），超过 1MB 限制，请使用外部编辑器");
         }
-        return Files.readString(file);
+        return Files.readString(file, java.nio.charset.StandardCharsets.UTF_8);
     }
 
     /**
@@ -170,7 +170,7 @@ public final class ConfigFileManager {
         if (Files.exists(file) && !Files.exists(backup)) {
             Files.copy(file, backup);
         }
-        Files.writeString(file, content);
+        Files.writeString(file, content, java.nio.charset.StandardCharsets.UTF_8);
     }
 
     /** 删除文件 */
@@ -186,7 +186,11 @@ public final class ConfigFileManager {
         if (!file.startsWith(configDir)) throw new IOException("非法路径: " + relativePath);
         Path target = file.resolveSibling(newName).normalize();
         if (!target.startsWith(configDir)) throw new IOException("非法目标路径: " + newName);
-        Files.move(file, target, StandardCopyOption.ATOMIC_MOVE);
+        try {
+            Files.move(file, target, StandardCopyOption.ATOMIC_MOVE);
+        } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+            Files.move(file, target);
+        }
     }
 
     /** 创建新文件 */
@@ -213,7 +217,7 @@ public final class ConfigFileManager {
 
     /** 判断文件是否为支持的配置文件格式 */
     private static boolean isSupportedConfig(Path file) {
-        String name = file.getFileName().toString().toLowerCase();
+        String name = file.getFileName().toString().toLowerCase(java.util.Locale.ROOT);
         // 隐藏文件和备份文件不显示
         if (name.startsWith(".")) return false;
         if (name.endsWith(".bak") || name.endsWith(".disabled") || name.endsWith(".old")) return false;

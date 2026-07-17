@@ -177,7 +177,7 @@ public final class ExternalLauncherDetector {
                     try (Stream<Path> stream = Files.list(baseDir)) {
                         stream.filter(Files::isDirectory)
                               .filter(p -> {
-                                  String name = p.getFileName().toString().toLowerCase();
+                                  String name = p.getFileName().toString().toLowerCase(java.util.Locale.ROOT);
                                   return name.startsWith("launcherx") && name.endsWith(".app");
                               })
                               .forEach(p -> appPaths.add(p.toString()));
@@ -198,7 +198,7 @@ public final class ExternalLauncherDetector {
                         home, "Library/Application Support/LauncherX/launcherx.json");
                 if (Files.exists(configPath)) {
                     try {
-                        String content = Files.readString(configPath);
+                        String content = Files.readString(configPath, java.nio.charset.StandardCharsets.UTF_8);
                         // 解析 GamePathList 段中的 Path 字段（取第一个条目）
                         int gplIdx = content.indexOf("GamePathList");
                         if (gplIdx >= 0) {

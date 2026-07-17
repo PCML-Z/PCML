@@ -16,9 +16,10 @@ import java.util.List;
  */
 public final class RuntimeManager {
 
-    private final SystemInfo systemInfo;
-    private final HardwareAbstractionLayer hardware;
-    private final OperatingSystem os;
+    private SystemInfo systemInfo;
+    private HardwareAbstractionLayer hardware;
+    private OperatingSystem os;
+    private volatile boolean available = false;
 
     // CPU 负载计算所需的上一次采样
     private long[] prevCpuTicks;
@@ -31,18 +32,31 @@ public final class RuntimeManager {
     private boolean netInitialized = false;
 
     public RuntimeManager() {
-        this.systemInfo = new SystemInfo();
-        this.hardware = systemInfo.getHardware();
-        this.os = systemInfo.getOperatingSystem();
-        // 初始化 CPU ticks
-        this.prevCpuTicks = hardware.getProcessor().getSystemCpuLoadTicks();
-        this.prevCpuTimeNs = System.nanoTime();
+        SystemInfo si = null;
+        HardwareAbstractionLayer hw = null;
+        OperatingSystem op = null;
+        try {
+            si = new SystemInfo();
+            hw = si.getHardware();
+            op = si.getOperatingSystem();
+            // 初始化 CPU ticks
+            this.prevCpuTicks = hw.getProcessor().getSystemCpuLoadTicks();
+            this.prevCpuTimeNs = System.nanoTime();
+            this.available = true;
+        } catch (Throwable t) {
+            // oshi/JNA 在非主流架构或原生库缺失时可能抛 UnsatisfiedLinkError，降级为空实现
+            System.err.println("[RuntimeManager] oshi 初始化失败，降级为空实现: " + t);
+        }
+        this.systemInfo = si;
+        this.hardware = hw;
+        this.os = op;
     }
 
     /**
      * 获取系统可用内存（MB）。
      */
     public long getAvailableMemoryMb() {
+        if (!available) return 0;
         GlobalMemory mem = hardware.getMemory();
         return mem.getAvailable() / (1024 * 1024);
     }
@@ -51,6 +65,7 @@ public final class RuntimeManager {
      * 获取系统总内存（MB）。
      */
     public long getTotalMemoryMb() {
+        if (!available) return 0;
         GlobalMemory mem = hardware.getMemory();
         return mem.getTotal() / (1024 * 1024);
     }
@@ -59,6 +74,7 @@ public final class RuntimeManager {
      * 获取操作系统名称。
      */
     public String getOsName() {
+        if (!available) return "未知";
         return os.toString();
     }
 
@@ -78,6 +94,7 @@ public final class RuntimeManager {
      * 基于两次调用间的 tick 差异计算，首次调用返回 0。
      */
     public synchronized double getCpuLoad() {
+        if (!available) return 0.0;
         CentralProcessor cpu = hardware.getProcessor();
         long[] curTicks = cpu.getSystemCpuLoadTicks();
         double load = cpu.getSystemCpuLoadBetweenTicks(prevCpuTicks);
@@ -89,6 +106,7 @@ public final class RuntimeManager {
      * 获取 CPU 逻辑核心数。
      */
     public int getCpuLogicalCores() {
+        if (!available) return 0;
         return hardware.getProcessor().getLogicalProcessorCount();
     }
 
@@ -96,6 +114,7 @@ public final class RuntimeManager {
      * 获取 CPU 物理核心数。
      */
     public int getCpuPhysicalCores() {
+        if (!available) return 0;
         return hardware.getProcessor().getPhysicalProcessorCount();
     }
 
@@ -103,6 +122,7 @@ public final class RuntimeManager {
      * 获取 CPU 型号名称。
      */
     public String getCpuName() {
+        if (!available) return "未知";
         return hardware.getProcessor().getProcessorIdentifier().getName();
     }
 
@@ -110,6 +130,7 @@ public final class RuntimeManager {
      * 获取系统内存使用率（0.0 ~ 1.0）。
      */
     public double getMemoryLoad() {
+        if (!available) return 0.0;
         GlobalMemory mem = hardware.getMemory();
         long total = mem.getTotal();
         long available = mem.getAvailable();
@@ -161,13 +182,27 @@ public final class RuntimeManager {
      * 获取系统主磁盘（PMCL 所在分区）的磁盘使用率（0.0 ~ 1.0）。
      */
     public double getMainDiskLoad() {
+        if (!available) return 0.0;
         try {
             List<OSFileStore> stores = os.getFileSystem().getFileStores();
             if (stores.isEmpty()) return 0.0;
-            // 取第一个（通常是系统盘）
-            OSFileStore store = stores.get(0);
-            long total = store.getTotalSpace();
-            long usable = store.getUsableSpace();
+            // 找到包含工作目录所在盘的 store；找不到则回退第一个
+            OSFileStore matched = null;
+            try {
+                java.nio.file.Path cwdRoot = java.nio.file.Paths.get(".").toAbsolutePath().getRoot();
+                String cwdRootStr = cwdRoot != null ? cwdRoot.toString() : null;
+                for (OSFileStore s : stores) {
+                    String mount = s.getMount();
+                    if (mount == null) continue;
+                    if (cwdRootStr != null && cwdRootStr.equalsIgnoreCase(mount)) {
+                        matched = s;
+                        break;
+                    }
+                }
+            } catch (Throwable ignored) {}
+            if (matched == null) matched = stores.get(0);
+            long total = matched.getTotalSpace();
+            long usable = matched.getUsableSpace();
             if (total <= 0) return 0.0;
             return (double) (total - usable) / (double) total;
         } catch (Throwable t) {
@@ -202,6 +237,7 @@ public final class RuntimeManager {
      * 获取系统运行时长（秒）。
      */
     public long getSystemUptimeSeconds() {
+        if (!available) return 0;
         return os.getSystemUptime();
     }
 
@@ -213,14 +249,18 @@ public final class RuntimeManager {
      * @return [上传KB/s, 下载KB/s]
      */
     public synchronized double[] getNetworkSpeedKbS() {
+        if (!available) return new double[]{0, 0};
         long curSent = 0, curRecv = 0;
         try {
             List<NetworkIF> nifs = hardware.getNetworkIFs();
             for (NetworkIF nif : nifs) {
-                // 跳过回环接口
+                String name = nif.getName();
+                if (name == null) continue;
+                // 过滤虚拟接口（docker/veth/桥接/隧道等），避免 Windows 上负值或异常流量
+                if (isVirtualInterfaceName(name)) continue;
                 try {
-                    java.net.NetworkInterface ni = java.net.NetworkInterface.getByName(nif.getName());
-                    if (ni != null && ni.isLoopback()) continue;
+                    java.net.NetworkInterface ni = java.net.NetworkInterface.getByName(name);
+                    if (ni != null && (ni.isLoopback() || ni.isVirtual() || !ni.isUp())) continue;
                 } catch (Throwable ignored) {}
                 nif.updateAttributes();
                 curSent += nif.getBytesSent();
@@ -253,6 +293,14 @@ public final class RuntimeManager {
         return new double[]{Math.max(0, upKbS), Math.max(0, downKbS)};
     }
 
+    private static boolean isVirtualInterfaceName(String name) {
+        String n = name.toLowerCase(java.util.Locale.ROOT);
+        return n.startsWith("docker") || n.startsWith("veth") || n.startsWith("br-")
+                || n.startsWith("virbr") || n.startsWith("tun") || n.startsWith("utun")
+                || n.startsWith("tap") || n.startsWith("vnic") || n.startsWith("vmnet")
+                || n.equals("lo");
+    }
+
     // ===== 显卡信息 =====
 
     /**
@@ -260,6 +308,7 @@ public final class RuntimeManager {
      * @return 显卡名称数组，无则返回空数组
      */
     public List<GraphicsCard> getGraphicsCards() {
+        if (!available) return java.util.Collections.emptyList();
         try {
             return hardware.getGraphicsCards();
         } catch (Throwable t) {
@@ -271,11 +320,12 @@ public final class RuntimeManager {
      * 获取主显卡名称（第一个非虚拟显卡）。
      */
     public String getPrimaryGpuName() {
+        if (!available) return "未知";
         try {
             List<GraphicsCard> cards = hardware.getGraphicsCards();
             for (GraphicsCard c : cards) {
                 String name = c.getName();
-                if (name != null && !name.isEmpty() && !name.toLowerCase().contains("virtual")) {
+                if (name != null && !name.isEmpty() && !name.toLowerCase(java.util.Locale.ROOT).contains("virtual")) {
                     return name;
                 }
             }
@@ -288,6 +338,7 @@ public final class RuntimeManager {
      * 获取主显卡显存（MB），不可用时返回 -1。
      */
     public long getPrimaryGpuVramMb() {
+        if (!available) return -1;
         try {
             List<GraphicsCard> cards = hardware.getGraphicsCards();
             for (GraphicsCard c : cards) {

@@ -257,7 +257,11 @@ public final class FriendIdentityManager {
             Path target = dataDir.resolve("identity.json");
             Path tmp = dataDir.resolve("identity.json.tmp");
             Files.writeString(tmp, json, StandardCharsets.UTF_8);
-            Files.move(tmp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            try {
+                Files.move(tmp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
+            }
         } catch (IOException e) {
             System.err.println("[FriendIdentity] 保存身份失败: " + e.getMessage());
         }

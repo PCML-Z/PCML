@@ -142,7 +142,7 @@ public final class WorldManager {
     /** 导入世界 zip（与 restore 相同，但目标名取 zip 文件名） */
     public void importWorld(Path zipFile) throws IOException {
         String name = zipFile.getFileName().toString();
-        if (name.toLowerCase().endsWith(".zip")) name = name.substring(0, name.length() - 4);
+        if (name.toLowerCase(java.util.Locale.ROOT).endsWith(".zip")) name = name.substring(0, name.length() - 4);
         restore(zipFile, name);
     }
 

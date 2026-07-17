@@ -124,7 +124,7 @@ public final class PluginPackageBuilder {
         if (Files.isDirectory(libDir)) {
             List<Path> jars = new ArrayList<>();
             try (var stream = Files.walk(libDir)) {
-                stream.filter(p -> p.toString().endsWith(".jar"))
+                stream.filter(p -> p.toString().toLowerCase(java.util.Locale.ROOT).endsWith(".jar"))
                     .forEach(jars::add);
             }
             for (Path jar : jars) {

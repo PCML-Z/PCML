@@ -80,7 +80,7 @@ public final class FabricInstaller implements ModLoaderInstaller {
 
                 Path versionDir = config.getVersionsDir().resolve(id);
                 Files.createDirectories(versionDir);
-                Files.writeString(versionDir.resolve(id + ".json"), profileJson);
+                Files.writeString(versionDir.resolve(id + ".json"), profileJson, java.nio.charset.StandardCharsets.UTF_8);
 
                 if (onProgress != null) onProgress.accept(new InstallProgress(
                         InstallProgress.Stage.DONE, 1, 1,

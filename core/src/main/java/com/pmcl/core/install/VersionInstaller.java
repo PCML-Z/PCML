@@ -81,7 +81,7 @@ public final class VersionInstaller {
         Path versionJsonPath = config.getVersionsDir().resolve(versionId).resolve(versionId + ".json");
         Files.createDirectories(versionJsonPath.getParent());
         String versionJsonStr = downloadManager.downloadString(target.getUrl());
-        Files.writeString(versionJsonPath, versionJsonStr);
+        Files.writeString(versionJsonPath, versionJsonStr, java.nio.charset.StandardCharsets.UTF_8);
 
         VersionJson vj = VersionJson.parse(versionJsonStr);
 
@@ -133,7 +133,7 @@ public final class VersionInstaller {
                 String idxJson = downloadManager.downloadString(assetIndexUrl);
                 Path idxPath = config.getAssetsDir().resolve("indexes").resolve(vj.getAssets() + ".json");
                 Files.createDirectories(idxPath.getParent());
-                Files.writeString(idxPath, idxJson);
+                Files.writeString(idxPath, idxJson, java.nio.charset.StandardCharsets.UTF_8);
 
                 AssetIndex idx = AssetIndex.parse(idxJson);
                 for (AssetIndex.Asset a : idx.getAssets().values()) {

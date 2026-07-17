@@ -200,7 +200,11 @@ public final class ChunkedDownloader {
         // 全部完成，清理进度文件
         deleteChunkProgress(target);
         // 原子重命名
-        Files.move(partFile, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        try {
+            Files.move(partFile, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+            Files.move(partFile, target, StandardCopyOption.REPLACE_EXISTING);
+        }
         if (onProgress != null) onProgress.accept(size);
     }
 
@@ -212,7 +216,7 @@ public final class ChunkedDownloader {
         Path progressFile = target.resolveSibling(target.getFileName() + PROGRESS_SUFFIX);
         if (!Files.exists(progressFile)) return new long[chunkCount];
         try {
-            List<String> lines = Files.readAllLines(progressFile);
+            List<String> lines = Files.readAllLines(progressFile, java.nio.charset.StandardCharsets.UTF_8);
             long[] result = new long[chunkCount];
             for (int i = 0; i < Math.min(lines.size(), chunkCount); i++) {
                 try {
@@ -235,7 +239,7 @@ public final class ChunkedDownloader {
             for (long c : chunkCompleted) {
                 sb.append(c).append('\n');
             }
-            Files.writeString(progressFile, sb.toString());
+            Files.writeString(progressFile, sb.toString(), java.nio.charset.StandardCharsets.UTF_8);
         } catch (Exception ignored) {
             // 保存失败不影响下载流程
         }
@@ -361,7 +365,11 @@ public final class ChunkedDownloader {
         }
         // 全部完成，清理进度文件并重命名
         deleteChunkProgress(target);
-        Files.move(partFile, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        try {
+            Files.move(partFile, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+            Files.move(partFile, target, StandardCopyOption.REPLACE_EXISTING);
+        }
         if (onProgress != null) onProgress.accept(size);
     }
 
@@ -457,7 +465,11 @@ public final class ChunkedDownloader {
                     }
                 }
             }
-            Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            try {
+                Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
+            }
             if (onProgress != null) {
                 long size = Files.exists(target) ? Files.size(target) : 0L;
                 onProgress.accept(size);

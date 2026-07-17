@@ -100,7 +100,7 @@ public final class AuthService {
         if (!Files.exists(file)) return new AccountStore(new ArrayList<>(), null);
         JsonObject root;
         try {
-            root = JsonParser.parseString(Files.readString(file)).getAsJsonObject();
+            root = JsonParser.parseString(Files.readString(file, java.nio.charset.StandardCharsets.UTF_8)).getAsJsonObject();
         } catch (Throwable t) {
             // 账号文件损坏：备份后返回空，避免静默丢失用户数据
             System.err.println("[AuthService] 账号文件解析失败: " + t.getMessage());
@@ -162,9 +162,13 @@ public final class AuthService {
         Files.createDirectories(file.getParent());
         // 原子写入：防止并发写损坏账号文件
         Path tmp = file.resolveSibling(file.getFileName() + ".tmp");
-        Files.writeString(tmp, gson.toJson(root));
-        Files.move(tmp, file, java.nio.file.StandardCopyOption.ATOMIC_MOVE,
-                java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        Files.writeString(tmp, gson.toJson(root), java.nio.charset.StandardCharsets.UTF_8);
+        try {
+            Files.move(tmp, file, java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+            Files.move(tmp, file, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        }
     }
 
     // ============ 兼容旧 API（单账号文件） ============

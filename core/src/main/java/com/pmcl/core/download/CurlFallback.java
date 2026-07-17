@@ -232,7 +232,11 @@ public final class CurlFallback {
                 String errMsg = err.toString(java.nio.charset.StandardCharsets.UTF_8).trim();
                 throw new IOException("curl 下载失败 exit=" + exit + ": " + errMsg + " url=" + url);
             }
-            Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            try {
+                Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
+            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IOException("curl 下载被中断: " + url, e);
@@ -276,7 +280,7 @@ public final class CurlFallback {
                 // 解析 Content-Length 头
                 for (String line : resp.split("\n")) {
                     line = line.trim();
-                    if (line.toLowerCase().startsWith("content-length:")) {
+                    if (line.toLowerCase(java.util.Locale.ROOT).startsWith("content-length:")) {
                         String val = line.substring(15).trim();
                         return Long.parseLong(val);
                     }
