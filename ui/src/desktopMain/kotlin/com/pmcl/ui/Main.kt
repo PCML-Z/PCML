@@ -67,7 +67,7 @@ fun main() = application {
     // AI 智能体独立窗口开关
     val showAiWindow = remember { mutableStateOf(false) }
     val aiWindowState = rememberWindowState(
-        width = 460.dp,
+        width = 720.dp,
         height = 640.dp,
         position = WindowPosition.Aligned(Alignment.Center)
     )
@@ -182,7 +182,7 @@ fun main() = application {
     if (showAiWindow.value) {
         Window(
             onCloseRequest = { showAiWindow.value = false },
-            title = "PMCL 助手",
+            title = "PCML智能体",
             state = aiWindowState,
             undecorated = false
         ) {

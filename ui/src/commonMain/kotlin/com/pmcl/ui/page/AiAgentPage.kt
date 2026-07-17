@@ -23,7 +23,6 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pmcl.core.ai.AiConfig
@@ -69,7 +68,6 @@ fun AiAgentPage(vm: LauncherViewModel) {
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         // 顶部栏
         ChatHeader(
-            configured = ai?.isConfigured == true,
             showSettings = showSettings,
             onToggleSettings = { showSettings = !showSettings },
             onClear = {
@@ -155,7 +153,6 @@ fun AiAgentPage(vm: LauncherViewModel) {
 /** 顶部栏 */
 @Composable
 private fun ChatHeader(
-    configured: Boolean,
     showSettings: Boolean,
     onToggleSettings: () -> Unit,
     onClear: () -> Unit
@@ -165,26 +162,6 @@ private fun ChatHeader(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 状态点（在线/离线）
-            Surface(
-                color = if (configured) Color(0xFF4CAF50) else Color(0xFFBDBDBD),
-                shape = CircleShape,
-                modifier = Modifier.size(6.dp)
-            ) {}
-            Spacer(Modifier.width(8.dp))
-            Column {
-                Text("助手",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis)
-                Text(
-                    if (configured) "在线" else "未配置",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (configured) Color(0xFF4CAF50)
-                            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                )
-            }
             Spacer(Modifier.weight(1f))
             IconButton(
                 onClick = onToggleSettings,
@@ -269,30 +246,12 @@ private fun EmptyState(configured: Boolean) {
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.padding(24.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Filled.Bolt,
-                contentDescription = null,
-                modifier = Modifier.size(56.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
-            )
-            Spacer(Modifier.height(12.dp))
-            Text(
-                "有什么可以帮忙的？",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                if (configured) "试试：帮我找一下 1.20.1 的 Sodium"
-                else "点击右上角设置按钮，配置 API Key 后即可开始使用",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-            )
-        }
+        Icon(
+            imageVector = Icons.Filled.Bolt,
+            contentDescription = null,
+            modifier = Modifier.size(56.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+        )
     }
 }
 
