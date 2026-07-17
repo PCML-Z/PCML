@@ -1,5 +1,6 @@
 package com.pmcl.ui.companion
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -15,6 +16,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -29,7 +31,7 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * iOS 伴随 App 配对对话框：展示桌面端局域网 IP、端口、配对码及已配对设备。
+ * iOS 伴随 App 配对对话框：左侧展示配对码的二维码与一维码，右侧展示配对码文字及已配对设备。
  */
 @Composable
 fun CompanionPairDialog(
@@ -53,175 +55,241 @@ fun CompanionPairDialog(
         pairingCode = pairing.getPairingCode()
     }
 
+    // 由当前配对码生成二维码与一维码（配对码变化时重新生成）
+    val qrBitmap = remember(pairingCode) {
+        BarcodeGenerator.generateQrCode(pairingCode, 260).toComposeImageBitmap()
+    }
+    val barBitmap = remember(pairingCode) {
+        BarcodeGenerator.generateBarcode(pairingCode, 360, 90).toComposeImageBitmap()
+    }
+
     Dialog(onDismissRequest = onDismiss) {
         Surface(
             shape = RoundedCornerShape(16.dp),
             tonalElevation = 6.dp,
-            modifier = Modifier.width(480.dp)
+            modifier = Modifier.width(760.dp)
         ) {
-            Column(
-                Modifier.padding(24.dp).verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+            Row(
+                Modifier.padding(24.dp),
+                horizontalArrangement = Arrangement.spacedBy(20.dp)
             ) {
-                // 标题
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Filled.PhoneIphone, null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(22.dp)
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        "iOS 伴随 App 配对",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                Text(
-                    "在 iOS 端打开 PCML，输入下方 IP 地址与配对码完成配对，" +
-                        "即可远程控制桌面端 PMCL 启动游戏、浏览模组、好友聊天。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                HorizontalDivider()
-
-                // 配对码（大字展示：数字部分 + 字母部分两行）
-                Text(
-                    "配对码",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                // ===== 左侧：条码面板 =====
+                Column(
+                    Modifier.width(320.dp).fillMaxHeight(),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
+                    // 标题
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Filled.PhoneIphone, null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "iOS 伴随 App 配对",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    Text(
+                        "用 iOS 端 PCML 扫描下方二维码或一维码即可快速配对",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center
+                    )
+
+                    HorizontalDivider(Modifier.fillMaxWidth())
+
+                    // 二维码
                     Surface(
                         shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        modifier = Modifier.weight(1f)
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                        modifier = Modifier.padding(horizontal = 12.dp)
                     ) {
-                        Column(
-                            Modifier.fillMaxWidth().padding(vertical = 14.dp, horizontal = 20.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            // 数字部分 000-000
-                            Text(
-                                pairingCode.take(7),
-                                style = MaterialTheme.typography.headlineLarge,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                textAlign = TextAlign.Center
-                            )
-                            Spacer(Modifier.height(4.dp))
-                            // 字母部分 XXXXX-XXXXX-XXXXX
-                            Text(
-                                pairingCode.drop(8),
-                                style = MaterialTheme.typography.titleLarge,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                textAlign = TextAlign.Center
-                            )
-                        }
+                        Image(
+                            bitmap = qrBitmap,
+                            contentDescription = "配对码二维码",
+                            modifier = Modifier.size(260.dp).padding(8.dp)
+                        )
                     }
-                    IconButton(onClick = {
-                        pairingCode = pairing.regeneratePairingCode()
-                    }) {
-                        Icon(Icons.Filled.Refresh, "刷新配对码")
+                    Text(
+                        "二维码",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    // 一维码
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                        modifier = Modifier.padding(horizontal = 12.dp)
+                    ) {
+                        Image(
+                            bitmap = barBitmap,
+                            contentDescription = "配对码一维码",
+                            modifier = Modifier.fillMaxWidth().padding(8.dp)
+                        )
                     }
-                    IconButton(onClick = {
-                        clipboard.setText(AnnotatedString(pairingCode))
-                    }) {
-                        Icon(Icons.Filled.ContentCopy, "复制配对码")
-                    }
+                    Text(
+                        "Code 128 一维码",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
 
-                // 已配对设备
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Filled.Devices, null,
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(Modifier.width(6.dp))
+                VerticalDivider(Modifier.fillMaxHeight())
+
+                // ===== 右侧：配对码文字 + 已配对设备 =====
+                Column(
+                    Modifier.weight(1f).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
                     Text(
-                        "已配对设备（${devices.size}）",
+                        "在 iOS 端打开 PCML，输入下方配对码完成配对，" +
+                            "即可远程控制桌面端 PMCL 启动游戏、浏览模组、好友聊天。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    // 配对码（大字展示：数字部分 + 字母部分两行）
+                    Text(
+                        "配对码",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    Spacer(Modifier.weight(1f))
-                    if (devices.isNotEmpty()) {
-                        TextButton(onClick = {
-                            pairing.unpairAll()
-                            devices = emptyList()
-                        }) { Text("全部解绑", style = MaterialTheme.typography.labelSmall) }
-                    }
-                }
-
-                if (devices.isEmpty()) {
-                    Text(
-                        "暂无已配对设备",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.outline,
-                        modifier = Modifier.padding(vertical = 4.dp)
-                    )
-                } else {
-                    devices.forEach { device ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
                         Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            modifier = Modifier.weight(1f)
                         ) {
-                            Row(
-                                Modifier.fillMaxWidth().padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                            Column(
+                                Modifier.fillMaxWidth().padding(vertical = 14.dp, horizontal = 20.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                Column(Modifier.weight(1f)) {
-                                    Text(
-                                        device.deviceName,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                    Text(
-                                        "配对于 ${dateFmt.format(Date(device.pairedAt))}",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.outline
-                                    )
-                                }
-                                IconButton(onClick = {
-                                    renamingDevice = device
-                                    renameText = device.deviceName
-                                    renameError = false
-                                }) {
-                                    Icon(
-                                        Icons.Filled.Edit, "重命名",
-                                        modifier = Modifier.size(18.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                                IconButton(onClick = {
-                                    pairing.unpair(device.token)
-                                    devices = pairing.getDevices()
-                                }) {
-                                    Icon(
-                                        Icons.Filled.LinkOff, "解绑",
-                                        modifier = Modifier.size(18.dp),
-                                        tint = MaterialTheme.colorScheme.error
-                                    )
+                                // 数字部分 000-000
+                                Text(
+                                    pairingCode.take(7),
+                                    style = MaterialTheme.typography.headlineLarge,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    textAlign = TextAlign.Center
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                // 字母部分 XXXXX-XXXXX-XXXXX
+                                Text(
+                                    pairingCode.drop(8),
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        }
+                        IconButton(onClick = {
+                            pairingCode = pairing.regeneratePairingCode()
+                        }) {
+                            Icon(Icons.Filled.Refresh, "刷新配对码")
+                        }
+                        IconButton(onClick = {
+                            clipboard.setText(AnnotatedString(pairingCode))
+                        }) {
+                            Icon(Icons.Filled.ContentCopy, "复制配对码")
+                        }
+                    }
+
+                    // 已配对设备
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Filled.Devices, null,
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            "已配对设备（${devices.size}）",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.weight(1f))
+                        if (devices.isNotEmpty()) {
+                            TextButton(onClick = {
+                                pairing.unpairAll()
+                                devices = emptyList()
+                            }) { Text("全部解绑", style = MaterialTheme.typography.labelSmall) }
+                        }
+                    }
+
+                    if (devices.isEmpty()) {
+                        Text(
+                            "暂无已配对设备",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline,
+                            modifier = Modifier.padding(vertical = 4.dp)
+                        )
+                    } else {
+                        devices.forEach { device ->
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                            ) {
+                                Row(
+                                    Modifier.fillMaxWidth().padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            device.deviceName,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        Text(
+                                            "配对于 ${dateFmt.format(Date(device.pairedAt))}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.outline
+                                        )
+                                    }
+                                    IconButton(onClick = {
+                                        renamingDevice = device
+                                        renameText = device.deviceName
+                                        renameError = false
+                                    }) {
+                                        Icon(
+                                            Icons.Filled.Edit, "重命名",
+                                            modifier = Modifier.size(18.dp),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    IconButton(onClick = {
+                                        pairing.unpair(device.token)
+                                        devices = pairing.getDevices()
+                                    }) {
+                                        Icon(
+                                            Icons.Filled.LinkOff, "解绑",
+                                            modifier = Modifier.size(18.dp),
+                                            tint = MaterialTheme.colorScheme.error
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
-                }
 
-                Spacer(Modifier.height(4.dp))
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    TextButton(onClick = onDismiss) { Text("关闭") }
+                    Spacer(Modifier.height(4.dp))
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(onClick = onDismiss) { Text("关闭") }
+                    }
                 }
             }
         }

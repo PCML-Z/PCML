@@ -40,6 +40,10 @@ kotlin {
                 implementation(libs.ktor.server.websockets)
                 implementation(libs.ktor.server.content.negotiation)
                 implementation(libs.ktor.serialization.gson)
+
+                // 条码/二维码生成（配对码展示）
+                implementation(libs.zxing.core)
+                implementation(libs.zxing.javase)
             }
         }
     }
