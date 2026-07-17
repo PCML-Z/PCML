@@ -364,8 +364,9 @@ private fun ExportModpackDialog(
 
     LaunchedEffect(versionId, format) {
         val home = System.getProperty("user.home")
-        path = if (format == 0) "$home/Downloads/$versionId.mrpack"
-               else "$home/Downloads/$versionId.zip"
+        val downloads = java.nio.file.Paths.get(home, "Downloads").toString()
+        path = if (format == 0) "$downloads/$versionId.mrpack"
+               else "$downloads/$versionId.zip"
     }
 
     AlertDialog(

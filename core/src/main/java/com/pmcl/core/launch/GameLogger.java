@@ -33,6 +33,7 @@ public final class GameLogger {
         this.logFile = logFile;
         if (logFile.getParent() != null) Files.createDirectories(logFile.getParent());
         this.writer = Files.newBufferedWriter(logFile,
+                java.nio.charset.StandardCharsets.UTF_8,
                 StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
     }
 
@@ -47,7 +48,7 @@ public final class GameLogger {
             // BufferedWriter 非线程安全，写入操作也需在锁内
             try {
                 writer.write(stamped);
-                writer.newLine();
+                writer.write("\n");
                 linesSinceFlush++;
                 long now = System.currentTimeMillis();
                 if (linesSinceFlush >= 50 || now - lastFlushTime > 200) {

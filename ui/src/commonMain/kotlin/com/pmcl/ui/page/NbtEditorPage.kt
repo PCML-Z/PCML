@@ -727,7 +727,7 @@ private fun SaveAsDialog(
     onDismiss: () -> Unit,
     onConfirm: (String) -> Unit
 ) {
-    var path by remember { mutableStateOf(System.getProperty("user.home") + "/" + defaultName) }
+    var path by remember { mutableStateOf(java.nio.file.Paths.get(System.getProperty("user.home"), defaultName).toString()) }
 
     AlertDialog(
         onDismissRequest = onDismiss,

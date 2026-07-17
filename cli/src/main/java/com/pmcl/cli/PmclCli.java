@@ -157,7 +157,7 @@ public final class PmclCli {
         printStatus();
         System.out.println("Type 'help' for available commands, 'exit' to quit.\n");
 
-        Scanner scanner = new Scanner(System.in);
+        Scanner scanner = new Scanner(System.in, java.nio.charset.StandardCharsets.UTF_8.name());
         while (true) {
             System.out.print("pmcl> ");
             System.out.flush();
