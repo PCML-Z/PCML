@@ -1,11 +1,9 @@
 package com.pmcl.ui.companion
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -19,15 +17,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import java.net.Inet4Address
 import java.net.NetworkInterface
@@ -47,15 +42,13 @@ fun CompanionPairDialog(
     // 本地可观察状态
     var pairingCode by remember { mutableStateOf(pairing.getPairingCode()) }
     var devices by remember { mutableStateOf(pairing.getDevices()) }
-    var running by remember { mutableStateOf(hostServer.isRunning()) }
     var port by remember { mutableStateOf(hostServer.getActualPort().let { if (it > 0) it else pairing.getPort() }) }
     val ips = remember { listLocalIps() }
     val clipboard = LocalClipboardManager.current
     val dateFmt = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
 
-    // 打开对话框时刷新一次状态
+    // 打开对话框时刷新一次端口（端口占用时可能被自动递增）
     LaunchedEffect(Unit) {
-        running = hostServer.isRunning()
         val ap = hostServer.getActualPort()
         if (ap > 0) port = ap
     }
@@ -82,24 +75,6 @@ fun CompanionPairDialog(
                         "iOS 伴随 App 配对",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold
-                    )
-                    Spacer(Modifier.weight(1f))
-                    AssistChip(
-                        onClick = {},
-                        label = {
-                            Text(
-                                if (running) "服务运行中" else "服务未运行",
-                                style = MaterialTheme.typography.labelSmall
-                            )
-                        },
-                        leadingIcon = {
-                            Box(
-                                Modifier.size(8.dp).clip(CircleShape)
-                                    .background(
-                                        if (running) Color(0xFF4CAF50) else MaterialTheme.colorScheme.outline
-                                    )
-                            )
-                        }
                     )
                 }
 
@@ -161,80 +136,64 @@ fun CompanionPairDialog(
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                // 127.0.0.1 — iOS 模拟器使用
-                val allIps = remember { listOf("127.0.0.1") + ips }
-                allIps.forEachIndexed { index, ip ->
-                    val isLoopback = index == 0
-                    val label = if (isLoopback) "模拟器" else "真机"
+                if (ips.isEmpty()) {
                     Surface(
                         shape = RoundedCornerShape(8.dp),
-                        border = androidx.compose.foundation.BorderStroke(
-                            1.dp, MaterialTheme.colorScheme.outlineVariant
-                        ),
-                        color = MaterialTheme.colorScheme.surface
+                        color = MaterialTheme.colorScheme.errorContainer
                     ) {
                         Row(
-                            Modifier.fillMaxWidth().padding(12.dp),
+                            Modifier.padding(12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                Icons.Filled.Wifi, null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(16.dp)
+                            Icon(Icons.Filled.Wifi, null, tint = MaterialTheme.colorScheme.error)
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                "未检测到可用的局域网 IPv4 地址，请检查网络连接",
+                                style = MaterialTheme.typography.bodySmall
                             )
-                            Spacer(Modifier.width(10.dp))
-                            Column(Modifier.weight(1f)) {
+                        }
+                    }
+                } else {
+                    ips.forEach { ip ->
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp, MaterialTheme.colorScheme.outlineVariant
+                            ),
+                            color = MaterialTheme.colorScheme.surface
+                        ) {
+                            Row(
+                                Modifier.fillMaxWidth().padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Filled.Wifi, null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(Modifier.width(10.dp))
                                 Text(
                                     ip,
                                     fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.Medium
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier.weight(1f)
                                 )
                                 Text(
-                                    if (isLoopback) "本机地址 — iOS 模拟器使用"
-                                    else "局域网地址 — iPhone 真机使用",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.outline
+                                    ":$port",
+                                    fontFamily = FontFamily.Monospace,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
-                            }
-                            Text(
-                                ":$port",
-                                fontFamily = FontFamily.Monospace,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            IconButton(
-                                onClick = { clipboard.setText(AnnotatedString("$ip:$port")) },
-                                modifier = Modifier.size(28.dp)
-                            ) {
-                                Icon(
-                                    Icons.Filled.ContentCopy, "复制地址",
-                                    modifier = Modifier.size(15.dp)
-                                )
+                                IconButton(
+                                    onClick = { clipboard.setText(AnnotatedString("$ip:$port")) },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Filled.ContentCopy, "复制地址",
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                }
                             }
                         }
-                    }
-                }
-
-                // 防火墙提示
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f)
-                ) {
-                    Row(
-                        Modifier.padding(12.dp),
-                        verticalAlignment = Alignment.Top
-                    ) {
-                        Text("提示：", style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onTertiaryContainer)
-                        Spacer(Modifier.width(4.dp))
-                        Text(
-                            "iOS 模拟器用 127.0.0.1 连接；iPhone 真机用局域网 IP，" +
-                                "需与电脑在同一 WiFi。若连接失败，请在" +
-                                "「系统设置 → 网络 → 防火墙」允许 PMCL 接受传入连接，" +
-                                "并确认端口 $port 未被占用。",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onTertiaryContainer
-                        )
                     }
                 }
 
