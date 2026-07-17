@@ -192,7 +192,7 @@ fun CompanionPairDialog(
                                 ) {
                                     Text(
                                         "已配对至",
-                                        style = MaterialTheme.typography.labelMedium.copy(
+                                        style = MaterialTheme.typography.labelSmall.copy(
                                             fontWeight = FontWeight.Medium,
                                             color = MaterialTheme.colorScheme.onSurface,
                                             shadow = Shadow(
@@ -202,10 +202,10 @@ fun CompanionPairDialog(
                                             )
                                         )
                                     )
-                                    Spacer(Modifier.height(4.dp))
+                                    Spacer(Modifier.height(2.dp))
                                     Text(
                                         pairedName,
-                                        style = MaterialTheme.typography.headlineSmall.copy(
+                                        style = MaterialTheme.typography.titleMedium.copy(
                                             fontWeight = FontWeight.Bold,
                                             color = MaterialTheme.colorScheme.primary,
                                             shadow = Shadow(
