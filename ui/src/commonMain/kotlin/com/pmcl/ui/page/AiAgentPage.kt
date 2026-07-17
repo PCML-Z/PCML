@@ -4,6 +4,9 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -12,8 +15,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CleaningServices
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -26,17 +29,17 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pmcl.core.ai.AiConfig
+import com.pmcl.core.ai.AiManager
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import kotlinx.coroutines.launch
 
 /**
  * AI 智能助手界面。
  *
- * 设计语言遵循 PMCL 规范：
- * - 消息气泡：半透明主色（我方）+ surfaceVariant（对方），14.dp 尾巴圆角
- * - 输入框：胶囊容器（20.dp 圆角 + surfaceVariant alpha 0.5）
- * - 顶部栏：tonalElevation = 2.dp，状态徽章 10.dp 圆角
- * - 空状态：大图标 + 透明度递减三段文字
+ * 设计参考 VS Code Continue 插件：
+ * - 空状态居中显示模型选择卡片
+ * - 输入框上方显示当前模型，点击可切换
+ * - 消息气泡：半透明主色（我方）+ surfaceVariant（对方）
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -50,6 +53,8 @@ fun AiAgentPage(vm: LauncherViewModel) {
     var sending by remember { mutableStateOf(false) }
     var toolStatus by remember { mutableStateOf<String?>(null) }
     var showSettings by remember { mutableStateOf(false) }
+    // 当前选中的服务商（用于模型选择器显示）
+    var currentProvider by remember { mutableStateOf(ai?.config?.provider ?: AiConfig.Provider.DEEPSEEK) }
 
     val listState = rememberLazyListState()
 
@@ -65,6 +70,18 @@ fun AiAgentPage(vm: LauncherViewModel) {
         }
     }
 
+    // 切换服务商：应用默认配置（保留 apiKey），重建 AiManager
+    fun switchProvider(p: AiConfig.Provider) {
+        currentProvider = p
+        val cfg = ai?.config ?: AiConfig.deepseekDefault()
+        when (p) {
+            AiConfig.Provider.DEEPSEEK -> cfg.applyDeepseekDefaults()
+            AiConfig.Provider.OPENAI -> cfg.applyOpenaiDefaults()
+            AiConfig.Provider.CUSTOM -> {}
+        }
+        ai?.configure(cfg)
+    }
+
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         // 顶部栏
         ChatHeader(
@@ -77,7 +94,7 @@ fun AiAgentPage(vm: LauncherViewModel) {
             }
         )
 
-        // 设置面板（可折叠，用 animateContentSize 避免无边界高度测量）
+        // 设置面板（可折叠）
         Surface(
             color = Color.Transparent,
             tonalElevation = 0.dp,
@@ -91,10 +108,14 @@ fun AiAgentPage(vm: LauncherViewModel) {
             }
         }
 
-        // 消息列表
+        // 消息列表 / 空状态
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             if (messages.isEmpty()) {
-                EmptyState(configured = ai?.isConfigured == true)
+                EmptyState(
+                    provider = currentProvider,
+                    configured = ai?.isConfigured == true,
+                    onSwitchProvider = { switchProvider(it) }
+                )
             } else {
                 LazyColumn(
                     state = listState,
@@ -117,15 +138,17 @@ fun AiAgentPage(vm: LauncherViewModel) {
             }
         }
 
-        // 输入区（胶囊容器）
-        ChatInputBar(
+        // 输入区：模型选择行 + 胶囊输入框
+        ChatInputSection(
             text = input,
             onTextChange = { input = it },
             sending = sending,
             enabled = ai?.isConfigured == true && !sending,
+            provider = currentProvider,
+            onSwitchProvider = { switchProvider(it) },
             onSend = {
                 val text = input.trim()
-                if (text.isEmpty() || sending || ai == null || !ai.isConfigured) return@ChatInputBar
+                if (text.isEmpty() || sending || ai == null || !ai.isConfigured) return@ChatInputSection
                 messages.add(ChatMsg(text, true))
                 input = ""
                 sending = true
@@ -184,7 +207,7 @@ private fun ChatHeader(
     }
 }
 
-/** 消息气泡（参考 FriendPage 设计） */
+/** 消息气泡 */
 @Composable
 private fun MessageBubble(text: String, isUser: Boolean) {
     Row(
@@ -200,7 +223,7 @@ private fun MessageBubble(text: String, isUser: Boolean) {
                 bottomStart = if (isUser) 14.dp else 4.dp,
                 bottomEnd = if (isUser) 4.dp else 14.dp
             ),
-            modifier = Modifier.widthIn(max = 340.dp)
+            modifier = Modifier.widthIn(max = 360.dp)
         ) {
             Text(
                 text,
@@ -239,69 +262,217 @@ private fun ToolStatusRow(status: String) {
     }
 }
 
-/** 空状态 */
+/**
+ * 空状态：居中显示模型选择卡片（VS Code Continue 风格）。
+ * 点击 DeepSeek / GPT 卡片即可切换服务商。
+ */
 @Composable
-private fun EmptyState(configured: Boolean) {
+private fun EmptyState(
+    provider: AiConfig.Provider,
+    configured: Boolean,
+    onSwitchProvider: (AiConfig.Provider) -> Unit
+) {
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
-        Icon(
-            imageVector = Icons.Filled.Bolt,
-            contentDescription = null,
-            modifier = Modifier.size(56.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
-        )
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.padding(24.dp)
+        ) {
+            Text("选择模型开始对话",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                ModelCard(
+                    name = "DeepSeek",
+                    desc = "deepseek-chat",
+                    selected = provider == AiConfig.Provider.DEEPSEEK,
+                    onClick = { onSwitchProvider(AiConfig.Provider.DEEPSEEK) }
+                )
+                ModelCard(
+                    name = "GPT",
+                    desc = "gpt-4o-mini",
+                    selected = provider == AiConfig.Provider.OPENAI,
+                    onClick = { onSwitchProvider(AiConfig.Provider.OPENAI) }
+                )
+            }
+            if (!configured) {
+                Text("点击右上角设置按钮配置 API Key",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+            }
+        }
     }
 }
 
-/** 胶囊输入栏（参考 FriendPage） */
+/** 空状态中的模型选择卡片 */
 @Composable
-private fun ChatInputBar(
+private fun ModelCard(
+    name: String,
+    desc: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer
+                else MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier
+            .width(130.dp)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            )
+            .border(
+                width = if (selected) 0.dp else 1.dp,
+                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                shape = RoundedCornerShape(12.dp)
+            )
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            horizontalAlignment = Alignment.Start,
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(name,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
+                        else MaterialTheme.colorScheme.onSurface)
+            Text(desc,
+                style = MaterialTheme.typography.labelSmall,
+                color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+        }
+    }
+}
+
+/**
+ * 输入区：上方模型选择行 + 胶囊输入框。
+ */
+@Composable
+private fun ChatInputSection(
     text: String,
     onTextChange: (String) -> Unit,
     sending: Boolean,
     enabled: Boolean,
+    provider: AiConfig.Provider,
+    onSwitchProvider: (AiConfig.Provider) -> Unit,
     onSend: () -> Unit
 ) {
-    Surface(
+    Column(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-        shape = RoundedCornerShape(20.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Row(
-            Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.Bottom
+        // 模型选择行
+        ModelSelectorBar(provider = provider, onSwitchProvider = onSwitchProvider)
+        // 胶囊输入框
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
         ) {
-            OutlinedTextField(
-                value = text,
-                onValueChange = onTextChange,
-                modifier = Modifier.weight(1f),
-                placeholder = {
-                    Text("输入消息…", style = MaterialTheme.typography.bodyMedium)
-                },
-                enabled = enabled,
-                singleLine = false,
-                maxLines = 4,
-                shape = RoundedCornerShape(16.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Color.Transparent,
-                    unfocusedBorderColor = Color.Transparent,
-                    focusedContainerColor = Color.Transparent,
-                    unfocusedContainerColor = Color.Transparent
+            Row(
+                Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.Bottom
+            ) {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = onTextChange,
+                    modifier = Modifier.weight(1f),
+                    placeholder = {
+                        Text("输入消息…", style = MaterialTheme.typography.bodyMedium)
+                    },
+                    enabled = enabled,
+                    singleLine = false,
+                    maxLines = 4,
+                    shape = RoundedCornerShape(16.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color.Transparent,
+                        unfocusedBorderColor = Color.Transparent,
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent
+                    )
                 )
+                Spacer(Modifier.width(4.dp))
+                SendButton(
+                    enabled = enabled && text.isNotBlank(),
+                    sending = sending,
+                    onClick = onSend
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 输入框上方的模型选择行：显示当前模型，点击下拉切换。
+ */
+@Composable
+private fun ModelSelectorBar(
+    provider: AiConfig.Provider,
+    onSwitchProvider: (AiConfig.Provider) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val modelName = when (provider) {
+        AiConfig.Provider.DEEPSEEK -> "DeepSeek"
+        AiConfig.Provider.OPENAI -> "GPT"
+        AiConfig.Provider.CUSTOM -> "自定义"
+    }
+
+    Box {
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = { expanded = true }
             )
-            Spacer(Modifier.width(4.dp))
-            SendButton(
-                enabled = enabled && text.isNotBlank(),
-                sending = sending,
-                onClick = onSend
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(modelName,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Icon(Icons.Filled.ExpandMore, "切换模型",
+                    modifier = Modifier.size(14.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
+            }
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            DropdownMenuItem(
+                text = { Text("DeepSeek") },
+                onClick = {
+                    onSwitchProvider(AiConfig.Provider.DEEPSEEK)
+                    expanded = false
+                }
+            )
+            DropdownMenuItem(
+                text = { Text("GPT (OpenAI)") },
+                onClick = {
+                    onSwitchProvider(AiConfig.Provider.OPENAI)
+                    expanded = false
+                }
             )
         }
     }
 }
 
-/** 圆形发送按钮（带按压缩放反馈） */
+/** 圆形发送按钮 */
 @Composable
 private fun SendButton(enabled: Boolean, sending: Boolean, onClick: () -> Unit) {
     val scale = if (enabled) 1f else 0.95f
@@ -338,7 +509,7 @@ private fun SendButton(enabled: Boolean, sending: Boolean, onClick: () -> Unit) 
 /** AI 设置面板 */
 @Composable
 private fun AiSettingsPanel(
-    ai: com.pmcl.core.ai.AiManager?,
+    ai: AiManager?,
     onConfigured: () -> Unit
 ) {
     val currentConfig = remember { ai?.config ?: AiConfig.deepseekDefault() }
