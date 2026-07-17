@@ -25,6 +25,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -447,7 +448,9 @@ private fun ChatHeader(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Text(currentRole?.icon ?: "\uD83E\uDD16", fontSize = 14.sp)
+                        Icon(getRoleIcon(currentRole?.icon), "角色",
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(currentRole?.name ?: "助手",
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Medium)
@@ -465,7 +468,9 @@ private fun ChatHeader(
                             text = {
                                 Row(verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text(role.icon, fontSize = 16.sp)
+                                    Icon(getRoleIcon(role.icon), role.name,
+                                        modifier = Modifier.size(20.dp),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant)
                                     Column {
                                         Text(role.name, style = MaterialTheme.typography.bodySmall,
                                             fontWeight = FontWeight.Medium)
@@ -1261,5 +1266,19 @@ private fun ImageThumbnailSmall(path: String) {
                 .size(48.dp)
                 .clip(RoundedCornerShape(6.dp))
         )
+    }
+}
+
+// ============================================================
+// 角色图标映射
+// ============================================================
+
+private fun getRoleIcon(iconName: String?): ImageVector {
+    return when (iconName) {
+        "smart_toy" -> Icons.Filled.SmartToy
+        "inventory_2" -> Icons.Filled.Inventory2
+        "build" -> Icons.Filled.Build
+        "palette" -> Icons.Filled.Palette
+        else -> Icons.Filled.SmartToy
     }
 }

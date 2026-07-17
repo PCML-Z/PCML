@@ -55,7 +55,7 @@ public class RoleManager {
                 - 如果信息不足（如游戏版本），主动询问用户
                 - 如果用户上传了图片（如崩溃截图），请分析图片内容并给出建议
                 """,
-                "\uD83E\uDD16", true));
+                "smart_toy", true));
 
         roles.add(new AgentRole(
                 "mod_expert", "模组专家",
@@ -70,7 +70,7 @@ public class RoleManager {
                 - 根据用户的游戏版本和加载器给出精确建议
                 - 可以使用 searchMods 工具查找具体模组
                 """,
-                "\uD83D\uDCE6", true));
+                "inventory_2", true));
 
         roles.add(new AgentRole(
                 "tech_support", "技术支持",
@@ -87,7 +87,7 @@ public class RoleManager {
 
                 回答要结构化：问题分析 → 解决方案 → 操作步骤
                 """,
-                "\uD83D\uDD27", true));
+                "build", true));
 
         roles.add(new AgentRole(
                 "creative", "创意顾问",
@@ -102,13 +102,13 @@ public class RoleManager {
                 - 必要时可以用文字绘制简单示意图
                 - 鼓励用户尝试新想法
                 """,
-                "\uD83C\uDFA8", true));
+                "palette", true));
     }
 
     private AgentRole createDefaultRole() {
         return new AgentRole(
                 "default", "助手", "默认助手",
-                "你是一个乐于助人的 AI 助手。", "\uD83E\uDD16", true);
+                "你是一个乐于助人的 AI 助手。", "smart_toy", true);
     }
 
     private void loadCustomRoles() {

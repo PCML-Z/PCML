@@ -57,6 +57,7 @@ public final class AiManager {
     private final Map<String, String> sessionTitles = new LinkedHashMap<>();
 
     private final PmclTools tools;
+    private LauncherTools launcherTools;
 
     public AiManager(PmclTools tools) {
         this.tools = tools;
@@ -394,6 +395,18 @@ public final class AiManager {
 
     public void setStatusCallback(Consumer<String> callback) {
         tools.setStatusCallback(callback);
+        if (launcherTools != null) {
+            launcherTools.setStatusCallback(callback);
+        }
+    }
+
+    /** 注册启动器工具集，让 AI 能直接操作启动器（下载/安装/配置/启动） */
+    public void registerLauncherTools(LauncherTools lt) {
+        this.launcherTools = lt;
+        toolRegistry.registerObject(lt);
+        if (currentSessionId != null && model != null) {
+            bindAssistant(currentSessionId);
+        }
     }
 
     // ============================================================

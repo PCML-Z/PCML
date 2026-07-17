@@ -148,6 +148,14 @@ public final class LauncherCore {
                 () -> new TranslateClient(downloadManager));
         this.aiManager = initOptional("AiManager",
                 () -> new AiManager(new PmclTools(modMarketManager, modLoaderManager, preferences)));
+        // 注册启动器工具集，让 AI 能直接介入下载/安装/配置/启动
+        if (this.aiManager != null) {
+            try {
+                this.aiManager.registerLauncherTools(new com.pmcl.core.ai.LauncherTools(this));
+            } catch (Throwable e) {
+                System.err.println("[LauncherCore] LauncherTools 注册失败: " + e.getMessage());
+            }
+        }
 
         // Inject plugin manager into launch manager for hooks/events
         if (this.pluginManager != null) {
