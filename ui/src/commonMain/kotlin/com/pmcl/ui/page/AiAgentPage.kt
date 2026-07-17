@@ -15,7 +15,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.automirrored.outlined.Backspace
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CleaningServices
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.*
@@ -24,8 +27,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pmcl.core.ai.AiConfig
@@ -34,27 +40,30 @@ import com.pmcl.ui.viewmodel.LauncherViewModel
 import kotlinx.coroutines.launch
 
 /**
- * AI 智能助手界面。
+ * AI 智能体界面（参考 GPTAssistantDesktop 设计，适配桌面宽屏）。
  *
- * 设计参考 VS Code Continue 插件：
- * - 空状态居中显示模型选择卡片
- * - 输入框上方显示当前模型，点击可切换
- * - 消息气泡：半透明主色（我方）+ surfaceVariant（对方）
+ * 布局：左侧会话历史栏 + 右侧聊天区
+ * - 会话栏：新建对话按钮 + 会话列表（标题 + 消息数 + 删除）
+ * - 聊天区：消息列表（用户右对齐紫蓝 / AI 左对齐卡片色 + Copy 按钮）+ 加载计时器 + 输入框
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AiAgentPage(vm: LauncherViewModel) {
     val ai = remember { vm.core.ai() }
     val scope = rememberCoroutineScope()
+    val clipboard = LocalClipboardManager.current
 
     data class ChatMsg(val text: String, val isUser: Boolean, val time: Long = System.currentTimeMillis())
+    // 当前会话的消息列表（UI 层维护，发送/接收时追加）
     val messages = remember { mutableStateListOf<ChatMsg>() }
     var input by remember { mutableStateOf("") }
     var sending by remember { mutableStateOf(false) }
     var toolStatus by remember { mutableStateOf<String?>(null) }
     var showSettings by remember { mutableStateOf(false) }
-    // 当前选中的服务商（用于模型选择器显示）
-    var currentProvider by remember { mutableStateOf(ai?.config?.provider ?: AiConfig.Provider.DEEPSEEK) }
+    var loadingSeconds by remember { mutableStateOf(0.0) }
+    var currentSessionId by remember { mutableStateOf(ai?.currentSessionId) }
+    // 会话列表版本号，切换/创建/删除时递增以触发刷新
+    var sessionVersion by remember { mutableStateOf(0) }
 
     val listState = rememberLazyListState()
 
@@ -70,9 +79,24 @@ fun AiAgentPage(vm: LauncherViewModel) {
         }
     }
 
-    // 切换服务商：应用默认配置（保留 apiKey），重建 AiManager
+    // 加载计时器：发送中时每 70ms 递增
+    LaunchedEffect(sending) {
+        if (sending) {
+            loadingSeconds = 0.0
+            val startTime = System.currentTimeMillis()
+            while (sending) {
+                loadingSeconds = (System.currentTimeMillis() - startTime) / 1000.0
+                kotlinx.coroutines.delay(70)
+            }
+        }
+    }
+
+    // 切换会话时清空消息列表（实际消息由 ChatMemory 持有，UI 层只显示当前会话）
+    // 这里简化处理：切换会话时清空 UI 消息（因为 LangChain4j 的 ChatMemory 不直接暴露消息内容给 UI）
+    // 用户继续对话时新消息会追加显示
+    fun refreshSessionList() { sessionVersion++ }
+
     fun switchProvider(p: AiConfig.Provider) {
-        currentProvider = p
         val cfg = ai?.config ?: AiConfig.deepseekDefault()
         when (p) {
             AiConfig.Provider.DEEPSEEK -> cfg.applyDeepseekDefaults()
@@ -82,98 +106,250 @@ fun AiAgentPage(vm: LauncherViewModel) {
         ai?.configure(cfg)
     }
 
-    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        // 顶部栏
-        ChatHeader(
-            showSettings = showSettings,
-            onToggleSettings = { showSettings = !showSettings },
-            onClear = {
-                ai?.clearMemory()
+    Row(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        // 左侧会话历史栏
+        SessionSidebar(
+            ai = ai,
+            currentSessionId = currentSessionId,
+            sessionVersion = sessionVersion,
+            onNewSession = {
+                ai?.createSession()
+                currentSessionId = ai?.currentSessionId
                 messages.clear()
-                toolStatus = null
+                refreshSessionList()
+            },
+            onSwitchSession = { sid ->
+                ai?.switchSession(sid)
+                currentSessionId = sid
+                messages.clear()
+            },
+            onDeleteSession = { sid ->
+                ai?.deleteSession(sid)
+                currentSessionId = ai?.currentSessionId
+                messages.clear()
+                refreshSessionList()
             }
         )
 
-        // 设置面板（可折叠）
-        Surface(
-            color = Color.Transparent,
-            tonalElevation = 0.dp,
-            modifier = Modifier.animateContentSize(tween(300, easing = FastOutSlowInEasing))
-        ) {
-            if (showSettings) {
-                AiSettingsPanel(
-                    ai = ai,
-                    onConfigured = { ai?.setStatusCallback { status -> toolStatus = status } }
-                )
-            }
-        }
-
-        // 消息列表 / 空状态
-        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-            if (messages.isEmpty()) {
-                EmptyState(
-                    provider = currentProvider,
-                    configured = ai?.isConfigured == true,
-                    onSwitchProvider = { switchProvider(it) }
-                )
-            } else {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    items(
-                        items = messages,
-                        key = { it.time }
-                    ) { msg ->
-                        MessageBubble(msg.text, msg.isUser)
-                    }
-                    if (toolStatus != null && sending) {
-                        item(key = "tool_status") {
-                            ToolStatusRow(toolStatus!!)
-                        }
-                    }
+        // 右侧聊天区
+        Column(Modifier.weight(1f).fillMaxHeight()) {
+            // 顶部栏
+            ChatHeader(
+                showSettings = showSettings,
+                onToggleSettings = { showSettings = !showSettings },
+                onClear = {
+                    ai?.clearMemory()
+                    messages.clear()
+                    toolStatus = null
                 }
-            }
-        }
+            )
 
-        // 输入区：模型选择行 + 胶囊输入框
-        ChatInputSection(
-            text = input,
-            onTextChange = { input = it },
-            sending = sending,
-            enabled = ai?.isConfigured == true && !sending,
-            provider = currentProvider,
-            onSwitchProvider = { switchProvider(it) },
-            onSend = {
-                val text = input.trim()
-                if (text.isEmpty() || sending || ai == null || !ai.isConfigured) return@ChatInputSection
-                messages.add(ChatMsg(text, true))
-                input = ""
-                sending = true
-                toolStatus = null
-                scope.launch {
-                    ai.chatAsync(
-                        text,
-                        { reply ->
-                            messages.add(ChatMsg(reply, false))
-                            sending = false
-                            toolStatus = null
-                        },
-                        { err ->
-                            messages.add(ChatMsg("出错了: $err", false))
-                            sending = false
-                            toolStatus = null
-                        }
+            // 设置面板
+            Surface(
+                color = Color.Transparent,
+                tonalElevation = 0.dp,
+                modifier = Modifier.animateContentSize(tween(300, easing = FastOutSlowInEasing))
+            ) {
+                if (showSettings) {
+                    AiSettingsPanel(
+                        ai = ai,
+                        onConfigured = { ai?.setStatusCallback { status -> toolStatus = status } }
                     )
                 }
             }
-        )
+
+            // 消息列表
+            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                if (messages.isEmpty()) {
+                    EmptyState(
+                        provider = ai?.config?.provider ?: AiConfig.Provider.DEEPSEEK,
+                        onSwitchProvider = { switchProvider(it) }
+                    )
+                } else {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.Bottom)
+                    ) {
+                        items(
+                            items = messages,
+                            key = { it.time }
+                        ) { msg ->
+                            MessageBubble(
+                                text = msg.text,
+                                isUser = msg.isUser,
+                                clipboard = clipboard
+                            )
+                        }
+                        if (sending) {
+                            item(key = "loading") {
+                                LoadingTimerRow(loadingSeconds)
+                            }
+                        }
+                        if (toolStatus != null && sending) {
+                            item(key = "tool_status") {
+                                ToolStatusRow(toolStatus!!)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 输入区
+            ChatInputSection(
+                text = input,
+                onTextChange = { input = it },
+                sending = sending,
+                enabled = ai?.isConfigured == true && !sending,
+                provider = ai?.config?.provider ?: AiConfig.Provider.DEEPSEEK,
+                onSwitchProvider = { switchProvider(it) },
+                onSend = {
+                    val text = input.trim()
+                    if (text.isEmpty() || sending || ai == null || !ai.isConfigured) return@ChatInputSection
+                    messages.add(ChatMsg(text, true))
+                    input = ""
+                    sending = true
+                    toolStatus = null
+                    scope.launch {
+                        ai.chatAsync(
+                            text,
+                            { reply ->
+                                messages.add(ChatMsg(reply, false))
+                                sending = false
+                                toolStatus = null
+                                refreshSessionList()
+                            },
+                            { err ->
+                                messages.add(ChatMsg("出错了: $err", false))
+                                sending = false
+                                toolStatus = null
+                            }
+                        )
+                    }
+                }
+            )
+        }
     }
 }
 
-/** 顶部栏 */
+// ============================================================
+// 左侧会话历史栏
+// ============================================================
+
+@Composable
+private fun SessionSidebar(
+    ai: AiManager?,
+    currentSessionId: String?,
+    sessionVersion: Int,
+    onNewSession: () -> Unit,
+    onSwitchSession: (String) -> Unit,
+    onDeleteSession: (String) -> Unit
+) {
+    // sessionVersion 用于触发重组读取最新列表
+    val sessions = remember(sessionVersion) { ai?.listSessions() ?: emptyList() }
+
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 1.dp,
+        modifier = Modifier.width(220.dp).fillMaxHeight()
+    ) {
+        Column {
+            // 新建对话按钮
+            Surface(
+                color = MaterialTheme.colorScheme.primary,
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onNewSession
+                    )
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Icon(Icons.Filled.Add, "新建对话",
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onPrimary)
+                    Spacer(Modifier.width(6.dp))
+                    Text("新建对话",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onPrimary)
+                }
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
+
+            // 会话列表
+            LazyColumn(
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                contentPadding = PaddingValues(vertical = 4.dp)
+            ) {
+                items(items = sessions, key = { it.id }) { sess ->
+                    SessionItem(
+                        title = sess.title,
+                        messageCount = sess.messageCount,
+                        isActive = sess.id == currentSessionId,
+                        onClick = { onSwitchSession(sess.id) },
+                        onDelete = { onDeleteSession(sess.id) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SessionItem(
+    title: String,
+    messageCount: Int,
+    isActive: Boolean,
+    onClick: () -> Unit,
+    onDelete: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(if (isActive) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                        else Color.Transparent)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            )
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title,
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
+                color = if (isActive) MaterialTheme.colorScheme.onPrimaryContainer
+                        else MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis)
+            Text("$messageCount 条消息",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+        }
+        IconButton(onClick = onDelete, modifier = Modifier.size(24.dp)) {
+            Icon(Icons.AutoMirrored.Outlined.Backspace, "删除",
+                modifier = Modifier.size(14.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+        }
+    }
+}
+
+// ============================================================
+// 顶部栏
+// ============================================================
+
 @Composable
 private fun ChatHeader(
     showSettings: Boolean,
@@ -183,22 +359,16 @@ private fun ChatHeader(
     Surface(tonalElevation = 2.dp, color = MaterialTheme.colorScheme.surface) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.End
         ) {
-            Spacer(Modifier.weight(1f))
-            IconButton(
-                onClick = onToggleSettings,
-                modifier = Modifier.size(32.dp)
-            ) {
+            IconButton(onClick = onToggleSettings, modifier = Modifier.size(32.dp)) {
                 Icon(Icons.Filled.Tune, "设置",
                     modifier = Modifier.size(18.dp),
                     tint = if (showSettings) MaterialTheme.colorScheme.primary
                            else MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            IconButton(
-                onClick = onClear,
-                modifier = Modifier.size(32.dp)
-            ) {
+            IconButton(onClick = onClear, modifier = Modifier.size(32.dp)) {
                 Icon(Icons.Filled.CleaningServices, "清空对话",
                     modifier = Modifier.size(18.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -207,29 +377,70 @@ private fun ChatHeader(
     }
 }
 
-/** 消息气泡 */
+// ============================================================
+// 消息气泡
+// ============================================================
+
 @Composable
-private fun MessageBubble(text: String, isUser: Boolean) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
-    ) {
-        Surface(
-            color = if (isUser) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                    else MaterialTheme.colorScheme.surfaceVariant,
-            shape = RoundedCornerShape(
-                topStart = 14.dp,
-                topEnd = 14.dp,
-                bottomStart = if (isUser) 14.dp else 4.dp,
-                bottomEnd = if (isUser) 4.dp else 14.dp
-            ),
-            modifier = Modifier.widthIn(max = 360.dp)
+private fun MessageBubble(
+    text: String,
+    isUser: Boolean,
+    clipboard: androidx.compose.ui.platform.ClipboardManager
+) {
+    val bgColor = if (isUser) MaterialTheme.colorScheme.primary
+                  else MaterialTheme.colorScheme.surfaceVariant
+    val textColor = if (isUser) MaterialTheme.colorScheme.onPrimary
+                    else MaterialTheme.colorScheme.onSurfaceVariant
+    val alignment = if (isUser) Alignment.CenterEnd else Alignment.CenterStart
+
+    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = alignment) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth(0.85f)
+                .background(bgColor, RoundedCornerShape(8.dp))
         ) {
             Text(
                 text,
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                color = textColor,
+                modifier = Modifier.padding(16.dp)
+            )
+            // AI 消息底部 Copy 按钮
+            if (!isUser) {
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier
+                        .clickable { clipboard.setText(AnnotatedString(text)) }
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Filled.ContentCopy, "复制",
+                        modifier = Modifier.size(14.dp),
+                        tint = textColor.copy(alpha = 0.6f))
+                    Spacer(Modifier.width(4.dp))
+                    Text("复制",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = textColor.copy(alpha = 0.6f))
+                }
+            }
+        }
+    }
+}
+
+/** 加载计时器行 */
+@Composable
+private fun LoadingTimerRow(seconds: Double) {
+    val formatted = "%.2f".format(seconds)
+    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            shape = RoundedCornerShape(8.dp)
+        ) {
+            Text(
+                formatted,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                modifier = Modifier.padding(16.dp)
             )
         }
     }
@@ -243,33 +454,27 @@ private fun ToolStatusRow(status: String) {
         horizontalArrangement = Arrangement.Start,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        CircularProgressIndicator(
-            strokeWidth = 2.dp,
-            modifier = Modifier.size(12.dp)
-        )
+        CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(12.dp))
         Spacer(Modifier.width(6.dp))
         Surface(
             color = MaterialTheme.colorScheme.tertiaryContainer,
             shape = RoundedCornerShape(8.dp)
         ) {
-            Text(
-                status,
+            Text(status,
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onTertiaryContainer,
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-            )
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
         }
     }
 }
 
-/**
- * 空状态：居中显示模型选择卡片（VS Code Continue 风格）。
- * 点击 DeepSeek / GPT 卡片即可切换服务商。
- */
+// ============================================================
+// 空状态
+// ============================================================
+
 @Composable
 private fun EmptyState(
     provider: AiConfig.Provider,
-    configured: Boolean,
     onSwitchProvider: (AiConfig.Provider) -> Unit
 ) {
     Box(
@@ -285,9 +490,7 @@ private fun EmptyState(
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 ModelCard(
                     name = "DeepSeek",
                     desc = "deepseek-chat",
@@ -301,16 +504,10 @@ private fun EmptyState(
                     onClick = { onSwitchProvider(AiConfig.Provider.OPENAI) }
                 )
             }
-            if (!configured) {
-                Text("点击右上角设置按钮配置 API Key",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
-            }
         }
     }
 }
 
-/** 空状态中的模型选择卡片 */
 @Composable
 private fun ModelCard(
     name: String,
@@ -353,9 +550,10 @@ private fun ModelCard(
     }
 }
 
-/**
- * 输入区：上方模型选择行 + 胶囊输入框。
- */
+// ============================================================
+// 输入区
+// ============================================================
+
 @Composable
 private fun ChatInputSection(
     text: String,
@@ -367,15 +565,15 @@ private fun ChatInputSection(
     onSend: () -> Unit
 ) {
     Column(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         // 模型选择行
         ModelSelectorBar(provider = provider, onSwitchProvider = onSwitchProvider)
-        // 胶囊输入框
+        // 输入框
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(20.dp),
+            shape = RoundedCornerShape(12.dp),
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
         ) {
             Row(
@@ -386,13 +584,11 @@ private fun ChatInputSection(
                     value = text,
                     onValueChange = onTextChange,
                     modifier = Modifier.weight(1f),
-                    placeholder = {
-                        Text("输入消息…", style = MaterialTheme.typography.bodyMedium)
-                    },
+                    placeholder = { Text("输入消息…", style = MaterialTheme.typography.bodyMedium) },
                     enabled = enabled,
                     singleLine = false,
                     maxLines = 4,
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(10.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = Color.Transparent,
                         unfocusedBorderColor = Color.Transparent,
@@ -411,9 +607,6 @@ private fun ChatInputSection(
     }
 }
 
-/**
- * 输入框上方的模型选择行：显示当前模型，点击下拉切换。
- */
 @Composable
 private fun ModelSelectorBar(
     provider: AiConfig.Provider,
@@ -456,23 +649,16 @@ private fun ModelSelectorBar(
         ) {
             DropdownMenuItem(
                 text = { Text("DeepSeek") },
-                onClick = {
-                    onSwitchProvider(AiConfig.Provider.DEEPSEEK)
-                    expanded = false
-                }
+                onClick = { onSwitchProvider(AiConfig.Provider.DEEPSEEK); expanded = false }
             )
             DropdownMenuItem(
                 text = { Text("GPT (OpenAI)") },
-                onClick = {
-                    onSwitchProvider(AiConfig.Provider.OPENAI)
-                    expanded = false
-                }
+                onClick = { onSwitchProvider(AiConfig.Provider.OPENAI); expanded = false }
             )
         }
     }
 }
 
-/** 圆形发送按钮 */
 @Composable
 private fun SendButton(enabled: Boolean, sending: Boolean, onClick: () -> Unit) {
     val scale = if (enabled) 1f else 0.95f
@@ -480,9 +666,7 @@ private fun SendButton(enabled: Boolean, sending: Boolean, onClick: () -> Unit) 
         color = if (enabled) MaterialTheme.colorScheme.primary
                 else MaterialTheme.colorScheme.surface,
         shape = CircleShape,
-        modifier = Modifier
-            .size(36.dp)
-            .scale(scale),
+        modifier = Modifier.size(36.dp).scale(scale),
         onClick = onClick,
         enabled = enabled && !sending
     ) {
@@ -495,8 +679,7 @@ private fun SendButton(enabled: Boolean, sending: Boolean, onClick: () -> Unit) 
                 )
             } else {
                 Icon(
-                    Icons.AutoMirrored.Filled.Send,
-                    "发送",
+                    Icons.AutoMirrored.Filled.Send, "发送",
                     modifier = Modifier.size(18.dp),
                     tint = if (enabled) MaterialTheme.colorScheme.onPrimary
                            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
@@ -506,12 +689,12 @@ private fun SendButton(enabled: Boolean, sending: Boolean, onClick: () -> Unit) 
     }
 }
 
-/** AI 设置面板 */
+// ============================================================
+// 设置面板
+// ============================================================
+
 @Composable
-private fun AiSettingsPanel(
-    ai: AiManager?,
-    onConfigured: () -> Unit
-) {
+private fun AiSettingsPanel(ai: AiManager?, onConfigured: () -> Unit) {
     val currentConfig = remember { ai?.config ?: AiConfig.deepseekDefault() }
 
     var provider by remember { mutableStateOf(currentConfig.provider) }
@@ -530,7 +713,6 @@ private fun AiSettingsPanel(
         ) {
             Text("模型配置", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
 
-            // 服务商选择
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
