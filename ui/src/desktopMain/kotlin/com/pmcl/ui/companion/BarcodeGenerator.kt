@@ -4,6 +4,7 @@ import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
 import com.google.zxing.MultiFormatWriter
 import com.google.zxing.common.BitMatrix
+import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 import java.awt.Color
 import java.awt.image.BufferedImage
 import java.util.EnumMap
@@ -14,11 +15,16 @@ import java.util.EnumMap
  */
 object BarcodeGenerator {
 
-    /** 生成二维码 BufferedImage */
+    /**
+     * 生成二维码 BufferedImage
+     * 使用最高纠错级别 H：即使二维码被缩放导致部分模块模糊，也能完整读出
+     * （配对码 23 字符，H 级别容量充足）。
+     */
     fun generateQrCode(content: String, size: Int = 240): BufferedImage {
         val hints = EnumMap<EncodeHintType, Any>(EncodeHintType::class.java)
         hints[EncodeHintType.MARGIN] = 1
         hints[EncodeHintType.CHARACTER_SET] = "UTF-8"
+        hints[EncodeHintType.ERROR_CORRECTION] = ErrorCorrectionLevel.H
         val matrix: BitMatrix = MultiFormatWriter().encode(content, BarcodeFormat.QR_CODE, size, size, hints)
         return toBufferedImage(matrix)
     }

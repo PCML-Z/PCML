@@ -117,6 +117,7 @@ fun CompanionPairDialog(
                     HorizontalDivider(Modifier.fillMaxWidth())
 
                     // 二维码：高像素 bitmap + ContentScale.Fit 在显示框内等比放大
+                    // 二维码内容 = 完整配对码（000-000 XXXXX-XXXXX-XXXXX，含字母部分）
                     Surface(
                         shape = RoundedCornerShape(12.dp),
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
@@ -129,9 +130,18 @@ fun CompanionPairDialog(
                         )
                     }
                     Text(
-                        "二维码",
+                        "二维码（含完整配对码）",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    // 显示二维码内嵌的完整配对码，便于确认包含字母部分
+                    Text(
+                        pairingCode,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        textAlign = TextAlign.Center
                     )
 
                     // 一维码：高像素 bitmap + ContentScale.Fit 在显示框内等比放大
