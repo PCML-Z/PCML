@@ -1,11 +1,13 @@
 package com.pmcl.ui.companion
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Edit
@@ -16,7 +18,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
@@ -27,6 +31,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.rememberWindowState
+import java.awt.event.ComponentAdapter
+import java.awt.event.ComponentEvent
+import java.awt.geom.RoundRectangle2D
 import java.net.Inet4Address
 import java.net.NetworkInterface
 import java.text.SimpleDateFormat
@@ -70,6 +77,8 @@ fun CompanionPairDialog(
     Window(
         onCloseRequest = onDismiss,
         title = "iOS 伴随 App 配对",
+        undecorated = true,
+        transparent = true,
         resizable = false,
         state = rememberWindowState(
             width = 900.dp,
@@ -77,36 +86,76 @@ fun CompanionPairDialog(
             position = WindowPosition.Aligned(Alignment.Center)
         )
     ) {
+        // 无边框窗口：transparent=true 让边缘 alpha 混合抗锯齿，用 RoundRectangle2D 裁圆角
+        DisposableEffect(Unit) {
+            val applyShape = {
+                window.shape = RoundRectangle2D.Double(
+                    0.0, 0.0,
+                    window.width.toDouble(), window.height.toDouble(),
+                    14.0, 14.0
+                )
+            }
+            applyShape()
+            val listener = object : ComponentAdapter() {
+                override fun componentResized(e: ComponentEvent?) { applyShape() }
+                override fun componentMoved(e: ComponentEvent?) { applyShape() }
+            }
+            window.addComponentListener(listener)
+            onDispose { window.removeComponentListener(listener) }
+        }
+
         Surface(
-            shape = RoundedCornerShape(0.dp),
+            shape = RoundedCornerShape(14.dp),
             tonalElevation = 6.dp,
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(14.dp))
         ) {
-            Row(
-                Modifier.fillMaxSize().padding(24.dp),
-                horizontalArrangement = Arrangement.spacedBy(20.dp)
-            ) {
+            Column(Modifier.fillMaxSize()) {
+                // 无边框标题栏：可拖动 + 关闭按钮
+                Row(
+                    Modifier.fillMaxWidth().height(40.dp).padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        Modifier.weight(1f).pointerInput(Unit) {
+                            detectDragGestures { change, dragAmount ->
+                                change.consume()
+                                val x = window.x + dragAmount.x.toInt()
+                                val y = window.y + dragAmount.y.toInt()
+                                window.location = java.awt.Point(x, y)
+                            }
+                        },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Filled.PhoneIphone, null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "iOS 伴随 App 配对",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(Icons.Filled.Close, "关闭", modifier = Modifier.size(18.dp))
+                    }
+                }
+
+                Row(
+                    Modifier.weight(1f).fillMaxWidth().padding(24.dp),
+                    horizontalArrangement = Arrangement.spacedBy(20.dp)
+                ) {
                 // ===== 左侧：条码面板（固定宽度）=====
                 Column(
                     Modifier.width(360.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    // 标题
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Filled.PhoneIphone, null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(22.dp)
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            "iOS 伴随 App 配对",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-
                     Text(
                         "用 iOS 端 PCML 扫描下方二维码或一维码即可快速配对",
                         style = MaterialTheme.typography.bodySmall,
@@ -314,9 +363,10 @@ fun CompanionPairDialog(
                         TextButton(onClick = onDismiss) { Text("关闭") }
                     }
                 }
-            }
-        }
-    }
+                } // 内容 Row 闭合
+            } // Column(Surface 内) 闭合
+        } // Surface 闭合
+    } // Window lambda 闭合
 
     // 重命名对话框
     val renaming = renamingDevice
