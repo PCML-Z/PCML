@@ -18,7 +18,6 @@ import androidx.compose.material.icons.automirrored.outlined.Backspace
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -199,7 +198,7 @@ fun AiAgentPage(vm: LauncherViewModel) {
                 text = input,
                 onTextChange = { input = it },
                 sending = sending,
-                enabled = ai?.isConfigured == true && !sending,
+                enabled = !sending,
                 provider = ai?.config?.provider ?: AiConfig.Provider.DEEPSEEK,
                 onSwitchProvider = { switchProvider(it) },
                 onSend = {
@@ -600,40 +599,20 @@ private fun ModelSelectorBar(
     provider: AiConfig.Provider,
     onSwitchProvider: (AiConfig.Provider) -> Unit
 ) {
-    var expanded by remember { mutableStateOf(false) }
-    val modelName = when (provider) {
-        AiConfig.Provider.DEEPSEEK -> "DeepSeek"
-        AiConfig.Provider.OPENAI -> "GPT"
-        AiConfig.Provider.CUSTOM -> "自定义"
-    }
-
-    Box {
-        TextButton(
-            onClick = { expanded = true },
-            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-            modifier = Modifier.height(24.dp)
-        ) {
-            Text(modelName,
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Icon(Icons.Filled.ExpandMore, "切换模型",
-                modifier = Modifier.size(14.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
-        }
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false }
-        ) {
-            DropdownMenuItem(
-                text = { Text("DeepSeek") },
-                onClick = { onSwitchProvider(AiConfig.Provider.DEEPSEEK); expanded = false }
-            )
-            DropdownMenuItem(
-                text = { Text("GPT (OpenAI)") },
-                onClick = { onSwitchProvider(AiConfig.Provider.OPENAI); expanded = false }
-            )
-        }
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        FilterChip(
+            selected = provider == AiConfig.Provider.DEEPSEEK,
+            onClick = { onSwitchProvider(AiConfig.Provider.DEEPSEEK) },
+            label = { Text("DeepSeek", style = MaterialTheme.typography.labelSmall) }
+        )
+        FilterChip(
+            selected = provider == AiConfig.Provider.OPENAI,
+            onClick = { onSwitchProvider(AiConfig.Provider.OPENAI) },
+            label = { Text("GPT", style = MaterialTheme.typography.labelSmall) }
+        )
     }
 }
 
