@@ -9,6 +9,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Devices
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.material.icons.filled.PhoneIphone
 import androidx.compose.material.icons.filled.Refresh
@@ -46,6 +47,11 @@ fun CompanionPairDialog(
     val ips = remember { listLocalIps() }
     val clipboard = LocalClipboardManager.current
     val dateFmt = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
+
+    // 重命名对话框状态
+    var renamingDevice by remember { mutableStateOf<PairingManager.PairedDevice?>(null) }
+    var renameText by remember { mutableStateOf("") }
+    var renameError by remember { mutableStateOf(false) }
 
     // 打开对话框时刷新一次端口（端口占用时可能被自动递增）
     LaunchedEffect(Unit) {
@@ -249,6 +255,17 @@ fun CompanionPairDialog(
                                     )
                                 }
                                 IconButton(onClick = {
+                                    renamingDevice = device
+                                    renameText = device.deviceName
+                                    renameError = false
+                                }) {
+                                    Icon(
+                                        Icons.Filled.Edit, "重命名",
+                                        modifier = Modifier.size(18.dp),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                IconButton(onClick = {
                                     pairing.unpair(device.token)
                                     devices = pairing.getDevices()
                                 }) {
@@ -272,6 +289,45 @@ fun CompanionPairDialog(
                 }
             }
         }
+    }
+
+    // 重命名对话框
+    val renaming = renamingDevice
+    if (renaming != null) {
+        AlertDialog(
+            onDismissRequest = { renamingDevice = null },
+            title = { Text("重命名设备") },
+            text = {
+                OutlinedTextField(
+                    value = renameText,
+                    onValueChange = {
+                        renameText = it
+                        renameError = it.isBlank()
+                    },
+                    label = { Text("设备名称") },
+                    singleLine = true,
+                    isError = renameError,
+                    supportingText = if (renameError) {
+                        { Text("名称不能为空") }
+                    } else null,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (renameText.isBlank()) {
+                        renameError = true
+                    } else {
+                        pairing.renameDevice(renaming.token, renameText)
+                        devices = pairing.getDevices()
+                        renamingDevice = null
+                    }
+                }) { Text("保存") }
+            },
+            dismissButton = {
+                TextButton(onClick = { renamingDevice = null }) { Text("取消") }
+            }
+        )
     }
 }
 

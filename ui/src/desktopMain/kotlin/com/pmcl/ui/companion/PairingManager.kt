@@ -181,6 +181,21 @@ class PairingManager(private val dataFile: Path) {
     }
 
     /**
+     * 重命名已配对设备。
+     * @return 是否成功（token 不存在则返回 false）
+     */
+    @Synchronized
+    fun renameDevice(token: String, newName: String): Boolean {
+        val idx = config.devices.indexOfFirst { it.token == token }
+        if (idx < 0) return false
+        val trimmed = newName.trim()
+        if (trimmed.isEmpty()) return false
+        config.devices[idx] = config.devices[idx].copy(deviceName = trimmed)
+        save()
+        return true
+    }
+
+    /**
      * 移除所有已配对设备。
      */
     @Synchronized
