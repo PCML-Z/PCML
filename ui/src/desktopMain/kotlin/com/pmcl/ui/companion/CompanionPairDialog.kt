@@ -130,7 +130,7 @@ fun CompanionPairDialog(
                         )
                     }
                     Text(
-                        "二维码（含完整配对码）",
+                        "二维码",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
