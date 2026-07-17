@@ -104,6 +104,11 @@ actor PmclConnection {
         heartbeatTask = Task { [weak self] in
             await self?.heartbeatLoop()
         }
+        // 立即发送 ping 验证连接，收到响应后 state 切到 .connected
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            _ = try? await self?.sendRaw(.request(action: PmclAction.ping))
+        }
     }
 
     func disconnect() {
@@ -148,6 +153,9 @@ actor PmclConnection {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         guard let envelope = try? decoder.decode(PmclEnvelope.self, from: data) else { return }
+
+        // 收到任何有效消息即表示连接已建立
+        if state == .authenticating { state = .connected }
 
         // 响应：匹配 pending 请求
         if envelope.type == "response" || envelope.type == "error" {

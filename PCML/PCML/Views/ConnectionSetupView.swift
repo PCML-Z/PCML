@@ -157,8 +157,8 @@ struct ConnectionSetupView: View {
             Label("操作指引", systemImage: "questionmark.circle")
                 .font(.subheadline.bold())
             VStack(alignment: .leading, spacing: 6) {
-                step("1", "在桌面端 PMCL 打开 设置 → 伴随模式")
-                step("2", "点击「生成配对码」获得 6 位数字")
+                step("1", "在桌面端 PMCL 标题栏点击手机图标")
+                step("2", "在弹出的配对窗口中查看 IP 地址与配对码")
                 step("3", "确认桌面与手机在同一局域网")
                 step("4", "在此页面填入 IP、端口与配对码")
             }

@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CropSquare
 import androidx.compose.material.icons.filled.Minimize
+import androidx.compose.material.icons.filled.PhoneIphone
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -77,6 +78,8 @@ fun main() = application {
 
     // AI 智能体独立窗口开关
     val showAiWindow = remember { mutableStateOf(false) }
+    // iOS 伴随 App 配对对话框开关
+    val showCompanionDialog = remember { mutableStateOf(false) }
     val aiWindowState = rememberWindowState(
         width = 860.dp,
         height = 640.dp,
@@ -165,7 +168,8 @@ fun main() = application {
                                 isDragging = isDragging,
                                 vm = vm,
                                 searchFocusRequester = searchFocusRequester,
-                                onOpenAi = { showAiWindow.value = true }
+                                onOpenAi = { showAiWindow.value = true },
+                                onOpenCompanion = { showCompanionDialog.value = true }
                             )
                             Box(Modifier.weight(1f).fillMaxWidth()) {
                                 App(vm)
@@ -179,11 +183,23 @@ fun main() = application {
                     SlimSearchBar(
                         vm = vm,
                         searchFocusRequester = searchFocusRequester,
-                        onOpenAi = { showAiWindow.value = true }
+                        onOpenAi = { showAiWindow.value = true },
+                        onOpenCompanion = { showCompanionDialog.value = true }
                     )
                     Box(Modifier.weight(1f).fillMaxWidth()) {
                         App(vm)
                     }
+                }
+            }
+            // iOS 伴随 App 配对对话框
+            if (showCompanionDialog.value) {
+                val scheme = if (useDark) darkColorScheme() else lightColorScheme()
+                MaterialTheme(colorScheme = scheme) {
+                    com.pmcl.ui.companion.CompanionPairDialog(
+                        pairing = pairingManager,
+                        hostServer = hostServer,
+                        onDismiss = { showCompanionDialog.value = false }
+                    )
                 }
             }
         }
@@ -283,7 +299,8 @@ private fun FrameWindowScope.BorderlessTitleBar(
     isDragging: MutableState<Boolean>,
     vm: LauncherViewModel,
     searchFocusRequester: FocusRequester,
-    onOpenAi: () -> Unit
+    onOpenAi: () -> Unit,
+    onOpenCompanion: () -> Unit
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface,
@@ -314,6 +331,10 @@ private fun FrameWindowScope.BorderlessTitleBar(
                 compact = true
             )
             Spacer(Modifier.weight(1f))
+            // iOS 伴随 App 配对按钮
+            IconButton(onClick = onOpenCompanion, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Filled.PhoneIphone, "iOS 伴随 App 配对", modifier = Modifier.size(16.dp))
+            }
             // AI 智能体按钮（鼠标悬停展开标签）
             AiHoverButton(onClick = onOpenAi)
             // 最小化
@@ -410,7 +431,8 @@ private fun AiHoverButton(onClick: () -> Unit) {
 private fun SlimSearchBar(
     vm: LauncherViewModel,
     searchFocusRequester: FocusRequester,
-    onOpenAi: () -> Unit
+    onOpenAi: () -> Unit,
+    onOpenCompanion: () -> Unit
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface,
@@ -428,6 +450,9 @@ private fun SlimSearchBar(
                 compact = true
             )
             Spacer(Modifier.weight(1f))
+            IconButton(onClick = onOpenCompanion, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Filled.PhoneIphone, "iOS 伴随 App 配对", modifier = Modifier.size(16.dp))
+            }
             AiHoverButton(onClick = onOpenAi)
         }
     }

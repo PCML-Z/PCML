@@ -100,6 +100,12 @@ class PmclHostServer(
         println("[PmclHostServer] stopped")
     }
 
+    /** 服务是否正在运行 */
+    fun isRunning(): Boolean = running
+
+    /** 当前活跃 WebSocket 连接数 */
+    fun activeConnectionCount(): Int = connections.size
+
     // ================================================================
     //  配对
     // ================================================================
