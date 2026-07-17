@@ -19,6 +19,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.isPrimaryPressed
@@ -190,14 +192,28 @@ fun CompanionPairDialog(
                                 ) {
                                     Text(
                                         "已配对至",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        style = MaterialTheme.typography.labelMedium.copy(
+                                            fontWeight = FontWeight.Medium,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            shadow = Shadow(
+                                                color = MaterialTheme.colorScheme.surface,
+                                                blurRadius = 8f,
+                                                offset = Offset(0f, 0f)
+                                            )
+                                        )
                                     )
+                                    Spacer(Modifier.height(4.dp))
                                     Text(
                                         pairedName,
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary
+                                        style = MaterialTheme.typography.headlineSmall.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            shadow = Shadow(
+                                                color = MaterialTheme.colorScheme.surface,
+                                                blurRadius = 10f,
+                                                offset = Offset(0f, 0f)
+                                            )
+                                        )
                                     )
                                 }
                             }
