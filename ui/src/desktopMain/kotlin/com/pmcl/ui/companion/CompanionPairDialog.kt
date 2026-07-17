@@ -56,8 +56,9 @@ fun CompanionPairDialog(
     }
 
     // 由当前配对码生成二维码与一维码（配对码变化时重新生成）
+    // 尺寸与显示尺寸 1:1，避免 Image 缩放导致一维码变细无法扫描
     val qrBitmap = remember(pairingCode) {
-        BarcodeGenerator.generateQrCode(pairingCode, 260).toComposeImageBitmap()
+        BarcodeGenerator.generateQrCode(pairingCode, 280).toComposeImageBitmap()
     }
     val barBitmap = remember(pairingCode) {
         BarcodeGenerator.generateBarcode(pairingCode, 360, 90).toComposeImageBitmap()
@@ -67,15 +68,15 @@ fun CompanionPairDialog(
         Surface(
             shape = RoundedCornerShape(16.dp),
             tonalElevation = 6.dp,
-            modifier = Modifier.width(760.dp)
+            modifier = Modifier.width(920.dp)
         ) {
             Row(
                 Modifier.padding(24.dp),
-                horizontalArrangement = Arrangement.spacedBy(20.dp)
+                horizontalArrangement = Arrangement.spacedBy(24.dp)
             ) {
                 // ===== 左侧：条码面板 =====
                 Column(
-                    Modifier.width(320.dp).fillMaxHeight(),
+                    Modifier.width(400.dp).fillMaxHeight(),
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
@@ -103,16 +104,16 @@ fun CompanionPairDialog(
 
                     HorizontalDivider(Modifier.fillMaxWidth())
 
-                    // 二维码
+                    // 二维码（固定 280dp，与 bitmap 1:1 避免缩放）
                     Surface(
                         shape = RoundedCornerShape(12.dp),
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                        modifier = Modifier.padding(horizontal = 12.dp)
+                        modifier = Modifier.padding(horizontal = 8.dp)
                     ) {
                         Image(
                             bitmap = qrBitmap,
                             contentDescription = "配对码二维码",
-                            modifier = Modifier.size(260.dp).padding(8.dp)
+                            modifier = Modifier.size(280.dp).padding(8.dp)
                         )
                     }
                     Text(
@@ -121,16 +122,16 @@ fun CompanionPairDialog(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
-                    // 一维码
+                    // 一维码（固定 360×90，与 bitmap 1:1，避免 fillMaxWidth 横向压缩导致无法扫描）
                     Surface(
                         shape = RoundedCornerShape(12.dp),
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                        modifier = Modifier.padding(horizontal = 12.dp)
+                        modifier = Modifier.padding(horizontal = 8.dp)
                     ) {
                         Image(
                             bitmap = barBitmap,
                             contentDescription = "配对码一维码",
-                            modifier = Modifier.fillMaxWidth().padding(8.dp)
+                            modifier = Modifier.width(360.dp).height(90.dp).padding(8.dp)
                         )
                     }
                     Text(
