@@ -144,7 +144,7 @@ fun CompanionPairDialog(
                         textAlign = TextAlign.Center
                     )
 
-                    // 一维码：高像素 bitmap + ContentScale.Fit 在显示框内等比放大
+                    // 一维码：显示框比例与 bitmap(560:140=4:1) 一致，ContentScale.FillBounds 拉伸贴合
                     Surface(
                         shape = RoundedCornerShape(12.dp),
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
@@ -152,8 +152,8 @@ fun CompanionPairDialog(
                         Image(
                             bitmap = barBitmap,
                             contentDescription = "配对码一维码",
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier.fillMaxWidth(0.95f).height(110.dp)
+                            contentScale = ContentScale.FillBounds,
+                            modifier = Modifier.width(320.dp).height(80.dp)
                         )
                     }
                     Text(
