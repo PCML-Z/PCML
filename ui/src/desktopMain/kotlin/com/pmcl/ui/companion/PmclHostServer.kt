@@ -64,27 +64,32 @@ class PmclHostServer(
 
     fun start() {
         if (running) return
-        running = true
         val port = pairing.getPort()
-
-        server = embeddedServer(CIO, host = "0.0.0.0", port = port) {
-            install(WebSockets)
-            routing {
-                // 配对 HTTP 端点
-                post("/pmcl/pair") {
-                    handlePair(call)
+        try {
+            server = embeddedServer(CIO, host = "0.0.0.0", port = port) {
+                install(WebSockets)
+                routing {
+                    // 配对 HTTP 端点
+                    post("/pmcl/pair") {
+                        handlePair(call)
+                    }
+                    // WebSocket 端点
+                    webSocket("/pmcl") {
+                        handleWebSocket(this)
+                    }
                 }
-                // WebSocket 端点
-                webSocket("/pmcl") {
-                    handleWebSocket(this)
-                }
-            }
-        }.start(wait = false)
+            }.start(wait = false)
+            running = true
 
-        // 注册好友事件监听，转发消息到 iOS
-        registerFriendListener()
+            // 注册好友事件监听，转发消息到 iOS
+            registerFriendListener()
 
-        println("[PmclHostServer] started on port $port")
+            println("[PmclHostServer] started on 0.0.0.0:$port")
+        } catch (e: Exception) {
+            running = false
+            println("[PmclHostServer] FAILED to start on port $port: ${e.message}")
+            e.printStackTrace()
+        }
     }
 
     fun stop() {
