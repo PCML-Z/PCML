@@ -184,7 +184,8 @@ fun main() = application {
             onCloseRequest = { showAiWindow.value = false },
             title = "PCML智能体",
             state = aiWindowState,
-            undecorated = false
+            undecorated = false,
+            focusable = true
         ) {
             val isDark = useDark
             val scheme = if (isDark) darkColorScheme() else lightColorScheme()
@@ -336,7 +337,7 @@ private fun FrameWindowScope.BorderlessTitleBar(
 }
 
 /**
- * 标题栏 AI 悬浮按钮：默认仅显示图标，鼠标悬停时水平展开显示「助手」标签。
+ * 标题栏 AI 悬浮按钮：默认仅显示图标，鼠标悬停时水平展开显示「以智能体模式打开」标签。
  */
 @Composable
 private fun AiHoverButton(onClick: () -> Unit) {
@@ -372,7 +373,7 @@ private fun AiHoverButton(onClick: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Icon(Icons.Filled.Bolt, "助手",
+            Icon(Icons.Filled.Bolt, "以智能体模式打开",
                 tint = if (hovered) MaterialTheme.colorScheme.onPrimaryContainer
                        else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(15.dp))
@@ -381,7 +382,7 @@ private fun AiHoverButton(onClick: () -> Unit) {
                 enter = expandHorizontally() + fadeIn(),
                 exit = shrinkHorizontally() + fadeOut()
             ) {
-                Text("助手",
+                Text("以智能体模式打开",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onPrimaryContainer,
                     fontWeight = FontWeight.Medium,
