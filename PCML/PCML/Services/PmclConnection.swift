@@ -47,9 +47,15 @@ actor PmclConnection {
     private var subscribers: [UUID: (PmclEvent) -> Void] = [:]
 
     init() {
-        // 禁用代理：WebSocket 连接局域网/本机地址，不应走系统 HTTP 代理
+        // 显式禁用所有代理：WebSocket 连接局域网/本机，系统代理会导致连接失败
         let config = URLSessionConfiguration.default
-        config.connectionProxyDictionary = [:]
+        config.connectionProxyDictionary = [
+            kCFNetworkProxiesHTTPEnable: false,
+            kCFNetworkProxiesHTTPSEnable: false,
+            kCFNetworkProxiesSOCKSEnable: false,
+            kCFNetworkProxiesProxyAutoConfigEnable: false,
+            kCFNetworkProxiesFTPEnable: false
+        ]
         self.session = URLSession(configuration: config)
     }
 

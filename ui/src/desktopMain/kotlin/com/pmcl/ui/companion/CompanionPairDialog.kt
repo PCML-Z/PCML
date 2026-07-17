@@ -48,11 +48,17 @@ fun CompanionPairDialog(
     var pairingCode by remember { mutableStateOf(pairing.getPairingCode()) }
     var devices by remember { mutableStateOf(pairing.getDevices()) }
     var running by remember { mutableStateOf(hostServer.isRunning()) }
-    val port = remember { pairing.getPort() }
-    val serverName = remember { pairing.getServerName() }
+    var port by remember { mutableStateOf(hostServer.getActualPort().let { if (it > 0) it else pairing.getPort() }) }
     val ips = remember { listLocalIps() }
     val clipboard = LocalClipboardManager.current
     val dateFmt = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
+
+    // 打开对话框时刷新一次状态
+    LaunchedEffect(Unit) {
+        running = hostServer.isRunning()
+        val ap = hostServer.getActualPort()
+        if (ap > 0) port = ap
+    }
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(

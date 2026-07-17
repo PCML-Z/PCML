@@ -17,9 +17,16 @@ actor PmclClient {
 
     init() {
         self.connection = PmclConnection()
-        // 禁用代理：PCML 连接的是局域网/本机地址，不应走系统 HTTP 代理
+        // 显式禁用所有代理：PCML 直连局域网/本机，系统代理（如翻墙工具）会导致连接失败
         let config = URLSessionConfiguration.default
-        config.connectionProxyDictionary = [:]
+        config.connectionProxyDictionary = [
+            kCFNetworkProxiesHTTPEnable: false,
+            kCFNetworkProxiesHTTPSEnable: false,
+            kCFNetworkProxiesSOCKSEnable: false,
+            kCFNetworkProxiesProxyAutoConfigEnable: false,
+            kCFNetworkProxiesFTPEnable: false
+        ]
+        config.timeoutIntervalForRequest = 10
         self.session = URLSession(configuration: config)
         let dec = JSONDecoder()
         dec.dateDecodingStrategy = .iso8601
@@ -58,6 +65,16 @@ actor PmclClient {
             return try decoder.decode(PairResponse.self, from: data)
         } catch let e as PmclError {
             throw e
+        } catch let urlErr as URLError {
+            // 网络层错误：带具体错误码，方便诊断代理/连接被拒等问题
+            let hint: String
+            switch urlErr.code {
+            case .cannotConnectToHost: hint = "无法连接到 \(host):\(port)（服务未启动或端口被占用）"
+            case .timedOut: hint = "连接超时（IP 或端口错误，或代理干扰）"
+            case .notConnectedToInternet: hint = "无网络连接"
+            default: hint = urlErr.localizedDescription
+            }
+            throw PmclError.server(code: "NET_\(urlErr.code.rawValue)", message: hint)
         } catch {
             throw PmclError.server(code: "NETWORK", message: error.localizedDescription)
         }

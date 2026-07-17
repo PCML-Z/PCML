@@ -62,34 +62,40 @@ class PmclHostServer(
     //  生命周期
     // ================================================================
 
+    @Volatile
+    private var actualPort: Int = 0
+
+    fun getActualPort(): Int = actualPort
+
     fun start() {
         if (running) return
-        val port = pairing.getPort()
-        try {
-            server = embeddedServer(CIO, host = "0.0.0.0", port = port) {
-                install(WebSockets)
-                routing {
-                    // 配对 HTTP 端点
-                    post("/pmcl/pair") {
-                        handlePair(call)
+        val basePort = pairing.getPort()
+        // 端口占用时自动递增重试（最多 10 次）
+        var tryPort = basePort
+        for (attempt in 0..9) {
+            try {
+                server = embeddedServer(CIO, host = "0.0.0.0", port = tryPort) {
+                    install(WebSockets)
+                    routing {
+                        post("/pmcl/pair") { handlePair(call) }
+                        webSocket("/pmcl") { handleWebSocket(this) }
                     }
-                    // WebSocket 端点
-                    webSocket("/pmcl") {
-                        handleWebSocket(this)
-                    }
+                }.start(wait = false)
+                running = true
+                actualPort = tryPort
+                if (tryPort != basePort) {
+                    pairing.setPort(tryPort)  // 持久化新端口
                 }
-            }.start(wait = false)
-            running = true
-
-            // 注册好友事件监听，转发消息到 iOS
-            registerFriendListener()
-
-            println("[PmclHostServer] started on 0.0.0.0:$port")
-        } catch (e: Exception) {
-            running = false
-            println("[PmclHostServer] FAILED to start on port $port: ${e.message}")
-            e.printStackTrace()
+                registerFriendListener()
+                println("[PmclHostServer] started on 0.0.0.0:$tryPort" +
+                    if (tryPort != basePort) " (auto-incremented from $basePort)" else "")
+                return
+            } catch (e: Exception) {
+                println("[PmclHostServer] port $tryPort unavailable: ${e.message}")
+                tryPort++
+            }
         }
+        println("[PmclHostServer] FAILED to start after 10 port attempts")
     }
 
     fun stop() {
