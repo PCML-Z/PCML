@@ -71,9 +71,14 @@ class PairingManager(private val dataFile: Path) {
                         ))
                     }
                 }
+            } else {
+                // 首次启动：生成配对码并立即持久化，避免重启后配对码变化
+                config = Config()
+                save()
             }
         } catch (e: Exception) {
             config = Config()
+            save()
         }
     }
 
