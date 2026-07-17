@@ -17,6 +17,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.automirrored.outlined.Backspace
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CleaningServices
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.*
@@ -45,7 +46,7 @@ import kotlinx.coroutines.launch
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AiAgentPage(vm: LauncherViewModel) {
+fun AiAgentPage(vm: LauncherViewModel, onClose: () -> Unit = {}) {
     val ai = remember { vm.core.ai() }
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
@@ -138,7 +139,8 @@ fun AiAgentPage(vm: LauncherViewModel) {
                     ai?.clearMemory()
                     messages.clear()
                     toolStatus = null
-                }
+                },
+                onClose = onClose
             )
 
             // 设置面板
@@ -351,7 +353,8 @@ private fun SessionItem(
 private fun ChatHeader(
     showSettings: Boolean,
     onToggleSettings: () -> Unit,
-    onClear: () -> Unit
+    onClear: () -> Unit,
+    onClose: () -> Unit
 ) {
     Surface(tonalElevation = 2.dp, color = MaterialTheme.colorScheme.surface) {
         Row(
@@ -367,6 +370,11 @@ private fun ChatHeader(
             }
             IconButton(onClick = onClear, modifier = Modifier.size(32.dp)) {
                 Icon(Icons.Filled.CleaningServices, "清空对话",
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            IconButton(onClick = onClose, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Filled.Close, "关闭智能体",
                     modifier = Modifier.size(18.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
