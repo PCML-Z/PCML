@@ -13,6 +13,7 @@ ice4j = "3.2-15-g6da2b08"
 javacv = "1.5.11"
 ffmpeg = "7.1-1.5.11"
 langchain4j = "1.0.0"
+ktor = "3.0.3"
 
 [libraries]
 # Kotlin 协程
@@ -35,6 +36,13 @@ ffmpeg-macosx-arm64 = { module = "org.bytedeco:ffmpeg", version.ref = "ffmpeg" }
 # AI 智能体
 langchain4j = { module = "dev.langchain4j:langchain4j", version.ref = "langchain4j" }
 langchain4j-open-ai = { module = "dev.langchain4j:langchain4j-open-ai", version.ref = "langchain4j" }
+
+# WebSocket 服务宿主（伴随模式）
+ktor-server-core = { module = "io.ktor:ktor-server-core", version.ref = "ktor" }
+ktor-server-cio = { module = "io.ktor:ktor-server-cio", version.ref = "ktor" }
+ktor-server-websockets = { module = "io.ktor:ktor-server-websockets", version.ref = "ktor" }
+ktor-server-content-negotiation = { module = "io.ktor:ktor-server-content-negotiation", version.ref = "ktor" }
+ktor-serialization-gson = { module = "io.ktor:ktor-serialization-gson", version.ref = "ktor" }
 
 
 # 测试

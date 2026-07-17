@@ -33,6 +33,13 @@ kotlin {
                 implementation(project(":core"))
                 implementation(project(":cli"))
                 implementation(project(":video"))
+
+                // WebSocket 服务宿主（伴随模式）
+                implementation(libs.ktor.server.core)
+                implementation(libs.ktor.server.cio)
+                implementation(libs.ktor.server.websockets)
+                implementation(libs.ktor.server.content.negotiation)
+                implementation(libs.ktor.serialization.gson)
             }
         }
     }

@@ -58,6 +58,17 @@ fun main() = application {
     val vm = remember { LauncherViewModel() }
     val searchFocusRequester = remember { FocusRequester() }
 
+    // 伴随模式 WebSocket 服务宿主
+    val companionDataFile = remember {
+        Paths.get(System.getProperty("user.home"), ".pmcl", "companion.json")
+    }
+    val pairingManager = remember { com.pmcl.ui.companion.PairingManager(companionDataFile) }
+    val hostServer = remember { com.pmcl.ui.companion.PmclHostServer(vm, pairingManager) }
+    DisposableEffect(Unit) {
+        hostServer.start()
+        onDispose { hostServer.stop() }
+    }
+
     val state = rememberWindowState(
         width = 1100.dp,
         height = 700.dp,
