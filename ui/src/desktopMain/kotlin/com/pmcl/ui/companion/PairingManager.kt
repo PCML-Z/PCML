@@ -45,6 +45,51 @@ class PairingManager(private val dataFile: Path) {
 
         fun generateToken(): String = UUID.randomUUID().toString().replace("-", "") +
                 UUID.randomUUID().toString().replace("-", "")
+
+        /**
+         * 将 IP 编码为大写字母：0-9 -> A-J, '.' -> K
+         * 例如 "192.168.1.100" -> "BJCKBGIKBBAA"
+         */
+        fun encodeIp(ip: String): String {
+            val sb = StringBuilder()
+            for (c in ip) {
+                when {
+                    c in '0'..'9' -> sb.append(('A' + (c - '0')))
+                    c == '.' -> sb.append('K')
+                }
+            }
+            return sb.toString()
+        }
+
+        /**
+         * 从字母串解码 IP：A-J -> 0-9, K -> '.', 遇到其他字母（填充符）停止
+         */
+        fun decodeIp(letters: String): String {
+            val sb = StringBuilder()
+            for (c in letters.uppercase()) {
+                when {
+                    c in 'A'..'J' -> sb.append((c - 'A'))
+                    c == 'K' -> sb.append('.')
+                    else -> break
+                }
+            }
+            return sb.toString()
+        }
+
+        /**
+         * 格式化配对码：000-000 XXXXX-XXXXX-XXXXX
+         * 字母部分编码 IP，不足 15 位用 L 填充，超过截断
+         */
+        fun formatPairingCode(numeric: String, ip: String?): String {
+            val encoded = if (ip != null) encodeIp(ip) else ""
+            val padded = if (encoded.length >= 15) encoded.take(15) else encoded.padEnd(15, 'L')
+            val p1 = padded.take(5)
+            val p2 = padded.drop(5).take(5)
+            val p3 = padded.drop(10).take(5)
+            val n1 = numeric.take(3)
+            val n2 = if (numeric.length >= 6) numeric.drop(3).take(3) else numeric.drop(3).padEnd(3, '0')
+            return "$n1-$n2 $p1-$p2-$p3"
+        }
     }
 
     init { load() }
@@ -115,13 +160,20 @@ class PairingManager(private val dataFile: Path) {
 
     // ---- 配对码 ----
 
-    fun getPairingCode(): String = config.pairingCode
+    /**
+     * 返回格式化配对码：000-000 XXXXX-XXXXX-XXXXX
+     * 字母部分实时编码当前主局域网 IP（每次调用反映最新网络状态）
+     */
+    fun getPairingCode(): String {
+        val ip = listLocalIps().firstOrNull()
+        return formatPairingCode(config.pairingCode, ip)
+    }
 
     @Synchronized
     fun regeneratePairingCode(): String {
         config.pairingCode = generatePairingCode()
         save()
-        return config.pairingCode
+        return getPairingCode()
     }
 
     // ---- 启用/端口 ----
@@ -152,11 +204,14 @@ class PairingManager(private val dataFile: Path) {
 
     /**
      * 用配对码换取 token。配对码正确则签发新 token 并加入设备列表。
+     * 接受完整格式（000-000 XXXXX-XXXXX-XXXXX）或纯数字，验证数字部分。
      * @return token + serverName，配对码错误返回 null
      */
     @Synchronized
     fun pair(code: String, deviceName: String): Pair<String, String>? {
-        if (code != config.pairingCode) return null
+        // 提取数字部分（兼容完整格式和纯数字输入）
+        val numeric = code.filter { it.isDigit() }.take(6)
+        if (numeric.length < 6 || numeric != config.pairingCode) return null
         val token = generateToken()
         config.devices.add(PairedDevice(token, deviceName, Instant.now().toEpochMilli()))
         save()

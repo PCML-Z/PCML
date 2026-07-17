@@ -144,14 +144,20 @@ final class AppModel {
 
     // MARK: - 配对
 
-    func pair(host: String, port: Int, useTLS: Bool, code: String) async {
+    /// 用完整配对码配对（000-000 XXXXX-XXXXX-XXXXX）
+    /// 从字母部分解码 IP，端口用默认值 28520
+    func pair(code: String) async {
         pairing = .pairing
         let name = deviceName
         do {
-            let resp = try await PmclClient.shared.pair(host: host, port: port, useTLS: useTLS,
+            guard let host = PmclClient.decodeIp(from: code) else {
+                throw PmclError.server(code: "BAD_CODE", message: "配对码无效，无法解析出 IP 地址")
+            }
+            let port = 28520
+            let resp = try await PmclClient.shared.pair(host: host, port: port, useTLS: false,
                                                           code: code, deviceName: name)
             KeychainStore.save(token: resp.token)
-            let cfg = PmclHostConfig(host: host, port: port, useTLS: useTLS,
+            let cfg = PmclHostConfig(host: host, port: port, useTLS: false,
                                      deviceName: name, serverName: resp.serverName)
             hostConfig = cfg
             pairing = .paired

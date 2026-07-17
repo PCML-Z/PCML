@@ -10,13 +10,10 @@ import SwiftUI
 struct ConnectionSetupView: View {
     @Environment(AppModel.self) private var app
 
-    @State private var host: String = ""
-    @State private var port: String = "28520"
     @State private var code: String = ""
-    @State private var useTLS: Bool = false
     @FocusState private var focusedField: Field?
 
-    enum Field { case host, port, code }
+    enum Field { case code }
 
     var body: some View {
         NavigationStack {
@@ -61,39 +58,10 @@ struct ConnectionSetupView: View {
     private var formSection: some View {
         VStack(spacing: 0) {
             HStack {
-                Image(systemName: "network").foregroundStyle(.secondary).frame(width: 24)
-                TextField("桌面端 IP 地址", text: $host)
-                    .keyboardType(.decimalPad)
-                    .textContentType(.URL)
-                    .focused($focusedField, equals: .host)
-                    .autocorrectionDisabled()
-                    .submitLabel(.next)
-                    .onSubmit { focusedField = .port }
-            }
-            .padding(.vertical, 14)
-            .padding(.horizontal, 16)
-
-            Divider().padding(.leading, 48)
-
-            HStack {
-                Image(systemName: "number").foregroundStyle(.secondary).frame(width: 24)
-                TextField("端口", text: $port)
-                    .keyboardType(.numberPad)
-                    .focused($focusedField, equals: .port)
-                    .submitLabel(.next)
-                    .onSubmit { focusedField = .code }
-                Toggle("TLS", isOn: $useTLS).labelsHidden()
-                Text("TLS").font(.caption).foregroundStyle(.secondary)
-            }
-            .padding(.vertical, 14)
-            .padding(.horizontal, 16)
-
-            Divider().padding(.leading, 48)
-
-            HStack {
                 Image(systemName: "key.fill").foregroundStyle(.secondary).frame(width: 24)
-                TextField("6 位配对码", text: $code)
-                    .keyboardType(.numberPad)
+                TextField("配对码 000-000 XXXXX-XXXXX-XXXXX", text: $code)
+                    .keyboardType(.asciiCapable)
+                    .autocorrectionDisabled()
                     .focused($focusedField, equals: .code)
                     .submitLabel(.go)
                     .onSubmit { Task { await doPair() } }
@@ -133,7 +101,7 @@ struct ConnectionSetupView: View {
     }
 
     private var isFormValid: Bool {
-        !host.isEmpty && !port.isEmpty && code.count == 6
+        !code.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
     // MARK: - 错误横幅
@@ -158,9 +126,9 @@ struct ConnectionSetupView: View {
                 .font(.subheadline.bold())
             VStack(alignment: .leading, spacing: 6) {
                 step("1", "在桌面端 PMCL 标题栏点击手机图标")
-                step("2", "在弹出的配对窗口中查看 IP 地址与配对码")
+                step("2", "复制弹出的配对码（已包含 IP 信息）")
                 step("3", "确认桌面与手机在同一局域网")
-                step("4", "在此页面填入 IP、端口与配对码")
+                step("4", "在此页面粘贴配对码并配对")
             }
             .font(.footnote)
             .foregroundStyle(.secondary)
@@ -185,11 +153,7 @@ struct ConnectionSetupView: View {
     // MARK: - 动作
 
     private func doPair() async {
-        guard let portInt = Int(port), portInt > 0 && portInt < 65536 else {
-            app.presentError("端口无效")
-            return
-        }
-        await app.pair(host: host, port: portInt, useTLS: useTLS, code: code)
+        await app.pair(code: code.trimmingCharacters(in: .whitespaces))
     }
 }
 

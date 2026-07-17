@@ -44,6 +44,25 @@ actor PmclClient {
         let serverName: String
     }
 
+    /// 从完整配对码（000-000 XXXXX-XXXXX-XXXXX）解码出 IP
+    /// 字母部分：A-J -> 0-9, K -> '.', L-Z 为填充停止
+    static func decodeIp(from code: String) -> String? {
+        let letters = code.uppercased().filter { $0.isLetter }
+        guard !letters.isEmpty else { return nil }
+        var ip = ""
+        for ch in letters {
+            if ch >= "A" && ch <= "J" {
+                let digit = Int(ch.asciiValue! - Character("A").asciiValue!)
+                ip.append(String(digit))
+            } else if ch == "K" {
+                ip.append(".")
+            } else {
+                break
+            }
+        }
+        return ip.isEmpty ? nil : ip
+    }
+
     /// 用配对码换取 token（HTTP POST）
     func pair(host: String, port: Int, useTLS: Bool, code: String, deviceName: String) async throws -> PairResponse {
         let scheme = useTLS ? "https" : "http"

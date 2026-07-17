@@ -1,7 +1,5 @@
 package com.pmcl.ui.companion
 
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -13,7 +11,6 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.material.icons.filled.PhoneIphone
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -43,8 +40,6 @@ fun CompanionPairDialog(
     // 本地可观察状态
     var pairingCode by remember { mutableStateOf(pairing.getPairingCode()) }
     var devices by remember { mutableStateOf(pairing.getDevices()) }
-    var port by remember { mutableStateOf(hostServer.getActualPort().let { if (it > 0) it else pairing.getPort() }) }
-    val ips = remember { listLocalIps() }
     val clipboard = LocalClipboardManager.current
     val dateFmt = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
 
@@ -53,10 +48,9 @@ fun CompanionPairDialog(
     var renameText by remember { mutableStateOf("") }
     var renameError by remember { mutableStateOf(false) }
 
-    // 打开对话框时刷新一次端口（端口占用时可能被自动递增）
+    // 打开对话框时刷新配对码（反映最新 IP）
     LaunchedEffect(Unit) {
-        val ap = hostServer.getActualPort()
-        if (ap > 0) port = ap
+        pairingCode = pairing.getPairingCode()
     }
 
     Dialog(onDismissRequest = onDismiss) {
@@ -93,7 +87,7 @@ fun CompanionPairDialog(
 
                 HorizontalDivider()
 
-                // 配对码（大字展示）
+                // 配对码（大字展示：数字部分 + 字母部分两行）
                 Text(
                     "配对码",
                     style = MaterialTheme.typography.labelMedium,
@@ -108,19 +102,28 @@ fun CompanionPairDialog(
                         color = MaterialTheme.colorScheme.primaryContainer,
                         modifier = Modifier.weight(1f)
                     ) {
-                        Row(
-                            Modifier.padding(vertical = 14.dp, horizontal = 20.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
+                        Column(
+                            Modifier.fillMaxWidth().padding(vertical = 14.dp, horizontal = 20.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
+                            // 数字部分 000-000
                             Text(
-                                pairingCode.take(3) + "  " + pairingCode.drop(3),
+                                pairingCode.take(7),
                                 style = MaterialTheme.typography.headlineLarge,
                                 fontFamily = FontFamily.Monospace,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.weight(1f)
+                                textAlign = TextAlign.Center
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            // 字母部分 XXXXX-XXXXX-XXXXX
+                            Text(
+                                pairingCode.drop(8),
+                                style = MaterialTheme.typography.titleLarge,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                textAlign = TextAlign.Center
                             )
                         }
                     }
@@ -133,73 +136,6 @@ fun CompanionPairDialog(
                         clipboard.setText(AnnotatedString(pairingCode))
                     }) {
                         Icon(Icons.Filled.ContentCopy, "复制配对码")
-                    }
-                }
-
-                // 连接地址
-                Text(
-                    "连接地址",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                if (ips.isEmpty()) {
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = MaterialTheme.colorScheme.errorContainer
-                    ) {
-                        Row(
-                            Modifier.padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Filled.Wifi, null, tint = MaterialTheme.colorScheme.error)
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                "未检测到可用的局域网 IPv4 地址，请检查网络连接",
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                        }
-                    }
-                } else {
-                    ips.forEach { ip ->
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            border = androidx.compose.foundation.BorderStroke(
-                                1.dp, MaterialTheme.colorScheme.outlineVariant
-                            ),
-                            color = MaterialTheme.colorScheme.surface
-                        ) {
-                            Row(
-                                Modifier.fillMaxWidth().padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    Icons.Filled.Wifi, null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(Modifier.width(10.dp))
-                                Text(
-                                    ip,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.Medium,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                Text(
-                                    ":$port",
-                                    fontFamily = FontFamily.Monospace,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                IconButton(
-                                    onClick = { clipboard.setText(AnnotatedString("$ip:$port")) },
-                                    modifier = Modifier.size(28.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Filled.ContentCopy, "复制地址",
-                                        modifier = Modifier.size(15.dp)
-                                    )
-                                }
-                            }
-                        }
                     }
                 }
 
