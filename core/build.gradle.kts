@@ -4,8 +4,8 @@ plugins {
 }
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_17
-    targetCompatibility = JavaVersion.VERSION_17
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
     withSourcesJar()
 }
 
@@ -23,6 +23,9 @@ dependencies {
     // QR code generation
     implementation(libs.zxing.core)
     implementation(libs.zxing.javase)
+    // AI 智能体 (LangChain4j)
+    implementation(libs.langchain4j)
+    implementation(libs.langchain4j.open.ai)
 
     // 测试
     testImplementation(libs.junit.jupiter)

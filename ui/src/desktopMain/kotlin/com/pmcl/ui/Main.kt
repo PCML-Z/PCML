@@ -1,9 +1,17 @@
 package com.pmcl.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CropSquare
 import androidx.compose.material.icons.filled.Minimize
@@ -13,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.isPrimaryPressed
@@ -25,6 +34,7 @@ import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.WindowScope
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import com.pmcl.ui.page.AiAgentPage
 import com.pmcl.ui.page.TopBarSearchField
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import java.awt.Frame
@@ -51,6 +61,14 @@ fun main() = application {
     val state = rememberWindowState(
         width = 1100.dp,
         height = 700.dp,
+        position = WindowPosition.Aligned(Alignment.Center)
+    )
+
+    // AI 智能体独立窗口开关
+    val showAiWindow = remember { mutableStateOf(false) }
+    val aiWindowState = rememberWindowState(
+        width = 460.dp,
+        height = 640.dp,
         position = WindowPosition.Aligned(Alignment.Center)
     )
 
@@ -135,7 +153,8 @@ fun main() = application {
                                 onClose = ::exitApplication,
                                 isDragging = isDragging,
                                 vm = vm,
-                                searchFocusRequester = searchFocusRequester
+                                searchFocusRequester = searchFocusRequester,
+                                onOpenAi = { showAiWindow.value = true }
                             )
                             Box(Modifier.weight(1f).fillMaxWidth()) {
                                 App(vm)
@@ -148,11 +167,33 @@ fun main() = application {
                 Column(Modifier.fillMaxSize()) {
                     SlimSearchBar(
                         vm = vm,
-                        searchFocusRequester = searchFocusRequester
+                        searchFocusRequester = searchFocusRequester,
+                        onOpenAi = { showAiWindow.value = true }
                     )
                     Box(Modifier.weight(1f).fillMaxWidth()) {
                         App(vm)
                     }
+                }
+            }
+        }
+    }
+
+    // AI 智能体独立窗口
+    if (showAiWindow.value) {
+        Window(
+            onCloseRequest = { showAiWindow.value = false },
+            title = "PMCL AI 智能助手",
+            state = aiWindowState,
+            undecorated = false
+        ) {
+            val isDark = useDark
+            val scheme = if (isDark) darkColorScheme() else lightColorScheme()
+            MaterialTheme(colorScheme = scheme) {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    AiAgentPage(vm)
                 }
             }
         }
@@ -229,7 +270,8 @@ private fun FrameWindowScope.BorderlessTitleBar(
     onClose: () -> Unit,
     isDragging: MutableState<Boolean>,
     vm: LauncherViewModel,
-    searchFocusRequester: FocusRequester
+    searchFocusRequester: FocusRequester,
+    onOpenAi: () -> Unit
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface,
@@ -260,6 +302,8 @@ private fun FrameWindowScope.BorderlessTitleBar(
                 compact = true
             )
             Spacer(Modifier.weight(1f))
+            // AI 智能体按钮（鼠标悬停展开标签）
+            AiHoverButton(onClick = onOpenAi)
             // 最小化
             IconButton(
                 onClick = { window.extendedState = Frame.ICONIFIED },
@@ -292,12 +336,69 @@ private fun FrameWindowScope.BorderlessTitleBar(
 }
 
 /**
+ * 标题栏 AI 悬浮按钮：默认仅显示图标，鼠标悬停时水平展开显示「AI 智能体」标签。
+ */
+@Composable
+private fun AiHoverButton(onClick: () -> Unit) {
+    var hovered by remember { mutableStateOf(false) }
+    Surface(
+        color = if (hovered) MaterialTheme.colorScheme.primaryContainer
+                else Color.Transparent,
+        shape = RoundedCornerShape(8.dp),
+        modifier = Modifier
+            .height(28.dp)
+            .pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        when (event.type) {
+                            PointerEventType.Enter -> hovered = true
+                            PointerEventType.Exit -> hovered = false
+                            else -> {}
+                        }
+                    }
+                }
+            }
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            )
+            .padding(horizontal = 6.dp),
+        tonalElevation = 0.dp
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Icon(Icons.Filled.AutoAwesome, "AI 智能体",
+                tint = if (hovered) MaterialTheme.colorScheme.onPrimaryContainer
+                       else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(15.dp))
+            AnimatedVisibility(
+                visible = hovered,
+                enter = expandHorizontally() + fadeIn(),
+                exit = shrinkHorizontally() + fadeOut()
+            ) {
+                Text("AI 智能体",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1)
+            }
+        }
+    }
+}
+
+/**
  * 非无边框模式下的搜索条（OS 标题栏下方）。
  */
 @Composable
 private fun SlimSearchBar(
     vm: LauncherViewModel,
-    searchFocusRequester: FocusRequester
+    searchFocusRequester: FocusRequester,
+    onOpenAi: () -> Unit
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface,
@@ -315,6 +416,7 @@ private fun SlimSearchBar(
                 compact = true
             )
             Spacer(Modifier.weight(1f))
+            AiHoverButton(onClick = onOpenAi)
         }
     }
 }

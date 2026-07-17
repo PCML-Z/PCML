@@ -12,6 +12,7 @@ zxing-core = "3.5.3"
 ice4j = "3.2-15-g6da2b08"
 javacv = "1.5.11"
 ffmpeg = "7.1-1.5.11"
+langchain4j = "1.0.0"
 
 [libraries]
 # Kotlin 协程
@@ -30,6 +31,10 @@ zxing-javase = { module = "com.google.zxing:javase", version.ref = "zxing-core" 
 ice4j = { module = "org.jitsi:ice4j", version.ref = "ice4j" }
 javacv = { module = "org.bytedeco:javacv", version.ref = "javacv" }
 ffmpeg-macosx-arm64 = { module = "org.bytedeco:ffmpeg", version.ref = "ffmpeg" }
+
+# AI 智能体
+langchain4j = { module = "dev.langchain4j:langchain4j", version.ref = "langchain4j" }
+langchain4j-open-ai = { module = "dev.langchain4j:langchain4j-open-ai", version.ref = "langchain4j" }
 
 
 # 测试
