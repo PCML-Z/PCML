@@ -1,7 +1,6 @@
 package com.pmcl.ui.companion
 
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -20,6 +19,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.isPrimaryPressed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -30,7 +31,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPosition
+import androidx.compose.ui.window.WindowScope
 import androidx.compose.ui.window.rememberWindowState
+import java.awt.MouseInfo
+import java.awt.Point
 import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
 import java.awt.geom.RoundRectangle2D
@@ -112,18 +116,12 @@ fun CompanionPairDialog(
             Column(Modifier.fillMaxSize()) {
                 // 无边框标题栏：可拖动 + 关闭按钮
                 Row(
-                    Modifier.fillMaxWidth().height(40.dp).padding(horizontal = 12.dp),
+                    Modifier.fillMaxWidth().height(40.dp).padding(horizontal = 12.dp)
+                        .then(windowDragModifier()),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(
-                        Modifier.weight(1f).pointerInput(Unit) {
-                            detectDragGestures { change, dragAmount ->
-                                change.consume()
-                                val x = window.x + dragAmount.x.toInt()
-                                val y = window.y + dragAmount.y.toInt()
-                                window.location = java.awt.Point(x, y)
-                            }
-                        },
+                        Modifier.weight(1f),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
@@ -405,6 +403,37 @@ fun CompanionPairDialog(
                 TextButton(onClick = { renamingDevice = null }) { Text("取消") }
             }
         )
+    }
+}
+
+/**
+ * 窗口拖拽修饰符：按住左键拖拽移动无边框窗口。
+ * 用屏幕绝对坐标计算位移，避免相对 dragAmount 累加漂移。
+ */
+private fun WindowScope.windowDragModifier(): Modifier = Modifier.pointerInput(Unit) {
+    var initialMouse: Point? = null
+    var initialWindowLoc: Point? = null
+    awaitPointerEventScope {
+        while (true) {
+            val event = awaitPointerEvent()
+            val mouseLocation = MouseInfo.getPointerInfo()?.location
+            if (event.buttons.isPrimaryPressed) {
+                if (initialMouse == null && mouseLocation != null) {
+                    initialMouse = mouseLocation
+                    initialWindowLoc = Point(window.x, window.y)
+                }
+                val im = initialMouse
+                val iwl = initialWindowLoc
+                if (event.type == PointerEventType.Move && im != null && iwl != null && mouseLocation != null) {
+                    val dx = mouseLocation.x - im.x
+                    val dy = mouseLocation.y - im.y
+                    window.setLocation(iwl.x + dx, iwl.y + dy)
+                }
+            } else {
+                initialMouse = null
+                initialWindowLoc = null
+            }
+        }
     }
 }
 
