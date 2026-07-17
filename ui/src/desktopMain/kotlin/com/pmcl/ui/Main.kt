@@ -11,7 +11,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CropSquare
 import androidx.compose.material.icons.filled.Minimize
@@ -182,7 +182,7 @@ fun main() = application {
     if (showAiWindow.value) {
         Window(
             onCloseRequest = { showAiWindow.value = false },
-            title = "PMCL AI 智能助手",
+            title = "PMCL 助手",
             state = aiWindowState,
             undecorated = false
         ) {
@@ -336,7 +336,7 @@ private fun FrameWindowScope.BorderlessTitleBar(
 }
 
 /**
- * 标题栏 AI 悬浮按钮：默认仅显示图标，鼠标悬停时水平展开显示「AI 智能体」标签。
+ * 标题栏 AI 悬浮按钮：默认仅显示图标，鼠标悬停时水平展开显示「助手」标签。
  */
 @Composable
 private fun AiHoverButton(onClick: () -> Unit) {
@@ -372,7 +372,7 @@ private fun AiHoverButton(onClick: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Icon(Icons.Filled.AutoAwesome, "AI 智能体",
+            Icon(Icons.Filled.Bolt, "助手",
                 tint = if (hovered) MaterialTheme.colorScheme.onPrimaryContainer
                        else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(15.dp))
@@ -381,7 +381,7 @@ private fun AiHoverButton(onClick: () -> Unit) {
                 enter = expandHorizontally() + fadeIn(),
                 exit = shrinkHorizontally() + fadeOut()
             ) {
-                Text("AI 智能体",
+                Text("助手",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onPrimaryContainer,
                     fontWeight = FontWeight.Medium,
