@@ -64,8 +64,13 @@ fun main() = application {
         position = WindowPosition.Aligned(Alignment.Center)
     )
 
-    // AI 智能体模式开关（在主窗口内覆盖渲染，避免独立窗口焦点问题）
+    // AI 智能体独立窗口开关
     val showAiWindow = remember { mutableStateOf(false) }
+    val aiWindowState = rememberWindowState(
+        width = 860.dp,
+        height = 640.dp,
+        position = WindowPosition.Aligned(Alignment.Center)
+    )
 
     Window(
         onCloseRequest = ::exitApplication,
@@ -170,21 +175,26 @@ fun main() = application {
                     }
                 }
             }
+        }
+    }
 
-            // AI 智能体覆盖层：在主窗口内渲染，确保焦点和事件正常工作
-            if (showAiWindow.value) {
-                val isDark = useDark
-                val scheme = if (isDark) darkColorScheme() else lightColorScheme()
-                MaterialTheme(colorScheme = scheme) {
-                    Surface(
-                        modifier = Modifier.fillMaxSize(),
-                        color = MaterialTheme.colorScheme.background
-                    ) {
-                        AiAgentPage(
-                            vm = vm,
-                            onClose = { showAiWindow.value = false }
-                        )
-                    }
+    // AI 智能体独立窗口
+    if (showAiWindow.value) {
+        Window(
+            onCloseRequest = { showAiWindow.value = false },
+            title = "PCML智能体",
+            state = aiWindowState,
+            undecorated = false,
+            focusable = true
+        ) {
+            val isDark = useDark
+            val scheme = if (isDark) darkColorScheme() else lightColorScheme()
+            MaterialTheme(colorScheme = scheme) {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    AiAgentPage(vm)
                 }
             }
         }

@@ -17,7 +17,6 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.automirrored.outlined.Backspace
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CleaningServices
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.*
@@ -46,7 +45,7 @@ import kotlinx.coroutines.launch
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AiAgentPage(vm: LauncherViewModel, onClose: () -> Unit = {}) {
+fun AiAgentPage(vm: LauncherViewModel) {
     val ai = remember { vm.core.ai() }
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
@@ -62,6 +61,8 @@ fun AiAgentPage(vm: LauncherViewModel, onClose: () -> Unit = {}) {
     var currentSessionId by remember { mutableStateOf(ai?.currentSessionId) }
     // 会话列表版本号，切换/创建/删除时递增以触发刷新
     var sessionVersion by remember { mutableStateOf(0) }
+    // 当前选择的模型提供商 —— 用 Compose State 跟踪，确保切换时 UI 能正确重组
+    var currentProvider by remember { mutableStateOf(ai?.config?.provider ?: AiConfig.Provider.DEEPSEEK) }
 
     val listState = rememberLazyListState()
 
@@ -102,6 +103,7 @@ fun AiAgentPage(vm: LauncherViewModel, onClose: () -> Unit = {}) {
             AiConfig.Provider.CUSTOM -> {}
         }
         ai?.configure(cfg)
+        currentProvider = p
     }
 
     Row(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
@@ -139,8 +141,7 @@ fun AiAgentPage(vm: LauncherViewModel, onClose: () -> Unit = {}) {
                     ai?.clearMemory()
                     messages.clear()
                     toolStatus = null
-                },
-                onClose = onClose
+                }
             )
 
             // 设置面板
@@ -152,7 +153,10 @@ fun AiAgentPage(vm: LauncherViewModel, onClose: () -> Unit = {}) {
                 if (showSettings) {
                     AiSettingsPanel(
                         ai = ai,
-                        onConfigured = { ai?.setStatusCallback { status -> toolStatus = status } }
+                        onConfigured = {
+                            ai?.setStatusCallback { status -> toolStatus = status }
+                            currentProvider = ai?.config?.provider ?: AiConfig.Provider.DEEPSEEK
+                        }
                     )
                 }
             }
@@ -161,7 +165,7 @@ fun AiAgentPage(vm: LauncherViewModel, onClose: () -> Unit = {}) {
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 if (messages.isEmpty()) {
                     EmptyState(
-                        provider = ai?.config?.provider ?: AiConfig.Provider.DEEPSEEK,
+                        provider = currentProvider,
                         onSwitchProvider = { switchProvider(it) }
                     )
                 } else {
@@ -201,7 +205,7 @@ fun AiAgentPage(vm: LauncherViewModel, onClose: () -> Unit = {}) {
                 onTextChange = { input = it },
                 sending = sending,
                 enabled = !sending,
-                provider = ai?.config?.provider ?: AiConfig.Provider.DEEPSEEK,
+                provider = currentProvider,
                 onSwitchProvider = { switchProvider(it) },
                 onSend = {
                     val text = input.trim()
@@ -353,8 +357,7 @@ private fun SessionItem(
 private fun ChatHeader(
     showSettings: Boolean,
     onToggleSettings: () -> Unit,
-    onClear: () -> Unit,
-    onClose: () -> Unit
+    onClear: () -> Unit
 ) {
     Surface(tonalElevation = 2.dp, color = MaterialTheme.colorScheme.surface) {
         Row(
@@ -370,11 +373,6 @@ private fun ChatHeader(
             }
             IconButton(onClick = onClear, modifier = Modifier.size(32.dp)) {
                 Icon(Icons.Filled.CleaningServices, "清空对话",
-                    modifier = Modifier.size(18.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            IconButton(onClick = onClose, modifier = Modifier.size(32.dp)) {
-                Icon(Icons.Filled.Close, "关闭智能体",
                     modifier = Modifier.size(18.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
