@@ -17,6 +17,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -56,27 +57,27 @@ fun CompanionPairDialog(
     }
 
     // 由当前配对码生成二维码与一维码（配对码变化时重新生成）
-    // 尺寸与显示尺寸 1:1，避免 Image 缩放导致一维码变细无法扫描
+    // 关键：bitmap 像素尺寸 == 显示 dp 尺寸，并用 ContentScale.None 确保绝不缩放
     val qrBitmap = remember(pairingCode) {
         BarcodeGenerator.generateQrCode(pairingCode, 280).toComposeImageBitmap()
     }
     val barBitmap = remember(pairingCode) {
-        BarcodeGenerator.generateBarcode(pairingCode, 360, 90).toComposeImageBitmap()
+        BarcodeGenerator.generateBarcode(pairingCode, 320, 80).toComposeImageBitmap()
     }
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
             shape = RoundedCornerShape(16.dp),
             tonalElevation = 6.dp,
-            modifier = Modifier.width(920.dp)
+            modifier = Modifier.width(880.dp)
         ) {
             Row(
                 Modifier.padding(24.dp),
-                horizontalArrangement = Arrangement.spacedBy(24.dp)
+                horizontalArrangement = Arrangement.spacedBy(20.dp)
             ) {
-                // ===== 左侧：条码面板 =====
+                // ===== 左侧：条码面板（固定宽度，不 fillMaxHeight）=====
                 Column(
-                    Modifier.width(400.dp).fillMaxHeight(),
+                    Modifier.width(360.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
@@ -104,16 +105,16 @@ fun CompanionPairDialog(
 
                     HorizontalDivider(Modifier.fillMaxWidth())
 
-                    // 二维码（固定 280dp，与 bitmap 1:1 避免缩放）
+                    // 二维码：size 与 bitmap 1:1，ContentScale.None 防缩放
                     Surface(
                         shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                        modifier = Modifier.padding(horizontal = 8.dp)
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
                     ) {
                         Image(
                             bitmap = qrBitmap,
                             contentDescription = "配对码二维码",
-                            modifier = Modifier.size(280.dp).padding(8.dp)
+                            contentScale = ContentScale.None,
+                            modifier = Modifier.size(280.dp)
                         )
                     }
                     Text(
@@ -122,16 +123,16 @@ fun CompanionPairDialog(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
-                    // 一维码（固定 360×90，与 bitmap 1:1，避免 fillMaxWidth 横向压缩导致无法扫描）
+                    // 一维码：size 与 bitmap 1:1，ContentScale.None 防缩放
                     Surface(
                         shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                        modifier = Modifier.padding(horizontal = 8.dp)
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
                     ) {
                         Image(
                             bitmap = barBitmap,
                             contentDescription = "配对码一维码",
-                            modifier = Modifier.width(360.dp).height(90.dp).padding(8.dp)
+                            contentScale = ContentScale.None,
+                            modifier = Modifier.width(320.dp).height(80.dp)
                         )
                     }
                     Text(
@@ -141,11 +142,11 @@ fun CompanionPairDialog(
                     )
                 }
 
-                VerticalDivider(Modifier.fillMaxHeight())
+                VerticalDivider(Modifier.fillMaxHeight().width(1.dp))
 
-                // ===== 右侧：配对码文字 + 已配对设备 =====
+                // ===== 右侧：配对码文字 + 已配对设备（固定宽度，不用 weight/scroll）=====
                 Column(
-                    Modifier.weight(1f).verticalScroll(rememberScrollState()),
+                    Modifier.width(440.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     Text(
