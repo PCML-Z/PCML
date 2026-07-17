@@ -24,14 +24,17 @@ actor ModrinthAPI {
         self.session = URLSession(configuration: cfg)
         let dec = JSONDecoder()
         // Modrinth 返回 ISO8601 时间（可能含毫秒）
+        // 用 Date.ISO8601FormatStyle（Sendable）避免 ISO8601DateFormatter 的并发警告
         dec.dateDecodingStrategy = .custom { decoder in
             let container = try decoder.singleValueContainer()
             let s = try container.decode(String.self)
-            let withFractional = ISO8601DateFormatter()
-            withFractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            if let d = withFractional.date(from: s) { return d }
-            let standard = ISO8601DateFormatter()
-            if let d = standard.date(from: s) { return d }
+            // 先尝试含毫秒格式，再尝试标准格式
+            if let d = try? Date(s, strategy: .iso8601.year().month().day().timeSeparator(.colon).timeZone(separator: .omitted).time(includingFractionalSeconds: true)) {
+                return d
+            }
+            if let d = try? Date(s, strategy: .iso8601) {
+                return d
+            }
             throw DecodingError.dataCorruptedError(in: container,
                 debugDescription: "Invalid date: \(s)")
         }

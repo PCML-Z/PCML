@@ -18,13 +18,14 @@ actor PmclClient {
     init() {
         self.connection = PmclConnection()
         // 显式禁用所有代理：PCML 直连局域网/本机，系统代理（如翻墙工具）会导致连接失败
+        // 用字符串键名避免 kCFNetworkProxies* 常量在 iOS 上的可用性问题
         let config = URLSessionConfiguration.default
         config.connectionProxyDictionary = [
-            kCFNetworkProxiesHTTPEnable: false,
-            kCFNetworkProxiesHTTPSEnable: false,
-            kCFNetworkProxiesSOCKSEnable: false,
-            kCFNetworkProxiesProxyAutoConfigEnable: false,
-            kCFNetworkProxiesFTPEnable: false
+            "HTTPEnable": false,
+            "HTTPSEnable": false,
+            "SOCKSEnable": false,
+            "ProxyAutoConfigEnable": false,
+            "FTPEnable": false
         ]
         config.timeoutIntervalForRequest = 10
         self.session = URLSession(configuration: config)

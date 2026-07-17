@@ -48,13 +48,14 @@ actor PmclConnection {
 
     init() {
         // 显式禁用所有代理：WebSocket 连接局域网/本机，系统代理会导致连接失败
+        // 用字符串键名避免 kCFNetworkProxies* 常量在 iOS 上的可用性问题
         let config = URLSessionConfiguration.default
         config.connectionProxyDictionary = [
-            kCFNetworkProxiesHTTPEnable: false,
-            kCFNetworkProxiesHTTPSEnable: false,
-            kCFNetworkProxiesSOCKSEnable: false,
-            kCFNetworkProxiesProxyAutoConfigEnable: false,
-            kCFNetworkProxiesFTPEnable: false
+            "HTTPEnable": false,
+            "HTTPSEnable": false,
+            "SOCKSEnable": false,
+            "ProxyAutoConfigEnable": false,
+            "FTPEnable": false
         ]
         self.session = URLSession(configuration: config)
     }
