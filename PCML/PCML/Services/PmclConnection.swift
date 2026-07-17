@@ -47,7 +47,10 @@ actor PmclConnection {
     private var subscribers: [UUID: (PmclEvent) -> Void] = [:]
 
     init() {
-        self.session = URLSession(configuration: .default)
+        // 禁用代理：WebSocket 连接局域网/本机地址，不应走系统 HTTP 代理
+        let config = URLSessionConfiguration.default
+        config.connectionProxyDictionary = [:]
+        self.session = URLSession(configuration: config)
     }
 
     // MARK: - 订阅

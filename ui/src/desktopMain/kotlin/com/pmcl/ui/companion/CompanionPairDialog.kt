@@ -149,68 +149,60 @@ fun CompanionPairDialog(
                     }
                 }
 
-                // 局域网 IP
+                // 连接地址
                 Text(
-                    "局域网地址",
+                    "连接地址",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                if (ips.isEmpty()) {
+                // 127.0.0.1 — iOS 模拟器使用
+                val allIps = remember { listOf("127.0.0.1") + ips }
+                allIps.forEachIndexed { index, ip ->
+                    val isLoopback = index == 0
+                    val label = if (isLoopback) "模拟器" else "真机"
                     Surface(
                         shape = RoundedCornerShape(8.dp),
-                        color = MaterialTheme.colorScheme.errorContainer
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp, MaterialTheme.colorScheme.outlineVariant
+                        ),
+                        color = MaterialTheme.colorScheme.surface
                     ) {
                         Row(
-                            Modifier.padding(12.dp),
+                            Modifier.fillMaxWidth().padding(12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(Icons.Filled.Wifi, null, tint = MaterialTheme.colorScheme.error)
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                "未检测到可用的局域网 IPv4 地址，请检查网络连接",
-                                style = MaterialTheme.typography.bodySmall
+                            Icon(
+                                Icons.Filled.Wifi, null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp)
                             )
-                        }
-                    }
-                } else {
-                    ips.forEach { ip ->
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            border = androidx.compose.foundation.BorderStroke(
-                                1.dp, MaterialTheme.colorScheme.outlineVariant
-                            ),
-                            color = MaterialTheme.colorScheme.surface
-                        ) {
-                            Row(
-                                Modifier.fillMaxWidth().padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    Icons.Filled.Wifi, null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(Modifier.width(10.dp))
+                            Spacer(Modifier.width(10.dp))
+                            Column(Modifier.weight(1f)) {
                                 Text(
                                     ip,
                                     fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.Medium,
-                                    modifier = Modifier.weight(1f)
+                                    fontWeight = FontWeight.Medium
                                 )
                                 Text(
-                                    ":$port",
-                                    fontFamily = FontFamily.Monospace,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    if (isLoopback) "本机地址 — iOS 模拟器使用"
+                                    else "局域网地址 — iPhone 真机使用",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.outline
                                 )
-                                IconButton(
-                                    onClick = { clipboard.setText(AnnotatedString("$ip:$port")) },
-                                    modifier = Modifier.size(28.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Filled.ContentCopy, "复制地址",
-                                        modifier = Modifier.size(15.dp)
-                                    )
-                                }
+                            }
+                            Text(
+                                ":$port",
+                                fontFamily = FontFamily.Monospace,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            IconButton(
+                                onClick = { clipboard.setText(AnnotatedString("$ip:$port")) },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    Icons.Filled.ContentCopy, "复制地址",
+                                    modifier = Modifier.size(15.dp)
+                                )
                             }
                         }
                     }
@@ -230,7 +222,8 @@ fun CompanionPairDialog(
                             color = MaterialTheme.colorScheme.onTertiaryContainer)
                         Spacer(Modifier.width(4.dp))
                         Text(
-                            "iOS 设备需与电脑在同一局域网；若连接失败，请在" +
+                            "iOS 模拟器用 127.0.0.1 连接；iPhone 真机用局域网 IP，" +
+                                "需与电脑在同一 WiFi。若连接失败，请在" +
                                 "「系统设置 → 网络 → 防火墙」允许 PMCL 接受传入连接，" +
                                 "并确认端口 $port 未被占用。",
                             style = MaterialTheme.typography.bodySmall,

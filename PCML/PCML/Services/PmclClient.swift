@@ -17,7 +17,10 @@ actor PmclClient {
 
     init() {
         self.connection = PmclConnection()
-        self.session = URLSession(configuration: .default)
+        // 禁用代理：PCML 连接的是局域网/本机地址，不应走系统 HTTP 代理
+        let config = URLSessionConfiguration.default
+        config.connectionProxyDictionary = [:]
+        self.session = URLSession(configuration: config)
         let dec = JSONDecoder()
         dec.dateDecodingStrategy = .iso8601
         self.decoder = dec
