@@ -26,6 +26,10 @@ public final class AiConfig {
     private String apiKey = "";
     private String modelName = "deepseek-chat";
     private String baseUrl = "https://api.deepseek.com/v1";
+    private double temperature = 0.7;
+    private int maxTokens = 2048;
+    private boolean streamingEnabled = true;
+    private boolean visionEnabled = false;
 
     public static AiConfig deepseekDefault() {
         AiConfig c = new AiConfig();
@@ -87,17 +91,31 @@ public final class AiConfig {
     public String getBaseUrl() { return baseUrl; }
     public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }
 
-    /** 切换到 DeepSeek 默认配置（保留 apiKey） */
+    public double getTemperature() { return temperature; }
+    public void setTemperature(double temperature) { this.temperature = temperature; }
+
+    public int getMaxTokens() { return maxTokens; }
+    public void setMaxTokens(int maxTokens) { this.maxTokens = maxTokens; }
+
+    public boolean isStreamingEnabled() { return streamingEnabled; }
+    public void setStreamingEnabled(boolean streamingEnabled) { this.streamingEnabled = streamingEnabled; }
+
+    public boolean isVisionEnabled() { return visionEnabled; }
+    public void setVisionEnabled(boolean visionEnabled) { this.visionEnabled = visionEnabled; }
+
+    /** 切换到 DeepSeek 默认配置（保留 apiKey 和高级参数） */
     public void applyDeepseekDefaults() {
         this.provider = Provider.DEEPSEEK;
         this.modelName = "deepseek-chat";
         this.baseUrl = "https://api.deepseek.com/v1";
+        this.visionEnabled = false;
     }
 
-    /** 切换到 OpenAI 默认配置（保留 apiKey） */
+    /** 切换到 OpenAI 默认配置（保留 apiKey 和高级参数） */
     public void applyOpenaiDefaults() {
         this.provider = Provider.OPENAI;
         this.modelName = "gpt-4o-mini";
         this.baseUrl = "https://api.openai.com/v1";
+        this.visionEnabled = true;
     }
 }
