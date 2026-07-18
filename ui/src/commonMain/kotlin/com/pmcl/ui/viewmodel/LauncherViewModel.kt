@@ -249,6 +249,21 @@ class LauncherViewModel {
     private val _updateGameVersion = MutableStateFlow("")
     val updateGameVersion: StateFlow<String> = _updateGameVersion.asStateFlow()
 
+    // ===== 性能 HUD 浮窗 =====
+    private val _perfHudVisible = MutableStateFlow(preferences.isShowPerfHud())
+    val perfHudVisible: StateFlow<Boolean> = _perfHudVisible.asStateFlow()
+    private val _perfHudMetrics = MutableStateFlow(preferences.getPerfHudMetrics())
+    val perfHudMetrics: StateFlow<String> = _perfHudMetrics.asStateFlow()
+
+    fun setPerfHudVisible(v: Boolean) {
+        preferences.setShowPerfHud(v)
+        _perfHudVisible.value = v
+    }
+    fun setPerfHudMetrics(v: String) {
+        preferences.setPerfHudMetrics(v)
+        _perfHudMetrics.value = v
+    }
+
     // ===== 模组依赖安装 =====
     private val _installingDeps = MutableStateFlow(false)
     val installingDeps: StateFlow<Boolean> = _installingDeps.asStateFlow()

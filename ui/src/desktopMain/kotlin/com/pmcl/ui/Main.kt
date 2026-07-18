@@ -36,6 +36,7 @@ import androidx.compose.ui.window.WindowScope
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.pmcl.ui.page.AiAgentPage
+import com.pmcl.ui.page.PerfHudWindow
 import com.pmcl.ui.page.TopBarSearchField
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import java.awt.Frame
@@ -225,6 +226,16 @@ fun main() = application {
                 }
             }
         }
+    }
+
+    // 性能 HUD 浮窗（由设置中 showPerfHud 开关控制）
+    val showPerfHud by vm.perfHudVisible.collectAsState()
+    val perfHudMetrics by vm.perfHudMetrics.collectAsState()
+    if (showPerfHud) {
+        PerfHudWindow(
+            metrics = perfHudMetrics,
+            onClose = { vm.setPerfHudVisible(false) }
+        )
     }
 }
 

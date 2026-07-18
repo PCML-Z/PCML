@@ -322,6 +322,53 @@ fun SettingsPage(vm: LauncherViewModel) {
                 Text("调整界面字体和元素大小，实时生效",
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
+
+                Spacer(Modifier.height(12.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(12.dp))
+
+                // 性能 HUD 浮窗
+                val showHud by vm.perfHudVisible.collectAsState()
+                val hudMetrics by vm.perfHudMetrics.collectAsState()
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = showHud,
+                        onCheckedChange = { v -> vm.setPerfHudVisible(v) }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("性能 HUD 浮窗", fontWeight = FontWeight.Medium)
+                }
+                Spacer(Modifier.height(4.dp))
+                Text("显示半透明置顶的性能监控小窗，可拖动到任意位置，实时显示 CPU/内存/GPU/FPS",
+                     style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.outline)
+
+                if (showHud) {
+                    Spacer(Modifier.height(8.dp))
+                    Text("显示指标", style = MaterialTheme.typography.labelMedium,
+                         fontWeight = FontWeight.Medium)
+                    Spacer(Modifier.height(4.dp))
+                    val metricOptions = listOf("CPU" to "CPU", "MEM" to "内存", "GPU" to "GPU", "FPS" to "FPS")
+                    val selectedMetrics = remember(hudMetrics) {
+                        hudMetrics.split(",").map { it.trim().uppercase() }.filter { it.isNotEmpty() }.toMutableSet()
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        metricOptions.forEach { (key, label) ->
+                            FilterChip(
+                                selected = key in selectedMetrics,
+                                onClick = {
+                                    if (key in selectedMetrics && selectedMetrics.size > 1) {
+                                        selectedMetrics.remove(key)
+                                    } else {
+                                        selectedMetrics.add(key)
+                                    }
+                                    vm.setPerfHudMetrics(selectedMetrics.joinToString(","))
+                                },
+                                label = { Text(label) }
+                            )
+                        }
+                    }
+                }
             }
         }
 

@@ -28,6 +28,8 @@ public final class Preferences {
     private boolean dynamicColor = false; // 莫奈取色：主题颜色跟随桌面壁纸
     private int customAccentColor = -1;   // 自定义强调色 ARGB，-1 表示未设置（使用默认配色）
     private boolean borderlessWindow = false; // 无边框窗口模式（自定义标题栏）
+    private boolean showPerfHud = false;      // 是否显示性能 HUD 浮窗（半透明置顶小窗）
+    private String perfHudMetrics = "CPU,MEM,GPU,FPS"; // HUD 显示的指标，逗号分隔
     private float uiScale = 1.0f;             // UI 缩放系数（0.8~1.5），1.0 = 默认大小
     private String language = "zh_CN";             // zh_CN / en_US
     private boolean firstLaunchCompleted = false;  // 是否完成首次启动欢迎流程
@@ -110,6 +112,10 @@ public final class Preferences {
 
     public synchronized boolean isBorderlessWindow() { return borderlessWindow; }
     public synchronized void setBorderlessWindow(boolean v) { borderlessWindow = v; scheduleSave(); }
+    public synchronized boolean isShowPerfHud() { return showPerfHud; }
+    public synchronized void setShowPerfHud(boolean v) { showPerfHud = v; scheduleSave(); }
+    public synchronized String getPerfHudMetrics() { return perfHudMetrics; }
+    public synchronized void setPerfHudMetrics(String v) { perfHudMetrics = v; scheduleSave(); }
 
     /** UI 缩放系数，范围 0.8~1.5，默认 1.0 */
     public synchronized float getUiScale() { return uiScale; }
@@ -490,6 +496,8 @@ public final class Preferences {
             if (o.has("dynamicColor")) dynamicColor = o.get("dynamicColor").getAsBoolean();
             if (o.has("customAccentColor")) customAccentColor = o.get("customAccentColor").getAsInt();
             if (o.has("borderlessWindow")) borderlessWindow = o.get("borderlessWindow").getAsBoolean();
+            if (o.has("showPerfHud")) showPerfHud = o.get("showPerfHud").getAsBoolean();
+            if (o.has("perfHudMetrics") && !o.get("perfHudMetrics").isJsonNull()) perfHudMetrics = o.get("perfHudMetrics").getAsString();
             if (o.has("uiScale")) uiScale = o.get("uiScale").getAsFloat();
             if (o.has("language") && !o.get("language").isJsonNull()) language = o.get("language").getAsString();
             if (o.has("firstLaunchCompleted")) firstLaunchCompleted = o.get("firstLaunchCompleted").getAsBoolean();
@@ -674,6 +682,8 @@ public final class Preferences {
         o.addProperty("dynamicColor", dynamicColor);
         o.addProperty("customAccentColor", customAccentColor);
         o.addProperty("borderlessWindow", borderlessWindow);
+        o.addProperty("showPerfHud", showPerfHud);
+        o.addProperty("perfHudMetrics", perfHudMetrics);
         o.addProperty("uiScale", uiScale);
         o.addProperty("language", language);
         o.addProperty("firstLaunchCompleted", firstLaunchCompleted);
