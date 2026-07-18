@@ -23,9 +23,6 @@ dependencies {
     // QR code generation
     implementation(libs.zxing.core)
     implementation(libs.zxing.javase)
-    // AI 智能体 (LangChain4j)
-    implementation(libs.langchain4j)
-    implementation(libs.langchain4j.open.ai)
 
     // 测试
     testImplementation(libs.junit.jupiter)

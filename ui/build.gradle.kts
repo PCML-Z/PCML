@@ -44,6 +44,9 @@ kotlin {
                 // 条码/二维码生成（配对码展示）
                 implementation(libs.zxing.core)
                 implementation(libs.zxing.javase)
+
+                // 内嵌 PTY 终端（运行 OpenCode TUI）
+                implementation(libs.pty4j)
             }
         }
     }

@@ -36,8 +36,6 @@ import com.pmcl.core.install.IntegrityChecker;
 import com.pmcl.core.launch.CrashAnalyzer;
 import com.pmcl.core.launch.ProcessMonitor;
 import com.pmcl.core.web.WikiBrowser;
-import com.pmcl.core.ai.AiManager;
-import com.pmcl.core.ai.PmclTools;
 import okhttp3.OkHttpClient;
 
 import java.nio.file.Paths;
@@ -86,7 +84,6 @@ public final class LauncherCore {
     private final PluginManager pluginManager;
     private final TranslateClient translateClient;
     private final InstanceManager instanceManager;
-    private final AiManager aiManager;
 
     public LauncherCore() {
         this(new LauncherConfig());
@@ -146,16 +143,6 @@ public final class LauncherCore {
                 () -> new PluginManager(this));
         this.translateClient = initOptional("TranslateClient",
                 () -> new TranslateClient(downloadManager));
-        this.aiManager = initOptional("AiManager",
-                () -> new AiManager(new PmclTools(modMarketManager, modLoaderManager, preferences)));
-        // 注册启动器工具集，让 AI 能直接介入下载/安装/配置/启动
-        if (this.aiManager != null) {
-            try {
-                this.aiManager.registerLauncherTools(new com.pmcl.core.ai.LauncherTools(this));
-            } catch (Throwable e) {
-                System.err.println("[LauncherCore] LauncherTools 注册失败: " + e.getMessage());
-            }
-        }
 
         // Inject plugin manager into launch manager for hooks/events
         if (this.pluginManager != null) {
@@ -302,6 +289,4 @@ public final class LauncherCore {
     public PluginManager plugins() { return pluginManager; }
 
     public InstanceManager instances() { return instanceManager; }
-
-    public AiManager ai() { return aiManager; }
 }

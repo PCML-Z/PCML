@@ -14,6 +14,7 @@ javacv = "1.5.11"
 ffmpeg = "7.1-1.5.11"
 langchain4j = "1.0.0"
 ktor = "3.0.3"
+pty4j = "0.13.12"
 
 [libraries]
 # Kotlin 协程
@@ -33,9 +34,12 @@ ice4j = { module = "org.jitsi:ice4j", version.ref = "ice4j" }
 javacv = { module = "org.bytedeco:javacv", version.ref = "javacv" }
 ffmpeg-macosx-arm64 = { module = "org.bytedeco:ffmpeg", version.ref = "ffmpeg" }
 
-# AI 智能体
+# AI 智能体（已迁移到 OpenCode CLI，langchain4j 保留版本号备用）
 langchain4j = { module = "dev.langchain4j:langchain4j", version.ref = "langchain4j" }
 langchain4j-open-ai = { module = "dev.langchain4j:langchain4j-open-ai", version.ref = "langchain4j" }
+
+# 内嵌 PTY 终端（运行 OpenCode TUI）
+pty4j = { module = "org.jetbrains.pty4j:pty4j", version.ref = "pty4j" }
 
 # WebSocket 服务宿主（伴随模式）
 ktor-server-core = { module = "io.ktor:ktor-server-core", version.ref = "ktor" }
