@@ -128,35 +128,24 @@ fun main() = application {
             }
             if (borderless) {
                 // 无边框模式：transparent=true 让边缘像素 alpha 混合（抗锯齿），
-                // 拖动期间临时设为不透明矩形避免 SwingPanel 重绘延迟导致闪烁
+                // 圆角 shape 始终保持，AWT 背景始终保持透明让视差/玻璃效果生效
                 val isDark = useDark
                 val scheme = if (isDark) darkColorScheme() else lightColorScheme()
-                val surfaceColor = scheme.surface
                 val isDragging = remember { mutableStateOf(false) }
 
                 DisposableEffect(Unit) {
                     val updateShape = {
-                        if (isDragging.value) {
-                            // 拖动中：移除 shape 和透明，用不透明矩形避免闪烁
-                            window.shape = null
-                            window.background = java.awt.Color(
-                                surfaceColor.red, surfaceColor.green, surfaceColor.blue
-                            )
-                        } else if (window.extendedState == Frame.MAXIMIZED_BOTH) {
-                            // 最大化：直角填满屏幕
-                            window.shape = null
-                            window.background = java.awt.Color(
-                                surfaceColor.red, surfaceColor.green, surfaceColor.blue
-                            )
-                        } else {
-                            // 正常：透明背景 + 圆角 shape（边缘抗锯齿）
-                            window.background = java.awt.Color(0, 0, 0, 0)
-                            window.shape = RoundRectangle2D.Double(
-                                0.0, 0.0,
-                                window.width.toDouble(), window.height.toDouble(),
-                                14.0, 14.0
-                            )
-                        }
+                        // 圆角 shape 始终保持（拖动/正常/最大化统一），避免拖动时圆角失效
+                        // 最大化时直角填满屏幕
+                        window.shape = if (window.extendedState == Frame.MAXIMIZED_BOTH) null
+                        else RoundRectangle2D.Double(
+                            0.0, 0.0,
+                            window.width.toDouble(), window.height.toDouble(),
+                            14.0, 14.0
+                        )
+                        // AWT 背景始终保持透明，让 Compose 内部透明渲染（视差/玻璃）生效
+                        // 项目内无 SwingPanel 使用，不存在重绘延迟闪烁问题
+                        window.background = java.awt.Color(0, 0, 0, 0)
                     }
                     updateShape()
                     val listener = object : ComponentAdapter() {
@@ -165,18 +154,6 @@ fun main() = application {
                     }
                     window.addComponentListener(listener)
                     onDispose { window.removeComponentListener(listener) }
-                }
-                // 拖动状态变化时刷新 shape
-                LaunchedEffect(isDragging.value) {
-                    if (!isDragging.value) {
-                        window.background = java.awt.Color(0, 0, 0, 0)
-                        window.shape = if (window.extendedState == Frame.MAXIMIZED_BOTH) null
-                        else RoundRectangle2D.Double(
-                            0.0, 0.0,
-                            window.width.toDouble(), window.height.toDouble(),
-                            14.0, 14.0
-                        )
-                    }
                 }
                 MaterialTheme(colorScheme = scheme) {
                     Surface(
