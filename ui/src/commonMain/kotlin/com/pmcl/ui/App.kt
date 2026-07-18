@@ -63,6 +63,9 @@ fun App(vm: LauncherViewModel) {
         }
         // 应用 UI 缩放
         themeState.applyUiScale(vm.preferences.getUiScale())
+        // 应用视差背景 / 玻璃主题初始状态
+        themeState.applyParallaxBackground(vm.preferences.isParallaxBackground())
+        themeState.applyGlassTheme(vm.preferences.isGlassTheme())
     }
 
     // 直接读取 themeState 的属性，Compose 会自动观察 mutableStateOf 的变化
@@ -76,7 +79,13 @@ fun App(vm: LauncherViewModel) {
         uiScale = themeState.uiScale
     ) {
         CompositionLocalProvider(LocalThemeState provides themeState) {
-            Surface(modifier = Modifier.fillMaxSize()) {
+            // 视差背景开启时 Surface 透明，让 Main.kt 的 ParallaxBackground 透出
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = if (themeState.parallaxBackground) androidx.compose.ui.graphics.Color.Transparent
+                        else MaterialTheme.colorScheme.surface,
+                tonalElevation = if (themeState.parallaxBackground) 0.dp else 1.dp
+            ) {
                 val agreementAccepted by vm.agreementAccepted.collectAsState()
                 val firstLaunchDone by vm.firstLaunchCompleted.collectAsState()
 

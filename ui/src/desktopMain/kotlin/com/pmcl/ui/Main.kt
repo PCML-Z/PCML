@@ -92,6 +92,9 @@ fun main() = application {
         position = WindowPosition.Aligned(Alignment.Center)
     )
 
+    // 视差背景主题开关（响应式，可在设置中实时切换）
+    val parallaxBg by vm.parallaxBackground.collectAsState()
+
     Window(
         onCloseRequest = ::exitApplication,
         title = "PMCL — Minecraft Launcher",
@@ -111,6 +114,10 @@ fun main() = application {
                 } else false
             }
         ) {
+            // 视差背景层：放在最底层，所有内容悬浮其上
+            if (parallaxBg) {
+                com.pmcl.ui.theme.ParallaxBackground(useDark = useDark)
+            }
             if (borderless) {
                 // 无边框模式：transparent=true 让边缘像素 alpha 混合（抗锯齿），
                 // 拖动期间临时设为不透明矩形避免 SwingPanel 重绘延迟导致闪烁
@@ -166,7 +173,8 @@ fun main() = application {
                 MaterialTheme(colorScheme = scheme) {
                     Surface(
                         modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(14.dp)),
-                        color = MaterialTheme.colorScheme.surface
+                        color = if (parallaxBg) Color.Transparent else MaterialTheme.colorScheme.surface,
+                        tonalElevation = if (parallaxBg) 0.dp else 1.dp
                     ) {
                         Column(Modifier.fillMaxSize()) {
                             BorderlessTitleBar(

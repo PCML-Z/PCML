@@ -38,6 +38,14 @@ class ThemeState(initialDark: Boolean = false) {
     var uiScale by mutableStateOf(1.0f)
         private set
 
+    /** 视差背景主题：多层鼠标视差背景图 */
+    var parallaxBackground by mutableStateOf(false)
+        private set
+
+    /** 玻璃主题：卡片毛玻璃效果 */
+    var glassTheme by mutableStateOf(false)
+        private set
+
     fun toggle() = set(!useDark)
 
     fun set(value: Boolean) {
@@ -64,6 +72,14 @@ class ThemeState(initialDark: Boolean = false) {
 
     fun applyUiScale(scale: Float) {
         uiScale = scale.coerceIn(0.7f, 1.6f)
+    }
+
+    fun applyParallaxBackground(enabled: Boolean) {
+        parallaxBackground = enabled
+    }
+
+    fun applyGlassTheme(enabled: Boolean) {
+        glassTheme = enabled
     }
 
     /**

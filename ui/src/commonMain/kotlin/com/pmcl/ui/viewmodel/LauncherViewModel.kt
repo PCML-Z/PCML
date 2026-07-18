@@ -273,6 +273,23 @@ class LauncherViewModel {
         _perfHudMetrics.value = v
     }
 
+    // ===== 视差背景 + 玻璃主题（响应式，可在设置中实时切换） =====
+    private val _parallaxBackground = MutableStateFlow(preferences.isParallaxBackground())
+    val parallaxBackground: StateFlow<Boolean> = _parallaxBackground.asStateFlow()
+    private val _glassTheme = MutableStateFlow(preferences.isGlassTheme())
+    val glassTheme: StateFlow<Boolean> = _glassTheme.asStateFlow()
+
+    fun setParallaxBackground(v: Boolean) {
+        preferences.setParallaxBackground(v)
+        _parallaxBackground.value = v
+        themeState?.applyParallaxBackground(v)
+    }
+    fun setGlassTheme(v: Boolean) {
+        preferences.setGlassTheme(v)
+        _glassTheme.value = v
+        themeState?.applyGlassTheme(v)
+    }
+
     // ===== 模组依赖安装 =====
     private val _installingDeps = MutableStateFlow(false)
     val installingDeps: StateFlow<Boolean> = _installingDeps.asStateFlow()

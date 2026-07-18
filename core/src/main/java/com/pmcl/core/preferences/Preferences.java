@@ -31,6 +31,8 @@ public final class Preferences {
     private boolean showPerfHud = false;      // 是否显示性能 HUD 浮窗（半透明置顶小窗）
     private String perfHudMetrics = "CPU,MEM,GPU,FPS"; // HUD 显示的指标，逗号分隔
     private float uiScale = 1.0f;             // UI 缩放系数（0.8~1.5），1.0 = 默认大小
+    private boolean parallaxBackground = false; // 视差背景主题：多层鼠标视差背景图
+    private boolean glassTheme = false;         // 玻璃主题：卡片毛玻璃效果
     private String language = "zh_CN";             // zh_CN / en_US
     private boolean firstLaunchCompleted = false;  // 是否完成首次启动欢迎流程
     private boolean agreementAccepted = false;     // 用户是否已同意用户协议、免责协议与许可证
@@ -134,6 +136,10 @@ public final class Preferences {
 
     /** UI 缩放系数，范围 0.8~1.5，默认 1.0 */
     public synchronized float getUiScale() { return uiScale; }
+    public synchronized boolean isParallaxBackground() { return parallaxBackground; }
+    public synchronized void setParallaxBackground(boolean v) { parallaxBackground = v; scheduleSave(); }
+    public synchronized boolean isGlassTheme() { return glassTheme; }
+    public synchronized void setGlassTheme(boolean v) { glassTheme = v; scheduleSave(); }
     public synchronized void setUiScale(float v) {
         // 过滤 NaN/Infinity，避免写出非法 JSON
         if (Float.isNaN(v) || Float.isInfinite(v)) return;
@@ -542,6 +548,8 @@ public final class Preferences {
             if (o.has("showPerfHud")) showPerfHud = o.get("showPerfHud").getAsBoolean();
             if (o.has("perfHudMetrics") && !o.get("perfHudMetrics").isJsonNull()) perfHudMetrics = o.get("perfHudMetrics").getAsString();
             if (o.has("uiScale")) uiScale = o.get("uiScale").getAsFloat();
+            if (o.has("parallaxBackground")) parallaxBackground = o.get("parallaxBackground").getAsBoolean();
+            if (o.has("glassTheme")) glassTheme = o.get("glassTheme").getAsBoolean();
             if (o.has("language") && !o.get("language").isJsonNull()) language = o.get("language").getAsString();
             if (o.has("firstLaunchCompleted")) firstLaunchCompleted = o.get("firstLaunchCompleted").getAsBoolean();
             if (o.has("agreementAccepted")) agreementAccepted = o.get("agreementAccepted").getAsBoolean();
@@ -748,6 +756,8 @@ public final class Preferences {
         o.addProperty("showPerfHud", showPerfHud);
         o.addProperty("perfHudMetrics", perfHudMetrics);
         o.addProperty("uiScale", uiScale);
+        o.addProperty("parallaxBackground", parallaxBackground);
+        o.addProperty("glassTheme", glassTheme);
         o.addProperty("language", language);
         o.addProperty("firstLaunchCompleted", firstLaunchCompleted);
         o.addProperty("agreementAccepted", agreementAccepted);

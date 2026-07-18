@@ -280,6 +280,44 @@ fun SettingsPage(vm: LauncherViewModel) {
                 HorizontalDivider()
                 Spacer(Modifier.height(12.dp))
 
+                // 视差背景主题
+                val parallaxBg by vm.parallaxBackground.collectAsState()
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = parallaxBg,
+                        onCheckedChange = { v -> vm.setParallaxBackground(v) }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("视差背景", fontWeight = FontWeight.Medium)
+                }
+                Spacer(Modifier.height(4.dp))
+                Text("多层渐变球随鼠标偏移产生 3D 视差效果，实时生效",
+                     style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.outline)
+
+                Spacer(Modifier.height(12.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(12.dp))
+
+                // 玻璃主题
+                val glassOn by vm.glassTheme.collectAsState()
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = glassOn,
+                        onCheckedChange = { v -> vm.setGlassTheme(v) }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("玻璃主题", fontWeight = FontWeight.Medium)
+                }
+                Spacer(Modifier.height(4.dp))
+                Text("卡片毛玻璃效果，搭配视差背景视觉更佳，实时生效",
+                     style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.outline)
+
+                Spacer(Modifier.height(12.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(12.dp))
+
                 // UI 缩放
                 var uiScale by remember { mutableStateOf(pref.getUiScale()) }
                 Text("界面缩放", style = MaterialTheme.typography.labelMedium,
