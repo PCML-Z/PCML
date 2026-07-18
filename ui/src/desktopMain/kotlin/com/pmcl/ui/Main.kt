@@ -117,11 +117,16 @@ fun main() = application {
                 } else false
             }
         ) {
+            // 最大化状态：提前声明，供 parallaxBg / borderless 两个块共享
+            // 最大化时移除圆角裁剪，让内容填满屏幕直角
+            var isMaximized by remember { mutableStateOf(false) }
+
             // 视差背景层：放在最底层，所有内容悬浮其上
             // 无边框模式下 clip 圆角，避免方形边缘盖住窗口 shape
+            // 最大化时不裁剪，让背景填满屏幕直角
             if (parallaxBg) {
                 com.pmcl.ui.theme.ParallaxBackground(
-                    modifier = if (borderless) Modifier.clip(RoundedCornerShape(14.dp))
+                    modifier = if (borderless && !isMaximized) Modifier.clip(RoundedCornerShape(14.dp))
                                else Modifier,
                     useDark = useDark
                 )
@@ -135,16 +140,16 @@ fun main() = application {
 
                 DisposableEffect(Unit) {
                     val updateShape = {
-                        // 圆角 shape 始终保持（拖动/正常/最大化统一），避免拖动时圆角失效
-                        // 最大化时直角填满屏幕
-                        window.shape = if (window.extendedState == Frame.MAXIMIZED_BOTH) null
+                        val maximized = window.extendedState == Frame.MAXIMIZED_BOTH
+                        isMaximized = maximized
+                        // 最大化时直角填满屏幕，其他状态保持 14dp 圆角
+                        window.shape = if (maximized) null
                         else RoundRectangle2D.Double(
                             0.0, 0.0,
                             window.width.toDouble(), window.height.toDouble(),
                             14.0, 14.0
                         )
                         // AWT 背景始终保持透明，让 Compose 内部透明渲染（视差/玻璃）生效
-                        // 项目内无 SwingPanel 使用，不存在重绘延迟闪烁问题
                         window.background = java.awt.Color(0, 0, 0, 0)
                     }
                     updateShape()
@@ -157,7 +162,11 @@ fun main() = application {
                 }
                 MaterialTheme(colorScheme = scheme) {
                     Surface(
-                        modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(14.dp)),
+                        modifier = Modifier.fillMaxSize().then(
+                            // 最大化时不裁剪圆角，让内容填满屏幕直角
+                            if (isMaximized) Modifier
+                            else Modifier.clip(RoundedCornerShape(14.dp))
+                        ),
                         color = if (parallaxBg) Color.Transparent else MaterialTheme.colorScheme.surface,
                         tonalElevation = if (parallaxBg) 0.dp else 1.dp
                     ) {

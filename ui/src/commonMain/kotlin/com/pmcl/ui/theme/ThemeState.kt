@@ -37,12 +37,10 @@ class ThemeState(initialDark: Boolean = false) {
     /** UI 缩放系数，1.0 = 默认大小 */
     var uiScale by mutableStateOf(1.0f)
         private set
-
-    /** 视差背景主题：多层鼠标视差背景图 */
+        
     var parallaxBackground by mutableStateOf(false)
         private set
 
-    /** 玻璃主题：卡片毛玻璃效果 */
     var glassTheme by mutableStateOf(false)
         private set
 
@@ -82,10 +80,6 @@ class ThemeState(initialDark: Boolean = false) {
         glassTheme = enabled
     }
 
-    /**
-     * 从种子色生成完整 ColorScheme 并应用。
-     * 莫奈取色和自定义强调色共用此方法，确保所有颜色角色协调一致。
-     */
     fun applySeedColor(seedRgb: Int, dark: Boolean) {
         seedColor = seedRgb
         val palette = WallpaperColorProvider.generateFullPalette(seedRgb, dark)
@@ -133,7 +127,7 @@ class ThemeState(initialDark: Boolean = false) {
     }
 }
 
-/** CompositionLocal 全局访问 */
+
 val LocalThemeState = compositionLocalOf<ThemeState> {
     error("ThemeState not provided")
 }
