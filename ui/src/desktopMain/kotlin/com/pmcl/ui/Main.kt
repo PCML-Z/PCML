@@ -20,6 +20,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
@@ -94,6 +95,8 @@ fun main() = application {
 
     // 视差背景主题开关（响应式，可在设置中实时切换）
     val parallaxBg by vm.parallaxBackground.collectAsState()
+    // 玻璃主题开关（响应式，标题栏/侧边栏分层毛玻璃）
+    val glassOn by vm.glassTheme.collectAsState()
 
     Window(
         onCloseRequest = ::exitApplication,
@@ -188,7 +191,8 @@ fun main() = application {
                                 vm = vm,
                                 searchFocusRequester = searchFocusRequester,
                                 onOpenAi = { showAiWindow.value = true },
-                                onOpenCompanion = { showCompanionDialog.value = true }
+                                onOpenCompanion = { showCompanionDialog.value = true },
+                                glassOn = glassOn
                             )
                             Box(Modifier.weight(1f).fillMaxWidth()) {
                                 App(vm)
@@ -203,7 +207,8 @@ fun main() = application {
                         vm = vm,
                         searchFocusRequester = searchFocusRequester,
                         onOpenAi = { showAiWindow.value = true },
-                        onOpenCompanion = { showCompanionDialog.value = true }
+                        onOpenCompanion = { showCompanionDialog.value = true },
+                        glassOn = glassOn
                     )
                     Box(Modifier.weight(1f).fillMaxWidth()) {
                         App(vm)
@@ -321,6 +326,7 @@ private fun WindowScope.windowDragModifier(isDragging: MutableState<Boolean>): M
 
 /**
  * 无边框窗口自定义标题栏：可拖拽 + 搜索框 + 最小化/最大化/关闭按钮。
+ * 玻璃主题开启时分层渲染：底层模糊背景 + 上层透明 Surface 清晰内容。
  */
 @Composable
 private fun FrameWindowScope.BorderlessTitleBar(
@@ -329,19 +335,30 @@ private fun FrameWindowScope.BorderlessTitleBar(
     vm: LauncherViewModel,
     searchFocusRequester: FocusRequester,
     onOpenAi: () -> Unit,
-    onOpenCompanion: () -> Unit
+    onOpenCompanion: () -> Unit,
+    glassOn: Boolean = false
 ) {
-    Surface(
-        color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 2.dp,
-        modifier = Modifier.fillMaxWidth().height(38.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .then(windowDragModifier(isDragging)),
-            verticalAlignment = Alignment.CenterVertically
+    Box(Modifier.fillMaxWidth().height(38.dp)) {
+        if (glassOn) {
+            // 模糊背景层：独立节点被 blur，渲染毛玻璃质感
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .blur(24.dp)
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
+            )
+        }
+        Surface(
+            color = if (glassOn) Color.Transparent else MaterialTheme.colorScheme.surface,
+            tonalElevation = if (glassOn) 0.dp else 2.dp,
+            modifier = Modifier.fillMaxSize()
         ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(windowDragModifier(isDragging)),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
             // 标题
             Text(
                 "PMCL — Minecraft Launcher",
@@ -393,6 +410,7 @@ private fun FrameWindowScope.BorderlessTitleBar(
             ) {
                 Icon(Icons.Filled.Close, "关闭", modifier = Modifier.size(16.dp))
             }
+        }
         }
     }
 }
@@ -455,34 +473,46 @@ private fun AiHoverButton(onClick: () -> Unit) {
 
 /**
  * 非无边框模式下的搜索条（OS 标题栏下方）。
+ * 玻璃主题开启时分层渲染：底层模糊背景 + 上层透明 Surface 清晰内容。
  */
 @Composable
 private fun SlimSearchBar(
     vm: LauncherViewModel,
     searchFocusRequester: FocusRequester,
     onOpenAi: () -> Unit,
-    onOpenCompanion: () -> Unit
+    onOpenCompanion: () -> Unit,
+    glassOn: Boolean = false
 ) {
-    Surface(
-        color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 2.dp,
-        modifier = Modifier.fillMaxWidth().height(38.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            TopBarSearchField(
-                modifier = Modifier.width(320.dp),
-                vm = vm,
-                focusRequester = searchFocusRequester,
-                compact = true
+    Box(Modifier.fillMaxWidth().height(38.dp)) {
+        if (glassOn) {
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .blur(24.dp)
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
             )
-            Spacer(Modifier.weight(1f))
-            IconButton(onClick = onOpenCompanion, modifier = Modifier.size(32.dp)) {
-                Icon(Icons.Filled.PhoneIphone, "iOS 伴随 App 配对", modifier = Modifier.size(16.dp))
+        }
+        Surface(
+            color = if (glassOn) Color.Transparent else MaterialTheme.colorScheme.surface,
+            tonalElevation = if (glassOn) 0.dp else 2.dp,
+            modifier = Modifier.fillMaxSize()
+        ) {
+            Row(
+                modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TopBarSearchField(
+                    modifier = Modifier.width(320.dp),
+                    vm = vm,
+                    focusRequester = searchFocusRequester,
+                    compact = true
+                )
+                Spacer(Modifier.weight(1f))
+                IconButton(onClick = onOpenCompanion, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Filled.PhoneIphone, "iOS 伴随 App 配对", modifier = Modifier.size(16.dp))
+                }
+                AiHoverButton(onClick = onOpenAi)
             }
-            AiHoverButton(onClick = onOpenAi)
         }
     }
 }
