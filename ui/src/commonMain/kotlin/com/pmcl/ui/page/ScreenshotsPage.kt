@@ -2,6 +2,7 @@ package com.pmcl.ui.page
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
@@ -136,6 +137,7 @@ fun ScreenshotsPage(vm: LauncherViewModel) {
             ) {
                 itemsIndexed(shots, key = { _, s -> s.getPath()?.toString() ?: System.identityHashCode(s).toString() }) { index, shot ->
                     val selected = index == selectedIndex
+                    val cardShape = RoundedCornerShape(12.dp)
                     Card(
                         Modifier
                             .fillMaxWidth()
@@ -143,13 +145,17 @@ fun ScreenshotsPage(vm: LauncherViewModel) {
                                 if (selected) Modifier.border(
                                     2.dp,
                                     MaterialTheme.colorScheme.primary,
-                                    RoundedCornerShape(12.dp)
+                                    cardShape
                                 ) else Modifier
                             )
-                            .clickable {
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
                                 selectedIndex = index
                                 focusRequester.requestFocus()
                             },
+                        shape = cardShape,
                         colors = glassCardColors()
                     ) {
                         Column(Modifier.padding(8.dp)) {
