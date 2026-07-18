@@ -83,6 +83,7 @@ public final class Preferences {
     private boolean mioModeJvm = true;             // L1：JVM 激进参数（默认开，零风险）
     private boolean mioModeProcess = true;         // L2：进程级 QoS + 防休眠（默认开，无需 sudo）
     private boolean mioModeSystemPower = false;    // L3：系统电源策略（默认关，需 sudo，影响整机）
+    private boolean mioModeCrazyPriority = false;  // L2+：疯狂优先级（拉到系统极限，默认关，可能导致系统卡顿）
 
     // ===== 多人联机 =====
     private String mpBackend = "TERRACOTTA";       // TERRACOTTA / EASYTIER / CONNECTX（默认 Terracotta，HMCL 同款官方陶瓦联机）
@@ -404,6 +405,8 @@ public final class Preferences {
     public synchronized void setMioModeProcess(boolean v) { mioModeProcess = v; scheduleSave(); }
     public synchronized boolean isMioModeSystemPower() { return mioModeSystemPower; }
     public synchronized void setMioModeSystemPower(boolean v) { mioModeSystemPower = v; scheduleSave(); }
+    public synchronized boolean isMioModeCrazyPriority() { return mioModeCrazyPriority; }
+    public synchronized void setMioModeCrazyPriority(boolean v) { mioModeCrazyPriority = v; scheduleSave(); }
 
     // ===== 多人联机 =====
     public synchronized String getMpBackend() {
@@ -610,6 +613,7 @@ public final class Preferences {
             if (o.has("mioModeJvm")) mioModeJvm = o.get("mioModeJvm").getAsBoolean();
             if (o.has("mioModeProcess")) mioModeProcess = o.get("mioModeProcess").getAsBoolean();
             if (o.has("mioModeSystemPower")) mioModeSystemPower = o.get("mioModeSystemPower").getAsBoolean();
+            if (o.has("mioModeCrazyPriority")) mioModeCrazyPriority = o.get("mioModeCrazyPriority").getAsBoolean();
             if (o.has("mpBackend") && !o.get("mpBackend").isJsonNull()) mpBackend = o.get("mpBackend").getAsString();
             if (o.has("connectxServerAddress") && !o.get("connectxServerAddress").isJsonNull()) connectxServerAddress = o.get("connectxServerAddress").getAsString();
             if (o.has("connectxServerPort")) connectxServerPort = o.get("connectxServerPort").getAsInt();
@@ -783,6 +787,7 @@ public final class Preferences {
         o.addProperty("mioModeJvm", mioModeJvm);
         o.addProperty("mioModeProcess", mioModeProcess);
         o.addProperty("mioModeSystemPower", mioModeSystemPower);
+        o.addProperty("mioModeCrazyPriority", mioModeCrazyPriority);
         o.addProperty("mpBackend", mpBackend);
         o.addProperty("connectxServerAddress", connectxServerAddress);
         o.addProperty("connectxServerPort", connectxServerPort);

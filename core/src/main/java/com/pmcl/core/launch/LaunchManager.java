@@ -154,6 +154,13 @@ public final class LaunchManager {
                     if (logger != null) logger.append("[PMCL] 澪模式 L2：已应用进程级性能调优");
                 }
 
+                // 澪模式 L2+：疯狂优先级（拉到系统极限，macOS 需 sudo 授权，可能卡顿）
+                if (preferences != null && preferences.isMioModeEnabled() && preferences.isMioModeCrazyPriority()) {
+                    if (tuner == null) tuner = new ProcessTuner();
+                    tuner.applyCrazyPriority(process.pid());
+                    if (logger != null) logger.append("[PMCL] 澪模式 L2+：已应用疯狂调度优先级");
+                }
+
                 // Fire GameLaunchedEvent
                 if (pluginManager != null) {
                     String accountName = profile.getPlayerName() != null ? profile.getPlayerName() : "Player";

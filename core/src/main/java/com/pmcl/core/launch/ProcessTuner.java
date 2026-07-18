@@ -58,6 +58,32 @@ public final class ProcessTuner {
     }
 
     /**
+     * 疯狂优先级：跨平台拉到系统允许的调度优先级极限。
+     * <p>
+     * - macOS：taskpolicy -P high（进程 priority 提升至 high）+ renice -20（最高 nice，
+     *   需 sudo，用 osascript 弹授权框）
+     * - Windows：REALTIME_PRIORITY_CLASS (256)，抢占式实时优先级
+     * - Linux：renice -20（需 sudo，用 pkexec 或 osascript 无关，直接 sudo 调用）
+     * <p>
+     * 风险：可能导致系统响应性下降（鼠标/键盘卡顿），用户主动选择。
+     * 失败静默降级，不阻塞游戏运行。
+     */
+    public void applyCrazyPriority(long pid) {
+        if (pid <= 0) return;
+        try {
+            if (isMac) {
+                applyMacCrazy(pid);
+            } else if (isWindows) {
+                applyWindowsRealtime(pid);
+            } else if (isLinux) {
+                applyLinuxCrazy(pid);
+            }
+        } catch (Exception e) {
+            System.err.println("[MioMode] 疯狂优先级应用失败，降级: " + e.getMessage());
+        }
+    }
+
+    /**
      * 应用 L3 系统电源策略（启动前调用，需 sudo）。
      * 使用 osascript 弹原生授权框，用户拒绝则静默降级。
      *
@@ -151,6 +177,53 @@ public final class ProcessTuner {
         // 这里用 renice 尝试，失败静默降级
         runCommand("renice", "-n", "0", "-p", String.valueOf(pid));
         System.out.println("[MioMode] L2 已尝试 Linux renice: pid=" + pid);
+    }
+
+    // ===== 疯狂优先级平台实现 =====
+
+    private void applyMacCrazy(long pid) throws IOException {
+        // 1. taskpolicy -P high：进程 priority 提升至 high tier（与 -c user-active 互补）
+        try {
+            runCommand("taskpolicy", "-P", "high", "-p", String.valueOf(pid));
+            System.out.println("[MioMode] 疯狂: macOS taskpolicy -P high 已应用 pid=" + pid);
+        } catch (Exception e) {
+            System.err.println("[MioMode] taskpolicy -P high 失败: " + e.getMessage());
+        }
+        // 2. renice -20：最高 nice 优先级，需 sudo（普通用户无法设负值）
+        // 用 osascript 弹原生授权框执行 sudo renice
+        try {
+            String script = String.format(
+                "do shell script \"renice -20 -p %d\" with administrator privileges", pid);
+            runCommand("osascript", "-e", script);
+            System.out.println("[MioMode] 疯狂: macOS renice -20 已应用 pid=" + pid);
+        } catch (Exception e) {
+            System.err.println("[MioMode] renice -20 失败（用户拒绝授权或不可用）: " + e.getMessage());
+        }
+    }
+
+    private void applyWindowsRealtime(long pid) throws IOException {
+        // 256 = REALTIME_PRIORITY_CLASS：抢占式实时优先级
+        // 风险：可能导致鼠标/键盘卡顿，但用户主动选择疯狂模式
+        runCommand("wmic", "process", "where", "processid=" + pid,
+            "call", "setpriority", "256");
+        System.out.println("[MioMode] 疯狂: Windows REALTIME 优先级已应用 pid=" + pid);
+    }
+
+    private void applyLinuxCrazy(long pid) throws IOException {
+        // renice -20：最高 nice 优先级，需 root
+        // 尝试用 sudo（会提示密码），失败则尝试 pkexec（GUI 授权）
+        try {
+            runCommand("sudo", "-n", "renice", "-20", "-p", String.valueOf(pid));
+            System.out.println("[MioMode] 疯狂: Linux renice -20 (sudo) 已应用 pid=" + pid);
+        } catch (Exception e) {
+            // sudo -n 非交互模式失败，尝试 pkexec 弹 GUI 授权框
+            try {
+                runCommand("pkexec", "renice", "-20", "-p", String.valueOf(pid));
+                System.out.println("[MioMode] 疯狂: Linux renice -20 (pkexec) 已应用 pid=" + pid);
+            } catch (Exception e2) {
+                System.err.println("[MioMode] Linux renice -20 失败（需 root）: " + e2.getMessage());
+            }
+        }
     }
 
     // ===== L3 辅助 =====

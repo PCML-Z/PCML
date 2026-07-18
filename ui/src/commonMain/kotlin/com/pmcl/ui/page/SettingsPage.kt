@@ -636,6 +636,7 @@ private fun MioModeCard(pref: com.pmcl.core.preferences.Preferences) {
     var enabled by remember { mutableStateOf(pref.isMioModeEnabled()) }
     var l1Jvm by remember { mutableStateOf(pref.isMioModeJvm()) }
     var l2Process by remember { mutableStateOf(pref.isMioModeProcess()) }
+    var l2Crazy by remember { mutableStateOf(pref.isMioModeCrazyPriority()) }
     var l3System by remember { mutableStateOf(pref.isMioModeSystemPower()) }
 
     Card(Modifier.fillMaxWidth()) {
@@ -705,6 +706,27 @@ private fun MioModeCard(pref: com.pmcl.core.preferences.Preferences) {
                 Text("无需 sudo，游戏退出自动清理 caffeinate 子进程",
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
+
+                Spacer(Modifier.height(12.dp))
+
+                // L2+：疯狂优先级
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = l2Crazy,
+                        onCheckedChange = { v -> l2Crazy = v; pref.setMioModeCrazyPriority(v) }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Column {
+                        Text("L2+ 疯狂调度优先级", fontWeight = FontWeight.Medium)
+                        Text("macOS: taskpolicy -P high + renice -20；Windows: REALTIME；Linux: renice -20",
+                             style = MaterialTheme.typography.labelSmall,
+                             color = MaterialTheme.colorScheme.outline)
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                Text("拉到系统调度优先级极限。macOS/Linux 需 sudo 授权，Windows 用 REALTIME 可能导致鼠标键盘卡顿",
+                     style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.error)
 
                 Spacer(Modifier.height(12.dp))
 
