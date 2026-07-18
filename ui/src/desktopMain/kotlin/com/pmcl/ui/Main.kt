@@ -115,8 +115,13 @@ fun main() = application {
             }
         ) {
             // 视差背景层：放在最底层，所有内容悬浮其上
+            // 无边框模式下 clip 圆角，避免方形边缘盖住窗口 shape
             if (parallaxBg) {
-                com.pmcl.ui.theme.ParallaxBackground(useDark = useDark)
+                com.pmcl.ui.theme.ParallaxBackground(
+                    modifier = if (borderless) Modifier.clip(RoundedCornerShape(14.dp))
+                               else Modifier,
+                    useDark = useDark
+                )
             }
             if (borderless) {
                 // 无边框模式：transparent=true 让边缘像素 alpha 混合（抗锯齿），

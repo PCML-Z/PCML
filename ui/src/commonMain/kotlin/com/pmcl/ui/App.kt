@@ -9,6 +9,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
 import com.pmcl.core.plugin.PluginManager
@@ -123,6 +124,7 @@ private sealed class NavTarget {
 
 @Composable
 private fun MainWindowContent(vm: LauncherViewModel) {
+    val themeState = LocalThemeState.current
     var current by remember { mutableStateOf<NavTarget>(NavTarget.BuiltIn(NavDestination.Launch)) }
     // 导航方向：1=前进，-1=后退，0=初始
     var navDirection by remember { mutableIntStateOf(0) }
@@ -171,7 +173,17 @@ private fun MainWindowContent(vm: LauncherViewModel) {
 
     Row(Modifier.fillMaxSize()) {
         SlideInFromStart(delayMs = 0, durationMs = 400) {
-            NavigationRail {
+            // 玻璃主题：侧边栏应用毛玻璃 + 半透明，搭配视差背景产生层次感
+            val glassOn = themeState.glassTheme
+            val railModifier = Modifier
+                .fillMaxHeight()
+                .then(if (glassOn) Modifier.blur(20.dp) else Modifier)
+            NavigationRail(
+                modifier = railModifier,
+                containerColor = if (glassOn)
+                    MaterialTheme.colorScheme.surface.copy(alpha = 0.55f)
+                else MaterialTheme.colorScheme.surface
+            ) {
                 Column(
                     modifier = Modifier
                         .fillMaxHeight()
