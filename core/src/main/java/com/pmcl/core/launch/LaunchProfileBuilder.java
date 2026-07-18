@@ -418,6 +418,35 @@ public final class LaunchProfileBuilder {
             }
         }
 
+        // 澪模式 L1+：LWJGL/OpenGL 渲染加速
+        if (preferences.isMioModeEnabled() && preferences.isMioModeRenderOpt()) {
+            for (String f : MioFlags.buildRenderOpt()) {
+                profile.addJvmArg(f);
+            }
+        }
+
+        // 澪模式 L1+：JIT 编译器激进
+        if (preferences.isMioModeEnabled() && preferences.isMioModeJitAggressive()) {
+            int coresForJit = Runtime.getRuntime().availableProcessors();
+            for (String f : MioFlags.buildJitAggressive(coresForJit)) {
+                profile.addJvmArg(f);
+            }
+        }
+
+        // 澪模式 L1+：网络栈优化（MC 联机场景）
+        if (preferences.isMioModeEnabled() && preferences.isMioModeNetworkOpt()) {
+            for (String f : MioFlags.buildNetworkOpt()) {
+                profile.addJvmArg(f);
+            }
+        }
+
+        // 澪模式 L1+：元空间管控（防 OOM）
+        if (preferences.isMioModeEnabled() && preferences.isMioModeMetaspace()) {
+            for (String f : MioFlags.buildMetaspace()) {
+                profile.addJvmArg(f);
+            }
+        }
+
         // 版本 JSON 自带的 JVM 参数
         // 过滤掉运行时 Java 不支持的参数：
         //   --sun-misc-unsafe-memory-access=allow 是 Java 23+ (JEP 471) 引入的，

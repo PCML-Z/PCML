@@ -86,6 +86,10 @@ public final class Preferences {
     private boolean mioModeCrazyPriority = false;  // L2+：疯狂优先级（拉到系统极限，默认关，可能导致系统卡顿）
     private boolean mioModeLargePages = false;     // L1+：大页内存 + NUMA（减少 TLB miss，默认关，JVM 不支持自动降级）
     private boolean mioModeZgc = false;            // L1+：实验性 ZGC 切换（JDK 21 生成式，默认关，可能与 Aikar 冲突）
+    private boolean mioModeRenderOpt = true;       // L1+：LWJGL/OpenGL 渲染加速（高DPI+系统malloc+关debug，默认开）
+    private boolean mioModeJitAggressive = true;   // L1+：JIT 编译器激进（热点更早编译+循环安全点，默认开）
+    private boolean mioModeNetworkOpt = true;      // L1+：网络栈优化（IPv4优先+快速路径+DNS缓存，默认开）
+    private boolean mioModeMetaspace = true;       // L1+：元空间管控（限制上限+类数据共享，默认开，防 OOM）
 
     // ===== 多人联机 =====
     private String mpBackend = "TERRACOTTA";       // TERRACOTTA / EASYTIER / CONNECTX（默认 Terracotta，HMCL 同款官方陶瓦联机）
@@ -413,6 +417,14 @@ public final class Preferences {
     public synchronized void setMioModeLargePages(boolean v) { mioModeLargePages = v; scheduleSave(); }
     public synchronized boolean isMioModeZgc() { return mioModeZgc; }
     public synchronized void setMioModeZgc(boolean v) { mioModeZgc = v; scheduleSave(); }
+    public synchronized boolean isMioModeRenderOpt() { return mioModeRenderOpt; }
+    public synchronized void setMioModeRenderOpt(boolean v) { mioModeRenderOpt = v; scheduleSave(); }
+    public synchronized boolean isMioModeJitAggressive() { return mioModeJitAggressive; }
+    public synchronized void setMioModeJitAggressive(boolean v) { mioModeJitAggressive = v; scheduleSave(); }
+    public synchronized boolean isMioModeNetworkOpt() { return mioModeNetworkOpt; }
+    public synchronized void setMioModeNetworkOpt(boolean v) { mioModeNetworkOpt = v; scheduleSave(); }
+    public synchronized boolean isMioModeMetaspace() { return mioModeMetaspace; }
+    public synchronized void setMioModeMetaspace(boolean v) { mioModeMetaspace = v; scheduleSave(); }
 
     // ===== 多人联机 =====
     public synchronized String getMpBackend() {
@@ -622,6 +634,10 @@ public final class Preferences {
             if (o.has("mioModeCrazyPriority")) mioModeCrazyPriority = o.get("mioModeCrazyPriority").getAsBoolean();
             if (o.has("mioModeLargePages")) mioModeLargePages = o.get("mioModeLargePages").getAsBoolean();
             if (o.has("mioModeZgc")) mioModeZgc = o.get("mioModeZgc").getAsBoolean();
+            if (o.has("mioModeRenderOpt")) mioModeRenderOpt = o.get("mioModeRenderOpt").getAsBoolean();
+            if (o.has("mioModeJitAggressive")) mioModeJitAggressive = o.get("mioModeJitAggressive").getAsBoolean();
+            if (o.has("mioModeNetworkOpt")) mioModeNetworkOpt = o.get("mioModeNetworkOpt").getAsBoolean();
+            if (o.has("mioModeMetaspace")) mioModeMetaspace = o.get("mioModeMetaspace").getAsBoolean();
             if (o.has("mpBackend") && !o.get("mpBackend").isJsonNull()) mpBackend = o.get("mpBackend").getAsString();
             if (o.has("connectxServerAddress") && !o.get("connectxServerAddress").isJsonNull()) connectxServerAddress = o.get("connectxServerAddress").getAsString();
             if (o.has("connectxServerPort")) connectxServerPort = o.get("connectxServerPort").getAsInt();
@@ -798,6 +814,10 @@ public final class Preferences {
         o.addProperty("mioModeCrazyPriority", mioModeCrazyPriority);
         o.addProperty("mioModeLargePages", mioModeLargePages);
         o.addProperty("mioModeZgc", mioModeZgc);
+        o.addProperty("mioModeRenderOpt", mioModeRenderOpt);
+        o.addProperty("mioModeJitAggressive", mioModeJitAggressive);
+        o.addProperty("mioModeNetworkOpt", mioModeNetworkOpt);
+        o.addProperty("mioModeMetaspace", mioModeMetaspace);
         o.addProperty("mpBackend", mpBackend);
         o.addProperty("connectxServerAddress", connectxServerAddress);
         o.addProperty("connectxServerPort", connectxServerPort);

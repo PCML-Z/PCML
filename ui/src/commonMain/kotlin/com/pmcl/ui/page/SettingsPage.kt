@@ -637,6 +637,10 @@ private fun MioModeCard(pref: com.pmcl.core.preferences.Preferences) {
     var l1Jvm by remember { mutableStateOf(pref.isMioModeJvm()) }
     var l1LargePages by remember { mutableStateOf(pref.isMioModeLargePages()) }
     var l1Zgc by remember { mutableStateOf(pref.isMioModeZgc()) }
+    var l1Render by remember { mutableStateOf(pref.isMioModeRenderOpt()) }
+    var l1Jit by remember { mutableStateOf(pref.isMioModeJitAggressive()) }
+    var l1Network by remember { mutableStateOf(pref.isMioModeNetworkOpt()) }
+    var l1Metaspace by remember { mutableStateOf(pref.isMioModeMetaspace()) }
     var l2Process by remember { mutableStateOf(pref.isMioModeProcess()) }
     var l2Crazy by remember { mutableStateOf(pref.isMioModeCrazyPriority()) }
     var l3System by remember { mutableStateOf(pref.isMioModeSystemPower()) }
@@ -729,6 +733,74 @@ private fun MioModeCard(pref: com.pmcl.core.preferences.Preferences) {
                 Text("Aikar's Flags 为 G1GC 调校，ZGC 可能负优化 MC 大量区块分配场景。实验性功能，风险自担",
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.error)
+
+                Spacer(Modifier.height(12.dp))
+
+                // L1+：LWJGL 渲染加速
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = l1Render,
+                        onCheckedChange = { v -> l1Render = v; pref.setMioModeRenderOpt(v) }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Column {
+                        Text("L1+ LWJGL 渲染加速", fontWeight = FontWeight.Medium)
+                        Text("高DPI启用 + 系统 malloc + 关闭 debug 输出",
+                             style = MaterialTheme.typography.labelSmall,
+                             color = MaterialTheme.colorScheme.outline)
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                // L1+：JIT 编译器激进
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = l1Jit,
+                        onCheckedChange = { v -> l1Jit = v; pref.setMioModeJitAggressive(v) }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Column {
+                        Text("L1+ JIT 编译器激进", fontWeight = FontWeight.Medium)
+                        Text("CompileThreshold=5000 + 循环安全点 + 按核心数设编译器线程",
+                             style = MaterialTheme.typography.labelSmall,
+                             color = MaterialTheme.colorScheme.outline)
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                // L1+：网络栈优化
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = l1Network,
+                        onCheckedChange = { v -> l1Network = v; pref.setMioModeNetworkOpt(v) }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Column {
+                        Text("L1+ 网络栈优化", fontWeight = FontWeight.Medium)
+                        Text("IPv4优先 + 快速路径网络 + DNS缓存30秒（联机场景）",
+                             style = MaterialTheme.typography.labelSmall,
+                             color = MaterialTheme.colorScheme.outline)
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                // L1+：元空间管控
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = l1Metaspace,
+                        onCheckedChange = { v -> l1Metaspace = v; pref.setMioModeMetaspace(v) }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Column {
+                        Text("L1+ 元空间管控", fontWeight = FontWeight.Medium)
+                        Text("MaxMetaspaceSize=512M + 类数据共享，防 OOM 加速启动",
+                             style = MaterialTheme.typography.labelSmall,
+                             color = MaterialTheme.colorScheme.outline)
+                    }
+                }
 
                 Spacer(Modifier.height(12.dp))
 

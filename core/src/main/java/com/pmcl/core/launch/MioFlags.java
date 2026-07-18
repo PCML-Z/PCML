@@ -103,5 +103,69 @@ final class MioFlags {
         return flags;
     }
 
+    /**
+     * 构造 LWJGL/OpenGL 渲染加速参数（L1+ 可选）。
+     * - 高 DPI 启用（Retina 屏清晰渲染）
+     * - 系统 malloc 替代 JVM 内置分配器（避免分配器竞争）
+     * - 关闭 LWJGL debug 输出（减少 IO）
+     */
+    static List<String> buildRenderOpt() {
+        List<String> flags = new ArrayList<>(4);
+        flags.add("-Dorg.lwjgl.opengl.Display.enableHighDPI=true");
+        flags.add("-Dorg.lwjgl.system.allocator=system");
+        flags.add("-Dorg.lwjgl.util.Debug=false");
+        flags.add("-Dorg.lwjgl.util.DebugLoader=false");
+        return flags;
+    }
+
+    /**
+     * 构造 JIT 编译器激进参数（L1+ 可选）。
+     * - CompileThreshold 降低让热点方法更早触发编译
+     * - 循环安全点减少长循环导致的 GC 停顿
+     * - 增加 JIT 编译器线程数加速编译
+     */
+    static List<String> buildJitAggressive(int cpuCores) {
+        List<String> flags = new ArrayList<>(5);
+        flags.add("-XX:CompileThreshold=5000");            // 默认 10000，热点更早编译
+        flags.add("-XX:+UseCountedLoopSafepoints");         // 长循环安全点，减少 GC 停顿
+        // JIT 编译器线程数：默认动态，澪模式按 CPU 核心数显式设置
+        int ciCount = Math.max(2, Math.min(cpuCores / 2, 8));
+        flags.add("-XX:CICompilerCount=" + ciCount);
+        flags.add("-XX:+TieredCompilation");                // 分层编译（默认开，显式声明）
+        flags.add("-XX:+UseLoopCounter");                   // 循环计数（默认开，显式声明）
+        return flags;
+    }
+
+    /**
+     * 构造网络栈优化参数（L1+ 可选，MC 联机场景）。
+     * - IPv4 优先（避免 IPv6 双栈抖动）
+     * - 快速路径网络（减少 socket 创建开销）
+     * - DNS 缓存 30 秒（减少重复解析）
+     */
+    static List<String> buildNetworkOpt() {
+        List<String> flags = new ArrayList<>(4);
+        flags.add("-Djava.net.preferIPv4Stack=true");
+        flags.add("-Djdk.net.useFastPathNetworking=true");
+        flags.add("-Dnetworkaddress.cache.ttl=30");         // DNS 成功缓存 30 秒
+        flags.add("-Dnetworkaddress.cache.negative.ttl=0"); // DNS 失败不缓存
+        return flags;
+    }
+
+    /**
+     * 构造元空间管控参数（L1+ 可选，防 OOM）。
+     * - 限制元空间上限避免无限增长
+     * - 类数据共享加速启动
+     * - 自由比率控制避免频繁扩容
+     */
+    static List<String> buildMetaspace() {
+        List<String> flags = new ArrayList<>(5);
+        flags.add("-XX:MaxMetaspaceSize=512M");             // 上限 512M，防 OOM
+        flags.add("-XX:MetaspaceSize=128M");                // 初始 128M
+        flags.add("-XX:MinMetaspaceFreeRatio=20");          // 最小空闲 20%
+        flags.add("-XX:MaxMetaspaceFreeRatio=80");          // 最大空闲 80%
+        flags.add("-Xshare:auto");                          // 类数据共享，加速启动
+        return flags;
+    }
+
     private MioFlags() {}
 }
