@@ -23,6 +23,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.auth.Account
 import com.pmcl.core.i18n.I18n
+import com.pmcl.ui.theme.LocalThemeState
+import com.pmcl.ui.theme.glassCardColors
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -70,7 +72,7 @@ fun AccountsPage(vm: LauncherViewModel) {
         }
 
         // 当前账号 + 皮肤预览
-        Card(Modifier.fillMaxWidth()) {
+        Card(Modifier.fillMaxWidth(), colors = glassCardColors()) {
             Column(Modifier.padding(16.dp)) {
                 Text(I18n.t("accounts.current"), style = MaterialTheme.typography.titleSmall,
                      fontWeight = FontWeight.SemiBold)
@@ -132,7 +134,7 @@ fun AccountsPage(vm: LauncherViewModel) {
 
         // 自定义皮肤（仅离线账号）
         if (account?.getType() == Account.AccountType.OFFLINE) {
-            Card(Modifier.fillMaxWidth()) {
+            Card(Modifier.fillMaxWidth(), colors = glassCardColors()) {
                 Column(Modifier.padding(16.dp)) {
                     Text("自定义皮肤", style = MaterialTheme.typography.titleSmall,
                          fontWeight = FontWeight.SemiBold)
@@ -175,7 +177,7 @@ fun AccountsPage(vm: LauncherViewModel) {
         }
 
         // 离线登录卡片
-        Card(Modifier.fillMaxWidth()) {
+        Card(Modifier.fillMaxWidth(), colors = glassCardColors()) {
             Column(Modifier.padding(16.dp)) {
                 Text(I18n.t("accounts.offline"), style = MaterialTheme.typography.titleSmall,
                      fontWeight = FontWeight.SemiBold)
@@ -196,7 +198,7 @@ fun AccountsPage(vm: LauncherViewModel) {
         Spacer(Modifier.height(16.dp))
 
         // 微软登录卡片
-        Card(Modifier.fillMaxWidth()) {
+        Card(Modifier.fillMaxWidth(), colors = glassCardColors()) {
             Column(Modifier.padding(16.dp)) {
                 Text(I18n.t("accounts.microsoft"), style = MaterialTheme.typography.titleSmall,
                      fontWeight = FontWeight.SemiBold)
@@ -240,7 +242,7 @@ fun AccountsPage(vm: LauncherViewModel) {
         Spacer(Modifier.height(16.dp))
 
         // GitHub 登录卡片
-        Card(Modifier.fillMaxWidth()) {
+        Card(Modifier.fillMaxWidth(), colors = glassCardColors()) {
             Column(Modifier.padding(16.dp)) {
                 Text("GitHub 登录", style = MaterialTheme.typography.titleSmall,
                      fontWeight = FontWeight.SemiBold)

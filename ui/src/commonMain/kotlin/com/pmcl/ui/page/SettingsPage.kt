@@ -35,6 +35,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
 import com.pmcl.ui.theme.LocalThemeState
+import com.pmcl.ui.theme.glassCardColors
 import com.pmcl.ui.viewmodel.LauncherViewModel
 
 @Composable
@@ -56,7 +57,7 @@ fun SettingsPage(vm: LauncherViewModel) {
         Spacer(Modifier.height(16.dp))
 
         // 内存
-        Card(Modifier.fillMaxWidth()) {
+        Card(Modifier.fillMaxWidth(), colors = glassCardColors()) {
             Column(Modifier.padding(16.dp)) {
                 Text("内存", style = MaterialTheme.typography.titleSmall,
                      fontWeight = FontWeight.SemiBold)
@@ -91,7 +92,7 @@ fun SettingsPage(vm: LauncherViewModel) {
         Spacer(Modifier.height(16.dp))
 
         // JVM 高级配置
-        Card(Modifier.fillMaxWidth()) {
+        Card(Modifier.fillMaxWidth(), colors = glassCardColors()) {
             Column(Modifier.padding(16.dp)) {
                 Text("JVM 高级配置", style = MaterialTheme.typography.titleSmall,
                      fontWeight = FontWeight.SemiBold)
@@ -163,7 +164,7 @@ fun SettingsPage(vm: LauncherViewModel) {
         Spacer(Modifier.height(16.dp))
 
         // 外观
-        Card(Modifier.fillMaxWidth()) {
+        Card(Modifier.fillMaxWidth(), colors = glassCardColors()) {
             Column(Modifier.padding(16.dp)) {
                 Text("外观", style = MaterialTheme.typography.titleSmall,
                      fontWeight = FontWeight.SemiBold)
@@ -423,7 +424,7 @@ fun SettingsPage(vm: LauncherViewModel) {
         Spacer(Modifier.height(16.dp))
 
         // 系统信息
-        Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) {
+        Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp), colors = glassCardColors()) {
             Column(Modifier.padding(16.dp)) {
                 Text("系统信息", style = MaterialTheme.typography.titleSmall,
                      fontWeight = FontWeight.SemiBold)
@@ -451,7 +452,7 @@ private fun AboutCard(vm: LauncherViewModel) {
     var showAgreementDialog by remember { mutableStateOf(false) }
     var showDisclaimerDialog by remember { mutableStateOf(false) }
 
-    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) {
+    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp), colors = glassCardColors()) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Surface(

@@ -15,6 +15,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pmcl.core.i18n.I18n
 import com.pmcl.core.migration.MigrationManager
+import com.pmcl.ui.theme.LocalThemeState
+import com.pmcl.ui.theme.glassCardColors
 import com.pmcl.ui.viewmodel.LauncherViewModel
 
 /**
@@ -105,7 +107,7 @@ private fun MigrationCard(
     onMigrate: () -> Unit
 ) {
     var migrated by remember { mutableStateOf(false) }
-    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
+    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = glassCardColors()) {
         Column(Modifier.padding(16.dp)) {
             Text(I18n.t("migration.from", source.getName()),
                  style = MaterialTheme.typography.titleSmall,

@@ -14,6 +14,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.pmcl.ui.theme.LocalThemeState
+import com.pmcl.ui.theme.glassCardColors
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import kotlinx.coroutines.launch
 import java.awt.FileDialog
@@ -63,7 +65,7 @@ fun ScreenshotsPage(vm: LauncherViewModel) {
         Spacer(Modifier.height(16.dp))
 
         if (shots.isEmpty()) {
-            Card(Modifier.fillMaxWidth()) {
+            Card(Modifier.fillMaxWidth(), colors = glassCardColors()) {
                 Text("暂无截图。游戏内按 F2 截图后会自动保存到 screenshots 目录。",
                      modifier = Modifier.padding(16.dp),
                      color = MaterialTheme.colorScheme.outline)
@@ -75,7 +77,7 @@ fun ScreenshotsPage(vm: LauncherViewModel) {
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(shots, key = { it.getPath()?.toString() ?: System.identityHashCode(it).toString() }) { shot ->
-                    Card(Modifier.fillMaxWidth()) {
+                    Card(Modifier.fillMaxWidth(), colors = glassCardColors()) {
                         Column(Modifier.padding(8.dp)) {
                             Text(shot.name, fontWeight = FontWeight.SemiBold,
                                  maxLines = 1, style = MaterialTheme.typography.bodySmall)

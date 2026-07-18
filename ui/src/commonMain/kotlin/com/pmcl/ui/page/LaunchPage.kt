@@ -56,6 +56,8 @@ import com.pmcl.core.modloader.ModLoaderVersion
 import com.pmcl.core.i18n.I18n
 import com.pmcl.ui.animation.StaggeredAppear
 import com.pmcl.ui.animation.pressScale
+import com.pmcl.ui.theme.LocalThemeState
+import com.pmcl.ui.theme.glassCardColors
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -333,7 +335,7 @@ fun LaunchPage(vm: LauncherViewModel) {
             // ===== 本地版本列表 =====
             if (localInfos.isEmpty()) {
                 item {
-                    Card(Modifier.fillMaxWidth()) {
+                    Card(Modifier.fillMaxWidth(), colors = glassCardColors()) {
                         Column(Modifier.padding(16.dp)) {
                             Text("尚未扫描到本地游戏",
                                  style = MaterialTheme.typography.titleSmall,
@@ -1797,7 +1799,7 @@ private fun RemoteVersionRow(
 @Composable
 private fun AccountCard(account: com.pmcl.core.auth.Account?, vm: LauncherViewModel) {
     var username by remember { mutableStateOf("Steve") }
-    Card(Modifier.fillMaxWidth()) {
+    Card(Modifier.fillMaxWidth(), colors = glassCardColors()) {
         Column(Modifier.padding(16.dp)) {
             Text("账号", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(8.dp))
