@@ -77,6 +77,13 @@ public final class Preferences {
     // ===== 启动预设 =====
     private java.util.Map<String, LaunchPreset> launchPresets = new java.util.concurrent.ConcurrentHashMap<>();
 
+    // ===== 澪模式（Mio Mode：暴力性能调度）=====
+    // L1: JVM 激进参数（GC 线程数强制、预取优化、JIT 优化）；L2: 进程级调优（QoS/防休眠）；L3: 系统电源策略（需 sudo）
+    private boolean mioModeEnabled = false;        // 澪模式总开关
+    private boolean mioModeJvm = true;             // L1：JVM 激进参数（默认开，零风险）
+    private boolean mioModeProcess = true;         // L2：进程级 QoS + 防休眠（默认开，无需 sudo）
+    private boolean mioModeSystemPower = false;    // L3：系统电源策略（默认关，需 sudo，影响整机）
+
     // ===== 多人联机 =====
     private String mpBackend = "TERRACOTTA";       // TERRACOTTA / EASYTIER / CONNECTX（默认 Terracotta，HMCL 同款官方陶瓦联机）
     private String connectxServerAddress = "";     // ConnectX 服务器地址
@@ -388,6 +395,16 @@ public final class Preferences {
     public synchronized boolean isVersionIsolation() { return versionIsolation; }
     public synchronized void setVersionIsolation(boolean v) { versionIsolation = v; scheduleSave(); }
 
+    // ===== 澪模式（Mio Mode）=====
+    public synchronized boolean isMioModeEnabled() { return mioModeEnabled; }
+    public synchronized void setMioModeEnabled(boolean v) { mioModeEnabled = v; scheduleSave(); }
+    public synchronized boolean isMioModeJvm() { return mioModeJvm; }
+    public synchronized void setMioModeJvm(boolean v) { mioModeJvm = v; scheduleSave(); }
+    public synchronized boolean isMioModeProcess() { return mioModeProcess; }
+    public synchronized void setMioModeProcess(boolean v) { mioModeProcess = v; scheduleSave(); }
+    public synchronized boolean isMioModeSystemPower() { return mioModeSystemPower; }
+    public synchronized void setMioModeSystemPower(boolean v) { mioModeSystemPower = v; scheduleSave(); }
+
     // ===== 多人联机 =====
     public synchronized String getMpBackend() {
         // 默认使用 Terracotta（HMCL 同款官方陶瓦联机实现）
@@ -589,6 +606,10 @@ public final class Preferences {
             if (o.has("enableResume")) enableResume = o.get("enableResume").getAsBoolean();
             if (o.has("chunkedDownloadThreads")) chunkedDownloadThreads = o.get("chunkedDownloadThreads").getAsInt();
             if (o.has("versionIsolation")) versionIsolation = o.get("versionIsolation").getAsBoolean();
+            if (o.has("mioModeEnabled")) mioModeEnabled = o.get("mioModeEnabled").getAsBoolean();
+            if (o.has("mioModeJvm")) mioModeJvm = o.get("mioModeJvm").getAsBoolean();
+            if (o.has("mioModeProcess")) mioModeProcess = o.get("mioModeProcess").getAsBoolean();
+            if (o.has("mioModeSystemPower")) mioModeSystemPower = o.get("mioModeSystemPower").getAsBoolean();
             if (o.has("mpBackend") && !o.get("mpBackend").isJsonNull()) mpBackend = o.get("mpBackend").getAsString();
             if (o.has("connectxServerAddress") && !o.get("connectxServerAddress").isJsonNull()) connectxServerAddress = o.get("connectxServerAddress").getAsString();
             if (o.has("connectxServerPort")) connectxServerPort = o.get("connectxServerPort").getAsInt();
@@ -758,6 +779,10 @@ public final class Preferences {
         o.addProperty("enableResume", enableResume);
         o.addProperty("chunkedDownloadThreads", chunkedDownloadThreads);
         o.addProperty("versionIsolation", versionIsolation);
+        o.addProperty("mioModeEnabled", mioModeEnabled);
+        o.addProperty("mioModeJvm", mioModeJvm);
+        o.addProperty("mioModeProcess", mioModeProcess);
+        o.addProperty("mioModeSystemPower", mioModeSystemPower);
         o.addProperty("mpBackend", mpBackend);
         o.addProperty("connectxServerAddress", connectxServerAddress);
         o.addProperty("connectxServerPort", connectxServerPort);

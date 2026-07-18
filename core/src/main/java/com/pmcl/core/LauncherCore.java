@@ -103,7 +103,7 @@ public final class LauncherCore {
         this.downloadManager = new DownloadManager(config, preferences);
         this.authService = new AuthService();
         this.runtimeManager = new RuntimeManager();
-        this.launchManager = new LaunchManager(config);
+        this.launchManager = new LaunchManager(config, preferences);
         this.versionInstaller = new VersionInstaller(config, versionManager, downloadManager);
         this.modLoaderManager = new ModLoaderManager(config, downloadManager);
         this.modMarketManager = new ModMarketManager(config, downloadManager);

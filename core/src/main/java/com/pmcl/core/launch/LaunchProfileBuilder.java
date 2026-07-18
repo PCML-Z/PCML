@@ -377,6 +377,19 @@ public final class LaunchProfileBuilder {
             }
         }
 
+        // 澪模式 L1：JVM 激进参数（在 Aikar 之后、customJvmArgs 之前，用户仍可覆盖）
+        if (preferences.isMioModeEnabled() && preferences.isMioModeJvm()) {
+            int cores = Runtime.getRuntime().availableProcessors();
+            for (String f : MioFlags.build(cores, preferences.getMaxMemoryMb())) {
+                profile.addJvmArg(f);
+            }
+            // 堆 >= 4GB 时强制 Xms == Xmx，避免运行时堆扩张停顿
+            // （通过在 Xms/Xmx 之后追加同值参数实现覆盖效果，JVM 取最后一个）
+            if (preferences.getMaxMemoryMb() >= 4096) {
+                profile.addJvmArg("-Xms" + preferences.getMaxMemoryMb() + "m");
+            }
+        }
+
         // 版本 JSON 自带的 JVM 参数
         // 过滤掉运行时 Java 不支持的参数：
         //   --sun-misc-unsafe-memory-access=allow 是 Java 23+ (JEP 471) 引入的，

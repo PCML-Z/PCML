@@ -152,6 +152,11 @@ fun SettingsPage(vm: LauncherViewModel) {
 
         Spacer(Modifier.height(16.dp))
 
+        // 澪模式
+        MioModeCard(pref)
+
+        Spacer(Modifier.height(16.dp))
+
         // Java 运行时管理
         JavaRuntimeCard(vm, pref)
 
@@ -623,6 +628,106 @@ private fun LaunchPresetCard(
                 TextButton(onClick = { showSaveDialog = false }) { Text("取消") }
             }
         )
+    }
+}
+
+@Composable
+private fun MioModeCard(pref: com.pmcl.core.preferences.Preferences) {
+    var enabled by remember { mutableStateOf(pref.isMioModeEnabled()) }
+    var l1Jvm by remember { mutableStateOf(pref.isMioModeJvm()) }
+    var l2Process by remember { mutableStateOf(pref.isMioModeProcess()) }
+    var l3System by remember { mutableStateOf(pref.isMioModeSystemPower()) }
+
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("澪模式", style = MaterialTheme.typography.titleSmall,
+                     fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.weight(1f))
+                Switch(
+                    checked = enabled,
+                    onCheckedChange = { v ->
+                        enabled = v
+                        pref.setMioModeEnabled(v)
+                    }
+                )
+            }
+            Spacer(Modifier.height(4.dp))
+            Text("暴力调度 CPU/GPU 性能，抑制低功耗状态，提升调度优先级",
+                 style = MaterialTheme.typography.labelSmall,
+                 color = MaterialTheme.colorScheme.outline)
+            Spacer(Modifier.height(6.dp))
+            Text("注意：软件层无法绕过硬件热保护，本功能只能从避免低功耗状态和提升调度优先级两个角度逼近目标，不能真正突破物理热限制",
+                 style = MaterialTheme.typography.labelSmall,
+                 color = MaterialTheme.colorScheme.error)
+
+            if (enabled) {
+                Spacer(Modifier.height(12.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(12.dp))
+
+                // L1：JVM 激进参数
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = l1Jvm,
+                        onCheckedChange = { v -> l1Jvm = v; pref.setMioModeJvm(v) }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Column {
+                        Text("L1 JVM 激进参数", fontWeight = FontWeight.Medium)
+                        Text("强制 GC 线程数 = CPU 核心数，分配预取优化，JIT final 字段信任",
+                             style = MaterialTheme.typography.labelSmall,
+                             color = MaterialTheme.colorScheme.outline)
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                Text("零权限零风险，进程退出自动失效。收益约 5-15% 吞吐提升",
+                     style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.outline)
+
+                Spacer(Modifier.height(12.dp))
+
+                // L2：进程级调优
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = l2Process,
+                        onCheckedChange = { v -> l2Process = v; pref.setMioModeProcess(v) }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Column {
+                        Text("L2 进程级调优", fontWeight = FontWeight.Medium)
+                        Text("macOS: taskpolicy 提升 QoS + caffeinate 防休眠；Windows/Linux: 提优先级",
+                             style = MaterialTheme.typography.labelSmall,
+                             color = MaterialTheme.colorScheme.outline)
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                Text("无需 sudo，游戏退出自动清理 caffeinate 子进程",
+                     style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.outline)
+
+                Spacer(Modifier.height(12.dp))
+
+                // L3：系统电源策略
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = l3System,
+                        onCheckedChange = { v -> l3System = v; pref.setMioModeSystemPower(v) }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Column {
+                        Text("L3 系统电源策略", fontWeight = FontWeight.Medium)
+                        Text("关闭 macOS 低电量模式，游戏退出后自动恢复",
+                             style = MaterialTheme.typography.labelSmall,
+                             color = MaterialTheme.colorScheme.outline)
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                Text("启动时会弹原生授权框请求管理员密码，影响整机电源策略",
+                     style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.error)
+            }
+        }
     }
 }
 

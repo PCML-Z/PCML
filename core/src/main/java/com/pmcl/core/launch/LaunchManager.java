@@ -2,6 +2,7 @@ package com.pmcl.core.launch;
 
 import com.pmcl.core.LauncherConfig;
 import com.pmcl.core.plugin.PluginManager;
+import com.pmcl.core.preferences.Preferences;
 import com.pmcl.plugin.GameLaunchedEvent;
 import com.pmcl.plugin.GameExitedEvent;
 
@@ -18,10 +19,16 @@ import java.util.function.Consumer;
 public final class LaunchManager {
 
     private final LauncherConfig config;
+    private final Preferences preferences;
     private PluginManager pluginManager;
 
     public LaunchManager(LauncherConfig config) {
+        this(config, null);
+    }
+
+    public LaunchManager(LauncherConfig config, Preferences preferences) {
         this.config = config;
+        this.preferences = preferences;
     }
 
     /** Inject plugin manager for launch hooks and events. Called by LauncherCore. */
@@ -117,7 +124,15 @@ public final class LaunchManager {
         String versionId = profile.getVersionId();
         return CompletableFuture.supplyAsync(() -> {
             Process process = null;
+            ProcessTuner tuner = null;
             try {
+                // 澪模式 L3：系统电源策略（启动前，需 sudo 授权）
+                if (preferences != null && preferences.isMioModeEnabled() && preferences.isMioModeSystemPower()) {
+                    tuner = new ProcessTuner();
+                    boolean ok = tuner.applySystemPowerPolicy();
+                    if (ok && logger != null) logger.append("[PMCL] 澪模式 L3：已关闭系统低电量模式");
+                }
+
                 // Plugin beforeLaunch hooks (can cancel launch)
                 if (pluginManager != null) {
                     String accountName = profile.getPlayerName() != null ? profile.getPlayerName() : "Player";
@@ -131,6 +146,13 @@ public final class LaunchManager {
 
                 Thread[] readerHolder = new Thread[1];
                 process = launch(profile, javaExecutable, onLog, logger, readerHolder);
+
+                // 澪模式 L2：进程级调优（启动后，无需 sudo）
+                if (preferences != null && preferences.isMioModeEnabled() && preferences.isMioModeProcess()) {
+                    if (tuner == null) tuner = new ProcessTuner();
+                    tuner.applyProcessTuning(process.pid());
+                    if (logger != null) logger.append("[PMCL] 澪模式 L2：已应用进程级性能调优");
+                }
 
                 // Fire GameLaunchedEvent
                 if (pluginManager != null) {
@@ -167,6 +189,13 @@ public final class LaunchManager {
                 if (logger != null) logger.append(errMsg);
                 if (onLog != null) onLog.accept(errMsg);
                 throw new RuntimeException("启动失败: " + root.getMessage(), e);
+            } finally {
+                // 澪模式 cleanup：终止 caffeinate、恢复系统电源状态（必须 finally 确保恢复）
+                if (tuner != null) {
+                    try { tuner.cleanup(); } catch (Exception e) {
+                        System.err.println("[MioMode] cleanup 失败: " + e.getMessage());
+                    }
+                }
             }
         });
     }
