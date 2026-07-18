@@ -1,5 +1,6 @@
 package com.pmcl.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -173,47 +174,57 @@ private fun MainWindowContent(vm: LauncherViewModel) {
 
     Row(Modifier.fillMaxSize()) {
         SlideInFromStart(delayMs = 0, durationMs = 400) {
-            // 玻璃主题：侧边栏应用毛玻璃 + 半透明，搭配视差背景产生层次感
+            // 玻璃主题：侧边栏分层渲染 —— 底层独立模糊背景层（只画颜色），
+            // 上层 NavigationRail 透明背景 + 清晰文字图标。
+            // 注意：Modifier.blur 是节点后处理，无法只模糊"下方内容"，
+            // 必须把背景拆成独立节点模糊，内容节点保持不模糊。
             val glassOn = themeState.glassTheme
-            val railModifier = Modifier
-                .fillMaxHeight()
-                .then(if (glassOn) Modifier.blur(20.dp) else Modifier)
-            NavigationRail(
-                modifier = railModifier,
-                containerColor = if (glassOn)
-                    MaterialTheme.colorScheme.surface.copy(alpha = 0.55f)
-                else MaterialTheme.colorScheme.surface
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.Top),
-                    horizontalAlignment = Alignment.CenterHorizontally
+            Box(Modifier.fillMaxHeight()) {
+                if (glassOn) {
+                    // 模糊背景层：独立节点，自身被 blur，渲染出毛玻璃质感
+                    Box(
+                        Modifier
+                            .matchParentSize()
+                            .blur(24.dp)
+                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
+                    )
+                }
+                NavigationRail(
+                    modifier = Modifier.fillMaxHeight(),
+                    containerColor = if (glassOn) androidx.compose.ui.graphics.Color.Transparent
+                                     else MaterialTheme.colorScheme.surface
                 ) {
-                    navItems.forEach { target ->
-                        val selected = current == target
-                        NavigationRailItem(
-                            selected = selected,
-                            onClick = {
-                            val oldIndex = navItems.indexOf(current)
-                            val newIndex = navItems.indexOf(target)
-                            navDirection = if (newIndex > oldIndex) 1 else if (newIndex < oldIndex) -1 else 0
-                            current = target
-                        },
-                            icon = {
-                                when (target) {
-                                    is NavTarget.BuiltIn -> Icon(target.dest.icon, contentDescription = I18n.t(target.dest.labelKey))
-                                    is NavTarget.PluginPage -> Icon(Icons.Filled.Extension, contentDescription = target.page.title)
-                                }
+                    Column(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.Top),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        navItems.forEach { target ->
+                            val selected = current == target
+                            NavigationRailItem(
+                                selected = selected,
+                                onClick = {
+                                val oldIndex = navItems.indexOf(current)
+                                val newIndex = navItems.indexOf(target)
+                                navDirection = if (newIndex > oldIndex) 1 else if (newIndex < oldIndex) -1 else 0
+                                current = target
                             },
-                            label = {
-                                Text(when (target) {
-                                    is NavTarget.BuiltIn -> I18n.t(target.dest.labelKey)
-                                    is NavTarget.PluginPage -> target.page.title
-                                })
-                            }
-                        )
+                                icon = {
+                                    when (target) {
+                                        is NavTarget.BuiltIn -> Icon(target.dest.icon, contentDescription = I18n.t(target.dest.labelKey))
+                                        is NavTarget.PluginPage -> Icon(Icons.Filled.Extension, contentDescription = target.page.title)
+                                    }
+                                },
+                                label = {
+                                    Text(when (target) {
+                                        is NavTarget.BuiltIn -> I18n.t(target.dest.labelKey)
+                                        is NavTarget.PluginPage -> target.page.title
+                                    })
+                                }
+                            )
+                        }
                     }
                 }
             }
