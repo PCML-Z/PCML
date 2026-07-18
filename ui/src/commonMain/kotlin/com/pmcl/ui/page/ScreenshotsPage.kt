@@ -75,26 +75,17 @@ fun ScreenshotsPage(vm: LauncherViewModel) {
             .focusable()
             .onKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                // 预览打开时由 Dialog 自己处理键盘事件，这里只处理列表态
+                if (previewIndex >= 0) return@onKeyEvent false
                 when (event.key) {
                     Key.Spacebar -> {
-                        if (previewIndex >= 0) {
-                            previewIndex = -1
-                            true
-                        } else if (selectedIndex in shots.indices) {
+                        if (selectedIndex in shots.indices) {
                             previewIndex = selectedIndex
                             true
                         } else false
                     }
                     Key.Escape -> {
-                        if (previewIndex >= 0) { previewIndex = -1; true }
-                        else if (selectedIndex >= 0) { selectedIndex = -1; true }
-                        else false
-                    }
-                    Key.DirectionLeft -> {
-                        if (previewIndex > 0) { previewIndex--; true } else false
-                    }
-                    Key.DirectionRight -> {
-                        if (previewIndex in 0..shots.size - 2) { previewIndex++; true } else false
+                        if (selectedIndex >= 0) { selectedIndex = -1; true } else false
                     }
                     else -> false
                 }
@@ -155,7 +146,10 @@ fun ScreenshotsPage(vm: LauncherViewModel) {
                                     RoundedCornerShape(12.dp)
                                 ) else Modifier
                             )
-                            .clickable { selectedIndex = index },
+                            .clickable {
+                                selectedIndex = index
+                                focusRequester.requestFocus()
+                            },
                         colors = glassCardColors()
                     ) {
                         Column(Modifier.padding(8.dp)) {
@@ -258,7 +252,16 @@ private fun ScreenshotPreviewDialog(
 
     Dialog(
         onCloseRequest = onDismiss,
-        undecorated = true
+        undecorated = true,
+        onKeyEvent = { event ->
+            if (event.type != KeyEventType.KeyDown) return@Dialog false
+            when (event.key) {
+                Key.Spacebar, Key.Escape -> { onDismiss(); true }
+                Key.DirectionLeft -> { onPrev(); true }
+                Key.DirectionRight -> { onNext(); true }
+                else -> false
+            }
+        }
     ) {
         Surface(
             modifier = Modifier.fillMaxSize(),
