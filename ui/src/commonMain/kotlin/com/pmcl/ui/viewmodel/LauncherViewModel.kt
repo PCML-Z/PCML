@@ -45,6 +45,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -71,6 +72,14 @@ class LauncherViewModel {
         })
 
     val core = LauncherCore()
+
+    /**
+     * 优雅关闭：取消所有后台协程，释放资源。
+     * 应在应用退出前调用，避免 JVM 强杀导致正在进行的文件写入损坏。
+     */
+    fun shutdown() {
+        scope.cancel()
+    }
 
     /** 账号持久化文件 */
     private val accountFile = Paths.get(System.getProperty("user.home"), ".pmcl", "accounts.json")
@@ -705,27 +714,32 @@ class LauncherViewModel {
                 withContext(Dispatchers.IO) {
                     core.auth().saveStore(store, accountFile)
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Throwable) {
                 _status.value = "保存账号失败：${e.message}"
             }
         }
     }
 
+    /** 账号操作互斥锁：保护读-改-写操作的原子性，避免并发覆盖 */
+    private val accountLock = Any()
+
     /** 向账号集合添加新账号（或更新已有），并设为选中 */
-    private fun upsertAccount(acc: Account) {
+    private fun upsertAccount(acc: Account) = synchronized(accountLock) {
         val current = AccountStore(_accounts.value, _account.value?.getUuid())
         saveStore(current.upsert(acc))
     }
 
     /** 切换当前选中账号 */
-    fun switchAccount(uuid: String) {
+    fun switchAccount(uuid: String) = synchronized(accountLock) {
         val current = AccountStore(_accounts.value, _account.value?.getUuid())
         saveStore(current.select(uuid))
         _status.value = "已切换到：${_account.value?.getUsername()}"
     }
 
     /** 删除指定账号 */
-    fun removeAccount(uuid: String) {
+    fun removeAccount(uuid: String) = synchronized(accountLock) {
         val current = AccountStore(_accounts.value, _account.value?.getUuid())
         saveStore(current.remove(uuid))
         _status.value = "已删除账号"

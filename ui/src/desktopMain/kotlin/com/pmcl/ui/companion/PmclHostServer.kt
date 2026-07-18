@@ -38,8 +38,17 @@ class PmclHostServer(
     private val vm: LauncherViewModel,
     private val pairing: PairingManager
 ) {
+    @Volatile
     private var server: EmbeddedServer<*, *>? = null
     private val gson: Gson = GsonBuilder().create()
+
+    // ---- server 作用域：所有孤儿协程统一管理，stop() 时统一取消 ----
+    private val serverScope = CoroutineScope(
+        SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, e -> e.printStackTrace() }
+    )
+
+    // ---- handleLaunch 同步锁：防止并发启动多个游戏进程 ----
+    private val launchLock = Any()
 
     // ---- 运行进程状态 ----
     private var currentProcess: Process? = null
@@ -91,6 +100,7 @@ class PmclHostServer(
                     if (tryPort != basePort) " (auto-incremented from $basePort)" else "")
                 return
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 println("[PmclHostServer] port $tryPort unavailable: ${e.message}")
                 tryPort++
             }
@@ -102,6 +112,7 @@ class PmclHostServer(
         running = false
         statsJob?.cancel()
         statsJob = null
+        serverScope.cancel()
         server?.stop(1000, 2000)
         server = null
         connections.clear()
@@ -143,6 +154,7 @@ class PmclHostServer(
                 call.respondText(resp.toString(), io.ktor.http.ContentType.Application.Json)
             }
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             call.respondText(
                 """{"error":"bad_request","message":"${e.message}"}""",
                 io.ktor.http.ContentType.Application.Json,
@@ -172,24 +184,35 @@ class PmclHostServer(
                 val text = frame.readText()
                 val envelope = try {
                     JsonParser.parseString(text).asJsonObject
-                } catch (e: Exception) { continue }
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    continue
+                }
 
-                val type = envelope.get("type")?.asString ?: continue
+                val type = envelope.get("type")?.let { if (it.isJsonNull) null else if (it.isJsonPrimitive) it.asString else null }
+                if (type == null) {
+                    val errResp = errorEnvelope(null, null, "unknown_format", "缺少 type 字段")
+                    ws.send(Frame.Text(gson.toJson(errResp)))
+                    continue
+                }
                 if (type != "request") continue
 
-                val id = envelope.get("id")?.asString ?: java.util.UUID.randomUUID().toString()
-                val action = envelope.get("action")?.asString ?: ""
+                val id = envelope.get("id")?.let { if (it.isJsonNull) null else if (it.isJsonPrimitive) it.asString else null }
+                    ?: java.util.UUID.randomUUID().toString()
+                val action = envelope.get("action")?.let { if (it.isJsonNull) null else if (it.isJsonPrimitive) it.asString else null } ?: ""
                 val payload = envelope.get("payload")
 
                 val response = try {
                     handleAction(action, payload, ws)
                 } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
                     errorEnvelope(id, action, "handler_error", e.message ?: "unknown")
                 }
                 response.addProperty("id", id)
                 ws.send(Frame.Text(gson.toJson(response)))
             }
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             // 连接断开
         } finally {
             connections.remove(ws)
@@ -273,86 +296,94 @@ class PmclHostServer(
     // ================================================================
 
     private fun handleLaunch(payload: JsonElement?): JsonObject {
-        if (currentProcess?.isAlive == true) {
-            return errorEnvelope(null, "launch", "already_running", "游戏已在运行")
-        }
-
-        val obj = payload?.asJsonObject ?: return errorEnvelope(null, "launch", "bad_request", "缺少 payload")
-        val versionId = obj.get("versionId")?.asString
-            ?: return errorEnvelope(null, "launch", "bad_request", "缺少 versionId")
-
-        val account = vm.account.value
-            ?: return errorEnvelope(null, "launch", "no_account", "桌面端未登录账号")
-
-        val core = vm.core
-        val config = core.getConfig()
-
-        // 确定 Java 路径
-        val requiredJavaVer = try {
-            core.profileBuilder().getRequiredJavaVersion(versionId)
-        } catch (e: Exception) { 8 }
-
-        val javaExe = run {
-            val versionPath = core.getPreferences().getVersionJavaPath(versionId)
-            if (versionPath.isNotEmpty()) versionPath
-            else {
-                val customPath = core.getPreferences().getJavaPath()
-                if (customPath.isNotEmpty()) customPath
-                else JavaRuntimeFinder.findJavaExecutable(config.getRuntimesDir(), requiredJavaVer) ?: ""
+        // 同步检查 + 启动，避免并发请求触发多次启动
+        synchronized(launchLock) {
+            if (currentProcess?.isAlive == true) {
+                return errorEnvelope(null, "launch", "already_running", "游戏已在运行")
             }
-        }
-        if (javaExe.isEmpty()) {
-            return errorEnvelope(null, "launch", "no_java", "未找到 Java 运行时")
-        }
 
-        val javaMajorVer = JavaRuntimeFinder.getMajorVersion(javaExe) ?: 0
-        val javaArch = JavaRuntimeFinder.getArchitecture(javaExe)
+            val obj = payload?.asJsonObject ?: return errorEnvelope(null, "launch", "bad_request", "缺少 payload")
+            val versionId = obj.get("versionId")?.asString
+                ?: return errorEnvelope(null, "launch", "bad_request", "缺少 versionId")
 
-        // 构造 LaunchProfile
-        val profile = try {
-            core.profileBuilder().build(versionId, account, javaMajorVer, javaArch)
-        } catch (e: Exception) {
-            return errorEnvelope(null, "launch", "profile_build_failed", e.message ?: "构造启动配置失败")
-        }
+            val account = vm.account.value
+                ?: return errorEnvelope(null, "launch", "no_account", "桌面端未登录账号")
 
-        // 启动：用同步 launch() 在后台线程获取 Process 引用
-        currentVersionId = versionId
-        currentStartTime = System.currentTimeMillis()
+            val core = vm.core
+            val config = core.getConfig()
 
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val proc = core.launch().launch(profile, javaExe, { }, null)
-                currentProcess = proc
-                processMonitor.startTracking(proc)
-
-                // 推送启动事件
-                val startPayload = JsonObject()
-                startPayload.addProperty("running", true)
-                startPayload.addProperty("versionId", versionId)
-                startPayload.addProperty("startedAt", isoTime(currentStartTime!!))
-                runBlocking { broadcastEvent("launchState", startPayload) }
-
-                // 阻塞等待进程退出
-                val exitCode = proc.waitFor()
-                currentProcess = null
-                currentVersionId = null
-                currentStartTime = null
-
-                // 推送停止事件
-                val stopPayload = JsonObject()
-                stopPayload.addProperty("running", false)
-                stopPayload.addProperty("versionId", versionId)
-                runBlocking { broadcastEvent("launchState", stopPayload) }
+            // 确定 Java 路径
+            val requiredJavaVer = try {
+                core.profileBuilder().getRequiredJavaVersion(versionId)
             } catch (e: Exception) {
-                currentProcess = null
-                currentVersionId = null
-                currentStartTime = null
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                8
+            }
 
-                val errPayload = JsonObject()
-                errPayload.addProperty("running", false)
-                errPayload.addProperty("versionId", versionId)
-                errPayload.addProperty("error", e.message ?: "启动失败")
-                runBlocking { broadcastEvent("launchState", errPayload) }
+            val javaExe = run {
+                val versionPath = core.getPreferences().getVersionJavaPath(versionId)
+                if (versionPath.isNotEmpty()) versionPath
+                else {
+                    val customPath = core.getPreferences().getJavaPath()
+                    if (customPath.isNotEmpty()) customPath
+                    else JavaRuntimeFinder.findJavaExecutable(config.getRuntimesDir(), requiredJavaVer) ?: ""
+                }
+            }
+            if (javaExe.isEmpty()) {
+                return errorEnvelope(null, "launch", "no_java", "未找到 Java 运行时")
+            }
+
+            val javaMajorVer = JavaRuntimeFinder.getMajorVersion(javaExe) ?: 0
+            val javaArch = JavaRuntimeFinder.getArchitecture(javaExe)
+
+            // 构造 LaunchProfile
+            val profile = try {
+                core.profileBuilder().build(versionId, account, javaMajorVer, javaArch)
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                return errorEnvelope(null, "launch", "profile_build_failed", e.message ?: "构造启动配置失败")
+            }
+
+            // 启动：用同步 launch() 在后台线程获取 Process 引用
+            currentVersionId = versionId
+            currentStartTime = System.currentTimeMillis()
+
+            serverScope.launch {
+                try {
+                    val proc = core.launch().launch(profile, javaExe, { }, null)
+                    currentProcess = proc
+                    processMonitor.startTracking(proc)
+
+                    // 推送启动事件
+                    val startPayload = JsonObject()
+                    startPayload.addProperty("running", true)
+                    startPayload.addProperty("versionId", versionId)
+                    startPayload.addProperty("startedAt", isoTime(currentStartTime!!))
+                    broadcastEvent("launchState", startPayload)
+
+                    // 阻塞等待进程退出
+                    val exitCode = proc.waitFor()
+                    currentProcess = null
+                    currentVersionId = null
+                    currentStartTime = null
+
+                    // 推送停止事件
+                    val stopPayload = JsonObject()
+                    stopPayload.addProperty("running", false)
+                    stopPayload.addProperty("versionId", versionId)
+                    broadcastEvent("launchState", stopPayload)
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    currentProcess = null
+                    currentVersionId = null
+                    currentStartTime = null
+
+                    val errPayload = JsonObject()
+                    errPayload.addProperty("running", false)
+                    errPayload.addProperty("versionId", versionId)
+                    errPayload.addProperty("error", e.message ?: "启动失败")
+                    broadcastEvent("launchState", errPayload)
+                }
             }
         }
 
@@ -379,12 +410,17 @@ class PmclHostServer(
 
     private fun ensureStatsJob() {
         if (statsJob?.isActive == true) return
-        statsJob = CoroutineScope(Dispatchers.IO).launch {
+        statsJob = serverScope.launch {
             while (statsSubscribers.isNotEmpty()) {
-                val tick = collectStats()
-                val payload = statsToJson(tick)
-                broadcastEvent("statsTick", payload)
-                delay(2000) // 2 秒推送一次
+                try {
+                    val tick = collectStats()
+                    val payload = statsToJson(tick)
+                    broadcastEvent("statsTick", payload)
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    e.printStackTrace()
+                }
+                delay(2000) // 2 秒推送一次（异常时同样退避后重试）
             }
         }
     }
@@ -420,7 +456,9 @@ class PmclHostServer(
                 val sample = processMonitor.sample(proc)
                 gameCpu = sample.cpuPercent / 100.0
                 gameMem = sample.rssMb.toDouble()
-            } catch (e: Exception) { }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+            }
         }
 
         return StatsSnapshot(
@@ -429,8 +467,8 @@ class PmclHostServer(
             memoryTotal = memTotal,
             gpuName = gpuName,
             gpuUsage = gpuUsage,
-            networkRxKbps = net?.get(1),  // 下载
-            networkTxKbps = net?.get(0),  // 上传
+            networkRxKbps = if (net != null && net.size >= 2) net[1] else null,  // 下载
+            networkTxKbps = if (net != null && net.size >= 1) net[0] else null,  // 上传
             gameCpuUsage = gameCpu,
             gameMemoryMb = gameMem,
             fps = null
@@ -476,7 +514,7 @@ class PmclHostServer(
         val taskId = java.util.UUID.randomUUID().toString()
 
         // 异步执行安装
-        CoroutineScope(Dispatchers.IO).launch {
+        serverScope.launch {
             try {
                 broadcastInstallProgress(taskId, "downloading", 0.0, "正在查找模组文件…")
 
@@ -497,6 +535,7 @@ class PmclHostServer(
 
                 broadcastInstallProgress(taskId, "done", 1.0, "安装完成")
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 broadcastInstallProgress(taskId, "error", 0.0, e.message ?: "安装失败")
             }
         }
@@ -512,7 +551,7 @@ class PmclHostServer(
         payload.addProperty("stage", stage)
         payload.addProperty("progress", progress)
         payload.addProperty("message", message)
-        CoroutineScope(Dispatchers.IO).launch { broadcastEvent("installProgress", payload) }
+        serverScope.launch { broadcastEvent("installProgress", payload) }
     }
 
     // ================================================================
@@ -577,6 +616,7 @@ class PmclHostServer(
             friendMgr.sendMessage(friendId, text)
             return okResponse(null)
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             return errorEnvelope(null, "sendMessage", "send_failed", e.message ?: "发送失败")
         }
     }
@@ -593,8 +633,10 @@ class PmclHostServer(
                     payload.addProperty("direction", "received")
                     payload.addProperty("text", msg.text)
                     payload.addProperty("timestamp", isoTime(msg.timestamp))
-                    runBlocking { broadcastEvent("messageReceived", payload) }
-                } catch (e: Exception) { }
+                    serverScope.launch { broadcastEvent("messageReceived", payload) }
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                }
             }
         }
         friendMgr.addListener(listener)
@@ -616,6 +658,7 @@ class PmclHostServer(
             try {
                 ws.send(Frame.Text(text))
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 connections.remove(ws)
                 statsSubscribers.remove(ws)
             }

@@ -8,6 +8,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.withFrameNanos
+import kotlinx.coroutines.isActive
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -106,48 +107,60 @@ private fun PerfHudContent(
     // FPS 历史折线（最多 40 点）
     val fpsHistory = remember { mutableStateListOf<Float>() }
 
-    // CPU/内存/GPU 采样协程：1.5s 一次
+    // CPU/内存/GPU 采样协程：1.5s 一次。try-catch 防止 oshi 偶发异常导致采样永久中断。
     LaunchedEffect(Unit) {
-        while (true) {
-            val s = withContext(Dispatchers.IO) {
-                PerfSample(
-                    cpu = runtime.getCpuLoad(),
-                    mem = runtime.getMemoryLoad(),
-                    memUsed = runtime.getAvailableMemoryMb(),
-                    memTotal = runtime.getTotalMemoryMb(),
-                    gpuName = runtime.getPrimaryGpuName(),
-                    gpuVram = runtime.getPrimaryGpuVramMb()
-                )
+        while (isActive) {
+            try {
+                val s = withContext(Dispatchers.IO) {
+                    PerfSample(
+                        cpu = runtime.getCpuLoad(),
+                        mem = runtime.getMemoryLoad(),
+                        memUsed = runtime.getAvailableMemoryMb(),
+                        memTotal = runtime.getTotalMemoryMb(),
+                        gpuName = runtime.getPrimaryGpuName(),
+                        gpuVram = runtime.getPrimaryGpuVramMb()
+                    )
+                }
+                cpuLoad = s.cpu
+                memLoad = s.mem
+                memUsedMb = s.memTotal - s.memUsed
+                memTotalMb = s.memTotal
+                gpuName = s.gpuName
+                gpuVramMb = s.gpuVram
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                e.printStackTrace()
             }
-            cpuLoad = s.cpu
-            memLoad = s.mem
-            memUsedMb = s.memTotal - s.memUsed
-            memTotalMb = s.memTotal
-            gpuName = s.gpuName
-            gpuVramMb = s.gpuVram
             kotlinx.coroutines.delay(1500)
         }
     }
 
-    // FPS 统计：withFrameNanos 每秒统计一次帧数
+    // FPS 统计：withFrameNanos 每秒统计一次帧数。try-catch 防止窗口边界异常中断统计。
     LaunchedEffect(Unit) {
         var frameCount = 0
         var lastSecondNanos = 0L
-        while (true) {
-            withFrameNanos { now ->
-                if (lastSecondNanos == 0L) {
-                    lastSecondNanos = now
-                    return@withFrameNanos
+        while (isActive) {
+            try {
+                withFrameNanos { now ->
+                    if (lastSecondNanos == 0L) {
+                        lastSecondNanos = now
+                        return@withFrameNanos
+                    }
+                    frameCount++
+                    val elapsed = now - lastSecondNanos
+                    if (elapsed >= 1_000_000_000L) {
+                        fps = (frameCount * 1_000_000_000L / elapsed).toInt()
+                        fpsHistory.add(fps.toFloat())
+                        while (fpsHistory.size > 40) fpsHistory.removeAt(0)
+                        frameCount = 0
+                        lastSecondNanos = now
+                    }
                 }
-                frameCount++
-                val elapsed = now - lastSecondNanos
-                if (elapsed >= 1_000_000_000L) {
-                    fps = (frameCount * 1_000_000_000L / elapsed).toInt()
-                    fpsHistory.add(fps.toFloat())
-                    while (fpsHistory.size > 40) fpsHistory.removeAt(0)
-                    frameCount = 0
-                    lastSecondNanos = now
-                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                e.printStackTrace()
             }
         }
     }

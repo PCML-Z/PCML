@@ -60,6 +60,11 @@ fun main() = application {
     val vm = remember { LauncherViewModel() }
     val searchFocusRequester = remember { FocusRequester() }
 
+    // 应用退出时优雅关闭 VM 协程，避免 JVM 强杀导致正在进行的文件写入损坏
+    DisposableEffect(Unit) {
+        onDispose { vm.shutdown() }
+    }
+
     // 伴随模式 WebSocket 服务宿主
     val companionDataFile = remember {
         Paths.get(System.getProperty("user.home"), ".pmcl", "companion.json")

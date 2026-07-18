@@ -78,7 +78,7 @@ public final class Preferences {
     private java.util.Map<String, LaunchPreset> launchPresets = new java.util.concurrent.ConcurrentHashMap<>();
 
     // ===== 多人联机 =====
-    private String mpBackend = "EASYTIER";         // EASYTIER / CONNECTX
+    private String mpBackend = "TERRACOTTA";       // TERRACOTTA / EASYTIER / CONNECTX（默认 Terracotta，HMCL 同款官方陶瓦联机）
     private String connectxServerAddress = "";     // ConnectX 服务器地址
     private int connectxServerPort = 3535;         // ConnectX 服务器端口
     private String connectxBinaryPath = "";        // ConnectX.ClientConsole 二进制路径
@@ -93,7 +93,8 @@ public final class Preferences {
             t.setDaemon(true);
             return t;
         });
-    private java.util.concurrent.ScheduledFuture<?> pendingSave = null;
+    // pendingSave 必须可见：flush()/save() 在 shutdown hook 线程调用时需读到最新引用
+    private volatile java.util.concurrent.ScheduledFuture<?> pendingSave = null;
     private static final long SAVE_DEBOUNCE_MS = 200;
 
     public Preferences(Path file) {
@@ -115,14 +116,18 @@ public final class Preferences {
     public synchronized boolean isShowPerfHud() { return showPerfHud; }
     public synchronized void setShowPerfHud(boolean v) { showPerfHud = v; scheduleSave(); }
     public synchronized String getPerfHudMetrics() { return perfHudMetrics; }
-    public synchronized void setPerfHudMetrics(String v) { perfHudMetrics = v; scheduleSave(); }
+    public synchronized void setPerfHudMetrics(String v) { perfHudMetrics = v == null ? "" : v; scheduleSave(); }
 
     /** UI 缩放系数，范围 0.8~1.5，默认 1.0 */
     public synchronized float getUiScale() { return uiScale; }
-    public synchronized void setUiScale(float v) { uiScale = Math.max(0.7f, Math.min(1.6f, v)); scheduleSave(); }
+    public synchronized void setUiScale(float v) {
+        // 过滤 NaN/Infinity，避免写出非法 JSON
+        if (Float.isNaN(v) || Float.isInfinite(v)) return;
+        uiScale = Math.max(0.7f, Math.min(1.6f, v)); scheduleSave();
+    }
 
     public synchronized String getLanguage() { return language; }
-    public synchronized void setLanguage(String v) { language = v; scheduleSave(); }
+    public synchronized void setLanguage(String v) { language = v == null ? "zh_CN" : v; scheduleSave(); }
 
     /** 首次启动欢迎流程是否已完成 */
     public synchronized boolean isFirstLaunchCompleted() { return firstLaunchCompleted; }
@@ -229,19 +234,19 @@ public final class Preferences {
     }
 
     public synchronized String getCustomJvmArgs() { return customJvmArgs; }
-    public synchronized void setCustomJvmArgs(String v) { customJvmArgs = v; scheduleSave(); }
+    public synchronized void setCustomJvmArgs(String v) { customJvmArgs = v == null ? "" : v; scheduleSave(); }
 
     public synchronized String getGcType() { return gcType; }
-    public synchronized void setGcType(String v) { gcType = v; scheduleSave(); }
+    public synchronized void setGcType(String v) { gcType = v == null ? "G1GC" : v; scheduleSave(); }
 
     public synchronized boolean isUseAikarFlags() { return useAikarFlags; }
     public synchronized void setUseAikarFlags(boolean v) { useAikarFlags = v; scheduleSave(); }
 
     public synchronized int getMinMemoryMb() { return minMemoryMb; }
-    public synchronized void setMinMemoryMb(int v) { minMemoryMb = v; scheduleSave(); }
+    public synchronized void setMinMemoryMb(int v) { if (v < 128) return; minMemoryMb = v; scheduleSave(); }
 
     public synchronized int getMaxMemoryMb() { return maxMemoryMb; }
-    public synchronized void setMaxMemoryMb(int v) { maxMemoryMb = v; scheduleSave(); }
+    public synchronized void setMaxMemoryMb(int v) { if (v < 512) return; maxMemoryMb = v; scheduleSave(); }
 
     public synchronized String getJavaPath() { return javaPath; }
     public synchronized void setJavaPath(String v) { javaPath = v == null ? "" : v; scheduleSave(); }
@@ -343,34 +348,34 @@ public final class Preferences {
 
     // ===== 网络配置 =====
     public synchronized String getMirrorType() { return mirrorType; }
-    public synchronized void setMirrorType(String v) { mirrorType = v; scheduleSave(); }
+    public synchronized void setMirrorType(String v) { mirrorType = v == null ? "OFFICIAL" : v; scheduleSave(); }
 
     public synchronized String getCustomMirrorBase() { return customMirrorBase; }
-    public synchronized void setCustomMirrorBase(String v) { customMirrorBase = v; scheduleSave(); }
+    public synchronized void setCustomMirrorBase(String v) { customMirrorBase = v == null ? "" : v.trim(); scheduleSave(); }
 
     public synchronized boolean isUseProxy() { return useProxy; }
     public synchronized void setUseProxy(boolean v) { useProxy = v; scheduleSave(); }
 
     public synchronized String getProxyHost() { return proxyHost; }
-    public synchronized void setProxyHost(String v) { proxyHost = v; scheduleSave(); }
+    public synchronized void setProxyHost(String v) { proxyHost = v == null ? "" : v.trim(); scheduleSave(); }
 
     public synchronized int getProxyPort() { return proxyPort; }
-    public synchronized void setProxyPort(int v) { proxyPort = v; scheduleSave(); }
+    public synchronized void setProxyPort(int v) { if (v < 0 || v > 65535) return; proxyPort = v; scheduleSave(); }
 
     public synchronized boolean isUseHttpAuth() { return useHttpAuth; }
     public synchronized void setUseHttpAuth(boolean v) { useHttpAuth = v; scheduleSave(); }
 
     public synchronized String getProxyUsername() { return proxyUsername; }
-    public synchronized void setProxyUsername(String v) { proxyUsername = v; scheduleSave(); }
+    public synchronized void setProxyUsername(String v) { proxyUsername = v == null ? "" : v; scheduleSave(); }
 
     public synchronized String getProxyPassword() { return proxyPassword; }
-    public synchronized void setProxyPassword(String v) { proxyPassword = v; scheduleSave(); }
+    public synchronized void setProxyPassword(String v) { proxyPassword = v == null ? "" : v; scheduleSave(); }
 
     public synchronized int getDownloadSpeedLimitKb() { return downloadSpeedLimitKb; }
-    public synchronized void setDownloadSpeedLimitKb(int v) { downloadSpeedLimitKb = v; scheduleSave(); }
+    public synchronized void setDownloadSpeedLimitKb(int v) { if (v < 0) return; downloadSpeedLimitKb = v; scheduleSave(); }
 
     public synchronized int getDownloadRetryCount() { return downloadRetryCount; }
-    public synchronized void setDownloadRetryCount(int v) { downloadRetryCount = v; scheduleSave(); }
+    public synchronized void setDownloadRetryCount(int v) { if (v < 0) return; downloadRetryCount = v; scheduleSave(); }
 
     public synchronized boolean isEnableResume() { return enableResume; }
     public synchronized void setEnableResume(boolean v) { enableResume = v; scheduleSave(); }
@@ -612,14 +617,14 @@ public final class Preferences {
                     } catch (Exception ignored2) {}
                 }
             }
-        } catch (Throwable e) {
+        } catch (Exception e) {
             // 配置文件损坏：备份后保持默认，避免静默丢失用户数据
             System.err.println("[Preferences] 配置文件解析失败，将备份后使用默认配置: " + e.getMessage());
             try {
                 java.nio.file.Path backup = file.resolveSibling(file.getFileName() + ".corrupt");
                 Files.move(file, backup, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
                 System.err.println("[Preferences] 损坏文件已备份至: " + backup);
-            } catch (Throwable backupErr) {
+            } catch (Exception backupErr) {
                 System.err.println("[Preferences] 备份损坏文件失败: " + backupErr.getMessage());
             }
         }
@@ -634,6 +639,8 @@ public final class Preferences {
      */
     protected void scheduleSave() {
         dirty = true;
+        // 若有待执行或正在执行的防抖任务，不重复调度；
+        // doSave 完成后会重新检查 dirty 并在需要时再次调度，避免漏写。
         if (pendingSave == null || pendingSave.isDone()) {
             pendingSave = saveExecutor.schedule(this::doSave, SAVE_DEBOUNCE_MS, java.util.concurrent.TimeUnit.MILLISECONDS);
         }
@@ -666,11 +673,18 @@ public final class Preferences {
                         java.nio.file.StandardCopyOption.REPLACE_EXISTING);
             }
             tmp = null; // 移动成功，无需清理
-        } catch (Throwable e) {
+        } catch (Exception e) {
             System.err.println("[Preferences] 配置保存失败: " + e.getMessage());
             // 清理残留临时文件
             if (tmp != null) {
-                try { Files.deleteIfExists(tmp); } catch (Throwable ignored) {}
+                try { Files.deleteIfExists(tmp); } catch (Exception ignored) {}
+            }
+        } finally {
+            // 修复漏调度：doSave 执行期间若有新的 setter 标记 dirty，需重新调度一次写盘
+            synchronized (this) {
+                if (dirty && (pendingSave == null || pendingSave.isDone())) {
+                    pendingSave = saveExecutor.schedule(this::doSave, SAVE_DEBOUNCE_MS, java.util.concurrent.TimeUnit.MILLISECONDS);
+                }
             }
         }
     }
@@ -770,21 +784,39 @@ public final class Preferences {
         return o;
     }
 
-    /** 立即同步保存到磁盘（取消待执行的防抖写入）。外部需要确保数据立即落盘时调用。 */
+    /** 立即同步保存到磁盘（取消待执行的防抖写入）。外部需要确保数据立即落盘时调用。
+     *  与 doSave() 一样使用 tmp + ATOMIC_MOVE 原子写入，防止崩溃损坏文件。 */
     public synchronized void save() {
         if (pendingSave != null) pendingSave.cancel(false);
         dirty = false;
+        java.nio.file.Path tmp = null;
         try {
             JsonObject o = buildJson();
             java.nio.file.Path parent = file.getParent();
             if (parent != null) Files.createDirectories(parent);
-            Files.writeString(file, gson.toJson(o), java.nio.charset.StandardCharsets.UTF_8);
-        } catch (Throwable ignored) {
+            tmp = parent == null
+                    ? java.nio.file.Paths.get(file.getFileName() + ".tmp")
+                    : parent.resolve(file.getFileName() + ".tmp");
+            Files.writeString(tmp, gson.toJson(o), java.nio.charset.StandardCharsets.UTF_8);
+            try {
+                Files.move(tmp, file,
+                        java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                Files.move(tmp, file,
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+            tmp = null;
+        } catch (Exception e) {
+            System.err.println("[Preferences] 立即保存失败: " + e.getMessage());
+            if (tmp != null) {
+                try { Files.deleteIfExists(tmp); } catch (Exception ignored) {}
+            }
         }
     }
 
-    /** 刷新所有待写入的修改到磁盘（供关闭钩子调用）。不阻塞已有 synchronized 调用方。 */
-    public void flush() {
+    /** 刷新所有待写入的修改到磁盘（供关闭钩子调用）。 */
+    public synchronized void flush() {
         // 取消待执行的防抖任务，直接同步写盘
         if (pendingSave != null) pendingSave.cancel(false);
         doSave();

@@ -40,7 +40,7 @@ class PairingManager(private val dataFile: Path) {
     companion object {
         fun generatePairingCode(): String {
             val rnd = SecureRandom()
-            return String.format("%06d", rnd.nextInt(1_000_000))
+            return String.format("%06d", rnd.nextInt(1, 1_000_000))
         }
 
         fun generateToken(): String = UUID.randomUUID().toString().replace("-", "") +
@@ -122,8 +122,13 @@ class PairingManager(private val dataFile: Path) {
                 save()
             }
         } catch (e: Exception) {
+            System.err.println("[PairingManager] 配置加载失败，重置为默认: ${e.message}")
+            try {
+                val backup = dataFile.resolveSibling(dataFile.fileName.toString() + ".corrupt")
+                java.nio.file.Files.move(dataFile, backup, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+            } catch (_: Exception) {}
             config = Config()
-            save()
+            // 不立即 save()，避免用空配置覆盖可能仅部分损坏的原文件
         }
     }
 
@@ -210,8 +215,11 @@ class PairingManager(private val dataFile: Path) {
     @Synchronized
     fun pair(code: String, deviceName: String): Pair<String, String>? {
         // 提取数字部分（兼容完整格式和纯数字输入）
-        val numeric = code.filter { it.isDigit() }.take(6)
-        if (numeric.length < 6 || numeric != config.pairingCode) return null
+        val numeric = code.filter { it.isDigit() }
+        if (numeric.length != 6) {
+            return null
+        }
+        if (numeric != config.pairingCode) return null
         val token = generateToken()
         config.devices.add(PairedDevice(token, deviceName, Instant.now().toEpochMilli()))
         save()
@@ -221,6 +229,7 @@ class PairingManager(private val dataFile: Path) {
     /**
      * 验证 token 是否有效。
      */
+    @Synchronized
     fun validateToken(token: String): Boolean {
         return config.devices.any { it.token == token }
     }
