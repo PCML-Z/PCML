@@ -364,14 +364,16 @@ public final class LaunchProfileBuilder {
         profile.addJvmArg("-Xms" + preferences.getMinMemoryMb() + "m");
         profile.addJvmArg("-Xmx" + preferences.getMaxMemoryMb() + "m");
 
-        // GC 类型（AikarFlags 已包含 -XX:+UseG1GC，启用 Aikar 时跳过避免重复）
-        if (!preferences.isUseAikarFlags() &&
+        // GC 类型（仅未启用 Aikar Flags 时注入，避免冲突）
+        // 澪模式 ZGC 开启时也跳过（避免 -XX:+UseG1GC 与 ZGC 冲突）
+        boolean mioZgc = preferences.isMioModeEnabled() && preferences.isMioModeZgc();
+        if (!preferences.isUseAikarFlags() && !mioZgc &&
             preferences.getGcType() != null && !preferences.getGcType().isEmpty()) {
             profile.addJvmArg("-XX:+Use" + preferences.getGcType());
         }
 
         // Aikar's Flags（社区公认的 MC 优化 JVM 参数集）
-        if (preferences.isUseAikarFlags()) {
+        if (preferences.isUseAikarFlags() && !mioZgc) {
             for (String f : AikarFlags.FLAGS) {
                 profile.addJvmArg(f);
             }
@@ -380,13 +382,39 @@ public final class LaunchProfileBuilder {
         // 澪模式 L1：JVM 激进参数（在 Aikar 之后、customJvmArgs 之前，用户仍可覆盖）
         if (preferences.isMioModeEnabled() && preferences.isMioModeJvm()) {
             int cores = Runtime.getRuntime().availableProcessors();
-            for (String f : MioFlags.build(cores, preferences.getMaxMemoryMb())) {
-                profile.addJvmArg(f);
+            // ZGC 开启时跳过 G1 相关参数（build 已含 G1 参数，ZGC 模式只取 JIT+CPU+CodeCache）
+            if (mioZgc) {
+                // ZGC 模式：注入 ZGC 参数集 + JIT/CPU/CodeCache（跳过 build 中的 G1 参数）
+                for (String f : MioFlags.buildZgc(preferences.getMaxMemoryMb())) {
+                    profile.addJvmArg(f);
+                }
+                // 仅注入非 G1 的激进参数（JIT 内联 + CPU 指令集 + CodeCache + 分配器）
+                for (String f : MioFlags.build(cores, preferences.getMaxMemoryMb())) {
+                    if (!f.startsWith("-XX:MaxGCPauseMillis") &&
+                        !f.startsWith("-XX:G1") &&
+                        !f.startsWith("-XX:TargetSurvivorRatio") &&
+                        !f.startsWith("-XX:MaxTenuringThreshold") &&
+                        !f.startsWith("-XX:ParallelGCThreads") &&
+                        !f.startsWith("-XX:ConcGCThreads")) {
+                        profile.addJvmArg(f);
+                    }
+                }
+            } else {
+                // G1 模式：注入完整激进参数集
+                for (String f : MioFlags.build(cores, preferences.getMaxMemoryMb())) {
+                    profile.addJvmArg(f);
+                }
+                // 堆 >= 4GB 时强制 Xms == Xmx，避免运行时堆扩张停顿
+                if (preferences.getMaxMemoryMb() >= 4096) {
+                    profile.addJvmArg("-Xms" + preferences.getMaxMemoryMb() + "m");
+                }
             }
-            // 堆 >= 4GB 时强制 Xms == Xmx，避免运行时堆扩张停顿
-            // （通过在 Xms/Xmx 之后追加同值参数实现覆盖效果，JVM 取最后一个）
-            if (preferences.getMaxMemoryMb() >= 4096) {
-                profile.addJvmArg("-Xms" + preferences.getMaxMemoryMb() + "m");
+        }
+
+        // 澪模式 L1+：大页内存 + NUMA（JVM 不支持自动降级，不会启动失败）
+        if (preferences.isMioModeEnabled() && preferences.isMioModeLargePages()) {
+            for (String f : MioFlags.buildLargePages()) {
+                profile.addJvmArg(f);
             }
         }
 

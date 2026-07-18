@@ -84,6 +84,8 @@ public final class Preferences {
     private boolean mioModeProcess = true;         // L2：进程级 QoS + 防休眠（默认开，无需 sudo）
     private boolean mioModeSystemPower = false;    // L3：系统电源策略（默认关，需 sudo，影响整机）
     private boolean mioModeCrazyPriority = false;  // L2+：疯狂优先级（拉到系统极限，默认关，可能导致系统卡顿）
+    private boolean mioModeLargePages = false;     // L1+：大页内存 + NUMA（减少 TLB miss，默认关，JVM 不支持自动降级）
+    private boolean mioModeZgc = false;            // L1+：实验性 ZGC 切换（JDK 21 生成式，默认关，可能与 Aikar 冲突）
 
     // ===== 多人联机 =====
     private String mpBackend = "TERRACOTTA";       // TERRACOTTA / EASYTIER / CONNECTX（默认 Terracotta，HMCL 同款官方陶瓦联机）
@@ -407,6 +409,10 @@ public final class Preferences {
     public synchronized void setMioModeSystemPower(boolean v) { mioModeSystemPower = v; scheduleSave(); }
     public synchronized boolean isMioModeCrazyPriority() { return mioModeCrazyPriority; }
     public synchronized void setMioModeCrazyPriority(boolean v) { mioModeCrazyPriority = v; scheduleSave(); }
+    public synchronized boolean isMioModeLargePages() { return mioModeLargePages; }
+    public synchronized void setMioModeLargePages(boolean v) { mioModeLargePages = v; scheduleSave(); }
+    public synchronized boolean isMioModeZgc() { return mioModeZgc; }
+    public synchronized void setMioModeZgc(boolean v) { mioModeZgc = v; scheduleSave(); }
 
     // ===== 多人联机 =====
     public synchronized String getMpBackend() {
@@ -614,6 +620,8 @@ public final class Preferences {
             if (o.has("mioModeProcess")) mioModeProcess = o.get("mioModeProcess").getAsBoolean();
             if (o.has("mioModeSystemPower")) mioModeSystemPower = o.get("mioModeSystemPower").getAsBoolean();
             if (o.has("mioModeCrazyPriority")) mioModeCrazyPriority = o.get("mioModeCrazyPriority").getAsBoolean();
+            if (o.has("mioModeLargePages")) mioModeLargePages = o.get("mioModeLargePages").getAsBoolean();
+            if (o.has("mioModeZgc")) mioModeZgc = o.get("mioModeZgc").getAsBoolean();
             if (o.has("mpBackend") && !o.get("mpBackend").isJsonNull()) mpBackend = o.get("mpBackend").getAsString();
             if (o.has("connectxServerAddress") && !o.get("connectxServerAddress").isJsonNull()) connectxServerAddress = o.get("connectxServerAddress").getAsString();
             if (o.has("connectxServerPort")) connectxServerPort = o.get("connectxServerPort").getAsInt();
@@ -788,6 +796,8 @@ public final class Preferences {
         o.addProperty("mioModeProcess", mioModeProcess);
         o.addProperty("mioModeSystemPower", mioModeSystemPower);
         o.addProperty("mioModeCrazyPriority", mioModeCrazyPriority);
+        o.addProperty("mioModeLargePages", mioModeLargePages);
+        o.addProperty("mioModeZgc", mioModeZgc);
         o.addProperty("mpBackend", mpBackend);
         o.addProperty("connectxServerAddress", connectxServerAddress);
         o.addProperty("connectxServerPort", connectxServerPort);

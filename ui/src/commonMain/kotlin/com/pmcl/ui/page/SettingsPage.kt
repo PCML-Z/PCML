@@ -635,6 +635,8 @@ private fun LaunchPresetCard(
 private fun MioModeCard(pref: com.pmcl.core.preferences.Preferences) {
     var enabled by remember { mutableStateOf(pref.isMioModeEnabled()) }
     var l1Jvm by remember { mutableStateOf(pref.isMioModeJvm()) }
+    var l1LargePages by remember { mutableStateOf(pref.isMioModeLargePages()) }
+    var l1Zgc by remember { mutableStateOf(pref.isMioModeZgc()) }
     var l2Process by remember { mutableStateOf(pref.isMioModeProcess()) }
     var l2Crazy by remember { mutableStateOf(pref.isMioModeCrazyPriority()) }
     var l3System by remember { mutableStateOf(pref.isMioModeSystemPower()) }
@@ -685,6 +687,48 @@ private fun MioModeCard(pref: com.pmcl.core.preferences.Preferences) {
                 Text("零权限零风险，进程退出自动失效。收益约 5-15% 吞吐提升",
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
+
+                Spacer(Modifier.height(12.dp))
+
+                // L1+：大页内存 + NUMA
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = l1LargePages,
+                        onCheckedChange = { v -> l1LargePages = v; pref.setMioModeLargePages(v) }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Column {
+                        Text("L1+ 大页内存 + NUMA", fontWeight = FontWeight.Medium)
+                        Text("UseLargePages + UseNUMA，减少 TLB miss，多路 CPU NUMA 感知",
+                             style = MaterialTheme.typography.labelSmall,
+                             color = MaterialTheme.colorScheme.outline)
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                Text("JVM 不支持时自动降级为普通页，不会启动失败。需 OS 预分配大页才能完全生效",
+                     style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.outline)
+
+                Spacer(Modifier.height(12.dp))
+
+                // L1+：实验性 ZGC
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = l1Zgc,
+                        onCheckedChange = { v -> l1Zgc = v; pref.setMioModeZgc(v) }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Column {
+                        Text("L1+ 实验性 ZGC", fontWeight = FontWeight.Medium)
+                        Text("JDK 21 生成式 ZGC，亚毫秒级停顿，自动跳过 Aikar's Flags",
+                             style = MaterialTheme.typography.labelSmall,
+                             color = MaterialTheme.colorScheme.outline)
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                Text("Aikar's Flags 为 G1GC 调校，ZGC 可能负优化 MC 大量区块分配场景。实验性功能，风险自担",
+                     style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.error)
 
                 Spacer(Modifier.height(12.dp))
 
