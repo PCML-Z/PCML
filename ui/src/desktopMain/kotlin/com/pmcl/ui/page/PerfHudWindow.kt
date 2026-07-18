@@ -31,6 +31,7 @@ import java.awt.geom.RoundRectangle2D
 
 /**
  * 性能 HUD 浮窗：半透明、置顶、可拖动的实时性能监控小窗。
+ * 参考 Apple UHD 风格：FPS 为主，其他指标紧凑横排，配色极简。
  * 指标从 [metrics] 解析（逗号分隔：CPU/MEM/GPU/FPS），由调用方传入。
  */
 @Composable
@@ -42,7 +43,16 @@ fun PerfHudWindow(
         metrics.split(",").map { it.trim().uppercase() }.filter { it.isNotEmpty() }.toSet()
     }
 
-    val state = rememberWindowState(width = 220.dp, height = 180.dp)
+    // 根据启用指标动态计算窗口高度：FPS 行 + 指标行 + 标题
+    val hasFps = "FPS" in enabledMetrics
+    val otherMetrics = enabledMetrics.filter { it != "FPS" }
+    // 高度：标题 18 + FPS 行 34 + 指标行（每行 14）+ padding
+    val heightDp = when {
+        hasFps && otherMetrics.isNotEmpty() -> 96.dp
+        hasFps -> 78.dp
+        else -> 64.dp
+    }
+    val state = rememberWindowState(width = 168.dp, height = heightDp)
 
     Window(
         onCloseRequest = onClose,
@@ -61,7 +71,7 @@ fun PerfHudWindow(
                 window.shape = RoundRectangle2D.Double(
                     0.0, 0.0,
                     window.width.toDouble(), window.height.toDouble(),
-                    12.0, 12.0
+                    10.0, 10.0
                 )
             }
             update()
@@ -93,9 +103,7 @@ private fun PerfHudContent(
     var gpuVramMb by remember { mutableStateOf(-1L) }
     var fps by remember { mutableStateOf(0) }
 
-    // 历史折线（最多 30 点）
-    val cpuHistory = remember { mutableStateListOf<Float>() }
-    val memHistory = remember { mutableStateListOf<Float>() }
+    // FPS 历史折线（最多 40 点）
     val fpsHistory = remember { mutableStateListOf<Float>() }
 
     // CPU/内存/GPU 采样协程：1.5s 一次
@@ -105,7 +113,7 @@ private fun PerfHudContent(
                 PerfSample(
                     cpu = runtime.getCpuLoad(),
                     mem = runtime.getMemoryLoad(),
-                    memUsed = runtime.getAvailableMemoryMb(), // 已用 = 总量 - 可用
+                    memUsed = runtime.getAvailableMemoryMb(),
                     memTotal = runtime.getTotalMemoryMb(),
                     gpuName = runtime.getPrimaryGpuName(),
                     gpuVram = runtime.getPrimaryGpuVramMb()
@@ -113,15 +121,10 @@ private fun PerfHudContent(
             }
             cpuLoad = s.cpu
             memLoad = s.mem
-            memUsedMb = s.memTotal - s.memUsed // 已用 = 总量 - 可用
+            memUsedMb = s.memTotal - s.memUsed
             memTotalMb = s.memTotal
             gpuName = s.gpuName
             gpuVramMb = s.gpuVram
-
-            cpuHistory.add((s.cpu * 100).toFloat())
-            memHistory.add((s.mem * 100).toFloat())
-            while (cpuHistory.size > 30) cpuHistory.removeAt(0)
-            while (memHistory.size > 30) memHistory.removeAt(0)
             kotlinx.coroutines.delay(1500)
         }
     }
@@ -141,7 +144,7 @@ private fun PerfHudContent(
                 if (elapsed >= 1_000_000_000L) {
                     fps = (frameCount * 1_000_000_000L / elapsed).toInt()
                     fpsHistory.add(fps.toFloat())
-                    while (fpsHistory.size > 30) fpsHistory.removeAt(0)
+                    while (fpsHistory.size > 40) fpsHistory.removeAt(0)
                     frameCount = 0
                     lastSecondNanos = now
                 }
@@ -149,124 +152,110 @@ private fun PerfHudContent(
         }
     }
 
-    // 深色半透明背景
+    // 极简配色：主色白，次级灰，单一强调色（FPS 状态点）
+    val primary = Color(0xFFF5F5F7)
+    val secondary = Color(0xFF8E8E93)
+    val accent = Color(0xFF30D158) // Apple green
+
     Surface(
-        color = Color(0xCC101014),
-        shape = RoundedCornerShape(12.dp)
+        color = Color(0xE6000000),
+        shape = RoundedCornerShape(10.dp)
     ) {
         Column(
-            Modifier.fillMaxSize().padding(horizontal = 10.dp, vertical = 8.dp)
+            Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 5.dp)
         ) {
-            // 标题行：可拖动 + 关闭按钮
+            // 标题行 + 关闭按钮（可拖动）
             Row(
                 Modifier.fillMaxWidth().hudDraggable(awtWindow),
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    "性能监控",
-                    color = Color(0xFFE0E0E0),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold
+                    "PERF",
+                    color = secondary,
+                    fontSize = 8.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Medium,
+                    letterSpacing = 0.8.sp
                 )
-                Spacer(Modifier.weight(1f))
                 IconButton(
                     onClick = onClose,
-                    modifier = Modifier.size(16.dp)
+                    modifier = Modifier.size(12.dp)
                 ) {
                     Icon(
                         Icons.Filled.Close, "关闭",
-                        tint = Color(0xFFB0B0B0),
-                        modifier = Modifier.size(12.dp)
+                        tint = secondary,
+                        modifier = Modifier.size(10.dp)
                     )
                 }
             }
-            Spacer(Modifier.height(6.dp))
 
-            // 指标行
-            if ("CPU" in enabledMetrics) {
-                MetricRow(
-                    label = "CPU",
-                    value = "%.0f%%".format(cpuLoad * 100),
-                    history = cpuHistory,
-                    color = Color(0xFF64B5F6)
-                )
-                Spacer(Modifier.height(4.dp))
-            }
-            if ("MEM" in enabledMetrics) {
-                MetricRow(
-                    label = "MEM",
-                    value = "%.0f%%".format(memLoad * 100),
-                    subValue = "%.1f/%.1fG".format(memUsedMb / 1024.0, memTotalMb / 1024.0),
-                    history = memHistory,
-                    color = Color(0xFF81C784)
-                )
-                Spacer(Modifier.height(4.dp))
-            }
-            if ("GPU" in enabledMetrics) {
-                val gpuText = if (gpuVramMb > 0) "%.1f/%.1fG".format(gpuVramMb / 1024.0, gpuVramMb / 1024.0) else "N/A"
-                MetricRow(
-                    label = "GPU",
-                    value = gpuText,
-                    history = emptyList(),
-                    color = Color(0xFFBA68C8),
-                    subValue = gpuName.take(20)
-                )
-                Spacer(Modifier.height(4.dp))
-            }
+            // FPS 主显示行
             if ("FPS" in enabledMetrics) {
-                MetricRow(
-                    label = "FPS",
-                    value = fps.toString(),
-                    history = fpsHistory,
-                    color = Color(0xFFFFD54F)
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.Bottom
+                ) {
+                    Text(
+                        fps.toString(),
+                        color = primary,
+                        fontSize = 26.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = (-0.5).sp
+                    )
+                    Spacer(Modifier.width(3.dp))
+                    Text(
+                        "FPS",
+                        color = secondary,
+                        fontSize = 9.sp,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier.padding(bottom = 4.dp)
+                    )
+                    Spacer(Modifier.weight(1f))
+                    // FPS 状态点：>=55 绿，>=30 黄，<30 红
+                    val statusColor = when {
+                        fps >= 55 -> accent
+                        fps >= 30 -> Color(0xFFFFD60A)
+                        else -> Color(0xFFFF453A)
+                    }
+                    Canvas(Modifier.size(6.dp)) {
+                        drawCircle(statusColor)
+                    }
+                }
+                // FPS 迷你折线
+                if (fpsHistory.size >= 2) {
+                    Spacer(Modifier.height(2.dp))
+                    MiniSparkline(
+                        values = fpsHistory,
+                        color = secondary,
+                        modifier = Modifier.fillMaxWidth().height(10.dp)
+                    )
+                }
+            }
+
+            // 其他指标横排（CPU/MEM/GPU）
+            val otherMetrics = enabledMetrics.filter { it != "FPS" }
+            if (otherMetrics.isNotEmpty()) {
+                Spacer(Modifier.height(3.dp))
+                val parts = buildList {
+                    if ("CPU" in enabledMetrics) add("CPU %.0f%%".format(cpuLoad * 100))
+                    if ("MEM" in enabledMetrics) {
+                        add("MEM %.1f/%.1fG".format(memUsedMb / 1024.0, memTotalMb / 1024.0))
+                    }
+                    if ("GPU" in enabledMetrics) {
+                        if (gpuVramMb > 0) add("GPU %.1fG".format(gpuVramMb / 1024.0))
+                        else add("GPU N/A")
+                    }
+                }
+                Text(
+                    parts.joinToString("  "),
+                    color = secondary,
+                    fontSize = 9.sp,
+                    fontFamily = FontFamily.Monospace,
+                    maxLines = 2
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun MetricRow(
-    label: String,
-    value: String,
-    history: List<Float>,
-    color: Color,
-    subValue: String? = null
-) {
-    Row(
-        Modifier.fillMaxWidth().height(22.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            label,
-            color = color,
-            fontSize = 10.sp,
-            fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.width(30.dp)
-        )
-        Text(
-            value,
-            color = Color(0xFFEEEEEE),
-            fontSize = 11.sp,
-            fontFamily = FontFamily.Monospace,
-            modifier = Modifier.width(72.dp)
-        )
-        if (history.isNotEmpty()) {
-            MiniSparkline(
-                values = history,
-                color = color,
-                modifier = Modifier.weight(1f).height(18.dp)
-            )
-        } else if (subValue != null) {
-            Text(
-                subValue,
-                color = Color(0xFF909090),
-                fontSize = 9.sp,
-                fontFamily = FontFamily.Monospace,
-                modifier = Modifier.weight(1f),
-                maxLines = 1
-            )
         }
     }
 }
@@ -279,7 +268,7 @@ private fun MiniSparkline(
 ) {
     Canvas(modifier) {
         if (values.size < 2) return@Canvas
-        val maxVal = (values.maxOrNull() ?: 100f).coerceAtLeast(1f)
+        val maxVal = (values.maxOrNull() ?: 60f).coerceAtLeast(1f)
         val w = size.width
         val h = size.height
         val stepX = w / (values.size - 1)
@@ -292,7 +281,7 @@ private fun MiniSparkline(
         drawPath(
             path = path,
             color = color,
-            style = Stroke(width = 1.5f)
+            style = Stroke(width = 1f)
         )
     }
 }
@@ -328,8 +317,8 @@ private fun Modifier.hudDraggable(awtWindow: java.awt.Window): Modifier = this.p
 private data class PerfSample(
     val cpu: Double,
     val mem: Double,
-    val memUsed: Long,   // 可用内存（MB）
-    val memTotal: Long,  // 总内存（MB）
+    val memUsed: Long,
+    val memTotal: Long,
     val gpuName: String,
     val gpuVram: Long
 )
