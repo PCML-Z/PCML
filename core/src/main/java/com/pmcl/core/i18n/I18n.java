@@ -7,7 +7,7 @@ import java.util.Map;
 /**
  * 启动器国际化。
  * <p>
- * 当前支持：zh_CN（默认）、en_US、ja_JP。
+ * 当前支持：zh_CN（默认）、en_US、ja_JP、ud_EN（颠倒英语，趣味彩蛋，复用 en_US 翻译 + 字符翻转）。
  * 翻译以代码内 Map 形式存储，避免外部资源加载复杂度。
  * <p>
  * 用法：{@code I18n.setLocale(Locale.JAPANESE); I18n.t("launch.start")}
@@ -17,6 +17,8 @@ public final class I18n {
     public static final Locale ZH_CN = Locale.SIMPLIFIED_CHINESE;
     public static final Locale EN_US = Locale.US;
     public static final Locale JA_JP = Locale.JAPANESE;
+    /** 颠倒英语：基于 en_US 翻译做字符级翻转，保留阅读顺序避免布局错乱 */
+    public static final Locale UD_EN = Locale.of("ud", "EN");
 
     private static volatile Locale current = ZH_CN;
 
@@ -1549,7 +1551,7 @@ public final class I18n {
     /** 翻訳キー、サポート {0} {1} などパラメータプレースホルダ */
     public static String t(String key, Object... args) {
         Map<String, String> map;
-        if (current == EN_US) map = EN;
+        if (current == EN_US || current == UD_EN) map = EN;
         else if (current == JA_JP) map = JA;
         else map = ZH;
         String val = map.getOrDefault(key, key);
@@ -1558,6 +1560,36 @@ public final class I18n {
                 val = val.replace("{" + i + "}", String.valueOf(args[i]));
             }
         }
+        // 颠倒英语：参数填充后再做字符翻转，避免占位符 {0} 被翻转
+        if (current == UD_EN) val = toUpsideDown(val);
         return val;
+    }
+
+    /** 颠倒英语字符映射表，索引为 ASCII 码（0-127），未映射位置存放原字符 */
+    private static final char[] UPSIDE_DOWN = buildUpsideDownTable();
+
+    private static char[] buildUpsideDownTable() {
+        char[] table = new char[128];
+        for (int i = 0; i < 128; i++) table[i] = (char) i;
+        String src = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,?!'\"()[]{}";
+        String dst = "ɐqɔpǝɟƃɥᴉɾʞlɯuodbɹsʇnʌʍxʎz∀ᗺƆᗡƎᖷ⅁HIſʞ˥WNOԀᑫᴚS┴∩ΛMX⅄Z0ƖᄅƐㄣϛ9ㄥ86˙'¿¡,'„)(][}{";
+        for (int i = 0; i < src.length() && i < dst.length(); i++) {
+            table[src.charAt(i)] = dst.charAt(i);
+        }
+        return table;
+    }
+
+    /**
+     * 将字符串中的 ASCII 字母/数字/标点替换为颠倒形态的 Unicode 字符。
+     * 仅做字符级替换，不反转字符串顺序，保留 UI 布局的可读性。
+     */
+    public static String toUpsideDown(String input) {
+        if (input == null || input.isEmpty()) return input;
+        StringBuilder sb = new StringBuilder(input.length());
+        for (int i = 0; i < input.length(); i++) {
+            char c = input.charAt(i);
+            sb.append(c < 128 ? UPSIDE_DOWN[c] : c);
+        }
+        return sb.toString();
     }
 }
