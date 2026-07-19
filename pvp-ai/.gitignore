@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# 训练产物
+checkpoints/
+*.onnx
+*.pt
+
+# Gradle
+.gradle/
+build/

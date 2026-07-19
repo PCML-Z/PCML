@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "pvp-ai",
+  "version": "${version}",
+  "name": "PMCL PvP AI",
+  "description": "Imitation-learning based PvP assistant. Records your combat for training, then plays for you.",
+  "authors": ["PMCL"],
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      {
+        "adapter": "kotlin",
+        "value": "com.pmcl.pvpai.PvpAiMod"
+      }
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.15.0",
+    "fabric-language-kotlin": ">=1.9.24+kotlin.1.9.24",
+    "minecraft": "~1.20.1",
+    "java": ">=17"
+  }
+}
