@@ -3,15 +3,20 @@
 package com.pmcl.ui.page
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -27,12 +32,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.pmcl.core.i18n.I18n
 import com.pmcl.core.mods.ModConflictChecker
 import com.pmcl.core.mods.ModMeta
 import com.pmcl.core.mods.ModUpdateChecker
 import com.pmcl.ui.animation.AnimatedSegmentedSelector
 import com.pmcl.ui.animation.StaggeredAppear
 import com.pmcl.ui.viewmodel.LauncherViewModel
+import java.awt.FileDialog
+import java.awt.Frame
+import java.io.FilenameFilter
 
 @Composable
 fun ModsPage(vm: LauncherViewModel) {
@@ -51,6 +60,11 @@ fun ModsPage(vm: LauncherViewModel) {
     var selectedSource by remember { mutableStateOf<String?>(null) }
     var sortExpanded by remember { mutableStateOf(false) }
     var sortBy by remember { mutableStateOf(ModSort.NAME) }
+    var showImportDialog by remember { mutableStateOf(false) }
+    var detailMod by remember { mutableStateOf<ModMeta?>(null) }
+    var selectionMode by remember { mutableStateOf(false) }
+    var selectedMods by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var showBatchDeleteConfirm by remember { mutableStateOf(false) }
 
     // 更新信息映射：modId → UpdateInfo
     val updateInfoMap = remember(modUpdates) {
@@ -74,7 +88,7 @@ fun ModsPage(vm: LauncherViewModel) {
         installedMods.map { it.getLoader() ?: "unknown" }.distinct().sorted()
     }
     val sources = remember(installedMods) {
-        installedMods.map { it.getSource() ?: "未知" }.distinct().sorted()
+        installedMods.map { it.getSource() ?: I18n.t("mods.unknown") }.distinct().sorted()
     }
 
     val processedMods = remember(installedMods, query, selectedLoader, selectedSource, sortBy) {
@@ -85,7 +99,7 @@ fun ModsPage(vm: LauncherViewModel) {
             (it.getLoader() ?: "").contains(query, ignoreCase = true)
         }
         if (selectedSource != null) {
-            list = list.filter { (it.getSource() ?: "未知") == selectedSource }
+            list = list.filter { (it.getSource() ?: I18n.t("mods.unknown")) == selectedSource }
         }
         if (selectedLoader != null) {
             list = list.filter { (it.getLoader() ?: "unknown") == selectedLoader }
@@ -105,7 +119,7 @@ fun ModsPage(vm: LauncherViewModel) {
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         // === 顶部栏：标题 + 计数 + 操作按钮 ===
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("模组管理", style = MaterialTheme.typography.headlineSmall,
+            Text(I18n.t("mods.title"), style = MaterialTheme.typography.headlineSmall,
                  fontWeight = FontWeight.Bold)
             Spacer(Modifier.width(8.dp))
             Surface(
@@ -132,10 +146,34 @@ fun ModsPage(vm: LauncherViewModel) {
                 ) {
                     Icon(Icons.Filled.Update, null, Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("一键更新 ($updateCount)")
+                    Text(I18n.t("mods.update_all", updateCount))
                 }
                 Spacer(Modifier.width(6.dp))
             }
+            // 导入模组按钮
+            Button(onClick = { showImportDialog = true }) {
+                Icon(Icons.Filled.Download, null, Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(I18n.t("mods.import_title"))
+            }
+            Spacer(Modifier.width(6.dp))
+            // 批量操作开关
+            FilterChip(
+                selected = selectionMode,
+                onClick = {
+                    selectionMode = !selectionMode
+                    if (!selectionMode) selectedMods = emptySet()
+                },
+                label = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.Sort, null, Modifier.size(14.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(if (selectionMode) I18n.t("common.selected_count", selectedMods.size)
+                             else I18n.t("common.batch_actions"))
+                    }
+                }
+            )
+            Spacer(Modifier.width(6.dp))
             // 翻译开关（图标按钮）
             FilterChip(
                 selected = translateEnabled,
@@ -156,7 +194,7 @@ fun ModsPage(vm: LauncherViewModel) {
                             modifier = Modifier.size(14.dp)
                         )
                         Spacer(Modifier.width(4.dp))
-                        Text(if (translating) "翻译中…" else "翻译")
+                        Text(if (translating) I18n.t("mods.translating") else I18n.t("mods.translate"))
                     }
                 }
             )
@@ -169,23 +207,57 @@ fun ModsPage(vm: LauncherViewModel) {
                         strokeWidth = 2.dp
                     )
                 } else {
-                    Icon(Icons.Filled.Update, contentDescription = "检查更新",
+                    Icon(Icons.Filled.Update, contentDescription = I18n.t("mods.check_update"),
                          modifier = Modifier.size(18.dp))
                 }
             }
             // 打开目录（图标按钮）
             IconButton(onClick = { vm.openModsDir() }) {
-                Icon(Icons.Filled.Folder, contentDescription = "打开目录", modifier = Modifier.size(18.dp))
+                Icon(Icons.Filled.Folder, contentDescription = I18n.t("common.open_dir"), modifier = Modifier.size(18.dp))
             }
             // 刷新（图标按钮）
             IconButton(onClick = vm::refreshInstalledMods) {
-                Icon(Icons.Filled.Refresh, contentDescription = "刷新", modifier = Modifier.size(18.dp))
+                Icon(Icons.Filled.Refresh, contentDescription = I18n.t("common.refresh"), modifier = Modifier.size(18.dp))
+            }
+        }
+
+        // === 批量操作行（仅在 selectionMode 时显示） ===
+        if (selectionMode) {
+            Spacer(Modifier.height(6.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(I18n.t("common.selected_count", selectedMods.size),
+                     style = MaterialTheme.typography.labelMedium,
+                     color = MaterialTheme.colorScheme.primary,
+                     fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.width(8.dp))
+                AssistChip(
+                    onClick = { vm.batchEnableMods(selectedMods.toList()) },
+                    enabled = selectedMods.isNotEmpty(),
+                    label = { Text(I18n.t("mods.batch_enable_all")) }
+                )
+                Spacer(Modifier.width(6.dp))
+                AssistChip(
+                    onClick = { vm.batchDisableMods(selectedMods.toList()) },
+                    enabled = selectedMods.isNotEmpty(),
+                    label = { Text(I18n.t("mods.batch_disable_all")) }
+                )
+                Spacer(Modifier.width(6.dp))
+                AssistChip(
+                    onClick = { showBatchDeleteConfirm = true },
+                    enabled = selectedMods.isNotEmpty(),
+                    label = { Text(I18n.t("mods.batch_delete_all")) }
+                )
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = {
+                    selectionMode = false
+                    selectedMods = emptySet()
+                }) { Text(I18n.t("common.cancel")) }
             }
         }
 
         // === 元信息行：目录路径 + 状态 ===
         Text(
-            "目录：${vm.config.getWorkDir().resolve("mods")}  ·  状态：$status",
+            I18n.t("mods.dir_status", vm.config.getWorkDir().resolve("mods"), status),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.outline,
             maxLines = 1,
@@ -196,7 +268,7 @@ fun ModsPage(vm: LauncherViewModel) {
         if (checkingUpdates || updatingMod) {
             Spacer(Modifier.height(6.dp))
             val (done, total) = updateProgress
-            val label = if (checkingUpdates) "检测更新" else "批量更新"
+            val label = if (checkingUpdates) I18n.t("mods.checking_updates") else I18n.t("mods.batch_update")
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("$label $done/$total",
                     style = MaterialTheme.typography.labelSmall,
@@ -218,7 +290,7 @@ fun ModsPage(vm: LauncherViewModel) {
                 value = query,
                 onValueChange = { query = it },
                 modifier = Modifier.weight(1f),
-                placeholder = { Text("搜索模组名 / ID / 加载器…") },
+                placeholder = { Text(I18n.t("mods.search_placeholder")) },
                 leadingIcon = { Icon(Icons.Filled.Search, null, Modifier.size(18.dp)) },
                 singleLine = true,
                 shape = RoundedCornerShape(12.dp)
@@ -229,13 +301,13 @@ fun ModsPage(vm: LauncherViewModel) {
                 OutlinedButton(onClick = { sortExpanded = true }) {
                     Icon(Icons.Filled.Sort, null, Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text(sortBy.label)
+                    Text(sortBy.label())
                     Icon(Icons.Filled.ArrowDropDown, null, Modifier.size(16.dp))
                 }
                 DropdownMenu(expanded = sortExpanded, onDismissRequest = { sortExpanded = false }) {
                     ModSort.entries.forEach { s ->
                         DropdownMenuItem(
-                            text = { Text(s.label) },
+                            text = { Text(s.label()) },
                             onClick = { sortBy = s; sortExpanded = false }
                         )
                     }
@@ -252,7 +324,7 @@ fun ModsPage(vm: LauncherViewModel) {
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 if (showSourceFilter) {
-                    val sourceItems = listOf("来源") + sources
+                    val sourceItems = listOf(I18n.t("mods.source_filter")) + sources
                     AnimatedSegmentedSelector(
                         items = sourceItems,
                         selectedIndex = if (selectedSource == null) 0
@@ -262,7 +334,7 @@ fun ModsPage(vm: LauncherViewModel) {
                     )
                 }
                 if (loaders.isNotEmpty()) {
-                    val loaderItems = listOf("加载器") + loaders
+                    val loaderItems = listOf(I18n.t("mods.loader_filter")) + loaders
                     AnimatedSegmentedSelector(
                         items = loaderItems,
                         selectedIndex = if (selectedLoader == null) 0
@@ -284,8 +356,8 @@ fun ModsPage(vm: LauncherViewModel) {
         // === 列表标题 ===
         Spacer(Modifier.height(10.dp))
         Text(
-            "启用 $enabledCount · 禁用 $disabledCount" +
-            if (hasFilter) " · 当前显示 ${processedMods.size}" else "",
+            if (hasFilter) I18n.t("mods.list_summary_filtered", enabledCount, disabledCount, processedMods.size)
+            else I18n.t("mods.list_summary", enabledCount, disabledCount),
             style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.SemiBold
         )
@@ -299,8 +371,8 @@ fun ModsPage(vm: LauncherViewModel) {
                 modifier = Modifier.fillMaxWidth().weight(1f)
             ) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(if (installedMods.isEmpty()) "mods 目录为空，前往「市场」下载模组"
-                         else "无匹配结果",
+                    Text(if (installedMods.isEmpty()) I18n.t("mods.empty_hint")
+                         else I18n.t("search.no_results"),
                          color = MaterialTheme.colorScheme.outline)
                 }
             }
@@ -313,17 +385,82 @@ fun ModsPage(vm: LauncherViewModel) {
                     Box(Modifier.animateItemPlacement()) {
                         StaggeredAppear(index) {
                             val updateInfo = updateInfoMap[m.getModId() ?: ""]
-                            ModRow(m, vm, translateEnabled, translationCache, updateInfo, updatingMod)
+                            val isSelected = selectionMode && (m.getJarFile() in selectedMods)
+                            ModRow(
+                                m, vm, translateEnabled, translationCache, updateInfo, updatingMod,
+                                selectionMode = selectionMode,
+                                isSelected = isSelected,
+                                onToggleSelect = {
+                                    val key = m.getJarFile()
+                                    if (key != null) {
+                                        selectedMods = if (key in selectedMods) selectedMods - key
+                                                       else selectedMods + key
+                                    }
+                                },
+                                onShowDetail = { detailMod = m }
+                            )
                         }
                     }
                 }
             }
         }
     }
+
+    // 导入模组对话框
+    if (showImportDialog) {
+        ImportModDialog(
+            onDismiss = { showImportDialog = false },
+            onConfirm = { path ->
+                showImportDialog = false
+                vm.importMod(path)
+            }
+        )
+    }
+
+    // 详情对话框
+    detailMod?.let { mod ->
+        ModDetailDialog(
+            m = mod,
+            translateEnabled = translateEnabled,
+            translationCache = translationCache,
+            onDismiss = { detailMod = null }
+        )
+    }
+
+    // 批量删除确认对话框
+    if (showBatchDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showBatchDeleteConfirm = false },
+            title = { Text(I18n.t("mods.batch_delete_all")) },
+            text = { Text(I18n.t("common.selected_count", selectedMods.size)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        vm.batchDeleteMods(selectedMods.toList())
+                        selectedMods = emptySet()
+                        selectionMode = false
+                        showBatchDeleteConfirm = false
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) { Text(I18n.t("common.delete")) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBatchDeleteConfirm = false }) { Text(I18n.t("common.cancel")) }
+            }
+        )
+    }
 }
 
-enum class ModSort(val label: String) {
-    NAME("按名称"), VERSION("按版本"), LOADER("按加载器"), STATUS("按状态")
+enum class ModSort {
+    NAME, VERSION, LOADER, STATUS;
+    fun label(): String = when (this) {
+        NAME -> I18n.t("mods.sort_name")
+        VERSION -> I18n.t("mods.sort_version")
+        LOADER -> I18n.t("mods.sort_loader")
+        STATUS -> I18n.t("mods.sort_status")
+    }
 }
 
 @Composable
@@ -333,11 +470,15 @@ private fun ModRow(
     translateEnabled: Boolean = false,
     translationCache: Map<String, String> = emptyMap(),
     updateInfo: ModUpdateChecker.UpdateInfo? = null,
-    updatingMod: Boolean = false
+    updatingMod: Boolean = false,
+    selectionMode: Boolean = false,
+    isSelected: Boolean = false,
+    onToggleSelect: () -> Unit = {},
+    onShowDetail: () -> Unit = {}
 ) {
     var showDeleteDialog by remember { mutableStateOf(false) }
 
-    val rawName = m.getName() ?: m.getJarFile() ?: "未知"
+    val rawName = m.getName() ?: m.getJarFile() ?: I18n.t("mods.unknown")
     val displayName = if (translateEnabled) translationCache[rawName] ?: rawName else rawName
     val rawDesc = m.getDescription()
     val displayDesc = if (translateEnabled) translationCache[rawDesc] ?: rawDesc else rawDesc
@@ -351,6 +492,15 @@ private fun ModRow(
         Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
             // 第一行：名称 + 版本 + 标签 + 操作按钮
             Row(verticalAlignment = Alignment.CenterVertically) {
+                // 批量选择框
+                if (selectionMode) {
+                    Checkbox(
+                        checked = isSelected,
+                        onCheckedChange = { onToggleSelect() },
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(Modifier.width(4.dp))
+                }
                 // 状态指示点
                 Icon(
                     Icons.Filled.Circle,
@@ -360,10 +510,11 @@ private fun ModRow(
                            else MaterialTheme.colorScheme.primary
                 )
                 Spacer(Modifier.width(6.dp))
+                // 模组名（点击打开详情）
                 Text(
-                    displayName + if (m.isDisabled()) "（已禁用）" else "",
+                    displayName + if (m.isDisabled()) I18n.t("mods.disabled_suffix") else "",
                     fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f).clickable { onShowDetail() },
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     color = if (m.isDisabled()) MaterialTheme.colorScheme.outline
@@ -380,7 +531,7 @@ private fun ModRow(
                         shape = RoundedCornerShape(6.dp)
                     ) {
                         Text(
-                            "有更新",
+                            I18n.t("mods.has_update"),
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onError,
@@ -408,51 +559,53 @@ private fun ModRow(
                     shape = RoundedCornerShape(6.dp)
                 ) {
                     Text(
-                        m.getSource() ?: "未知",
+                        m.getSource() ?: I18n.t("mods.unknown"),
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onTertiaryContainer
                     )
                 }
                 Spacer(Modifier.width(8.dp))
-                // 启用/禁用 + 删除（图标按钮，紧凑内联）
-                if (m.isDisabled()) {
+                // 启用/禁用 + 删除（图标按钮，紧凑内联）—— 批量模式下隐藏
+                if (!selectionMode) {
+                    if (m.isDisabled()) {
+                        IconButton(
+                            onClick = { vm.enableMod(m.getJarFile()) },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(Icons.Filled.PlayArrow, contentDescription = I18n.t("common.enable"),
+                                 modifier = Modifier.size(16.dp),
+                                 tint = MaterialTheme.colorScheme.primary)
+                        }
+                    } else {
+                        IconButton(
+                            onClick = { vm.disableMod(m.getJarFile()) },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(Icons.Filled.Pause, contentDescription = I18n.t("common.disable"),
+                                 modifier = Modifier.size(16.dp))
+                        }
+                    }
+                    // 更新按钮（有更新时显示）
+                    if (updateInfo != null && updateInfo.hasUpdate()) {
+                        IconButton(
+                            onClick = { vm.updateMod(updateInfo) },
+                            modifier = Modifier.size(28.dp),
+                            enabled = !updatingMod
+                        ) {
+                            Icon(Icons.Filled.Update, contentDescription = I18n.t("mods.update"),
+                                 modifier = Modifier.size(16.dp),
+                                 tint = MaterialTheme.colorScheme.primary)
+                        }
+                    }
                     IconButton(
-                        onClick = { vm.enableMod(m.getJarFile()) },
+                        onClick = { showDeleteDialog = true },
                         modifier = Modifier.size(28.dp)
                     ) {
-                        Icon(Icons.Filled.PlayArrow, contentDescription = "启用",
+                        Icon(Icons.Filled.Delete, contentDescription = I18n.t("common.delete"),
                              modifier = Modifier.size(16.dp),
-                             tint = MaterialTheme.colorScheme.primary)
+                             tint = MaterialTheme.colorScheme.error)
                     }
-                } else {
-                    IconButton(
-                        onClick = { vm.disableMod(m.getJarFile()) },
-                        modifier = Modifier.size(28.dp)
-                    ) {
-                        Icon(Icons.Filled.Pause, contentDescription = "禁用",
-                             modifier = Modifier.size(16.dp))
-                    }
-                }
-                // 更新按钮（有更新时显示）
-                if (updateInfo != null && updateInfo.hasUpdate()) {
-                    IconButton(
-                        onClick = { vm.updateMod(updateInfo) },
-                        modifier = Modifier.size(28.dp),
-                        enabled = !updatingMod
-                    ) {
-                        Icon(Icons.Filled.Update, contentDescription = "更新",
-                             modifier = Modifier.size(16.dp),
-                             tint = MaterialTheme.colorScheme.primary)
-                    }
-                }
-                IconButton(
-                    onClick = { showDeleteDialog = true },
-                    modifier = Modifier.size(28.dp)
-                ) {
-                    Icon(Icons.Filled.Delete, contentDescription = "删除",
-                         modifier = Modifier.size(16.dp),
-                         tint = MaterialTheme.colorScheme.error)
                 }
             }
 
@@ -472,7 +625,7 @@ private fun ModRow(
                 buildString {
                     append(m.getJarFile() ?: "?")
                     append("  ·  ").append(m.getModId() ?: "?")
-                    if (!authors.isNullOrEmpty()) append("  ·  作者：").append(authors)
+                    if (!authors.isNullOrEmpty()) append("  ·  ").append(I18n.t("mods.detail_authors", authors))
                 }
             }
             Spacer(Modifier.height(2.dp))
@@ -486,7 +639,7 @@ private fun ModRow(
             if (updateInfo != null && updateInfo.hasUpdate() && updateInfo.latestFile != null) {
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    "可更新至: ${updateInfo.latestFile.fileName}  ·  来源: ${updateInfo.source}",
+                    I18n.t("mods.new_version", updateInfo.latestFile.fileName, updateInfo.source),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.primary,
                     maxLines = 1,
@@ -500,8 +653,8 @@ private fun ModRow(
     if (showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
-            title = { Text("删除模组") },
-            text = { Text("确定要删除 ${m.getName()} 吗？\n文件：${m.getJarFile()}") },
+            title = { Text(I18n.t("mods.delete_title")) },
+            text = { Text(I18n.t("mods.delete_confirm", m.getName() ?: "", m.getJarFile() ?: "")) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -511,13 +664,80 @@ private fun ModRow(
                     colors = ButtonDefaults.textButtonColors(
                         contentColor = MaterialTheme.colorScheme.error
                     )
-                ) { Text("删除") }
+                ) { Text(I18n.t("common.delete")) }
             },
             dismissButton = {
-                TextButton(onClick = { showDeleteDialog = false }) { Text("取消") }
+                TextButton(onClick = { showDeleteDialog = false }) { Text(I18n.t("common.cancel")) }
             }
         )
     }
+}
+
+/**
+ * 模组详情对话框：展示 modId / version / name / description / authors / loader / jar / source / depends / conflicts。
+ * description 用 verticalScroll 显示完整内容，不截断。
+ */
+@Composable
+private fun ModDetailDialog(
+    m: ModMeta,
+    translateEnabled: Boolean = false,
+    translationCache: Map<String, String> = emptyMap(),
+    onDismiss: () -> Unit
+) {
+    val rawName = m.getName() ?: m.getJarFile() ?: I18n.t("mods.unknown")
+    val displayName = if (translateEnabled) translationCache[rawName] ?: rawName else rawName
+    val rawDesc = m.getDescription()
+    val displayDesc = if (translateEnabled) translationCache[rawDesc] ?: rawDesc else rawDesc
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(displayName, fontWeight = FontWeight.SemiBold) },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                Text(I18n.t("mods.detail_modid", m.getModId() ?: "-"),
+                     style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(4.dp))
+                Text(I18n.t("mods.detail_version", m.getVersion() ?: "-"),
+                     style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(4.dp))
+                Text(I18n.t("mods.detail_authors", m.getAuthors() ?: "-"),
+                     style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(4.dp))
+                Text(I18n.t("mods.detail_loader", m.getLoader() ?: "-"),
+                     style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(4.dp))
+                Text(I18n.t("mods.detail_jar", m.getJarFile() ?: "-"),
+                     style = MaterialTheme.typography.bodySmall,
+                     overflow = TextOverflow.Ellipsis,
+                     maxLines = 2)
+                Spacer(Modifier.height(4.dp))
+                Text(I18n.t("mods.detail_source", m.getSource() ?: "-"),
+                     style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(8.dp))
+                // description 完整显示（在可滚动 Column 内不截断）
+                if (!displayDesc.isNullOrEmpty()) {
+                    Text(I18n.t("mods.detail_description"),
+                         style = MaterialTheme.typography.labelMedium,
+                         fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(2.dp))
+                    Text(displayDesc,
+                         style = MaterialTheme.typography.bodySmall,
+                         color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(8.dp))
+                }
+                Text(I18n.t("mods.detail_depends",
+                     m.getDepends().joinToString(", ").ifEmpty { "-" }),
+                     style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(4.dp))
+                Text(I18n.t("mods.detail_conflicts",
+                     m.getConflicts().joinToString(", ").ifEmpty { "-" }),
+                     style = MaterialTheme.typography.bodySmall)
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(I18n.t("common.close")) }
+        }
+    )
 }
 
 @Composable
@@ -529,8 +749,8 @@ private fun ConflictCard(result: ModConflictChecker.Result) {
             modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp)) {
             Text(
-                if (hasErrors) "存在 ${result.getErrors().size} 个潜在问题（仅供参考，不阻断启动）"
-                else "存在 ${result.getWarnings().size} 个警告",
+                if (hasErrors) I18n.t("mods.conflict_errors", result.getErrors().size)
+                else I18n.t("mods.conflict_warnings", result.getWarnings().size),
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold
             )
@@ -553,4 +773,53 @@ private fun ConflictCard(result: ModConflictChecker.Result) {
             }
         }
     }
+}
+
+/**
+ * 导入模组对话框：FileDialog 选择 .jar 文件，确认后调用 vm.importMod(path)。
+ */
+@Composable
+private fun ImportModDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
+    var path by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(I18n.t("mods.import_title")) },
+        text = {
+            Column {
+                Text(I18n.t("mods.import_hint"),
+                     style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = path,
+                    onValueChange = { path = it },
+                    label = { Text(I18n.t("modpack.file_path")) },
+                    modifier = Modifier.fillMaxWidth(),
+                    trailingIcon = {
+                        IconButton(onClick = {
+                            val fd = FileDialog(null as Frame?, I18n.t("mods.import_title"), FileDialog.LOAD)
+                            fd.filenameFilter = FilenameFilter { _, name ->
+                                name.endsWith(".jar")
+                            }
+                            fd.isVisible = true
+                            if (fd.file != null) {
+                                path = java.io.File(fd.directory, fd.file).absolutePath
+                            }
+                        }) {
+                            Icon(Icons.Filled.FolderOpen, contentDescription = I18n.t("common.browse"))
+                        }
+                    }
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { if (path.isNotEmpty()) onConfirm(path) },
+                enabled = path.isNotEmpty()
+            ) { Text(I18n.t("common.import")) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(I18n.t("common.cancel")) }
+        }
+    )
 }

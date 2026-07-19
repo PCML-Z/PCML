@@ -226,7 +226,7 @@ private fun WorldRow(
                     )
                 )
                 Spacer(Modifier.width(8.dp))
-                Text(formatFileSize(world.sizeBytes),
+                Text(ContentUtils.formatFileSize(world.sizeBytes),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
             }

@@ -1,9 +1,12 @@
 package com.pmcl.ui.page
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -35,38 +38,117 @@ fun ModpacksPage(vm: LauncherViewModel) {
 
     var showImportDialog by remember { mutableStateOf(false) }
     var showExportDialog by remember { mutableStateOf(false) }
+    // 详情对话框状态
+    var detailModpack by remember { mutableStateOf<ModpackManager.InstalledModpack?>(null) }
+    // 批量操作状态
+    var selectionMode by remember { mutableStateOf(false) }
+    var selectedModpacks by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var showBatchDeleteConfirm by remember { mutableStateOf(false) }
+    // 卡片过滤状态（点击 gameVersion / loader / source chip 切换"仅显示该 X"）
+    var filterGameVersion by remember { mutableStateOf<String?>(null) }
+    var filterLoader by remember { mutableStateOf<String?>(null) }
+    var filterSource by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) { if (modpacks.isEmpty()) vm.refreshModpacks() }
+
+    // 应用过滤
+    val filteredModpacks = remember(modpacks, filterGameVersion, filterLoader, filterSource) {
+        modpacks.filter { mp ->
+            (filterGameVersion == null || mp.gameVersion == filterGameVersion) &&
+            (filterLoader == null || mp.loader == filterLoader) &&
+            (filterSource == null || mp.source == filterSource)
+        }
+    }
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         // 顶部操作栏
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(I18n.t("modpack.title"), style = MaterialTheme.typography.titleMedium,
                  fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-            IconButton(onClick = { vm.refreshModpacks() }, enabled = !busy) {
-                Icon(Icons.Filled.Refresh, contentDescription = I18n.t("common.refresh"))
-            }
-            Button(
-                onClick = { showImportDialog = true },
-                enabled = !busy,
-                modifier = Modifier.padding(start = 8.dp)
-            ) {
-                Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(4.dp))
-                Text(I18n.t("common.import"))
-            }
-            Button(
-                onClick = { showExportDialog = true },
-                enabled = !busy && selectedVersion != null,
-                modifier = Modifier.padding(start = 8.dp)
-            ) {
-                Icon(Icons.Filled.Upload, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(4.dp))
-                Text(I18n.t("common.export"))
+            if (selectionMode) {
+                // 批量模式：显示已选数量 + 批量删除按钮 + 取消
+                Text(I18n.t("common.selected_count", selectedModpacks.size),
+                     style = MaterialTheme.typography.labelMedium,
+                     color = MaterialTheme.colorScheme.primary,
+                     fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.width(8.dp))
+                Button(
+                    onClick = { showBatchDeleteConfirm = true },
+                    enabled = selectedModpacks.isNotEmpty() && !busy,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(I18n.t("common.delete_all"))
+                }
+                Spacer(Modifier.width(8.dp))
+                TextButton(onClick = {
+                    selectionMode = false
+                    selectedModpacks = emptySet()
+                }) { Text(I18n.t("common.cancel")) }
+            } else {
+                // 正常模式：批量操作开关 + 刷新 + 导入 + 导出
+                FilterChip(
+                    selected = false,
+                    onClick = { selectionMode = true },
+                    label = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.CheckCircle, contentDescription = null,
+                                 modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text(I18n.t("common.batch_actions"))
+                        }
+                    }
+                )
+                Spacer(Modifier.width(8.dp))
+                IconButton(onClick = { vm.refreshModpacks() }, enabled = !busy) {
+                    Icon(Icons.Filled.Refresh, contentDescription = I18n.t("common.refresh"))
+                }
+                Button(
+                    onClick = { showImportDialog = true },
+                    enabled = !busy,
+                    modifier = Modifier.padding(start = 8.dp)
+                ) {
+                    Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(I18n.t("common.import"))
+                }
+                Button(
+                    onClick = { showExportDialog = true },
+                    enabled = !busy && selectedVersion != null,
+                    modifier = Modifier.padding(start = 8.dp)
+                ) {
+                    Icon(Icons.Filled.Upload, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(I18n.t("common.export"))
+                }
             }
         }
 
         Spacer(Modifier.height(8.dp))
+
+        // 过滤提示条（仅当任一过滤生效时显示）
+        if (filterGameVersion != null || filterLoader != null || filterSource != null) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(I18n.t("search.results_count", filteredModpacks.size),
+                     style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(8.dp))
+                TextButton(onClick = {
+                    filterGameVersion = null
+                    filterLoader = null
+                    filterSource = null
+                }) {
+                    Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(I18n.t("common.clear_selection"),
+                         style = MaterialTheme.typography.labelSmall)
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+        }
 
         // 进度条
         if (progress != null) {
@@ -105,8 +187,33 @@ fun ModpacksPage(vm: LauncherViewModel) {
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = PaddingValues(bottom = 16.dp)
             ) {
-                itemsIndexed(modpacks, key = { _, m -> m.instanceDir.toString() }) { _, mp ->
-                    ModpackCard(vm, mp, busy, updateChecking)
+                itemsIndexed(filteredModpacks, key = { _, m -> m.instanceDir.toString() }) { _, mp ->
+                    val isSelected = selectionMode && mp.name in selectedModpacks
+                    ModpackCard(
+                        vm = vm,
+                        mp = mp,
+                        busy = busy,
+                        updateChecking = updateChecking,
+                        selectionMode = selectionMode,
+                        isSelected = isSelected,
+                        onToggleSelect = {
+                            selectedModpacks = if (mp.name in selectedModpacks) selectedModpacks - mp.name
+                                               else selectedModpacks + mp.name
+                        },
+                        onShowDetail = { detailModpack = mp },
+                        filterGameVersion = filterGameVersion,
+                        filterLoader = filterLoader,
+                        filterSource = filterSource,
+                        onToggleFilterGameVersion = { v ->
+                            filterGameVersion = if (filterGameVersion == v) null else v
+                        },
+                        onToggleFilterLoader = { l ->
+                            filterLoader = if (filterLoader == l) null else l
+                        },
+                        onToggleFilterSource = { s ->
+                            filterSource = if (filterSource == s) null else s
+                        }
+                    )
                 }
             }
         }
@@ -135,6 +242,38 @@ fun ModpacksPage(vm: LauncherViewModel) {
         )
     }
 
+    // 详情对话框
+    detailModpack?.let { mp ->
+        ModpackDetailDialog(mp, onDismiss = { detailModpack = null })
+    }
+
+    // 批量删除确认对话框
+    if (showBatchDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showBatchDeleteConfirm = false },
+            title = { Text(I18n.t("common.delete_all")) },
+            text = { Text(I18n.t("modpack.batch_delete_confirm", selectedModpacks.size)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val toDelete = selectedModpacks.toList()
+                        selectionMode = false
+                        selectedModpacks = emptySet()
+                        showBatchDeleteConfirm = false
+                        // 循环调用 vm.deleteModpack（VM 当前无批量方法）
+                        toDelete.forEach { name -> vm.deleteModpack(name) }
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) { Text(I18n.t("common.delete")) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBatchDeleteConfirm = false }) { Text(I18n.t("common.cancel")) }
+            }
+        )
+    }
+
     // 更新检查结果对话框
     updateResult?.let { result ->
         ModpackUpdateDialog(
@@ -145,8 +284,22 @@ fun ModpacksPage(vm: LauncherViewModel) {
 }
 
 @Composable
-private fun ModpackCard(vm: LauncherViewModel, mp: ModpackManager.InstalledModpack,
-                        busy: Boolean, updateChecking: Boolean) {
+private fun ModpackCard(
+    vm: LauncherViewModel,
+    mp: ModpackManager.InstalledModpack,
+    busy: Boolean,
+    updateChecking: Boolean,
+    selectionMode: Boolean = false,
+    isSelected: Boolean = false,
+    onToggleSelect: () -> Unit = {},
+    onShowDetail: () -> Unit = {},
+    filterGameVersion: String? = null,
+    filterLoader: String? = null,
+    filterSource: String? = null,
+    onToggleFilterGameVersion: (String) -> Unit = {},
+    onToggleFilterLoader: (String) -> Unit = {},
+    onToggleFilterSource: (String) -> Unit = {}
+) {
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
     Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = glassCardColors()) {
@@ -154,54 +307,82 @@ private fun ModpackCard(vm: LauncherViewModel, mp: ModpackManager.InstalledModpa
             modifier = Modifier.padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // 批量选择框
+            if (selectionMode) {
+                Checkbox(
+                    checked = isSelected,
+                    onCheckedChange = { onToggleSelect() },
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(Modifier.width(8.dp))
+            }
             Icon(Icons.Filled.Inventory2, contentDescription = null,
                  tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp))
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
+                // 整合包名（点击打开详情）
                 Text(mp.name, fontWeight = FontWeight.SemiBold, maxLines = 1,
-                     overflow = TextOverflow.Ellipsis)
+                     overflow = TextOverflow.Ellipsis,
+                     modifier = Modifier.clickable { onShowDetail() })
                 Spacer(Modifier.height(2.dp))
-                Row {
-                    AssistChip(
-                        onClick = {},
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // gameVersion：FilterChip 切换"仅显示该 gameVersion"
+                    FilterChip(
+                        selected = filterGameVersion == mp.gameVersion,
+                        onClick = { onToggleFilterGameVersion(mp.gameVersion) },
                         label = { Text(mp.gameVersion, style = MaterialTheme.typography.labelSmall) }
                     )
                     if (mp.loader.isNotEmpty()) {
                         Spacer(Modifier.width(4.dp))
-                        AssistChip(
-                            onClick = {},
+                        // loader：FilterChip 切换"仅显示该 loader"
+                        FilterChip(
+                            selected = filterLoader == mp.loader,
+                            onClick = { onToggleFilterLoader(mp.loader) },
                             label = { Text(mp.loader, style = MaterialTheme.typography.labelSmall) }
                         )
                     }
                     Spacer(Modifier.width(4.dp))
-                    AssistChip(
-                        onClick = {},
-                        label = { Text(I18n.t("modpack.mod_count", mp.modCount), style = MaterialTheme.typography.labelSmall) }
-                    )
+                    // modCount：不可点击的普通 Surface 标签（点击无意义）
+                    Surface(
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text(
+                            I18n.t("modpack.mod_count", mp.modCount),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    }
                     if (mp.source.isNotEmpty()) {
                         Spacer(Modifier.width(4.dp))
-                        AssistChip(
-                            onClick = {},
-                            label = { Text(I18n.t("modpack.source", mp.source), style = MaterialTheme.typography.labelSmall) }
+                        // source：FilterChip 切换"仅显示该来源"
+                        FilterChip(
+                            selected = filterSource == mp.source,
+                            onClick = { onToggleFilterSource(mp.source) },
+                            label = { Text(I18n.t("modpack.source", mp.source),
+                                     style = MaterialTheme.typography.labelSmall) }
                         )
                     }
                 }
             }
-            // 检查更新按钮
-            IconButton(
-                onClick = { vm.checkModpackUpdates(mp.name) },
-                enabled = !busy && !updateChecking
-            ) {
-                if (updateChecking) {
-                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                } else {
-                    Icon(Icons.Filled.SystemUpdate, contentDescription = I18n.t("modpack.check_update"),
-                         modifier = Modifier.size(18.dp))
+            // 检查更新 + 删除按钮（批量模式下隐藏）
+            if (!selectionMode) {
+                IconButton(
+                    onClick = { vm.checkModpackUpdates(mp.name) },
+                    enabled = !busy && !updateChecking
+                ) {
+                    if (updateChecking) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                    } else {
+                        Icon(Icons.Filled.SystemUpdate, contentDescription = I18n.t("modpack.check_update"),
+                             modifier = Modifier.size(18.dp))
+                    }
                 }
-            }
-            IconButton(onClick = { showDeleteConfirm = true }, enabled = !busy) {
-                Icon(Icons.Filled.Delete, contentDescription = I18n.t("common.delete"),
-                     tint = MaterialTheme.colorScheme.error)
+                IconButton(onClick = { showDeleteConfirm = true }, enabled = !busy) {
+                    Icon(Icons.Filled.Delete, contentDescription = I18n.t("common.delete"),
+                         tint = MaterialTheme.colorScheme.error)
+                }
             }
         }
     }
@@ -222,6 +403,47 @@ private fun ModpackCard(vm: LauncherViewModel, mp: ModpackManager.InstalledModpa
             }
         )
     }
+}
+
+/**
+ * 整合包详情对话框：显示 name / gameVersion / loader / modCount / source / instanceDir。
+ */
+@Composable
+private fun ModpackDetailDialog(
+    mp: ModpackManager.InstalledModpack,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(I18n.t("modpack.detail_title"), fontWeight = FontWeight.SemiBold) },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                Text(mp.name, style = MaterialTheme.typography.titleSmall,
+                     fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(8.dp))
+                Text(I18n.t("modpack.detail_game_version", mp.gameVersion.ifEmpty { "-" }),
+                     style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(4.dp))
+                Text(I18n.t("modpack.detail_loader", mp.loader.ifEmpty { "-" }),
+                     style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(4.dp))
+                Text(I18n.t("modpack.detail_mod_count", mp.modCount),
+                     style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(4.dp))
+                Text(I18n.t("modpack.detail_source", mp.source.ifEmpty { "-" }),
+                     style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(4.dp))
+                Text(I18n.t("modpack.detail_dir", mp.instanceDir.toString()),
+                     style = MaterialTheme.typography.bodySmall,
+                     color = MaterialTheme.colorScheme.outline,
+                     overflow = TextOverflow.Ellipsis,
+                     maxLines = 3)
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(I18n.t("common.close")) }
+        }
+    )
 }
 
 /**

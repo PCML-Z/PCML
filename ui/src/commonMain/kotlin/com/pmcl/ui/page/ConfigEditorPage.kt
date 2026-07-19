@@ -26,6 +26,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pmcl.core.gamecontent.ConfigFileManager
+import com.pmcl.core.i18n.I18n
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -51,6 +52,8 @@ fun ConfigEditorPage(vm: LauncherViewModel) {
     var showCreateDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf<String?>(null) }
     var editorText by remember(fileContent) { mutableStateOf(fileContent ?: "") }
+    // 待切换的目标文件路径：切换前若当前文件有未保存修改，弹窗确认后再切换
+    var pendingSwitchPath by remember { mutableStateOf<String?>(null) }
 
     // 文件内容变化时同步到 editorText
     LaunchedEffect(fileContent) {
@@ -75,11 +78,11 @@ fun ConfigEditorPage(vm: LauncherViewModel) {
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         // 顶部标题栏
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("配置文件编辑器", style = MaterialTheme.typography.headlineSmall,
+            Text(I18n.t("config.title"), style = MaterialTheme.typography.headlineSmall,
                  fontWeight = FontWeight.Bold)
             Spacer(Modifier.weight(1f))
             if (selectedVersion != null) {
-                Text("版本: $selectedVersion",
+                Text(I18n.t("config.version_label", selectedVersion),
                      style = MaterialTheme.typography.bodySmall,
                      color = MaterialTheme.colorScheme.outline)
                 Spacer(Modifier.width(12.dp))
@@ -87,13 +90,13 @@ fun ConfigEditorPage(vm: LauncherViewModel) {
             OutlinedButton(onClick = { vm.openConfigDir() }) {
                 Icon(Icons.Filled.FolderOpen, null, Modifier.size(16.dp))
                 Spacer(Modifier.width(4.dp))
-                Text("打开目录")
+                Text(I18n.t("config.open_dir"))
             }
             Spacer(Modifier.width(8.dp))
             OutlinedButton(onClick = { vm.refreshConfigFiles(currentDir) }) {
                 Icon(Icons.Filled.Refresh, null, Modifier.size(16.dp))
                 Spacer(Modifier.width(4.dp))
-                Text("刷新")
+                Text(I18n.t("common.refresh"))
             }
         }
 
@@ -113,7 +116,7 @@ fun ConfigEditorPage(vm: LauncherViewModel) {
                         modifier = Modifier.fillMaxWidth()) {
                         if (currentDir.isNotEmpty()) {
                             IconButton(onClick = { vm.navigateConfigUp() }, Modifier.size(28.dp)) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回上级",
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, I18n.t("config.return_upper"),
                                      Modifier.size(16.dp))
                             }
                             Spacer(Modifier.width(4.dp))
@@ -127,7 +130,7 @@ fun ConfigEditorPage(vm: LauncherViewModel) {
                             modifier = Modifier.weight(1f)
                         )
                         IconButton(onClick = { showCreateDialog = true }, Modifier.size(28.dp)) {
-                            Icon(Icons.Filled.Add, "新建文件", Modifier.size(16.dp))
+                            Icon(Icons.Filled.Add, I18n.t("config.new_file"), Modifier.size(16.dp))
                         }
                     }
 
@@ -137,7 +140,7 @@ fun ConfigEditorPage(vm: LauncherViewModel) {
                     OutlinedTextField(
                         value = searchText,
                         onValueChange = { searchText = it },
-                        placeholder = { Text("搜索...", style = MaterialTheme.typography.bodySmall) },
+                        placeholder = { Text(I18n.t("config.search_placeholder"), style = MaterialTheme.typography.bodySmall) },
                         leadingIcon = { Icon(Icons.Filled.Search, null, Modifier.size(14.dp)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
@@ -154,11 +157,11 @@ fun ConfigEditorPage(vm: LauncherViewModel) {
                                      Modifier.size(32.dp),
                                      tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
                                 Spacer(Modifier.height(8.dp))
-                                Text("暂无配置文件",
+                                Text(I18n.t("config.empty"),
                                      style = MaterialTheme.typography.bodySmall,
                                      color = MaterialTheme.colorScheme.outline)
                                 Spacer(Modifier.height(4.dp))
-                                Text("启动游戏后模组会自动生成",
+                                Text(I18n.t("config.empty_hint"),
                                      style = MaterialTheme.typography.labelSmall,
                                      color = MaterialTheme.colorScheme.outline.copy(alpha = 0.7f))
                             }
@@ -174,11 +177,14 @@ fun ConfigEditorPage(vm: LauncherViewModel) {
                                     isSelected = entry.relativePath == currentPath,
                                     onClick = {
                                         if (entry.isDirectory) {
+                                            // 进入子目录无需提示（不影响当前编辑的文件）
                                             vm.enterConfigDir(entry.fileName)
+                                        } else if (entry.relativePath == currentPath) {
+                                            // 点击当前已选中文件，无操作
+                                        } else if (isDirty) {
+                                            // 当前文件有未保存修改：暂存目标路径，弹窗确认
+                                            pendingSwitchPath = entry.relativePath
                                         } else {
-                                            if (isDirty) {
-                                                // 切换前提示保存（简单处理：直接切换）
-                                            }
                                             vm.readConfigFile(entry.relativePath)
                                         }
                                     },
@@ -206,7 +212,7 @@ fun ConfigEditorPage(vm: LauncherViewModel) {
                                  Modifier.size(48.dp),
                                  tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
                             Spacer(Modifier.height(12.dp))
-                            Text("选择左侧文件开始编辑",
+                            Text(I18n.t("config.select_to_edit"),
                                  style = MaterialTheme.typography.bodyMedium,
                                  color = MaterialTheme.colorScheme.outline)
                         }
@@ -237,11 +243,11 @@ fun ConfigEditorPage(vm: LauncherViewModel) {
                             ) {
                                 Icon(Icons.Filled.Save, null, Modifier.size(14.dp))
                                 Spacer(Modifier.width(4.dp))
-                                Text("保存")
+                                Text(I18n.t("common.save"))
                             }
                             Spacer(Modifier.width(4.dp))
                             IconButton(onClick = { vm.closeConfigFile() }, Modifier.size(28.dp)) {
-                                Icon(Icons.Filled.Close, "关闭", Modifier.size(16.dp))
+                                Icon(Icons.Filled.Close, I18n.t("common.close"), Modifier.size(16.dp))
                             }
                         }
 
@@ -285,12 +291,12 @@ fun ConfigEditorPage(vm: LauncherViewModel) {
         var newFileName by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { showCreateDialog = false },
-            title = { Text("新建配置文件") },
+            title = { Text(I18n.t("config.new_title")) },
             text = {
                 OutlinedTextField(
                     value = newFileName,
                     onValueChange = { newFileName = it },
-                    label = { Text("文件名") },
+                    label = { Text(I18n.t("config.filename_label")) },
                     singleLine = true,
                     placeholder = { Text("example.toml") }
                 )
@@ -303,10 +309,10 @@ fun ConfigEditorPage(vm: LauncherViewModel) {
                             showCreateDialog = false
                         }
                     }
-                ) { Text("创建") }
+                ) { Text(I18n.t("config.create")) }
             },
             dismissButton = {
-                TextButton(onClick = { showCreateDialog = false }) { Text("取消") }
+                TextButton(onClick = { showCreateDialog = false }) { Text(I18n.t("common.cancel")) }
             }
         )
     }
@@ -315,8 +321,8 @@ fun ConfigEditorPage(vm: LauncherViewModel) {
     showDeleteDialog?.let { path ->
         AlertDialog(
             onDismissRequest = { showDeleteDialog = null },
-            title = { Text("删除文件") },
-            text = { Text("确定删除 \"$path\" 吗？此操作不可撤销。") },
+            title = { Text(I18n.t("config.delete_title")) },
+            text = { Text(I18n.t("config.delete_confirm", path)) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -326,10 +332,38 @@ fun ConfigEditorPage(vm: LauncherViewModel) {
                     colors = ButtonDefaults.textButtonColors(
                         contentColor = MaterialTheme.colorScheme.error
                     )
-                ) { Text("删除") }
+                ) { Text(I18n.t("common.delete")) }
             },
             dismissButton = {
-                TextButton(onClick = { showDeleteDialog = null }) { Text("取消") }
+                TextButton(onClick = { showDeleteDialog = null }) { Text(I18n.t("common.cancel")) }
+            }
+        )
+    }
+
+    // 未保存切换确认对话框
+    pendingSwitchPath?.let { target ->
+        AlertDialog(
+            onDismissRequest = { pendingSwitchPath = null },
+            title = { Text(I18n.t("config.unsaved_title")) },
+            text = { Text(I18n.t("config.unsaved_confirm")) },
+            confirmButton = {
+                TextButton(onClick = {
+                    // 保存当前文件后切换
+                    vm.saveConfigFile(editorText)
+                    vm.readConfigFile(target)
+                    pendingSwitchPath = null
+                }) { Text(I18n.t("config.save_and_switch")) }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = {
+                        // 丢弃修改，直接切换
+                        vm.readConfigFile(target)
+                        pendingSwitchPath = null
+                    }) { Text(I18n.t("config.discard")) }
+                    Spacer(Modifier.width(4.dp))
+                    TextButton(onClick = { pendingSwitchPath = null }) { Text(I18n.t("common.cancel")) }
+                }
             }
         )
     }
@@ -389,7 +423,7 @@ private fun ConfigFileRow(
             }
             if (!entry.isDirectory) {
                 IconButton(onClick = onDelete, Modifier.size(24.dp)) {
-                    Icon(Icons.Filled.Delete, "删除",
+                    Icon(Icons.Filled.Delete, I18n.t("common.delete"),
                          Modifier.size(14.dp),
                          tint = MaterialTheme.colorScheme.outline)
                 }

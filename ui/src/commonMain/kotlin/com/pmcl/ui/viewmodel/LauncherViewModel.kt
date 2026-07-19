@@ -1766,6 +1766,83 @@ class LauncherViewModel {
         }
     }
 
+    /** 导入模组文件到 mods 目录 */
+    fun importMod(filePath: String) {
+        scope.launch {
+            try {
+                val fileName = withContext(Dispatchers.IO) {
+                    val src = java.nio.file.Paths.get(filePath)
+                    val targetDir = config.getWorkDir().resolve("mods")
+                    java.nio.file.Files.createDirectories(targetDir)
+                    val target = targetDir.resolve(src.fileName)
+                    java.nio.file.Files.copy(src, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+                    src.fileName.toString()
+                }
+                _status.value = "已导入模组：$fileName"
+                refreshInstalledMods()
+            } catch (e: Throwable) {
+                _status.value = "导入失败：${e.message}"
+            }
+        }
+    }
+
+    /** 批量启用模组 */
+    fun batchEnableMods(jarFiles: List<String>) {
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    for (jarFile in jarFiles) {
+                        try {
+                            core.modManager().enableMod(jarFile)
+                        } catch (_: Throwable) {}
+                    }
+                }
+                _status.value = "已批量启用 ${jarFiles.size} 个模组"
+                refreshInstalledMods()
+            } catch (e: Throwable) {
+                _status.value = "批量启用失败：${e.message}"
+            }
+        }
+    }
+
+    /** 批量禁用模组 */
+    fun batchDisableMods(jarFiles: List<String>) {
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    for (jarFile in jarFiles) {
+                        try {
+                            core.modManager().disableMod(jarFile)
+                        } catch (_: Throwable) {}
+                    }
+                }
+                _status.value = "已批量禁用 ${jarFiles.size} 个模组"
+                refreshInstalledMods()
+            } catch (e: Throwable) {
+                _status.value = "批量禁用失败：${e.message}"
+            }
+        }
+    }
+
+    /** 批量删除模组 */
+    fun batchDeleteMods(jarFiles: List<String>) {
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    for (jarFile in jarFiles) {
+                        try {
+                            core.modManager().deleteMod(jarFile)
+                        } catch (_: Throwable) {}
+                    }
+                }
+                _status.value = "已批量删除 ${jarFiles.size} 个模组"
+                refreshInstalledMods()
+            } catch (e: Throwable) {
+                _status.value = "批量删除失败：${e.message}"
+            }
+        }
+    }
+
     /** 在系统文件管理中打开 mods 目录（优先打开第一个存在且有文件的目录） */
     fun openModsDir() {
         try {
@@ -3628,6 +3705,83 @@ class LauncherViewModel {
         }
     }
 
+    /** 导入资源包文件到 resourcepacks 目录 */
+    fun importResourcePack(filePath: String) {
+        scope.launch {
+            try {
+                val fileName = withContext(Dispatchers.IO) {
+                    val src = java.nio.file.Paths.get(filePath)
+                    val targetDir = config.getWorkDir().resolve("resourcepacks")
+                    java.nio.file.Files.createDirectories(targetDir)
+                    val target = targetDir.resolve(src.fileName)
+                    java.nio.file.Files.copy(src, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+                    src.fileName.toString()
+                }
+                _status.value = "已导入资源包：$fileName"
+                refreshResourcePacks()
+            } catch (e: Throwable) {
+                _status.value = "导入失败：${e.message}"
+            }
+        }
+    }
+
+    /** 批量启用资源包 */
+    fun batchEnableResourcePacks(packs: List<ResourcePackManager.Pack>) {
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    for (pack in packs) {
+                        try {
+                            core.resourcePacks().enable(pack.name)
+                        } catch (_: Throwable) {}
+                    }
+                }
+                _status.value = "已批量启用 ${packs.size} 个资源包"
+                refreshResourcePacks()
+            } catch (e: Throwable) {
+                _status.value = "批量启用失败：${e.message}"
+            }
+        }
+    }
+
+    /** 批量禁用资源包 */
+    fun batchDisableResourcePacks(packs: List<ResourcePackManager.Pack>) {
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    for (pack in packs) {
+                        try {
+                            core.resourcePacks().disable(pack.name)
+                        } catch (_: Throwable) {}
+                    }
+                }
+                _status.value = "已批量禁用 ${packs.size} 个资源包"
+                refreshResourcePacks()
+            } catch (e: Throwable) {
+                _status.value = "批量禁用失败：${e.message}"
+            }
+        }
+    }
+
+    /** 批量删除资源包 */
+    fun batchDeleteResourcePacks(packs: List<ResourcePackManager.Pack>) {
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    for (pack in packs) {
+                        try {
+                            core.resourcePacks().delete(pack)
+                        } catch (_: Throwable) {}
+                    }
+                }
+                _status.value = "已批量删除 ${packs.size} 个资源包"
+                refreshResourcePacks()
+            } catch (e: Throwable) {
+                _status.value = "批量删除失败：${e.message}"
+            }
+        }
+    }
+
     // ============ 完整性校验 ============
 
     fun checkIntegrity(versionId: String) {
@@ -3899,6 +4053,83 @@ class LauncherViewModel {
         }
     }
 
+    /** 导入光影包文件到 shaderpacks 目录 */
+    fun importShaderPack(filePath: String) {
+        scope.launch {
+            try {
+                val fileName = withContext(Dispatchers.IO) {
+                    val src = java.nio.file.Paths.get(filePath)
+                    val targetDir = config.getWorkDir().resolve("shaderpacks")
+                    java.nio.file.Files.createDirectories(targetDir)
+                    val target = targetDir.resolve(src.fileName)
+                    java.nio.file.Files.copy(src, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+                    src.fileName.toString()
+                }
+                _status.value = "已导入光影包：$fileName"
+                refreshShaderPacks()
+            } catch (e: Throwable) {
+                _status.value = "导入失败：${e.message}"
+            }
+        }
+    }
+
+    /** 批量启用光影包 */
+    fun batchEnableShaderPacks(packs: List<ShaderPackManager.ShaderPack>) {
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    for (pack in packs) {
+                        try {
+                            core.shaderPacks().enable(pack.name)
+                        } catch (_: Throwable) {}
+                    }
+                }
+                _status.value = "已批量启用 ${packs.size} 个光影包"
+                refreshShaderPacks()
+            } catch (e: Throwable) {
+                _status.value = "批量启用失败：${e.message}"
+            }
+        }
+    }
+
+    /** 批量禁用光影包 */
+    fun batchDisableShaderPacks(packs: List<ShaderPackManager.ShaderPack>) {
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    for (pack in packs) {
+                        try {
+                            core.shaderPacks().disable(pack.name)
+                        } catch (_: Throwable) {}
+                    }
+                }
+                _status.value = "已批量禁用 ${packs.size} 个光影包"
+                refreshShaderPacks()
+            } catch (e: Throwable) {
+                _status.value = "批量禁用失败：${e.message}"
+            }
+        }
+    }
+
+    /** 批量删除光影包 */
+    fun batchDeleteShaderPacks(packs: List<ShaderPackManager.ShaderPack>) {
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    for (pack in packs) {
+                        try {
+                            core.shaderPacks().delete(pack)
+                        } catch (_: Throwable) {}
+                    }
+                }
+                _status.value = "已批量删除 ${packs.size} 个光影包"
+                refreshShaderPacks()
+            } catch (e: Throwable) {
+                _status.value = "批量删除失败：${e.message}"
+            }
+        }
+    }
+
     /** 将指定光影包设为当前选中（写入 options.txt） */
     fun setActiveShaderPack(pack: ShaderPackManager.ShaderPack) {
         scope.launch {
@@ -3991,6 +4222,107 @@ class LauncherViewModel {
                 }
             } catch (e: Throwable) {
                 _status.value = "禁用失败：${e.message}"
+            }
+        }
+    }
+
+    /** 导入数据包文件到选中世界的 datapacks 目录 */
+    fun importDatapack(filePath: String) {
+        val world = _selectedDatapackWorld.value
+        if (world == null) {
+            _status.value = "请先选择世界"
+            return
+        }
+        scope.launch {
+            try {
+                val fileName = withContext(Dispatchers.IO) {
+                    val src = java.nio.file.Paths.get(filePath)
+                    val targetDir = world.dir.resolve("datapacks")
+                    java.nio.file.Files.createDirectories(targetDir)
+                    val target = targetDir.resolve(src.fileName)
+                    java.nio.file.Files.copy(src, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+                    src.fileName.toString()
+                }
+                _status.value = "已导入数据包：$fileName"
+                val list = withContext(Dispatchers.IO) { core.datapacks().list(world.dir) }
+                _datapacks.value = list
+            } catch (e: Throwable) {
+                _status.value = "导入失败：${e.message}"
+            }
+        }
+    }
+
+    /** 批量启用数据包 */
+    fun batchEnableDatapacks(packs: List<DatapackManager.Datapack>) {
+        val world = _selectedDatapackWorld.value
+        if (world == null) {
+            _status.value = "请先选择世界"
+            return
+        }
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    for (pack in packs) {
+                        try {
+                            core.datapacks().enable(world.dir, pack.name)
+                        } catch (_: Throwable) {}
+                    }
+                }
+                _status.value = "已批量启用 ${packs.size} 个数据包"
+                val list = withContext(Dispatchers.IO) { core.datapacks().list(world.dir) }
+                _datapacks.value = list
+            } catch (e: Throwable) {
+                _status.value = "批量启用失败：${e.message}"
+            }
+        }
+    }
+
+    /** 批量禁用数据包 */
+    fun batchDisableDatapacks(packs: List<DatapackManager.Datapack>) {
+        val world = _selectedDatapackWorld.value
+        if (world == null) {
+            _status.value = "请先选择世界"
+            return
+        }
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    for (pack in packs) {
+                        try {
+                            core.datapacks().disable(world.dir, pack.name)
+                        } catch (_: Throwable) {}
+                    }
+                }
+                _status.value = "已批量禁用 ${packs.size} 个数据包"
+                val list = withContext(Dispatchers.IO) { core.datapacks().list(world.dir) }
+                _datapacks.value = list
+            } catch (e: Throwable) {
+                _status.value = "批量禁用失败：${e.message}"
+            }
+        }
+    }
+
+    /** 批量删除数据包 */
+    fun batchDeleteDatapacks(packs: List<DatapackManager.Datapack>) {
+        val world = _selectedDatapackWorld.value
+        if (world == null) {
+            _status.value = "请先选择世界"
+            return
+        }
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    for (pack in packs) {
+                        try {
+                            core.datapacks().delete(pack)
+                        } catch (_: Throwable) {}
+                    }
+                }
+                _status.value = "已批量删除 ${packs.size} 个数据包"
+                val list = withContext(Dispatchers.IO) { core.datapacks().list(world.dir) }
+                _datapacks.value = list
+            } catch (e: Throwable) {
+                _status.value = "批量删除失败：${e.message}"
             }
         }
     }

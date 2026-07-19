@@ -270,7 +270,40 @@ public final class I18n {
         ZH.put("mods.dep_summary_failed", "失败: {0}");
         ZH.put("mods.dep_no_extra_short", "无额外依赖");
         ZH.put("mods.dep_installed_count", "已安装依赖: {0} 个");
-        ZH.put("mods.dep_mod_label", "模组: {0}");
+        ZH.put("mods.dep_mod_label", "Mod: {0}");
+        ZH.put("mods.title", "模组管理");
+        ZH.put("mods.import_title", "导入模组");
+        ZH.put("mods.import_hint", "选择 .jar 模组文件");
+        ZH.put("mods.search_placeholder", "搜索模组名 / ID / 加载器…");
+        ZH.put("mods.delete_title", "删除模组");
+        ZH.put("mods.delete_confirm", "确定要删除 {0} 吗？\n文件：{1}");
+        ZH.put("mods.empty_hint", "mods 目录为空，前往「市场」下载模组");
+        ZH.put("mods.disabled_suffix", "（已禁用）");
+        ZH.put("mods.dir_status", "目录：{0}  ·  状态：{1}");
+        ZH.put("mods.batch_update", "批量更新");
+        ZH.put("mods.list_summary", "启用 {0} · 禁用 {1}");
+        ZH.put("mods.list_summary_filtered", "启用 {0} · 禁用 {1} · 当前显示 {2}");
+        ZH.put("mods.conflict_errors", "存在 {0} 个潜在问题（仅供参考，不阻断启动）");
+        ZH.put("mods.conflict_warnings", "存在 {0} 个警告");
+        ZH.put("mods.sort_name", "按名称");
+        ZH.put("mods.sort_version", "按版本");
+        ZH.put("mods.sort_loader", "按加载器");
+        ZH.put("mods.sort_status", "按状态");
+        ZH.put("mods.source_filter", "来源");
+        ZH.put("mods.loader_filter", "加载器");
+        ZH.put("mods.unknown", "未知");
+        ZH.put("mods.detail_modid", "modId：{0}");
+        ZH.put("mods.detail_version", "版本：{0}");
+        ZH.put("mods.detail_authors", "作者：{0}");
+        ZH.put("mods.detail_loader", "加载器：{0}");
+        ZH.put("mods.detail_jar", "jar 文件：{0}");
+        ZH.put("mods.detail_source", "来源：{0}");
+        ZH.put("mods.detail_depends", "依赖：{0}");
+        ZH.put("mods.detail_conflicts", "冲突：{0}");
+        ZH.put("mods.detail_description", "描述");
+        ZH.put("mods.batch_enable_all", "批量启用");
+        ZH.put("mods.batch_disable_all", "批量禁用");
+        ZH.put("mods.batch_delete_all", "批量删除");
 
         // ===== 市场页 =====
         ZH.put("market.search", "搜索");
@@ -305,6 +338,112 @@ public final class I18n {
         ZH.put("modpack.update_has_updates", "发现 {0} 个可更新的 mod（共检查 {1} 个）");
         ZH.put("modpack.update_unknown", "未知");
         ZH.put("modpack.source", "来源：{0}");
+        ZH.put("modpack.detail_title", "整合包详情");
+        ZH.put("modpack.detail_game_version", "游戏版本：{0}");
+        ZH.put("modpack.detail_loader", "加载器：{0}");
+        ZH.put("modpack.detail_mod_count", "模组数：{0}");
+        ZH.put("modpack.detail_source", "来源：{0}");
+        ZH.put("modpack.detail_dir", "目录：{0}");
+        ZH.put("modpack.batch_delete_confirm", "确定要删除选中的 {0} 个整合包吗？");
+
+        // ===== 光影包页 =====
+        ZH.put("shader.title", "光影包");
+        ZH.put("shader.empty", "暂无光影包。将 .zip 光影包放入 shaderpacks 目录即可。");
+        ZH.put("shader.no_match", "无匹配结果");
+        ZH.put("shader.count_status", "共 {0} 个光影包（当前应用 {1}）");
+        ZH.put("shader.search", "搜索光影包…");
+        ZH.put("shader.dir_label", "目录: {0}");
+        ZH.put("shader.valid", "含 shaders/ 目录（兼容 Iris/OptiFine）");
+        ZH.put("shader.invalid", "缺少 shaders/ 目录，可能无法生效");
+        ZH.put("shader.apply", "应用");
+        ZH.put("shader.clear", "关闭光影");
+        ZH.put("shader.delete_title", "删除光影包");
+        ZH.put("shader.delete_confirm", "确定要删除 {0} 吗？\n文件：{1}");
+        ZH.put("shader.import_title", "导入光影包");
+        ZH.put("shader.import_hint", "选择 .zip 光影包文件");
+        ZH.put("shader.detail_path", "路径：{0}");
+        ZH.put("shader.detail_size", "大小：{0}");
+        ZH.put("shader.detail_valid", "结构：{0}");
+        ZH.put("shader.detail_source", "来源：{0}");
+
+        // ===== 资源包页 =====
+        ZH.put("resource.title", "资源包");
+        ZH.put("resource.empty", "暂无资源包");
+        ZH.put("resource.no_match", "无匹配结果");
+        ZH.put("resource.count_status", "共 {0} 个资源包");
+        ZH.put("resource.search", "搜索资源包…");
+        ZH.put("resource.format_label", "format {0}");
+        ZH.put("resource.delete_title", "删除资源包");
+        ZH.put("resource.delete_confirm", "确定要删除 {0} 吗？");
+        ZH.put("resource.import_title", "导入资源包");
+        ZH.put("resource.import_hint", "选择 .zip 资源包文件");
+        ZH.put("resource.detail_path", "路径：{0}");
+        ZH.put("resource.detail_format", "pack_format：{0}（兼容 {1}）");
+        ZH.put("resource.detail_type", "类型：{0}");
+        ZH.put("resource.detail_desc", "描述：{0}");
+        ZH.put("resource.detail_source", "来源：{0}");
+
+        // ===== 数据包页 =====
+        ZH.put("datapack.title", "数据包");
+        ZH.put("datapack.empty", "暂无数据包");
+        ZH.put("datapack.no_match", "无匹配结果");
+        ZH.put("datapack.count_status", "共 {0} 个数据包");
+        ZH.put("datapack.search_datapack", "搜索数据包…");
+        ZH.put("datapack.search_world", "搜索世界…");
+        ZH.put("datapack.select_world", "选择世界");
+        ZH.put("datapack.current_world", "当前世界: {0}");
+        ZH.put("datapack.rescan", "重新扫描");
+        ZH.put("datapack.back_to_worlds", "返回世界列表");
+        ZH.put("datapack.refresh_worlds", "刷新世界");
+        ZH.put("datapack.world_count", "{0} 个世界");
+        ZH.put("datapack.format_label", "format {0}");
+        ZH.put("datapack.delete_title", "删除数据包");
+        ZH.put("datapack.delete_confirm", "确定要删除 {0} 吗？");
+        ZH.put("datapack.import_title", "导入数据包");
+        ZH.put("datapack.import_hint", "选择 .zip 数据包文件");
+        ZH.put("datapack.detail_path", "路径：{0}");
+        ZH.put("datapack.detail_format", "pack_format：{0}（兼容 {1}）");
+        ZH.put("datapack.detail_type", "类型：{0}");
+        ZH.put("datapack.detail_desc", "描述：{0}");
+
+        // ===== 配置编辑器页 =====
+        ZH.put("config.title", "配置文件编辑器");
+        ZH.put("config.version_label", "版本: {0}");
+        ZH.put("config.open_dir", "打开目录");
+        ZH.put("config.empty", "暂无配置文件");
+        ZH.put("config.empty_hint", "启动游戏后模组会自动生成");
+        ZH.put("config.search_placeholder", "搜索…");
+        ZH.put("config.new_file", "新建文件");
+        ZH.put("config.new_title", "新建配置文件");
+        ZH.put("config.filename_label", "文件名");
+        ZH.put("config.create", "创建");
+        ZH.put("config.delete_title", "删除文件");
+        ZH.put("config.delete_confirm", "确定删除 \"{0}\" 吗？此操作不可撤销。");
+        ZH.put("config.select_to_edit", "选择左侧文件开始编辑");
+        ZH.put("config.unsaved_title", "未保存的修改");
+        ZH.put("config.unsaved_confirm", "当前文件有未保存的修改，切换前是否保存？");
+        ZH.put("config.save_and_switch", "保存并切换");
+        ZH.put("config.discard", "不保存");
+        ZH.put("config.return_upper", "返回上级");
+
+        // ===== 内容板块通用 =====
+        ZH.put("common.open_dir", "打开目录");
+        ZH.put("common.search", "搜索");
+        ZH.put("common.create", "创建");
+        ZH.put("common.enable_all", "全部启用");
+        ZH.put("common.disable_all", "全部禁用");
+        ZH.put("common.delete_all", "全部删除");
+        ZH.put("common.select_all", "全选");
+        ZH.put("common.clear_selection", "清除选择");
+        ZH.put("common.batch_actions", "批量操作");
+        ZH.put("common.selected_count", "已选 {0} 项");
+        ZH.put("common.detail", "详情");
+        ZH.put("common.close_detail", "关闭详情");
+        ZH.put("content.state.disabled", "已禁用");
+        ZH.put("content.state.current", "当前");
+        ZH.put("content.state.empty", "暂无数据");
+        ZH.put("content.filter.disabled", "仅显示已禁用");
+        ZH.put("content.filter.enabled", "仅显示已启用");
 
         // ===== 实例页 =====
         ZH.put("instance.title", "实例管理");
@@ -798,6 +937,39 @@ public final class I18n {
         EN.put("mods.dep_no_extra_short", "No extra deps");
         EN.put("mods.dep_installed_count", "Installed {0} deps");
         EN.put("mods.dep_mod_label", "Mod: {0}");
+        EN.put("mods.title", "Mods");
+        EN.put("mods.import_title", "Import Mod");
+        EN.put("mods.import_hint", "Select .jar mod file");
+        EN.put("mods.search_placeholder", "Search mod name / ID / loader…");
+        EN.put("mods.delete_title", "Delete Mod");
+        EN.put("mods.delete_confirm", "Delete {0}?\nFile: {1}");
+        EN.put("mods.empty_hint", "mods directory is empty, go to Market to download mods");
+        EN.put("mods.disabled_suffix", " (Disabled)");
+        EN.put("mods.dir_status", "Directory: {0}  ·  Status: {1}");
+        EN.put("mods.batch_update", "Batch Update");
+        EN.put("mods.list_summary", "Enabled {0} · Disabled {1}");
+        EN.put("mods.list_summary_filtered", "Enabled {0} · Disabled {1} · Showing {2}");
+        EN.put("mods.conflict_errors", "{0} potential issues (reference only, won't block launch)");
+        EN.put("mods.conflict_warnings", "{0} warning(s)");
+        EN.put("mods.sort_name", "By Name");
+        EN.put("mods.sort_version", "By Version");
+        EN.put("mods.sort_loader", "By Loader");
+        EN.put("mods.sort_status", "By Status");
+        EN.put("mods.source_filter", "Source");
+        EN.put("mods.loader_filter", "Loader");
+        EN.put("mods.unknown", "Unknown");
+        EN.put("mods.detail_modid", "modId: {0}");
+        EN.put("mods.detail_version", "Version: {0}");
+        EN.put("mods.detail_authors", "Authors: {0}");
+        EN.put("mods.detail_loader", "Loader: {0}");
+        EN.put("mods.detail_jar", "Jar: {0}");
+        EN.put("mods.detail_source", "Source: {0}");
+        EN.put("mods.detail_depends", "Depends: {0}");
+        EN.put("mods.detail_conflicts", "Conflicts: {0}");
+        EN.put("mods.detail_description", "Description");
+        EN.put("mods.batch_enable_all", "Enable All");
+        EN.put("mods.batch_disable_all", "Disable All");
+        EN.put("mods.batch_delete_all", "Delete All");
 
         EN.put("market.search", "Search");
         EN.put("market.query_placeholder", "Search mods…");
@@ -830,6 +1002,112 @@ public final class I18n {
         EN.put("modpack.update_has_updates", "{0} mod(s) can be updated ({1} checked)");
         EN.put("modpack.update_unknown", "unknown");
         EN.put("modpack.source", "Source: {0}");
+        EN.put("modpack.detail_title", "Modpack Details");
+        EN.put("modpack.detail_game_version", "Game version: {0}");
+        EN.put("modpack.detail_loader", "Loader: {0}");
+        EN.put("modpack.detail_mod_count", "Mods: {0}");
+        EN.put("modpack.detail_source", "Source: {0}");
+        EN.put("modpack.detail_dir", "Directory: {0}");
+        EN.put("modpack.batch_delete_confirm", "Delete {0} selected modpack(s)?");
+
+        // ===== Shader Packs page =====
+        EN.put("shader.title", "Shader Packs");
+        EN.put("shader.empty", "Empty. Place .zip shader packs in shaderpacks/ directory.");
+        EN.put("shader.no_match", "No matches");
+        EN.put("shader.count_status", "{0} shader pack(s) ({1} active)");
+        EN.put("shader.search", "Search shader packs…");
+        EN.put("shader.dir_label", "Directory: {0}");
+        EN.put("shader.valid", "Contains shaders/ (Iris/OptiFine compatible)");
+        EN.put("shader.invalid", "Missing shaders/ directory");
+        EN.put("shader.apply", "Apply");
+        EN.put("shader.clear", "Clear");
+        EN.put("shader.delete_title", "Delete Shader Pack");
+        EN.put("shader.delete_confirm", "Delete {0}?\nFile: {1}");
+        EN.put("shader.import_title", "Import Shader Pack");
+        EN.put("shader.import_hint", "Select .zip shader pack file");
+        EN.put("shader.detail_path", "Path: {0}");
+        EN.put("shader.detail_size", "Size: {0}");
+        EN.put("shader.detail_valid", "Structure: {0}");
+        EN.put("shader.detail_source", "Source: {0}");
+
+        // ===== Resource Packs page =====
+        EN.put("resource.title", "Resource Packs");
+        EN.put("resource.empty", "Empty");
+        EN.put("resource.no_match", "No matches");
+        EN.put("resource.count_status", "{0} resource pack(s)");
+        EN.put("resource.search", "Search resource packs…");
+        EN.put("resource.format_label", "format {0}");
+        EN.put("resource.delete_title", "Delete Resource Pack");
+        EN.put("resource.delete_confirm", "Delete {0}?");
+        EN.put("resource.import_title", "Import Resource Pack");
+        EN.put("resource.import_hint", "Select .zip resource pack file");
+        EN.put("resource.detail_path", "Path: {0}");
+        EN.put("resource.detail_format", "pack_format: {0} (compatible {1})");
+        EN.put("resource.detail_type", "Type: {0}");
+        EN.put("resource.detail_desc", "Description: {0}");
+        EN.put("resource.detail_source", "Source: {0}");
+
+        // ===== Datapacks page =====
+        EN.put("datapack.title", "Datapacks");
+        EN.put("datapack.empty", "Empty");
+        EN.put("datapack.no_match", "No matches");
+        EN.put("datapack.count_status", "{0} datapack(s)");
+        EN.put("datapack.search_datapack", "Search datapacks…");
+        EN.put("datapack.search_world", "Search worlds…");
+        EN.put("datapack.select_world", "Select World");
+        EN.put("datapack.current_world", "Current world: {0}");
+        EN.put("datapack.rescan", "Rescan");
+        EN.put("datapack.back_to_worlds", "Back to worlds");
+        EN.put("datapack.refresh_worlds", "Refresh Worlds");
+        EN.put("datapack.world_count", "{0} world(s)");
+        EN.put("datapack.format_label", "format {0}");
+        EN.put("datapack.delete_title", "Delete Datapack");
+        EN.put("datapack.delete_confirm", "Delete {0}?");
+        EN.put("datapack.import_title", "Import Datapack");
+        EN.put("datapack.import_hint", "Select .zip datapack file");
+        EN.put("datapack.detail_path", "Path: {0}");
+        EN.put("datapack.detail_format", "pack_format: {0} (compatible {1})");
+        EN.put("datapack.detail_type", "Type: {0}");
+        EN.put("datapack.detail_desc", "Description: {0}");
+
+        // ===== Config Editor page =====
+        EN.put("config.title", "Config Editor");
+        EN.put("config.version_label", "Version: {0}");
+        EN.put("config.open_dir", "Open Folder");
+        EN.put("config.empty", "No config files");
+        EN.put("config.empty_hint", "Mod configs generate after first launch");
+        EN.put("config.search_placeholder", "Search…");
+        EN.put("config.new_file", "New File");
+        EN.put("config.new_title", "New Config File");
+        EN.put("config.filename_label", "Filename");
+        EN.put("config.create", "Create");
+        EN.put("config.delete_title", "Delete File");
+        EN.put("config.delete_confirm", "Delete \"{0}\"? This cannot be undone.");
+        EN.put("config.select_to_edit", "Select a file to edit");
+        EN.put("config.unsaved_title", "Unsaved Changes");
+        EN.put("config.unsaved_confirm", "Save changes before switching?");
+        EN.put("config.save_and_switch", "Save & Switch");
+        EN.put("config.discard", "Discard");
+        EN.put("config.return_upper", "Up");
+
+        // ===== Content common =====
+        EN.put("common.open_dir", "Open Folder");
+        EN.put("common.search", "Search");
+        EN.put("common.create", "Create");
+        EN.put("common.enable_all", "Enable All");
+        EN.put("common.disable_all", "Disable All");
+        EN.put("common.delete_all", "Delete All");
+        EN.put("common.select_all", "Select All");
+        EN.put("common.clear_selection", "Clear Selection");
+        EN.put("common.batch_actions", "Batch Actions");
+        EN.put("common.selected_count", "{0} selected");
+        EN.put("common.detail", "Details");
+        EN.put("common.close_detail", "Close");
+        EN.put("content.state.disabled", "Disabled");
+        EN.put("content.state.current", "Current");
+        EN.put("content.state.empty", "Empty");
+        EN.put("content.filter.disabled", "Only disabled");
+        EN.put("content.filter.enabled", "Only enabled");
 
         // ===== Instance page =====
         EN.put("instance.title", "Instance Manager");
@@ -1310,6 +1588,39 @@ public final class I18n {
         JA.put("mods.dep_no_extra_short", "依存関係なし");
         JA.put("mods.dep_installed_count", "{0} 個の依存をインストール");
         JA.put("mods.dep_mod_label", "Mod: {0}");
+        JA.put("mods.title", "Mod管理");
+        JA.put("mods.import_title", "Modインポート");
+        JA.put("mods.import_hint", ".jar Modファイルを選択");
+        JA.put("mods.search_placeholder", "Mod名 / ID / ローダーを検索…");
+        JA.put("mods.delete_title", "Mod削除");
+        JA.put("mods.delete_confirm", "{0}を削除しますか？\nファイル: {1}");
+        JA.put("mods.empty_hint", "modsディレクトリが空です。「市場」でModをダウンロード");
+        JA.put("mods.disabled_suffix", "（無効）");
+        JA.put("mods.dir_status", "ディレクトリ: {0}  ·  ステータス: {1}");
+        JA.put("mods.batch_update", "一括更新");
+        JA.put("mods.list_summary", "有効 {0} · 無効 {1}");
+        JA.put("mods.list_summary_filtered", "有効 {0} · 無効 {1} · 表示中 {2}");
+        JA.put("mods.conflict_errors", "{0} 個の潜在的な問題（参考のみ、起動は阻断しません）");
+        JA.put("mods.conflict_warnings", "{0} 件の警告");
+        JA.put("mods.sort_name", "名前順");
+        JA.put("mods.sort_version", "バージョン順");
+        JA.put("mods.sort_loader", "ローダー順");
+        JA.put("mods.sort_status", "状態順");
+        JA.put("mods.source_filter", "ソース");
+        JA.put("mods.loader_filter", "ローダー");
+        JA.put("mods.unknown", "不明");
+        JA.put("mods.detail_modid", "modId: {0}");
+        JA.put("mods.detail_version", "バージョン: {0}");
+        JA.put("mods.detail_authors", "作者: {0}");
+        JA.put("mods.detail_loader", "ローダー: {0}");
+        JA.put("mods.detail_jar", "Jar: {0}");
+        JA.put("mods.detail_source", "ソース: {0}");
+        JA.put("mods.detail_depends", "依存: {0}");
+        JA.put("mods.detail_conflicts", "競合: {0}");
+        JA.put("mods.detail_description", "説明");
+        JA.put("mods.batch_enable_all", "すべて有効");
+        JA.put("mods.batch_disable_all", "すべて無効");
+        JA.put("mods.batch_delete_all", "すべて削除");
 
         JA.put("market.search", "検索");
         JA.put("market.query_placeholder", "Modを検索…");
@@ -1342,6 +1653,112 @@ public final class I18n {
         JA.put("modpack.update_has_updates", "{0}個のModが更新可能（{1}個確認）");
         JA.put("modpack.update_unknown", "不明");
         JA.put("modpack.source", "ソース: {0}");
+        JA.put("modpack.detail_title", "Modpack詳細");
+        JA.put("modpack.detail_game_version", "ゲームバージョン: {0}");
+        JA.put("modpack.detail_loader", "ローダー: {0}");
+        JA.put("modpack.detail_mod_count", "Mod数: {0}");
+        JA.put("modpack.detail_source", "ソース: {0}");
+        JA.put("modpack.detail_dir", "ディレクトリ: {0}");
+        JA.put("modpack.batch_delete_confirm", "選択した {0} 個のModpackを削除しますか？");
+
+        // ===== シェーダーパックページ =====
+        JA.put("shader.title", "シェーダーパック");
+        JA.put("shader.empty", "空です。.zipシェーダーをshaderpacksディレクトリに配置してください。");
+        JA.put("shader.no_match", "一致なし");
+        JA.put("shader.count_status", "{0}個（適用中 {1}）");
+        JA.put("shader.search", "シェーダーを検索…");
+        JA.put("shader.dir_label", "ディレクトリ: {0}");
+        JA.put("shader.valid", "shaders/ディレクトリ含む（Iris/OptiFine互換）");
+        JA.put("shader.invalid", "shaders/ディレクトリ不足");
+        JA.put("shader.apply", "適用");
+        JA.put("shader.clear", "クリア");
+        JA.put("shader.delete_title", "シェーダー削除");
+        JA.put("shader.delete_confirm", "{0}を削除しますか？\nファイル: {1}");
+        JA.put("shader.import_title", "シェーダーインポート");
+        JA.put("shader.import_hint", ".zipシェーダーを選択");
+        JA.put("shader.detail_path", "パス: {0}");
+        JA.put("shader.detail_size", "サイズ: {0}");
+        JA.put("shader.detail_valid", "構造: {0}");
+        JA.put("shader.detail_source", "ソース: {0}");
+
+        // ===== リソースパックページ =====
+        JA.put("resource.title", "リソースパック");
+        JA.put("resource.empty", "空です");
+        JA.put("resource.no_match", "一致なし");
+        JA.put("resource.count_status", "{0}個");
+        JA.put("resource.search", "リソースパックを検索…");
+        JA.put("resource.format_label", "format {0}");
+        JA.put("resource.delete_title", "リソースパック削除");
+        JA.put("resource.delete_confirm", "{0}を削除しますか？");
+        JA.put("resource.import_title", "リソースパックインポート");
+        JA.put("resource.import_hint", ".zipリソースパックを選択");
+        JA.put("resource.detail_path", "パス: {0}");
+        JA.put("resource.detail_format", "pack_format: {0}（互換 {1}）");
+        JA.put("resource.detail_type", "種別: {0}");
+        JA.put("resource.detail_desc", "説明: {0}");
+        JA.put("resource.detail_source", "ソース: {0}");
+
+        // ===== データパックページ =====
+        JA.put("datapack.title", "データパック");
+        JA.put("datapack.empty", "空です");
+        JA.put("datapack.no_match", "一致なし");
+        JA.put("datapack.count_status", "{0}個");
+        JA.put("datapack.search_datapack", "データパックを検索…");
+        JA.put("datapack.search_world", "ワールドを検索…");
+        JA.put("datapack.select_world", "ワールド選択");
+        JA.put("datapack.current_world", "現在のワールド: {0}");
+        JA.put("datapack.rescan", "再スキャン");
+        JA.put("datapack.back_to_worlds", "ワールド一覧に戻る");
+        JA.put("datapack.refresh_worlds", "ワールド更新");
+        JA.put("datapack.world_count", "{0}ワールド");
+        JA.put("datapack.format_label", "format {0}");
+        JA.put("datapack.delete_title", "データパック削除");
+        JA.put("datapack.delete_confirm", "{0}を削除しますか？");
+        JA.put("datapack.import_title", "データパックインポート");
+        JA.put("datapack.import_hint", ".zipデータパックを選択");
+        JA.put("datapack.detail_path", "パス: {0}");
+        JA.put("datapack.detail_format", "pack_format: {0}（互換 {1}）");
+        JA.put("datapack.detail_type", "種別: {0}");
+        JA.put("datapack.detail_desc", "説明: {0}");
+
+        // ===== 設定ファイルエディタページ =====
+        JA.put("config.title", "設定ファイルエディタ");
+        JA.put("config.version_label", "バージョン: {0}");
+        JA.put("config.open_dir", "フォルダを開く");
+        JA.put("config.empty", "設定ファイルなし");
+        JA.put("config.empty_hint", "起動後に自動生成されます");
+        JA.put("config.search_placeholder", "検索…");
+        JA.put("config.new_file", "新規ファイル");
+        JA.put("config.new_title", "新規設定ファイル");
+        JA.put("config.filename_label", "ファイル名");
+        JA.put("config.create", "作成");
+        JA.put("config.delete_title", "ファイル削除");
+        JA.put("config.delete_confirm", "\"{0}\"を削除しますか？元に戻せません。");
+        JA.put("config.select_to_edit", "ファイルを選択して編集");
+        JA.put("config.unsaved_title", "未保存の変更");
+        JA.put("config.unsaved_confirm", "切り替え前に保存しますか？");
+        JA.put("config.save_and_switch", "保存して切り替え");
+        JA.put("config.discard", "保存しない");
+        JA.put("config.return_upper", "上へ");
+
+        // ===== コンテンツ共通 =====
+        JA.put("common.open_dir", "フォルダを開く");
+        JA.put("common.search", "検索");
+        JA.put("common.create", "作成");
+        JA.put("common.enable_all", "すべて有効");
+        JA.put("common.disable_all", "すべて無効");
+        JA.put("common.delete_all", "すべて削除");
+        JA.put("common.select_all", "すべて選択");
+        JA.put("common.clear_selection", "選択解除");
+        JA.put("common.batch_actions", "一括操作");
+        JA.put("common.selected_count", "{0}個選択");
+        JA.put("common.detail", "詳細");
+        JA.put("common.close_detail", "閉じる");
+        JA.put("content.state.disabled", "無効");
+        JA.put("content.state.current", "現在");
+        JA.put("content.state.empty", "空です");
+        JA.put("content.filter.disabled", "無効のみ");
+        JA.put("content.filter.enabled", "有効のみ");
 
         // ===== インスタンスページ =====
         JA.put("instance.title", "インスタンス管理");
