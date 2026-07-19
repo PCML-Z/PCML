@@ -319,6 +319,25 @@ fun SettingsPage(vm: LauncherViewModel) {
                 HorizontalDivider()
                 Spacer(Modifier.height(12.dp))
 
+                // 卡片主题（Origin OS2 锁屏风格方形卡片主页）
+                val cardOn by vm.cardTheme.collectAsState()
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = cardOn,
+                        onCheckedChange = { v -> vm.setCardTheme(v) }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("卡片主题", fontWeight = FontWeight.Medium)
+                }
+                Spacer(Modifier.height(4.dp))
+                Text("Origin OS2 锁屏风格方形卡片主页，4dp 极小圆角，搭配玻璃主题效果更佳",
+                     style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.outline)
+
+                Spacer(Modifier.height(12.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(12.dp))
+
                 // UI 缩放
                 var uiScale by remember { mutableStateOf(pref.getUiScale()) }
                 Text("界面缩放", style = MaterialTheme.typography.labelMedium,
