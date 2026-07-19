@@ -73,6 +73,16 @@ class LauncherViewModel {
 
     val core = LauncherCore()
 
+    init {
+        // 注入 video 模块的主菜单背景视频处理器（JavaCV 实现）
+        // core 模块不依赖 video，通过接口注入避免循环依赖；video 模块未就绪时该功能降级不可用
+        try {
+            core.profileBuilder().setMenuBackgroundProvider(com.pmcl.video.MenuBackgroundManager())
+        } catch (e: Throwable) {
+            System.err.println("[LauncherViewModel] MenuBackgroundProvider 注入失败: ${e.message}")
+        }
+    }
+
     /**
      * 优雅关闭：取消所有后台协程，释放资源。
      * 应在应用退出前调用，避免 JVM 强杀导致正在进行的文件写入损坏。

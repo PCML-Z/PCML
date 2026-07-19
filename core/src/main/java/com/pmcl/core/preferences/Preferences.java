@@ -63,6 +63,7 @@ public final class Preferences {
     private java.util.List<String[]> favoriteServers = new java.util.ArrayList<>();  // 收藏的服务器列表，每项 [name, host, port]
     private String gameRenderer = "AUTO";    // 渲染器：AUTO/OPENGL/VULKAN（--renderer）
     private String windowIconPath = "";      // 自定义游戏窗口图标 PNG 路径（注入到 <gameDir>/icons/）
+    private String customMenuBackgroundVideo = "";  // 自定义主菜单背景视频路径（启动前提取 6 帧生成 panorama 资源包）
 
     // 网络配置
     private String mirrorType = "OFFICIAL";        // OFFICIAL / BMCLAPI / CUSTOM
@@ -375,6 +376,12 @@ public final class Preferences {
         windowIconPath = v == null ? "" : v.trim(); scheduleSave();
     }
 
+    /** 自定义主菜单背景视频路径（空则使用 MC 默认 panorama）。视频会在启动前提取 6 帧生成 panorama 资源包 */
+    public synchronized String getCustomMenuBackgroundVideo() { return customMenuBackgroundVideo; }
+    public synchronized void setCustomMenuBackgroundVideo(String v) {
+        customMenuBackgroundVideo = v == null ? "" : v.trim(); scheduleSave();
+    }
+
     // ===== 网络配置 =====
     public synchronized String getMirrorType() { return mirrorType; }
     public synchronized void setMirrorType(String v) { mirrorType = v == null ? "OFFICIAL" : v; scheduleSave(); }
@@ -634,6 +641,7 @@ public final class Preferences {
             }
             if (o.has("gameRenderer") && !o.get("gameRenderer").isJsonNull()) gameRenderer = o.get("gameRenderer").getAsString();
             if (o.has("windowIconPath") && !o.get("windowIconPath").isJsonNull()) windowIconPath = o.get("windowIconPath").getAsString();
+            if (o.has("customMenuBackgroundVideo") && !o.get("customMenuBackgroundVideo").isJsonNull()) customMenuBackgroundVideo = o.get("customMenuBackgroundVideo").getAsString();
             if (o.has("mirrorType") && !o.get("mirrorType").isJsonNull()) mirrorType = o.get("mirrorType").getAsString();
             if (o.has("customMirrorBase") && !o.get("customMirrorBase").isJsonNull()) customMirrorBase = o.get("customMirrorBase").getAsString();
             if (o.has("useProxy")) useProxy = o.get("useProxy").getAsBoolean();
@@ -819,6 +827,7 @@ public final class Preferences {
         o.add("favoriteServers", favArr);
         o.addProperty("gameRenderer", gameRenderer);
         o.addProperty("windowIconPath", windowIconPath);
+        o.addProperty("customMenuBackgroundVideo", customMenuBackgroundVideo);
         o.addProperty("mirrorType", mirrorType);
         o.addProperty("customMirrorBase", customMirrorBase);
         o.addProperty("useProxy", useProxy);

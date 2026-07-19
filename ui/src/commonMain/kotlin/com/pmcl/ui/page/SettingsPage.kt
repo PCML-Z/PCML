@@ -973,6 +973,7 @@ private fun GameBehaviorCard(pref: com.pmcl.core.preferences.Preferences) {
     var serverHost by remember { mutableStateOf(pref.getGameServerHost()) }
     var serverPort by remember { mutableStateOf(pref.getGameServerPort().toString()) }
     var windowIconPath by remember { mutableStateOf(pref.getWindowIconPath()) }
+    var menuBgVideoPath by remember { mutableStateOf(pref.getCustomMenuBackgroundVideo()) }
     var versionIsolation by remember { mutableStateOf(pref.isVersionIsolation()) }
 
     Card(Modifier.fillMaxWidth()) {
@@ -1139,6 +1140,57 @@ private fun GameBehaviorCard(pref: com.pmcl.core.preferences.Preferences) {
                 }
             )
             Text(I18n.t("settings.window_icon_hint"),
+                 style = MaterialTheme.typography.labelSmall,
+                 color = MaterialTheme.colorScheme.outline)
+
+            Spacer(Modifier.height(12.dp))
+            Text(I18n.t("settings.menu_bg_video"), style = MaterialTheme.typography.labelMedium)
+            Spacer(Modifier.height(4.dp))
+            OutlinedTextField(
+                value = menuBgVideoPath,
+                onValueChange = {
+                    menuBgVideoPath = it
+                    pref.setCustomMenuBackgroundVideo(it)
+                },
+                label = { Text(I18n.t("settings.menu_bg_video_path")) },
+                singleLine = true,
+                placeholder = { Text(I18n.t("settings.menu_bg_video_empty")) },
+                modifier = Modifier.fillMaxWidth(),
+                trailingIcon = {
+                    Row {
+                        IconButton(onClick = {
+                            val fd = java.awt.FileDialog(
+                                null as java.awt.Frame?,
+                                I18n.t("settings.menu_bg_video_select"),
+                                java.awt.FileDialog.LOAD
+                            )
+                            fd.filenameFilter = java.io.FilenameFilter { _, name ->
+                                val lower = name.lowercase()
+                                lower.endsWith(".mp4") || lower.endsWith(".webm")
+                                        || lower.endsWith(".mov") || lower.endsWith(".mkv")
+                                        || lower.endsWith(".avi")
+                            }
+                            fd.isVisible = true
+                            if (fd.file != null) {
+                                val p = java.io.File(fd.directory, fd.file).absolutePath
+                                menuBgVideoPath = p
+                                pref.setCustomMenuBackgroundVideo(p)
+                            }
+                        }) {
+                            Icon(Icons.Filled.FolderOpen, contentDescription = I18n.t("common.browse"))
+                        }
+                        if (menuBgVideoPath.isNotEmpty()) {
+                            IconButton(onClick = {
+                                menuBgVideoPath = ""
+                                pref.setCustomMenuBackgroundVideo("")
+                            }) {
+                                Icon(Icons.Filled.Clear, contentDescription = I18n.t("common.remove"))
+                            }
+                        }
+                    }
+                }
+            )
+            Text(I18n.t("settings.menu_bg_video_hint"),
                  style = MaterialTheme.typography.labelSmall,
                  color = MaterialTheme.colorScheme.outline)
         }

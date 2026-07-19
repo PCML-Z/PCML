@@ -465,6 +465,11 @@ public final class I18n {
         ZH.put("settings.window_icon_empty", "留空使用默认图标");
         ZH.put("settings.window_icon_select", "选择 PNG 图标文件");
         ZH.put("settings.window_icon_hint", "启动时自动缩放到 16x16 / 32x32 并注入到游戏目录 icons/");
+        ZH.put("settings.menu_bg_video", "主菜单背景视频");
+        ZH.put("settings.menu_bg_video_path", "视频文件路径");
+        ZH.put("settings.menu_bg_video_empty", "留空使用默认全景图");
+        ZH.put("settings.menu_bg_video_select", "选择视频文件");
+        ZH.put("settings.menu_bg_video_hint", "启动前从视频中提取 6 帧生成 panorama 资源包替换主菜单背景。MC 主菜单原生不支持视频，这里用 6 帧静态图近似。支持 MP4/WebM/MOV/MKV/AVI");
         ZH.put("settings.mirror", "下载镜像源");
         ZH.put("settings.mirror_official", "官方");
         ZH.put("settings.mirror_bmclapi", "BMCLAPI");
@@ -967,6 +972,11 @@ public final class I18n {
         EN.put("settings.window_icon_empty", "Leave empty for default icon");
         EN.put("settings.window_icon_select", "Select PNG icon file");
         EN.put("settings.window_icon_hint", "Auto-resized to 16x16 / 32x32 and injected into gameDir/icons/ on launch");
+        EN.put("settings.menu_bg_video", "Main Menu Background Video");
+        EN.put("settings.menu_bg_video_path", "Video file path");
+        EN.put("settings.menu_bg_video_empty", "Leave empty for default panorama");
+        EN.put("settings.menu_bg_video_select", "Select video file");
+        EN.put("settings.menu_bg_video_hint", "Extracts 6 frames from the video to generate a panorama resource pack replacing the main menu background. MC menu does not natively support video, so 6 static frames approximate it. Supports MP4/WebM/MOV/MKV/AVI");
         EN.put("settings.mirror", "Download mirror");
         EN.put("settings.mirror_official", "Official");
         EN.put("settings.mirror_bmclapi", "BMCLAPI");
@@ -1464,6 +1474,11 @@ public final class I18n {
         JA.put("settings.window_icon_empty", "空欄でデフォルトアイコン");
         JA.put("settings.window_icon_select", "PNG アイコンファイルを選択");
         JA.put("settings.window_icon_hint", "起動時に 16x16 / 32x32 へ自動リサイズし gameDir/icons/ に注入");
+        JA.put("settings.menu_bg_video", "メインメニュー背景動画");
+        JA.put("settings.menu_bg_video_path", "動画ファイルパス");
+        JA.put("settings.menu_bg_video_empty", "空欄でデフォルトのパノラマ");
+        JA.put("settings.menu_bg_video_select", "動画ファイルを選択");
+        JA.put("settings.menu_bg_video_hint", "起動前に動画から 6 フレームを抽出してパノラマリソースパックを生成し、メインメニュー背景を置き換えます。MC メニューは動画をネイティブサポートしないため、6 枚の静止フレームで近似します。MP4/WebM/MOV/MKV/AVI 対応");
         JA.put("settings.mirror", "ダウンロードミラー");
         JA.put("settings.mirror_official", "公式");
         JA.put("settings.mirror_bmclapi", "BMCLAPI");

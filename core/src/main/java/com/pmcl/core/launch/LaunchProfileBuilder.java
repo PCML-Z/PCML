@@ -35,6 +35,9 @@ public final class LaunchProfileBuilder {
     private final Preferences preferences;
     private final DownloadManager downloadManager;
 
+    /** 主菜单背景视频处理器（可选，由 UI 层注入 video 模块实现）。null 时该功能降级不可用 */
+    private com.pmcl.core.gamecontent.MenuBackgroundProvider menuBackgroundProvider;
+
     public LaunchProfileBuilder(LauncherConfig config, Preferences preferences) {
         this(config, preferences, null);
     }
@@ -44,6 +47,12 @@ public final class LaunchProfileBuilder {
         this.config = config;
         this.preferences = preferences;
         this.downloadManager = downloadManager;
+    }
+
+    /** 注入主菜单背景视频处理器。UI 层启动时调用，传入 video 模块的 JavaCV 实现 */
+    public void setMenuBackgroundProvider(
+            com.pmcl.core.gamecontent.MenuBackgroundProvider provider) {
+        this.menuBackgroundProvider = provider;
     }
 
     /**
@@ -512,7 +521,38 @@ public final class LaunchProfileBuilder {
         // Minecraft 没有 --language 命令行参数，游戏内语言只能通过 options.txt 设置
         syncGameLanguage(gameDir);
 
+        // 自定义主菜单背景：从用户视频中提取 6 帧生成 panorama 资源包，并启用
+        // Minecraft 主菜单原生只支持 6 张静态全景图，不支持视频；这里用帧提取近似实现
+        installMenuBackground(gameDir, versionId);
+
         return profile;
+    }
+
+    /**
+     * 安装自定义主菜单背景资源包（若用户设置了视频路径且注入了 provider）。
+     * <p>
+     * 流程：provider 从视频提取 6 帧 → 生成 panorama 资源包 zip 到 gameDir/resourcepacks/ →
+     * 调用 {@link com.pmcl.core.gamecontent.OptionsTxtWriter#enableResourcePack} 启用。
+     * <p>
+     * 任何失败均静默忽略，不影响启动。视频不存在或 provider 为 null 时直接跳过。
+     */
+    private void installMenuBackground(Path gameDir, String versionId) {
+        if (menuBackgroundProvider == null) return;
+        String videoPathStr = preferences.getCustomMenuBackgroundVideo();
+        if (videoPathStr == null || videoPathStr.isEmpty()) return;
+        Path videoPath;
+        try {
+            videoPath = Path.of(videoPathStr);
+        } catch (Throwable e) {
+            return;
+        }
+        if (!java.nio.file.Files.isRegularFile(videoPath)) return;
+        Path cacheDir = config.getWorkDir().resolve("cache");
+        String packFileName = menuBackgroundProvider.installTo(gameDir, videoPath, cacheDir, versionId);
+        if (packFileName == null || packFileName.isEmpty()) return;
+        // 启用资源包：写入 options.txt 的 resourcePacks 字段
+        com.pmcl.core.gamecontent.OptionsTxtWriter.enableResourcePack(
+                gameDir.resolve("options.txt"), "file/" + packFileName);
     }
 
     /**
