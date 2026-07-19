@@ -18,29 +18,30 @@ class ThemeState(initialDark: Boolean = false) {
     var useDark by mutableStateOf(initialDark)
         private set
 
+    /** 莫奈取色：是否使用动态颜色（跟随桌面壁纸） */
     var dynamicColor by mutableStateOf(false)
         private set
 
+    /** 动态生成的 ColorScheme（莫奈取色或自定义强调色时非 null） */
     var dynamicColorScheme by mutableStateOf<ColorScheme?>(null)
         private set
 
+    /** 自定义强调色 ARGB，-1 表示未设置 */
     var customAccentColor by mutableStateOf(-1)
         private set
 
+    /** 当前种子色（用于显示），莫奈取色时为壁纸主色，自定义时为用户选择的颜色 */
     var seedColor by mutableStateOf(-1)
         private set
 
+    /** UI 缩放系数，1.0 = 默认大小 */
     var uiScale by mutableStateOf(1.0f)
         private set
-
+        
     var parallaxBackground by mutableStateOf(false)
         private set
 
     var glassTheme by mutableStateOf(false)
-        private set
-
-    /** 卡片主题：Origin OS2 锁屏风格方形卡片主页 */
-    var cardTheme by mutableStateOf(false)
         private set
 
     fun toggle() = set(!useDark)
@@ -77,10 +78,6 @@ class ThemeState(initialDark: Boolean = false) {
 
     fun applyGlassTheme(enabled: Boolean) {
         glassTheme = enabled
-    }
-
-    fun applyCardTheme(enabled: Boolean) {
-        cardTheme = enabled
     }
 
     fun applySeedColor(seedRgb: Int, dark: Boolean) {

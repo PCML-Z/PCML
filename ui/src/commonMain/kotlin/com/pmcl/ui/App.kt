@@ -21,7 +21,6 @@ import com.pmcl.ui.navigation.NavDestination
 import com.pmcl.ui.navigation.allDestinations
 import com.pmcl.ui.page.AccountsPage
 import com.pmcl.ui.page.AgreementGatePage
-import com.pmcl.ui.page.CardDashboardPage
 import com.pmcl.ui.page.ContentHubPage
 import com.pmcl.ui.page.DownloadHubPage
 import com.pmcl.ui.page.InstancesPage
@@ -66,10 +65,9 @@ fun App(vm: LauncherViewModel) {
         }
         // 应用 UI 缩放
         themeState.applyUiScale(vm.preferences.getUiScale())
-        // 应用视差背景 / 玻璃主题 / 卡片主题初始状态
+        // 应用视差背景 / 玻璃主题初始状态
         themeState.applyParallaxBackground(vm.preferences.isParallaxBackground())
         themeState.applyGlassTheme(vm.preferences.isGlassTheme())
-        themeState.applyCardTheme(vm.preferences.isCardTheme())
     }
 
     // 直接读取 themeState 的属性，Compose 会自动观察 mutableStateOf 的变化
@@ -237,7 +235,7 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                 AnimatedPageSwitch(targetState = current, direction = navDirection) { target ->
                     when (target) {
                         is NavTarget.BuiltIn -> when (target.dest) {
-                            NavDestination.Launch      -> if (themeState.cardTheme) CardDashboardPage(vm) else LaunchPage(vm)
+                            NavDestination.Launch      -> LaunchPage(vm)
                             NavDestination.News        -> NewsPage(vm)
                             NavDestination.Multiplayer -> MultiplayerPage(vm)
                             NavDestination.Friends     -> FriendPage(vm)

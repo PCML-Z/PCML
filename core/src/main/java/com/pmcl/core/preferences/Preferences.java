@@ -33,7 +33,6 @@ public final class Preferences {
     private float uiScale = 1.0f;             // UI 缩放系数（0.8~1.5），1.0 = 默认大小
     private boolean parallaxBackground = false; // 视差背景主题：多层鼠标视差背景图
     private boolean glassTheme = false;         // 玻璃主题：卡片毛玻璃效果
-    private boolean cardTheme = false;          // 卡片主题：Origin OS2 风格方形卡片主页
     private String language = "zh_CN";             // zh_CN / en_US
     private boolean firstLaunchCompleted = false;  // 是否完成首次启动欢迎流程
     private boolean agreementAccepted = false;     // 用户是否已同意用户协议、免责协议与许可证
@@ -141,8 +140,6 @@ public final class Preferences {
     public synchronized void setParallaxBackground(boolean v) { parallaxBackground = v; scheduleSave(); }
     public synchronized boolean isGlassTheme() { return glassTheme; }
     public synchronized void setGlassTheme(boolean v) { glassTheme = v; scheduleSave(); }
-    public synchronized boolean isCardTheme() { return cardTheme; }
-    public synchronized void setCardTheme(boolean v) { cardTheme = v; scheduleSave(); }
     public synchronized void setUiScale(float v) {
         // 过滤 NaN/Infinity，避免写出非法 JSON
         if (Float.isNaN(v) || Float.isInfinite(v)) return;
@@ -553,7 +550,6 @@ public final class Preferences {
             if (o.has("uiScale")) uiScale = o.get("uiScale").getAsFloat();
             if (o.has("parallaxBackground")) parallaxBackground = o.get("parallaxBackground").getAsBoolean();
             if (o.has("glassTheme")) glassTheme = o.get("glassTheme").getAsBoolean();
-            if (o.has("cardTheme")) cardTheme = o.get("cardTheme").getAsBoolean();
             if (o.has("language") && !o.get("language").isJsonNull()) language = o.get("language").getAsString();
             if (o.has("firstLaunchCompleted")) firstLaunchCompleted = o.get("firstLaunchCompleted").getAsBoolean();
             if (o.has("agreementAccepted")) agreementAccepted = o.get("agreementAccepted").getAsBoolean();
@@ -762,7 +758,6 @@ public final class Preferences {
         o.addProperty("uiScale", uiScale);
         o.addProperty("parallaxBackground", parallaxBackground);
         o.addProperty("glassTheme", glassTheme);
-        o.addProperty("cardTheme", cardTheme);
         o.addProperty("language", language);
         o.addProperty("firstLaunchCompleted", firstLaunchCompleted);
         o.addProperty("agreementAccepted", agreementAccepted);
