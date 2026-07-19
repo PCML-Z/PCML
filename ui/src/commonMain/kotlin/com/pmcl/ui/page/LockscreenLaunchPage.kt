@@ -66,6 +66,18 @@ fun LockscreenLaunchPage(
     val dateFmt = remember { SimpleDateFormat("M月d日 EEEE", Locale.CHINESE) }
     val cardShape = RoundedCornerShape(4.dp)
 
+    // 根据当前小时段生成欢迎语
+    val greeting = remember(now) {
+        val h = SimpleDateFormat("HH", Locale.getDefault()).format(Date(now)).toIntOrNull() ?: 0
+        when (h) {
+            in 5..10    -> "早上好"
+            in 11..13   -> "中午好"
+            in 14..17   -> "下午好"
+            in 18..22   -> "晚上好"
+            else        -> "夜深了"
+        }
+    }
+
     val isInstalled = selectedVersion != null && localInfos.any { it.getId() == selectedVersion }
     val isDownloadMode = selectedVersion != null && !isInstalled
     val buttonEnabled = selectedVersion != null && !gameRunning && !installing
@@ -93,60 +105,80 @@ fun LockscreenLaunchPage(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // ----- 顶部：时钟区（柔和背景 + 层次拉开 + 装饰小点，与下方卡片视觉重量匹配） -----
-            Column(
-                Modifier.fillMaxWidth().padding(top = 48.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+            // ----- 顶部：左欢迎语 + 右时钟，左右分栏 -----
+            Row(
+                Modifier.fillMaxWidth().padding(top = 40.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top
             ) {
-                // 时钟主体：用半透明 Surface 做柔和容器，避免纯文字硬贴背景
+                // 左侧：欢迎语
+                Column(
+                    Modifier.weight(1f).padding(end = 16.dp),
+                    horizontalAlignment = Alignment.Start
+                ) {
+                    Text(
+                        greeting,
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontSize = 40.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f)
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    val acc = account
+                    Text(
+                        acc?.username ?: I18n.t("launch.not_logged_in_short"),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "PMCL · Minecraft Launcher",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                    )
+                }
+
+                // 右侧：时钟（柔和半透明 Surface 容器）
                 Surface(
                     shape = RoundedCornerShape(20.dp),
                     color = MaterialTheme.colorScheme.surface.copy(alpha = 0.55f),
                     tonalElevation = 0.dp,
-                    shadowElevation = 0.dp,
-                    modifier = Modifier.padding(horizontal = 24.dp)
+                    shadowElevation = 0.dp
                 ) {
                     Column(
-                        Modifier.padding(horizontal = 32.dp, vertical = 20.dp),
+                        Modifier.padding(horizontal = 28.dp, vertical = 18.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         // 时分（主时间）
                         Text(
                             timeFmt.format(Date(now)),
                             style = MaterialTheme.typography.displayLarge,
-                            fontSize = 72.sp,
+                            fontSize = 64.sp,
                             fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f)
                         )
-                        // 分隔小点装饰
+                        // 装饰分隔条
                         Spacer(Modifier.height(6.dp))
                         Box(
                             Modifier
-                                .width(40.dp)
+                                .width(36.dp)
                                 .height(2.dp)
                                 .background(
                                     MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
                                     RoundedCornerShape(1.dp)
                                 )
                         )
-                        Spacer(Modifier.height(10.dp))
+                        Spacer(Modifier.height(8.dp))
                         // 日期（次级）
                         Text(
                             dateFmt.format(Date(now)),
-                            style = MaterialTheme.typography.titleMedium,
+                            style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
                         )
                     }
                 }
-                // 账号信息（最次级，与卡片拉开距离）
-                Spacer(Modifier.height(16.dp))
-                val acc = account
-                Text(
-                    acc?.username ?: I18n.t("launch.not_logged_in_short"),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                )
             }
 
             // ----- 底部：单一大方形卡片，内部左右分栏（启动 / 进入主界面），等高对齐 -----
