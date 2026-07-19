@@ -25,6 +25,7 @@ import com.pmcl.ui.page.ContentHubPage
 import com.pmcl.ui.page.DownloadHubPage
 import com.pmcl.ui.page.InstancesPage
 import com.pmcl.ui.page.LaunchPage
+import com.pmcl.ui.page.LockscreenLaunchPage
 import com.pmcl.ui.page.NbtEditorPage
 import com.pmcl.ui.page.MultiplayerPage
 import com.pmcl.ui.page.FriendPage
@@ -65,9 +66,10 @@ fun App(vm: LauncherViewModel) {
         }
         // 应用 UI 缩放
         themeState.applyUiScale(vm.preferences.getUiScale())
-        // 应用视差背景 / 玻璃主题初始状态
+        // 应用视差背景 / 玻璃主题 / 锁屏启动页主题初始状态
         themeState.applyParallaxBackground(vm.preferences.isParallaxBackground())
         themeState.applyGlassTheme(vm.preferences.isGlassTheme())
+        themeState.applyLockscreenLaunchTheme(vm.preferences.isLockscreenLaunchTheme())
     }
 
     // 直接读取 themeState 的属性，Compose 会自动观察 mutableStateOf 的变化
@@ -102,10 +104,17 @@ fun App(vm: LauncherViewModel) {
                     var enteredMain by remember { mutableStateOf(false) }
 
                     if (!enteredMain) {
-                        QuickLaunchPage(
-                            vm = vm,
-                            onEnterMain = { enteredMain = true }
-                        )
+                        if (themeState.lockscreenLaunchTheme) {
+                            LockscreenLaunchPage(
+                                vm = vm,
+                                onEnterMain = { enteredMain = true }
+                            )
+                        } else {
+                            QuickLaunchPage(
+                                vm = vm,
+                                onEnterMain = { enteredMain = true }
+                            )
+                        }
                     } else {
                         MainWindowContent(vm)
                     }

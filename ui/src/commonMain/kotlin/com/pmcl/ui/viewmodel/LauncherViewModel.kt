@@ -278,6 +278,8 @@ class LauncherViewModel {
     val parallaxBackground: StateFlow<Boolean> = _parallaxBackground.asStateFlow()
     private val _glassTheme = MutableStateFlow(preferences.isGlassTheme())
     val glassTheme: StateFlow<Boolean> = _glassTheme.asStateFlow()
+    private val _lockscreenLaunchTheme = MutableStateFlow(preferences.isLockscreenLaunchTheme())
+    val lockscreenLaunchTheme: StateFlow<Boolean> = _lockscreenLaunchTheme.asStateFlow()
 
     fun setParallaxBackground(v: Boolean) {
         preferences.setParallaxBackground(v)
@@ -288,6 +290,11 @@ class LauncherViewModel {
         preferences.setGlassTheme(v)
         _glassTheme.value = v
         themeState?.applyGlassTheme(v)
+    }
+    fun setLockscreenLaunchTheme(v: Boolean) {
+        preferences.setLockscreenLaunchTheme(v)
+        _lockscreenLaunchTheme.value = v
+        themeState?.applyLockscreenLaunchTheme(v)
     }
 
     // ===== 模组依赖安装 =====

@@ -44,6 +44,10 @@ class ThemeState(initialDark: Boolean = false) {
     var glassTheme by mutableStateOf(false)
         private set
 
+    /** 锁屏启动页主题：Origin OS2 风格方形卡片启动页 */
+    var lockscreenLaunchTheme by mutableStateOf(false)
+        private set
+
     fun toggle() = set(!useDark)
 
     fun set(value: Boolean) {
@@ -78,6 +82,10 @@ class ThemeState(initialDark: Boolean = false) {
 
     fun applyGlassTheme(enabled: Boolean) {
         glassTheme = enabled
+    }
+
+    fun applyLockscreenLaunchTheme(enabled: Boolean) {
+        lockscreenLaunchTheme = enabled
     }
 
     fun applySeedColor(seedRgb: Int, dark: Boolean) {

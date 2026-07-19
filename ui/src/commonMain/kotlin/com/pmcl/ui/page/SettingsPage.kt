@@ -319,6 +319,25 @@ fun SettingsPage(vm: LauncherViewModel) {
                 HorizontalDivider()
                 Spacer(Modifier.height(12.dp))
 
+                // 锁屏启动页主题（Origin OS2 风格方形卡片启动页）
+                val lockscreenOn by vm.lockscreenLaunchTheme.collectAsState()
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = lockscreenOn,
+                        onCheckedChange = { v -> vm.setLockscreenLaunchTheme(v) }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("锁屏启动页", fontWeight = FontWeight.Medium)
+                }
+                Spacer(Modifier.height(4.dp))
+                Text("Origin OS2 锁屏风格方形卡片启动页：大时钟 + 启动主卡片，重启后生效",
+                     style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.outline)
+
+                Spacer(Modifier.height(12.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(12.dp))
+
                 // UI 缩放
                 var uiScale by remember { mutableStateOf(pref.getUiScale()) }
                 Text("界面缩放", style = MaterialTheme.typography.labelMedium,
