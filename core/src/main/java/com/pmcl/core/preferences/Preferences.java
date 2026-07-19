@@ -38,6 +38,7 @@ public final class Preferences {
     private String language = "zh_CN";             // zh_CN / en_US
     private boolean firstLaunchCompleted = false;  // 是否完成首次启动欢迎流程
     private boolean agreementAccepted = false;     // 用户是否已同意用户协议、免责协议与许可证
+    private boolean predictiveLaunch = false;      // 预判启动开关：进入启动页时后台预启动最可能的版本，用户点启动时秒开
     private java.util.List<String> pinnedVersions = new java.util.ArrayList<>();
     private java.util.List<String> recentVersions = new java.util.ArrayList<>();  // 最近使用（LRU，最多 5 个）
     private String lastSelectedVersion = "";       // 上次选中的版本（启动时恢复）
@@ -130,6 +131,8 @@ public final class Preferences {
     public synchronized void setCustomAccentColor(int v) { customAccentColor = v; scheduleSave(); }
     public synchronized int getMonetSeedColor() { return monetSeedColor; }
     public synchronized void setMonetSeedColor(int v) { monetSeedColor = v; scheduleSave(); }
+    public synchronized boolean isPredictiveLaunch() { return predictiveLaunch; }
+    public synchronized void setPredictiveLaunch(boolean v) { predictiveLaunch = v; scheduleSave(); }
 
     public synchronized boolean isBorderlessWindow() { return borderlessWindow; }
     public synchronized void setBorderlessWindow(boolean v) { borderlessWindow = v; scheduleSave(); }
@@ -551,6 +554,7 @@ public final class Preferences {
             if (o.has("dynamicColor")) dynamicColor = o.get("dynamicColor").getAsBoolean();
             if (o.has("customAccentColor")) customAccentColor = o.get("customAccentColor").getAsInt();
             if (o.has("monetSeedColor")) monetSeedColor = o.get("monetSeedColor").getAsInt();
+            if (o.has("predictiveLaunch")) predictiveLaunch = o.get("predictiveLaunch").getAsBoolean();
             if (o.has("borderlessWindow")) borderlessWindow = o.get("borderlessWindow").getAsBoolean();
             if (o.has("showPerfHud")) showPerfHud = o.get("showPerfHud").getAsBoolean();
             if (o.has("perfHudMetrics") && !o.get("perfHudMetrics").isJsonNull()) perfHudMetrics = o.get("perfHudMetrics").getAsString();
@@ -761,6 +765,7 @@ public final class Preferences {
         o.addProperty("dynamicColor", dynamicColor);
         o.addProperty("customAccentColor", customAccentColor);
         o.addProperty("monetSeedColor", monetSeedColor);
+        o.addProperty("predictiveLaunch", predictiveLaunch);
         o.addProperty("borderlessWindow", borderlessWindow);
         o.addProperty("showPerfHud", showPerfHud);
         o.addProperty("perfHudMetrics", perfHudMetrics);

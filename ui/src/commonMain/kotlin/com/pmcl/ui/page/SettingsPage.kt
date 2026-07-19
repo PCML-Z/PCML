@@ -352,6 +352,28 @@ fun SettingsPage(vm: LauncherViewModel) {
                 HorizontalDivider()
                 Spacer(Modifier.height(12.dp))
 
+                // 预判启动：贝叶斯模型预测最可能的版本，进入启动页时后台预启动
+                var predictiveLaunch by remember { mutableStateOf(pref.isPredictiveLaunch()) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = predictiveLaunch,
+                        onCheckedChange = { v ->
+                            predictiveLaunch = v
+                            pref.setPredictiveLaunch(v)
+                        }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("预判启动", fontWeight = FontWeight.Medium)
+                }
+                Spacer(Modifier.height(4.dp))
+                Text("基于贝叶斯概率模型按时段和使用习惯预测最可能的版本，进入启动页时后台预启动该版本进程。点击启动匹配版本时秒开，启动其他版本则自动中止预启动进程。会占用额外 CPU 和内存",
+                     style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.outline)
+
+                Spacer(Modifier.height(12.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(12.dp))
+
                 // UI 缩放
                 var uiScale by remember { mutableStateOf(pref.getUiScale()) }
                 Text(I18n.t("settings.ui_scale"), style = MaterialTheme.typography.labelMedium,

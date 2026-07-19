@@ -21,6 +21,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.CloudUpload
@@ -124,6 +125,15 @@ fun LaunchPage(vm: LauncherViewModel) {
 
     LaunchedEffect(Unit) {
         if (versions.isEmpty()) vm.refreshVersions()
+        // 进入启动页时触发预判启动（若用户在设置中开启了该功能）
+        vm.predictAndPreheat()
+    }
+
+    // 离开启动页时取消未采用的预判启动进程，避免后台僵尸进程
+    DisposableEffect(Unit) {
+        onDispose {
+            vm.cancelPreheat()
+        }
     }
 
     // 远程版本分类筛选状态（提到 LazyColumn 外，供 items() 引用 filtered 列表）
@@ -608,6 +618,35 @@ fun LaunchPage(vm: LauncherViewModel) {
                 }
             }
             Spacer(Modifier.height(12.dp))
+
+            // 预判启动状态指示器（开启 predictiveLaunch 时显示）
+            val predictiveState by vm.predictiveState.collectAsState()
+            when (val ps = predictiveState) {
+                is LauncherViewModel.PredictiveState.Preheating -> {
+                    PredictiveStateChip(
+                        text = "预判启动中：${ps.versionId}（${(ps.confidence * 100).toInt()}%）",
+                        color = MaterialTheme.colorScheme.tertiary
+                    )
+                    Spacer(Modifier.height(8.dp))
+                }
+                is LauncherViewModel.PredictiveState.Ready -> {
+                    PredictiveStateChip(
+                        text = "预启动就绪：${ps.versionId}（点击启动秒开）",
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(Modifier.height(8.dp))
+                }
+                is LauncherViewModel.PredictiveState.Failed -> {
+                    if (ps.reason.isNotEmpty()) {
+                        PredictiveStateChip(
+                            text = "预判失败：${ps.reason}",
+                            color = MaterialTheme.colorScheme.error
+                        )
+                        Spacer(Modifier.height(8.dp))
+                    }
+                }
+                else -> { /* Idle / Adopted / Aborted 不显示 */ }
+            }
 
             // 启动 / 下载按钮：根据是否安装切换
             val canInstall = selected != null && !installing
@@ -1632,6 +1671,38 @@ private fun StatusLine(vm: LauncherViewModel) {
     Text("状态：$status",
          style = MaterialTheme.typography.labelSmall,
          color = MaterialTheme.colorScheme.outline)
+}
+
+/**
+ * 预判启动状态指示器：紧凑的小卡片，告知用户后台预启动状态
+ */
+@Composable
+private fun PredictiveStateChip(text: String, color: androidx.compose.ui.graphics.Color) {
+    Surface(
+        tonalElevation = 1.dp,
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+        color = color.copy(alpha = 0.12f),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                Icons.Filled.Bolt, null,
+                tint = color,
+                modifier = Modifier.size(14.dp)
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                text,
+                style = MaterialTheme.typography.labelSmall,
+                color = color,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1
+            )
+        }
+    }
 }
 
 @Composable

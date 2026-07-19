@@ -362,6 +362,28 @@ class LauncherViewModel {
     private val instanceLogs = java.util.concurrent.ConcurrentHashMap<String, MutableList<String>>()
     private val instanceLoggers = java.util.concurrent.ConcurrentHashMap<String, GameLogger?>()
 
+    // ===== 预判启动 =====
+    // 当前预热中的进程句柄（null 表示无预热）
+    @Volatile private var preheatedLaunch: com.pmcl.core.launch.LaunchManager.PreheatedLaunch? = null
+    private val _predictiveState = MutableStateFlow<PredictiveState>(PredictiveState.Idle)
+    val predictiveState: StateFlow<PredictiveState> = _predictiveState.asStateFlow()
+
+    /** 预判启动 UI 状态 */
+    sealed class PredictiveState {
+        /** 空闲：无预热 */
+        object Idle : PredictiveState()
+        /** 正在预判 + 预热中 */
+        data class Preheating(val versionId: String, val confidence: Double) : PredictiveState()
+        /** 预热就绪：进程已启动，等待用户确认 */
+        data class Ready(val versionId: String, val confidence: Double) : PredictiveState()
+        /** 预热失败 */
+        data class Failed(val reason: String) : PredictiveState()
+        /** 已被采用（用户启动了该版本） */
+        object Adopted : PredictiveState()
+        /** 已被中止（用户启动了其他版本） */
+        object Aborted : PredictiveState()
+    }
+
     // ===== 兼容性选项（检测到外部启动器时弹出选择） =====
     data class CompatOption(
         val title: String,
@@ -2312,6 +2334,151 @@ class LauncherViewModel {
 
     // ============ 启动游戏 ============
 
+    // ===== 预判启动：进入启动页时预测最可能的版本并后台预启动 =====
+
+    /**
+     * 触发预判启动：用 LaunchPredictor 预测最可能的版本，若置信度达标则后台预热进程。
+     * 调用时机：用户切换到 LaunchPage 时（见 LaunchPage.LaunchedEffect）。
+     *
+     * 安全保证：
+     * - 未开启 predictiveLaunch 偏好时不执行
+     * - 已有运行中实例时不执行（避免多开）
+     * - 已有预热进程时不重复预热
+     * - 预热失败不影响正常启动（用户点启动时走原 launch 流程）
+     */
+    fun predictAndPreheat() {
+        if (!preferences.isPredictiveLaunch()) return
+        if (_gameRunning.value || _runningInstances.value.isNotEmpty()) return
+        if (preheatedLaunch != null) return  // 已有预热
+        if (_account.value == null) return   // 无账号无法启动
+
+        scope.launch {
+            try {
+                // 1. 收集本地已安装版本 ID 作为候选集
+                val installedIds = _localVersionInfos.value.mapNotNull { it.getId() }.toSet()
+                if (installedIds.isEmpty()) return@launch
+
+                // 2. 预测
+                val predictor = com.pmcl.core.launch.LaunchPredictor(
+                    core.playTimeTracker(), preferences
+                )
+                val result = withContext(Dispatchers.IO) { predictor.predict(installedIds) }
+                if (!result.shouldPreheat()) {
+                    _predictiveState.value = PredictiveState.Idle
+                    return@launch
+                }
+                val versionId = result.topVersionId ?: return@launch
+                val account = _account.value ?: return@launch
+
+                _predictiveState.value = PredictiveState.Preheating(versionId, result.confidence)
+                _status.value = "预判启动：预测版本 $versionId（置信度 ${(result.confidence * 100).toInt()}%），后台预热中…"
+
+                // 3. 构造 LaunchProfile（与 launch() 相同的路径）
+                val requiredJavaVer = withContext(Dispatchers.IO) {
+                    try { core.profileBuilder().getRequiredJavaVersion(versionId) } catch (e: Throwable) { 0 }
+                }
+                val javaExe = resolveJavaExe(versionId, requiredJavaVer)
+                if (javaExe.isEmpty()) {
+                    _predictiveState.value = PredictiveState.Failed("无法解析 Java 路径")
+                    return@launch
+                }
+                val launchProfile = try {
+                    withContext(Dispatchers.IO) {
+                        core.profileBuilder().build(versionId, account)
+                    }
+                } catch (e: Throwable) {
+                    _predictiveState.value = PredictiveState.Failed("构建启动配置失败：${e.message}")
+                    return@launch
+                }
+
+                // 4. 预热进程（同步阻塞，在 IO 调度器内执行）
+                val preheated = withContext(Dispatchers.IO) {
+                    core.launch().preheat(launchProfile, javaExe, { line ->
+                        // 预热期间日志不写入 UI（避免污染主日志面板），但可记入状态
+                    }, null)
+                }
+
+                if (preheated.isFailed) {
+                    _predictiveState.value = PredictiveState.Failed(preheated.errorMessage ?: "未知错误")
+                    _status.value = "预判启动失败：${preheated.errorMessage}"
+                    return@launch
+                }
+                if (!preheated.isPreheated) {
+                    _predictiveState.value = PredictiveState.Failed("预启动被取消")
+                    return@launch
+                }
+
+                preheatedLaunch = preheated
+                _predictiveState.value = PredictiveState.Ready(versionId, result.confidence)
+                _status.value = "预判就绪：$versionId 已在后台启动，点击启动按钮秒开"
+
+            } catch (e: Throwable) {
+                _predictiveState.value = PredictiveState.Failed(e.message ?: "未知错误")
+            }
+        }
+    }
+
+    /**
+     * Java 路径解析辅助（与 launch() 内的逻辑保持一致）。
+     */
+    private suspend fun resolveJavaExe(versionId: String, requiredJavaVer: Int): String {
+        return withContext(Dispatchers.IO) {
+            val versionPath = preferences.getVersionJavaPath(versionId)
+            if (versionPath.isNotEmpty()) return@withContext versionPath
+            val globalPath = preferences.getJavaPath()
+            if (globalPath.isNotEmpty()) return@withContext globalPath
+            try {
+                JavaRuntimeFinder.findJavaExecutable(
+                    config.getRuntimesDir(), requiredJavaVer
+                ) ?: ""
+            } catch (e: Throwable) { "" }
+        }
+    }
+
+    /**
+     * 取消预判启动：杀掉预热进程（用户离开启动页或主动取消时调用）。
+     */
+    fun cancelPreheat() {
+        preheatedLaunch?.let {
+            if (it.isPreheated) {
+                it.abort()
+                _predictiveState.value = PredictiveState.Aborted
+                _status.value = "预判启动已取消"
+            }
+        }
+        preheatedLaunch = null
+        // 不立刻重置 Idle，让 UI 有机会显示 Aborted；下次 predictAndPreheat 会重置
+    }
+
+    /**
+     * 尝试采用预热进程：若用户启动的版本与预热版本一致，则 confirm 预热进程，
+     * 返回 future 供 launch() 协程等待退出；否则 abort 预热进程并返回 null。
+     *
+     * @param versionId 用户实际启动的版本 ID
+     * @return 采用成功时返回 future（退出码），不匹配或无预热时返回 null
+     */
+    private fun tryAdoptPreheated(versionId: String): java.util.concurrent.CompletableFuture<Int>? {
+        val preheated = preheatedLaunch ?: return null
+        if (!preheated.isPreheated) {
+            preheatedLaunch = null
+            return null
+        }
+        return if (preheated.getVersionId() == versionId) {
+            // 版本匹配：采用预热进程
+            preheatedLaunch = null
+            _predictiveState.value = PredictiveState.Adopted
+            _status.value = "已采用预启动进程：$versionId 秒开"
+            preheated.confirm()
+        } else {
+            // 版本不匹配：中止预热进程，返回 null 让 launch() 走正常启动
+            preheated.abort()
+            preheatedLaunch = null
+            _predictiveState.value = PredictiveState.Aborted
+            _status.value = "预判版本 ${preheated.getVersionId()} 与实际 $versionId 不符，已中止"
+            null
+        }
+    }
+
     fun launch() {
         val versionId = _selectedVersion.value ?: run {
             _status.value = "请先选择版本"
@@ -2593,8 +2760,15 @@ class LauncherViewModel {
                 core.playTimeTracker().recordStart(versionId)
                 timeTracked = true
 
+                // 尝试采用预判启动的预热进程（版本一致则秒开，不一致则中止预热后走正常启动）
+                val adoptedFuture = tryAdoptPreheated(versionId)
+
                 // launchAsync 返回 CompletableFuture，需等待进程退出，否则 gameRunning 会立即被 finally 重置
-                val future = core.launch().launchAsync(
+                // 若已采用预热进程，则跳过 launchAsync 直接复用预热 future
+                val future = if (adoptedFuture != null) {
+                    adoptedFuture
+                } else {
+                    core.launch().launchAsync(
                     profile, javaExe,
                     { line ->
                         // 同时写入实例日志和全局日志（如果该实例是活跃的）
@@ -2613,6 +2787,7 @@ class LauncherViewModel {
                     },
                     instLogger
                 )
+                }
                 val exitCode = withContext(Dispatchers.IO) { future.join() }
                 _status.value = "游戏已退出（code=$exitCode） $versionId"
 
