@@ -29,12 +29,14 @@ public final class Library {
     private final JsonArray rules;      // 规则数组
     private final boolean nativeLib;
     private final String nameClassifier; // 从 name 中解析的 classifier（如 "natives-macos"），无则 null
+    private final String url;           // 顶层 url（Fabric/Forge/NeoForge 等第三方库的 maven 仓库地址）
 
     /** 架构覆盖（ThreadLocal），用于匹配游戏 Java 的架构而非启动器自身的架构 */
     private static final ThreadLocal<String> ARCH_OVERRIDE = new ThreadLocal<>();
 
     private Library(String name, Artifact artifact, Map<String, Artifact> classifiers,
-                    JsonObject natives, JsonArray rules, boolean nativeLib, String nameClassifier) {
+                    JsonObject natives, JsonArray rules, boolean nativeLib, String nameClassifier,
+                    String url) {
         this.name = name;
         this.artifact = artifact;
         this.classifiers = classifiers;
@@ -42,6 +44,7 @@ public final class Library {
         this.rules = rules;
         this.nativeLib = nativeLib;
         this.nameClassifier = nameClassifier;
+        this.url = url;
     }
 
     public static Library parse(JsonObject o) {
@@ -65,12 +68,16 @@ public final class Library {
                 }
             }
         }
+        // 顶层 url：Fabric/Forge/NeoForge 等第三方库只有 name + url（无 downloads 字段）
+        // url 是 maven 仓库根，实际 jar 路径按 maven 规则拼接：<url>/<group>/<artifact>/<version>/<artifact>-<version>.jar
+        String url = o.has("url") && !o.get("url").isJsonNull()
+                ? o.get("url").getAsString() : "";
         JsonObject natives = o.has("natives") ? o.getAsJsonObject("natives") : null;
         JsonArray rules = o.has("rules") ? o.getAsJsonArray("rules") : null;
         // native 库：有 natives 字段，或 name classifier 以 "natives-" 开头
         boolean isNative = natives != null || (nameCls != null && nameCls.startsWith("natives-"));
         return new Library(name, art, Collections.unmodifiableMap(classifs),
-                natives, rules, isNative, nameCls);
+                natives, rules, isNative, nameCls, url);
     }
 
     public String getName() { return name; }
@@ -79,6 +86,8 @@ public final class Library {
     public boolean isNativeLib() { return nativeLib; }
     /** 从 name 中解析的 classifier（如 "natives-macos"），无则 null。 */
     public String getNameClassifier() { return nameClassifier; }
+    /** 顶层 maven 仓库 url（Fabric/Forge/NeoForge 第三方库格式），无则空串 */
+    public String getUrl() { return url; }
 
     /**
      * 设置架构覆盖，让 native classifier 选择匹配游戏 Java 的架构而非启动器自身架构。

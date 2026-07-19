@@ -307,7 +307,9 @@ public final class LaunchProfileBuilder {
 
             // === 旧格式：natives 字段 + classifiers ===
             // 主 artifact 加入 classpath
-            if (lib.getArtifact() != null) {
+            // Mojang 官方库有 downloads.artifact；Fabric/Forge/NeoForge 第三方库只有顶层 url
+            // 两种格式都要加入 classpath（verifyLibraries 会负责下载缺失的 jar）
+            if (lib.getArtifact() != null || !lib.getUrl().isEmpty()) {
                 Path libPath = librariesDir.resolve(lib.getPath());
                 addClasspath(profile, seen, libPath);
             }
@@ -799,6 +801,24 @@ public final class LaunchProfileBuilder {
                     }
                 } else if (art.getUrl() == null || art.getUrl().isEmpty()) {
                     missing.add(lib.getName() + " (无下载URL)");
+                }
+            } else if (!lib.getUrl().isEmpty()) {
+                // Fabric/Forge/NeoForge 第三方库格式：只有顶层 url（maven 仓库根），无 downloads.artifact
+                // 按 maven 规则拼接下载 URL：<url>/<group>/<artifact>/<version>/<artifact>-<version>.jar
+                Path libPath = librariesDir.resolve(lib.getPath());
+                if (Files.exists(libPath)) continue;
+                if (downloadManager != null) {
+                    String mavenUrl = lib.getUrl();
+                    if (!mavenUrl.endsWith("/")) mavenUrl += "/";
+                    mavenUrl += lib.getPath();
+                    try {
+                        Files.createDirectories(libPath.getParent());
+                        downloadManager.downloadTo(mavenUrl, libPath);
+                    } catch (IOException e) {
+                        missing.add(lib.getName() + ": " + e.getMessage());
+                    }
+                } else {
+                    missing.add(lib.getName() + " (无下载管理器)");
                 }
             }
 
