@@ -1,6 +1,7 @@
 package com.pmcl.ui.companion
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -20,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.input.pointer.PointerEventType
@@ -36,6 +38,7 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.WindowScope
 import androidx.compose.ui.window.rememberWindowState
+import com.pmcl.ui.theme.ParallaxBackground
 import java.awt.MouseInfo
 import java.awt.Point
 import java.awt.event.ComponentAdapter
@@ -54,7 +57,10 @@ import java.util.Locale
 fun CompanionPairDialog(
     pairing: PairingManager,
     hostServer: PmclHostServer,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    parallaxBg: Boolean = false,
+    glassOn: Boolean = false,
+    useDark: Boolean = false
 ) {
     // 本地可观察状态
     var pairingCode by remember { mutableStateOf(pairing.getPairingCode()) }
@@ -111,41 +117,77 @@ fun CompanionPairDialog(
             onDispose { window.removeComponentListener(listener) }
         }
 
-        Surface(
-            shape = RoundedCornerShape(14.dp),
-            tonalElevation = 6.dp,
-            modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(14.dp))
-        ) {
-            Column(Modifier.fillMaxSize()) {
-                // 无边框标题栏：可拖动 + 关闭按钮
-                Row(
-                    Modifier.fillMaxWidth().height(40.dp).padding(horizontal = 12.dp)
-                        .then(windowDragModifier()),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        Modifier.weight(1f),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            Icons.Filled.PhoneIphone, null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            "配对至 iPhone",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
+        // 分层渲染：底层视差背景 + 玻璃模糊层 + 上层透明 Surface 承载清晰内容
+        Box(Modifier.fillMaxSize().clip(RoundedCornerShape(14.dp))) {
+            // 视差背景层（与主窗口一致）
+            if (parallaxBg) {
+                ParallaxBackground(
+                    modifier = Modifier.fillMaxSize(),
+                    useDark = useDark
+                )
+            }
+            // 玻璃模糊层：独立节点被 blur，渲染毛玻璃质感
+            if (glassOn) {
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .blur(24.dp)
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
+                )
+            }
+            // 上层透明 Surface：承载清晰内容
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = if (parallaxBg || glassOn) Color.Transparent else MaterialTheme.colorScheme.surface,
+                tonalElevation = if (parallaxBg || glassOn) 0.dp else 6.dp,
+                modifier = Modifier.fillMaxSize()
+            ) {
+                Column(Modifier.fillMaxSize()) {
+                    // 无边框标题栏：可拖动 + 关闭按钮（玻璃主题下也应用分层玻璃）
+                    Box(Modifier.fillMaxWidth().height(40.dp)) {
+                        if (glassOn) {
+                            Box(
+                                Modifier
+                                    .matchParentSize()
+                                    .blur(24.dp)
+                                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
+                            )
+                        }
+                        Surface(
+                            color = if (glassOn) Color.Transparent else MaterialTheme.colorScheme.surface,
+                            tonalElevation = if (glassOn) 0.dp else 2.dp,
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            Row(
+                                Modifier.fillMaxWidth().padding(horizontal = 12.dp)
+                                    .then(windowDragModifier()),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    Modifier.weight(1f),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Filled.PhoneIphone, null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        "配对至 iPhone",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                IconButton(
+                                    onClick = onDismiss,
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(Icons.Filled.Close, "关闭", modifier = Modifier.size(18.dp))
+                                }
+                            }
+                        }
                     }
-                    IconButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(Icons.Filled.Close, "关闭", modifier = Modifier.size(18.dp))
-                    }
-                }
 
                 Row(
                     Modifier.weight(1f).fillMaxWidth().padding(24.dp),
@@ -412,8 +454,9 @@ fun CompanionPairDialog(
                     }
                 }
                 } // 内容 Row 闭合
-            } // Column(Surface 内) 闭合
-        } // Surface 闭合
+                } // Column(Surface 内) 闭合
+            } // Surface 闭合
+        } // Box 闭合
     } // Window lambda 闭合
 
     // 重命名对话框

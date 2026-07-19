@@ -201,14 +201,17 @@ fun main() = application {
                     }
                 }
             }
-            // iOS 伴随 App 配对对话框
+            // iOS 伴随 App 配对对话框（保持与主窗口主题一致）
             if (showCompanionDialog.value) {
                 val scheme = if (useDark) darkColorScheme() else lightColorScheme()
                 MaterialTheme(colorScheme = scheme) {
                     com.pmcl.ui.companion.CompanionPairDialog(
                         pairing = pairingManager,
                         hostServer = hostServer,
-                        onDismiss = { showCompanionDialog.value = false }
+                        onDismiss = { showCompanionDialog.value = false },
+                        parallaxBg = parallaxBg,
+                        glassOn = glassOn,
+                        useDark = useDark
                     )
                 }
             }
