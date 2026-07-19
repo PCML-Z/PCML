@@ -58,7 +58,17 @@ fun ModsPage(vm: LauncherViewModel) {
     }
     val updateCount = remember(modUpdates) { modUpdates.count { it.hasUpdate() } }
 
-    LaunchedEffect(Unit) { vm.refreshInstalledMods() }
+    // 时间窗守卫：切回 ModsPage 30 秒内不重复触发扫描
+    // refreshInstalledMods 内部虽有按目录 mtime 的 modScanCache，但每次仍要 listFiles 所有 versions 子目录 + stat，
+    // 100+ 整合包玩家切页频繁时仍是开销。30s 窗口平衡时效与性能
+    var lastModsRefreshMs by remember { mutableStateOf(0L) }
+    LaunchedEffect(Unit) {
+        val now = System.currentTimeMillis()
+        if (now - lastModsRefreshMs > 30_000L) {
+            lastModsRefreshMs = now
+            vm.refreshInstalledMods()
+        }
+    }
 
     val loaders = remember(installedMods) {
         installedMods.map { it.getLoader() ?: "unknown" }.distinct().sorted()

@@ -42,14 +42,16 @@ fun ParallaxBackground(
     var mouseTargetY by remember { mutableStateOf(0f) }
 
     // spring 平滑跟随，避免抖动
+    // 性能：NoBouncy + StiffnessMedium 让鼠标移动后动画快速收敛，不回弹振荡
+    // 之前用 DampingRatioMediumBouncy + StiffnessLow 会振荡多次，每帧触发 4 个 Canvas 重绘
     val mouseX by animateFloatAsState(
         targetValue = mouseTargetX,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
+        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium),
         label = "parallaxX"
     )
     val mouseY by animateFloatAsState(
         targetValue = mouseTargetY,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
+        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium),
         label = "parallaxY"
     )
 
@@ -81,43 +83,26 @@ fun ParallaxBackground(
             }
     ) {
         val wPx = with(density) { 600.dp.toPx() }
-        val hPx = with(density) { 600.dp.toPx() }
 
-        // 远景层：偏移系数 0.02
+        // 性能：4 层合并到 1 个 Canvas，单次 DrawScope 内画 4 个 drawCircle + 1 个 drawRect
+        // 之前 4 个独立 Canvas 各自 fillMaxSize，每帧都全屏重绘 4 次离屏 buffer
         Canvas(Modifier.fillMaxSize()) {
-            val cx = size.width * 0.3f + mouseX * 0.02f * size.width
-            val cy = size.height * 0.4f + mouseY * 0.02f * size.height
-            drawRadialGradient(
-                color = farColor,
-                center = Offset(cx, cy),
-                radius = wPx
-            )
-        }
+            // 远景层：偏移系数 0.02
+            val farCx = size.width * 0.3f + mouseX * 0.02f * size.width
+            val farCy = size.height * 0.4f + mouseY * 0.02f * size.height
+            drawRadialGradient(farColor, Offset(farCx, farCy), wPx)
 
-        // 中景层：偏移系数 0.05
-        Canvas(Modifier.fillMaxSize()) {
-            val cx = size.width * 0.7f + mouseX * 0.05f * size.width
-            val cy = size.height * 0.6f + mouseY * 0.05f * size.height
-            drawRadialGradient(
-                color = midColor,
-                center = Offset(cx, cy),
-                radius = wPx * 0.7f
-            )
-        }
+            // 中景层：偏移系数 0.05
+            val midCx = size.width * 0.7f + mouseX * 0.05f * size.width
+            val midCy = size.height * 0.6f + mouseY * 0.05f * size.height
+            drawRadialGradient(midColor, Offset(midCx, midCy), wPx * 0.7f)
 
-        // 近景层：偏移系数 0.10
-        Canvas(Modifier.fillMaxSize()) {
-            val cx = size.width * 0.5f + mouseX * 0.10f * size.width
-            val cy = size.height * 0.3f + mouseY * 0.10f * size.height
-            drawRadialGradient(
-                color = nearColor,
-                center = Offset(cx, cy),
-                radius = wPx * 0.5f
-            )
-        }
+            // 近景层：偏移系数 0.10
+            val nearCx = size.width * 0.5f + mouseX * 0.10f * size.width
+            val nearCy = size.height * 0.3f + mouseY * 0.10f * size.height
+            drawRadialGradient(nearColor, Offset(nearCx, nearCy), wPx * 0.5f)
 
-        // 遮罩：保证内容可读性
-        Canvas(Modifier.fillMaxSize()) {
+            // 遮罩：保证内容可读性
             drawRect(scrimColor)
         }
     }

@@ -77,9 +77,9 @@ fun LaunchPage(vm: LauncherViewModel) {
     val recents by vm.recentVersions.collectAsState()
     val lastPlayedTimes by vm.lastPlayedTimes.collectAsState()
     val scanning by vm.scanning.collectAsState()
-    val scanProgress by vm.scanProgress.collectAsState()
+    // scanProgress / status 是高频流（扫描期间每版本更新 / 各处当作日志输出）
+    // 不在顶层订阅，避免整页 LaunchPage 跟着高频重组；下沉到使用它们的子 Composable
     val selected by vm.selectedVersion.collectAsState()
-    val status by vm.status.collectAsState()
     val account by vm.account.collectAsState()
     val gameRunning by vm.gameRunning.collectAsState()
     val installing by vm.installing.collectAsState()
@@ -126,6 +126,26 @@ fun LaunchPage(vm: LauncherViewModel) {
         if (versions.isEmpty()) vm.refreshVersions()
     }
 
+    // 远程版本分类筛选状态（提到 LazyColumn 外，供 items() 引用 filtered 列表）
+    var versionCategory by remember { mutableStateOf(1) }
+    var searchQuery by remember { mutableStateOf("") }
+    val filtered = remember(versions, versionCategory, searchQuery) {
+        var list = versions
+        if (versionCategory != 0) {
+            val typeFilter = when (versionCategory) {
+                1 -> "release"
+                2 -> "snapshot"
+                3 -> "old_beta"
+                else -> "old_alpha"
+            }
+            list = list.filter { it.getType() == typeFilter }
+        }
+        if (searchQuery.isNotEmpty()) {
+            list = list.filter { it.getId()?.contains(searchQuery, ignoreCase = true) == true }
+        }
+        list.take(200) // 最多显示 200 个，避免列表过长
+    }
+
     Row(Modifier.fillMaxSize()) {
         // ===== 左侧：统一用 LazyColumn 滚动，避免嵌套滚动冲突 =====
         LazyColumn(
@@ -162,57 +182,9 @@ fun LaunchPage(vm: LauncherViewModel) {
             // ===== 扫描进度/结果反馈 =====
             item {
                 // 用 AnimatedVisibility 让进度条平滑进出
+                // scanProgress 在 ScanProgressBar 内部订阅，避免高频更新触发整页重组
                 AnimatedVisibility(visible = scanning) {
-                    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-                        val p = scanProgress
-                        val fraction = p?.getFraction() ?: 0f
-                        val total = p?.getTotal() ?: 0
-                        val scanned = p?.getScanned() ?: 0
-                        val currentDir = p?.getCurrentDir() ?: ""
-                        val currentVer = p?.getCurrentVersion() ?: ""
-
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                if (total > 0) "扫描中 $scanned/$total"
-                                else "正在列出目录…",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.weight(1f)
-                            )
-                            if (total > 0) {
-                                Text(
-                                    "${(fraction * 100).toInt()}%",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-                        }
-                        Spacer(Modifier.height(4.dp))
-                        if (total > 0) {
-                            LinearProgressIndicator(
-                                progress = { fraction.coerceIn(0f, 1f) },
-                                modifier = Modifier.fillMaxWidth().height(6.dp),
-                                color = MaterialTheme.colorScheme.primary,
-                                trackColor = MaterialTheme.colorScheme.surfaceVariant,
-                            )
-                        } else {
-                            LinearProgressIndicator(
-                                modifier = Modifier.fillMaxWidth().height(6.dp),
-                                color = MaterialTheme.colorScheme.primary,
-                                trackColor = MaterialTheme.colorScheme.surfaceVariant,
-                            )
-                        }
-                        if (currentVer.isNotEmpty()) {
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                "当前: $currentDir/$currentVer",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.outline,
-                                maxLines = 1
-                            )
-                        }
-                    }
+                    ScanProgressBar(vm)
                 }
                 // 扫描完成后显示结果摘要（常驻直到下次扫描）
                 AnimatedVisibility(visible = !scanning && localInfos.isEmpty()) {
@@ -380,9 +352,6 @@ fun LaunchPage(vm: LauncherViewModel) {
 
             // ===== 版本分类筛选 + 搜索 =====
             item {
-                var versionCategory by remember { mutableStateOf(1) }
-                var searchQuery by remember { mutableStateOf("") }
-
                 Column {
                     // 分类滑动选择器
                     val categories = listOf("全部", "正式版", "快照", "旧版Beta", "旧版Alpha")
@@ -404,37 +373,23 @@ fun LaunchPage(vm: LauncherViewModel) {
                         textStyle = MaterialTheme.typography.bodySmall
                     )
                     Spacer(Modifier.height(4.dp))
-                    // 过滤逻辑
-                    val filtered = remember(versions, versionCategory, searchQuery) {
-                        var list = versions
-                        if (versionCategory != 0) {
-                            val typeFilter = when (versionCategory) {
-                                1 -> "release"
-                                2 -> "snapshot"
-                                3 -> "old_beta"
-                                else -> "old_alpha"
-                            }
-                            list = list.filter { it.getType() == typeFilter }
-                        }
-                        if (searchQuery.isNotEmpty()) {
-                            list = list.filter { it.getId()?.contains(searchQuery, ignoreCase = true) == true }
-                        }
-                        list.take(200) // 最多显示 200 个，避免列表过长
-                    }
                     Text("显示 ${filtered.size} 个版本",
                          style = MaterialTheme.typography.labelSmall,
                          color = MaterialTheme.colorScheme.outline)
                     Spacer(Modifier.height(6.dp))
-                    filtered.forEach { v ->
-                        RemoteVersionRow(
-                            id = v.getId(),
-                            type = v.getType(),
-                            selected = v.getId() == selected,
-                            installed = v.getId() in localInfoIds,
-                            onClick = { vm.selectVersion(v.getId()) }
-                        )
-                    }
                 }
+            }
+
+            // 远程版本列表：作为 LazyColumn 真正的 items，按视口懒加载
+            // 之前用 filtered.forEach 塞进单个 item，导致 200 行全部立即测量+布局，丧失懒加载意义
+            items(filtered, key = { v -> "remote-" + v.getId() }) { v ->
+                RemoteVersionRow(
+                    id = v.getId(),
+                    type = v.getType(),
+                    selected = v.getId() == selected,
+                    installed = v.getId() in localInfoIds,
+                    onClick = { vm.selectVersion(v.getId()) }
+                )
             }
         }
 
@@ -747,9 +702,8 @@ fun LaunchPage(vm: LauncherViewModel) {
             }
 
             Spacer(Modifier.height(8.dp))
-            Text("状态：$status",
-                 style = MaterialTheme.typography.labelSmall,
-                 color = MaterialTheme.colorScheme.outline)
+            // status 是高频流（各处当作日志输出），单独订阅避免整页重组
+            StatusLine(vm)
 
             // 运行中实例列表（多实例启动支持）
             if (runningInstances.isNotEmpty()) {
@@ -1610,6 +1564,76 @@ private fun PinnedTile(
  * 最近使用行：比磁贴更紧凑，单行显示版本 ID + 上次游玩时间 + 快速启动按钮。
  * 与磁贴去重后展示，避免重复。
  */
+
+/**
+ * 扫描进度条：单独订阅 scanProgress 高频流，避免父级 LaunchPage 跟着重组。
+ */
+@Composable
+private fun ScanProgressBar(vm: LauncherViewModel) {
+    val scanProgress by vm.scanProgress.collectAsState()
+    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        val p = scanProgress
+        val fraction = p?.getFraction() ?: 0f
+        val total = p?.getTotal() ?: 0
+        val scanned = p?.getScanned() ?: 0
+        val currentDir = p?.getCurrentDir() ?: ""
+        val currentVer = p?.getCurrentVersion() ?: ""
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                if (total > 0) "扫描中 $scanned/$total"
+                else "正在列出目录…",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.weight(1f)
+            )
+            if (total > 0) {
+                Text(
+                    "${(fraction * 100).toInt()}%",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+        if (total > 0) {
+            LinearProgressIndicator(
+                progress = { fraction.coerceIn(0f, 1f) },
+                modifier = Modifier.fillMaxWidth().height(6.dp),
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.surfaceVariant,
+            )
+        } else {
+            LinearProgressIndicator(
+                modifier = Modifier.fillMaxWidth().height(6.dp),
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.surfaceVariant,
+            )
+        }
+        if (currentVer.isNotEmpty()) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "当前: $currentDir/$currentVer",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline,
+                maxLines = 1
+            )
+        }
+    }
+}
+
+/**
+ * 状态行：单独订阅 status 高频流（ViewModel 各处都 _status.value = ...）
+ */
+@Composable
+private fun StatusLine(vm: LauncherViewModel) {
+    val status by vm.status.collectAsState()
+    Text("状态：$status",
+         style = MaterialTheme.typography.labelSmall,
+         color = MaterialTheme.colorScheme.outline)
+}
+
 @Composable
 private fun RecentVersionRow(
     versionId: String,
@@ -1848,25 +1872,27 @@ private fun AccountCard(account: com.pmcl.core.auth.Account?, vm: LauncherViewMo
     }
 }
 
-/** 启动页账号头像（40dp，带内存缓存） */
-private val launchAvatarCache = ConcurrentHashMap<String, ImageBitmap>()
+/** 启动页账号头像（40dp，带 LRU 内存缓存） */
+private val launchAvatarCache = com.pmcl.ui.util.LruImageCache(maxSize = 64)
 
 @Composable
 private fun AvatarImage(url: String) {
-    var image by remember(url) { mutableStateOf<ImageBitmap?>(launchAvatarCache[url]) }
+    var image by remember(url) { mutableStateOf(launchAvatarCache.get(url)) }
     LaunchedEffect(url) {
         if (url.isEmpty()) { image = null; return@LaunchedEffect }
-        if (launchAvatarCache.containsKey(url)) { image = launchAvatarCache[url]; return@LaunchedEffect }
+        launchAvatarCache.get(url)?.let { image = it; return@LaunchedEffect }
+        // 已知失败的 URL 不重试，避免每次重组都重新下载
+        if (launchAvatarCache.isKnownFailed(url)) { image = null; return@LaunchedEffect }
         withContext(Dispatchers.IO) {
             try {
                 if (url.isNullOrBlank()) return@withContext
                 val bytes = URL(url).readBytes()
                 val bmp = SkiaImage.makeFromEncoded(bytes).toComposeImageBitmap()
-                launchAvatarCache[url] = bmp
-                if (launchAvatarCache.size > 50) launchAvatarCache.clear()
+                launchAvatarCache.put(url, bmp)
                 image = bmp
             } catch (_: Throwable) {
-                // 下载/解码失败：不写入缓存（ConcurrentHashMap 不允许 null value），下次重试
+                // 下载/解码失败：标记为已知失败，下次不重试
+                launchAvatarCache.markFailed(url)
                 image = null
             }
         }

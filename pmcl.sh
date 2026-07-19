@@ -45,7 +45,15 @@ case "$MODE" in
             exit 1
         fi
         echo "启动 PMCL GUI (Java $JAVA_VERSION)..."
-        exec java -jar "$JAR_PATH"
+        # JVM 性能参数：G1GC + 初始/最大堆 + 字符串去重 + 关闭偏向锁（Java 18+ 默认关闭，显式声明避免告警）
+        exec java \
+            -Xms512m -Xmx2g \
+            -XX:+UseG1GC \
+            -XX:+UseStringDeduplication \
+            -XX:+DisableExplicitGC \
+            -XX:MaxGCPauseMillis=200 \
+            -XX:SoftMaxHeapSize=1536m \
+            -jar "$JAR_PATH"
         ;;
     cli)
         shift
