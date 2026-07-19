@@ -271,10 +271,28 @@ public final class LaunchProfileBuilder {
         profile.setGameDir(gameDir);
 
         Set<String> seen = new LinkedHashSet<>();
-        // client jar
-        Path clientJar = findVersionJar(versionId);
-        if (clientJar != null) {
-            addClasspath(profile, seen, clientJar);
+        // client jar: walk inheritsFrom chain
+        // - Fabric 子版本目录只有 JSON 没有 jar；真正的游戏 jar 在父版本（原版 MC）目录
+        // - Forge 子版本有小补丁 jar；父版本（原版）jar 也需加入 classpath
+        // - 原版版本：自身 jar 即可，无 inheritsFrom
+        java.util.Set<String> visitedVer = new java.util.HashSet<>();
+        String currentVer = versionId;
+        VersionJson currentVj = vj;
+        while (currentVer != null && !currentVer.isEmpty()
+                && visitedVer.add(currentVer)) {
+            Path jar = findVersionJar(currentVer);
+            if (jar != null) {
+                addClasspath(profile, seen, jar);
+            }
+            String parent = currentVj.getInheritsFrom();
+            if (parent == null || parent.isEmpty() || parent.equals(currentVer)) break;
+            // 加载父版本 JSON 以获取更上一层的 inheritsFrom（处理嵌套继承）
+            try {
+                currentVj = loadVersionJson(parent);
+            } catch (IOException e) {
+                break;  // 父版本 JSON 读取失败，停止向上查找
+            }
+            currentVer = parent;
         }
 
         // 解压 natives 到 versions/{id}/natives/ 目录
