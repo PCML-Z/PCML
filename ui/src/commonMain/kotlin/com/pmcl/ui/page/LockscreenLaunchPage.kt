@@ -2,7 +2,6 @@ package com.pmcl.ui.page
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -13,11 +12,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -26,7 +21,6 @@ import com.pmcl.ui.theme.LocalThemeState
 import com.pmcl.ui.theme.ParallaxBackground
 import com.pmcl.ui.theme.glassCardColors
 import com.pmcl.ui.viewmodel.LauncherViewModel
-import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -58,21 +52,11 @@ fun LockscreenLaunchPage(
     val compatOptions by vm.compatOptions.collectAsState()
     val compatTitle by vm.compatTitle.collectAsState()
 
-    // 每秒刷新的时钟
-    var now by remember { mutableStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            now = System.currentTimeMillis()
-            delay(1000)
-        }
-    }
-    val timeFmt = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
-    val dateFmt = remember { SimpleDateFormat("M月d日 EEEE", Locale.CHINESE) }
     val cardShape = RoundedCornerShape(4.dp)
 
     // 根据当前小时段生成欢迎语
-    val greeting = remember(now) {
-        val h = SimpleDateFormat("HH", Locale.getDefault()).format(Date(now)).toIntOrNull() ?: 0
+    val greeting = remember {
+        val h = SimpleDateFormat("HH", Locale.getDefault()).format(Date()).toIntOrNull() ?: 0
         when (h) {
             in 5..10    -> "早上好"
             in 11..13   -> "中午好"
@@ -109,90 +93,32 @@ fun LockscreenLaunchPage(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // ----- 顶部：左欢迎语 + 右时钟，左右分栏 -----
-            Row(
+            // ----- 顶部：欢迎语（左对齐） -----
+            Column(
                 Modifier.fillMaxWidth().padding(top = 40.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
+                horizontalAlignment = Alignment.Start
             ) {
-                // 左侧：欢迎语
-                Column(
-                    Modifier.weight(1f).padding(end = 16.dp),
-                    horizontalAlignment = Alignment.Start
-                ) {
-                    Text(
-                        greeting,
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontSize = 40.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f)
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    val acc = account
-                    Text(
-                        acc?.username ?: I18n.t("launch.not_logged_in_short"),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        "PMCL · Minecraft Launcher",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                    )
-                }
-
-                // 右侧：真正的液态玻璃时钟数字（无背景容器）
-                // 多层叠加形成玻璃材质：外发光 → 玻璃体 → 内部折射 → 顶部高光 → 清晰主体
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(contentAlignment = Alignment.Center) {
-                        // 第1层：超大半径模糊白色，形成柔和外发光（玻璃边缘的光晕扩散）
-                        Text(
-                            timeFmt.format(Date(now)),
-                            style = MaterialTheme.typography.displayLarge,
-                            fontSize = 140.sp,
-                            fontWeight = FontWeight.Light,
-                            color = Color.White.copy(alpha = 0.4f),
-                            modifier = Modifier.blur(36.dp)
-                        )
-                        // 第2层：中等模糊白色，玻璃体的半透明厚度感
-                        Text(
-                            timeFmt.format(Date(now)),
-                            style = MaterialTheme.typography.displayLarge,
-                            fontSize = 140.sp,
-                            fontWeight = FontWeight.Light,
-                            color = Color.White.copy(alpha = 0.35f),
-                            modifier = Modifier.blur(18.dp)
-                        )
-                        // 第3层：小半径模糊白色，玻璃内部的光线散射
-                        Text(
-                            timeFmt.format(Date(now)),
-                            style = MaterialTheme.typography.displayLarge,
-                            fontSize = 140.sp,
-                            fontWeight = FontWeight.Light,
-                            color = Color.White.copy(alpha = 0.45f),
-                            modifier = Modifier.blur(6.dp)
-                        )
-                        // 第4层：清晰主体文字（高透明白色，玻璃表面的清晰反射）
-                        Text(
-                            timeFmt.format(Date(now)),
-                            style = MaterialTheme.typography.displayLarge,
-                            fontSize = 140.sp,
-                            fontWeight = FontWeight.Light,
-                            color = Color.White.copy(alpha = 0.88f)
-                        )
-                    }
-
-                    Spacer(Modifier.height(16.dp))
-                    // 日期（次级）
-                    Text(
-                        dateFmt.format(Date(now)),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
-                    )
-                }
+                Text(
+                    greeting,
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontSize = 40.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f)
+                )
+                Spacer(Modifier.height(8.dp))
+                val acc = account
+                Text(
+                    acc?.username ?: I18n.t("launch.not_logged_in_short"),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "PMCL · Minecraft Launcher",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                )
             }
 
             // ----- 底部：单一大方形卡片，内部左右分栏（启动 / 进入主界面），等高对齐 -----
