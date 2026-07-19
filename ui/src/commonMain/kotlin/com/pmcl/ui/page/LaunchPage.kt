@@ -129,7 +129,7 @@ fun LaunchPage(vm: LauncherViewModel) {
         vm.predictAndPreheat()
     }
 
-    // 离开启动页时取消未采用的预判启动进程，避免后台僵尸进程
+    // 离开启动页时取消未采用的预热资源，清空预存 profile
     DisposableEffect(Unit) {
         onDispose {
             vm.cancelPreheat()
@@ -624,14 +624,14 @@ fun LaunchPage(vm: LauncherViewModel) {
             when (val ps = predictiveState) {
                 is LauncherViewModel.PredictiveState.Preheating -> {
                     PredictiveStateChip(
-                        text = "预判启动中：${ps.versionId}（${(ps.confidence * 100).toInt()}%）",
+                        text = "资源预热中：${ps.versionId}（${(ps.confidence * 100).toInt()}%）",
                         color = MaterialTheme.colorScheme.tertiary
                     )
                     Spacer(Modifier.height(8.dp))
                 }
                 is LauncherViewModel.PredictiveState.Ready -> {
                     PredictiveStateChip(
-                        text = "预启动就绪：${ps.versionId}（点击启动秒开）",
+                        text = "资源预热就绪：${ps.versionId}（点击启动加速启动）",
                         color = MaterialTheme.colorScheme.primary
                     )
                     Spacer(Modifier.height(8.dp))
@@ -639,7 +639,7 @@ fun LaunchPage(vm: LauncherViewModel) {
                 is LauncherViewModel.PredictiveState.Failed -> {
                     if (ps.reason.isNotEmpty()) {
                         PredictiveStateChip(
-                            text = "预判失败：${ps.reason}",
+                            text = "预热失败：${ps.reason}",
                             color = MaterialTheme.colorScheme.error
                         )
                         Spacer(Modifier.height(8.dp))
@@ -1677,7 +1677,7 @@ private fun StatusLine(vm: LauncherViewModel) {
 }
 
 /**
- * 预判启动状态指示器：紧凑的小卡片，告知用户后台预启动状态
+ * 预判启动状态指示器：紧凑的小卡片，告知用户后台资源预热状态
  */
 @Composable
 private fun PredictiveStateChip(text: String, color: androidx.compose.ui.graphics.Color) {

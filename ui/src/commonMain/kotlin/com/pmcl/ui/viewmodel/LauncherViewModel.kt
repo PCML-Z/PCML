@@ -363,8 +363,11 @@ class LauncherViewModel {
     private val instanceLoggers = java.util.concurrent.ConcurrentHashMap<String, GameLogger?>()
 
     // ===== 预判启动 =====
-    // 当前预热中的进程句柄（null 表示无预热）
-    @Volatile private var preheatedLaunch: com.pmcl.core.launch.LaunchManager.PreheatedLaunch? = null
+    // 预热策略：不启动 MC 进程（会弹窗口），而是预构建 LaunchProfile + 预热 JVM 页缓存
+    // 用户点击启动时，若版本匹配则复用预存的 profile 跳过 build() 阶段
+    @Volatile private var preheatedProfile: com.pmcl.core.launch.LaunchProfile? = null
+    @Volatile private var preheatedJavaExe: String = ""
+    @Volatile private var preheatedVersionId: String = ""
     private val _predictiveState = MutableStateFlow<PredictiveState>(PredictiveState.Idle)
     val predictiveState: StateFlow<PredictiveState> = _predictiveState.asStateFlow()
 
@@ -374,7 +377,7 @@ class LauncherViewModel {
         object Idle : PredictiveState()
         /** 正在预判 + 预热中 */
         data class Preheating(val versionId: String, val confidence: Double) : PredictiveState()
-        /** 预热就绪：进程已启动，等待用户确认 */
+        /** 资源预热就绪：LaunchProfile 已构建，JVM 页缓存已预热，等待用户点击启动 */
         data class Ready(val versionId: String, val confidence: Double) : PredictiveState()
         /** 预热失败 */
         data class Failed(val reason: String) : PredictiveState()
@@ -2334,23 +2337,29 @@ class LauncherViewModel {
 
     // ============ 启动游戏 ============
 
-    // ===== 预判启动：进入启动页时预测最可能的版本并后台预启动 =====
+    // ===== 预判启动：进入启动页时预测最可能的版本并后台预热资源 =====
 
     /**
-     * 触发预判启动：用 LaunchPredictor 预测最可能的版本，若置信度达标则后台预热进程。
+     * 触发预判启动：用 LaunchPredictor 预测最可能的版本，若置信度达标则后台预热资源。
+     *
+     * 预热内容（不启动 MC 进程，避免窗口提前弹出）：
+     * 1. 构建完整 LaunchProfile（含 verifyLibraries 的全量文件校验，这是启动时最耗时的 IO）
+     * 2. 解析 Java 可执行文件路径
+     * 3. 启动 `java -version` 子进程预热 JVM 页缓存（OS 会缓存 java 可执行文件和依赖库）
+     *
      * 调用时机：用户切换到 LaunchPage 时（见 LaunchPage.LaunchedEffect）。
      *
      * 安全保证：
      * - 未开启 predictiveLaunch 偏好时不执行
-     * - 已有运行中实例时不执行（避免多开）
-     * - 已有预热进程时不重复预热
+     * - 已有运行中实例时不执行
+     * - 已有预热 profile 时不重复预热
      * - 预热失败不影响正常启动（用户点启动时走原 launch 流程）
      */
     fun predictAndPreheat() {
         if (!preferences.isPredictiveLaunch()) return
         if (_gameRunning.value || _runningInstances.value.isNotEmpty()) return
-        if (preheatedLaunch != null) return  // 已有预热
-        if (_account.value == null) return   // 无账号无法启动
+        if (preheatedProfile != null) return  // 已有预热
+        if (_account.value == null) return     // 无账号无法构建 profile
 
         scope.launch {
             try {
@@ -2371,9 +2380,9 @@ class LauncherViewModel {
                 val account = _account.value ?: return@launch
 
                 _predictiveState.value = PredictiveState.Preheating(versionId, result.confidence)
-                _status.value = "预判启动：预测版本 $versionId（置信度 ${(result.confidence * 100).toInt()}%），后台预热中…"
+                _status.value = "预判启动：预测版本 $versionId（置信度 ${(result.confidence * 100).toInt()}%），后台预热资源中…"
 
-                // 3. 构造 LaunchProfile（与 launch() 相同的路径）
+                // 3. 构造 LaunchProfile（这是启动时最耗时的阶段，含 verifyLibraries 全量文件校验）
                 val requiredJavaVer = withContext(Dispatchers.IO) {
                     try { core.profileBuilder().getRequiredJavaVersion(versionId) } catch (e: Throwable) { 0 }
                 }
@@ -2391,26 +2400,17 @@ class LauncherViewModel {
                     return@launch
                 }
 
-                // 4. 预热进程（同步阻塞，在 IO 调度器内执行）
-                val preheated = withContext(Dispatchers.IO) {
-                    core.launch().preheat(launchProfile, javaExe, { line ->
-                        // 预热期间日志不写入 UI（避免污染主日志面板），但可记入状态
-                    }, null)
+                // 4. JVM 页缓存预热（启动 `java -version` 子进程，立即退出但触发 OS 缓存）
+                withContext(Dispatchers.IO) {
+                    core.launch().prewarmJvm(javaExe)
                 }
 
-                if (preheated.isFailed) {
-                    _predictiveState.value = PredictiveState.Failed(preheated.errorMessage ?: "未知错误")
-                    _status.value = "预判启动失败：${preheated.errorMessage}"
-                    return@launch
-                }
-                if (!preheated.isPreheated) {
-                    _predictiveState.value = PredictiveState.Failed("预启动被取消")
-                    return@launch
-                }
-
-                preheatedLaunch = preheated
+                // 5. 缓存预热结果
+                preheatedProfile = launchProfile
+                preheatedJavaExe = javaExe
+                preheatedVersionId = versionId
                 _predictiveState.value = PredictiveState.Ready(versionId, result.confidence)
-                _status.value = "预判就绪：$versionId 已在后台启动，点击启动按钮秒开"
+                _status.value = "预判就绪：$versionId 资源已预热，点击启动按钮加速启动"
 
             } catch (e: Throwable) {
                 _predictiveState.value = PredictiveState.Failed(e.message ?: "未知错误")
@@ -2436,47 +2436,47 @@ class LauncherViewModel {
     }
 
     /**
-     * 取消预判启动：杀掉预热进程（用户离开启动页或主动取消时调用）。
+     * 取消预判启动：清空预存的 profile（用户离开启动页时调用）。
+     * 不需要杀进程，因为预热阶段没有启动 MC 进程。
      */
     fun cancelPreheat() {
-        preheatedLaunch?.let {
-            if (it.isPreheated) {
-                it.abort()
-                _predictiveState.value = PredictiveState.Aborted
-                _status.value = "预判启动已取消"
-            }
+        if (preheatedProfile != null) {
+            preheatedProfile = null
+            preheatedJavaExe = ""
+            preheatedVersionId = ""
+            _predictiveState.value = PredictiveState.Aborted
+            _status.value = "预判启动已取消"
         }
-        preheatedLaunch = null
         // 不立刻重置 Idle，让 UI 有机会显示 Aborted；下次 predictAndPreheat 会重置
     }
 
     /**
-     * 尝试采用预热进程：若用户启动的版本与预热版本一致，则 confirm 预热进程，
-     * 返回 future 供 launch() 协程等待退出；否则 abort 预热进程并返回 null。
+     * 尝试采用预热的 LaunchProfile：若用户启动的版本与预热版本一致，
+     * 返回预存的 (profile, javaExe) 跳过 build() 阶段；否则清空预热并返回 null。
      *
      * @param versionId 用户实际启动的版本 ID
-     * @return 采用成功时返回 future（退出码），不匹配或无预热时返回 null
+     * @return 采用成功时返回 Pair(profile, javaExe)，不匹配或无预热时返回 null
      */
-    private fun tryAdoptPreheated(versionId: String): java.util.concurrent.CompletableFuture<Int>? {
-        val preheated = preheatedLaunch ?: return null
-        if (!preheated.isPreheated) {
-            preheatedLaunch = null
+    private fun tryAdoptPreheated(versionId: String): Pair<com.pmcl.core.launch.LaunchProfile, String>? {
+        val profile = preheatedProfile ?: return null
+        val preheatedVer = preheatedVersionId
+        if (preheatedVer != versionId) {
+            // 版本不匹配：清空预热，返回 null 让 launch() 走正常 build 路径
+            preheatedProfile = null
+            preheatedJavaExe = ""
+            preheatedVersionId = ""
+            _predictiveState.value = PredictiveState.Aborted
+            _status.value = "预判版本 $preheatedVer 与实际 $versionId 不符，已清空预热"
             return null
         }
-        return if (preheated.getVersionId() == versionId) {
-            // 版本匹配：采用预热进程
-            preheatedLaunch = null
-            _predictiveState.value = PredictiveState.Adopted
-            _status.value = "已采用预启动进程：$versionId 秒开"
-            preheated.confirm()
-        } else {
-            // 版本不匹配：中止预热进程，返回 null 让 launch() 走正常启动
-            preheated.abort()
-            preheatedLaunch = null
-            _predictiveState.value = PredictiveState.Aborted
-            _status.value = "预判版本 ${preheated.getVersionId()} 与实际 $versionId 不符，已中止"
-            null
-        }
+        // 版本匹配：复用预热的 profile
+        val javaExe = preheatedJavaExe
+        preheatedProfile = null
+        preheatedJavaExe = ""
+        preheatedVersionId = ""
+        _predictiveState.value = PredictiveState.Adopted
+        _status.value = "已采用预热资源：$versionId 跳过资源校验阶段，加速启动"
+        return Pair(profile, javaExe)
     }
 
     fun launch() {
@@ -2696,7 +2696,11 @@ class LauncherViewModel {
                     _compatOptions.value = options
                     return@launch
                 }
-                val profile = withContext(Dispatchers.IO) {
+                // 尝试采用预判启动的预热 profile：版本一致则复用预热的 profile，跳过 build 阶段
+                // （build 内部含 verifyLibraries 全量文件校验，是最耗时的 IO 步骤）
+                // 实例启动（_pendingInstanceDir != null）不采用预热，因为实例有独立的 gameDir/libraries
+                val adopted = if (_pendingInstanceDir == null) tryAdoptPreheated(versionId) else null
+                val profile = adopted?.first ?: withContext(Dispatchers.IO) {
                     val instDir = _pendingInstanceDir
                     val instInfo = _pendingInstanceInfo
                     if (instDir != null && instInfo != null) {
@@ -2760,15 +2764,9 @@ class LauncherViewModel {
                 core.playTimeTracker().recordStart(versionId)
                 timeTracked = true
 
-                // 尝试采用预判启动的预热进程（版本一致则秒开，不一致则中止预热后走正常启动）
-                val adoptedFuture = tryAdoptPreheated(versionId)
-
                 // launchAsync 返回 CompletableFuture，需等待进程退出，否则 gameRunning 会立即被 finally 重置
-                // 若已采用预热进程，则跳过 launchAsync 直接复用预热 future
-                val future = if (adoptedFuture != null) {
-                    adoptedFuture
-                } else {
-                    core.launch().launchAsync(
+                // 预热仅预存 LaunchProfile（不启动 MC 进程），此处始终调用 launchAsync 启动真正的 MC 进程
+                val future = core.launch().launchAsync(
                     profile, javaExe,
                     { line ->
                         // 同时写入实例日志和全局日志（如果该实例是活跃的）
@@ -2787,7 +2785,6 @@ class LauncherViewModel {
                     },
                     instLogger
                 )
-                }
                 val exitCode = withContext(Dispatchers.IO) { future.join() }
                 _status.value = "游戏已退出（code=$exitCode） $versionId"
 
