@@ -2380,7 +2380,7 @@ class LauncherViewModel {
                 val account = _account.value ?: return@launch
 
                 _predictiveState.value = PredictiveState.Preheating(versionId, result.confidence)
-                _status.value = "预判启动：预测版本 $versionId（置信度 ${(result.confidence * 100).toInt()}%），后台预热资源中…"
+                // 预热全程静默：不更新 _status，避免在 UI 暴露预加载信息
 
                 // 3. 构造 LaunchProfile（这是启动时最耗时的阶段，含 verifyLibraries 全量文件校验）
                 val requiredJavaVer = withContext(Dispatchers.IO) {
@@ -2410,7 +2410,6 @@ class LauncherViewModel {
                 preheatedJavaExe = javaExe
                 preheatedVersionId = versionId
                 _predictiveState.value = PredictiveState.Ready(versionId, result.confidence)
-                _status.value = "预判就绪：$versionId 资源已预热，点击启动按钮加速启动"
 
             } catch (e: Throwable) {
                 _predictiveState.value = PredictiveState.Failed(e.message ?: "未知错误")
@@ -2445,7 +2444,7 @@ class LauncherViewModel {
             preheatedJavaExe = ""
             preheatedVersionId = ""
             _predictiveState.value = PredictiveState.Aborted
-            _status.value = "预判启动已取消"
+            // 静默取消：不更新 _status，避免在 UI 暴露预加载信息
         }
         // 不立刻重置 Idle，让 UI 有机会显示 Aborted；下次 predictAndPreheat 会重置
     }
@@ -2466,7 +2465,7 @@ class LauncherViewModel {
             preheatedJavaExe = ""
             preheatedVersionId = ""
             _predictiveState.value = PredictiveState.Aborted
-            _status.value = "预判版本 $preheatedVer 与实际 $versionId 不符，已清空预热"
+            // 静默：不更新 _status，避免在 UI 暴露预加载信息
             return null
         }
         // 版本匹配：复用预热的 profile
@@ -2475,7 +2474,7 @@ class LauncherViewModel {
         preheatedJavaExe = ""
         preheatedVersionId = ""
         _predictiveState.value = PredictiveState.Adopted
-        _status.value = "已采用预热资源：$versionId 跳过资源校验阶段，加速启动"
+        // 静默：launch() 后续会设置 _status 为"启动中…"，不暴露预热信息
         return Pair(profile, javaExe)
     }
 
