@@ -993,7 +993,10 @@ fun LaunchPage(vm: LauncherViewModel) {
             Surface(
                 color = MaterialTheme.colorScheme.surfaceVariant,
                 shape = RoundedCornerShape(8.dp),
-                modifier = Modifier.fillMaxWidth().heightIn(min = 300.dp)
+                // 在 verticalScroll 的 Column 内，子组件 max height = Infinity
+                // GameLogPanel 内部是 LazyColumn，Infinity 约束会导致测量崩溃
+                // 加 max 约束让 LazyColumn 有有限高度
+                modifier = Modifier.fillMaxWidth().heightIn(min = 300.dp, max = 400.dp)
             ) {
                 GameLogPanel(vm)
             }
