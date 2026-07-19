@@ -314,6 +314,193 @@ class LauncherViewModel {
     private val _depInstallResult = MutableStateFlow<ModDependencyResolver.DependencyResult?>(null)
     val depInstallResult: StateFlow<ModDependencyResolver.DependencyResult?> = _depInstallResult.asStateFlow()
 
+    // ===== 拖放安装 =====
+    /**
+     * 拖放安装状态：null 表示无拖放对话框打开。
+     * 拖入 .jar 文件后自动 analyze 并填充 [items]；用户在 UI 多选目标版本后调用
+     * [confirmDropInstall] 执行拷贝。
+     */
+    data class DropInstallState(
+        val items: List<com.pmcl.core.mods.ModDropInfo> = emptyList(),
+        val scanning: Boolean = false,
+        val installing: Boolean = false,
+        /** 每个 mod 的已选目标版本 ID 集合（key = jarPath.toString） */
+        val selectedVersions: Map<String, Set<String>> = emptyMap(),
+        val message: String? = null
+    )
+
+    private val _dropInstallState = MutableStateFlow<DropInstallState?>(null)
+    val dropInstallState: StateFlow<DropInstallState?> = _dropInstallState.asStateFlow()
+
+    private val dropInstaller: com.pmcl.core.mods.ModDropInstaller? by lazy {
+        try {
+            com.pmcl.core.mods.ModDropInstaller(core.getConfig(),
+                core.modMarket().getModrinthClient()).also {
+                it.setPreferences(preferences)
+            }
+        } catch (e: Throwable) {
+            System.err.println("[LauncherViewModel] ModDropInstaller 初始化失败: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * 处理拖入的 jar 文件列表：解析 + SHA1 反查 Modrinth → 填充 [dropInstallState]。
+     * UI 在 AWT DropTarget 回调中调用，传入过滤后的 .jar 路径。
+     */
+    fun dropInstallMod(jarPaths: List<java.nio.file.Path>) {
+        if (jarPaths.isEmpty()) return
+        val installer = dropInstaller ?: run {
+            _status.value = "拖放安装不可用：初始化失败"
+            return
+        }
+        // 打开对话框（scanning 状态），让 UI 立即显示进度
+        _dropInstallState.value = DropInstallState(scanning = true)
+        scope.launch {
+            try {
+                val infos = withContext(Dispatchers.IO) {
+                    installer.analyze(jarPaths)
+                }
+                // 默认勾选所有兼容版本（每个 mod 至少预选一个，方便用户）
+                val defaultSel = HashMap<String, Set<String>>()
+                for (info in infos) {
+                    val compat = findCompatibleVersions(info)
+                    if (compat.isNotEmpty()) {
+                        defaultSel[info.getJarPath().toString()] =
+                            setOf(compat.first().getId())
+                    }
+                }
+                _dropInstallState.value = DropInstallState(
+                    items = infos,
+                    selectedVersions = defaultSel
+                )
+            } catch (e: Throwable) {
+                _dropInstallState.value = DropInstallState(
+                    message = "解析失败：${e.message ?: e.javaClass.simpleName}"
+                )
+            }
+        }
+    }
+
+    /**
+     * 切换某 mod 某版本的勾选状态。
+     */
+    fun toggleDropInstallSelection(jarPath: String, versionId: String) {
+        val cur = _dropInstallState.value ?: return
+        val curSel = cur.selectedVersions[jarPath] ?: emptySet()
+        val newSel = if (curSel.contains(versionId)) curSel - versionId
+                     else curSel + versionId
+        val newMap = cur.selectedVersions.toMutableMap().apply {
+            put(jarPath, newSel)
+        }
+        _dropInstallState.value = cur.copy(selectedVersions = newMap)
+    }
+
+    /**
+     * 确认安装：把每个 mod 拷贝到用户勾选的目标版本 mods 目录。
+     */
+    fun confirmDropInstall() {
+        val cur = _dropInstallState.value ?: return
+        val installer = dropInstaller ?: return
+        val allSelections = cur.items.mapNotNull { info ->
+            val sel = cur.selectedVersions[info.getJarPath().toString()] ?: emptySet()
+            if (sel.isEmpty()) null else info to sel
+        }
+        if (allSelections.isEmpty()) {
+            _dropInstallState.value = cur.copy(message = "请至少选择一个目标版本")
+            return
+        }
+        _dropInstallState.value = cur.copy(installing = true, message = null)
+        scope.launch {
+            try {
+                val results = withContext(Dispatchers.IO) {
+                    val localInfos = _localVersionInfos.value.associateBy { it.getId() }
+                    val summary = StringBuilder()
+                    var ok = 0
+                    var fail = 0
+                    for ((info, versionIds) in allSelections) {
+                        for (versionId in versionIds) {
+                            val lvi = localInfos[versionId]
+                            val gameVersion = deriveGameVersion(lvi)
+                            try {
+                                installer.installTo(info, versionId, gameVersion)
+                                ok++
+                            } catch (e: Throwable) {
+                                fail++
+                                summary.append("  ${info.getName()} → $versionId: ${e.message}\n")
+                            }
+                        }
+                    }
+                    "成功 $ok 项" + if (fail > 0) "，失败 $fail 项\n$summary" else ""
+                }
+                _dropInstallState.value = null
+                _status.value = "拖放安装完成：$results"
+                refreshInstalledMods()
+            } catch (e: Throwable) {
+                _dropInstallState.value = cur.copy(
+                    installing = false,
+                    message = "安装失败：${e.message ?: e.javaClass.simpleName}"
+                )
+            }
+        }
+    }
+
+    /** 关闭拖放对话框 */
+    fun cancelDropInstall() {
+        _dropInstallState.value = null
+    }
+
+    /**
+     * 推导本地版本对应的 Minecraft 游戏版本号。
+     * - 模组加载器版本（含 inheritsFrom）：用 inheritsFrom（即原版 MC 版本号）
+     * - 原版版本：直接用 id
+     */
+    private fun deriveGameVersion(lvi: com.pmcl.core.version.VersionManager.LocalVersionInfo?): String {
+        if (lvi == null) return ""
+        val inherits = lvi.getInheritsFrom()
+        return if (!inherits.isNullOrEmpty()) inherits else lvi.getId()
+    }
+
+    /**
+     * 推导本地版本对应的 mod 加载器（基于 mainClass 关键字匹配）。
+     */
+    private fun deriveLoader(lvi: com.pmcl.core.version.VersionManager.LocalVersionInfo?): String {
+        val mc = lvi?.getMainClass() ?: return ""
+        return when {
+            mc.contains("fabric", ignoreCase = true) -> "fabric"
+            mc.contains("quilt", ignoreCase = true) -> "quilt"
+            mc.contains("neoforge", ignoreCase = true) -> "neoforge"
+            mc.contains("forge", ignoreCase = true) -> "forge"
+            else -> ""
+        }
+    }
+
+    /**
+     * 找出与拖入 mod 兼容的本地版本列表。
+     * <p>
+     * 匹配规则（AND）：
+     * <ol>
+     *   <li>modrinthFound=true 时：本地版本的 gameVersion ∈ mod 的 gameVersions</li>
+     *   <li>mod 的 loader 非空且非 unknown 时：本地版本 mainClass 含相同 loader 关键字</li>
+     * </ol>
+     * modrinthFound=false 时（无 Modrinth 数据），跳过 gameVersion 过滤，仅按 loader 匹配；
+     * loader 也是 unknown 时返回所有本地版本（让用户手动选）。
+     */
+    fun findCompatibleVersions(info: com.pmcl.core.mods.ModDropInfo): List<com.pmcl.core.version.VersionManager.LocalVersionInfo> {
+        val all = _localVersionInfos.value
+        if (all.isEmpty()) return emptyList()
+        val modLoader = info.getLoader() ?: ""
+        val modGameVersions = info.getGameVersions()
+        val hasLoaderFilter = modLoader.isNotEmpty() && modLoader != "unknown"
+        val hasGameVersionFilter = info.isModrinthFound() && modGameVersions.isNotEmpty()
+        return all.filter { lvi ->
+            val gameVersion = deriveGameVersion(lvi)
+            val passVersion = !hasGameVersionFilter || modGameVersions.contains(gameVersion)
+            val passLoader = !hasLoaderFilter || deriveLoader(lvi).equals(modLoader, ignoreCase = true)
+            passVersion && passLoader
+        }
+    }
+
     // ===== 游戏时长统计 =====
     private val _playTimeStats = MutableStateFlow<PlayTimeTracker.OverallStat?>(null)
     val playTimeStats: StateFlow<PlayTimeTracker.OverallStat?> = _playTimeStats.asStateFlow()

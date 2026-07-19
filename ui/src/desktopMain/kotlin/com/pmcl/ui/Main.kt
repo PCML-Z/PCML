@@ -105,6 +105,45 @@ fun main() = application {
         undecorated = borderless,
         transparent = borderless
     ) {
+        // 全局拖放：监听 .jar 文件拖入主窗口 → 触发 mod 拖放安装
+        DisposableEffect(Unit) {
+            val frame = window
+            // DropTarget 构造时自动注册到 frame，保存引用以便 onDispose 时解除
+            val dt = java.awt.dnd.DropTarget(frame, java.awt.dnd.DnDConstants.ACTION_COPY,
+                object : java.awt.dnd.DropTargetAdapter() {
+                    override fun drop(dtde: java.awt.dnd.DropTargetDropEvent) {
+                        try {
+                            dtde.acceptDrop(java.awt.dnd.DnDConstants.ACTION_COPY)
+                            val transfer = dtde.transferable
+                            if (!transfer.isDataFlavorSupported(java.awt.datatransfer.DataFlavor.javaFileListFlavor)) {
+                                dtde.dropComplete(false)
+                                return
+                            }
+                            @Suppress("UNCHECKED_CAST")
+                            val files = transfer.getTransferData(java.awt.datatransfer.DataFlavor.javaFileListFlavor)
+                                    as List<java.io.File>
+                            val jars = files.map { it.toPath() }
+                                .filter { p ->
+                                    val name = p.fileName.toString().lowercase()
+                                    // 接受 .jar 与禁用形态 .jar.disabled
+                                    name.endsWith(".jar") || name.endsWith(".jar.disabled")
+                                }
+                            dtde.dropComplete(true)
+                            if (jars.isNotEmpty()) {
+                                vm.dropInstallMod(jars)
+                            }
+                        } catch (e: Throwable) {
+                            System.err.println("[Main] 拖放处理失败: ${e.message}")
+                            dtde.dropComplete(false)
+                        }
+                    }
+                }, true)
+            onDispose {
+                dt.setActive(false)
+                // 解除 DropTarget 与 frame 的关联，让窗口恢复默认拖放行为
+                frame.dropTarget = null
+            }
+        }
         // Ctrl+K 全局快捷键：聚焦搜索框
         Box(
             Modifier.fillMaxSize().onPreviewKeyEvent { event ->
@@ -211,6 +250,18 @@ fun main() = application {
                         onDismiss = { showCompanionDialog.value = false },
                         parallaxBg = parallaxBg,
                         glassOn = glassOn,
+                        useDark = useDark
+                    )
+                }
+            }
+            // Mod 拖放安装对话框：拖入 .jar 文件后展示
+            val dropState by vm.dropInstallState.collectAsState()
+            if (dropState != null) {
+                val scheme = if (useDark) darkColorScheme() else lightColorScheme()
+                MaterialTheme(colorScheme = scheme) {
+                    com.pmcl.ui.page.ModDropDialog(
+                        state = dropState!!,
+                        vm = vm,
                         useDark = useDark
                     )
                 }
