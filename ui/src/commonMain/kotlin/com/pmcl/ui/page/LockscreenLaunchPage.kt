@@ -121,32 +121,29 @@ fun LockscreenLaunchPage(
                 )
             }
 
-            // ----- 底部：左侧启动主卡片 + 右侧进入按钮 -----
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalAlignment = Alignment.Bottom
+            // ----- 底部：单一大方形卡片，内部左右分栏（启动 / 进入主界面），等高对齐 -----
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = cardShape,
+                colors = glassCardColors()
             ) {
-                // 左侧：启动主卡片（方形，4dp 圆角，不放在中央）
-                Card(
-                    modifier = Modifier.weight(0.6f),
-                    shape = cardShape,
-                    colors = glassCardColors()
-                ) {
-                    Column(Modifier.padding(20.dp)) {
+                Row(Modifier.fillMaxWidth().heightIn(min = 180.dp)) {
+                    // 左侧：启动区
+                    Column(
+                        Modifier.weight(1f).padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         Text(
                             I18n.t("launch.start"),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
-                        Spacer(Modifier.height(8.dp))
                         Text(
                             selectedVersion ?: I18n.t("launch.no_version_selected"),
                             style = MaterialTheme.typography.headlineSmall,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1
                         )
-                        Spacer(Modifier.height(4.dp))
                         Text(
                             if (selectedVersion == null) ""
                             else if (isInstalled) I18n.t("launch.installed")
@@ -156,7 +153,7 @@ fun LockscreenLaunchPage(
                                     else MaterialTheme.colorScheme.tertiary
                         )
 
-                        Spacer(Modifier.height(16.dp))
+                        Spacer(Modifier.weight(1f))
 
                         // 启动按钮
                         Button(
@@ -211,7 +208,7 @@ fun LockscreenLaunchPage(
                         AnimatedVisibility(visible = installing && isDownloadMode && installProgress != null) {
                             val p = installProgress
                             if (p != null) {
-                                Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                                Column(Modifier.fillMaxWidth().padding(top = 4.dp)) {
                                     Text(p.getMessage() ?: "",
                                          style = MaterialTheme.typography.labelSmall,
                                          color = MaterialTheme.colorScheme.outline)
@@ -224,33 +221,62 @@ fun LockscreenLaunchPage(
                             }
                         }
                     }
-                }
 
-                // 右侧：进入主界面按钮（垂直窄条）
-                Column(
-                    Modifier.weight(0.4f),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    // 状态信息
-                    if (status.isNotEmpty() && status != I18n.t("launch.ready")) {
-                        Text(
-                            status,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                            maxLines = 2
-                        )
-                    }
-                    Spacer(Modifier.weight(1f))
-                    // 进入主界面按钮
-                    OutlinedButton(
-                        onClick = onEnterMain,
-                        modifier = Modifier.fillMaxWidth().height(56.dp),
-                        shape = cardShape
+                    // 分隔线
+                    VerticalDivider(
+                        modifier = Modifier.fillMaxHeight(),
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                    )
+
+                    // 右侧：进入主界面区
+                    Column(
+                        Modifier.weight(0.55f).padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text(I18n.t("launch.enter"), style = MaterialTheme.typography.titleMedium)
-                        Spacer(Modifier.width(8.dp))
-                        Icon(Icons.AutoMirrored.Filled.ArrowForward, "进入",
-                             modifier = Modifier.size(18.dp))
+                        Text(
+                            I18n.t("launch.enter"),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            "PMCL",
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            "进入启动器主界面",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+
+                        Spacer(Modifier.weight(1f))
+
+                        // 状态信息（如有）
+                        if (status.isNotEmpty() && status != I18n.t("launch.ready")) {
+                            Text(
+                                status,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.outline,
+                                maxLines = 2
+                            )
+                        }
+
+                        // 进入主界面按钮（填充样式，和启动按钮风格统一）
+                        Button(
+                            onClick = onEnterMain,
+                            modifier = Modifier.fillMaxWidth().height(56.dp),
+                            shape = cardShape,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                        ) {
+                            Text(I18n.t("launch.enter"),
+                                 style = MaterialTheme.typography.titleMedium)
+                            Spacer(Modifier.width(8.dp))
+                            Icon(Icons.AutoMirrored.Filled.ArrowForward, "进入",
+                                 modifier = Modifier.size(18.dp))
+                        }
                     }
                 }
             }
