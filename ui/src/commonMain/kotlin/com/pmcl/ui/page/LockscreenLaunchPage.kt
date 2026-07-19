@@ -143,88 +143,63 @@ fun LockscreenLaunchPage(
                     )
                 }
 
-                // 右侧：时钟（iOS 26 液态玻璃质感）
-                // 分层渲染：底层 blur 模糊白色背景 → 顶部高光渐变 → 边框高光 → 清晰内容
-                val clockShape = RoundedCornerShape(32.dp)
-                Box(
-                    Modifier
-                        .shadow(
-                            elevation = 12.dp,
-                            shape = clockShape,
-                            ambientColor = Color.White.copy(alpha = 0.25f),
-                            spotColor = Color.White.copy(alpha = 0.4f)
-                        )
-                        .clip(clockShape)
-                ) {
-                    // 底层：强模糊 + 半透明白色（液态玻璃主体）
-                    Box(
-                        Modifier
-                            .matchParentSize()
-                            .blur(32.dp)
-                            .background(Color.White.copy(alpha = 0.18f))
-                    )
-                    // 顶部高光渐变：模拟光从上方打下来的折射感
-                    Box(
-                        Modifier
-                            .matchParentSize()
-                            .background(
-                                Brush.verticalGradient(
-                                    listOf(
-                                        Color.White.copy(alpha = 0.45f),
-                                        Color.White.copy(alpha = 0.12f),
-                                        Color.White.copy(alpha = 0.02f),
-                                        Color.White.copy(alpha = 0.08f)
-                                    )
-                                )
-                            )
-                    )
-                    // 边框高光：液态玻璃边缘的折射光
-                    Box(
-                        Modifier
-                            .matchParentSize()
-                            .border(1.5.dp, Color.White.copy(alpha = 0.55f), clockShape)
-                    )
-                    // 内容层：清晰文字
-                    Column(
-                        Modifier
-                            .padding(horizontal = 44.dp, vertical = 28.dp)
-                            .width(IntrinsicSize.Max),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        // 时分（主时间）— 大字号
+                // 右侧：时钟数字本身就是液态玻璃（无背景容器）
+                // 分层渲染：模糊外发光 + 高光描边 + 清晰主体文字
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Box(contentAlignment = Alignment.Center) {
+                        // 最底层：大半径模糊的白色文字，形成柔和外发光（液态玻璃光晕）
                         Text(
                             timeFmt.format(Date(now)),
                             style = MaterialTheme.typography.displayLarge,
-                            fontSize = 120.sp,
+                            fontSize = 140.sp,
                             fontWeight = FontWeight.Light,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.95f)
+                            color = Color.White.copy(alpha = 0.45f),
+                            modifier = Modifier.blur(28.dp)
                         )
-                        // 装饰分隔条
-                        Spacer(Modifier.height(10.dp))
-                        Box(
-                            Modifier
-                                .width(60.dp)
-                                .height(2.dp)
-                                .background(
-                                    Brush.horizontalGradient(
-                                        listOf(
-                                            Color.Transparent,
-                                            MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
-                                            Color.Transparent
-                                        )
-                                    ),
-                                    RoundedCornerShape(1.dp)
-                                )
-                        )
-                        Spacer(Modifier.height(12.dp))
-                        // 日期（次级）
+                        // 中层：中等模糊的 primary 色文字，形成玻璃色相底
                         Text(
-                            dateFmt.format(Date(now)),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                            timeFmt.format(Date(now)),
+                            style = MaterialTheme.typography.displayLarge,
+                            fontSize = 140.sp,
+                            fontWeight = FontWeight.Light,
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
+                            modifier = Modifier.blur(12.dp)
+                        )
+                        // 顶层：清晰主体文字（高透明白色，液态玻璃质感）
+                        Text(
+                            timeFmt.format(Date(now)),
+                            style = MaterialTheme.typography.displayLarge,
+                            fontSize = 140.sp,
+                            fontWeight = FontWeight.Light,
+                            color = Color.White.copy(alpha = 0.92f)
                         )
                     }
+
+                    Spacer(Modifier.height(12.dp))
+                    // 装饰分隔条
+                    Box(
+                        Modifier
+                            .width(60.dp)
+                            .height(2.dp)
+                            .background(
+                                Brush.horizontalGradient(
+                                    listOf(
+                                        Color.Transparent,
+                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                                        Color.Transparent
+                                    )
+                                ),
+                                RoundedCornerShape(1.dp)
+                            )
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    // 日期（次级）
+                    Text(
+                        dateFmt.format(Date(now)),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                    )
                 }
             }
 
