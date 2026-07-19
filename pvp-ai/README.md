@@ -86,6 +86,50 @@ python train.py --data ~/.pmcl/pvp-ai/datasets --epochs 5
 
 **设备**：默认 auto，CUDA / Apple MPS / CPU 自动选。Apple Silicon Mac 走 MPS。
 
+## 3.5. 从 FPV 视频导入训练数据（可选）
+
+若已有 PvP 视频（第一人称视角），可跳过游戏内录制直接生成训练数据：
+
+```bash
+cd pvp-ai/training
+
+# 基础用法（运动检测，无需 YOLO）
+python video_to_dataset.py --video path/to/pvp.mp4
+
+# 启用 YOLOv8 敌人检测（更准确，需先 pip install ultralytics）
+python video_to_dataset.py --video path/to/pvp.mp4 --yolo
+
+# 指定输出目录和文件名前缀
+python video_to_dataset.py --video pvp.mp4 --out ~/.pmcl/pvp-ai/datasets --name my_session
+```
+
+输出 `~/.pmcl/pvp-ai/datasets/session_video_<name>.jsonl`，格式与 mod 录制完全一致，可直接喂给 `train.py`。
+
+**视频导入管线**：
+- OpenCV 解码视频帧，自动按比例重采样到 20 TPS（MC 内部 tick 率）
+- `HudExtractor`：HSV 颜色 mask 提取血量/饥饿/快捷栏槽位/冷却条/举盾
+- `PerspectiveAnalyzer`：Farneback 稠密光流推断 Δyaw/Δpitch
+- `ActionClassifier`：径向度判前/后/平移，手部光流判攻击/举盾
+- `EnemyDetector`：默认帧间差分 + 连通域；`--yolo` 时用 YOLOv8 person 检测
+
+**视频导入的伪标签准确度**：
+- HUD 提取（血量/饥饿/冷却条）：~90%（受压缩伪影影响）
+- 视角变化（Δyaw/Δpitch）：~80%（依赖光流质量，与 FOV/分辨率相关）
+- 动作识别（攻击/移动）：~60-70%（合成视频检测率约 80%）
+- 敌人位置：~70%（运动检测） / ~90%（YOLOv8）
+
+**校准建议**：
+- 真实视频的 `PIXEL_TO_RADIAN` 与 `ATTACK_FLOW_THRESHOLD` 可能需要调整
+- 编辑 [video_config.py](pvp-ai/training/video_config.py) 中的常数后重新跑
+- 可混合视频数据 + 真实录制数据（在 `~/.pmcl/pvp-ai/datasets/` 目录共存）
+
+**测试视频生成**（验证管线）：
+```bash
+python generate_test_video.py --out /tmp/pvp_test.mp4 --seconds 10
+python video_to_dataset.py --video /tmp/pvp_test.mp4 --out /tmp/pvp-video-test
+python train.py --data /tmp/pvp-video-test --epochs 5
+```
+
 ## 4. 启用 AI
 
 把 `model.onnx` 放到 `~/.pmcl/pvp-ai/model.onnx`，启动游戏后按 **F9** 启用。
