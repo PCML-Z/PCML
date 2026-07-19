@@ -26,7 +26,7 @@ public final class WallpaperColorProvider {
 
     private static volatile int cachedSeedColor = -1;
     private static volatile long cacheTime = 0;
-    private static final long CACHE_TTL_MS = 3000; // 3 秒缓存
+    private static final long CACHE_TTL_MS = 300_000; // 5 分钟缓存：避免窗口渲染后频繁采样被污染
 
     /** 诊断日志路径 */
     private static final Path LOG_FILE = Paths.get(System.getProperty("user.home"), ".pmcl", "monet-diag.txt");
@@ -42,6 +42,7 @@ public final class WallpaperColorProvider {
 
     /**
      * 获取当前桌面壁纸的种子色（RGB int，0xRRGGBB）。
+     * 5 分钟缓存，避免 PMCL 窗口渲染后频繁采样被污染。
      * @return 种子色，失败时返回 -1。
      */
     public static int fetchSeedColor() {
@@ -50,17 +51,25 @@ public final class WallpaperColorProvider {
             diag("fetchSeedColor: cache hit #" + Integer.toHexString(cachedSeedColor));
             return cachedSeedColor;
         }
-        diag("fetchSeedColor: start");
+        return fetchSeedColorForce();
+    }
+
+    /**
+     * 强制重新采样壁纸种子色，绕过缓存。
+     * 供用户手动刷新（如切换壁纸后）使用。
+     */
+    public static int fetchSeedColorForce() {
+        diag("fetchSeedColorForce: start");
         try {
             int color = fetchSeedColorInternal();
-            diag("fetchSeedColor: result=" + color + " (#" + (color == -1 ? "FAIL" : Integer.toHexString(color)) + ")");
+            diag("fetchSeedColorForce: result=" + color + " (#" + (color == -1 ? "FAIL" : Integer.toHexString(color)) + ")");
             if (color != -1) {
                 cachedSeedColor = color;
-                cacheTime = now;
+                cacheTime = System.currentTimeMillis();
             }
             return color;
         } catch (Throwable t) {
-            diag("fetchSeedColor: EXCEPTION " + t.getClass().getName() + ": " + t.getMessage());
+            diag("fetchSeedColorForce: EXCEPTION " + t.getClass().getName() + ": " + t.getMessage());
             return -1;
         }
     }
@@ -76,24 +85,29 @@ public final class WallpaperColorProvider {
             return -1;
         }
 
-        // 只截取屏幕边缘区域（避开 PMCL 自己的窗口），壁纸在这些区域可见
         int w = screenSize.width;
         int h = screenSize.height;
         int edgeW = w / 5;  // 边缘宽度 = 屏幕宽度的 20%
         int edgeH = h / 5;  // 边缘高度 = 屏幕高度的 20%
 
-        // 四个边缘区域 + 四个角
+        // macOS 系统元素避让：顶部菜单栏约 28px，底部 Dock 约 90px
+        // Windows 任务栏约 48px，这里统一用 macOS 的较大值保证安全
+        int topInset = isMac() ? 28 : 0;
+        int bottomInset = isMac() ? 90 : 48;
+
+        // 四个边缘区域（避开系统 UI 元素，避免截到菜单栏/Dock/任务栏）
         Rectangle[] regions = {
-            new Rectangle(0, 0, w, edgeH),                    // 顶部条
-            new Rectangle(0, h - edgeH, w, edgeH),             // 底部条
-            new Rectangle(0, edgeH, edgeW, h - 2 * edgeH),     // 左侧条
-            new Rectangle(w - edgeW, edgeH, edgeW, h - 2 * edgeH) // 右侧条
+            new Rectangle(0, topInset, w, edgeH),                          // 顶部条
+            new Rectangle(0, h - edgeH - bottomInset, w, edgeH),           // 底部条
+            new Rectangle(0, edgeH + topInset, edgeW, h - 2 * edgeH - topInset - bottomInset),     // 左侧条
+            new Rectangle(w - edgeW, edgeH + topInset, edgeW, h - 2 * edgeH - topInset - bottomInset) // 右侧条
         };
 
         // 合并边缘区域到一个图片
         int totalPixels = 0;
         Map<Integer, int[]> buckets = new HashMap<>();
         for (Rectangle region : regions) {
+            if (region.width <= 0 || region.height <= 0) continue;
             BufferedImage part = robot.createScreenCapture(region);
             collectColorBuckets(part, buckets);
             totalPixels += region.width * region.height;
@@ -102,21 +116,35 @@ public final class WallpaperColorProvider {
 
         if (buckets.isEmpty()) return -1;
 
-        // 找频率最高的桶
-        int bestKey = -1, bestCount = 0;
-        for (Map.Entry<Integer, int[]> e : buckets.entrySet()) {
-            if (e.getValue()[3] > bestCount) {
-                bestCount = e.getValue()[3];
-                bestKey = e.getKey();
-            }
+        // top-3 桶加权平均：取频率最高的 3 个桶，按 count 加权平均 RGB
+        // 比单一桶更稳定，避免多色壁纸时小幅采样差异导致主色跳变
+        int[][] topBuckets = buckets.entrySet().stream()
+            .sorted((a, b) -> Integer.compare(b.getValue()[3], a.getValue()[3]))
+            .limit(3)
+            .map(e -> e.getValue())
+            .toArray(int[][]::new);
+
+        long totalWeight = 0;
+        long weightedR = 0, weightedG = 0, weightedB = 0;
+        StringBuilder bucketLog = new StringBuilder();
+        for (int[] agg : topBuckets) {
+            int count = agg[3];
+            int r = agg[0] / count;
+            int g = agg[1] / count;
+            int b = agg[2] / count;
+            weightedR += (long) r * count;
+            weightedG += (long) g * count;
+            weightedB += (long) b * count;
+            totalWeight += count;
+            if (bucketLog.length() > 0) bucketLog.append(", ");
+            bucketLog.append("count=").append(count).append("=#").append(Integer.toHexString((r << 16) | (g << 8) | b));
         }
-        int[] agg = buckets.get(bestKey);
-        if (agg == null) return 0;
-        int r = agg[0] / agg[3];
-        int g = agg[1] / agg[3];
-        int b = agg[2] / agg[3];
+        if (totalWeight == 0) return -1;
+        int r = (int) (weightedR / totalWeight);
+        int g = (int) (weightedG / totalWeight);
+        int b = (int) (weightedB / totalWeight);
         int result = (r << 16) | (g << 8) | b;
-        diag("fetchSeedColorInternal: bestBucket=" + bestKey + " count=" + bestCount + " color=#" + Integer.toHexString(result));
+        diag("fetchSeedColorInternal: top3 weighted [" + bucketLog + "] -> #" + Integer.toHexString(result));
         return result;
     }
 

@@ -880,7 +880,7 @@ class LauncherViewModel {
         scope.launch {
             try {
                 _status.value = "正在提取壁纸主色…"
-                com.pmcl.core.theme.WallpaperColorProvider.clearCache()
+                // 不再无条件清缓存：5 分钟缓存避免窗口渲染后采样被污染
                 val seedColor = withContext(Dispatchers.IO) {
                     com.pmcl.core.theme.WallpaperColorProvider.fetchSeedColor()
                 }
@@ -891,10 +891,39 @@ class LauncherViewModel {
                 }
                 val dark = preferences.isUseDarkTheme()
                 ts.applySeedColor(seedColor, dark)
+                // 持久化种子色：下次启动时立即应用，避免启动期截图污染
+                preferences.setMonetSeedColor(seedColor)
                 com.pmcl.core.theme.WallpaperColorProvider.diagLog("[VM] applySeedColor done, primary=${ts.dynamicColorScheme?.primary}")
                 _status.value = "莫奈取色已应用（种子色: #${Integer.toHexString(seedColor).padStart(6, '0')}）"
             } catch (e: Throwable) {
                 com.pmcl.core.theme.WallpaperColorProvider.diagLog("[VM] EXCEPTION: ${e.javaClass.name}: ${e.message}")
+                _status.value = "壁纸取色失败：${e.message}"
+            }
+        }
+    }
+
+    /**
+     * 强制重新采样壁纸主色（用户手动刷新用，如切换壁纸后）。
+     * 绕过缓存直接截图采样。
+     */
+    fun forceRefreshWallpaperColor(targetThemeState: com.pmcl.ui.theme.ThemeState? = null) {
+        val ts = targetThemeState ?: themeState ?: return
+        com.pmcl.core.theme.WallpaperColorProvider.diagLog("[VM] forceRefreshWallpaperColor called")
+        scope.launch {
+            try {
+                _status.value = "正在重新提取壁纸主色…"
+                val seedColor = withContext(Dispatchers.IO) {
+                    com.pmcl.core.theme.WallpaperColorProvider.fetchSeedColorForce()
+                }
+                if (seedColor == -1) {
+                    _status.value = "壁纸取色失败，使用默认配色"
+                    return@launch
+                }
+                val dark = preferences.isUseDarkTheme()
+                ts.applySeedColor(seedColor, dark)
+                preferences.setMonetSeedColor(seedColor)
+                _status.value = "莫奈取色已刷新（种子色: #${Integer.toHexString(seedColor).padStart(6, '0')}）"
+            } catch (e: Throwable) {
                 _status.value = "壁纸取色失败：${e.message}"
             }
         }

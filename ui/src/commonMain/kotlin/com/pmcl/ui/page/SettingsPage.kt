@@ -197,9 +197,9 @@ fun SettingsPage(vm: LauncherViewModel) {
                             themeState.enableDynamicColor(v)
                             pref.setDynamicColor(v)
                             if (v) {
-                                // 开启莫奈时清除自定义强调色
+                                // 开启莫奈时清除自定义强调色，并强制重新取色
                                 vm.clearCustomAccentColor(themeState)
-                                vm.refreshWallpaperColor(themeState)
+                                vm.forceRefreshWallpaperColor(themeState)
                             } else {
                                 themeState.updateDynamicColorScheme(null)
                             }
@@ -207,9 +207,18 @@ fun SettingsPage(vm: LauncherViewModel) {
                     )
                     Spacer(Modifier.width(8.dp))
                     Text("莫奈取色", fontWeight = FontWeight.Medium)
+                    Spacer(Modifier.weight(1f))
+                    if (themeState.dynamicColor) {
+                        TextButton(
+                            onClick = { vm.forceRefreshWallpaperColor(themeState) },
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                        ) {
+                            Text("重新提取", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
                 }
                 Spacer(Modifier.height(4.dp))
-                Text("开启后主题颜色自动从桌面壁纸提取，实现 Material You 动态配色",
+                Text("开启后主题颜色自动从桌面壁纸提取，实现 Material You 动态配色。切换壁纸后点「重新提取」立即生效",
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
 

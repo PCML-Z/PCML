@@ -27,6 +27,7 @@ public final class Preferences {
     private boolean useDarkTheme = false;
     private boolean dynamicColor = false; // 莫奈取色：主题颜色跟随桌面壁纸
     private int customAccentColor = -1;   // 自定义强调色 ARGB，-1 表示未设置（使用默认配色）
+    private int monetSeedColor = -1;      // 莫奈取色最后成功的种子色，启动时立即应用避免截图污染
     private boolean borderlessWindow = false; // 无边框窗口模式（自定义标题栏）
     private boolean showPerfHud = false;      // 是否显示性能 HUD 浮窗（半透明置顶小窗）
     private String perfHudMetrics = "CPU,MEM,GPU,FPS"; // HUD 显示的指标，逗号分隔
@@ -127,6 +128,8 @@ public final class Preferences {
     public synchronized void setDynamicColor(boolean v) { dynamicColor = v; scheduleSave(); }
     public synchronized int getCustomAccentColor() { return customAccentColor; }
     public synchronized void setCustomAccentColor(int v) { customAccentColor = v; scheduleSave(); }
+    public synchronized int getMonetSeedColor() { return monetSeedColor; }
+    public synchronized void setMonetSeedColor(int v) { monetSeedColor = v; scheduleSave(); }
 
     public synchronized boolean isBorderlessWindow() { return borderlessWindow; }
     public synchronized void setBorderlessWindow(boolean v) { borderlessWindow = v; scheduleSave(); }
@@ -547,6 +550,7 @@ public final class Preferences {
             if (o.has("useDarkTheme")) useDarkTheme = o.get("useDarkTheme").getAsBoolean();
             if (o.has("dynamicColor")) dynamicColor = o.get("dynamicColor").getAsBoolean();
             if (o.has("customAccentColor")) customAccentColor = o.get("customAccentColor").getAsInt();
+            if (o.has("monetSeedColor")) monetSeedColor = o.get("monetSeedColor").getAsInt();
             if (o.has("borderlessWindow")) borderlessWindow = o.get("borderlessWindow").getAsBoolean();
             if (o.has("showPerfHud")) showPerfHud = o.get("showPerfHud").getAsBoolean();
             if (o.has("perfHudMetrics") && !o.get("perfHudMetrics").isJsonNull()) perfHudMetrics = o.get("perfHudMetrics").getAsString();
@@ -756,6 +760,7 @@ public final class Preferences {
         o.addProperty("useDarkTheme", useDarkTheme);
         o.addProperty("dynamicColor", dynamicColor);
         o.addProperty("customAccentColor", customAccentColor);
+        o.addProperty("monetSeedColor", monetSeedColor);
         o.addProperty("borderlessWindow", borderlessWindow);
         o.addProperty("showPerfHud", showPerfHud);
         o.addProperty("perfHudMetrics", perfHudMetrics);

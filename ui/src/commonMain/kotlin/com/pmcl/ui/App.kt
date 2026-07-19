@@ -57,6 +57,13 @@ fun App(vm: LauncherViewModel) {
         if (vm.preferences.isDynamicColor()) {
             // 莫奈取色模式
             themeState.enableDynamicColor(true)
+            // 1. 先用持久化的种子色立即应用主题（同步、零截图污染）
+            //    避免窗口渲染后再截图导致取到 PMCL 自己的 UI
+            val persistedSeed = vm.preferences.getMonetSeedColor()
+            if (persistedSeed != -1) {
+                themeState.applySeedColor(persistedSeed, vm.preferences.isUseDarkTheme())
+            }
+            // 2. 再异步刷新：若壁纸未变则命中 5 分钟缓存直接返回；若变了则更新
             vm.refreshWallpaperColor(themeState)
         } else if (customColor != -1) {
             // 自定义强调色模式
