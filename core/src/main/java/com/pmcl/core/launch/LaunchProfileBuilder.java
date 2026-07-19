@@ -508,7 +508,57 @@ public final class LaunchProfileBuilder {
         // Minecraft MainWindow 启动时从 gameDir/icons/ 读取图标
         injectWindowIcon(preferences.getWindowIconPath(), gameDir);
 
+        // 同步启动器语言到游戏 options.txt 的 lang 字段
+        // Minecraft 没有 --language 命令行参数，游戏内语言只能通过 options.txt 设置
+        syncGameLanguage(gameDir);
+
         return profile;
+    }
+
+    /**
+     * 将启动器选定的语言同步写入 gameDir/options.txt 的 {@code lang} 字段。
+     * <p>
+     * Minecraft（1.6+）从 options.txt 读取 {@code lang:xx_YY} 决定游戏内语言。
+     * PMCL 启动器语言（如 zh_CN）需转为小写（zh_cn）后写入。
+     * ud_EN（颠倒英语彩蛋）仅作用于启动器 UI，不写入游戏，避免游戏识别为未知语言回退到 en_us。
+     * <p>
+     * 实现与 {@link com.pmcl.core.gamecontent.ShaderPackManager#writeOption} 一致：
+     * 保留 options.txt 其它行，仅更新或追加 lang 字段。
+     * 任何 IO 异常均静默忽略，确保不阻塞启动流程。
+     */
+    private void syncGameLanguage(Path gameDir) {
+        String launcherLang = preferences.getLanguage();
+        if (launcherLang == null || launcherLang.isEmpty()) return;
+        // ud_EN 彩蛋仅影响启动器 UI，不应写入游戏
+        if ("ud_EN".equals(launcherLang)) return;
+        // MC 语言代码用小写（zh_cn / en_us / ja_jp），PMCL 用 zh_CN 形式
+        String mcLang = launcherLang.toLowerCase(java.util.Locale.ROOT);
+        Path optionsFile = gameDir.resolve("options.txt");
+        try {
+            if (!Files.exists(optionsFile)) {
+                if (optionsFile.getParent() != null) Files.createDirectories(optionsFile.getParent());
+                Files.writeString(optionsFile, "lang:" + mcLang + "\n",
+                        java.nio.charset.StandardCharsets.UTF_8);
+                return;
+            }
+            List<String> lines = new ArrayList<>(
+                    Files.readAllLines(optionsFile, java.nio.charset.StandardCharsets.UTF_8));
+            boolean found = false;
+            for (int i = 0; i < lines.size(); i++) {
+                if (lines.get(i).startsWith("lang:")) {
+                    // 已是目标语言则无需重写，避免改动 mtime 触发 MC 重新加载
+                    if (lines.get(i).equals("lang:" + mcLang)) return;
+                    lines.set(i, "lang:" + mcLang);
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) lines.add("lang:" + mcLang);
+            Files.writeString(optionsFile, String.join("\n", lines) + "\n",
+                    java.nio.charset.StandardCharsets.UTF_8);
+        } catch (IOException ignored) {
+            // 语言同步失败不应阻塞启动
+        }
     }
 
     /**
