@@ -93,26 +93,54 @@ fun LockscreenLaunchPage(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // ----- 顶部：大时钟 + 日期（居中） -----
+            // ----- 顶部：时钟区（柔和背景 + 层次拉开 + 装饰小点，与下方卡片视觉重量匹配） -----
             Column(
-                Modifier.fillMaxWidth().padding(top = 32.dp),
+                Modifier.fillMaxWidth().padding(top = 48.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text(
-                    timeFmt.format(Date(now)),
-                    style = MaterialTheme.typography.displayLarge,
-                    fontSize = 96.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    dateFmt.format(Date(now)),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                )
-                // 账号信息（小字）
-                Spacer(Modifier.height(4.dp))
+                // 时钟主体：用半透明 Surface 做柔和容器，避免纯文字硬贴背景
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.55f),
+                    tonalElevation = 0.dp,
+                    shadowElevation = 0.dp,
+                    modifier = Modifier.padding(horizontal = 24.dp)
+                ) {
+                    Column(
+                        Modifier.padding(horizontal = 32.dp, vertical = 20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        // 时分（主时间）
+                        Text(
+                            timeFmt.format(Date(now)),
+                            style = MaterialTheme.typography.displayLarge,
+                            fontSize = 72.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f)
+                        )
+                        // 分隔小点装饰
+                        Spacer(Modifier.height(6.dp))
+                        Box(
+                            Modifier
+                                .width(40.dp)
+                                .height(2.dp)
+                                .background(
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+                                    RoundedCornerShape(1.dp)
+                                )
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        // 日期（次级）
+                        Text(
+                            dateFmt.format(Date(now)),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
+                        )
+                    }
+                }
+                // 账号信息（最次级，与卡片拉开距离）
+                Spacer(Modifier.height(16.dp))
                 val acc = account
                 Text(
                     acc?.username ?: I18n.t("launch.not_logged_in_short"),
