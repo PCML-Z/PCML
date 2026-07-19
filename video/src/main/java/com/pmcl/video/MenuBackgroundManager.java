@@ -40,6 +40,11 @@ public final class MenuBackgroundManager implements MenuBackgroundProvider {
     private static final String PACK_FILE_NAME = "PMCL_MenuBg.zip";
     private static final int PANORAMA_SIZE = 1024;  // MC 1.13+ panorama 原始尺寸，再大会被 MC 自动缩小
     private static final int FRAME_COUNT = 6;
+    /**
+     * pack.mcmeta 结构版本：升级此值会让所有旧缓存 zip 失效，重新生成。
+     * v2: 新增 supported_formats 范围字段，修复 MC 1.20.5+ 因 pack_format 不匹配拒绝加载的问题。
+     */
+    private static final int PACK_FORMAT_SCHEMA_VERSION = 2;
 
     @Override
     public String installTo(Path gameDir, Path videoPath, Path cacheDir, String mcVersion) {
@@ -81,14 +86,20 @@ public final class MenuBackgroundManager implements MenuBackgroundProvider {
         int packFormat = resolvePackFormat(mcVersion);
         try (ZipOutputStream zos = new ZipOutputStream(
                 Files.newOutputStream(outputPath), StandardCharsets.UTF_8)) {
-            // pack.mcmeta
+            // pack.mcmeta：用 supported_formats 范围覆盖 1.13-1.21+，避免 MC 1.20.5+ 因
+            // pack_format 不匹配直接拒绝加载资源包。pack_format 字段仍填合理值作为 fallback
+            // （旧版本 MC 不识别 supported_formats，只看 pack_format）。
+            // MC 1.20.5+ 严格校验：pack_format 不匹配且无 supported_formats 时资源包不生效。
             String mcmeta = "{\"pack\":{\"pack_format\":" + packFormat
+                    + ",\"supported_formats\":[4,99]"
                     + ",\"description\":\"PMCL Menu Background\"}}";
             zos.putNextEntry(new ZipEntry("pack.mcmeta"));
             zos.write(mcmeta.getBytes(StandardCharsets.UTF_8));
             zos.closeEntry();
 
             // 6 张 panorama 图
+            // 路径 assets/minecraft/textures/gui/title/background/panorama_0.png ~ panorama_5.png
+            // 1.13-1.21+ 路径一致，未变化
             for (int i = 0; i < FRAME_COUNT; i++) {
                 BufferedImage src = frames.get(i % frames.size());
                 BufferedImage square = cropToSquare(src, PANORAMA_SIZE);
@@ -196,13 +207,14 @@ public final class MenuBackgroundManager implements MenuBackgroundProvider {
     }
 
     /**
-     * 缓存键：视频文件路径 + size + mtime 的 SHA-256。
-     * 视频文件被替换或修改时会重新生成。
+     * 缓存键：视频文件路径 + size + mtime + 生成器版本 的 SHA-256。
+     * 视频文件被替换或修改时会重新生成；
+     * PACK_FORMAT_SCHEMA_VERSION 升级时（如 pack.mcmeta 结构调整）也会让旧缓存失效。
      */
     private String buildCacheKey(Path videoPath) throws Exception {
         long size = Files.size(videoPath);
         long mtime = Files.getLastModifiedTime(videoPath).toMillis();
-        String input = videoPath + "|" + size + "|" + mtime;
+        String input = videoPath + "|" + size + "|" + mtime + "|v" + PACK_FORMAT_SCHEMA_VERSION;
         MessageDigest md = MessageDigest.getInstance("SHA-256");
         byte[] hash = md.digest(input.getBytes(StandardCharsets.UTF_8));
         return HexFormat.of().formatHex(hash).substring(0, 16);  // 16 字符够用
