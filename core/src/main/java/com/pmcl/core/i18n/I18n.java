@@ -482,6 +482,22 @@ public final class I18n {
         ZH.put("settings.version_isolation", "版本隔离");
         ZH.put("settings.version_isolation_desc", "各版本独立 mods/saves/config 目录");
         ZH.put("settings.game_behavior", "游戏行为");
+        ZH.put("settings.borderless_window", "无边框窗口");
+        ZH.put("settings.borderless_window_desc", "开启后使用自定义标题栏，重启启动器后生效");
+        ZH.put("settings.parallax_background", "视差背景");
+        ZH.put("settings.parallax_background_desc", "多层渐变球随鼠标偏移产生 3D 视差效果，实时生效");
+        ZH.put("settings.glass_theme", "玻璃主题");
+        ZH.put("settings.glass_theme_desc", "卡片毛玻璃效果，搭配视差背景视觉更佳，实时生效");
+        ZH.put("settings.lockscreen_launch", "锁屏启动页");
+        ZH.put("settings.lockscreen_launch_desc", "Origin OS2 锁屏风格方形卡片启动页：大时钟 + 启动主卡片，重启后生效");
+        ZH.put("settings.ui_scale", "界面缩放");
+        ZH.put("settings.ui_scale_small", "小");
+        ZH.put("settings.ui_scale_large", "大");
+        ZH.put("settings.ui_scale_reset", "重置为 100%");
+        ZH.put("settings.ui_scale_desc", "调整界面字体和元素大小，实时生效");
+        ZH.put("settings.perf_hud", "性能 HUD 浮窗");
+        ZH.put("settings.perf_hud_desc", "显示半透明置顶的性能监控小窗，可拖动到任意位置，实时显示 CPU/内存/GPU/FPS");
+        ZH.put("settings.perf_hud_metrics", "显示指标");
 
         // ===== 完整性校验 =====
         ZH.put("integrity.check", "校验完整性");
@@ -968,6 +984,22 @@ public final class I18n {
         EN.put("settings.version_isolation", "Version isolation");
         EN.put("settings.version_isolation_desc", "Independent mods/saves/config per version");
         EN.put("settings.game_behavior", "Game behavior");
+        EN.put("settings.borderless_window", "Borderless window");
+        EN.put("settings.borderless_window_desc", "Use custom title bar after restart");
+        EN.put("settings.parallax_background", "Parallax background");
+        EN.put("settings.parallax_background_desc", "Multi-layer gradient orbs shift with mouse for 3D parallax");
+        EN.put("settings.glass_theme", "Glass theme");
+        EN.put("settings.glass_theme_desc", "Frosted glass cards, best paired with parallax background");
+        EN.put("settings.lockscreen_launch", "Lockscreen launch page");
+        EN.put("settings.lockscreen_launch_desc", "Origin OS2 style card launch page: large clock + main launch card, restart required");
+        EN.put("settings.ui_scale", "UI scale");
+        EN.put("settings.ui_scale_small", "Small");
+        EN.put("settings.ui_scale_large", "Large");
+        EN.put("settings.ui_scale_reset", "Reset to 100%");
+        EN.put("settings.ui_scale_desc", "Adjust UI font and element size in real time");
+        EN.put("settings.perf_hud", "Performance HUD");
+        EN.put("settings.perf_hud_desc", "Semi-transparent always-on-top perf monitor, draggable, shows CPU/MEM/GPU/FPS");
+        EN.put("settings.perf_hud_metrics", "Metrics");
 
         EN.put("integrity.check", "Check integrity");
         EN.put("integrity.checking", "Checking…");
@@ -1449,6 +1481,22 @@ public final class I18n {
         JA.put("settings.version_isolation", "バージョン分離");
         JA.put("settings.version_isolation_desc", "バージョンごとに独立したmods/saves/config");
         JA.put("settings.game_behavior", "ゲーム動作");
+        JA.put("settings.borderless_window", "ボーダーレスウィンドウ");
+        JA.put("settings.borderless_window_desc", "有効化するとカスタムタイトルバーを使用、再起動後に有効");
+        JA.put("settings.parallax_background", "視差背景");
+        JA.put("settings.parallax_background_desc", "マウス移動で3D視差効果を生む多層グラデーション、即時反映");
+        JA.put("settings.glass_theme", "ガラステーマ");
+        JA.put("settings.glass_theme_desc", "カードのすりガラス効果、視差背景との組み合わせが推奨、即時反映");
+        JA.put("settings.lockscreen_launch", "ロック画面起動ページ");
+        JA.put("settings.lockscreen_launch_desc", "Origin OS2風カード起動ページ：大時計+メイン起動カード、再起動後に有効");
+        JA.put("settings.ui_scale", "UI スケール");
+        JA.put("settings.ui_scale_small", "小");
+        JA.put("settings.ui_scale_large", "大");
+        JA.put("settings.ui_scale_reset", "100%にリセット");
+        JA.put("settings.ui_scale_desc", "UIのフォントと要素サイズを調整、即時反映");
+        JA.put("settings.perf_hud", "パフォーマンス HUD");
+        JA.put("settings.perf_hud_desc", "半透明常駐パフォーマンスモニター、ドラッグ可能、CPU/メモリ/GPU/FPSを表示");
+        JA.put("settings.perf_hud_metrics", "表示項目");
 
         JA.put("integrity.check", "整合性チェック");
         JA.put("integrity.checking", "チェック中…");

@@ -270,10 +270,10 @@ fun SettingsPage(vm: LauncherViewModel) {
                         }
                     )
                     Spacer(Modifier.width(8.dp))
-                    Text("无边框窗口", fontWeight = FontWeight.Medium)
+                    Text(I18n.t("settings.borderless_window"), fontWeight = FontWeight.Medium)
                 }
                 Spacer(Modifier.height(4.dp))
-                Text("开启后使用自定义标题栏，重启启动器后生效",
+                Text(I18n.t("settings.borderless_window_desc"),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
 
@@ -289,10 +289,10 @@ fun SettingsPage(vm: LauncherViewModel) {
                         onCheckedChange = { v -> vm.setParallaxBackground(v) }
                     )
                     Spacer(Modifier.width(8.dp))
-                    Text("视差背景", fontWeight = FontWeight.Medium)
+                    Text(I18n.t("settings.parallax_background"), fontWeight = FontWeight.Medium)
                 }
                 Spacer(Modifier.height(4.dp))
-                Text("多层渐变球随鼠标偏移产生 3D 视差效果，实时生效",
+                Text(I18n.t("settings.parallax_background_desc"),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
 
@@ -308,10 +308,10 @@ fun SettingsPage(vm: LauncherViewModel) {
                         onCheckedChange = { v -> vm.setGlassTheme(v) }
                     )
                     Spacer(Modifier.width(8.dp))
-                    Text("玻璃主题", fontWeight = FontWeight.Medium)
+                    Text(I18n.t("settings.glass_theme"), fontWeight = FontWeight.Medium)
                 }
                 Spacer(Modifier.height(4.dp))
-                Text("卡片毛玻璃效果，搭配视差背景视觉更佳，实时生效",
+                Text(I18n.t("settings.glass_theme_desc"),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
 
@@ -327,10 +327,10 @@ fun SettingsPage(vm: LauncherViewModel) {
                         onCheckedChange = { v -> vm.setLockscreenLaunchTheme(v) }
                     )
                     Spacer(Modifier.width(8.dp))
-                    Text("锁屏启动页", fontWeight = FontWeight.Medium)
+                    Text(I18n.t("settings.lockscreen_launch"), fontWeight = FontWeight.Medium)
                 }
                 Spacer(Modifier.height(4.dp))
-                Text("Origin OS2 锁屏风格方形卡片启动页：大时钟 + 启动主卡片，重启后生效",
+                Text(I18n.t("settings.lockscreen_launch_desc"),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
 
@@ -340,11 +340,11 @@ fun SettingsPage(vm: LauncherViewModel) {
 
                 // UI 缩放
                 var uiScale by remember { mutableStateOf(pref.getUiScale()) }
-                Text("界面缩放", style = MaterialTheme.typography.labelMedium,
+                Text(I18n.t("settings.ui_scale"), style = MaterialTheme.typography.labelMedium,
                      fontWeight = FontWeight.Medium)
                 Spacer(Modifier.height(4.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("小", style = MaterialTheme.typography.labelSmall,
+                    Text(I18n.t("settings.ui_scale_small"), style = MaterialTheme.typography.labelSmall,
                          color = MaterialTheme.colorScheme.outline)
                     Spacer(Modifier.width(8.dp))
                     Slider(
@@ -359,7 +359,7 @@ fun SettingsPage(vm: LauncherViewModel) {
                         modifier = Modifier.weight(1f)
                     )
                     Spacer(Modifier.width(8.dp))
-                    Text("大", style = MaterialTheme.typography.labelSmall,
+                    Text(I18n.t("settings.ui_scale_large"), style = MaterialTheme.typography.labelSmall,
                          color = MaterialTheme.colorScheme.outline)
                     Spacer(Modifier.width(12.dp))
                     Surface(
@@ -380,9 +380,9 @@ fun SettingsPage(vm: LauncherViewModel) {
                         uiScale = 1.0f
                         themeState.applyUiScale(1.0f)
                         pref.setUiScale(1.0f)
-                    }) { Text("重置为 100%") }
+                    }) { Text(I18n.t("settings.ui_scale_reset")) }
                 }
-                Text("调整界面字体和元素大小，实时生效",
+                Text(I18n.t("settings.ui_scale_desc"),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
 
@@ -399,16 +399,16 @@ fun SettingsPage(vm: LauncherViewModel) {
                         onCheckedChange = { v -> vm.setPerfHudVisible(v) }
                     )
                     Spacer(Modifier.width(8.dp))
-                    Text("性能 HUD 浮窗", fontWeight = FontWeight.Medium)
+                    Text(I18n.t("settings.perf_hud"), fontWeight = FontWeight.Medium)
                 }
                 Spacer(Modifier.height(4.dp))
-                Text("显示半透明置顶的性能监控小窗，可拖动到任意位置，实时显示 CPU/内存/GPU/FPS",
+                Text(I18n.t("settings.perf_hud_desc"),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
 
                 if (showHud) {
                     Spacer(Modifier.height(8.dp))
-                    Text("显示指标", style = MaterialTheme.typography.labelMedium,
+                    Text(I18n.t("settings.perf_hud_metrics"), style = MaterialTheme.typography.labelMedium,
                          fontWeight = FontWeight.Medium)
                     Spacer(Modifier.height(4.dp))
                     val metricOptions = listOf("CPU" to "CPU", "MEM" to "内存", "GPU" to "GPU", "FPS" to "FPS")
