@@ -2,6 +2,7 @@ package com.pmcl.ui.page
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -12,6 +13,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -139,43 +143,86 @@ fun LockscreenLaunchPage(
                     )
                 }
 
-                // 右侧：时钟（柔和半透明 Surface 容器）
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.55f),
-                    tonalElevation = 0.dp,
-                    shadowElevation = 0.dp
+                // 右侧：时钟（iOS 26 液态玻璃质感）
+                // 分层渲染：底层 blur 模糊白色背景 → 顶部高光渐变 → 边框高光 → 清晰内容
+                val clockShape = RoundedCornerShape(32.dp)
+                Box(
+                    Modifier
+                        .shadow(
+                            elevation = 12.dp,
+                            shape = clockShape,
+                            ambientColor = Color.White.copy(alpha = 0.25f),
+                            spotColor = Color.White.copy(alpha = 0.4f)
+                        )
+                        .clip(clockShape)
                 ) {
+                    // 底层：强模糊 + 半透明白色（液态玻璃主体）
+                    Box(
+                        Modifier
+                            .matchParentSize()
+                            .blur(32.dp)
+                            .background(Color.White.copy(alpha = 0.18f))
+                    )
+                    // 顶部高光渐变：模拟光从上方打下来的折射感
+                    Box(
+                        Modifier
+                            .matchParentSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(
+                                        Color.White.copy(alpha = 0.45f),
+                                        Color.White.copy(alpha = 0.12f),
+                                        Color.White.copy(alpha = 0.02f),
+                                        Color.White.copy(alpha = 0.08f)
+                                    )
+                                )
+                            )
+                    )
+                    // 边框高光：液态玻璃边缘的折射光
+                    Box(
+                        Modifier
+                            .matchParentSize()
+                            .border(1.5.dp, Color.White.copy(alpha = 0.55f), clockShape)
+                    )
+                    // 内容层：清晰文字
                     Column(
-                        Modifier.padding(horizontal = 28.dp, vertical = 18.dp),
+                        Modifier
+                            .padding(horizontal = 44.dp, vertical = 28.dp)
+                            .width(IntrinsicSize.Max),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        // 时分（主时间）
+                        // 时分（主时间）— 大字号
                         Text(
                             timeFmt.format(Date(now)),
                             style = MaterialTheme.typography.displayLarge,
-                            fontSize = 64.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f)
+                            fontSize = 120.sp,
+                            fontWeight = FontWeight.Light,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.95f)
                         )
                         // 装饰分隔条
-                        Spacer(Modifier.height(6.dp))
+                        Spacer(Modifier.height(10.dp))
                         Box(
                             Modifier
-                                .width(36.dp)
+                                .width(60.dp)
                                 .height(2.dp)
                                 .background(
-                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+                                    Brush.horizontalGradient(
+                                        listOf(
+                                            Color.Transparent,
+                                            MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                                            Color.Transparent
+                                        )
+                                    ),
                                     RoundedCornerShape(1.dp)
                                 )
                         )
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(12.dp))
                         // 日期（次级）
                         Text(
                             dateFmt.format(Date(now)),
-                            style = MaterialTheme.typography.titleSmall,
+                            style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
                         )
                     }
                 }
