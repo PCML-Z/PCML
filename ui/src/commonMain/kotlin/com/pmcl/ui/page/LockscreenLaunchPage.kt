@@ -143,62 +143,54 @@ fun LockscreenLaunchPage(
                     )
                 }
 
-                // 右侧：时钟数字本身就是液态玻璃（无背景容器）
-                // 分层渲染：模糊外发光 + 高光描边 + 清晰主体文字
+                // 右侧：真正的液态玻璃时钟数字（无背景容器）
+                // 多层叠加形成玻璃材质：外发光 → 玻璃体 → 内部折射 → 顶部高光 → 清晰主体
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Box(contentAlignment = Alignment.Center) {
-                        // 最底层：大半径模糊的白色文字，形成柔和外发光（液态玻璃光晕）
+                        // 第1层：超大半径模糊白色，形成柔和外发光（玻璃边缘的光晕扩散）
+                        Text(
+                            timeFmt.format(Date(now)),
+                            style = MaterialTheme.typography.displayLarge,
+                            fontSize = 140.sp,
+                            fontWeight = FontWeight.Light,
+                            color = Color.White.copy(alpha = 0.4f),
+                            modifier = Modifier.blur(36.dp)
+                        )
+                        // 第2层：中等模糊白色，玻璃体的半透明厚度感
+                        Text(
+                            timeFmt.format(Date(now)),
+                            style = MaterialTheme.typography.displayLarge,
+                            fontSize = 140.sp,
+                            fontWeight = FontWeight.Light,
+                            color = Color.White.copy(alpha = 0.35f),
+                            modifier = Modifier.blur(18.dp)
+                        )
+                        // 第3层：小半径模糊白色，玻璃内部的光线散射
                         Text(
                             timeFmt.format(Date(now)),
                             style = MaterialTheme.typography.displayLarge,
                             fontSize = 140.sp,
                             fontWeight = FontWeight.Light,
                             color = Color.White.copy(alpha = 0.45f),
-                            modifier = Modifier.blur(28.dp)
+                            modifier = Modifier.blur(6.dp)
                         )
-                        // 中层：中等模糊的 primary 色文字，形成玻璃色相底
+                        // 第4层：清晰主体文字（高透明白色，玻璃表面的清晰反射）
                         Text(
                             timeFmt.format(Date(now)),
                             style = MaterialTheme.typography.displayLarge,
                             fontSize = 140.sp,
                             fontWeight = FontWeight.Light,
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
-                            modifier = Modifier.blur(12.dp)
-                        )
-                        // 顶层：清晰主体文字（高透明白色，液态玻璃质感）
-                        Text(
-                            timeFmt.format(Date(now)),
-                            style = MaterialTheme.typography.displayLarge,
-                            fontSize = 140.sp,
-                            fontWeight = FontWeight.Light,
-                            color = Color.White.copy(alpha = 0.92f)
+                            color = Color.White.copy(alpha = 0.88f)
                         )
                     }
 
-                    Spacer(Modifier.height(12.dp))
-                    // 装饰分隔条
-                    Box(
-                        Modifier
-                            .width(60.dp)
-                            .height(2.dp)
-                            .background(
-                                Brush.horizontalGradient(
-                                    listOf(
-                                        Color.Transparent,
-                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
-                                        Color.Transparent
-                                    )
-                                ),
-                                RoundedCornerShape(1.dp)
-                            )
-                    )
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(16.dp))
                     // 日期（次级）
                     Text(
                         dateFmt.format(Date(now)),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
                     )
                 }
             }
