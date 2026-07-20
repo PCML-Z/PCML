@@ -7,7 +7,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.SwapHoriz
@@ -19,6 +21,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -43,6 +46,9 @@ fun AccountsPage(vm: LauncherViewModel) {
 
     // 当前登录流程类型：区分微软/GitHub，避免两卡片共用 deviceCode 状态导致同时显示
     var loginMode by remember { mutableStateOf<String?>(null) } // "ms" | "github" | null
+    // 用户手动关闭设备码弹窗后隐藏；切换 loginMode 或点「查看设备码」时重置
+    var hideDeviceCodeDialog by remember { mutableStateOf(false) }
+    LaunchedEffect(loginMode) { hideDeviceCodeDialog = false }
 
     var username by remember { mutableStateOf("Steve") }
     var customSkinUrl by remember { mutableStateOf("") }
@@ -216,65 +222,34 @@ fun AccountsPage(vm: LauncherViewModel) {
                 Spacer(Modifier.height(12.dp))
 
                 if (loggingIn && loginMode == "ms") {
-                    if (deviceCode != null && !usingBrowserFlow) {
-                        // 设备码流程 UI
-                        val dc = deviceCode!!
-                        Surface(
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(Modifier.padding(12.dp)) {
-                                Text("请打开浏览器访问：",
-                                     style = MaterialTheme.typography.labelMedium,
-                                     fontWeight = FontWeight.SemiBold)
-                                Spacer(Modifier.height(4.dp))
-                                Button(
-                                    onClick = {
-                                        try { com.pmcl.core.web.WikiBrowser.open(dc.getVerificationUri()) } catch (_: Throwable) {}
-                                    },
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Icon(Icons.Filled.OpenInBrowser, null, Modifier.size(16.dp))
-                                    Spacer(Modifier.width(6.dp))
-                                    Text(dc.getVerificationUri())
-                                }
-                                Spacer(Modifier.height(8.dp))
-                                Text("输入代码：",
-                                     style = MaterialTheme.typography.labelMedium,
-                                     fontWeight = FontWeight.SemiBold)
-                                Spacer(Modifier.height(4.dp))
-                                Text(dc.getUserCode(),
-                                     style = MaterialTheme.typography.headlineMedium,
-                                     fontWeight = FontWeight.Bold,
-                                     color = MaterialTheme.colorScheme.primary)
-                                Spacer(Modifier.height(8.dp))
-                                Text(status,
-                                     style = MaterialTheme.typography.labelSmall,
-                                     color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
-                            }
-                        }
-                    } else {
-                        // 浏览器流程 UI
-                        Surface(
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(Modifier.padding(12.dp),
-                                   horizontalAlignment = Alignment.CenterHorizontally) {
+                    // 登录中：显示简短进度。设备码详情在独立弹窗展示
+                    Surface(
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            if (usingBrowserFlow) {
                                 CircularProgressIndicator(
-                                    modifier = Modifier.size(28.dp),
+                                    modifier = Modifier.size(20.dp),
                                     strokeWidth = 2.dp
                                 )
-                                Spacer(Modifier.height(8.dp))
-                                Text(status,
-                                     style = MaterialTheme.typography.bodySmall,
-                                     color = MaterialTheme.colorScheme.onPrimaryContainer)
-                                Spacer(Modifier.height(4.dp))
-                                Text("请在浏览器中完成登录，启动器会自动继续",
-                                     style = MaterialTheme.typography.labelSmall,
-                                     color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
+                            } else {
+                                Icon(Icons.Filled.Key, null, Modifier.size(20.dp))
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Text(
+                                if (deviceCode != null) "设备码已生成，请查看弹窗"
+                                else status,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.weight(1f)
+                            )
+                            if (deviceCode != null && hideDeviceCodeDialog) {
+                                TextButton(onClick = { hideDeviceCodeDialog = false }) {
+                                    Text("查看设备码")
+                                }
                             }
                         }
                     }
@@ -304,24 +279,29 @@ fun AccountsPage(vm: LauncherViewModel) {
                      color = MaterialTheme.colorScheme.outline)
                 Spacer(Modifier.height(12.dp))
 
-                if (deviceCode != null && loginMode == "github") {
-                    val dc = deviceCode
-                    if (dc == null) return@Column
+                if (loggingIn && loginMode == "github") {
+                    // 登录中：设备码详情在独立弹窗展示
                     Surface(
                         color = MaterialTheme.colorScheme.primaryContainer,
                         shape = RoundedCornerShape(8.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Column(Modifier.padding(12.dp)) {
-                            Text("请打开浏览器访问：")
-                            Text(dc.getVerificationUri(),
-                                 fontWeight = FontWeight.Bold,
-                                 color = MaterialTheme.colorScheme.primary)
-                            Spacer(Modifier.height(4.dp))
-                            Text("输入代码：")
-                            Text(dc.getUserCode(),
-                                 style = MaterialTheme.typography.headlineMedium,
-                                 color = MaterialTheme.colorScheme.primary)
+                        Row(Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.Key, null, Modifier.size(20.dp))
+                            Spacer(Modifier.width(12.dp))
+                            Text(
+                                if (deviceCode != null) "设备码已生成，请查看弹窗"
+                                else status,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.weight(1f)
+                            )
+                            if (deviceCode != null && hideDeviceCodeDialog) {
+                                TextButton(onClick = { hideDeviceCodeDialog = false }) {
+                                    Text("查看设备码")
+                                }
+                            }
                         }
                     }
                 } else {
@@ -343,6 +323,20 @@ fun AccountsPage(vm: LauncherViewModel) {
              color = MaterialTheme.colorScheme.outline)
     }
 
+    // 设备码独立弹窗（微软 + GitHub 共用）
+    val dc = deviceCode
+    if (dc != null && !hideDeviceCodeDialog) {
+        DeviceCodeDialog(
+            verificationUri = dc.getVerificationUri(),
+            userCode = dc.getUserCode(),
+            status = status,
+            onOpenBrowser = {
+                try { com.pmcl.core.web.WikiBrowser.open(dc.getVerificationUri()) } catch (_: Throwable) {}
+            },
+            onClose = { hideDeviceCodeDialog = true }
+        )
+    }
+
     // 删除账号确认对话框
     deleteTarget?.let { acc ->
         AlertDialog(
@@ -359,6 +353,131 @@ fun AccountsPage(vm: LauncherViewModel) {
                 TextButton(onClick = { deleteTarget = null }) { Text(I18n.t("common.cancel")) }
             }
         )
+    }
+}
+
+/**
+ * 设备码登录独立弹窗。微软 device code flow 和 GitHub device flow 共用。
+ * 登录完成/失败时 ViewModel 会清空 deviceCode，弹窗自动消失。
+ */
+@Composable
+private fun DeviceCodeDialog(
+    verificationUri: String,
+    userCode: String,
+    status: String,
+    onOpenBrowser: () -> Unit,
+    onClose: () -> Unit
+) {
+    var copied by remember { mutableStateOf(false) }
+    androidx.compose.ui.window.Dialog(onDismissRequest = {}) {
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 6.dp
+        ) {
+            Column(Modifier.padding(20.dp).widthIn(min = 320.dp, max = 420.dp)) {
+                // 标题
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Key, null, Modifier.size(22.dp),
+                         tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(8.dp))
+                    Text("设备码登录", style = MaterialTheme.typography.titleMedium,
+                         fontWeight = FontWeight.Bold)
+                }
+
+                Spacer(Modifier.height(16.dp))
+
+                // 步骤 1：打开浏览器
+                Text("步骤 1：点击下方按钮打开浏览器",
+                     style = MaterialTheme.typography.labelMedium,
+                     fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(6.dp))
+                Button(onClick = onOpenBrowser, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Filled.OpenInBrowser, null, Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(verificationUri)
+                }
+
+                Spacer(Modifier.height(16.dp))
+
+                // 步骤 2：输入代码
+                Text("步骤 2：在浏览器中输入以下代码",
+                     style = MaterialTheme.typography.labelMedium,
+                     fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(6.dp))
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            userCode,
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        IconButton(onClick = {
+                            try {
+                                val clipboard = java.awt.Toolkit.getDefaultToolkit().systemClipboard
+                                clipboard.setContents(
+                                    java.awt.datatransfer.StringSelection(userCode), null
+                                )
+                                copied = true
+                            } catch (_: Throwable) {}
+                        }) {
+                            Icon(
+                                if (copied) Icons.Filled.Check else Icons.Filled.ContentCopy,
+                                if (copied) "已复制" else "复制",
+                                Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                }
+                if (copied) {
+                    Spacer(Modifier.height(4.dp))
+                    Text("代码已复制到剪贴板",
+                         style = MaterialTheme.typography.labelSmall,
+                         color = MaterialTheme.colorScheme.primary)
+                }
+
+                Spacer(Modifier.height(16.dp))
+
+                // 状态
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    shape = RoundedCornerShape(6.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        status,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
+                    )
+                }
+                Spacer(Modifier.height(6.dp))
+                Text("登录完成后启动器会自动继续，请勿关闭此窗口。",
+                     style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.outline.copy(alpha = 0.7f))
+
+                Spacer(Modifier.height(16.dp))
+
+                // 关闭按钮（仅关闭弹窗，登录继续后台进行）
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onClose) { Text("关闭") }
+                }
+            }
+        }
     }
 }
 
