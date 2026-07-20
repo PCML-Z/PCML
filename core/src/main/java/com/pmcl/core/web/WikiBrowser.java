@@ -23,10 +23,25 @@ public final class WikiBrowser {
 
     /** 在系统浏览器打开指定 URL */
     public static void open(String url) throws IOException {
+        if (url == null || url.isEmpty()) {
+            throw new IOException("URL is null or empty");
+        }
+        System.err.println("[WikiBrowser] Opening URL: " + url);
         String os = System.getProperty("os.name", "").toLowerCase();
-        // macOS 上 Desktop.browse() 对含 ?&= 等特殊字符的 URL（如 OAuth 授权 URL）
-        // 有时会被解释为文件路径，从而打开访达而非浏览器。因此 macOS 优先使用 `open` 命令。
+        // macOS：`open` 和 Desktop.browse() 对含特殊字符的 URL（如 OAuth 授权 URL）
+        // 可能被解释为文件路径而打开访达。AppleScript 的 `open location` 明确指定
+        // 打开"位置"（URL），是最可靠的方式。
         if (os.contains("mac")) {
+            // 首选：osascript + open location（明确语义为打开 URL，不会误识别为文件）
+            // 不等待进程结束，避免阻塞 UI 线程（AccountsPage 按钮回调直接调用此方法）
+            try {
+                String script = "open location \"" + url.replace("\"", "\\\"") + "\"";
+                new ProcessBuilder("osascript", "-e", script).start();
+                return;
+            } catch (Throwable t) {
+                System.err.println("[WikiBrowser] osascript 失败，尝试 open 命令: " + t.getMessage());
+            }
+            // 次选：open 命令（参数以 http 开头时通常能正确识别为 URL）
             try {
                 new ProcessBuilder("open", url).start();
                 return;
