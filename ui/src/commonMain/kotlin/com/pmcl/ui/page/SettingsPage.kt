@@ -586,26 +586,12 @@ private fun AboutCard(vm: LauncherViewModel) {
                 )
             }
 
-            // === 技术栈：Chip 标签 ===
+            // === 技术栈：表格 ===
             Spacer(Modifier.height(16.dp))
             Text(I18n.t("about.tech_stack"), style = MaterialTheme.typography.labelMedium,
                  fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(6.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf(
-                    "Kotlin ${KotlinVersion.CURRENT}",
-                    "Compose Multiplatform 1.7.0",
-                    "Java 21",
-                    "OkHttp",
-                    "FFmpeg",
-                    "Gradle"
-                ).forEach { tech ->
-                    AssistChip(
-                        onClick = {},
-                        label = { Text(tech, style = MaterialTheme.typography.labelSmall) }
-                    )
-                }
-            }
+            TechStackTable()
 
             // === 链接按钮 ===
             Spacer(Modifier.height(16.dp))
@@ -680,6 +666,80 @@ private fun FeatureColumn(
             Text("·  $f",
                  style = MaterialTheme.typography.bodySmall,
                  color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+/** 关于卡片中的技术栈表格 */
+@Composable
+private fun TechStackTable() {
+    val rows = listOf(
+        Triple("Kotlin", KotlinVersion.CURRENT.toString(), I18n.t("about.tech.kotlin")),
+        Triple("Compose Multiplatform", "1.7.0", I18n.t("about.tech.compose")),
+        Triple("Java", "21", I18n.t("about.tech.java")),
+        Triple("OkHttp", "4.12.0", I18n.t("about.tech.okhttp")),
+        Triple("FFmpeg", "7.1-1.5.11", I18n.t("about.tech.ffmpeg")),
+        Triple("Gradle", "8.10", I18n.t("about.tech.gradle")),
+        Triple("Gson", "2.11.0", I18n.t("about.tech.gson")),
+        Triple("kotlinx-coroutines", "1.9.0", I18n.t("about.tech.coroutines")),
+        Triple("oshi", "6.6.5", I18n.t("about.tech.oshi")),
+        Triple("pty4j", "0.13.12", I18n.t("about.tech.pty4j"))
+    )
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+        tonalElevation = 1.dp
+    ) {
+        Column {
+            // 表头
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(I18n.t("about.tech_component"),
+                     style = MaterialTheme.typography.labelMedium,
+                     fontWeight = FontWeight.SemiBold,
+                     color = MaterialTheme.colorScheme.primary,
+                     modifier = Modifier.weight(0.3f))
+                Text(I18n.t("about.tech_version"),
+                     style = MaterialTheme.typography.labelMedium,
+                     fontWeight = FontWeight.SemiBold,
+                     color = MaterialTheme.colorScheme.primary,
+                     modifier = Modifier.weight(0.25f))
+                Text(I18n.t("about.tech_purpose"),
+                     style = MaterialTheme.typography.labelMedium,
+                     fontWeight = FontWeight.SemiBold,
+                     color = MaterialTheme.colorScheme.primary,
+                     modifier = Modifier.weight(0.45f))
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+
+            // 数据行
+            rows.forEachIndexed { index, (name, version, purpose) ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(name,
+                         style = MaterialTheme.typography.bodySmall,
+                         fontWeight = FontWeight.Medium,
+                         modifier = Modifier.weight(0.3f))
+                    Text(version,
+                         style = MaterialTheme.typography.bodySmall,
+                         fontFamily = FontFamily.Monospace,
+                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                         modifier = Modifier.weight(0.25f))
+                    Text(purpose,
+                         style = MaterialTheme.typography.bodySmall,
+                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                         modifier = Modifier.weight(0.45f))
+                }
+                if (index < rows.size - 1) {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+                }
+            }
         }
     }
 }
