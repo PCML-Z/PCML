@@ -174,6 +174,97 @@ public final class CurlFallback {
     }
 
     /**
+     * 用 curl 发起 POST 请求并返回响应体字符串，**不因 4xx/5xx 抛异常**。
+     * <p>
+     * 用于协议设计为"4xx 状态码 + JSON body 描述具体错误"的端点（典型例子：
+     * Microsoft device code flow 的 token 端点对 authorization_pending /
+     * slow_down / expired_token / authorization_declined 都返回 HTTP 400，
+     * 调用方需从 body 的 error 字段区分具体状态）。
+     * <p>
+     * 仅在 curl 网络层失败（SSL/连接/超时，exit != 0）或 HTTP 000 时抛 IOException。
+     *
+     * @param url         请求 URL
+     * @param body        请求体
+     * @param contentType Content-Type
+     * @param headers     额外请求头，可为 null
+     * @return 响应体字符串（无论 HTTP 状态码）
+     */
+    public static String postStringAllowingErrors(String url, String body, String contentType,
+                                                   List<String> headers) throws IOException {
+        List<String> cmd = new ArrayList<>();
+        cmd.add("curl");
+        cmd.add("-sS");
+        cmd.add("--max-time"); cmd.add(String.valueOf(TIMEOUT_SEC));
+        cmd.add("--connect-timeout"); cmd.add("10");
+        cmd.add("-H"); cmd.add("User-Agent: PMCL/1.0");
+        cmd.add("-H"); cmd.add("Accept: */*");
+        if (contentType != null && !contentType.isEmpty()) {
+            cmd.add("-H"); cmd.add("Content-Type: " + contentType);
+        }
+        if (headers != null) {
+            for (String h : headers) {
+                cmd.add("-H"); cmd.add(h);
+            }
+        }
+        cmd.add("--data-binary"); cmd.add(body);
+        cmd.add("-w"); cmd.add("\n__HTTP_CODE__%{http_code}");
+        cmd.add(url);
+
+        Process p = new ProcessBuilder(cmd).start();
+        try {
+            try (OutputStream os = p.getOutputStream()) {
+                os.close();
+            }
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            try (InputStream in = p.getInputStream()) {
+                byte[] buf = new byte[64 * 1024];
+                int n;
+                while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
+            }
+            ByteArrayOutputStream err = new ByteArrayOutputStream();
+            try (InputStream in = p.getErrorStream()) {
+                byte[] buf = new byte[4096];
+                int n;
+                while ((n = in.read(buf)) != -1) err.write(buf, 0, n);
+            }
+            boolean done = p.waitFor(TIMEOUT_SEC + 5, TimeUnit.SECONDS);
+            if (!done) {
+                p.destroyForcibly();
+                throw new IOException("curl POST 超时: " + url);
+            }
+            int exit = p.exitValue();
+            String errMsg = err.toString(java.nio.charset.StandardCharsets.UTF_8).trim();
+            if (exit != 0) {
+                throw new IOException("curl POST 网络失败 exit=" + exit + ": " + errMsg + " url=" + url);
+            }
+            String output = out.toString(java.nio.charset.StandardCharsets.UTF_8);
+            int sepIdx = output.lastIndexOf("\n__HTTP_CODE__");
+            if (sepIdx < 0) {
+                return output;
+            }
+            String httpCodeStr = output.substring(sepIdx + "\n__HTTP_CODE__".length()).trim();
+            String responseBody = output.substring(0, sepIdx);
+            int httpCode;
+            try {
+                httpCode = Integer.parseInt(httpCodeStr);
+            } catch (NumberFormatException nfe) {
+                return output;
+            }
+            if (httpCode == 0) {
+                throw new IOException("curl POST 未收到响应: " + errMsg + " url=" + url);
+            }
+            // 关键：不因 4xx/5xx 抛异常，直接返回 body
+            return responseBody;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            p.destroyForcibly();
+            throw new IOException("curl POST 被中断: " + url, e);
+        } finally {
+            p.destroyForcibly();
+        }
+    }
+
+    /**
      * 用 curl 下载文本内容，自定义超时（秒）。
      * 用于快速探测被屏蔽的源（如 Google Translate 在 GFW 环境下），
      * 避免使用默认 30 秒超时导致长时间阻塞。

@@ -153,7 +153,9 @@ public final class MicrosoftAuthFlow {
             // SSL 握手失败（GFW 干扰）→ fallback 到 curl
             if (CurlFallback.isSslHandshakeFailure(e) && CurlFallback.isAvailable()) {
                 try {
-                    json = CurlFallback.postString(TOKEN_URL, body,
+                    // token 端点对 pending/slow_down/expired/declined 都返回 HTTP 400，
+                    // 必须用 postStringAllowingErrors 拿到 body 才能区分具体状态
+                    json = CurlFallback.postStringAllowingErrors(TOKEN_URL, body,
                             "application/x-www-form-urlencoded", null);
                 } catch (IOException ce) {
                     future.completeExceptionally(new RuntimeException("网络错误: " + ce.getMessage(), ce));
