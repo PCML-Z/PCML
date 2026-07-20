@@ -135,10 +135,14 @@ public final class MicrosoftAuthFlow {
         }
         try {
             JsonObject o = JsonParser.parseString(json).getAsJsonObject();
+            // 微软 device code 端点返回字段为 verification_uri（部分旧文档写作 verification_url，
+            // 实际响应为 verification_uri）。同时兼容两种字段名以防万一。
+            String verificationUri = safeStr(o, "verification_uri");
+            if (verificationUri.isEmpty()) verificationUri = safeStr(o, "verification_url");
             return new DeviceCode(
                     safeStr(o, "device_code"),
                     safeStr(o, "user_code"),
-                    safeStr(o, "verification_url"),
+                    verificationUri,
                     o.has("expires_in") && !o.get("expires_in").isJsonNull() ? o.get("expires_in").getAsInt() : 0,
                     o.has("interval") && !o.get("interval").isJsonNull() ? o.get("interval").getAsInt() : 0,
                     safeStr(o, "message")
