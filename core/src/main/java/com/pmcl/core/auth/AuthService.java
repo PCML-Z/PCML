@@ -75,7 +75,7 @@ public final class AuthService {
                     try {
                         return flow.completeLogin(token);
                     } catch (IOException e) {
-                        throw new RuntimeException("微软登录失败", e);
+                        throw new RuntimeException("微软登录失败: " + e.getMessage(), e);
                     }
                 });
     }
@@ -96,7 +96,7 @@ public final class AuthService {
             try {
                 return flow.loginViaBrowser(onStatus, openBrowser);
             } catch (IOException e) {
-                throw new RuntimeException("微软登录失败", e);
+                throw new RuntimeException("微软登录失败: " + e.getMessage(), e);
             }
         });
     }
@@ -119,7 +119,7 @@ public final class AuthService {
                     try {
                         return githubFlow.completeLogin(token);
                     } catch (IOException e) {
-                        throw new RuntimeException("GitHub登录失败", e);
+                        throw new RuntimeException("GitHub登录失败: " + e.getMessage(), e);
                     }
                 });
     }

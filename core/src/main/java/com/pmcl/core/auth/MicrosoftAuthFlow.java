@@ -412,7 +412,7 @@ public final class MicrosoftAuthFlow {
             String xsts = authXsts(xbl[0]);
 
             onStatus.accept("登录 Minecraft…");
-            String mcToken = loginMinecraft(xbl[1], xsts);
+            String mcToken = loginMinecraft(xsts, xbl[1]);
 
             onStatus.accept("获取玩家档案…");
             String[] profile = fetchProfile(mcToken);
