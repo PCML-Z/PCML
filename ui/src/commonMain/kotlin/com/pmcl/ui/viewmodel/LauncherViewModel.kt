@@ -1279,29 +1279,19 @@ class LauncherViewModel {
         scope.launch {
             _loggingIn.value = true
             try {
-                val account = if (core.auth().hasCustomClientId()) {
-                    // 有自定义 client_id → 浏览器授权码流程（体验最佳）
-                    _status.value = I18n.t("status.opening_browser_login")
-                    withContext(Dispatchers.IO) {
-                        core.auth().loginMicrosoftViaBrowser(
-                            { msg -> _status.value = msg },
-                            { url ->
-                                try { com.pmcl.core.web.WikiBrowser.open(url) }
-                                catch (t: Throwable) {
-                                    _status.value = I18n.t("accounts.open_browser_failed", t.message ?: t.toString())
-                                }
-                            }
-                        ).join()
-                    }
-                } else {
-                    // 仅 legacy client_id → device code flow（无需 redirect_uri）
-                    _status.value = I18n.t("status.requesting_device_code")
-                    val dc = withContext(Dispatchers.IO) { core.auth().requestDeviceCode() }
-                    _deviceCode.value = dc
-                    _status.value = I18n.t("status.open_verification_url", dc.getVerificationUri(), dc.getUserCode())
-                    withContext(Dispatchers.IO) {
-                        core.auth().loginMicrosoftAsync(dc) { msg -> _status.value = msg }.join()
-                    }
+                // 统一使用 device code flow：
+                // - 无需用户注册 Azure 应用 / 配置 redirect_uri
+                // - LEGACY_CLIENT_ID 即可工作
+                // - 返回的 MBI_SSL compact token 能被 Xbox Live 正确认证
+                //   （login.live.com 旧端点的授权码流程返回的 token 缺少 audience claim，
+                //    v2.0 端点返回的 JWT 需要 Azure 应用显式添加 XboxLive.signin API 权限，
+                //    对普通用户门槛过高且易出错，故统一用 device code flow）
+                _status.value = I18n.t("status.requesting_device_code")
+                val dc = withContext(Dispatchers.IO) { core.auth().requestDeviceCode() }
+                _deviceCode.value = dc
+                _status.value = I18n.t("status.open_verification_url", dc.getVerificationUri(), dc.getUserCode())
+                val account = withContext(Dispatchers.IO) {
+                    core.auth().loginMicrosoftAsync(dc) { msg -> _status.value = msg }.join()
                 }
                 _account.value = account
                 upsertAccount(account)
