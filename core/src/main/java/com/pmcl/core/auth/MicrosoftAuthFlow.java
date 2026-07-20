@@ -430,7 +430,8 @@ public final class MicrosoftAuthFlow {
         String body = "client_id=" + clientId +
                 "&grant_type=authorization_code" +
                 "&code=" + java.net.URLEncoder.encode(code, "UTF-8") +
-                "&redirect_uri=" + java.net.URLEncoder.encode(redirectUri, "UTF-8");
+                "&redirect_uri=" + java.net.URLEncoder.encode(redirectUri, "UTF-8") +
+                "&scope=" + java.net.URLEncoder.encode(SCOPE, "UTF-8");
         String json;
         try {
             Request req = new Request.Builder()
