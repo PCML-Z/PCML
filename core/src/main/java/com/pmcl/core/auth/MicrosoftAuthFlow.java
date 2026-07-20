@@ -83,8 +83,11 @@ public final class MicrosoftAuthFlow {
      * 直连失败时自动 fallback 到系统 curl（绕过 GFW 对 Java TLS 指纹的 RST 干扰）。
      */
     public DeviceCode requestDeviceCode() throws IOException {
+        // response_type=device_code 是 legacy login.live.com 端点 device code flow 的必需参数
+        // 缺失会被 Microsoft 以 400 invalid_request "must include a 'response_type'" 拒绝
         String body = "client_id=" + CLIENT_ID +
-                "&scope=" + java.net.URLEncoder.encode(SCOPE, "UTF-8");
+                "&scope=" + java.net.URLEncoder.encode(SCOPE, "UTF-8") +
+                "&response_type=device_code";
         String json;
         try {
             Request req = new Request.Builder()
@@ -136,13 +139,36 @@ public final class MicrosoftAuthFlow {
         String body = "client_id=" + CLIENT_ID +
                 "&grant_type=urn:ietf:params:oauth:grant-type:device_code" +
                 "&device_code=" + dc.getDeviceCode();
-        Request req = new Request.Builder()
-                .url(TOKEN_URL)
-                .post(RequestBody.create(body,
-                        MediaType.get("application/x-www-form-urlencoded")))
-                .build();
-        try (Response resp = http.newCall(req).execute()) {
-            String json = resp.body() != null ? resp.body().string() : "";
+        String json;
+        try {
+            Request req = new Request.Builder()
+                    .url(TOKEN_URL)
+                    .post(RequestBody.create(body,
+                            MediaType.get("application/x-www-form-urlencoded")))
+                    .build();
+            try (Response resp = http.newCall(req).execute()) {
+                json = resp.body() != null ? resp.body().string() : "";
+            }
+        } catch (IOException e) {
+            // SSL 握手失败（GFW 干扰）→ fallback 到 curl
+            if (CurlFallback.isSslHandshakeFailure(e) && CurlFallback.isAvailable()) {
+                try {
+                    json = CurlFallback.postString(TOKEN_URL, body,
+                            "application/x-www-form-urlencoded", null);
+                } catch (IOException ce) {
+                    future.completeExceptionally(new RuntimeException("网络错误: " + ce.getMessage(), ce));
+                    return;
+                }
+            } else {
+                future.completeExceptionally(new RuntimeException("网络错误: " + e.getMessage(), e));
+                return;
+            }
+        } catch (Throwable e) {
+            // 保留原始异常消息（如 SSL_ERROR_SYSCALL），便于诊断 GFW 干扰
+            future.completeExceptionally(new RuntimeException("网络错误: " + e.getMessage(), e));
+            return;
+        }
+        try {
             JsonObject o = JsonParser.parseString(json).getAsJsonObject();
             String error = o.has("error") && !o.get("error").isJsonNull() ? o.get("error").getAsString() : null;
             if (error == null) {
@@ -168,9 +194,8 @@ public final class MicrosoftAuthFlow {
                     future.completeExceptionally(new RuntimeException("登录失败: " + error));
                     return;
             }
-        } catch (Throwable e) {
-            // 保留原始异常消息（如 SSL_ERROR_SYSCALL），便于诊断 GFW 干扰
-            future.completeExceptionally(new RuntimeException("网络错误: " + e.getMessage(), e));
+        } catch (Throwable t) {
+            future.completeExceptionally(new RuntimeException("解析 token 响应失败: " + t.getMessage() + " body=" + json, t));
             return;
         }
         // 间隔后重试
