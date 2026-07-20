@@ -54,7 +54,7 @@ fun FriendPage(vm: LauncherViewModel) {
     val friendManager = remember { vm.core.friend() }
     if (friendManager == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("好友系统暂不可用", style = MaterialTheme.typography.bodyLarge)
+            Text(I18n.t("friend.system_unavailable"), style = MaterialTheme.typography.bodyLarge)
         }
         return
     }
@@ -261,7 +261,7 @@ fun FriendPage(vm: LauncherViewModel) {
             // 清除背景
             if (bgImagePath != null) {
                 IconButton(onClick = { bgImagePath = null; identityManager.backgroundPath = null }, modifier = Modifier.size(36.dp)) {
-                    Icon(Icons.Filled.HideImage, "清除背景",
+                    Icon(Icons.Filled.HideImage, I18n.t("friend.clear_background"),
                         modifier = Modifier.size(18.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -269,7 +269,7 @@ fun FriendPage(vm: LauncherViewModel) {
 
             // 添加好友按钮
             IconButton(onClick = { showAddDialog = true }) {
-                Icon(Icons.Filled.PersonAdd, "添加好友", tint = MaterialTheme.colorScheme.primary)
+                Icon(Icons.Filled.PersonAdd, I18n.t("friend.add_friend"), tint = MaterialTheme.colorScheme.primary)
             }
         }
 
@@ -284,10 +284,10 @@ fun FriendPage(vm: LauncherViewModel) {
                             modifier = Modifier.size(64.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
                         Spacer(Modifier.height(8.dp))
-                        Text("还没有好友", style = MaterialTheme.typography.bodyLarge,
+                        Text(I18n.t("friend.no_friends"), style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
                         Spacer(Modifier.height(4.dp))
-                        Text("加入联机房间后，可识别附近玩家并互加好友",
+                        Text(I18n.t("friend.no_friends_hint"),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
                     }
@@ -316,7 +316,7 @@ fun FriendPage(vm: LauncherViewModel) {
                 // 左侧：好友列表
                 Column(Modifier.width(220.dp).fillMaxHeight()) {
                     if (pendingRequests.isNotEmpty()) {
-                        Text("好友请求", style = MaterialTheme.typography.labelMedium,
+                        Text(I18n.t("friend.requests"), style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.padding(bottom = 4.dp))
                         pendingRequests.forEach { request ->
@@ -335,7 +335,7 @@ fun FriendPage(vm: LauncherViewModel) {
                         HorizontalDivider(Modifier.padding(vertical = 8.dp))
                     }
 
-                    Text("好友", style = MaterialTheme.typography.labelMedium,
+                    Text(I18n.t("friend.friends"), style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(bottom = 4.dp))
 
@@ -439,7 +439,7 @@ fun FriendPage(vm: LauncherViewModel) {
                                     modifier = Modifier.size(56.dp),
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f))
                                 Spacer(Modifier.height(12.dp))
-                                Text("选择一个好友开始聊天",
+                                Text(I18n.t("friend.select_friend_to_chat"),
                                     style = MaterialTheme.typography.bodyLarge,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
                             }
@@ -488,7 +488,7 @@ fun FriendPage(vm: LauncherViewModel) {
                     addFriendError = null
                     showAddDialog = false
                 } else {
-                    addFriendError = "无效的邀请码"
+                    addFriendError = I18n.t("friend.invalid_invite_code")
                 }
             },
             onScanStart = {
@@ -514,10 +514,10 @@ fun FriendPage(vm: LauncherViewModel) {
                                 addFriendCode = decoded
                                 addFriendError = null
                             } else {
-                                addFriendError = "图片中的二维码不是有效的好友邀请"
+                                addFriendError = I18n.t("friend.invalid_image_qr")
                             }
                         } else {
-                            addFriendError = "未在图片中找到二维码"
+                            addFriendError = I18n.t("friend.no_qr_in_image")
                         }
                     }
                 }
@@ -542,16 +542,16 @@ fun FriendPage(vm: LauncherViewModel) {
                                     addFriendCode = decoded
                                     addFriendError = null
                                 } else {
-                                    addFriendError = "剪贴板中的二维码不是有效的好友邀请"
+                                    addFriendError = I18n.t("friend.invalid_clipboard_qr")
                                 }
                             } else {
-                                addFriendError = "未在剪贴板图片中找到二维码"
+                                addFriendError = I18n.t("friend.no_qr_in_clipboard")
                             }
                         } else {
-                            addFriendError = "剪贴板中没有图片"
+                            addFriendError = I18n.t("friend.no_image_in_clipboard")
                         }
                     } catch (e: Exception) {
-                        addFriendError = "读取剪贴板失败: ${e.message}"
+                        addFriendError = I18n.t("friend.read_clipboard_failed", e.message ?: "")
                     }
                 }
             }
@@ -565,7 +565,7 @@ fun FriendPage(vm: LauncherViewModel) {
             onEndCall = {
                 scope.launch(Dispatchers.IO) {
                     session.end()
-                    friendManager.sendCallEnd(session.remoteIdentity, session.callId, "用户挂断")
+                    friendManager.sendCallEnd(session.remoteIdentity, session.callId, I18n.t("friend.user_hangup"))
                     activeCallSession = null
                 }
             },
@@ -632,7 +632,7 @@ fun FriendPage(vm: LauncherViewModel) {
                 },
                 onReject = {
                     scope.launch(Dispatchers.IO) {
-                        friendManager.sendCallReject(callerId, "", "拒绝通话")
+                        friendManager.sendCallReject(callerId, "", I18n.t("friend.call_rejected"))
                         incomingCall = null
                     }
                 }
@@ -690,7 +690,7 @@ private fun FriendListItem(
                 Text(friend.displayName, style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
-                    if (friend.online) "在线" else "离线",
+                    if (friend.online) I18n.t("friend.online") else I18n.t("friend.offline"),
                     style = MaterialTheme.typography.labelSmall,
                     color = if (friend.online) Color(0xFF4CAF50)
                             else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
@@ -744,12 +744,12 @@ private fun FriendRequestCard(
             }
             Spacer(Modifier.width(4.dp))
             IconButton(onClick = onAccept, modifier = Modifier.size(28.dp)) {
-                Icon(Icons.Filled.Check, "接受",
+                Icon(Icons.Filled.Check, I18n.t("friend.accept"),
                     modifier = Modifier.size(18.dp),
                     tint = MaterialTheme.colorScheme.primary)
             }
             IconButton(onClick = onReject, modifier = Modifier.size(28.dp)) {
-                Icon(Icons.Filled.Close, "拒绝",
+                Icon(Icons.Filled.Close, I18n.t("friend.reject"),
                     modifier = Modifier.size(18.dp),
                     tint = MaterialTheme.colorScheme.error)
             }
@@ -807,7 +807,7 @@ private fun ChatView(
                     ) {}
                     Spacer(Modifier.width(4.dp))
                     Text(
-                        if (friendOnline) "在线" else "离线",
+                        if (friendOnline) I18n.t("friend.online") else I18n.t("friend.offline"),
                         style = MaterialTheme.typography.labelSmall,
                         color = if (friendOnline) Color(0xFF4CAF50)
                                 else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
@@ -816,13 +816,13 @@ private fun ChatView(
             }
             // 视频通话按钮（仅在线时可点击）
             IconButton(onClick = onVideoCall, modifier = Modifier.size(32.dp), enabled = friendOnline) {
-                Icon(Icons.Filled.Videocam, "视频通话",
+                Icon(Icons.Filled.Videocam, I18n.t("friend.video_call"),
                     modifier = Modifier.size(18.dp),
                     tint = if (friendOnline) MaterialTheme.colorScheme.primary
                            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f))
             }
             IconButton(onClick = onDeleteFriend, modifier = Modifier.size(32.dp)) {
-                Icon(Icons.Filled.PersonRemove, "删除好友",
+                Icon(Icons.Filled.PersonRemove, I18n.t("friend.remove_friend"),
                     modifier = Modifier.size(18.dp),
                     tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f))
             }
@@ -873,7 +873,7 @@ private fun ChatView(
                     value = inputText,
                     onValueChange = onInputChange,
                     modifier = Modifier.weight(1f),
-                    placeholder = { Text("输入消息...", style = MaterialTheme.typography.bodyMedium) },
+                    placeholder = { Text(I18n.t("friend.input_message_placeholder"), style = MaterialTheme.typography.bodyMedium) },
                     singleLine = false,
                     maxLines = 4,
                     colors = OutlinedTextFieldDefaults.colors(
@@ -922,7 +922,7 @@ private fun SendButton(canSend: Boolean, onClick: () -> Unit) {
     ) {
         Box(contentAlignment = Alignment.Center) {
             Icon(
-                Icons.AutoMirrored.Filled.Send, "发送",
+                Icons.AutoMirrored.Filled.Send, I18n.t("friend.send"),
                 modifier = Modifier.size(18.dp),
                 tint = if (canSend) MaterialTheme.colorScheme.onPrimary
                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
@@ -986,10 +986,10 @@ private fun AddFriendDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("添加好友", fontWeight = FontWeight.Bold) },
+        title = { Text(I18n.t("friend.add_friend"), fontWeight = FontWeight.Bold) },
         text = {
             Column {
-                Text("请输入好友的邀请码或粘贴分享文本",
+                Text(I18n.t("friend.add_friend_hint"),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(12.dp))
@@ -997,7 +997,7 @@ private fun AddFriendDialog(
                     value = code,
                     onValueChange = onCodeChange,
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("粘贴邀请码或扫描二维码") },
+                    placeholder = { Text(I18n.t("friend.paste_or_scan")) },
                     singleLine = false,
                     minLines = 2
                 )
@@ -1008,26 +1008,26 @@ private fun AddFriendDialog(
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = onScanStart, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)) {
-                        Icon(Icons.Filled.Image, "扫描图片", modifier = Modifier.size(16.dp))
+                        Icon(Icons.Filled.Image, I18n.t("friend.scan_image"), modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(4.dp))
-                        Text("扫描图片", style = MaterialTheme.typography.labelMedium)
+                        Text(I18n.t("friend.scan_image"), style = MaterialTheme.typography.labelMedium)
                     }
                     OutlinedButton(onClick = onScanClipboard, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)) {
-                        Icon(Icons.Filled.ContentPaste, "剪贴板", modifier = Modifier.size(16.dp))
+                        Icon(Icons.Filled.ContentPaste, I18n.t("friend.clipboard"), modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(4.dp))
-                        Text("剪贴板", style = MaterialTheme.typography.labelMedium)
+                        Text(I18n.t("friend.clipboard"), style = MaterialTheme.typography.labelMedium)
                     }
                 }
             }
         },
         confirmButton = {
             TextButton(onClick = onAdd, enabled = code.isNotBlank()) {
-                Text("添加")
+                Text(I18n.t("friend.add"))
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("取消")
+                Text(I18n.t("common.cancel"))
             }
         }
     )

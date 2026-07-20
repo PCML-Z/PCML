@@ -178,7 +178,7 @@ fun ModsMarketPage(vm: LauncherViewModel) {
                 .blur(listBlurRadius)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("模组市场", style = MaterialTheme.typography.headlineSmall,
+                Text(I18n.t("market.title"), style = MaterialTheme.typography.headlineSmall,
                      fontWeight = FontWeight.Bold)
                 Spacer(Modifier.weight(1f))
                 FilterChip(
@@ -200,13 +200,13 @@ fun ModsMarketPage(vm: LauncherViewModel) {
                                 modifier = Modifier.size(14.dp)
                             )
                             Spacer(Modifier.width(4.dp))
-                            Text(if (translating) "翻译中…" else "翻译")
+                            Text(if (translating) I18n.t("market.translating") else I18n.t("market.translate"))
                         }
                     }
                 )
             }
             Spacer(Modifier.height(8.dp))
-            Text("聚合 Modrinth + CurseForge。CurseForge 需配置 CURSEFORGE_API_KEY 环境变量。",
+            Text(I18n.t("market.aggregator_hint"),
                  style = MaterialTheme.typography.labelSmall,
                  color = MaterialTheme.colorScheme.outline)
 
@@ -218,7 +218,7 @@ fun ModsMarketPage(vm: LauncherViewModel) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     OutlinedTextField(
                         value = query, onValueChange = { query = it },
-                        label = { Text("搜索模组（回车搜索）") }, singleLine = true,
+                        label = { Text(I18n.t("market.search_mods_hint")) }, singleLine = true,
                         modifier = Modifier.weight(1f),
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                         keyboardActions = KeyboardActions(
@@ -232,7 +232,7 @@ fun ModsMarketPage(vm: LauncherViewModel) {
                     Spacer(Modifier.width(12.dp))
                     OutlinedTextField(
                         value = gameVersion, onValueChange = { gameVersion = it },
-                        label = { Text("目标版本") }, singleLine = true,
+                        label = { Text(I18n.t("market.target_version")) }, singleLine = true,
                         modifier = Modifier.width(120.dp)
                     )
                     Spacer(Modifier.width(12.dp))
@@ -241,7 +241,7 @@ fun ModsMarketPage(vm: LauncherViewModel) {
                     Button(onClick = {
                         vm.searchMods(query, gameVersion, loader, selectedCategory)
                     }, enabled = !loading && query.isNotBlank()) {
-                        Text(if (loading) "搜索中…" else "搜索")
+                        Text(if (loading) I18n.t("market.searching") else I18n.t("market.search"))
                     }
                 }
 
@@ -291,7 +291,7 @@ fun ModsMarketPage(vm: LauncherViewModel) {
                 }
                 // 搜索结果视图（用户主动搜索后）
                 results.isNotEmpty() -> {
-                    Text("搜索结果（${results.size}）",
+                    Text(I18n.t("market.search_results", results.size),
                          style = MaterialTheme.typography.titleMedium,
                          fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(8.dp))
@@ -316,7 +316,7 @@ fun ModsMarketPage(vm: LauncherViewModel) {
                 // 分类推荐网格（用户选择分类标签后）
                 selectedCategory.isNotEmpty() -> {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("分类推荐：${categoryLabel(selectedCategory)}",
+                        Text(I18n.t("market.category_picks", categoryLabel(selectedCategory)),
                              style = MaterialTheme.typography.titleMedium,
                              fontWeight = FontWeight.SemiBold,
                              modifier = Modifier.weight(1f))
@@ -325,7 +325,7 @@ fun ModsMarketPage(vm: LauncherViewModel) {
                         } else {
                             TextButton(onClick = {
                                 vm.loadCategoryMods(selectedCategory, gameVersion, loader)
-                            }) { Text("刷新") }
+                            }) { Text(I18n.t("common.refresh")) }
                         }
                     }
                     Spacer(Modifier.height(8.dp))
@@ -336,7 +336,7 @@ fun ModsMarketPage(vm: LauncherViewModel) {
                             modifier = Modifier.fillMaxWidth().weight(1f)
                         ) {
                             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Text("该分类下暂无模组，点击刷新重试",
+                                Text(I18n.t("market.category_empty"),
                                      color = MaterialTheme.colorScheme.outline)
                             }
                         }
@@ -365,7 +365,7 @@ fun ModsMarketPage(vm: LauncherViewModel) {
                 // 热门推荐网格（默认视图）
                 else -> {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("🔥 热门推荐",
+                        Text(I18n.t("market.popular"),
                              style = MaterialTheme.typography.titleMedium,
                              fontWeight = FontWeight.SemiBold,
                              modifier = Modifier.weight(1f))
@@ -373,7 +373,7 @@ fun ModsMarketPage(vm: LauncherViewModel) {
                             CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                         } else {
                             TextButton(onClick = { vm.loadPopularMods(gameVersion, loader) }) {
-                                Text("刷新")
+                                Text(I18n.t("common.refresh"))
                             }
                         }
                     }
@@ -385,7 +385,7 @@ fun ModsMarketPage(vm: LauncherViewModel) {
                             modifier = Modifier.fillMaxWidth().weight(1f)
                         ) {
                             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Text("加载失败或无数据，点击刷新重试",
+                                Text(I18n.t("market.load_failed_or_empty"),
                                      color = MaterialTheme.colorScheme.outline)
                             }
                         }
@@ -414,7 +414,7 @@ fun ModsMarketPage(vm: LauncherViewModel) {
             }
 
             Spacer(Modifier.height(8.dp))
-            Text("状态：$status", style = MaterialTheme.typography.labelSmall,
+            Text(I18n.t("market.status_value", status), style = MaterialTheme.typography.labelSmall,
                  color = MaterialTheme.colorScheme.outline)
         }
 
@@ -474,7 +474,7 @@ private fun DependencyResultDialog(
                          style = MaterialTheme.typography.labelMedium,
                          color = MaterialTheme.colorScheme.onSurfaceVariant)
                     result.skippedInstalled.forEach { dep ->
-                        Text("  - $dep (已安装)",
+                        Text(I18n.t("market.dep_already_installed", dep),
                              style = MaterialTheme.typography.bodySmall,
                              color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
@@ -626,7 +626,7 @@ private fun ColumnScope.ModDetailView(
         // 顶部：返回按钮 + 项目信息
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = onBack) { Text("← 返回热门") }
+                TextButton(onClick = onBack) { Text(I18n.t("market.back_to_popular")) }
             }
         }
         item {
@@ -681,10 +681,10 @@ private fun ColumnScope.ModDetailView(
                     } catch (_: Throwable) {
                         // 浏览器打开失败，忽略
                     }
-                }) { Text("🔗 打开网页") }
+                }) { Text(I18n.t("market.open_web")) }
                 Spacer(Modifier.width(8.dp))
                 TextButton(onClick = { vm.listProjectFiles(project) }) {
-                    Text("🔄 刷新版本列表")
+                    Text(I18n.t("market.refresh_versions"))
                 }
             }
         }
@@ -696,7 +696,7 @@ private fun ColumnScope.ModDetailView(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(Modifier.padding(10.dp)) {
-                    Text("下载到游戏版本",
+                    Text(I18n.t("market.download_to_version"),
                          style = MaterialTheme.typography.titleSmall,
                          fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(6.dp))
@@ -704,13 +704,13 @@ private fun ColumnScope.ModDetailView(
                         OutlinedTextField(
                             value = targetGameVersion,
                             onValueChange = { targetGameVersion = it },
-                            label = { Text("目标 MC 版本（mods 子目录）") },
+                            label = { Text(I18n.t("market.target_mc_version")) },
                             singleLine = true,
                             modifier = Modifier.weight(1f)
                         )
                     }
                     Spacer(Modifier.height(4.dp))
-                    Text("文件将下载到 mods/$targetGameVersion/ 目录",
+                    Text(I18n.t("market.download_dir_hint", targetGameVersion),
                          style = MaterialTheme.typography.labelSmall,
                          color = MaterialTheme.colorScheme.outline)
                 }
@@ -718,7 +718,7 @@ private fun ColumnScope.ModDetailView(
         }
         // 版本文件列表
         item {
-            Text("版本文件（${files.size}）",
+            Text(I18n.t("market.version_files", files.size),
                  style = MaterialTheme.typography.titleSmall,
                  fontWeight = FontWeight.SemiBold)
         }
@@ -730,7 +730,7 @@ private fun ColumnScope.ModDetailView(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                        Text("加载中…", color = MaterialTheme.colorScheme.outline)
+                        Text(I18n.t("common.loading"), color = MaterialTheme.colorScheme.outline)
                     }
                 }
             }
@@ -742,8 +742,8 @@ private fun ColumnScope.ModDetailView(
             if (files.size > 15) {
                 item {
                     TextButton(onClick = { showAllFiles = !showAllFiles }) {
-                        Text(if (showAllFiles) "收起（共 ${files.size}）"
-                             else "查看全部（${files.size}）")
+                        Text(if (showAllFiles) I18n.t("market.collapse_files", files.size)
+                             else I18n.t("market.show_all_files", files.size))
                     }
                 }
             }
@@ -803,7 +803,7 @@ private fun SearchResultCard(
                     Text(displayName, fontWeight = FontWeight.SemiBold, maxLines = 1)
                     if (isInstalled) {
                         Spacer(Modifier.width(6.dp))
-                        Text("✓ 已安装",
+                        Text(I18n.t("market.installed"),
                              style = MaterialTheme.typography.labelSmall,
                              color = MaterialTheme.colorScheme.primary)
                     }
@@ -976,17 +976,17 @@ private fun LoaderDropdown(selected: String, onSelect: (String) -> Unit) {
     val options = listOf("fabric", "forge", "quilt", "neoforge", "")
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
         OutlinedTextField(
-            value = if (selected.isEmpty()) "全部" else selected,
+            value = if (selected.isEmpty()) I18n.t("market.all") else selected,
             onValueChange = {},
             readOnly = true,
-            label = { Text("加载器") },
+            label = { Text(I18n.t("market.loader")) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             modifier = Modifier.menuAnchor().width(120.dp)
         )
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             options.forEach { opt ->
                 DropdownMenuItem(
-                    text = { Text(if (opt.isEmpty()) "全部" else opt) },
+                    text = { Text(if (opt.isEmpty()) I18n.t("market.all") else opt) },
                     onClick = { onSelect(opt); expanded = false }
                 )
             }
@@ -995,31 +995,32 @@ private fun LoaderDropdown(selected: String, onSelect: (String) -> Unit) {
 }
 
 /**
- * 模组分类列表：中文标签 → Modrinth 原生 category slug。
+ * 模组分类列表：i18n 键 → Modrinth 原生 category slug。
  * slug 已通过 https://api.modrinth.com/v2/tag/category 校验为有效分类。
  * 「全部」对应空字符串，表示不按分类过滤（显示热门推荐）。
  */
 private val MOD_CATEGORIES: List<Pair<String, String>> = listOf(
-    "全部" to "",
-    "性能优化" to "optimization",
-    "科技" to "technology",
-    "魔法" to "magic",
-    "冒险" to "adventure",
-    "装饰" to "decoration",
-    "实用" to "utility",
-    "生物" to "mobs",
-    "食物" to "food",
-    "世界生成" to "worldgen",
-    "存储" to "storage",
-    "装备" to "equipment",
-    "运输" to "transportation",
-    "社交" to "social",
-    "游戏机制" to "game-mechanics"
+    "market.cat.all" to "",
+    "market.cat.optimization" to "optimization",
+    "market.cat.technology" to "technology",
+    "market.cat.magic" to "magic",
+    "market.cat.adventure" to "adventure",
+    "market.cat.decoration" to "decoration",
+    "market.cat.utility" to "utility",
+    "market.cat.mobs" to "mobs",
+    "market.cat.food" to "food",
+    "market.cat.worldgen" to "worldgen",
+    "market.cat.storage" to "storage",
+    "market.cat.equipment" to "equipment",
+    "market.cat.transportation" to "transportation",
+    "market.cat.social" to "social",
+    "market.cat.game_mechanics" to "game-mechanics"
 )
 
-/** 根据 slug 反查中文标签（用于分类网格标题）。 */
+/** 根据 slug 反查本地化标签（用于分类网格标题）。 */
 private fun categoryLabel(slug: String): String {
-    return MOD_CATEGORIES.firstOrNull { it.second == slug }?.first ?: slug
+    val entry = MOD_CATEGORIES.firstOrNull { it.second == slug } ?: return slug
+    return I18n.t(entry.first)
 }
 
 /**
@@ -1032,7 +1033,7 @@ private fun CategoryBar(
     selectedCategory: String,
     onSelect: (String) -> Unit
 ) {
-    val labels = MOD_CATEGORIES.map { it.first }
+    val labels = MOD_CATEGORIES.map { I18n.t(it.first) }
     val selectedIndex = MOD_CATEGORIES.indexOfFirst { it.second == selectedCategory }.coerceAtLeast(0)
     com.pmcl.ui.animation.AnimatedSegmentedSelector(
         items = labels,

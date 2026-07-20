@@ -164,7 +164,7 @@ fun LaunchPage(vm: LauncherViewModel) {
             // 标题栏
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("启动", style = MaterialTheme.typography.headlineSmall,
+                    Text(I18n.t("launch.start"), style = MaterialTheme.typography.headlineSmall,
                          fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                     OutlinedButton(
                         onClick = { vm.refreshLocalVersions() },
@@ -172,18 +172,18 @@ fun LaunchPage(vm: LauncherViewModel) {
                     ) {
                         Icon(
                             Icons.Filled.Refresh,
-                            "扫描",
+                            I18n.t("launch.scan"),
                             Modifier.size(16.dp).then(
                                 if (scanning) Modifier.rotate(rotationAngle)
                                 else Modifier
                             )
                         )
                         Spacer(Modifier.width(4.dp))
-                        Text(if (scanning) "扫描中…" else "扫描")
+                        Text(if (scanning) I18n.t("launch.scanning") else I18n.t("launch.scan"))
                     }
                 }
                 Spacer(Modifier.height(4.dp))
-                Text("已安装 ${localInfos.size} 个本地版本",
+                Text(I18n.t("launch.installed_count", localInfos.size),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
             }
@@ -208,7 +208,7 @@ fun LaunchPage(vm: LauncherViewModel) {
                         ) {
                             Text("⚠ ", style = MaterialTheme.typography.bodySmall)
                             Text(
-                                "未扫描到本地版本。PMCL 会扫描 ~/.pmcl/versions 和系统默认 Minecraft 目录（Mac: ~/Library/Application Support/minecraft/versions）",
+                                I18n.t("launch.no_local_hint"),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
@@ -220,7 +220,7 @@ fun LaunchPage(vm: LauncherViewModel) {
             // ===== 固定磁贴区 =====
             item {
                 Spacer(Modifier.height(12.dp))
-                Text("快速启动", style = MaterialTheme.typography.titleSmall,
+                Text(I18n.t("launch.quick_launch"), style = MaterialTheme.typography.titleSmall,
                      fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.height(8.dp))
             }
@@ -232,7 +232,7 @@ fun LaunchPage(vm: LauncherViewModel) {
                         shape = RoundedCornerShape(8.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("点击下方版本的 ☆ 固定为磁贴，可实现一键启动",
+                        Text(I18n.t("launch.pinned_empty_hint"),
                              modifier = Modifier.padding(12.dp),
                              style = MaterialTheme.typography.bodySmall,
                              color = MaterialTheme.colorScheme.outline)
@@ -280,11 +280,11 @@ fun LaunchPage(vm: LauncherViewModel) {
                 item {
                     Spacer(Modifier.height(12.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.Refresh, "最近使用",
+                        Icon(Icons.Filled.Refresh, I18n.t("launch.recent"),
                              modifier = Modifier.size(16.dp),
                              tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.width(6.dp))
-                        Text("最近使用", style = MaterialTheme.typography.titleSmall,
+                        Text(I18n.t("launch.recent"), style = MaterialTheme.typography.titleSmall,
                              fontWeight = FontWeight.SemiBold,
                              color = MaterialTheme.colorScheme.primary)
                     }
@@ -308,7 +308,7 @@ fun LaunchPage(vm: LauncherViewModel) {
                 Spacer(Modifier.height(12.dp))
                 HorizontalDivider()
                 Spacer(Modifier.height(12.dp))
-                Text("本地版本", style = MaterialTheme.typography.titleSmall,
+                Text(I18n.t("launch.local_versions"), style = MaterialTheme.typography.titleSmall,
                      fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(8.dp))
             }
@@ -318,15 +318,12 @@ fun LaunchPage(vm: LauncherViewModel) {
                 item {
                     Card(Modifier.fillMaxWidth(), colors = glassCardColors()) {
                         Column(Modifier.padding(16.dp)) {
-                            Text("尚未扫描到本地游戏",
+                            Text(I18n.t("launch.local_empty_title"),
                                  style = MaterialTheme.typography.titleSmall,
                                  fontWeight = FontWeight.SemiBold)
                             Spacer(Modifier.height(8.dp))
                             Text(
-                                "PMCL 会自动扫描以下目录：\n" +
-                                "• ${vm.config.getVersionsDir()}\n" +
-                                "• ~/.minecraft/versions（若存在）\n\n" +
-                                "请将已有 Minecraft 版本目录放入上述位置，或前往「下载」页面安装新版本后点击「扫描」。",
+                                I18n.t("launch.local_empty_hint", vm.config.getVersionsDir()),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.outline)
                         }
@@ -353,7 +350,7 @@ fun LaunchPage(vm: LauncherViewModel) {
                 Spacer(Modifier.height(12.dp))
                 HorizontalDivider()
                 Spacer(Modifier.height(8.dp))
-                Text("远程版本（${versions.size}）",
+                Text(I18n.t("launch.remote_count", versions.size),
                      style = MaterialTheme.typography.labelMedium,
                      color = MaterialTheme.colorScheme.outline)
                 Spacer(Modifier.height(8.dp))
@@ -363,7 +360,13 @@ fun LaunchPage(vm: LauncherViewModel) {
             item {
                 Column {
                     // 分类滑动选择器
-                    val categories = listOf("全部", "正式版", "快照", "旧版Beta", "旧版Alpha")
+                    val categories = listOf(
+                        I18n.t("launch.category_all"),
+                        I18n.t("launch.category_release"),
+                        I18n.t("launch.category_snapshot"),
+                        I18n.t("launch.category_old_beta"),
+                        I18n.t("launch.category_old_alpha")
+                    )
                     com.pmcl.ui.animation.AnimatedSegmentedSelector(
                         items = categories,
                         selectedIndex = versionCategory,
@@ -376,13 +379,13 @@ fun LaunchPage(vm: LauncherViewModel) {
                     OutlinedTextField(
                         value = searchQuery,
                         onValueChange = { searchQuery = it },
-                        label = { Text("搜索版本号") },
+                        label = { Text(I18n.t("launch.search_version")) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                         textStyle = MaterialTheme.typography.bodySmall
                     )
                     Spacer(Modifier.height(4.dp))
-                    Text("显示 ${filtered.size} 个版本",
+                    Text(I18n.t("launch.showing_count", filtered.size),
                          style = MaterialTheme.typography.labelSmall,
                          color = MaterialTheme.colorScheme.outline)
                     Spacer(Modifier.height(6.dp))
@@ -428,7 +431,7 @@ fun LaunchPage(vm: LauncherViewModel) {
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("选中：$it",
+                        Text(I18n.t("launch.selected_prefix", it),
                              style = MaterialTheme.typography.bodyMedium,
                              fontWeight = FontWeight.SemiBold,
                              modifier = Modifier.weight(1f))
@@ -438,7 +441,7 @@ fun LaunchPage(vm: LauncherViewModel) {
                             shape = RoundedCornerShape(4.dp)
                         ) {
                             Text(
-                                if (isInstalled) "已安装" else "未安装",
+                                if (isInstalled) I18n.t("launch.installed") else I18n.t("launch.not_installed"),
                                 color = MaterialTheme.colorScheme.onPrimary,
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.SemiBold,
@@ -649,19 +652,19 @@ fun LaunchPage(vm: LauncherViewModel) {
                             color = MaterialTheme.colorScheme.onTertiary
                         )
                         Spacer(Modifier.width(10.dp))
-                        Text("下载中…",
+                        Text(I18n.t("launch.downloading"),
                              style = MaterialTheme.typography.titleMedium, fontSize = 18.sp)
                     }
                     isDownloadMode -> {
                         Icon(Icons.Filled.Refresh, null, Modifier.size(24.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("下载并安装",
+                        Text(I18n.t("launch.download_install"),
                              style = MaterialTheme.typography.titleMedium, fontSize = 18.sp)
                     }
                     else -> {
                         Icon(Icons.Filled.PlayArrow, null, Modifier.size(24.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("启动 Minecraft",
+                        Text(I18n.t("launch.start_minecraft"),
                              style = MaterialTheme.typography.titleMedium, fontSize = 18.sp)
                     }
                 }
@@ -705,7 +708,7 @@ fun LaunchPage(vm: LauncherViewModel) {
                 }
             } else if (isDownloadMode && !installing && selected != null) {
                 Spacer(Modifier.height(6.dp))
-                Text("该版本尚未安装，点击按钮即可一键下载",
+                Text(I18n.t("launch.not_installed_hint"),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
             }
@@ -790,7 +793,7 @@ fun LaunchPage(vm: LauncherViewModel) {
             val logSharing by vm.logSharing.collectAsState()
             val shareUrl by vm.shareUrl.collectAsState()
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("游戏日志", style = MaterialTheme.typography.labelLarge,
+                Text(I18n.t("launch.game_log"), style = MaterialTheme.typography.labelLarge,
                      fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                 var copied by remember { mutableStateOf(false) }
                 TextButton(
@@ -811,9 +814,9 @@ fun LaunchPage(vm: LauncherViewModel) {
                     if (copied) {
                         Icon(Icons.Filled.Check, null, Modifier.size(14.dp))
                         Spacer(Modifier.width(4.dp))
-                        Text("已复制", style = MaterialTheme.typography.labelSmall)
+                        Text(I18n.t("launch.copied"), style = MaterialTheme.typography.labelSmall)
                     } else {
-                        Text("复制日志", style = MaterialTheme.typography.labelSmall)
+                        Text(I18n.t("launch.copy_log"), style = MaterialTheme.typography.labelSmall)
                     }
                 }
                 // 1.5 秒后重置 copied 状态
@@ -992,10 +995,9 @@ fun LaunchPage(vm: LauncherViewModel) {
         val displayName = pinnedLabels[targetId] ?: targetId
         AlertDialog(
             onDismissRequest = { deleteTarget = null },
-            title = { Text("删除磁贴") },
+            title = { Text(I18n.t("launch.delete_tile")) },
             text = {
-                Text("确定要删除磁贴「$displayName」吗？\n\n" +
-                     "这只会移除快速启动磁贴，不会卸载游戏版本本身。")
+                Text(I18n.t("launch.delete_tile_confirm", displayName))
             },
             confirmButton = {
                 Button(
@@ -1006,11 +1008,11 @@ fun LaunchPage(vm: LauncherViewModel) {
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.error
                     )
-                ) { Text("删除") }
+                ) { Text(I18n.t("common.delete")) }
             },
             dismissButton = {
                 OutlinedButton(onClick = { deleteTarget = null }) {
-                    Text("取消")
+                    Text(I18n.t("common.cancel"))
                 }
             }
         )
@@ -1053,7 +1055,7 @@ fun LaunchPage(vm: LauncherViewModel) {
             confirmButton = {},
             dismissButton = {
                 OutlinedButton(onClick = { vm.dismissCompatOptions() }) {
-                    Text("取消")
+                    Text(I18n.t("common.cancel"))
                 }
             }
         )
@@ -1074,10 +1076,10 @@ private fun RenameTileDialog(
     var text by remember { mutableStateOf(initialText) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("重命名磁贴") },
+        title = { Text(I18n.t("launch.rename_tile")) },
         text = {
             Column {
-                Text("为「$versionId」设置自定义显示名：",
+                Text(I18n.t("launch.rename_tile_hint", versionId),
                      style = MaterialTheme.typography.bodySmall,
                      color = MaterialTheme.colorScheme.outline)
                 Spacer(Modifier.height(8.dp))
@@ -1089,16 +1091,16 @@ private fun RenameTileDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(Modifier.height(4.dp))
-                Text("留空则恢复为版本 ID",
+                Text(I18n.t("launch.rename_tile_placeholder"),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
             }
         },
         confirmButton = {
-            Button(onClick = { onConfirm(text) }) { Text("保存") }
+            Button(onClick = { onConfirm(text) }) { Text(I18n.t("common.save")) }
         },
         dismissButton = {
-            OutlinedButton(onClick = onDismiss) { Text("取消") }
+            OutlinedButton(onClick = onDismiss) { Text(I18n.t("common.cancel")) }
         }
     )
 }
@@ -1115,8 +1117,8 @@ private fun CrashReportDialog(
 ) {
     var showLogs by remember { mutableStateOf(false) }
     val report = event.report
-    val causes = report?.getCauses() ?: listOf("进程异常退出（exitCode=${event.exitCode}）")
-    val suggestions = report?.getSuggestions() ?: listOf("查看日志末尾寻找异常堆栈")
+    val causes = report?.getCauses() ?: listOf(I18n.t("launch.crash_no_report", event.exitCode))
+    val suggestions = report?.getSuggestions() ?: listOf(I18n.t("launch.crash_no_report_hint"))
     val recoveryActions = report?.getRecoveryActions() ?: emptyList()
 
     AlertDialog(
@@ -1130,21 +1132,21 @@ private fun CrashReportDialog(
                     modifier = Modifier.size(20.dp)
                 )
                 Spacer(Modifier.width(8.dp))
-                Text("游戏异常退出", color = MaterialTheme.colorScheme.error)
+                Text(I18n.t("launch.game_crashed"), color = MaterialTheme.colorScheme.error)
             }
         },
         text = {
             Column {
-                Text("版本：${event.versionId}  退出码：${event.exitCode}",
+                Text(I18n.t("launch.crash_info", event.versionId, event.exitCode),
                      style = MaterialTheme.typography.labelMedium,
                      color = MaterialTheme.colorScheme.outline)
                 Spacer(Modifier.height(8.dp))
-                Text("可能原因", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                Text(I18n.t("launch.possible_causes"), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
                 causes.forEach { c ->
                     Text("• $c", style = MaterialTheme.typography.bodySmall)
                 }
                 Spacer(Modifier.height(8.dp))
-                Text("修复建议", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                Text(I18n.t("launch.fix_suggestions"), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
                 suggestions.forEach { s ->
                     Text("• $s", style = MaterialTheme.typography.bodySmall)
                 }
@@ -1194,7 +1196,7 @@ private fun CrashReportDialog(
                 }
                 if (showLogs) {
                     Spacer(Modifier.height(8.dp))
-                    Text("最近日志（末尾 ${event.recentLogs.size} 行）",
+                    Text(I18n.t("launch.recent_logs", event.recentLogs.size),
                          style = MaterialTheme.typography.labelLarge,
                          fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(4.dp))
@@ -1214,11 +1216,11 @@ private fun CrashReportDialog(
             }
         },
         confirmButton = {
-            Button(onClick = onDismiss) { Text("关闭") }
+            Button(onClick = onDismiss) { Text(I18n.t("common.close")) }
         },
         dismissButton = {
             OutlinedButton(onClick = { showLogs = !showLogs }) {
-                Text(if (showLogs) "隐藏日志" else "查看日志")
+                Text(if (showLogs) I18n.t("launch.hide_log") else I18n.t("launch.view_log"))
             }
         }
     )
@@ -1276,15 +1278,14 @@ fun ModLoaderInstallPromptDialog(
         },
         title = {
             Text(
-                selectedLoader?.let { "选择 ${it.name} 版本" }
-                    ?: "安装 Minecraft - 是否安装模组加载器？"
+                selectedLoader?.let { I18n.t("launch.select_loader_version", it.name) }
+                    ?: I18n.t("launch.install_modloader_prompt")
             )
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    "即将安装 Minecraft $gameVersion。\n" +
-                    "可选择同时安装模组加载器（安装游戏后自动继续），或跳过仅安装原版。",
+                    I18n.t("launch.install_modloader_hint", gameVersion),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1321,7 +1322,7 @@ fun ModLoaderInstallPromptDialog(
                         }
                     } else {
                         Text(
-                            "可用版本（${modLoaderVersions.size}）",
+                            I18n.t("launch.available_versions", modLoaderVersions.size),
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.outline
                         )
@@ -1367,7 +1368,7 @@ fun ModLoaderInstallPromptDialog(
                                             )
                                             Text(
                                                 "MC ${lv.getGameVersion()} · " +
-                                                if (lv.isStable()) "稳定版" else "不稳定",
+                                                if (lv.isStable()) I18n.t("launch.stable") else I18n.t("launch.unstable"),
                                                 style = MaterialTheme.typography.labelSmall,
                                                 color = MaterialTheme.colorScheme.outline
                                             )
@@ -1375,7 +1376,7 @@ fun ModLoaderInstallPromptDialog(
                                         if (isSelected) {
                                             Icon(
                                                 Icons.Filled.Check,
-                                                contentDescription = "已选",
+                                                contentDescription = I18n.t("launch.selected_badge"),
                                                 modifier = Modifier.size(16.dp)
                                             )
                                         }
@@ -1407,12 +1408,12 @@ fun ModLoaderInstallPromptDialog(
                 enabled = !installing && (selectedLoader == null ||
                         (selectedLoader != null && selectedLoaderVersion != null))
             ) {
-                Text(if (installing) "安装中…" else "开始安装")
+                Text(if (installing) I18n.t("launch.installing") else I18n.t("launch.start_install"))
             }
         },
         dismissButton = {
             OutlinedButton(onClick = onDismiss, enabled = !installing) {
-                Text("取消")
+                Text(I18n.t("common.cancel"))
             }
         }
     )
@@ -1526,7 +1527,7 @@ private fun PinnedTile(
                         onDismissRequest = { menuExpanded = false }
                     ) {
                         DropdownMenuItem(
-                            text = { Text("重命名") },
+                            text = { Text(I18n.t("launch.rename")) },
                             onClick = {
                                 menuExpanded = false
                                 onRename()
@@ -1534,7 +1535,7 @@ private fun PinnedTile(
                         )
                         DropdownMenuItem(
                             text = {
-                                Text("删除磁贴",
+                                Text(I18n.t("launch.delete_tile"),
                                      color = MaterialTheme.colorScheme.error)
                             },
                             onClick = {
@@ -1552,9 +1553,9 @@ private fun PinnedTile(
                      tint = Color.White, modifier = Modifier.size(13.dp))
                 Spacer(Modifier.width(4.dp))
                 val stateText = when {
-                    !launchable -> "版本已失效（缺 JSON）"
-                    !hasAccount -> "请先登录账号"
-                    else -> "点击启动"
+                    !launchable -> I18n.t("launch.tile_invalid")
+                    !hasAccount -> I18n.t("launch.no_account")
+                    else -> I18n.t("launch.click_to_launch")
                 }
                 Text(stateText,
                      color = Color.White.copy(alpha = 0.95f),
@@ -1562,7 +1563,7 @@ private fun PinnedTile(
                      modifier = Modifier.weight(1f))
                 // 右下角显示上次游玩时间
                 if (lastPlayedTime != null && lastPlayedTime > 0) {
-                    Text("上次 ${formatRelative.format(Date(lastPlayedTime))}",
+                    Text(I18n.t("launch.last_played", formatRelative.format(Date(lastPlayedTime))),
                          color = Color.White.copy(alpha = 0.8f),
                          fontSize = 10.sp,
                          maxLines = 1)
@@ -1593,8 +1594,8 @@ private fun ScanProgressBar(vm: LauncherViewModel) {
 
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                if (total > 0) "扫描中 $scanned/$total"
-                else "正在列出目录…",
+                if (total > 0) I18n.t("launch.scan_progress", scanned, total)
+                else I18n.t("launch.listing_dirs"),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.weight(1f)
@@ -1626,7 +1627,7 @@ private fun ScanProgressBar(vm: LauncherViewModel) {
         if (currentVer.isNotEmpty()) {
             Spacer(Modifier.height(4.dp))
             Text(
-                "当前: $currentDir/$currentVer",
+                I18n.t("launch.scan_current", currentDir, currentVer),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.outline,
                 maxLines = 1
@@ -1641,7 +1642,7 @@ private fun ScanProgressBar(vm: LauncherViewModel) {
 @Composable
 private fun StatusLine(vm: LauncherViewModel) {
     val status by vm.status.collectAsState()
-    Text("状态：$status",
+    Text(I18n.t("launch.status_value", status),
          style = MaterialTheme.typography.labelSmall,
          color = MaterialTheme.colorScheme.outline)
 }
@@ -1675,14 +1676,14 @@ private fun RecentVersionRow(
                      fontWeight = FontWeight.SemiBold,
                      maxLines = 1)
                 if (lastPlayedTime != null && lastPlayedTime > 0) {
-                    Text("上次游玩 ${formatRelative.format(Date(lastPlayedTime))}",
+                    Text(I18n.t("launch.last_played_full", formatRelative.format(Date(lastPlayedTime))),
                          style = MaterialTheme.typography.labelSmall,
                          color = MaterialTheme.colorScheme.outline)
                 }
             }
             // 右侧快速启动按钮
             IconButton(onClick = onLaunch, enabled = canLaunch) {
-                Icon(Icons.Filled.PlayArrow, "启动",
+                Icon(Icons.Filled.PlayArrow, I18n.t("launch.start"),
                      tint = if (canLaunch) MaterialTheme.colorScheme.primary
                             else MaterialTheme.colorScheme.outline,
                      modifier = Modifier.size(18.dp))
@@ -1759,7 +1760,7 @@ private fun LocalVersionRow(
                             color = MaterialTheme.colorScheme.secondaryContainer,
                             shape = RoundedCornerShape(4.dp)
                         ) {
-                            Text("继承 ${info.getInheritsFrom()}",
+                            Text(I18n.t("launch.inherits", info.getInheritsFrom()),
                                  style = MaterialTheme.typography.labelSmall,
                                  modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
                         }
@@ -1789,7 +1790,7 @@ private fun LocalVersionRow(
             IconButton(onClick = { if (pinned) onUnpin() else onPin() }) {
                 Icon(
                     Icons.Filled.Star,
-                    contentDescription = if (pinned) "取消固定" else "固定",
+                    contentDescription = if (pinned) I18n.t("launch.unpin") else I18n.t("launch.pin"),
                     tint = if (pinned) MaterialTheme.colorScheme.primary
                            else MaterialTheme.colorScheme.outline
                 )
@@ -1818,7 +1819,7 @@ private fun RemoteVersionRow(
                     color = MaterialTheme.colorScheme.secondaryContainer,
                     shape = RoundedCornerShape(4.dp)
                 ) {
-                    Text("已安装",
+                    Text(I18n.t("launch.installed"),
                          style = MaterialTheme.typography.labelSmall,
                          color = MaterialTheme.colorScheme.onSecondaryContainer,
                          modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp))
@@ -1837,7 +1838,7 @@ private fun AccountCard(account: com.pmcl.core.auth.Account?, vm: LauncherViewMo
     var username by remember { mutableStateOf("Steve") }
     Card(Modifier.fillMaxWidth(), colors = glassCardColors()) {
         Column(Modifier.padding(16.dp)) {
-            Text("账号", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Text(I18n.t("launch.account"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(8.dp))
             if (account != null) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1851,7 +1852,7 @@ private fun AccountCard(account: com.pmcl.core.auth.Account?, vm: LauncherViewMo
                             shape = RoundedCornerShape(8.dp),
                             modifier = Modifier.size(40.dp)
                         ) {
-                            Icon(Icons.Filled.Star, "默认头像", modifier = Modifier.padding(10.dp))
+                            Icon(Icons.Filled.Star, I18n.t("launch.default_avatar"), modifier = Modifier.padding(10.dp))
                         }
                     }
                     Spacer(Modifier.width(12.dp))
@@ -1863,21 +1864,21 @@ private fun AccountCard(account: com.pmcl.core.auth.Account?, vm: LauncherViewMo
                     }
                 }
             } else {
-                Text("未登录", color = MaterialTheme.colorScheme.outline)
+                Text(I18n.t("launch.not_logged_in_short"), color = MaterialTheme.colorScheme.outline)
             }
             Spacer(Modifier.height(8.dp))
             OutlinedTextField(
                 value = username, onValueChange = { username = it },
-                label = { Text("离线用户名") }, singleLine = true,
+                label = { Text(I18n.t("launch.offline_username")) }, singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = { vm.loginOffline(username) }, enabled = username.isNotBlank()) {
-                    Text("离线登录")
+                    Text(I18n.t("launch.offline_login"))
                 }
                 OutlinedButton(onClick = vm::startMicrosoftLogin) {
-                    Text("微软登录")
+                    Text(I18n.t("launch.microsoft_login"))
                 }
             }
         }
@@ -1913,7 +1914,7 @@ private fun AvatarImage(url: String) {
     if (bmp != null) {
         Image(
             bitmap = bmp,
-            contentDescription = "头像",
+            contentDescription = I18n.t("launch.avatar"),
             modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp))
         )
     } else {
@@ -1922,7 +1923,7 @@ private fun AvatarImage(url: String) {
             shape = RoundedCornerShape(8.dp),
             modifier = Modifier.size(40.dp)
         ) {
-            Icon(Icons.Filled.Star, "加载中", modifier = Modifier.padding(10.dp))
+            Icon(Icons.Filled.Star, I18n.t("common.loading"), modifier = Modifier.padding(10.dp))
         }
     }
 }
@@ -1935,7 +1936,7 @@ private fun GameLogPanel(vm: LauncherViewModel) {
     val gameLogs by vm.gameLogs.collectAsState()
     if (gameLogs.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("（暂无日志）", color = MaterialTheme.colorScheme.outline)
+            Text(I18n.t("launch.no_logs"), color = MaterialTheme.colorScheme.outline)
         }
     } else {
         val logListState = rememberLazyListState()

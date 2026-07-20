@@ -52,14 +52,14 @@ fun SettingsPage(vm: LauncherViewModel) {
     var borderless by remember { mutableStateOf(pref.isBorderlessWindow()) }
 
     Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
-        Text("设置", style = MaterialTheme.typography.headlineSmall,
+        Text(I18n.t("settings.title"), style = MaterialTheme.typography.headlineSmall,
              fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(16.dp))
 
         // 内存
         Card(Modifier.fillMaxWidth(), colors = glassCardColors()) {
             Column(Modifier.padding(16.dp)) {
-                Text("内存", style = MaterialTheme.typography.titleSmall,
+                Text(I18n.t("settings.memory"), style = MaterialTheme.typography.titleSmall,
                      fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -69,7 +69,7 @@ fun SettingsPage(vm: LauncherViewModel) {
                             minMem = it
                             it.toIntOrNull()?.let { v -> pref.setMinMemoryMb(v) }
                         },
-                        label = { Text("最小 (MB)") }, singleLine = true,
+                        label = { Text(I18n.t("settings.min_memory")) }, singleLine = true,
                         modifier = Modifier.weight(1f)
                     )
                     OutlinedTextField(
@@ -78,12 +78,12 @@ fun SettingsPage(vm: LauncherViewModel) {
                             maxMem = it
                             it.toIntOrNull()?.let { v -> pref.setMaxMemoryMb(v) }
                         },
-                        label = { Text("最大 (MB)") }, singleLine = true,
+                        label = { Text(I18n.t("settings.max_memory")) }, singleLine = true,
                         modifier = Modifier.weight(1f)
                     )
                 }
                 Spacer(Modifier.height(8.dp))
-                Text("推荐最大：${com.pmcl.core.runtime.RuntimeManager().getRecommendedMaxMemoryMb()} MB",
+                Text(I18n.t("settings.recommended_max", com.pmcl.core.runtime.RuntimeManager().getRecommendedMaxMemoryMb()),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
             }
@@ -94,11 +94,11 @@ fun SettingsPage(vm: LauncherViewModel) {
         // JVM 高级配置
         Card(Modifier.fillMaxWidth(), colors = glassCardColors()) {
             Column(Modifier.padding(16.dp)) {
-                Text("JVM 高级配置", style = MaterialTheme.typography.titleSmall,
+                Text(I18n.t("settings.jvm_advanced"), style = MaterialTheme.typography.titleSmall,
                      fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(8.dp))
 
-                Text("GC 类型", style = MaterialTheme.typography.labelMedium)
+                Text(I18n.t("settings.gc_type"), style = MaterialTheme.typography.labelMedium)
                 Spacer(Modifier.height(4.dp))
                 val gcItems = listOf("G1GC", "ZGC", "ShenandoahGC", "ParallelGC")
                 com.pmcl.ui.animation.AnimatedSegmentedSelector(
@@ -113,8 +113,8 @@ fun SettingsPage(vm: LauncherViewModel) {
                     Switch(checked = useAikar, onCheckedChange = { useAikar = it; pref.setUseAikarFlags(it) })
                     Spacer(Modifier.width(8.dp))
                     Column {
-                        Text("Aikar's Flags")
-                        Text("社区公认的 MC 优化参数集（推荐开启）",
+                        Text(I18n.t("settings.aikar"))
+                        Text(I18n.t("settings.aikar_desc"),
                              style = MaterialTheme.typography.labelSmall,
                              color = MaterialTheme.colorScheme.outline)
                     }
@@ -127,8 +127,8 @@ fun SettingsPage(vm: LauncherViewModel) {
                         customArgs = it
                         pref.setCustomJvmArgs(it)
                     },
-                    label = { Text("自定义 JVM 参数（空格分隔）") },
-                    supportingText = { Text("如 -Dminecraft.api.env=custom，将追加在最后") },
+                    label = { Text(I18n.t("settings.custom_args")) },
+                    supportingText = { Text(I18n.t("settings.custom_args_hint")) },
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -166,7 +166,7 @@ fun SettingsPage(vm: LauncherViewModel) {
         // 外观
         Card(Modifier.fillMaxWidth(), colors = glassCardColors()) {
             Column(Modifier.padding(16.dp)) {
-                Text("外观", style = MaterialTheme.typography.titleSmall,
+                Text(I18n.t("settings.appearance"), style = MaterialTheme.typography.titleSmall,
                      fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -178,10 +178,10 @@ fun SettingsPage(vm: LauncherViewModel) {
                         }
                     )
                     Spacer(Modifier.width(8.dp))
-                    Text(if (themeState.useDark) "深色主题" else "浅色主题")
+                    Text(if (themeState.useDark) I18n.t("settings.dark_theme") else I18n.t("settings.light_theme"))
                 }
                 Spacer(Modifier.height(4.dp))
-                Text("主题偏好已持久化到 ~/.pmcl/preferences.json，重启后保留",
+                Text(I18n.t("settings.theme_persisted"),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
 
@@ -206,19 +206,19 @@ fun SettingsPage(vm: LauncherViewModel) {
                         }
                     )
                     Spacer(Modifier.width(8.dp))
-                    Text("莫奈取色", fontWeight = FontWeight.Medium)
+                    Text(I18n.t("settings.monet_color"), fontWeight = FontWeight.Medium)
                     Spacer(Modifier.weight(1f))
                     if (themeState.dynamicColor) {
                         TextButton(
                             onClick = { vm.forceRefreshWallpaperColor(themeState) },
                             contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp)
                         ) {
-                            Text("重新提取", style = MaterialTheme.typography.labelSmall)
+                            Text(I18n.t("settings.reextract"), style = MaterialTheme.typography.labelSmall)
                         }
                     }
                 }
                 Spacer(Modifier.height(4.dp))
-                Text("开启后主题颜色自动从桌面壁纸提取，实现 Material You 动态配色。切换壁纸后点「重新提取」立即生效",
+                Text(I18n.t("settings.monet_color_desc"),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
 
@@ -227,7 +227,7 @@ fun SettingsPage(vm: LauncherViewModel) {
                 Spacer(Modifier.height(12.dp))
 
                 // 自定义强调色（手动色板选择）
-                Text("自定义强调色", style = MaterialTheme.typography.labelMedium,
+                Text(I18n.t("settings.custom_accent"), style = MaterialTheme.typography.labelMedium,
                      fontWeight = FontWeight.Medium)
                 Spacer(Modifier.height(8.dp))
                 AccentColorPicker(
@@ -241,7 +241,7 @@ fun SettingsPage(vm: LauncherViewModel) {
                     }
                 )
                 Spacer(Modifier.height(4.dp))
-                Text("手动选择主题强调色，关闭莫奈取色后生效。选择后自动生成协调的完整配色方案",
+                Text(I18n.t("settings.custom_accent_desc"),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
 
@@ -249,7 +249,7 @@ fun SettingsPage(vm: LauncherViewModel) {
                 HorizontalDivider()
                 Spacer(Modifier.height(12.dp))
 
-                Text("语言 / Language / 言語 / uʍop-ǝpᴉsdn", style = MaterialTheme.typography.labelMedium)
+                Text(I18n.t("settings.language_label"), style = MaterialTheme.typography.labelMedium)
                 Spacer(Modifier.height(4.dp))
                 val langItems = listOf(
                     "zh_CN" to "简体中文",
@@ -266,7 +266,7 @@ fun SettingsPage(vm: LauncherViewModel) {
                     },
                     fillWidth = true
                 )
-                Text("切换语言后部分界面需重启 UI 完全生效",
+                Text(I18n.t("settings.language_hint"),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
 
@@ -363,10 +363,10 @@ fun SettingsPage(vm: LauncherViewModel) {
                         }
                     )
                     Spacer(Modifier.width(8.dp))
-                    Text("预判启动", fontWeight = FontWeight.Medium)
+                    Text(I18n.t("settings.predictive_launch"), fontWeight = FontWeight.Medium)
                 }
                 Spacer(Modifier.height(4.dp))
-                Text("基于贝叶斯概率模型按时段和使用习惯预测最可能的版本，进入启动页时后台预热该版本的启动资源（构建 LaunchProfile + JVM 页缓存）。点击启动匹配版本时跳过资源校验阶段加速启动，启动其他版本则自动清空预热。不启动 MC 进程，不弹游戏窗口",
+                Text(I18n.t("settings.predictive_launch_desc"),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
 
@@ -447,7 +447,7 @@ fun SettingsPage(vm: LauncherViewModel) {
                     Text(I18n.t("settings.perf_hud_metrics"), style = MaterialTheme.typography.labelMedium,
                          fontWeight = FontWeight.Medium)
                     Spacer(Modifier.height(4.dp))
-                    val metricOptions = listOf("CPU" to "CPU", "MEM" to "内存", "GPU" to "GPU", "FPS" to "FPS")
+                    val metricOptions = listOf("CPU" to "CPU", "MEM" to I18n.t("settings.memory"), "GPU" to "GPU", "FPS" to "FPS")
                     val selectedMetrics = remember(hudMetrics) {
                         hudMetrics.split(",").map { it.trim().uppercase() }.filter { it.isNotEmpty() }.toMutableSet()
                     }
@@ -481,14 +481,14 @@ fun SettingsPage(vm: LauncherViewModel) {
         // 系统信息
         Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp), colors = glassCardColors()) {
             Column(Modifier.padding(16.dp)) {
-                Text("系统信息", style = MaterialTheme.typography.titleSmall,
+                Text(I18n.t("settings.system_info"), style = MaterialTheme.typography.titleSmall,
                      fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(4.dp))
                 Text(vm.systemInfo,
                      style = MaterialTheme.typography.bodySmall,
                      color = MaterialTheme.colorScheme.outline)
                 Spacer(Modifier.height(8.dp))
-                Text("工作目录：${vm.config.getWorkDir()}",
+                Text(I18n.t("settings.work_dir_value", vm.config.getWorkDir()),
                      style = MaterialTheme.typography.bodySmall,
                      color = MaterialTheme.colorScheme.outline)
             }
@@ -762,14 +762,14 @@ private fun LaunchPresetCard(
                 Icon(Icons.Filled.Bookmarks, null, Modifier.size(20.dp),
                      tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(8.dp))
-                Text("启动预设", style = MaterialTheme.typography.titleSmall,
+                Text(I18n.t("settings.launch_preset"), style = MaterialTheme.typography.titleSmall,
                      fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                 Button(onClick = { presetName = ""; showSaveDialog = true }) {
-                    Text("保存当前为预设")
+                    Text(I18n.t("settings.save_current_as_preset"))
                 }
             }
             Spacer(Modifier.height(4.dp))
-            Text("保存多套启动参数（如「纯净」vs「modded 加额外参数」），一键切换。",
+            Text(I18n.t("settings.launch_preset_desc"),
                  style = MaterialTheme.typography.labelSmall,
                  color = MaterialTheme.colorScheme.outline)
 
@@ -798,10 +798,10 @@ private fun LaunchPresetCard(
                             OutlinedButton(onClick = {
                                 vm.applyLaunchPreset(p.name)
                                 onPresetApplied(p.name)
-                            }) { Text("应用") }
+                            }) { Text(I18n.t("common.apply")) }
                             Spacer(Modifier.width(4.dp))
                             IconButton(onClick = { vm.deleteLaunchPreset(p.name) }) {
-                                Icon(Icons.Filled.Delete, "删除预设",
+                                Icon(Icons.Filled.Delete, I18n.t("settings.delete_preset"),
                                      tint = MaterialTheme.colorScheme.error,
                                      modifier = Modifier.size(18.dp))
                             }
@@ -815,21 +815,21 @@ private fun LaunchPresetCard(
     if (showSaveDialog) {
         AlertDialog(
             onDismissRequest = { showSaveDialog = false },
-            title = { Text("保存启动预设") },
+            title = { Text(I18n.t("settings.save_launch_preset")) },
             text = {
                 Column {
-                    Text("为当前启动参数命名：", style = MaterialTheme.typography.bodySmall)
+                    Text(I18n.t("settings.name_preset_prompt"), style = MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.height(8.dp))
                     OutlinedTextField(
                         value = presetName,
                         onValueChange = { presetName = it },
-                        label = { Text("预设名称") },
+                        label = { Text(I18n.t("settings.preset_name")) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                     if (presets.any { it.name == presetName.trim() }) {
                         Spacer(Modifier.height(4.dp))
-                        Text("同名预设将被覆盖",
+                        Text(I18n.t("settings.preset_overwrite_warning"),
                              style = MaterialTheme.typography.labelSmall,
                              color = MaterialTheme.colorScheme.error)
                     }
@@ -841,10 +841,10 @@ private fun LaunchPresetCard(
                         vm.saveLaunchPreset(presetName)
                         showSaveDialog = false
                     }
-                }) { Text("保存") }
+                }) { Text(I18n.t("common.save")) }
             },
             dismissButton = {
-                TextButton(onClick = { showSaveDialog = false }) { Text("取消") }
+                TextButton(onClick = { showSaveDialog = false }) { Text(I18n.t("common.cancel")) }
             }
         )
     }
@@ -867,7 +867,7 @@ private fun MioModeCard(pref: com.pmcl.core.preferences.Preferences) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("澪模式", style = MaterialTheme.typography.titleSmall,
+                Text(I18n.t("settings.perf.mei_mode"), style = MaterialTheme.typography.titleSmall,
                      fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.weight(1f))
                 Switch(
@@ -879,11 +879,11 @@ private fun MioModeCard(pref: com.pmcl.core.preferences.Preferences) {
                 )
             }
             Spacer(Modifier.height(4.dp))
-            Text("暴力调度 CPU/GPU 性能，抑制低功耗状态，提升调度优先级",
+            Text(I18n.t("settings.perf.mei_mode_desc"),
                  style = MaterialTheme.typography.labelSmall,
                  color = MaterialTheme.colorScheme.outline)
             Spacer(Modifier.height(6.dp))
-            Text("注意：软件层无法绕过硬件热保护，本功能只能从避免低功耗状态和提升调度优先级两个角度逼近目标，不能真正突破物理热限制",
+            Text(I18n.t("settings.perf.mei_mode_warning"),
                  style = MaterialTheme.typography.labelSmall,
                  color = MaterialTheme.colorScheme.error)
 
@@ -900,14 +900,14 @@ private fun MioModeCard(pref: com.pmcl.core.preferences.Preferences) {
                     )
                     Spacer(Modifier.width(8.dp))
                     Column {
-                        Text("L1 JVM 激进参数", fontWeight = FontWeight.Medium)
-                        Text("强制 GC 线程数 = CPU 核心数，分配预取优化，JIT final 字段信任",
+                        Text(I18n.t("settings.perf.l1_jvm_aggressive"), fontWeight = FontWeight.Medium)
+                        Text(I18n.t("settings.perf.l1_jvm_aggressive_desc"),
                              style = MaterialTheme.typography.labelSmall,
                              color = MaterialTheme.colorScheme.outline)
                     }
                 }
                 Spacer(Modifier.height(4.dp))
-                Text("零权限零风险，进程退出自动失效。收益约 5-15% 吞吐提升",
+                Text(I18n.t("settings.perf.l1_jvm_aggressive_hint"),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
 
@@ -921,14 +921,14 @@ private fun MioModeCard(pref: com.pmcl.core.preferences.Preferences) {
                     )
                     Spacer(Modifier.width(8.dp))
                     Column {
-                        Text("L1+ 大页内存 + NUMA", fontWeight = FontWeight.Medium)
-                        Text("UseLargePages + UseNUMA，减少 TLB miss，多路 CPU NUMA 感知",
+                        Text(I18n.t("settings.perf.l1_large_pages"), fontWeight = FontWeight.Medium)
+                        Text(I18n.t("settings.perf.l1_large_pages_desc"),
                              style = MaterialTheme.typography.labelSmall,
                              color = MaterialTheme.colorScheme.outline)
                     }
                 }
                 Spacer(Modifier.height(4.dp))
-                Text("JVM 不支持时自动降级为普通页，不会启动失败。需 OS 预分配大页才能完全生效",
+                Text(I18n.t("settings.perf.l1_large_pages_hint"),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
 
@@ -942,14 +942,14 @@ private fun MioModeCard(pref: com.pmcl.core.preferences.Preferences) {
                     )
                     Spacer(Modifier.width(8.dp))
                     Column {
-                        Text("L1+ 实验性 ZGC", fontWeight = FontWeight.Medium)
-                        Text("JDK 21 生成式 ZGC，亚毫秒级停顿，自动跳过 Aikar's Flags",
+                        Text(I18n.t("settings.perf.l1_experimental_zgc"), fontWeight = FontWeight.Medium)
+                        Text(I18n.t("settings.perf.l1_experimental_zgc_desc"),
                              style = MaterialTheme.typography.labelSmall,
                              color = MaterialTheme.colorScheme.outline)
                     }
                 }
                 Spacer(Modifier.height(4.dp))
-                Text("Aikar's Flags 为 G1GC 调校，ZGC 可能负优化 MC 大量区块分配场景。实验性功能，风险自担",
+                Text(I18n.t("settings.perf.l1_experimental_zgc_warning"),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.error)
 
@@ -963,8 +963,8 @@ private fun MioModeCard(pref: com.pmcl.core.preferences.Preferences) {
                     )
                     Spacer(Modifier.width(8.dp))
                     Column {
-                        Text("L1+ LWJGL 渲染加速", fontWeight = FontWeight.Medium)
-                        Text("高DPI启用 + 系统 malloc + 关闭 debug 输出",
+                        Text(I18n.t("settings.perf.l1_lwjgl_render"), fontWeight = FontWeight.Medium)
+                        Text(I18n.t("settings.perf.l1_lwjgl_render_desc"),
                              style = MaterialTheme.typography.labelSmall,
                              color = MaterialTheme.colorScheme.outline)
                     }
@@ -980,8 +980,8 @@ private fun MioModeCard(pref: com.pmcl.core.preferences.Preferences) {
                     )
                     Spacer(Modifier.width(8.dp))
                     Column {
-                        Text("L1+ JIT 编译器激进", fontWeight = FontWeight.Medium)
-                        Text("CompileThreshold=5000 + 循环安全点 + 按核心数设编译器线程",
+                        Text(I18n.t("settings.perf.l1_jit_aggressive"), fontWeight = FontWeight.Medium)
+                        Text(I18n.t("settings.perf.l1_jit_aggressive_desc"),
                              style = MaterialTheme.typography.labelSmall,
                              color = MaterialTheme.colorScheme.outline)
                     }
@@ -997,8 +997,8 @@ private fun MioModeCard(pref: com.pmcl.core.preferences.Preferences) {
                     )
                     Spacer(Modifier.width(8.dp))
                     Column {
-                        Text("L1+ 网络栈优化", fontWeight = FontWeight.Medium)
-                        Text("IPv4优先 + 快速路径网络 + DNS缓存30秒（联机场景）",
+                        Text(I18n.t("settings.perf.l1_network_opt"), fontWeight = FontWeight.Medium)
+                        Text(I18n.t("settings.perf.l1_network_opt_desc"),
                              style = MaterialTheme.typography.labelSmall,
                              color = MaterialTheme.colorScheme.outline)
                     }
@@ -1014,8 +1014,8 @@ private fun MioModeCard(pref: com.pmcl.core.preferences.Preferences) {
                     )
                     Spacer(Modifier.width(8.dp))
                     Column {
-                        Text("L1+ 元空间管控", fontWeight = FontWeight.Medium)
-                        Text("MaxMetaspaceSize=512M + 类数据共享，防 OOM 加速启动",
+                        Text(I18n.t("settings.perf.l1_metaspace"), fontWeight = FontWeight.Medium)
+                        Text(I18n.t("settings.perf.l1_metaspace_desc"),
                              style = MaterialTheme.typography.labelSmall,
                              color = MaterialTheme.colorScheme.outline)
                     }
@@ -1031,14 +1031,14 @@ private fun MioModeCard(pref: com.pmcl.core.preferences.Preferences) {
                     )
                     Spacer(Modifier.width(8.dp))
                     Column {
-                        Text("L2 进程级调优", fontWeight = FontWeight.Medium)
-                        Text("macOS: taskpolicy 提升 QoS + caffeinate 防休眠；Windows/Linux: 提优先级",
+                        Text(I18n.t("settings.perf.l2_process"), fontWeight = FontWeight.Medium)
+                        Text(I18n.t("settings.perf.l2_process_desc"),
                              style = MaterialTheme.typography.labelSmall,
                              color = MaterialTheme.colorScheme.outline)
                     }
                 }
                 Spacer(Modifier.height(4.dp))
-                Text("无需 sudo，游戏退出自动清理 caffeinate 子进程",
+                Text(I18n.t("settings.perf.l2_process_hint"),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
 
@@ -1052,14 +1052,14 @@ private fun MioModeCard(pref: com.pmcl.core.preferences.Preferences) {
                     )
                     Spacer(Modifier.width(8.dp))
                     Column {
-                        Text("L2+ 疯狂调度优先级", fontWeight = FontWeight.Medium)
-                        Text("macOS: taskpolicy -P high + renice -20；Windows: REALTIME；Linux: renice -20",
+                        Text(I18n.t("settings.perf.l2_crazy_priority"), fontWeight = FontWeight.Medium)
+                        Text(I18n.t("settings.perf.l2_crazy_priority_desc"),
                              style = MaterialTheme.typography.labelSmall,
                              color = MaterialTheme.colorScheme.outline)
                     }
                 }
                 Spacer(Modifier.height(4.dp))
-                Text("拉到系统调度优先级极限。macOS/Linux 需 sudo 授权，Windows 用 REALTIME 可能导致鼠标键盘卡顿",
+                Text(I18n.t("settings.perf.l2_crazy_priority_warning"),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.error)
 
@@ -1073,14 +1073,14 @@ private fun MioModeCard(pref: com.pmcl.core.preferences.Preferences) {
                     )
                     Spacer(Modifier.width(8.dp))
                     Column {
-                        Text("L3 系统电源策略", fontWeight = FontWeight.Medium)
-                        Text("关闭 macOS 低电量模式，游戏退出后自动恢复",
+                        Text(I18n.t("settings.perf.l3_system_power"), fontWeight = FontWeight.Medium)
+                        Text(I18n.t("settings.perf.l3_system_power_desc"),
                              style = MaterialTheme.typography.labelSmall,
                              color = MaterialTheme.colorScheme.outline)
                     }
                 }
                 Spacer(Modifier.height(4.dp))
-                Text("启动时会弹原生授权框请求管理员密码，影响整机电源策略",
+                Text(I18n.t("settings.perf.l3_system_power_warning"),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.error)
             }
@@ -1103,10 +1103,10 @@ private fun GameBehaviorCard(pref: com.pmcl.core.preferences.Preferences) {
 
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
-            Text("游戏通用行为", style = MaterialTheme.typography.titleSmall,
+            Text(I18n.t("settings.game_general_behavior"), style = MaterialTheme.typography.titleSmall,
                  fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(4.dp))
-            Text("应用于所有版本的启动参数，留空使用游戏默认值",
+            Text(I18n.t("settings.game_general_behavior_desc"),
                  style = MaterialTheme.typography.labelSmall,
                  color = MaterialTheme.colorScheme.outline)
 
@@ -1117,15 +1117,15 @@ private fun GameBehaviorCard(pref: com.pmcl.core.preferences.Preferences) {
                 })
                 Spacer(Modifier.width(8.dp))
                 Column {
-                    Text("版本隔离")
-                    Text("各版本使用独立的 mods/saves/config 目录（~/.pmcl/instances/<版本>/）",
+                    Text(I18n.t("settings.version_isolation"))
+                    Text(I18n.t("settings.version_isolation_full_desc"),
                          style = MaterialTheme.typography.labelSmall,
                          color = MaterialTheme.colorScheme.outline)
                 }
             }
 
             Spacer(Modifier.height(12.dp))
-            Text("窗口分辨率", style = MaterialTheme.typography.labelMedium)
+            Text(I18n.t("settings.window_resolution"), style = MaterialTheme.typography.labelMedium)
             Spacer(Modifier.height(4.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(
@@ -1134,7 +1134,7 @@ private fun GameBehaviorCard(pref: com.pmcl.core.preferences.Preferences) {
                         width = it
                         it.toIntOrNull()?.let { v -> pref.setGameWindowWidth(v) }
                     },
-                    label = { Text("宽度") }, singleLine = true,
+                    label = { Text(I18n.t("settings.width")) }, singleLine = true,
                     modifier = Modifier.weight(1f)
                 )
                 OutlinedTextField(
@@ -1143,18 +1143,18 @@ private fun GameBehaviorCard(pref: com.pmcl.core.preferences.Preferences) {
                         height = it
                         it.toIntOrNull()?.let { v -> pref.setGameWindowHeight(v) }
                     },
-                    label = { Text("高度") }, singleLine = true,
+                    label = { Text(I18n.t("settings.height")) }, singleLine = true,
                     modifier = Modifier.weight(1f)
                 )
             }
-            Text("对应 --width / --height；全屏模式下不生效",
+            Text(I18n.t("settings.window_resolution_hint"),
                  style = MaterialTheme.typography.labelSmall,
                  color = MaterialTheme.colorScheme.outline)
 
             Spacer(Modifier.height(12.dp))
-            Text("渲染器", style = MaterialTheme.typography.labelMedium)
+            Text(I18n.t("settings.renderer"), style = MaterialTheme.typography.labelMedium)
             Spacer(Modifier.height(4.dp))
-            val rendererItems = listOf("AUTO" to "自动", "OPENGL" to "OpenGL", "VULKAN" to "Vulkan")
+            val rendererItems = listOf("AUTO" to I18n.t("settings.renderer_auto"), "OPENGL" to "OpenGL", "VULKAN" to "Vulkan")
             com.pmcl.ui.animation.AnimatedSegmentedSelector(
                 items = rendererItems.map { it.second },
                 selectedIndex = rendererItems.indexOfFirst { it.first == renderer }.coerceAtLeast(0),
@@ -1164,7 +1164,7 @@ private fun GameBehaviorCard(pref: com.pmcl.core.preferences.Preferences) {
                 },
                 fillWidth = true
             )
-            Text("对应 --renderer；Vulkan 仅 MC 1.21+ 实验性支持，需配合兼容驱动",
+            Text(I18n.t("settings.renderer_hint"),
                  style = MaterialTheme.typography.labelSmall,
                  color = MaterialTheme.colorScheme.outline)
 
@@ -1173,8 +1173,8 @@ private fun GameBehaviorCard(pref: com.pmcl.core.preferences.Preferences) {
                 Switch(checked = fullscreen, onCheckedChange = { fullscreen = it; pref.setGameFullscreen(it) })
                 Spacer(Modifier.width(8.dp))
                 Column {
-                    Text("全屏启动")
-                    Text("对应 --fullscreen，覆盖窗口分辨率设置",
+                    Text(I18n.t("settings.fullscreen_launch"))
+                    Text(I18n.t("settings.fullscreen_launch_desc"),
                          style = MaterialTheme.typography.labelSmall,
                          color = MaterialTheme.colorScheme.outline)
                 }
@@ -1185,15 +1185,15 @@ private fun GameBehaviorCard(pref: com.pmcl.core.preferences.Preferences) {
                 Switch(checked = demo, onCheckedChange = { demo = it; pref.setGameDemo(it) })
                 Spacer(Modifier.width(8.dp))
                 Column {
-                    Text("演示模式")
-                    Text("对应 --demo，未登录账号时也可用",
+                    Text(I18n.t("settings.demo_mode"))
+                    Text(I18n.t("settings.demo_mode_desc"),
                          style = MaterialTheme.typography.labelSmall,
                          color = MaterialTheme.colorScheme.outline)
                 }
             }
 
             Spacer(Modifier.height(12.dp))
-            Text("启动后自动连接服务器", style = MaterialTheme.typography.labelMedium)
+            Text(I18n.t("settings.auto_connect_server"), style = MaterialTheme.typography.labelMedium)
             Spacer(Modifier.height(4.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(
@@ -1202,8 +1202,8 @@ private fun GameBehaviorCard(pref: com.pmcl.core.preferences.Preferences) {
                         serverHost = it
                         pref.setGameServerHost(it)
                     },
-                    label = { Text("服务器地址") }, singleLine = true,
-                    placeholder = { Text("留空不连接") },
+                    label = { Text(I18n.t("settings.server_address")) }, singleLine = true,
+                    placeholder = { Text(I18n.t("settings.server_address_placeholder")) },
                     modifier = Modifier.weight(2f)
                 )
                 OutlinedTextField(
@@ -1212,11 +1212,11 @@ private fun GameBehaviorCard(pref: com.pmcl.core.preferences.Preferences) {
                         serverPort = it
                         it.toIntOrNull()?.let { v -> pref.setGameServerPort(v) }
                     },
-                    label = { Text("端口") }, singleLine = true,
+                    label = { Text(I18n.t("settings.server_port")) }, singleLine = true,
                     modifier = Modifier.weight(1f)
                 )
             }
-            Text("对应 --server / --port；仅对新世界选择界面生效，已有存档不受影响",
+            Text(I18n.t("settings.server_connect_hint"),
                  style = MaterialTheme.typography.labelSmall,
                  color = MaterialTheme.colorScheme.outline)
 
@@ -1339,13 +1339,13 @@ private fun NetworkConfigCard(vm: LauncherViewModel, pref: com.pmcl.core.prefere
 
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
-            Text("网络配置", style = MaterialTheme.typography.titleSmall,
+            Text(I18n.t("settings.network"), style = MaterialTheme.typography.titleSmall,
                  fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(8.dp))
 
-            Text("下载镜像源", style = MaterialTheme.typography.labelMedium)
+            Text(I18n.t("settings.mirror"), style = MaterialTheme.typography.labelMedium)
             Spacer(Modifier.height(4.dp))
-            val mirrorItems = listOf("OFFICIAL" to "官方", "BMCLAPI" to "BMCLAPI", "CUSTOM" to "自定义")
+            val mirrorItems = listOf("OFFICIAL" to I18n.t("settings.mirror_official"), "BMCLAPI" to "BMCLAPI", "CUSTOM" to I18n.t("settings.mirror_custom"))
             com.pmcl.ui.animation.AnimatedSegmentedSelector(
                 items = mirrorItems.map { it.second },
                 selectedIndex = mirrorItems.indexOfFirst { it.first == mirrorType }.coerceAtLeast(0),
@@ -1365,7 +1365,7 @@ private fun NetworkConfigCard(vm: LauncherViewModel, pref: com.pmcl.core.prefere
                         pref.setCustomMirrorBase(it)
                         vm.applyNetworkPreferences()
                     },
-                    label = { Text("自定义镜像基址 (如 https://mirror.example.com)") },
+                    label = { Text(I18n.t("settings.custom_mirror_full")) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -1377,7 +1377,7 @@ private fun NetworkConfigCard(vm: LauncherViewModel, pref: com.pmcl.core.prefere
                     useProxy = it; pref.setUseProxy(it); vm.applyNetworkPreferences()
                 })
                 Spacer(Modifier.width(8.dp))
-                Text("HTTP 代理")
+                Text(I18n.t("settings.http_proxy"))
             }
             if (useProxy) {
                 Spacer(Modifier.height(8.dp))
@@ -1387,7 +1387,7 @@ private fun NetworkConfigCard(vm: LauncherViewModel, pref: com.pmcl.core.prefere
                         onValueChange = {
                             proxyHost = it; pref.setProxyHost(it); vm.applyNetworkPreferences()
                         },
-                        label = { Text("主机") }, singleLine = true,
+                        label = { Text(I18n.t("settings.proxy_host")) }, singleLine = true,
                         modifier = Modifier.weight(2f)
                     )
                     OutlinedTextField(
@@ -1396,7 +1396,7 @@ private fun NetworkConfigCard(vm: LauncherViewModel, pref: com.pmcl.core.prefere
                             proxyPort = it
                             it.toIntOrNull()?.let { v -> pref.setProxyPort(v); vm.applyNetworkPreferences() }
                         },
-                        label = { Text("端口") }, singleLine = true,
+                        label = { Text(I18n.t("settings.proxy_port")) }, singleLine = true,
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -1405,7 +1405,7 @@ private fun NetworkConfigCard(vm: LauncherViewModel, pref: com.pmcl.core.prefere
                         useAuth = it; pref.setUseHttpAuth(it); vm.applyNetworkPreferences()
                     })
                     Spacer(Modifier.width(8.dp))
-                    Text("代理认证")
+                    Text(I18n.t("settings.proxy_auth"))
                 }
                 if (useAuth) {
                     Spacer(Modifier.height(4.dp))
@@ -1415,7 +1415,7 @@ private fun NetworkConfigCard(vm: LauncherViewModel, pref: com.pmcl.core.prefere
                             onValueChange = {
                                 proxyUser = it; pref.setProxyUsername(it); vm.applyNetworkPreferences()
                             },
-                            label = { Text("用户名") }, singleLine = true,
+                            label = { Text(I18n.t("settings.proxy_username")) }, singleLine = true,
                             modifier = Modifier.weight(1f)
                         )
                         OutlinedTextField(
@@ -1423,7 +1423,7 @@ private fun NetworkConfigCard(vm: LauncherViewModel, pref: com.pmcl.core.prefere
                             onValueChange = {
                                 proxyPass = it; pref.setProxyPassword(it); vm.applyNetworkPreferences()
                             },
-                            label = { Text("密码") }, singleLine = true,
+                            label = { Text(I18n.t("settings.proxy_password")) }, singleLine = true,
                             modifier = Modifier.weight(1f)
                         )
                     }
@@ -1438,7 +1438,7 @@ private fun NetworkConfigCard(vm: LauncherViewModel, pref: com.pmcl.core.prefere
                         speedLimit = it
                         it.toIntOrNull()?.let { v -> pref.setDownloadSpeedLimitKb(v); vm.applyNetworkPreferences() }
                     },
-                    label = { Text("限速 (KB/s, 0=不限)") }, singleLine = true,
+                    label = { Text(I18n.t("settings.speed_limit")) }, singleLine = true,
                     modifier = Modifier.weight(1f)
                 )
                 OutlinedTextField(
@@ -1447,7 +1447,7 @@ private fun NetworkConfigCard(vm: LauncherViewModel, pref: com.pmcl.core.prefere
                         retryCount = it
                         it.toIntOrNull()?.let { v -> pref.setDownloadRetryCount(v); vm.applyNetworkPreferences() }
                     },
-                    label = { Text("重试次数") }, singleLine = true,
+                    label = { Text(I18n.t("settings.retry_count")) }, singleLine = true,
                     modifier = Modifier.weight(1f)
                 )
                 OutlinedTextField(
@@ -1456,11 +1456,11 @@ private fun NetworkConfigCard(vm: LauncherViewModel, pref: com.pmcl.core.prefere
                         chunkedThreads = it
                         it.toIntOrNull()?.let { v -> pref.setChunkedDownloadThreads(v); vm.applyNetworkPreferences() }
                     },
-                    label = { Text("分片下载连接数") }, singleLine = true,
+                    label = { Text(I18n.t("settings.chunked_threads")) }, singleLine = true,
                     modifier = Modifier.weight(1f)
                 )
             }
-            Text("分片下载对大于 8MB 的文件启用多连接并行下载",
+            Text(I18n.t("settings.chunked_download_hint"),
                  style = MaterialTheme.typography.labelSmall,
                  color = MaterialTheme.colorScheme.outline)
 
@@ -1470,7 +1470,7 @@ private fun NetworkConfigCard(vm: LauncherViewModel, pref: com.pmcl.core.prefere
                     enableResume = it; pref.setEnableResume(it); vm.applyNetworkPreferences()
                 })
                 Spacer(Modifier.width(8.dp))
-                Text("断点续传（.part 文件）")
+                Text(I18n.t("settings.enable_resume"))
             }
         }
     }
@@ -1485,16 +1485,16 @@ private fun JavaRuntimeCard(vm: LauncherViewModel, pref: com.pmcl.core.preferenc
 
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
-            Text("Java 运行时", style = MaterialTheme.typography.titleSmall,
+            Text(I18n.t("settings.java_runtime"), style = MaterialTheme.typography.titleSmall,
                  fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(8.dp))
 
             // 当前检测到的 Java 路径
-            Text("当前 Java：$detectedPath",
+            Text(I18n.t("settings.current_java", detectedPath),
                  style = MaterialTheme.typography.bodySmall,
                  color = MaterialTheme.colorScheme.outline)
             Spacer(Modifier.height(4.dp))
-            Text("MC 1.20.5+ 需要 Java 21；MC 1.17–1.20.4 需要 Java 17；MC 1.12.2 及更早（含 alpha/beta）需要 Java 8。",
+            Text(I18n.t("settings.java_version_hint"),
                  style = MaterialTheme.typography.labelSmall,
                  color = MaterialTheme.colorScheme.outline)
 
@@ -1508,11 +1508,11 @@ private fun JavaRuntimeCard(vm: LauncherViewModel, pref: com.pmcl.core.preferenc
                     com.pmcl.core.launch.JavaRuntimeFinder.isLoongArch64() -> "LoongArch64"
                     com.pmcl.core.launch.JavaRuntimeFinder.isMips64el() -> "MIPS64el"
                     com.pmcl.core.launch.JavaRuntimeFinder.isRiscV64() -> "RISC-V 64"
-                    else -> "未知"
+                    else -> I18n.t("settings.unknown_arch")
                 }
                 val (downloadUrl, downloadLabel) = when {
-                    isLoongson -> "https://www.loongnix.cn/zh/api/java/" to "前往龙芯开源社区"
-                    isRiscV -> "https://adoptium.net/temurin/releases/?version=17&arch=riscv64" to "前往 Adoptium"
+                    isLoongson -> "https://www.loongnix.cn/zh/api/java/" to I18n.t("settings.go_to_loongson")
+                    isRiscV -> "https://adoptium.net/temurin/releases/?version=17&arch=riscv64" to I18n.t("settings.go_to_adoptium")
                     else -> "" to ""
                 }
                 Surface(
@@ -1522,14 +1522,14 @@ private fun JavaRuntimeCard(vm: LauncherViewModel, pref: com.pmcl.core.preferenc
                 ) {
                     Column(Modifier.padding(12.dp)) {
                         Text(
-                            "$archName 架构不支持自动下载 Java",
+                            I18n.t("settings.arch_not_supported", archName),
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onErrorContainer,
                             fontWeight = FontWeight.SemiBold
                         )
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            "Mojang Java 运行时清单不包含 $archName 架构。请从对应开源社区手动安装 $archName 版 JDK，PMCL 会自动检测系统中的 Java。",
+                            I18n.t("settings.arch_not_supported_detail", archName),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onErrorContainer
                         )
@@ -1572,7 +1572,7 @@ private fun JavaRuntimeCard(vm: LauncherViewModel, pref: com.pmcl.core.preferenc
                                 strokeWidth = 2.dp
                             )
                             Spacer(Modifier.width(8.dp))
-                            Text("正在下载…")
+                            Text(I18n.t("settings.downloading"))
                         } else {
                             Text("Java 21")
                         }
@@ -1595,8 +1595,8 @@ private fun JavaRuntimeCard(vm: LauncherViewModel, pref: com.pmcl.core.preferenc
                     manualPath = it
                     vm.setJavaPath(it.trim())
                 },
-                label = { Text("手动指定 Java 可执行文件路径") },
-                supportingText = { Text("留空则自动检测（优先 runtimes 目录，再系统路径）") },
+                label = { Text(I18n.t("settings.manual_java_path")) },
+                supportingText = { Text(I18n.t("settings.manual_java_path_hint")) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -1618,18 +1618,18 @@ private fun AccentColorPicker(
     // 预设色板（RGB，不含 alpha）
     val presets = remember {
         listOf(
-            0x3D8BFF to "天空蓝",   // 默认蓝
-            0x55C57A to "薄荷绿",
-            0xFA8C16 to "琥珀橙",
-            0xE91E63 to "玫瑰粉",
-            0x9C27B0 to "紫罗兰",
-            0xF44336 to "赤红",
-            0x00BCD4 to "青蓝",
-            0x8BC34A to "草绿",
-            0xFFC107 to "金黄",
-            0x795548 to "棕褐",
-            0x607D8B to "蓝灰",
-            0x000000 to "纯黑"
+            0x3D8BFF to I18n.t("settings.color.sky_blue"),   // 默认蓝
+            0x55C57A to I18n.t("settings.color.mint"),
+            0xFA8C16 to I18n.t("settings.color.amber"),
+            0xE91E63 to I18n.t("settings.color.rose"),
+            0x9C27B0 to I18n.t("settings.color.violet"),
+            0xF44336 to I18n.t("settings.color.crimson"),
+            0x00BCD4 to I18n.t("settings.color.cyan"),
+            0x8BC34A to I18n.t("settings.color.grass"),
+            0xFFC107 to I18n.t("settings.color.gold"),
+            0x795548 to I18n.t("settings.color.brown"),
+            0x607D8B to I18n.t("settings.color.slate"),
+            0x000000 to I18n.t("settings.color.black")
         )
     }
 
@@ -1691,7 +1691,7 @@ private fun AccentColorPicker(
                         onSelect(rgb)
                     }
                 },
-                label = { Text("自定义 HEX") },
+                label = { Text(I18n.t("settings.custom_hex")) },
                 prefix = { Text("#") },
                 singleLine = true,
                 enabled = enabled,
@@ -1703,14 +1703,14 @@ private fun AccentColorPicker(
                 OutlinedButton(onClick = onClear, enabled = enabled) {
                     Icon(Icons.Filled.Clear, null, Modifier.size(14.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("默认")
+                    Text(I18n.t("settings.color_default"))
                 }
             }
         }
 
         if (!enabled) {
             Spacer(Modifier.height(4.dp))
-            Text("请先关闭莫奈取色以使用自定义强调色",
+            Text(I18n.t("settings.disable_monet_first"),
                  style = MaterialTheme.typography.labelSmall,
                  color = MaterialTheme.colorScheme.outline)
         }
@@ -1735,8 +1735,8 @@ private fun LicenseViewerDialog(onDismiss: () -> Unit) {
                     ?.getResourceAsStream(resName)
                     ?.bufferedReader()
                     ?.use { it.readText() }
-                    ?: "许可证文件未找到。"
-            }.getOrElse { "加载许可证失败：${it.message}" }
+                    ?: I18n.t("settings.license_not_found")
+            }.getOrElse { I18n.t("settings.license_load_failed", it.message ?: "") }
         )
     }
 
@@ -1748,7 +1748,7 @@ private fun LicenseViewerDialog(onDismiss: () -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Filled.Article, null, Modifier.size(20.dp))
                 Spacer(Modifier.width(8.dp))
-                Text("PMCL 软件技术许可证 v1.1")
+                Text(I18n.t("settings.license_title"))
             }
         },
         text = {
@@ -1777,7 +1777,7 @@ private fun LicenseViewerDialog(onDismiss: () -> Unit) {
                     }) {
                         Icon(Icons.Filled.ContentCopy, null, Modifier.size(14.dp))
                         Spacer(Modifier.width(4.dp))
-                        Text("复制")
+                        Text(I18n.t("common.copy"))
                     }
                 }
 
@@ -1802,13 +1802,13 @@ private fun LicenseViewerDialog(onDismiss: () -> Unit) {
                 Spacer(Modifier.height(4.dp))
                 if (isEnglish) {
                     Text(
-                        "此为英文参考翻译,中文版本为权威版本(见第 13.4 条)。",
+                        I18n.t("settings.license_english_ref"),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.outline
                     )
                 } else {
                     Text(
-                        "此为中文权威版本。",
+                        I18n.t("settings.license_chinese_authoritative"),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.outline
                     )
@@ -1816,7 +1816,7 @@ private fun LicenseViewerDialog(onDismiss: () -> Unit) {
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("关闭") }
+            TextButton(onClick = onDismiss) { Text(I18n.t("common.close")) }
         }
     )
 }
@@ -1840,8 +1840,8 @@ private fun DocumentViewerDialog(
                     ?.getResourceAsStream(resourceName)
                     ?.bufferedReader()
                     ?.use { it.readText() }
-                    ?: "文档未找到:$resourceName"
-            }.getOrElse { "加载失败:${it.message}" }
+                    ?: I18n.t("settings.doc_not_found", resourceName)
+            }.getOrElse { I18n.t("settings.doc_load_failed", it.message ?: "") }
         )
     }
 
@@ -1867,7 +1867,7 @@ private fun DocumentViewerDialog(
                     }) {
                         Icon(Icons.Filled.ContentCopy, null, Modifier.size(14.dp))
                         Spacer(Modifier.width(4.dp))
-                        Text("复制全文")
+                        Text(I18n.t("common.copy_all"))
                     }
                 }
 
@@ -1890,7 +1890,7 @@ private fun DocumentViewerDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("关闭") }
+            TextButton(onClick = onDismiss) { Text(I18n.t("common.close")) }
         }
     )
 }

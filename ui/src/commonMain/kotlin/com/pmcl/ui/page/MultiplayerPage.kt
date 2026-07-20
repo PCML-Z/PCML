@@ -116,9 +116,9 @@ fun MultiplayerPage(vm: LauncherViewModel) {
         }
         Text(
             when (vm.mpBackend) {
-                MultiplayerManager.Backend.CONNECTX -> "基于 ConnectX / ZeroTier 的 P2P 联机 · 仅支持 Minecraft Java Edition"
-                MultiplayerManager.Backend.TERRACOTTA -> "Terracotta 陶瓦联机（HMCL 同款）· 房间码互通 · 仅支持 Minecraft Java Edition"
-                else -> "基于 EasyTier 的免费 P2P 联机 · 仅支持 Minecraft Java Edition"
+                MultiplayerManager.Backend.CONNECTX -> I18n.t("mp.desc.connectx")
+                MultiplayerManager.Backend.TERRACOTTA -> I18n.t("mp.desc.terracotta")
+                else -> I18n.t("mp.desc.easytier")
             },
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.outline
@@ -149,12 +149,12 @@ fun MultiplayerPage(vm: LauncherViewModel) {
                     )
                     if (isConnectX) {
                         Spacer(Modifier.height(8.dp))
-                        Text("ConnectX 需要配置客户端二进制和服务器地址（点击右上角设置按钮）",
+                        Text(I18n.t("mp.connectx_hint"),
                              style = MaterialTheme.typography.labelSmall,
                              color = MaterialTheme.colorScheme.tertiary)
                     } else if (vm.mpBackend == MultiplayerManager.Backend.TERRACOTTA) {
                         Spacer(Modifier.height(8.dp))
-                        Text("Terracotta 是 HMCL 同款陶瓦联机实现，房间码互通，首次使用需下载约 8-14MB 二进制。",
+                        Text(I18n.t("mp.terracotta_hint"),
                              style = MaterialTheme.typography.labelSmall,
                              color = MaterialTheme.colorScheme.outline)
                     }
@@ -220,7 +220,7 @@ fun MultiplayerPage(vm: LauncherViewModel) {
                             }
                         }
                         Spacer(Modifier.height(4.dp))
-                        Text("把房间码发给朋友，他在 PMCL 联机页粘贴后点「加入房间」即可。",
+                        Text(I18n.t("mp.share_room_code_hint"),
                              style = MaterialTheme.typography.labelSmall,
                              color = MaterialTheme.colorScheme.outline)
                         // 房客模式下显示本地 MC 连接地址
@@ -235,7 +235,7 @@ fun MultiplayerPage(vm: LauncherViewModel) {
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Column(Modifier.weight(1f)) {
-                                        Text("本地 MC 连接地址",
+                                        Text(I18n.t("mp.local_mc_addr"),
                                              style = MaterialTheme.typography.labelSmall,
                                              color = MaterialTheme.colorScheme.onTertiaryContainer)
                                         Text(mcAddr,
@@ -249,7 +249,7 @@ fun MultiplayerPage(vm: LauncherViewModel) {
                                 }
                             }
                             Spacer(Modifier.height(4.dp))
-                            Text("在 Minecraft 多人游戏 → 「直接连接」中输入此地址即可加入房主。",
+                            Text(I18n.t("mp.direct_connect_hint"),
                                  style = MaterialTheme.typography.labelSmall,
                                  color = MaterialTheme.colorScheme.outline)
                         }
@@ -268,7 +268,7 @@ fun MultiplayerPage(vm: LauncherViewModel) {
                                 textStyle = MaterialTheme.typography.bodySmall,
                                 trailingIcon = {
                                     IconButton(onClick = { vm.copyInvitation() }) {
-                                        Icon(Icons.AutoMirrored.Filled.Send, "复制邀请码")
+                                        Icon(Icons.AutoMirrored.Filled.Send, I18n.t("mp.copy_invite"))
                                     }
                                 }
                             )
@@ -301,7 +301,7 @@ fun MultiplayerPage(vm: LauncherViewModel) {
                                 }
                             }
                             Spacer(Modifier.height(4.dp))
-                            Text("房客用「直接连接」输入此 IP:端口（端口是房主游戏内「对局域网开放」时显示的端口）",
+                            Text(I18n.t("mp.virtual_ip_hint"),
                                  style = MaterialTheme.typography.labelSmall,
                                  color = MaterialTheme.colorScheme.outline)
                         } else {
@@ -322,14 +322,14 @@ fun MultiplayerPage(vm: LauncherViewModel) {
                                 textStyle = MaterialTheme.typography.bodySmall,
                                 trailingIcon = {
                                     IconButton(onClick = { vm.copyInvitation() }) {
-                                        Icon(Icons.AutoMirrored.Filled.Send, "复制邀请码")
+                                        Icon(Icons.AutoMirrored.Filled.Send, I18n.t("mp.copy_invite"))
                                     }
                                 }
                             )
                         }
                     }
                 } else {
-                    Text("尚未加入任何房间。创建房间或粘贴朋友发来的房间码加入。",
+                    Text(I18n.t("mp.not_joined"),
                          style = MaterialTheme.typography.bodyMedium,
                          color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -354,7 +354,7 @@ fun MultiplayerPage(vm: LauncherViewModel) {
                     ) {
                         Icon(Icons.Filled.PlayArrow, null, Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text(if (busy) "处理中…" else I18n.t("mp.create_room"))
+                        Text(if (busy) I18n.t("common.processing") else I18n.t("mp.create_room"))
                     }
 
                     HorizontalDivider()
@@ -367,9 +367,9 @@ fun MultiplayerPage(vm: LauncherViewModel) {
                         label = { Text(I18n.t("mp.room_code_label")) },
                         placeholder = { Text(
                             when {
-                                isConnectX -> "粘贴 connectx-… 邀请码"
-                                vm.mpBackend == MultiplayerManager.Backend.TERRACOTTA -> "粘贴 U/XXXX-XXXX-XXXX-XXXX 房间码"
-                                else -> "粘贴 pmcl-… 邀请码"
+                                isConnectX -> I18n.t("mp.placeholder.connectx")
+                                vm.mpBackend == MultiplayerManager.Backend.TERRACOTTA -> I18n.t("mp.placeholder.terracotta")
+                                else -> I18n.t("mp.placeholder.easytier")
                             }
                         ) },
                         modifier = Modifier.fillMaxWidth(),
@@ -383,7 +383,7 @@ fun MultiplayerPage(vm: LauncherViewModel) {
                     ) {
                         Icon(Icons.AutoMirrored.Filled.ArrowForward, null, Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text(if (busy) "处理中…" else I18n.t("mp.join_room"))
+                        Text(if (busy) I18n.t("common.processing") else I18n.t("mp.join_room"))
                     }
                 }
             }
@@ -418,58 +418,58 @@ fun MultiplayerPage(vm: LauncherViewModel) {
                     Text(I18n.t("mp.host_label"),
                          style = MaterialTheme.typography.labelMedium,
                          fontWeight = FontWeight.SemiBold)
-                    Text("1. 点击「创建房间」，首次会自动下载 Terracotta 官方二进制（约 8-14MB）",
+                    Text(I18n.t("mp.usage.terracotta.host.1"),
                          style = MaterialTheme.typography.bodySmall)
-                    Text("2. 房间创建后会得到房间码（U/XXXX-XXXX-XXXX-XXXX）",
+                    Text(I18n.t("mp.usage.terracotta.host.2"),
                          style = MaterialTheme.typography.bodySmall)
-                    Text("3. 进入单人世界 → ESC 菜单 → 「对局域网开放」",
+                    Text(I18n.t("mp.usage.terracotta.host.3"),
                          style = MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.height(6.dp))
                     Text(I18n.t("mp.guest_label"),
                          style = MaterialTheme.typography.labelMedium,
                          fontWeight = FontWeight.SemiBold)
-                    Text("1. 粘贴房主发来的房间码 → 点击「加入房间」",
+                    Text(I18n.t("mp.usage.terracotta.guest.1"),
                          style = MaterialTheme.typography.bodySmall)
-                    Text("2. 加入成功后 PMCL 会显示本地 MC 连接地址（如 127.0.0.1:25565）",
+                    Text(I18n.t("mp.usage.terracotta.guest.2"),
                          style = MaterialTheme.typography.bodySmall)
-                    Text("3. 启动 Minecraft → 多人游戏 → 「直接连接」→ 输入该地址",
+                    Text(I18n.t("mp.usage.terracotta.guest.3"),
                          style = MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.height(4.dp))
-                    Text("Terracotta 陶瓦联机 by Burning_TNT，基于 EasyTier P2P。与 HMCL / PCL CE 房间码互通。",
+                    Text(I18n.t("mp.usage.terracotta.note"),
                          style = MaterialTheme.typography.labelSmall,
                          color = MaterialTheme.colorScheme.outline)
                 } else if (isConnectX) {
-                    Text("1. 房主点击「创建房间」，ConnectX 会连接服务器并创建房间。",
+                    Text(I18n.t("mp.usage.connectx.1"),
                          style = MaterialTheme.typography.bodySmall)
-                    Text("2. 房主复制邀请码发给朋友。",
+                    Text(I18n.t("mp.usage.connectx.2"),
                          style = MaterialTheme.typography.bodySmall)
-                    Text("3. 房客粘贴邀请码后点击「加入房间」。",
+                    Text(I18n.t("mp.usage.connectx.3"),
                          style = MaterialTheme.typography.bodySmall)
-                    Text("4. 房主进入单人世界 → 菜单 → 「对局域网开放」",
+                    Text(I18n.t("mp.usage.connectx.4"),
                          style = MaterialTheme.typography.bodySmall)
-                    Text("5. 房客：多人游戏 → 「直接连接」→ 输入 房主虚拟IP:端口",
+                    Text(I18n.t("mp.usage.connectx.5"),
                          style = MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.height(4.dp))
-                    Text("提示：ConnectX 基于 ZeroTier P2P，支持中继模式。需先在设置中配置服务器和客户端。",
+                    Text(I18n.t("mp.usage.connectx.note"),
                          style = MaterialTheme.typography.labelSmall,
                          color = MaterialTheme.colorScheme.outline)
                 } else {
-                    Text("1. 房主点击「创建房间」，等待 EasyTier 启动并分配虚拟 IP。",
+                    Text(I18n.t("mp.usage.easytier.1"),
                          style = MaterialTheme.typography.bodySmall)
-                    Text("2. 房主复制邀请码发给朋友。",
+                    Text(I18n.t("mp.usage.easytier.2"),
                          style = MaterialTheme.typography.bodySmall)
-                    Text("3. 房客粘贴邀请码后点击「加入房间」，等待双方都显示「已连接」。",
+                    Text(I18n.t("mp.usage.easytier.3"),
                          style = MaterialTheme.typography.bodySmall)
-                    Text("4. 房主进入单人世界 → 菜单 → 「对局域网开放」，游戏会显示端口号（如 12345）",
+                    Text(I18n.t("mp.usage.easytier.4"),
                          style = MaterialTheme.typography.bodySmall)
-                    Text("5. 房客：多人游戏 → 「直接连接」→ 输入 房主虚拟IP:端口（如 10.144.144.10:12345）",
+                    Text(I18n.t("mp.usage.easytier.5"),
                          style = MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.height(4.dp))
-                    Text("⚠ 重要：不要用「多人游戏」列表自动扫描！虚拟网络不转发 LAN 广播，列表里看不到房间，必须用「直接连接」手动输入 IP:端口。",
+                    Text(I18n.t("mp.usage.easytier.warning"),
                          style = MaterialTheme.typography.labelSmall,
                          color = MaterialTheme.colorScheme.error)
                     Spacer(Modifier.height(4.dp))
-                    Text("提示：陶瓦联机基于 P2P，稳定性弱于服务器中继方案。打洞失败时请重试。双方需都显示「已连接」才能联机。",
+                    Text(I18n.t("mp.usage.easytier.note"),
                          style = MaterialTheme.typography.labelSmall,
                          color = MaterialTheme.colorScheme.outline)
                 }
@@ -578,7 +578,7 @@ private fun ConnectXSettingsDialog(
                     singleLine = true
                 )
                 Spacer(Modifier.height(8.dp))
-                Text("说明：ConnectX 是基于 ZeroTier SDK 的 P2P 联机方案。需要自行编译 ConnectX.ClientConsole 并部署 ConnectX.Server。项目地址：github.com/Corona-Studio/ConnectX",
+                Text(I18n.t("mp.connectx_about"),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
             }
@@ -626,7 +626,7 @@ private fun FavoriteServersCard(vm: LauncherViewModel) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Filled.Speed, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(8.dp))
-                Text("收藏服务器", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Text(I18n.t("mp.favorite_servers"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.weight(1f))
                 // 全部 ping
                 TextButton(
@@ -635,22 +635,22 @@ private fun FavoriteServersCard(vm: LauncherViewModel) {
                 ) {
                     Icon(Icons.Filled.Speed, null, Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("全部测速")
+                    Text(I18n.t("mp.ping_all"))
                 }
                 // 添加
                 IconButton(onClick = { showAddDialog = true }) {
-                    Icon(Icons.Filled.Add, "添加服务器")
+                    Icon(Icons.Filled.Add, I18n.t("mp.add_server"))
                 }
             }
             Spacer(Modifier.height(4.dp))
-            Text("管理收藏的 Minecraft 服务器，点击测速按钮检测延迟，点击直连设为启动时自动连接的目标",
+            Text(I18n.t("mp.favorite_servers_hint"),
                  style = MaterialTheme.typography.labelSmall,
                  color = MaterialTheme.colorScheme.outline)
 
             if (servers.isEmpty()) {
                 Spacer(Modifier.height(12.dp))
                 Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                    Text("暂无收藏服务器，点击 + 添加",
+                    Text(I18n.t("mp.no_favorite_servers"),
                          style = MaterialTheme.typography.bodySmall,
                          color = MaterialTheme.colorScheme.outline)
                 }
@@ -662,8 +662,8 @@ private fun FavoriteServersCard(vm: LauncherViewModel) {
                     val ping = pings[key]
                     val pingText = when (ping) {
                         null -> "—"
-                        com.pmcl.core.multiplayer.ServerPinger.UNREACHABLE -> "离线"
-                        com.pmcl.core.multiplayer.ServerPinger.TIMEOUT -> "超时"
+                        com.pmcl.core.multiplayer.ServerPinger.UNREACHABLE -> I18n.t("mp.server.offline")
+                        com.pmcl.core.multiplayer.ServerPinger.TIMEOUT -> I18n.t("mp.server.timeout")
                         else -> "${ping}ms"
                     }
                     val pingColor = when (ping) {
@@ -710,21 +710,21 @@ private fun FavoriteServersCard(vm: LauncherViewModel) {
                             onClick = { vm.pingServer(server.host, server.port) },
                             modifier = Modifier.size(32.dp)
                         ) {
-                            Icon(Icons.Filled.Speed, "测速", Modifier.size(16.dp))
+                            Icon(Icons.Filled.Speed, I18n.t("mp.ping"), Modifier.size(16.dp))
                         }
                         // 直连
                         IconButton(
                             onClick = { vm.setDirectConnectServer(server.host, server.port) },
                             modifier = Modifier.size(32.dp)
                         ) {
-                            Icon(Icons.Filled.PlayArrow, "设为直连", Modifier.size(16.dp))
+                            Icon(Icons.Filled.PlayArrow, I18n.t("mp.set_direct_connect"), Modifier.size(16.dp))
                         }
                         // 删除
                         IconButton(
                             onClick = { vm.removeFavoriteServer(index) },
                             modifier = Modifier.size(32.dp)
                         ) {
-                            Icon(Icons.Filled.Delete, "删除", Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error)
+                            Icon(Icons.Filled.Delete, I18n.t("common.delete"), Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error)
                         }
                     }
                     if (index < servers.lastIndex) {
@@ -739,24 +739,24 @@ private fun FavoriteServersCard(vm: LauncherViewModel) {
     if (showAddDialog) {
         AlertDialog(
             onDismissRequest = { showAddDialog = false },
-            title = { Text("添加收藏服务器") },
+            title = { Text(I18n.t("mp.add_favorite_server")) },
             text = {
                 Column {
                     OutlinedTextField(
                         value = newName, onValueChange = { newName = it },
-                        label = { Text("名称（可选）") }, singleLine = true,
+                        label = { Text(I18n.t("mp.server_name_optional")) }, singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(Modifier.height(8.dp))
                     OutlinedTextField(
                         value = newHost, onValueChange = { newHost = it },
-                        label = { Text("地址") }, singleLine = true,
+                        label = { Text(I18n.t("mp.address")) }, singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(Modifier.height(8.dp))
                     OutlinedTextField(
                         value = newPort, onValueChange = { newPort = it.filter { c -> c.isDigit() } },
-                        label = { Text("端口") }, singleLine = true,
+                        label = { Text(I18n.t("mp.port")) }, singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
@@ -771,10 +771,10 @@ private fun FavoriteServersCard(vm: LauncherViewModel) {
                             showAddDialog = false
                         }
                     }
-                ) { Text("添加") }
+                ) { Text(I18n.t("mp.add")) }
             },
             dismissButton = {
-                TextButton(onClick = { showAddDialog = false }) { Text("取消") }
+                TextButton(onClick = { showAddDialog = false }) { Text(I18n.t("common.cancel")) }
             }
         )
     }
