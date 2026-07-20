@@ -638,6 +638,41 @@ public final class I18n {
         ZH.put("mp.state.disconnected", "已断开");
         ZH.put("mp.state.failed", "连接失败");
 
+        // ===== 关于 =====
+        ZH.put("about.title", "PMCL");
+        ZH.put("about.version", "版本 {0}");
+        ZH.put("about.description", "一个使用 Compose Multiplatform UI + Java 内核构建的跨平台 Minecraft 启动器。");
+        ZH.put("about.features", "主要功能");
+        ZH.put("about.features.core", "启动核心");
+        ZH.put("about.features.content", "内容管理");
+        ZH.put("about.features.tools", "游戏工具");
+        ZH.put("about.features.extensions", "扩展功能");
+        ZH.put("about.feat.account", "微软账号 OAuth2 登录");
+        ZH.put("about.feat.versions", "版本安装与库/资源下载");
+        ZH.put("about.feat.modloaders", "Forge / Fabric / Quilt / NeoForge 加载器");
+        ZH.put("about.feat.presets", "启动参数预设");
+        ZH.put("about.feat.market", "Modrinth / CurseForge 模组市场");
+        ZH.put("about.feat.contents", "模组/整合包/光影/资源包/数据包");
+        ZH.put("about.feat.config", "配置文件编辑器");
+        ZH.put("about.feat.saves", "世界存档与截图管理");
+        ZH.put("about.feat.nbt", "NBT 编辑器");
+        ZH.put("about.feat.crash", "崩溃分析与完整性校验");
+        ZH.put("about.feat.java", "多版本 Java 自适应");
+        ZH.put("about.feat.multiplayer", "陶瓦联机（EasyTier P2P）");
+        ZH.put("about.feat.friends", "好友系统与即时聊天");
+        ZH.put("about.feat.video", "视频通话");
+        ZH.put("about.feat.music", "音乐播放器（B站/A站/直链）");
+        ZH.put("about.feat.plugins", "插件系统（.ppk）");
+        ZH.put("about.feat.news", "Minecraft.net 新闻");
+        ZH.put("about.feat.terminal", "内置终端");
+        ZH.put("about.tech_stack", "技术栈");
+        ZH.put("about.author_github", "作者 GitHub");
+        ZH.put("about.view_license", "查看许可证");
+        ZH.put("about.user_agreement", "用户协议");
+        ZH.put("about.disclaimer", "免责协议");
+        ZH.put("about.easytier", "EasyTier 项目");
+        ZH.put("about.copyright", "© 2026 PMCL  ·  仅供学习交流使用  ·  Minecraft 为 Mojang AB 商标");
+
         // ===== 设置页 =====
         ZH.put("settings.title", "设置");
         ZH.put("settings.memory", "内存");
@@ -1348,6 +1383,41 @@ public final class I18n {
         EN.put("mp.state.disconnected", "Disconnected");
         EN.put("mp.state.failed", "Connection failed");
 
+        // ===== About =====
+        EN.put("about.title", "PMCL");
+        EN.put("about.version", "Version {0}");
+        EN.put("about.description", "A cross-platform Minecraft launcher built with Compose Multiplatform UI + Java core.");
+        EN.put("about.features", "Features");
+        EN.put("about.features.core", "Launch Core");
+        EN.put("about.features.content", "Content");
+        EN.put("about.features.tools", "Game Tools");
+        EN.put("about.features.extensions", "Extensions");
+        EN.put("about.feat.account", "Microsoft OAuth2 login");
+        EN.put("about.feat.versions", "Version install & library/asset download");
+        EN.put("about.feat.modloaders", "Forge / Fabric / Quilt / NeoForge loaders");
+        EN.put("about.feat.presets", "Launch parameter presets");
+        EN.put("about.feat.market", "Modrinth / CurseForge mod market");
+        EN.put("about.feat.contents", "Mods/Modpacks/Shaders/ResourcePacks/Datapacks");
+        EN.put("about.feat.config", "Config file editor");
+        EN.put("about.feat.saves", "World saves & screenshots");
+        EN.put("about.feat.nbt", "NBT editor");
+        EN.put("about.feat.crash", "Crash analysis & integrity check");
+        EN.put("about.feat.java", "Multi-version Java auto-selection");
+        EN.put("about.feat.multiplayer", "Terracotta multiplayer (EasyTier P2P)");
+        EN.put("about.feat.friends", "Friends & instant chat");
+        EN.put("about.feat.video", "Video call");
+        EN.put("about.feat.music", "Music player (BiliBili/AcFun/direct)");
+        EN.put("about.feat.plugins", "Plugin system (.ppk)");
+        EN.put("about.feat.news", "Minecraft.net news");
+        EN.put("about.feat.terminal", "Built-in terminal");
+        EN.put("about.tech_stack", "Tech Stack");
+        EN.put("about.author_github", "Author GitHub");
+        EN.put("about.view_license", "View License");
+        EN.put("about.user_agreement", "User Agreement");
+        EN.put("about.disclaimer", "Disclaimer");
+        EN.put("about.easytier", "EasyTier Project");
+        EN.put("about.copyright", "© 2026 PMCL  ·  For educational use only  ·  Minecraft is a trademark of Mojang AB");
+
         EN.put("settings.title", "Settings");
         EN.put("settings.memory", "Memory");
         EN.put("settings.min_memory", "Min (MB)");
@@ -2051,6 +2121,41 @@ public final class I18n {
         JA.put("mp.state.connected", "接続済み");
         JA.put("mp.state.disconnected", "切断済み");
         JA.put("mp.state.failed", "接続失敗");
+
+        // ===== バージョン情報 =====
+        JA.put("about.title", "PMCL");
+        JA.put("about.version", "バージョン {0}");
+        JA.put("about.description", "Compose Multiplatform UI + Java コアで構築されたクロスプラットフォーム Minecraft ランチャー。");
+        JA.put("about.features", "主な機能");
+        JA.put("about.features.core", "起動コア");
+        JA.put("about.features.content", "コンテンツ管理");
+        JA.put("about.features.tools", "ゲームツール");
+        JA.put("about.features.extensions", "拡張機能");
+        JA.put("about.feat.account", "Microsoft OAuth2 ログイン");
+        JA.put("about.feat.versions", "バージョンインストールとライブラリ/アセットダウンロード");
+        JA.put("about.feat.modloaders", "Forge / Fabric / Quilt / NeoForge ローダー");
+        JA.put("about.feat.presets", "起動パラメータプリセット");
+        JA.put("about.feat.market", "Modrinth / CurseForge MOD市場");
+        JA.put("about.feat.contents", "MOD/統合/シェーダー/リソース/データパック");
+        JA.put("about.feat.config", "設定ファイルエディタ");
+        JA.put("about.feat.saves", "ワールドセーブとスクリーンショット");
+        JA.put("about.feat.nbt", "NBTエディタ");
+        JA.put("about.feat.crash", "クラッシュ分析と整合性チェック");
+        JA.put("about.feat.java", "マルチバージョン Java 自動選択");
+        JA.put("about.feat.multiplayer", "テラコッタマルチプレイ（EasyTier P2P）");
+        JA.put("about.feat.friends", "フレンドとインスタントチャット");
+        JA.put("about.feat.video", "ビデオ通話");
+        JA.put("about.feat.music", "音楽プレーヤー（BiliBili/AcFun/直リンク）");
+        JA.put("about.feat.plugins", "プラグインシステム（.ppk）");
+        JA.put("about.feat.news", "Minecraft.net ニュース");
+        JA.put("about.feat.terminal", "内蔵ターミナル");
+        JA.put("about.tech_stack", "技術スタック");
+        JA.put("about.author_github", "作者 GitHub");
+        JA.put("about.view_license", "ライセンス");
+        JA.put("about.user_agreement", "利用規約");
+        JA.put("about.disclaimer", "免責事項");
+        JA.put("about.easytier", "EasyTier プロジェクト");
+        JA.put("about.copyright", "© 2026 PMCL  ·  学習交流目的のみ  ·  Minecraft は Mojang AB の商標です");
 
         JA.put("settings.title", "設定");
         JA.put("settings.memory", "メモリ");

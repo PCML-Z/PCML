@@ -509,6 +509,7 @@ private fun AboutCard(vm: LauncherViewModel) {
 
     Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp), colors = glassCardColors()) {
         Column(Modifier.padding(16.dp)) {
+            // === 头部：Logo + 名称 + 版本 ===
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Surface(
                     shape = RoundedCornerShape(12.dp),
@@ -517,75 +518,119 @@ private fun AboutCard(vm: LauncherViewModel) {
                 ) {
                     Image(
                         painter = painterResource("pmcl_icon.png"),
-                        contentDescription = "PMCL 图标",
+                        contentDescription = null,
                         modifier = Modifier.size(48.dp).padding(2.dp)
                     )
                 }
                 Spacer(Modifier.width(12.dp))
                 Column {
-                    Text("PMCL", style = MaterialTheme.typography.titleMedium,
+                    Text(I18n.t("about.title"), style = MaterialTheme.typography.titleMedium,
                          fontWeight = FontWeight.Bold)
-                    Text("版本 1.0.0 (build 20260708.4)",
+                    Text(I18n.t("about.version", "1.0.0 (build 20260719.1)"),
                          style = MaterialTheme.typography.labelSmall,
                          color = MaterialTheme.colorScheme.outline)
                 }
             }
 
             Spacer(Modifier.height(12.dp))
-            Text("一个使用 Compose Multiplatform UI + Java 内核构建的跨平台 Minecraft 启动器。",
+            Text(I18n.t("about.description"),
                  style = MaterialTheme.typography.bodySmall)
 
-            Spacer(Modifier.height(12.dp))
-            Text("主要功能", style = MaterialTheme.typography.labelMedium,
+            // === 主要功能：4 列分组 ===
+            Spacer(Modifier.height(16.dp))
+            Text(I18n.t("about.features"), style = MaterialTheme.typography.labelMedium,
                  fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(4.dp))
-            val features = listOf(
-                "微软账号登录（OAuth2 设备码流）",
-                "版本安装与库/资源下载",
-                "Forge / Fabric / Quilt 模组加载器",
-                "Modrinth / CurseForge 模组市场",
-                "陶瓦联机（EasyTier P2P）",
-                "Minecraft.net 新闻",
-                "世界 / 截图 / 资源包 / 数据包管理",
-                "崩溃分析与完整性校验"
-            )
-            features.forEach { f ->
-                Text("·  $f",
-                     style = MaterialTheme.typography.bodySmall,
-                     color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(8.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                FeatureColumn(
+                    title = I18n.t("about.features.core"),
+                    items = listOf(
+                        I18n.t("about.feat.account"),
+                        I18n.t("about.feat.versions"),
+                        I18n.t("about.feat.modloaders"),
+                        I18n.t("about.feat.presets")
+                    ),
+                    modifier = Modifier.weight(1f)
+                )
+                FeatureColumn(
+                    title = I18n.t("about.features.content"),
+                    items = listOf(
+                        I18n.t("about.feat.market"),
+                        I18n.t("about.feat.contents"),
+                        I18n.t("about.feat.config")
+                    ),
+                    modifier = Modifier.weight(1f)
+                )
+                FeatureColumn(
+                    title = I18n.t("about.features.tools"),
+                    items = listOf(
+                        I18n.t("about.feat.saves"),
+                        I18n.t("about.feat.nbt"),
+                        I18n.t("about.feat.crash"),
+                        I18n.t("about.feat.java")
+                    ),
+                    modifier = Modifier.weight(1f)
+                )
+                FeatureColumn(
+                    title = I18n.t("about.features.extensions"),
+                    items = listOf(
+                        I18n.t("about.feat.multiplayer"),
+                        I18n.t("about.feat.friends"),
+                        I18n.t("about.feat.video"),
+                        I18n.t("about.feat.music"),
+                        I18n.t("about.feat.plugins"),
+                        I18n.t("about.feat.news"),
+                        I18n.t("about.feat.terminal")
+                    ),
+                    modifier = Modifier.weight(1f)
+                )
             }
 
-            Spacer(Modifier.height(12.dp))
-            Text("技术栈", style = MaterialTheme.typography.labelMedium,
+            // === 技术栈：Chip 标签 ===
+            Spacer(Modifier.height(16.dp))
+            Text(I18n.t("about.tech_stack"), style = MaterialTheme.typography.labelMedium,
                  fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(4.dp))
-            Text("Kotlin ${KotlinVersion.CURRENT}  ·  Compose Multiplatform 1.7.0  ·  Java 17 内核 / Java 21 运行时  ·  OkHttp  ·  Gradle",
-                 style = MaterialTheme.typography.bodySmall,
-                 color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(6.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf(
+                    "Kotlin ${KotlinVersion.CURRENT}",
+                    "Compose Multiplatform 1.7.0",
+                    "Java 21",
+                    "OkHttp",
+                    "FFmpeg",
+                    "Gradle"
+                ).forEach { tech ->
+                    AssistChip(
+                        onClick = {},
+                        label = { Text(tech, style = MaterialTheme.typography.labelSmall) }
+                    )
+                }
+            }
 
-            Spacer(Modifier.height(12.dp))
+            // === 链接按钮 ===
+            Spacer(Modifier.height(16.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = {
                     try { com.pmcl.core.web.WikiBrowser.open("https://github.com/peddlejumper") } catch (_: Throwable) {}
-                }) { Text("作者 GitHub"); Icon(Icons.Filled.OpenInNew, null, modifier = Modifier.size(14.dp).padding(start = 2.dp)) }
+                }) { Text(I18n.t("about.author_github")); Icon(Icons.Filled.OpenInNew, null, modifier = Modifier.size(14.dp).padding(start = 2.dp)) }
                 OutlinedButton(onClick = { showLicenseDialog = true }) {
                     Icon(Icons.Filled.Article, null, modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("查看许可证")
+                    Text(I18n.t("about.view_license"))
                 }
                 OutlinedButton(onClick = { showAgreementDialog = true }) {
                     Icon(Icons.Filled.Gavel, null, modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("用户协议")
+                    Text(I18n.t("about.user_agreement"))
                 }
                 OutlinedButton(onClick = { showDisclaimerDialog = true }) {
                     Icon(Icons.Filled.Shield, null, modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("免责协议")
+                    Text(I18n.t("about.disclaimer"))
                 }
                 OutlinedButton(onClick = {
                     try { com.pmcl.core.web.WikiBrowser.open("https://github.com/EasyTier/EasyTier") } catch (_: Throwable) {}
-                }) { Text("EasyTier 项目") }
+                }) { Text(I18n.t("about.easytier")) }
                 OutlinedButton(onClick = {
                     try { com.pmcl.core.web.WikiBrowser.open("https://modrinth.com") } catch (_: Throwable) {}
                 }) { Text("Modrinth") }
@@ -594,7 +639,7 @@ private fun AboutCard(vm: LauncherViewModel) {
             Spacer(Modifier.height(12.dp))
             HorizontalDivider()
             Spacer(Modifier.height(8.dp))
-            Text("© 2026 PMCL  ·  仅供学习交流使用  ·  Minecraft 为 Mojang AB 商标",
+            Text(I18n.t("about.copyright"),
                  style = MaterialTheme.typography.labelSmall,
                  color = MaterialTheme.colorScheme.outline)
         }
@@ -605,17 +650,37 @@ private fun AboutCard(vm: LauncherViewModel) {
     }
     if (showAgreementDialog) {
         DocumentViewerDialog(
-            title = "PMCL 用户协议",
+            title = I18n.t("about.user_agreement"),
             resourceName = "USER_AGREEMENT.txt",
             onDismiss = { showAgreementDialog = false }
         )
     }
     if (showDisclaimerDialog) {
         DocumentViewerDialog(
-            title = "PMCL 免责协议",
+            title = I18n.t("about.disclaimer"),
             resourceName = "DISCLAIMER.txt",
             onDismiss = { showDisclaimerDialog = false }
         )
+    }
+}
+
+/** 关于卡片中的功能分组列 */
+@Composable
+private fun FeatureColumn(
+    title: String,
+    items: List<String>,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier) {
+        Text(title, style = MaterialTheme.typography.labelSmall,
+             fontWeight = FontWeight.SemiBold,
+             color = MaterialTheme.colorScheme.primary)
+        Spacer(Modifier.height(4.dp))
+        items.forEach { f ->
+            Text("·  $f",
+                 style = MaterialTheme.typography.bodySmall,
+                 color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }
 
