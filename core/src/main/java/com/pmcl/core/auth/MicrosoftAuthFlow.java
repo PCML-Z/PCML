@@ -181,11 +181,11 @@ public final class MicrosoftAuthFlow {
 
     private void pollOnce(DeviceCode dc, Consumer<String> onPending,
                           CompletableFuture<String> future) {
-        // v2.0 token 端点：必须带 scope=XboxLive.signin，否则返回的 token 缺少 Xbox Live audience。
+        // v2.0 token 轮询：不带 scope（scope 已在 devicecode 请求时指定，token 端点会自动继承）。
+        // HMCL 的实现也不带 scope，带 scope 反而会触发 invalid_request 错误。
         String body = "client_id=" + clientId +
                 "&grant_type=urn:ietf:params:oauth:grant-type:device_code" +
-                "&device_code=" + dc.getDeviceCode() +
-                "&scope=" + java.net.URLEncoder.encode(V2_SCOPE, java.nio.charset.StandardCharsets.UTF_8);
+                "&device_code=" + dc.getDeviceCode();
         String json;
         try {
             Request req = new Request.Builder()
