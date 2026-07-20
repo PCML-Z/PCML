@@ -217,7 +217,14 @@ public final class MicrosoftAuthFlow {
             String error = o.has("error") && !o.get("error").isJsonNull() ? o.get("error").getAsString() : null;
             if (error == null) {
                 // 成功
-                future.complete(safeStr(o, "access_token"));
+                String token = safeStr(o, "access_token");
+                if (token.isEmpty()) {
+                    future.completeExceptionally(new RuntimeException("token 响应中 access_token 为空: " + json));
+                    return;
+                }
+                System.err.println("[MSAuth] pollOnce 成功: tokenLen=" + token.length()
+                        + " isJwt=" + token.startsWith("eyJ"));
+                future.complete(token);
                 return;
             }
             switch (error) {
@@ -252,6 +259,14 @@ public final class MicrosoftAuthFlow {
      * 返回 [userToken, userHash]。
      */
     public String[] authXboxLive(String msAccessToken) throws IOException {
+        // 诊断信息：确认 token 是否有效（空 token / JWT / compact 格式）
+        String tPrefix = msAccessToken.length() > 15 ? msAccessToken.substring(0, 15) : msAccessToken;
+        System.err.println("[MSAuth] authXboxLive: tokenLen=" + msAccessToken.length()
+                + " prefix=" + tPrefix + " isJwt=" + msAccessToken.startsWith("eyJ"));
+        if (msAccessToken.isEmpty()) {
+            throw new IOException("MS access_token 为空，无法认证 Xbox Live");
+        }
+
         JsonObject props = new JsonObject();
         props.addProperty("AuthMethod", "RPS");
         props.addProperty("SiteName", "user.auth.xboxlive.com");
@@ -261,7 +276,15 @@ public final class MicrosoftAuthFlow {
         payload.addProperty("RelyingParty", "http://auth.xboxlive.com");
         payload.addProperty("TokenType", "JWT");
 
-        JsonObject resp = postJson(XBL_URL, payload);
+        JsonObject resp;
+        try {
+            resp = postJson(XBL_URL, payload);
+        } catch (IOException e) {
+            // 把 token 诊断信息加到错误消息，便于定位 401 根因
+            throw new IOException("Xbox Live 认证失败 (tokenLen=" + msAccessToken.length()
+                    + " prefix=" + tPrefix
+                    + " isJwt=" + msAccessToken.startsWith("eyJ") + "): " + e.getMessage(), e);
+        }
         String userToken = safeStr(resp, "Token");
         String userHash = "";
         if (resp.has("DisplayClaims") && resp.getAsJsonObject("DisplayClaims").has("xui")) {
