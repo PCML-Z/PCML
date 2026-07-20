@@ -7,7 +7,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.*
@@ -18,6 +20,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -27,6 +30,8 @@ import com.pmcl.ui.theme.LocalThemeState
 import com.pmcl.ui.theme.glassCardColors
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jetbrains.skia.Image as SkiaImage
 import java.net.URL
@@ -211,21 +216,78 @@ fun AccountsPage(vm: LauncherViewModel) {
                 if (deviceCode != null && loginMode == "ms") {
                     val dc = deviceCode
                     if (dc == null) return@Column
+                    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+                    val scope = rememberCoroutineScope()
+                    var copied by remember { mutableStateOf(false) }
                     Surface(
                         color = MaterialTheme.colorScheme.primaryContainer,
                         shape = RoundedCornerShape(8.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(Modifier.padding(12.dp)) {
-                            Text("请打开浏览器访问：")
-                            Text(dc.getVerificationUri(),
-                                 fontWeight = FontWeight.Bold,
-                                 color = MaterialTheme.colorScheme.primary)
+                            // 步骤 1：打开链接
+                            Text("步骤 1：点击下方按钮打开浏览器",
+                                 style = MaterialTheme.typography.labelMedium,
+                                 fontWeight = FontWeight.SemiBold)
                             Spacer(Modifier.height(4.dp))
-                            Text("输入代码：")
-                            Text(dc.getUserCode(),
-                                 style = MaterialTheme.typography.headlineMedium,
-                                 color = MaterialTheme.colorScheme.primary)
+                            Text("链接：${dc.getVerificationUri()}",
+                                 style = MaterialTheme.typography.bodySmall,
+                                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
+                            Spacer(Modifier.height(6.dp))
+                            Button(
+                                onClick = {
+                                    try { com.pmcl.core.web.WikiBrowser.open(dc.getVerificationUri()) } catch (_: Throwable) {}
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(Icons.Filled.OpenInBrowser, null, Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("打开浏览器")
+                            }
+
+                            Spacer(Modifier.height(12.dp))
+
+                            // 步骤 2：输入代码
+                            Text("步骤 2：在浏览器页面输入以下代码",
+                                 style = MaterialTheme.typography.labelMedium,
+                                 fontWeight = FontWeight.SemiBold)
+                            Spacer(Modifier.height(6.dp))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(dc.getUserCode(),
+                                     style = MaterialTheme.typography.headlineMedium,
+                                     fontWeight = FontWeight.Bold,
+                                     color = MaterialTheme.colorScheme.primary,
+                                     modifier = Modifier.weight(1f))
+                                IconButton(onClick = {
+                                    clipboard.setText(AnnotatedString(dc.getUserCode()))
+                                    copied = true
+                                    scope.launch {
+                                        delay(1500)
+                                        copied = false
+                                    }
+                                }) {
+                                    Icon(
+                                        if (copied) Icons.Filled.Check else Icons.Filled.ContentCopy,
+                                        if (copied) "已复制" else "复制代码",
+                                        Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                            if (copied) {
+                                Text("代码已复制到剪贴板",
+                                     style = MaterialTheme.typography.labelSmall,
+                                     color = MaterialTheme.colorScheme.primary)
+                            }
+
+                            Spacer(Modifier.height(8.dp))
+                            HorizontalDivider()
+                            Spacer(Modifier.height(8.dp))
+                            Text("登录完成后启动器会自动继续，请勿关闭此页面。",
+                                 style = MaterialTheme.typography.labelSmall,
+                                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
                         }
                     }
                 } else {
