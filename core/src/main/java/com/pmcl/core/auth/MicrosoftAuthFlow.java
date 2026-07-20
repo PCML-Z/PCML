@@ -38,7 +38,13 @@ public final class MicrosoftAuthFlow {
     // 若要使用浏览器授权码流程，需在 Azure 注册独立应用并将 client_id
     // 写入 ~/.pmcl/azure_client_id.txt。
     public static final String LEGACY_CLIENT_ID = "00000000402b5328";
+    // Legacy MBI_SSL scope：仅用于 login.live.com 的 device code flow，
+    // 返回的 compact token 可被 Xbox Live 接受（RpsTicket: d=<token>）。
     public static final String SCOPE = "service::user.auth.xboxlive.com::MBI_SSL";
+    // v2.0 scope：用于 login.microsoftonline.com 的浏览器授权码流程，
+    // 返回的 JWT token 带 aud=XboxLive.signin，Xbox Live 可正确认证。
+    // offline_access 用于获取 refresh_token（后续可刷新）。
+    public static final String V2_SCOPE = "XboxLive.signin offline_access";
 
     private final String clientId;
 
@@ -48,6 +54,12 @@ public final class MicrosoftAuthFlow {
             "https://login.live.com/oauth20_authorize.srf";
     private static final String TOKEN_URL =
             "https://login.live.com/oauth20_token.srf";
+    // v2.0 端点：浏览器授权码流程专用。login.live.com 旧端点对授权码流程返回的
+    // token 缺少 Xbox Live 期望的 audience claim，导致 /user/authenticate 返回 401。
+    private static final String V2_AUTHORIZE_URL =
+            "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize";
+    private static final String V2_TOKEN_URL =
+            "https://login.microsoftonline.com/consumers/oauth2/v2.0/token";
     private static final String XBL_URL =
             "https://user.auth.xboxlive.com/user/authenticate";
     private static final String XSTS_URL =
@@ -388,12 +400,12 @@ public final class MicrosoftAuthFlow {
         try (OAuthCallbackServer server = new OAuthCallbackServer()) {
             String redirectUri = server.getRedirectUri();
 
-            // 构造授权 URL
-            String authUrl = AUTHORIZE_URL + "?" +
+            // 构造授权 URL（v2.0 端点）
+            String authUrl = V2_AUTHORIZE_URL + "?" +
                     "client_id=" + clientId +
                     "&response_type=code" +
                     "&redirect_uri=" + java.net.URLEncoder.encode(redirectUri, "UTF-8") +
-                    "&scope=" + java.net.URLEncoder.encode(SCOPE, "UTF-8") +
+                    "&scope=" + java.net.URLEncoder.encode(V2_SCOPE, "UTF-8") +
                     "&prompt=login";  // 强制重新登录，避免缓存的账号干扰
 
             onStatus.accept("打开浏览器登录…");
@@ -431,11 +443,11 @@ public final class MicrosoftAuthFlow {
                 "&grant_type=authorization_code" +
                 "&code=" + java.net.URLEncoder.encode(code, "UTF-8") +
                 "&redirect_uri=" + java.net.URLEncoder.encode(redirectUri, "UTF-8") +
-                "&scope=" + java.net.URLEncoder.encode(SCOPE, "UTF-8");
+                "&scope=" + java.net.URLEncoder.encode(V2_SCOPE, "UTF-8");
         String json;
         try {
             Request req = new Request.Builder()
-                    .url(TOKEN_URL)
+                    .url(V2_TOKEN_URL)
                     .post(RequestBody.create(body,
                             MediaType.get("application/x-www-form-urlencoded")))
                     .build();
@@ -444,7 +456,7 @@ public final class MicrosoftAuthFlow {
             }
         } catch (IOException e) {
             if (CurlFallback.isSslHandshakeFailure(e) && CurlFallback.isAvailable()) {
-                json = CurlFallback.postString(TOKEN_URL, body,
+                json = CurlFallback.postString(V2_TOKEN_URL, body,
                         "application/x-www-form-urlencoded", null);
             } else {
                 throw new IOException("交换 access_token 失败: " + e.getMessage(), e);
