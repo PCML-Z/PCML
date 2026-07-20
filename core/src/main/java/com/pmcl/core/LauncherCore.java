@@ -99,6 +99,20 @@ public final class LauncherCore {
         // 直接传入 preferences 一次性构建正确的 HttpClient，避免构造+reconfigure 重复构建
         this.downloadManager = new DownloadManager(config, preferences);
         this.authService = new AuthService();
+        // 读取自定义 Azure client_id（若存在），启用浏览器授权码流程
+        try {
+            java.nio.file.Path clientIdFile = Paths.get(
+                    System.getProperty("user.home"), ".pmcl", "azure_client_id.txt");
+            if (java.nio.file.Files.exists(clientIdFile)) {
+                String customId = java.nio.file.Files.readString(clientIdFile,
+                        java.nio.charset.StandardCharsets.UTF_8).trim();
+                if (!customId.isEmpty()) {
+                    authService.setAzureClientId(customId);
+                }
+            }
+        } catch (Throwable t) {
+            System.err.println("[LauncherCore] 读取 azure_client_id.txt 失败: " + t.getMessage());
+        }
         this.runtimeManager = new RuntimeManager();
         this.launchManager = new LaunchManager(config, preferences);
         this.versionInstaller = new VersionInstaller(config, versionManager, downloadManager);

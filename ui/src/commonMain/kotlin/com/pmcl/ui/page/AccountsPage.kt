@@ -204,32 +204,78 @@ fun AccountsPage(vm: LauncherViewModel) {
                 Text(I18n.t("accounts.microsoft"), style = MaterialTheme.typography.titleSmall,
                      fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(8.dp))
-                Text("点击登录后将打开浏览器，在浏览器中完成微软账号授权即可。\n自动同步 Mojang 服务器皮肤。",
-                     style = MaterialTheme.typography.bodySmall,
-                     color = MaterialTheme.colorScheme.outline)
+                val usingBrowserFlow = vm.core.auth().hasCustomClientId()
+                Text(
+                    if (usingBrowserFlow)
+                        "点击登录后将打开浏览器，在浏览器中完成微软账号授权即可。\n自动同步 Mojang 服务器皮肤。"
+                    else
+                        "使用设备码流程登录，点击下方按钮后按提示操作。\n自动同步 Mojang 服务器皮肤。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
                 Spacer(Modifier.height(12.dp))
 
                 if (loggingIn && loginMode == "ms") {
-                    // 登录中状态卡片
-                    Surface(
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(Modifier.padding(12.dp),
-                               horizontalAlignment = Alignment.CenterHorizontally) {
-                            androidx.compose.material3.CircularProgressIndicator(
-                                modifier = Modifier.size(28.dp),
-                                strokeWidth = 2.dp
-                            )
-                            Spacer(Modifier.height(8.dp))
-                            Text(status,
-                                 style = MaterialTheme.typography.bodySmall,
-                                 color = MaterialTheme.colorScheme.onPrimaryContainer)
-                            Spacer(Modifier.height(4.dp))
-                            Text("请在浏览器中完成登录，启动器会自动继续",
-                                 style = MaterialTheme.typography.labelSmall,
-                                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
+                    if (deviceCode != null && !usingBrowserFlow) {
+                        // 设备码流程 UI
+                        val dc = deviceCode!!
+                        Surface(
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(Modifier.padding(12.dp)) {
+                                Text("请打开浏览器访问：",
+                                     style = MaterialTheme.typography.labelMedium,
+                                     fontWeight = FontWeight.SemiBold)
+                                Spacer(Modifier.height(4.dp))
+                                Button(
+                                    onClick = {
+                                        try { com.pmcl.core.web.WikiBrowser.open(dc.getVerificationUri()) } catch (_: Throwable) {}
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(Icons.Filled.OpenInBrowser, null, Modifier.size(16.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(dc.getVerificationUri())
+                                }
+                                Spacer(Modifier.height(8.dp))
+                                Text("输入代码：",
+                                     style = MaterialTheme.typography.labelMedium,
+                                     fontWeight = FontWeight.SemiBold)
+                                Spacer(Modifier.height(4.dp))
+                                Text(dc.getUserCode(),
+                                     style = MaterialTheme.typography.headlineMedium,
+                                     fontWeight = FontWeight.Bold,
+                                     color = MaterialTheme.colorScheme.primary)
+                                Spacer(Modifier.height(8.dp))
+                                Text(status,
+                                     style = MaterialTheme.typography.labelSmall,
+                                     color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
+                            }
+                        }
+                    } else {
+                        // 浏览器流程 UI
+                        Surface(
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(Modifier.padding(12.dp),
+                                   horizontalAlignment = Alignment.CenterHorizontally) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(28.dp),
+                                    strokeWidth = 2.dp
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                Text(status,
+                                     style = MaterialTheme.typography.bodySmall,
+                                     color = MaterialTheme.colorScheme.onPrimaryContainer)
+                                Spacer(Modifier.height(4.dp))
+                                Text("请在浏览器中完成登录，启动器会自动继续",
+                                     style = MaterialTheme.typography.labelSmall,
+                                     color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
+                            }
                         }
                     }
                 } else {

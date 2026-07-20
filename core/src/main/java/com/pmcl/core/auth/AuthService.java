@@ -32,7 +32,7 @@ import java.nio.charset.StandardCharsets;
  */
 public final class AuthService {
 
-    private final MicrosoftAuthFlow flow = new MicrosoftAuthFlow();
+    private MicrosoftAuthFlow flow = new MicrosoftAuthFlow();
     private final GitHubAuthFlow githubFlow = new GitHubAuthFlow();
     private final Gson gson = new Gson();
 
@@ -50,6 +50,19 @@ public final class AuthService {
      */
     public DeviceCode requestDeviceCode() throws IOException {
         return flow.requestDeviceCode();
+    }
+
+    /**
+     * 设置自定义 Azure client_id（用于浏览器授权码流程）。
+     * 传入 null 或空字符串则回退到 legacy client_id（仅支持 device code flow）。
+     */
+    public void setAzureClientId(String clientId) {
+        this.flow = new MicrosoftAuthFlow(clientId);
+    }
+
+    /** 判断当前是否使用自定义 client_id（即支持浏览器授权码流程）。 */
+    public boolean hasCustomClientId() {
+        return flow.hasCustomClientId();
     }
 
     /**

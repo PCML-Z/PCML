@@ -33,9 +33,14 @@ import java.util.function.Consumer;
  */
 public final class MicrosoftAuthFlow {
 
-    // 公开客户端ID（来自 HMCL 等开源启动器，可在 Azure 自行注册替换）
-    public static final String CLIENT_ID = "00000000402b5328";
+    // Legacy 公共客户端ID（来自 HMCL 等开源启动器）。
+    // 该 client_id 仅支持 device code flow，不支持自定义 redirect_uri。
+    // 若要使用浏览器授权码流程，需在 Azure 注册独立应用并将 client_id
+    // 写入 ~/.pmcl/azure_client_id.txt。
+    public static final String LEGACY_CLIENT_ID = "00000000402b5328";
     public static final String SCOPE = "service::user.auth.xboxlive.com::MBI_SSL";
+
+    private final String clientId;
 
     private static final String DEVICE_CODE_URL =
             "https://login.live.com/oauth20_connect.srf";
@@ -65,10 +70,29 @@ public final class MicrosoftAuthFlow {
     });
 
     public MicrosoftAuthFlow() {
+        this(LEGACY_CLIENT_ID);
+    }
+
+    /**
+     * 用自定义 Azure client_id 构造（用于浏览器授权码流程）。
+     * 传入 null 或空字符串则回退到 legacy client_id（仅支持 device code flow）。
+     */
+    public MicrosoftAuthFlow(String clientId) {
+        this.clientId = (clientId == null || clientId.isEmpty()) ? LEGACY_CLIENT_ID : clientId;
         this.http = new OkHttpClient.Builder()
                 .connectTimeout(15, TimeUnit.SECONDS)
                 .readTimeout(30, TimeUnit.SECONDS)
                 .build();
+    }
+
+    /** 返回当前使用的 client_id。 */
+    public String getClientId() {
+        return clientId;
+    }
+
+    /** 判断是否使用自定义 client_id（即支持浏览器授权码流程）。 */
+    public boolean hasCustomClientId() {
+        return !LEGACY_CLIENT_ID.equals(clientId);
     }
 
     /** 关闭内部调度线程和 HTTP 连接池，释放资源。关闭后不可再用，仅供应用退出时调用。 */
@@ -87,7 +111,7 @@ public final class MicrosoftAuthFlow {
     public DeviceCode requestDeviceCode() throws IOException {
         // response_type=device_code 是 legacy login.live.com 端点 device code flow 的必需参数
         // 缺失会被 Microsoft 以 400 invalid_request "must include a 'response_type'" 拒绝
-        String body = "client_id=" + CLIENT_ID +
+        String body = "client_id=" + clientId +
                 "&scope=" + java.net.URLEncoder.encode(SCOPE, "UTF-8") +
                 "&response_type=device_code";
         String json;
@@ -138,7 +162,7 @@ public final class MicrosoftAuthFlow {
 
     private void pollOnce(DeviceCode dc, Consumer<String> onPending,
                           CompletableFuture<String> future) {
-        String body = "client_id=" + CLIENT_ID +
+        String body = "client_id=" + clientId +
                 "&grant_type=urn:ietf:params:oauth:grant-type:device_code" +
                 "&device_code=" + dc.getDeviceCode();
         String json;
@@ -362,7 +386,7 @@ public final class MicrosoftAuthFlow {
 
             // 构造授权 URL
             String authUrl = AUTHORIZE_URL + "?" +
-                    "client_id=" + CLIENT_ID +
+                    "client_id=" + clientId +
                     "&response_type=code" +
                     "&redirect_uri=" + java.net.URLEncoder.encode(redirectUri, "UTF-8") +
                     "&scope=" + java.net.URLEncoder.encode(SCOPE, "UTF-8") +
@@ -399,7 +423,7 @@ public final class MicrosoftAuthFlow {
      * 带 curl fallback，防止 GFW 拦截 Java TLS。
      */
     private String exchangeCodeForToken(String code, String redirectUri) throws IOException {
-        String body = "client_id=" + CLIENT_ID +
+        String body = "client_id=" + clientId +
                 "&grant_type=authorization_code" +
                 "&code=" + java.net.URLEncoder.encode(code, "UTF-8") +
                 "&redirect_uri=" + java.net.URLEncoder.encode(redirectUri, "UTF-8");

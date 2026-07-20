@@ -1273,20 +1273,34 @@ class LauncherViewModel {
     fun startMicrosoftLogin() {
         scope.launch {
             _loggingIn.value = true
-            _status.value = "打开浏览器登录…"
             try {
-                val account = withContext(Dispatchers.IO) {
-                    core.auth().loginMicrosoftViaBrowser(
-                        { msg -> _status.value = msg },
-                        { url ->
-                            try { com.pmcl.core.web.WikiBrowser.open(url) } catch (_: Throwable) {}
-                        }
-                    ).join()
+                val account = if (core.auth().hasCustomClientId()) {
+                    // 有自定义 client_id → 浏览器授权码流程（体验最佳）
+                    _status.value = "打开浏览器登录…"
+                    withContext(Dispatchers.IO) {
+                        core.auth().loginMicrosoftViaBrowser(
+                            { msg -> _status.value = msg },
+                            { url ->
+                                try { com.pmcl.core.web.WikiBrowser.open(url) } catch (_: Throwable) {}
+                            }
+                        ).join()
+                    }
+                } else {
+                    // 仅 legacy client_id → device code flow（无需 redirect_uri）
+                    _status.value = "请求设备码…"
+                    val dc = withContext(Dispatchers.IO) { core.auth().requestDeviceCode() }
+                    _deviceCode.value = dc
+                    _status.value = "请打开 ${dc.getVerificationUri()} 输入 ${dc.getUserCode()}"
+                    withContext(Dispatchers.IO) {
+                        core.auth().loginMicrosoftAsync(dc) { msg -> _status.value = msg }.join()
+                    }
                 }
                 _account.value = account
                 upsertAccount(account)
                 _status.value = "已登录（微软）：${account.getUsername()}"
+                _deviceCode.value = null
             } catch (e: Throwable) {
+                _deviceCode.value = null
                 val msg = e.message ?: e.toString()
                 _status.value = if (msg.contains("SSL", ignoreCase = true) ||
                     msg.contains("TLS", ignoreCase = true) ||
