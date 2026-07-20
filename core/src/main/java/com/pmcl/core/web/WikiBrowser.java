@@ -23,7 +23,18 @@ public final class WikiBrowser {
 
     /** 在系统浏览器打开指定 URL */
     public static void open(String url) throws IOException {
-        // 优先尝试 Desktop API（部分平台/线程下会静默失败）
+        String os = System.getProperty("os.name", "").toLowerCase();
+        // macOS 上 Desktop.browse() 对含 ?&= 等特殊字符的 URL（如 OAuth 授权 URL）
+        // 有时会被解释为文件路径，从而打开访达而非浏览器。因此 macOS 优先使用 `open` 命令。
+        if (os.contains("mac")) {
+            try {
+                new ProcessBuilder("open", url).start();
+                return;
+            } catch (IOException ioe) {
+                System.err.println("[WikiBrowser] macOS open 命令失败，尝试 Desktop API: " + ioe.getMessage());
+            }
+        }
+        // 非 macOS 优先尝试 Desktop API（部分平台/线程下会静默失败）
         if (isSupported()) {
             try {
                 Desktop.getDesktop().browse(URI.create(url));
@@ -33,7 +44,6 @@ public final class WikiBrowser {
             }
         }
         // Fallback：用平台特定命令打开浏览器
-        String os = System.getProperty("os.name", "").toLowerCase();
         String[] cmd;
         if (os.contains("mac")) {
             cmd = new String[]{"open", url};
@@ -45,7 +55,7 @@ public final class WikiBrowser {
             cmd = new String[]{"xdg-open", url};
         }
         try {
-            Runtime.getRuntime().exec(cmd);
+            new ProcessBuilder(cmd).start();
         } catch (IOException ioe) {
             System.err.println("[WikiBrowser] 系统命令打开失败: " + ioe.getMessage());
             throw ioe;
