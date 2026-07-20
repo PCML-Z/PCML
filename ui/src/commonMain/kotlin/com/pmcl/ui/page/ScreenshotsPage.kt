@@ -36,6 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.pmcl.core.gamecontent.ScreenshotManager.Screenshot
+import com.pmcl.core.i18n.I18n
 import com.pmcl.ui.theme.LocalThemeState
 import com.pmcl.ui.theme.glassCardColors
 import com.pmcl.ui.viewmodel.LauncherViewModel
@@ -93,13 +94,13 @@ fun ScreenshotsPage(vm: LauncherViewModel) {
             }
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("截图", style = MaterialTheme.typography.headlineSmall,
+            Text(I18n.t("screenshot.title"), style = MaterialTheme.typography.headlineSmall,
                  fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
             // 导出 ZIP
             OutlinedButton(
                 onClick = {
                     if (shots.isEmpty()) return@OutlinedButton
-                    val fd = FileDialog(null as Frame?, "导出截图 ZIP", FileDialog.SAVE)
+                    val fd = FileDialog(null as Frame?, I18n.t("screenshot.export_zip_dialog"), FileDialog.SAVE)
                     fd.file = "screenshots.zip"
                     fd.isVisible = true
                     if (fd.file != null) {
@@ -112,20 +113,20 @@ fun ScreenshotsPage(vm: LauncherViewModel) {
                 Icon(Icons.Filled.Download, contentDescription = null,
                      modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(4.dp))
-                Text("导出 ZIP")
+                Text(I18n.t("screenshot.export_zip"))
             }
             Spacer(Modifier.width(8.dp))
-            OutlinedButton(onClick = { vm.refreshScreenshots() }) { Text("刷新") }
+            OutlinedButton(onClick = { vm.refreshScreenshots() }) { Text(I18n.t("common.refresh")) }
         }
         Spacer(Modifier.height(8.dp))
-        Text("已合并扫描：PMCL / 外部启动器 / 整合包版本目录下的 screenshots · 选中后按空格预览",
+        Text(I18n.t("screenshot.scan_hint"),
              style = MaterialTheme.typography.labelSmall,
              color = MaterialTheme.colorScheme.outline)
         Spacer(Modifier.height(16.dp))
 
         if (shots.isEmpty()) {
             Card(Modifier.fillMaxWidth(), colors = glassCardColors()) {
-                Text("暂无截图。游戏内按 F2 截图后会自动保存到 screenshots 目录。",
+                Text(I18n.t("screenshot.empty"),
                      modifier = Modifier.padding(16.dp),
                      color = MaterialTheme.colorScheme.outline)
             }
@@ -161,7 +162,7 @@ fun ScreenshotsPage(vm: LauncherViewModel) {
                         Column(Modifier.padding(8.dp)) {
                             Text(shot.name, fontWeight = FontWeight.SemiBold,
                                  maxLines = 1, style = MaterialTheme.typography.bodySmall)
-                            Text("来源: ${shot.source}",
+                            Text(I18n.t("screenshot.source", shot.source),
                                  style = MaterialTheme.typography.labelSmall,
                                  color = MaterialTheme.colorScheme.tertiary)
                             Text("${shot.size / 1024} KB",
@@ -180,7 +181,7 @@ fun ScreenshotsPage(vm: LauncherViewModel) {
                                     Icon(Icons.Filled.ContentCopy, contentDescription = null,
                                          modifier = Modifier.size(14.dp))
                                     Spacer(Modifier.width(4.dp))
-                                    Text("复制", style = MaterialTheme.typography.labelSmall)
+                                    Text(I18n.t("screenshot.copy"), style = MaterialTheme.typography.labelSmall)
                                 }
                                 // 预览
                                 OutlinedButton(
@@ -190,7 +191,7 @@ fun ScreenshotsPage(vm: LauncherViewModel) {
                                     Icon(Icons.Filled.ZoomIn, contentDescription = null,
                                          modifier = Modifier.size(14.dp))
                                     Spacer(Modifier.width(4.dp))
-                                    Text("预览", style = MaterialTheme.typography.labelSmall)
+                                    Text(I18n.t("screenshot.preview"), style = MaterialTheme.typography.labelSmall)
                                 }
                             }
                             Spacer(Modifier.height(4.dp))
@@ -201,7 +202,7 @@ fun ScreenshotsPage(vm: LauncherViewModel) {
                                 Icon(Icons.Filled.Delete, contentDescription = null,
                                      modifier = Modifier.size(14.dp))
                                 Spacer(Modifier.width(4.dp))
-                                Text("删除", style = MaterialTheme.typography.labelSmall)
+                                Text(I18n.t("common.delete"), style = MaterialTheme.typography.labelSmall)
                             }
                         }
                     }
@@ -209,7 +210,7 @@ fun ScreenshotsPage(vm: LauncherViewModel) {
             }
         }
         Spacer(Modifier.height(8.dp))
-        Text("状态: $status",
+        Text(I18n.t("screenshot.status", status),
              style = MaterialTheme.typography.labelSmall,
              color = MaterialTheme.colorScheme.outline)
     }
@@ -286,13 +287,13 @@ private fun ScreenshotPreviewDialog(
                         modifier = Modifier.weight(1f)
                     )
                     Text(
-                        "$index / $total",
+                        I18n.t("screenshot.count", index, total),
                         color = Color(0xFFB0B0B0),
                         style = MaterialTheme.typography.labelMedium
                     )
                     Spacer(Modifier.width(12.dp))
                     Text(
-                        "空格/ESC 关闭 · ← → 切换",
+                        I18n.t("screenshot.preview_hint"),
                         color = Color(0xFFB0B0B0),
                         style = MaterialTheme.typography.labelSmall
                     )
@@ -309,7 +310,7 @@ private fun ScreenshotPreviewDialog(
                             modifier = Modifier.fillMaxSize().padding(8.dp),
                             contentScale = ContentScale.Fit
                         )
-                        loadError -> Text("无法加载图片", color = Color.White)
+                        loadError -> Text(I18n.t("screenshot.load_error"), color = Color.White)
                         else -> CircularProgressIndicator(color = Color.White)
                     }
                 }
@@ -321,10 +322,10 @@ private fun ScreenshotPreviewDialog(
                     OutlinedButton(onClick = onPrev, enabled = index > 1) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(4.dp))
-                        Text("上一张")
+                        Text(I18n.t("screenshot.prev"))
                     }
                     OutlinedButton(onClick = onNext, enabled = index < total) {
-                        Text("下一张")
+                        Text(I18n.t("screenshot.next"))
                         Spacer(Modifier.width(4.dp))
                         Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp))
                     }

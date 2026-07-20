@@ -17,6 +17,7 @@ import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.pmcl.core.i18n.I18n
 import com.pmcl.video.VideoCallSession
 import kotlinx.coroutines.delay
 import org.jetbrains.skia.Image as SkiaImage
@@ -109,10 +110,10 @@ fun VideoCallOverlay(
                     Spacer(Modifier.height(12.dp))
                     Text(
                         when (session.state) {
-                            VideoCallSession.State.RINGING -> if (session.isInitiator) "等待对方接听..." else "来电中..."
-                            VideoCallSession.State.NEGOTIATING -> "正在建立连接..."
-                            VideoCallSession.State.IN_CALL -> "等待视频画面..."
-                            VideoCallSession.State.ENDED -> "通话结束"
+                            VideoCallSession.State.RINGING -> if (session.isInitiator) I18n.t("call.waiting_for_answer") else I18n.t("call.incoming_call")
+                            VideoCallSession.State.NEGOTIATING -> I18n.t("call.connecting")
+                            VideoCallSession.State.IN_CALL -> I18n.t("call.waiting_for_video")
+                            VideoCallSession.State.ENDED -> I18n.t("call.ended")
                         },
                         color = Color.White.copy(alpha = 0.6f),
                         style = MaterialTheme.typography.bodyLarge
@@ -162,10 +163,10 @@ fun VideoCallOverlay(
                 Spacer(Modifier.height(4.dp))
                 Text(
                     text = when (session.state) {
-                        VideoCallSession.State.RINGING -> if (session.isInitiator) "正在呼叫..." else "来电中..."
-                        VideoCallSession.State.NEGOTIATING -> "连接中..."
+                        VideoCallSession.State.RINGING -> if (session.isInitiator) I18n.t("call.calling") else I18n.t("call.incoming_call")
+                        VideoCallSession.State.NEGOTIATING -> I18n.t("call.connecting")
                         VideoCallSession.State.IN_CALL -> formatDuration(callDuration)
-                        VideoCallSession.State.ENDED -> "通话结束"
+                        VideoCallSession.State.ENDED -> I18n.t("call.ended")
                     },
                     color = Color.White.copy(alpha = 0.7f),
                     style = MaterialTheme.typography.bodyMedium
@@ -185,7 +186,7 @@ fun VideoCallOverlay(
             if (session.state == VideoCallSession.State.IN_CALL) {
                 CallControlButton(
                     icon = if (isMuted) Icons.Filled.MicOff else Icons.Filled.Mic,
-                    label = if (isMuted) "取消静音" else "静音",
+                    label = if (isMuted) I18n.t("call.unmute") else I18n.t("call.mute"),
                     isActive = isMuted,
                     onClick = {
                         isMuted = !isMuted
@@ -196,7 +197,7 @@ fun VideoCallOverlay(
                 // 摄像头开关
                 CallControlButton(
                     icon = if (isCameraOn) Icons.Filled.Videocam else Icons.Filled.VideocamOff,
-                    label = if (isCameraOn) "关闭摄像头" else "开启摄像头",
+                    label = if (isCameraOn) I18n.t("call.camera_off") else I18n.t("call.camera_on"),
                     isActive = !isCameraOn,
                     onClick = {
                         isCameraOn = !isCameraOn
@@ -212,7 +213,7 @@ fun VideoCallOverlay(
                 shape = CircleShape,
                 modifier = Modifier.size(64.dp)
             ) {
-                Icon(Icons.Filled.CallEnd, "挂断", tint = Color.White, modifier = Modifier.size(28.dp))
+                Icon(Icons.Filled.CallEnd, I18n.t("call.end_call"), tint = Color.White, modifier = Modifier.size(28.dp))
             }
         }
     }
@@ -283,7 +284,7 @@ fun IncomingCallCard(
             }
             Spacer(Modifier.height(12.dp))
             Text(callerName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text("来电", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(I18n.t("call.incoming_title"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(16.dp))
 
             Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
@@ -294,7 +295,7 @@ fun IncomingCallCard(
                     shape = CircleShape,
                     modifier = Modifier.size(52.dp)
                 ) {
-                    Icon(Icons.Filled.CallEnd, "拒绝", tint = Color.White)
+                    Icon(Icons.Filled.CallEnd, I18n.t("call.reject"), tint = Color.White)
                 }
 
                 // 接听
@@ -304,7 +305,7 @@ fun IncomingCallCard(
                     shape = CircleShape,
                     modifier = Modifier.size(52.dp)
                 ) {
-                    Icon(Icons.Filled.Call, "接听", tint = Color.White)
+                    Icon(Icons.Filled.Call, I18n.t("call.accept"), tint = Color.White)
                 }
             }
         }

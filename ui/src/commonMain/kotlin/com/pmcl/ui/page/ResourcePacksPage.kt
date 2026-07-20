@@ -94,7 +94,7 @@ fun ResourcePacksPage(vm: LauncherViewModel) {
             }
         }
         Spacer(Modifier.height(8.dp))
-        Text("目录: ${vm.config.workDir.resolve("resourcepacks")}",
+        Text(I18n.t("resource.dir_label", vm.config.workDir.resolve("resourcepacks").toString()),
              style = MaterialTheme.typography.labelSmall,
              color = MaterialTheme.colorScheme.outline)
 
@@ -122,13 +122,13 @@ fun ResourcePacksPage(vm: LauncherViewModel) {
                 OutlinedButton(onClick = { sortExpanded = true }) {
                     Icon(Icons.AutoMirrored.Filled.Sort, null, Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text(sortBy.label)
+                    Text(I18n.t(sortBy.labelKey))
                     Icon(Icons.Filled.ArrowDropDown, null, Modifier.size(16.dp))
                 }
                 DropdownMenu(expanded = sortExpanded, onDismissRequest = { sortExpanded = false }) {
                     ResourceSort.entries.forEach { s ->
                         DropdownMenuItem(
-                            text = { Text(s.label) },
+                            text = { Text(I18n.t(s.labelKey)) },
                             onClick = { sortBy = s; sortExpanded = false }
                         )
                     }
@@ -233,7 +233,7 @@ fun ResourcePacksPage(vm: LauncherViewModel) {
             }
         }
         Spacer(Modifier.height(8.dp))
-        Text("状态: $status",
+        Text(I18n.t("resource.status_format", status),
              style = MaterialTheme.typography.labelSmall,
              color = MaterialTheme.colorScheme.outline)
     }
@@ -253,8 +253,8 @@ fun ResourcePacksPage(vm: LauncherViewModel) {
     }
 }
 
-enum class ResourceSort(val label: String) {
-    NAME("按名称"), FORMAT_ASC("版本 ↑"), FORMAT_DESC("版本 ↓"), TYPE("类型")
+enum class ResourceSort(val labelKey: String) {
+    NAME("resource.sort.name"), FORMAT_ASC("resource.sort.format_asc"), FORMAT_DESC("resource.sort.format_desc"), TYPE("resource.sort.type")
 }
 
 @Composable
@@ -332,7 +332,7 @@ private fun ResourcePackRow(
                          maxLines = 2)
                 }
                 Spacer(Modifier.height(4.dp))
-                Text("兼容：${ContentUtils.packFormatHint(pack.packFormat)}",
+                Text(I18n.t("resource.compatible", ContentUtils.packFormatHint(pack.packFormat)),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
 
@@ -411,7 +411,7 @@ private fun ImportResourcePackDialog(onDismiss: () -> Unit, onConfirm: (String) 
                 OutlinedTextField(
                     value = path,
                     onValueChange = { path = it },
-                    label = { Text("路径") },
+                    label = { Text(I18n.t("resource.path_label")) },
                     modifier = Modifier.fillMaxWidth(),
                     trailingIcon = {
                         IconButton(onClick = {

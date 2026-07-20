@@ -74,7 +74,7 @@ class LauncherViewModel {
             System.err.println("[LauncherViewModel] 未捕获的协程异常: ${throwable.message}")
             throwable.printStackTrace()
             // 更新 UI 状态让用户感知到错误，而非完全静默
-            _status.value = "内部错误：${throwable.message ?: "未知异常"}"
+            _status.value = I18n.t("status.internal_error", throwable.message ?: I18n.t("common.unknown"))
         })
 
     val core = LauncherCore()
@@ -141,7 +141,7 @@ class LauncherViewModel {
     val selectedVersion: StateFlow<String?> = _selectedVersion.asStateFlow()
 
     // ===== 状态/账号 =====
-    private val _status = MutableStateFlow("就绪")
+    private val _status = MutableStateFlow(I18n.t("status.ready"))
     val status: StateFlow<String> = _status.asStateFlow()
 
     /** UI 层更新状态栏文本（如浏览器打开失败等错误提示） */
@@ -397,7 +397,7 @@ class LauncherViewModel {
     fun dropInstallMod(jarPaths: List<java.nio.file.Path>) {
         if (jarPaths.isEmpty()) return
         val installer = dropInstaller ?: run {
-            _status.value = "拖放安装不可用：初始化失败"
+            _status.value = I18n.t("status.drop_install_unavailable")
             return
         }
         // 打开对话框（scanning 状态），让 UI 立即显示进度
@@ -480,7 +480,7 @@ class LauncherViewModel {
                     "成功 $ok 项" + if (fail > 0) "，失败 $fail 项\n$summary" else ""
                 }
                 _dropInstallState.value = null
-                _status.value = "拖放安装完成：$results"
+                _status.value = I18n.t("status.drop_install_complete", results)
                 refreshInstalledMods()
             } catch (e: Throwable) {
                 _dropInstallState.value = cur.copy(
@@ -876,13 +876,13 @@ class LauncherViewModel {
         if (!_scanning.compareAndSet(expect = false, update = true)) return
         scope.launch {
             _scanProgress.value = null
-            _status.value = "正在扫描本地版本…"
+            _status.value = I18n.t("status.scanning_local_versions")
             val startTime = System.currentTimeMillis()
             try {
                 val list = withContext(Dispatchers.IO) {
                     core.versions().scanAllLocalVersions { p ->
                         _scanProgress.value = p
-                        _status.value = "扫描中 ${p.getScanned()}/${p.getTotal()}  ${p.getCurrentDir()}/${p.getCurrentVersion()}"
+                        _status.value = I18n.t("status.scan_progress", p.getScanned(), p.getTotal(), p.getCurrentDir(), p.getCurrentVersion())
                     }
                 }
                 _localVersionInfos.value = list
@@ -891,11 +891,11 @@ class LauncherViewModel {
                 val pmclDir = config.getVersionsDir()
                 val mcDir = com.pmcl.core.version.VersionManager.detectDefaultMinecraftVersionsDir()
                 _status.value = if (list.isEmpty()) {
-                    if (mcDir != null) "扫描完成：未找到版本（已扫描 $pmclDir 与 $mcDir）"
-                    else "扫描完成：未找到版本（已扫描 $pmclDir；未检测到 Minecraft 目录）"
+                    if (mcDir != null) I18n.t("status.scan_complete_no_versions_with_mc", pmclDir, mcDir)
+                    else I18n.t("status.scan_complete_no_versions_no_mc", pmclDir)
                 } else {
-                    "扫描完成：共 ${list.size} 个本地版本" +
-                        if (mcDir != null) "（含 $mcDir）" else ""
+                    if (mcDir != null) I18n.t("status.scan_complete_with_mc", list.size, mcDir)
+                    else I18n.t("status.scan_complete", list.size)
                 }
                 // 扫描后校验：恢复的 lastSelectedVersion 若已不存在则清空，
                 // 避免启动按钮对失效版本可点击
@@ -913,7 +913,7 @@ class LauncherViewModel {
                     _pinnedVersions.value = preferences.getPinnedVersions()
                 }
             } catch (e: Throwable) {
-                _status.value = "扫描本地版本失败：${e.message}"
+                _status.value = I18n.t("status.scan_local_failed", e.message ?: "")
             } finally {
                 // 最小显示 600ms，避免扫描太快导致动画一闪而过
                 val elapsed = System.currentTimeMillis() - startTime
@@ -930,7 +930,7 @@ class LauncherViewModel {
     fun pinVersion(versionId: String) {
         preferences.pinVersion(versionId)
         _pinnedVersions.value = preferences.getPinnedVersions()
-        _status.value = "已固定 $versionId"
+        _status.value = I18n.t("status.pinned", versionId)
     }
 
     /** 取消固定（删除磁贴）— 同时清理自定义名称 */
@@ -938,7 +938,7 @@ class LauncherViewModel {
         preferences.unpinVersion(versionId)
         _pinnedVersions.value = preferences.getPinnedVersions()
         _pinnedTileLabels.value = HashMap(preferences.getPinnedTileLabelsRaw())
-        _status.value = "已删除磁贴 $versionId"
+        _status.value = I18n.t("status.tile_deleted", versionId)
     }
 
     /** 设置磁贴自定义名称（传空串则恢复为版本 ID） */
@@ -946,8 +946,8 @@ class LauncherViewModel {
         val trimmed = label.trim()
         preferences.setPinnedTileLabel(versionId, trimmed)
         _pinnedTileLabels.value = HashMap(preferences.getPinnedTileLabelsRaw())
-        _status.value = if (trimmed.isEmpty()) "已重置 $versionId 磁贴名称"
-                        else "已重命名 $versionId → $trimmed"
+        _status.value = if (trimmed.isEmpty()) I18n.t("status.tile_name_reset", versionId)
+                        else I18n.t("status.tile_renamed", versionId, trimmed)
     }
 
     /**
@@ -958,7 +958,7 @@ class LauncherViewModel {
     fun quickLaunch(versionId: String) {
         // 校验本地版本仍存在（防止版本被删除后磁贴残留）
         if (_localVersionInfos.value.none { it.getId() == versionId }) {
-            _status.value = "磁贴失效：本地未找到 $versionId，已自动清理"
+            _status.value = I18n.t("status.tile_invalid", versionId)
             // 自动清理失效磁贴
             if (_pinnedVersions.value.contains(versionId)) {
                 unpinVersion(versionId)
@@ -966,7 +966,7 @@ class LauncherViewModel {
             return
         }
         if (_account.value == null) {
-            _status.value = "请先在右侧登录账号后再启动"
+            _status.value = I18n.t("status.login_first_to_launch")
             return
         }
         selectVersion(versionId)
@@ -996,7 +996,7 @@ class LauncherViewModel {
         if (_selectedVersion.value == versionId) {
             _selectedVersion.value = null
         }
-        _status.value = "已清理 $versionId 的所有记录"
+        _status.value = I18n.t("status.records_purged", versionId)
     }
 
     /** 从磁盘加载已保存账号集合（多账号） */
@@ -1014,10 +1014,10 @@ class LauncherViewModel {
                     withContext(Dispatchers.IO) {
                         core.friend()?.switchAccount(sel.getUuid(), sel.getUsername())
                     }
-                    _status.value = "已加载账号：${sel.getUsername()}（${sel.getType()}）"
+                    _status.value = I18n.t("status.account_loaded", sel.getUsername(), sel.getType())
                 }
             } catch (e: Throwable) {
-                _status.value = "加载账号失败：${e.message}"
+                _status.value = I18n.t("status.account_load_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -1042,7 +1042,7 @@ class LauncherViewModel {
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Throwable) {
-                _status.value = "保存账号失败：${e.message}"
+                _status.value = I18n.t("status.account_save_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -1060,14 +1060,14 @@ class LauncherViewModel {
     fun switchAccount(uuid: String) = synchronized(accountLock) {
         val current = AccountStore(_accounts.value, _account.value?.getUuid())
         saveStore(current.select(uuid))
-        _status.value = "已切换到：${_account.value?.getUsername()}"
+        _status.value = I18n.t("status.account_switched", _account.value?.getUsername() ?: "")
     }
 
     /** 删除指定账号 */
     fun removeAccount(uuid: String) = synchronized(accountLock) {
         val current = AccountStore(_accounts.value, _account.value?.getUuid())
         saveStore(current.remove(uuid))
-        _status.value = "已删除账号"
+        _status.value = I18n.t("status.account_removed")
     }
 
     /** 退出当前账号（等同于删除当前选中账号） */
@@ -1079,7 +1079,7 @@ class LauncherViewModel {
     fun refreshVersions() {
         scope.launch {
             _loading.value = true
-            _status.value = "正在拉取版本清单…"
+            _status.value = I18n.t("status.fetching_version_manifest")
             // 先读缓存秒开
             val cached = withContext(Dispatchers.IO) {
                 DataCache.loadWithTimestamp("versions_remote", object : TypeToken<List<McVersion>>() {})
@@ -1097,7 +1097,7 @@ class LauncherViewModel {
                 // 缓存未过期：后台静默刷新（stale-while-revalidate）
                 if (!DataCache.isExpired(savedAt, 6 * 60 * 60 * 1000L)) {
                     _loading.value = false
-                    _status.value = "已加载 ${data.size} 个版本"
+                    _status.value = I18n.t("status.versions_loaded", data.size)
                     scope.launch {
                         try {
                             val list = withContext(Dispatchers.IO) {
@@ -1105,7 +1105,7 @@ class LauncherViewModel {
                             }
                             _versions.value = list
                             DataCache.save("versions_remote", list)
-                            _status.value = "已加载 ${list.size} 个版本"
+                            _status.value = I18n.t("status.versions_loaded", list.size)
                         } catch (_: Throwable) {
                             // 静默失败，保留缓存数据
                         }
@@ -1122,13 +1122,13 @@ class LauncherViewModel {
                     core.versions().fetchRemoteVersions().join()
                 }
                 _versions.value = list
-                _status.value = "已加载 ${list.size} 个版本"
+                _status.value = I18n.t("status.versions_loaded", list.size)
                 if (_selectedVersion.value == null && list.isNotEmpty()) {
                     _selectedVersion.value = list.first().getId()
                 }
                 DataCache.save("versions_remote", list)
             } catch (e: Throwable) {
-                _status.value = "拉取失败：${e.message}"
+                _status.value = I18n.t("status.fetch_failed", e.message ?: I18n.t("common.unknown"))
             } finally {
                 _loading.value = false
                 // 无论远程拉取成败，都要刷新本地版本扫描
@@ -1145,22 +1145,22 @@ class LauncherViewModel {
 
     fun loginOffline(username: String) {
         if (username.isBlank()) {
-            _status.value = "请输入用户名"
+            _status.value = I18n.t("status.username_required")
             return
         }
         val acc = core.auth().offline(username)
         upsertAccount(acc)
-        _status.value = "已登录（离线）：$username"
+        _status.value = I18n.t("status.logged_in_offline", username)
     }
 
     /** 为当前离线账号设置自定义皮肤 URL（如 Crafatar 头像 URL 或其他皮肤图） */
     fun setOfflineSkin(skinUrl: String, skinModel: String = "classic") {
         val current = _account.value ?: run {
-            _status.value = "请先登录账号"
+            _status.value = I18n.t("status.login_first")
             return
         }
         if (current.getType() != Account.AccountType.OFFLINE) {
-            _status.value = "仅离线账号支持自定义皮肤（微软账号使用 Mojang 服务器皮肤）"
+            _status.value = I18n.t("status.offline_skin_microsoft_unsupported")
             return
         }
         val updated = Account(
@@ -1168,7 +1168,7 @@ class LauncherViewModel {
             current.getType(), skinUrl, skinModel
         )
         upsertAccount(updated)
-        _status.value = if (skinUrl.isEmpty()) "已清除自定义皮肤" else "已设置自定义皮肤"
+        _status.value = if (skinUrl.isEmpty()) I18n.t("status.skin_cleared") else I18n.t("status.skin_set")
     }
 
     /**
@@ -1180,14 +1180,14 @@ class LauncherViewModel {
         com.pmcl.core.theme.WallpaperColorProvider.diagLog("[VM] refreshWallpaperColor called, ts=${ts != null}")
         scope.launch {
             try {
-                _status.value = "正在提取壁纸主色…"
+                _status.value = I18n.t("status.extracting_wallpaper_color")
                 // 不再无条件清缓存：5 分钟缓存避免窗口渲染后采样被污染
                 val seedColor = withContext(Dispatchers.IO) {
                     com.pmcl.core.theme.WallpaperColorProvider.fetchSeedColor()
                 }
                 com.pmcl.core.theme.WallpaperColorProvider.diagLog("[VM] seedColor=$seedColor")
                 if (seedColor == -1) {
-                    _status.value = "壁纸取色失败，使用默认配色"
+                    _status.value = I18n.t("status.wallpaper_color_failed_default")
                     return@launch
                 }
                 val dark = preferences.isUseDarkTheme()
@@ -1195,10 +1195,10 @@ class LauncherViewModel {
                 // 持久化种子色：下次启动时立即应用，避免启动期截图污染
                 preferences.setMonetSeedColor(seedColor)
                 com.pmcl.core.theme.WallpaperColorProvider.diagLog("[VM] applySeedColor done, primary=${ts.dynamicColorScheme?.primary}")
-                _status.value = "莫奈取色已应用（种子色: #${Integer.toHexString(seedColor).padStart(6, '0')}）"
+                _status.value = I18n.t("status.monet_applied", Integer.toHexString(seedColor).padStart(6, '0'))
             } catch (e: Throwable) {
                 com.pmcl.core.theme.WallpaperColorProvider.diagLog("[VM] EXCEPTION: ${e.javaClass.name}: ${e.message}")
-                _status.value = "壁纸取色失败：${e.message}"
+                _status.value = I18n.t("status.wallpaper_color_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -1212,20 +1212,20 @@ class LauncherViewModel {
         com.pmcl.core.theme.WallpaperColorProvider.diagLog("[VM] forceRefreshWallpaperColor called")
         scope.launch {
             try {
-                _status.value = "正在重新提取壁纸主色…"
+                _status.value = I18n.t("status.re_extracting_wallpaper_color")
                 val seedColor = withContext(Dispatchers.IO) {
                     com.pmcl.core.theme.WallpaperColorProvider.fetchSeedColorForce()
                 }
                 if (seedColor == -1) {
-                    _status.value = "壁纸取色失败，使用默认配色"
+                    _status.value = I18n.t("status.wallpaper_color_failed_default")
                     return@launch
                 }
                 val dark = preferences.isUseDarkTheme()
                 ts.applySeedColor(seedColor, dark)
                 preferences.setMonetSeedColor(seedColor)
-                _status.value = "莫奈取色已刷新（种子色: #${Integer.toHexString(seedColor).padStart(6, '0')}）"
+                _status.value = I18n.t("status.monet_refreshed", Integer.toHexString(seedColor).padStart(6, '0'))
             } catch (e: Throwable) {
-                _status.value = "壁纸取色失败：${e.message}"
+                _status.value = I18n.t("status.wallpaper_color_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -1244,7 +1244,7 @@ class LauncherViewModel {
         preferences.setCustomAccentColor(rgb)
         val dark = preferences.isUseDarkTheme()
         ts.applySeedColor(rgb, dark)
-        _status.value = "已应用自定义强调色 (#${Integer.toHexString(rgb).padStart(6, '0')})"
+        _status.value = I18n.t("status.custom_accent_applied", Integer.toHexString(rgb).padStart(6, '0'))
     }
 
     /** 清除自定义强调色，恢复默认配色 */
@@ -1253,7 +1253,7 @@ class LauncherViewModel {
         ts.clearCustomAccentColor()
         ts.updateDynamicColorScheme(null)
         preferences.setCustomAccentColor(-1)
-        _status.value = "已恢复默认配色"
+        _status.value = I18n.t("status.default_color_restored")
     }
 
     /**
@@ -1281,7 +1281,7 @@ class LauncherViewModel {
             try {
                 val account = if (core.auth().hasCustomClientId()) {
                     // 有自定义 client_id → 浏览器授权码流程（体验最佳）
-                    _status.value = "打开浏览器登录…"
+                    _status.value = I18n.t("status.opening_browser_login")
                     withContext(Dispatchers.IO) {
                         core.auth().loginMicrosoftViaBrowser(
                             { msg -> _status.value = msg },
@@ -1292,17 +1292,17 @@ class LauncherViewModel {
                     }
                 } else {
                     // 仅 legacy client_id → device code flow（无需 redirect_uri）
-                    _status.value = "请求设备码…"
+                    _status.value = I18n.t("status.requesting_device_code")
                     val dc = withContext(Dispatchers.IO) { core.auth().requestDeviceCode() }
                     _deviceCode.value = dc
-                    _status.value = "请打开 ${dc.getVerificationUri()} 输入 ${dc.getUserCode()}"
+                    _status.value = I18n.t("status.open_verification_url", dc.getVerificationUri(), dc.getUserCode())
                     withContext(Dispatchers.IO) {
                         core.auth().loginMicrosoftAsync(dc) { msg -> _status.value = msg }.join()
                     }
                 }
                 _account.value = account
                 upsertAccount(account)
-                _status.value = "已登录（微软）：${account.getUsername()}"
+                _status.value = I18n.t("status.logged_in_microsoft", account.getUsername())
                 _deviceCode.value = null
             } catch (e: Throwable) {
                 _deviceCode.value = null
@@ -1313,9 +1313,9 @@ class LauncherViewModel {
                     msg.contains("SYSCALL", ignoreCase = true) ||
                     msg.contains("reset", ignoreCase = true) ||
                     msg.contains("网络错误", ignoreCase = true)) {
-                    "微软登录失败：网络连接失败（可能是 GFW 干扰 SSL）。请在设置中配置 HTTP 代理后重试。原始错误：$msg"
+                    I18n.t("status.microsoft_login_failed_network", msg)
                 } else {
-                    "微软登录失败：$msg"
+                    I18n.t("status.microsoft_login_failed", msg)
                 }
             } finally {
                 _loggingIn.value = false
@@ -1327,11 +1327,11 @@ class LauncherViewModel {
     fun startGitHubLogin() {
         scope.launch {
             _loggingIn.value = true
-            _status.value = "请求 GitHub 设备码…"
+            _status.value = I18n.t("status.requesting_github_device_code")
             try {
                 val dc = withContext(Dispatchers.IO) { core.auth().requestGitHubDeviceCode() }
                 _deviceCode.value = dc
-                _status.value = "请打开 ${dc.getVerificationUri()} 输入 ${dc.getUserCode()}"
+                _status.value = I18n.t("status.open_verification_url", dc.getVerificationUri(), dc.getUserCode())
 
                 val account = withContext(Dispatchers.IO) {
                     core.auth().loginGitHubAsync(dc) { msg ->
@@ -1340,10 +1340,10 @@ class LauncherViewModel {
                 }
                 _account.value = account
                 upsertAccount(account)
-                _status.value = "已登录（GitHub）：${account.getUsername()}"
+                _status.value = I18n.t("status.logged_in_github", account.getUsername())
                 _deviceCode.value = null
             } catch (e: Throwable) {
-                _status.value = "GitHub 登录失败：${e.message}"
+                _status.value = I18n.t("status.github_login_failed", e.message ?: I18n.t("common.unknown"))
             } finally {
                 _loggingIn.value = false
             }
@@ -1369,31 +1369,31 @@ class LauncherViewModel {
     fun proceedInstall(versionId: String, loader: ModLoader? = null, loaderVersion: String? = null) {
         scope.launch {
             _installing.value = true
-            _status.value = "开始安装 $versionId"
+            _status.value = I18n.t("status.install_starting", versionId)
             try {
                 withContext(Dispatchers.IO) {
                     core.install().install(versionId) { p ->
                         _installProgress.value = p
-                        _status.value = "${p.getStage()} - ${p.getMessage()}"
+                        _status.value = I18n.t("status.install_progress", p.getStage(), p.getMessage())
                     }.join()
                 }
                 refreshLocalVersions()
-                _status.value = "安装完成：$versionId"
+                _status.value = I18n.t("status.install_complete", versionId)
                 // 游戏安装成功后，若用户选择了加载器则继续安装
                 if (loader != null && !loaderVersion.isNullOrEmpty()) {
-                    _status.value = "安装 $loader $loaderVersion"
+                    _status.value = I18n.t("status.installing_loader", loader, loaderVersion)
                     withContext(Dispatchers.IO) {
                         core.modLoaders().get(loader)
                             .install(versionId, loaderVersion) { p ->
                                 _installProgress.value = p
-                                _status.value = "${p.getStage()} - ${p.getMessage()}"
+                                _status.value = I18n.t("status.install_progress", p.getStage(), p.getMessage())
                             }.join()
                     }
                     refreshLocalVersions()
-                    _status.value = "安装完成：$loader $loaderVersion"
+                    _status.value = I18n.t("status.loader_install_complete", loader, loaderVersion)
                 }
             } catch (e: Throwable) {
-                _status.value = "安装失败：${e.message}"
+                _status.value = I18n.t("status.install_failed", e.message ?: I18n.t("common.unknown"))
             } finally {
                 _installing.value = false
             }
@@ -1414,21 +1414,21 @@ class LauncherViewModel {
                 // 缓存存在且未过期（24h）：直接使用，不发起网络请求
                 if (!DataCache.isExpired(savedAt, 24 * 60 * 60 * 1000L)) {
                     _modLoaderVersions.value = data
-                    _status.value = "已加载 ${data.size} 个 $loader 版本（缓存）"
+                    _status.value = I18n.t("status.loader_versions_loaded_cache", data.size, loader)
                     return@launch
                 }
             }
             // 缓存不存在/已过期：网络请求
-            _status.value = "拉取 $loader 版本列表…"
+            _status.value = I18n.t("status.fetching_loader_versions", loader)
             try {
                 val list = withContext(Dispatchers.IO) {
                     core.modLoaders().get(loader).listVersions(gameVersion).join()
                 }
                 _modLoaderVersions.value = list
-                _status.value = "已加载 ${list.size} 个 $loader 版本"
+                _status.value = I18n.t("status.loader_versions_loaded", list.size, loader)
                 DataCache.save(cacheKey, list)
             } catch (e: Throwable) {
-                _status.value = "拉取失败：${e.message}"
+                _status.value = I18n.t("status.fetch_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -1436,19 +1436,19 @@ class LauncherViewModel {
     fun installModLoader(loader: ModLoader, gameVersion: String, loaderVersion: String) {
         scope.launch {
             _installing.value = true
-            _status.value = "安装 $loader $loaderVersion"
+            _status.value = I18n.t("status.installing_loader", loader, loaderVersion)
             try {
                 withContext(Dispatchers.IO) {
                     core.modLoaders().get(loader)
                         .install(gameVersion, loaderVersion) { p ->
                             _installProgress.value = p
-                            _status.value = "${p.getStage()} - ${p.getMessage()}"
+                            _status.value = I18n.t("status.install_progress", p.getStage(), p.getMessage())
                         }.join()
                 }
                 refreshLocalVersions()
-                _status.value = "安装完成：$loader $loaderVersion"
+                _status.value = I18n.t("status.loader_install_complete", loader, loaderVersion)
             } catch (e: Throwable) {
-                _status.value = "安装失败：${e.message}"
+                _status.value = I18n.t("status.install_failed", e.message ?: I18n.t("common.unknown"))
             } finally {
                 _installing.value = false
             }
@@ -1461,7 +1461,7 @@ class LauncherViewModel {
                    category: String? = null) {
         scope.launch {
             _marketLoading.value = true
-            _status.value = "搜索: $query"
+            _status.value = I18n.t("status.searching", query)
             try {
                 val list = withContext(Dispatchers.IO) {
                     if (category != null && category.isNotEmpty()) {
@@ -1471,9 +1471,9 @@ class LauncherViewModel {
                     }
                 }
                 _marketResults.value = list
-                _status.value = "找到 ${list.size} 个模组（CurseForge ${if (core.modMarket().hasCurseForge()) "已启用" else "未启用"}）"
+                _status.value = I18n.t("status.mods_found", list.size, if (core.modMarket().hasCurseForge()) I18n.t("common.enabled") else I18n.t("common.disabled"))
             } catch (e: Throwable) {
-                _status.value = "搜索失败：${e.message}"
+                _status.value = I18n.t("status.search_failed", e.message ?: I18n.t("common.unknown"))
             } finally {
                 _marketLoading.value = false
             }
@@ -1507,7 +1507,7 @@ class LauncherViewModel {
                             }
                             _popularMods.value = list
                             DataCache.save("popular_mods", list)
-                            _status.value = "已加载 ${list.size} 个热门模组"
+                            _status.value = I18n.t("status.popular_mods_loaded", list.size)
                         } catch (_: Throwable) {
                             // 静默失败，保留缓存数据
                         }
@@ -1518,16 +1518,16 @@ class LauncherViewModel {
             }
             // 缓存不存在/已过期：正常网络请求
             _popularLoading.value = true
-            _status.value = "加载热门模组…"
+            _status.value = I18n.t("status.loading_popular_mods")
             try {
                 val list = withContext(Dispatchers.IO) {
                     core.modMarket().popular(gameVersion, loader, 24).join()
                 }
                 _popularMods.value = list
-                _status.value = "已加载 ${list.size} 个热门模组"
+                _status.value = I18n.t("status.popular_mods_loaded", list.size)
                 DataCache.save("popular_mods", list)
             } catch (e: Throwable) {
-                _status.value = "加载热门模组失败：${e.message}"
+                _status.value = I18n.t("status.popular_mods_load_failed", e.message ?: I18n.t("common.unknown"))
             } finally {
                 _popularLoading.value = false
             }
@@ -1550,15 +1550,15 @@ class LauncherViewModel {
         _marketResults.value = emptyList()
         scope.launch {
             _categoryLoading.value = true
-            _status.value = "加载分类：$category"
+            _status.value = I18n.t("status.loading_category", category)
             try {
                 val list = withContext(Dispatchers.IO) {
                     core.modMarket().searchByCategory(category, gameVersion, loader, 24).join()
                 }
                 _categoryResults.value = list
-                _status.value = "已加载 ${list.size} 个分类模组"
+                _status.value = I18n.t("status.category_mods_loaded", list.size)
             } catch (e: Throwable) {
-                _status.value = "加载分类失败：${e.message}"
+                _status.value = I18n.t("status.category_load_failed", e.message ?: I18n.t("common.unknown"))
             } finally {
                 _categoryLoading.value = false
             }
@@ -1590,22 +1590,22 @@ class LauncherViewModel {
         scope.launch {
             // 立即清空旧的文件列表，避免切换 project 时残留
             _currentModFiles.value = emptyList()
-            _status.value = "拉取 ${project.getName()} 文件…"
+            _status.value = I18n.t("status.fetching_project_files", project.getName())
             try {
                 val files = withContext(Dispatchers.IO) {
                     core.modMarket().listFiles(project).join()
                 }
                 _currentModFiles.value = files
-                _status.value = "${project.getName()} 共 ${files.size} 个文件"
+                _status.value = I18n.t("status.project_files_loaded", project.getName(), files.size)
             } catch (e: Throwable) {
-                _status.value = "拉取失败：${e.message}"
+                _status.value = I18n.t("status.fetch_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
 
     fun installMod(file: ModFile, gameVersion: String) {
         scope.launch {
-            _status.value = "下载模组 ${file.getFileName()}"
+            _status.value = I18n.t("status.downloading_mod", file.getFileName())
             try {
                 withContext(Dispatchers.IO) {
                     core.modMarket().installMod(file, gameVersion,
@@ -1613,10 +1613,10 @@ class LauncherViewModel {
                         _status.value = msg
                     }.join()
                 }
-                _status.value = "模组已安装：${file.getFileName()}"
+                _status.value = I18n.t("status.mod_installed", file.getFileName())
                 refreshInstalledMods()
             } catch (e: Throwable) {
-                _status.value = "模组安装失败：${e.message}"
+                _status.value = I18n.t("status.mod_install_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -1630,20 +1630,20 @@ class LauncherViewModel {
         _installingDeps.value = true
         _depInstallResult.value = null
         scope.launch {
-            _status.value = "安装模组（含依赖）：${file.getFileName()}"
+            _status.value = I18n.t("status.installing_mod_with_deps", file.getFileName())
             try {
                 val result = core.modDependencyResolver().installWithDependencies(
                     file, gameVersion, _selectedVersion.value
                 ) { msg -> _status.value = msg }.join()
                 _depInstallResult.value = result
                 _status.value = if (result.hasInstalled()) {
-                    "安装完成：${file.getFileName()}（${result.summary()}）"
+                    I18n.t("status.mod_install_complete_with_deps", file.getFileName(), result.summary())
                 } else {
-                    "安装完成：${file.getFileName()}（无额外依赖）"
+                    I18n.t("status.mod_install_complete_no_deps", file.getFileName())
                 }
                 refreshInstalledMods()
             } catch (e: Throwable) {
-                _status.value = "安装失败：${e.message}"
+                _status.value = I18n.t("status.install_failed", e.message ?: I18n.t("common.unknown"))
             } finally {
                 _installingDeps.value = false
             }
@@ -1769,9 +1769,9 @@ class LauncherViewModel {
                 }
                 _installedMods.value = mods
                 DataCache.save("installed_mods", mods)
-                _status.value = "已扫描 ${mods.size} 个 mod（${modsDirsCount(mods)}）[build 20260708.4]"
+                _status.value = I18n.t("status.mods_scanned", mods.size, modsDirsCount(mods))
             } catch (e: Throwable) {
-                _status.value = "扫描 mods 失败：${e.message} [build 20260708.4]"
+                _status.value = I18n.t("status.scan_mods_failed", e.message ?: I18n.t("common.unknown"))
                 System.err.println("[refreshInstalledMods] 顶层异常: ${e.javaClass.name}: ${e.message}")
                 e.printStackTrace()
             }
@@ -1829,10 +1829,10 @@ class LauncherViewModel {
                 withContext(Dispatchers.IO) {
                     core.modManager().deleteMod(jarFile)
                 }
-                _status.value = "已删除 $jarFile"
+                _status.value = I18n.t("status.mod_deleted", jarFile)
                 refreshInstalledMods()
             } catch (e: Throwable) {
-                _status.value = "删除失败：${e.message}"
+                _status.value = I18n.t("status.delete_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -1844,10 +1844,10 @@ class LauncherViewModel {
                 withContext(Dispatchers.IO) {
                     core.modManager().disableMod(jarFile)
                 }
-                _status.value = "已禁用 $jarFile"
+                _status.value = I18n.t("status.mod_disabled", jarFile)
                 refreshInstalledMods()
             } catch (e: Throwable) {
-                _status.value = "禁用失败：${e.message}"
+                _status.value = I18n.t("status.disable_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -1859,10 +1859,10 @@ class LauncherViewModel {
                 withContext(Dispatchers.IO) {
                     core.modManager().enableMod(jarFile)
                 }
-                _status.value = "已启用 $jarFile"
+                _status.value = I18n.t("status.mod_enabled", jarFile)
                 refreshInstalledMods()
             } catch (e: Throwable) {
-                _status.value = "启用失败：${e.message}"
+                _status.value = I18n.t("status.enable_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -1879,10 +1879,10 @@ class LauncherViewModel {
                     java.nio.file.Files.copy(src, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
                     src.fileName.toString()
                 }
-                _status.value = "已导入模组：$fileName"
+                _status.value = I18n.t("status.mod_imported", fileName)
                 refreshInstalledMods()
             } catch (e: Throwable) {
-                _status.value = "导入失败：${e.message}"
+                _status.value = I18n.t("status.import_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -1898,10 +1898,10 @@ class LauncherViewModel {
                         } catch (_: Throwable) {}
                     }
                 }
-                _status.value = "已批量启用 ${jarFiles.size} 个模组"
+                _status.value = I18n.t("status.batch_enabled_mods", jarFiles.size)
                 refreshInstalledMods()
             } catch (e: Throwable) {
-                _status.value = "批量启用失败：${e.message}"
+                _status.value = I18n.t("status.batch_enable_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -1917,10 +1917,10 @@ class LauncherViewModel {
                         } catch (_: Throwable) {}
                     }
                 }
-                _status.value = "已批量禁用 ${jarFiles.size} 个模组"
+                _status.value = I18n.t("status.batch_disabled_mods", jarFiles.size)
                 refreshInstalledMods()
             } catch (e: Throwable) {
-                _status.value = "批量禁用失败：${e.message}"
+                _status.value = I18n.t("status.batch_disable_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -1936,10 +1936,10 @@ class LauncherViewModel {
                         } catch (_: Throwable) {}
                     }
                 }
-                _status.value = "已批量删除 ${jarFiles.size} 个模组"
+                _status.value = I18n.t("status.batch_deleted_mods", jarFiles.size)
                 refreshInstalledMods()
             } catch (e: Throwable) {
-                _status.value = "批量删除失败：${e.message}"
+                _status.value = I18n.t("status.batch_delete_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -1960,7 +1960,7 @@ class LauncherViewModel {
                 ?: config.getWorkDir().resolve("mods").toFile().also { it.mkdirs() }
             openDir(modsDir)
         } catch (e: Throwable) {
-            _status.value = "打开目录失败：${e.message}"
+            _status.value = I18n.t("status.open_dir_failed", e.message ?: I18n.t("common.unknown"))
         }
     }
 
@@ -1976,7 +1976,7 @@ class LauncherViewModel {
             }
             ProcessBuilder(cmd).start()
         } catch (e: Throwable) {
-            _status.value = "打开目录失败：${e.message}"
+            _status.value = I18n.t("status.open_dir_failed", e.message ?: I18n.t("common.unknown"))
         }
     }
 
@@ -1999,7 +1999,7 @@ class LauncherViewModel {
                 }
                 _modpacks.value = list
             } catch (e: Throwable) {
-                _status.value = "刷新整合包列表失败：${e.message}"
+                _status.value = I18n.t("status.refresh_modpacks_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -2007,7 +2007,7 @@ class LauncherViewModel {
     /** 导入整合包文件（.mrpack 或 .zip） */
     fun importModpack(filePath: String) {
         if (_modpackBusy.value) {
-            _status.value = "整合包操作进行中，请等待"
+            _status.value = I18n.t("status.modpack_busy")
             return
         }
         scope.launch {
@@ -2021,10 +2021,10 @@ class LauncherViewModel {
                         _modpackProgress.value = p
                     }.join()
                 }
-                _status.value = "整合包导入完成"
+                _status.value = I18n.t("status.modpack_import_complete")
                 refreshModpacks()
             } catch (e: Throwable) {
-                _status.value = "整合包导入失败：${e.message}"
+                _status.value = I18n.t("status.modpack_import_failed", e.message ?: I18n.t("common.unknown"))
             } finally {
                 _modpackBusy.value = false
                 _modpackProgress.value = null
@@ -2043,11 +2043,11 @@ class LauncherViewModel {
      */
     fun exportModpack(targetPath: String, format: String) {
         val versionId = _selectedVersion.value ?: run {
-            _status.value = "请先选择版本"
+            _status.value = I18n.t("status.version_select_first")
             return
         }
         if (_modpackBusy.value) {
-            _status.value = "整合包操作进行中，请等待"
+            _status.value = I18n.t("status.modpack_busy")
             return
         }
         scope.launch {
@@ -2068,9 +2068,9 @@ class LauncherViewModel {
                     }
                     future.join()
                 }
-                _status.value = "整合包已导出：$targetPath"
+                _status.value = I18n.t("status.modpack_exported", targetPath)
             } catch (e: Throwable) {
-                _status.value = "整合包导出失败：${e.message}"
+                _status.value = I18n.t("status.modpack_export_failed", e.message ?: I18n.t("common.unknown"))
             } finally {
                 _modpackBusy.value = false
                 _modpackProgress.value = null
@@ -2084,7 +2084,7 @@ class LauncherViewModel {
         scope.launch {
             _modpackUpdateChecking.value = true
             _modpackUpdateResult.value = null
-            _status.value = "正在检查「$instanceName」的更新..."
+            _status.value = I18n.t("status.checking_modpack_updates", instanceName)
             try {
                 val result = withContext(Dispatchers.IO) {
                     core.modpacks().checkForUpdates(instanceName).join()
@@ -2092,15 +2092,15 @@ class LauncherViewModel {
                 _modpackUpdateResult.value = result
                 if (result.isSuccess()) {
                     if (result.hasUpdates()) {
-                        _status.value = "「$instanceName」有 ${result.updates.size} 个 mod 可更新"
+                        _status.value = I18n.t("status.modpack_has_updates", instanceName, result.updates.size)
                     } else {
-                        _status.value = "「$instanceName」已是最新（检查了 ${result.totalChecked} 个 mod）"
+                        _status.value = I18n.t("status.modpack_up_to_date", instanceName, result.totalChecked)
                     }
                 } else {
-                    _status.value = result.error ?: "检查更新失败"
+                    _status.value = result.error ?: I18n.t("status.check_updates_failed_default")
                 }
             } catch (e: Throwable) {
-                _status.value = "检查更新失败：${e.message}"
+                _status.value = I18n.t("status.check_updates_failed", e.message ?: I18n.t("common.unknown"))
             } finally {
                 _modpackUpdateChecking.value = false
             }
@@ -2126,10 +2126,10 @@ class LauncherViewModel {
                 _nbtFilePath.value = path
                 _nbtDirty.value = false
                 _nbtRevision.value++
-                _status.value = "已加载: $path"
+                _status.value = I18n.t("status.nbt_loaded", path)
             } catch (e: Throwable) {
                 _nbtError.value = "读取 NBT 失败: ${e.message}"
-                _status.value = "读取 NBT 失败: ${e.message}"
+                _status.value = I18n.t("status.nbt_read_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -2151,10 +2151,10 @@ class LauncherViewModel {
                     NbtWriter.write(root, file)
                 }
                 _nbtDirty.value = false
-                _status.value = "已保存: $path"
+                _status.value = I18n.t("status.nbt_saved", path)
             } catch (e: Throwable) {
                 _nbtError.value = "保存 NBT 失败: ${e.message}"
-                _status.value = "保存 NBT 失败: ${e.message}"
+                _status.value = I18n.t("status.nbt_save_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -2170,10 +2170,10 @@ class LauncherViewModel {
                 }
                 _nbtFilePath.value = targetPath
                 _nbtDirty.value = false
-                _status.value = "已保存: $targetPath"
+                _status.value = I18n.t("status.nbt_saved", targetPath)
             } catch (e: Throwable) {
                 _nbtError.value = "保存 NBT 失败: ${e.message}"
-                _status.value = "保存 NBT 失败: ${e.message}"
+                _status.value = I18n.t("status.nbt_save_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -2345,10 +2345,10 @@ class LauncherViewModel {
                 withContext(Dispatchers.IO) {
                     core.modpacks().deleteModpack(name)
                 }
-                _status.value = "已删除整合包：$name"
+                _status.value = I18n.t("status.modpack_deleted", name)
                 refreshModpacks()
             } catch (e: Throwable) {
-                _status.value = "删除整合包失败：${e.message}"
+                _status.value = I18n.t("status.modpack_delete_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -2379,14 +2379,14 @@ class LauncherViewModel {
     /** 提交版本安装到队列 */
     fun enqueueVersionInstall(versionId: String) {
         core.downloadQueue().submitVersionInstall(versionId)
-        _status.value = "已加入队列：Minecraft $versionId"
+        _status.value = I18n.t("status.queued_minecraft_version", versionId)
         refreshQueue()
     }
 
     /** 提交模组加载器安装到队列 */
     fun enqueueModLoaderInstall(loaderName: String, gameVersion: String, loaderVersion: String) {
         core.downloadQueue().submitModLoaderInstall(loaderName, gameVersion, loaderVersion)
-        _status.value = "已加入队列：$loaderName $loaderVersion"
+        _status.value = I18n.t("status.queued_loader", loaderName, loaderVersion)
         refreshQueue()
     }
 
@@ -2394,7 +2394,7 @@ class LauncherViewModel {
     fun enqueueModDownload(modFile: ModFile, gameVersion: String, versionId: String? = null) {
         val vid = versionId ?: _selectedVersion.value
         core.downloadQueue().submitModDownload(modFile, gameVersion, vid)
-        _status.value = "已加入队列：${modFile.fileName}"
+        _status.value = I18n.t("status.queued_mod", modFile.fileName)
         refreshQueue()
     }
 
@@ -2474,7 +2474,7 @@ class LauncherViewModel {
                 _configFiles.value = files
                 _configCurrentDir.value = subDir
             } catch (e: Throwable) {
-                _status.value = "读取配置文件失败：${e.message}"
+                _status.value = I18n.t("status.config_files_load_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -2491,7 +2491,7 @@ class LauncherViewModel {
                 _currentConfigPath.value = relativePath
                 _configFileDirty.value = false
             } catch (e: Throwable) {
-                _status.value = "读取文件失败：${e.message}"
+                _status.value = I18n.t("status.config_file_read_failed", e.message ?: I18n.t("common.unknown"))
                 _configFileContent.value = null
                 _currentConfigPath.value = null
             }
@@ -2508,9 +2508,9 @@ class LauncherViewModel {
                     manager.writeFile(path, content)
                 }
                 _configFileDirty.value = false
-                _status.value = "已保存：$path"
+                _status.value = I18n.t("status.config_file_saved", path)
             } catch (e: Throwable) {
-                _status.value = "保存失败：${e.message}"
+                _status.value = I18n.t("status.config_file_save_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -2528,10 +2528,10 @@ class LauncherViewModel {
                     _currentConfigPath.value = null
                     _configFileDirty.value = false
                 }
-                _status.value = "已删除：$relativePath"
+                _status.value = I18n.t("status.config_file_deleted", relativePath)
                 refreshConfigFiles(_configCurrentDir.value)
             } catch (e: Throwable) {
-                _status.value = "删除失败：${e.message}"
+                _status.value = I18n.t("status.delete_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -2546,10 +2546,10 @@ class LauncherViewModel {
                 withContext(Dispatchers.IO) {
                     manager.createFile(relativePath)
                 }
-                _status.value = "已创建：$fileName"
+                _status.value = I18n.t("status.config_file_created", fileName)
                 refreshConfigFiles(dir)
             } catch (e: Throwable) {
-                _status.value = "创建失败：${e.message}"
+                _status.value = I18n.t("status.config_file_create_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -2589,7 +2589,7 @@ class LauncherViewModel {
             if (!dir.isDirectory) dir.mkdirs()
             openDir(dir)
         } catch (e: Throwable) {
-            _status.value = "打开目录失败：${e.message}"
+            _status.value = I18n.t("status.open_dir_failed", e.message ?: I18n.t("common.unknown"))
         }
     }
 
@@ -2602,7 +2602,7 @@ class LauncherViewModel {
     fun checkModUpdates() {
         val mods = _installedMods.value
         if (mods.isEmpty()) {
-            _status.value = "没有已安装的模组"
+            _status.value = I18n.t("status.no_installed_mods")
             return
         }
         // 从选中版本推断 gameVersion
@@ -2613,7 +2613,7 @@ class LauncherViewModel {
         if (_checkingUpdates.value) return // 防止重复检测
         _checkingUpdates.value = true
         _updateCheckProgress.value = 0 to mods.size
-        _status.value = "正在检测模组更新..."
+        _status.value = I18n.t("status.checking_mod_updates")
 
         scope.launch {
             try {
@@ -2625,12 +2625,12 @@ class LauncherViewModel {
                 _modUpdates.value = results
                 val updateCount = results.count { it.hasUpdate() }
                 _status.value = if (updateCount > 0) {
-                    "检测完成：$updateCount 个模组有更新"
+                    I18n.t("status.mod_updates_found", updateCount)
                 } else {
-                    "检测完成：所有模组均为最新"
+                    I18n.t("status.mod_updates_all_latest")
                 }
             } catch (e: Throwable) {
-                _status.value = "检测更新失败：${e.message}"
+                _status.value = I18n.t("status.check_mod_updates_failed", e.message ?: I18n.t("common.unknown"))
             } finally {
                 _checkingUpdates.value = false
             }
@@ -2661,11 +2661,11 @@ class LauncherViewModel {
                 core.modUpdateChecker().updateMod(info, gameVersion, versionId) { status ->
                     _status.value = status
                 }.join()
-                _status.value = "更新完成：${info.displayName()}"
+                _status.value = I18n.t("status.mod_update_complete", info.displayName())
                 // 刷新已安装模组列表
                 refreshInstalledMods()
             } catch (e: Throwable) {
-                _status.value = "更新失败：${e.message}"
+                _status.value = I18n.t("status.mod_update_failed", e.message ?: I18n.t("common.unknown"))
             } finally {
                 _updatingMod.value = false
             }
@@ -2678,27 +2678,27 @@ class LauncherViewModel {
     fun updateAllMods() {
         val updates = _modUpdates.value.filter { it.hasUpdate() }
         if (updates.isEmpty()) {
-            _status.value = "没有需要更新的模组"
+            _status.value = I18n.t("status.no_mods_to_update")
             return
         }
         if (_updatingMod.value) return
         _updatingMod.value = true
         val versionId = _selectedVersion.value
         val gameVersion = _updateGameVersion.value
-        _status.value = "正在批量更新 ${updates.size} 个模组..."
+        _status.value = I18n.t("status.batch_updating_mods", updates.size)
 
         scope.launch {
             try {
                 core.modUpdateChecker().updateAll(updates, gameVersion, versionId) { progress ->
                     _updateCheckProgress.value = progress[0] to progress[1]
-                    _status.value = "批量更新中：${progress[0]}/${progress[1]}"
+                    _status.value = I18n.t("status.batch_updating_progress", progress[0], progress[1])
                 }.join()
-                _status.value = "批量更新完成"
+                _status.value = I18n.t("status.batch_update_complete")
                 refreshInstalledMods()
                 // 重新检测一次
                 checkModUpdates()
             } catch (e: Throwable) {
-                _status.value = "批量更新失败：${e.message}"
+                _status.value = I18n.t("status.batch_update_failed", e.message ?: I18n.t("common.unknown"))
             } finally {
                 _updatingMod.value = false
             }
@@ -2855,11 +2855,11 @@ class LauncherViewModel {
 
     fun launch() {
         val versionId = _selectedVersion.value ?: run {
-            _status.value = "请先选择版本"
+            _status.value = I18n.t("status.version_select_first")
             return
         }
         val account = _account.value ?: run {
-            _status.value = "请先登录账号"
+            _status.value = I18n.t("status.login_first")
             return
         }
         // mod 冲突检测：仅警告，不阻断启动
@@ -2877,7 +2877,7 @@ class LauncherViewModel {
         }
 
         scope.launch {
-            _status.value = "正在构建启动配置…"
+            _status.value = I18n.t("status.building_launch_profile")
             var instanceId: String? = null
             var timeTracked = false
             try {
@@ -2898,7 +2898,7 @@ class LauncherViewModel {
                     }
                 }
                 if (javaExe.isEmpty()) {
-                    _status.value = "启动失败：未找到 Java 运行时"
+                    _status.value = I18n.t("status.launch_failed_no_java")
                     _gameLogs.value = listOf(
                         "启动失败：未找到任何 Java 运行时",
                         "请安装 Java（推荐 Java 8 用于旧版本，Java 21 用于新版本）",
@@ -2926,7 +2926,7 @@ class LauncherViewModel {
 
                     if (isOldVersion || !isLoongArch) {
                         // 旧版本（LWJGL 2.x）或 MIPS64el：无原生 native，需 x86_64 + 二进制翻译
-                        _status.value = "兼容性提示：龙芯 $archName"
+                        _status.value = I18n.t("status.compat_hint_loongson", archName)
                         val options = mutableListOf<CompatOption>()
 
                         // 选项1：仍尝试启动（可能因 native 库缺失而崩溃）
@@ -2954,7 +2954,7 @@ class LauncherViewModel {
                                         java.awt.Desktop.getDesktop().browse(java.net.URI(url))
                                     }
                                 } catch (e: Throwable) {
-                                    _status.value = "无法打开浏览器: ${e.message}"
+                                    _status.value = I18n.t("status.cannot_open_browser", e.message ?: I18n.t("common.unknown"))
                                 }
                             }
                         ))
@@ -2971,7 +2971,7 @@ class LauncherViewModel {
 
                     if (isOldVersion) {
                         // 旧版本（LWJGL 2.x）：无原生 native，需 x86_64 + QEMU 用户态翻译
-                        _status.value = "兼容性提示：RISC-V 64"
+                        _status.value = I18n.t("status.compat_hint_riscv")
                         val options = mutableListOf<CompatOption>()
 
                         // 选项1：仍尝试启动（可能因 native 库缺失而崩溃）
@@ -2997,7 +2997,7 @@ class LauncherViewModel {
                                         java.awt.Desktop.getDesktop().browse(java.net.URI(url))
                                     }
                                 } catch (e: Throwable) {
-                                    _status.value = "无法打开浏览器: ${e.message}"
+                                    _status.value = I18n.t("status.cannot_open_browser", e.message ?: I18n.t("common.unknown"))
                                 }
                             }
                         ))
@@ -3015,7 +3015,7 @@ class LauncherViewModel {
                         && (System.getProperty("os.arch", "").lowercase().contains("aarch64")
                             || System.getProperty("os.arch", "").lowercase().contains("arm64"))
                 if (isArchMismatch) {
-                    _status.value = "兼容性问题：架构不匹配"
+                    _status.value = I18n.t("status.compat_issue_arch_mismatch")
                     // 检测外部启动器和它们管理的 Java 运行时
                     val externalLaunchers = withContext(Dispatchers.IO) {
                         ExternalLauncherDetector.detectLaunchers()
@@ -3061,7 +3061,7 @@ class LauncherViewModel {
                                     java.awt.Desktop.getDesktop().browse(java.net.URI(url))
                                 }
                             } catch (e: Throwable) {
-                                _status.value = "无法打开浏览器: ${e.message}"
+                                _status.value = I18n.t("status.cannot_open_browser", e.message ?: I18n.t("common.unknown"))
                             }
                         }
                     ))
@@ -3120,8 +3120,8 @@ class LauncherViewModel {
                     )
                 }
                 _gameRunning.value = true
-                _status.value = "启动中… java=$javaExe (Java $javaMajorVer $javaArch) version=$versionId" +
-                        if (usingCompatLayer) " [兼容层]" else ""
+                _status.value = I18n.t("status.launching", javaExe, javaMajorVer, javaArch, versionId) +
+                        if (usingCompatLayer) I18n.t("status.compat_layer_suffix") else ""
 
                 // 记录启动前的崩溃报告快照（用于退出后对比新增）
                 val crashDirBefore = withContext(Dispatchers.IO) {
@@ -3160,7 +3160,7 @@ class LauncherViewModel {
                     instLogger
                 )
                 val exitCode = withContext(Dispatchers.IO) { future.join() }
-                _status.value = "游戏已退出（code=$exitCode） $versionId"
+                _status.value = I18n.t("status.game_exited_with_version", exitCode, versionId)
 
                 // 异常退出检测：非 0 退出码视为崩溃
                 if (exitCode != 0) {
@@ -3186,7 +3186,7 @@ class LauncherViewModel {
                     }
                 }
             } catch (e: Throwable) {
-                _status.value = "启动失败：${e.message}"
+                _status.value = I18n.t("status.launch_failed", e.message ?: I18n.t("common.unknown"))
                 _gameLogs.update { old -> (old + "[错误] ${e.message}").takeLast(2000) }
                 instanceId?.let { id ->
                     instanceLogs[id]?.let { logs ->
@@ -3275,12 +3275,12 @@ class LauncherViewModel {
     fun launchWithSpecificJava(versionId: String, javaPath: String, javaMajorVer: Int, javaArch: String) {
         dismissCompatOptions()
         scope.launch {
-            _status.value = "使用指定 Java 启动…"
+            _status.value = I18n.t("status.launching_with_specific_java")
             var timeTracked = false
             try {
                 val account = _account.value
                 if (account == null) {
-                    _status.value = "请先登录账户"
+                    _status.value = I18n.t("status.login_first")
                     return@launch
                 }
                 val profile = withContext(Dispatchers.IO) {
@@ -3296,7 +3296,7 @@ class LauncherViewModel {
                     ""
                 )
                 _gameRunning.value = true
-                _status.value = "启动中… java=$javaPath (Java $javaMajorVer $javaArch) version=$versionId"
+                _status.value = I18n.t("status.launching", javaPath, javaMajorVer, javaArch, versionId)
                 // 记录游玩时长
                 core.playTimeTracker().recordStart(versionId)
                 timeTracked = true
@@ -3310,10 +3310,10 @@ class LauncherViewModel {
                     gameLogger
                 )
                 val exitCode = withContext(Dispatchers.IO) { future.join() }
-                _status.value = "游戏已退出（code=$exitCode）"
+                _status.value = I18n.t("status.game_exited", exitCode)
                 _gameRunning.value = false
             } catch (e: Throwable) {
-                _status.value = "启动失败: ${e.message}"
+                _status.value = I18n.t("status.launch_failed", e.message ?: I18n.t("common.unknown"))
                 _gameLogs.update { old -> (old + "启动失败: ${e.message}").takeLast(2000) }
             } finally {
                 if (timeTracked) {
@@ -3332,7 +3332,7 @@ class LauncherViewModel {
     ) {
         dismissCompatOptions()
         scope.launch {
-            _status.value = "正在用 ${launcher.name} 启动…"
+            _status.value = I18n.t("status.launching_with_external_launcher", launcher.name)
             try {
                 val cmd = withContext(Dispatchers.IO) {
                     ExternalLauncherDetector.buildExternalLaunchCommand(launcher, versionId)
@@ -3353,9 +3353,9 @@ class LauncherViewModel {
                         try { proc.inputStream.use { it.readBytes() } } catch (_: Throwable) {}
                     }, "ext-launcher-drain").apply { isDaemon = true }.start()
                 }
-                _status.value = "已打开 ${launcher.name}，请在 ${launcher.name} 中启动 $versionId"
+                _status.value = I18n.t("status.external_launcher_opened", launcher.name, versionId)
             } catch (e: Throwable) {
-                _status.value = "打开 ${launcher.name} 失败: ${e.message}"
+                _status.value = I18n.t("status.external_launcher_failed", launcher.name, e.message ?: I18n.t("common.unknown"))
                 _gameLogs.value = listOf("打开 ${launcher.name} 失败: ${e.message}")
             }
         }
@@ -3371,25 +3371,25 @@ class LauncherViewModel {
     /** 保存当前启动参数为预设 */
     fun saveLaunchPreset(name: String) {
         if (name.isBlank()) {
-            _status.value = "预设名称不能为空"
+            _status.value = I18n.t("status.preset_name_empty")
             return
         }
         preferences.saveLaunchPreset(name.trim())
         refreshLaunchPresets()
-        _status.value = "已保存预设：${name.trim()}"
+        _status.value = I18n.t("status.preset_saved", name.trim())
     }
 
     /** 加载预设到当前启动参数 */
     fun applyLaunchPreset(name: String) {
         preferences.applyLaunchPreset(name)
-        _status.value = "已应用预设：$name"
+        _status.value = I18n.t("status.preset_applied", name)
     }
 
     /** 删除预设 */
     fun deleteLaunchPreset(name: String) {
         preferences.deleteLaunchPreset(name)
         refreshLaunchPresets()
-        _status.value = "已删除预设：$name"
+        _status.value = I18n.t("status.preset_deleted", name)
     }
 
     /**
@@ -3408,7 +3408,7 @@ class LauncherViewModel {
             17 -> com.pmcl.core.runtime.JavaRuntimeDownloader.RuntimeType.JAVA_17
             21 -> com.pmcl.core.runtime.JavaRuntimeDownloader.RuntimeType.JAVA_21
             else -> {
-                _status.value = "不支持的 Java 版本：$version"
+                _status.value = I18n.t("status.unsupported_java_version", version)
                 return
             }
         }
@@ -3421,7 +3421,7 @@ class LauncherViewModel {
                 }
                 if (entries.isNullOrEmpty()) {
                     _javaDownloadStatus.value = "未找到可用的 Java $version 运行时"
-                    _status.value = "Java $version 下载失败：清单为空"
+                    _status.value = I18n.t("status.java_download_failed_empty_manifest", version)
                     return@launch
                 }
                 // 选第一个（Mojang 通常每个类型只提供一个稳定版）
@@ -3436,10 +3436,10 @@ class LauncherViewModel {
                 }
                 val detected = JavaRuntimeFinder.findJavaExecutable(config.getRuntimesDir()) ?: "未找到"
                 _javaDownloadStatus.value = "完成：$detected"
-                _status.value = "Java $version 安装完成，可启动游戏"
+                _status.value = I18n.t("status.java_install_complete", version)
             } catch (e: Throwable) {
                 _javaDownloadStatus.value = "失败：${e.message}"
-                _status.value = "Java $version 下载失败：${e.message}"
+                _status.value = I18n.t("status.java_download_failed", version, e.message ?: I18n.t("common.unknown"))
             } finally {
                 _javaDownloading.value = false
             }
@@ -3452,7 +3452,7 @@ class LauncherViewModel {
     /** 手动指定 Java 可执行文件路径（空字符串表示自动检测）。 */
     fun setJavaPath(path: String) {
         preferences.setJavaPath(path)
-        _status.value = if (path.isEmpty()) "Java 路径已重置为自动检测" else "Java 路径已设置为 $path"
+        _status.value = if (path.isEmpty()) I18n.t("status.java_path_reset") else I18n.t("status.java_path_set", path)
     }
 
     // ============ 世界管理 ============
@@ -3514,9 +3514,9 @@ class LauncherViewModel {
                     all
                 }
                 _worlds.value = list
-                _status.value = "扫描到 ${list.size} 个世界 [build 20260708.5]"
+                _status.value = I18n.t("status.worlds_scanned", list.size)
             } catch (e: Throwable) {
-                _status.value = "扫描世界失败：${e.message} [build 20260708.5]"
+                _status.value = I18n.t("status.scan_worlds_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -3525,9 +3525,9 @@ class LauncherViewModel {
         scope.launch {
             try {
                 val zip = withContext(Dispatchers.IO) { core.worlds().backup(world) }
-                _status.value = "已备份到 ${zip.fileName}"
+                _status.value = I18n.t("status.world_backed_up", zip.fileName.toString())
             } catch (e: Throwable) {
-                _status.value = "备份失败：${e.message}"
+                _status.value = I18n.t("status.backup_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -3536,10 +3536,10 @@ class LauncherViewModel {
         scope.launch {
             try {
                 withContext(Dispatchers.IO) { core.worlds().delete(world) }
-                _status.value = "已删除世界 ${world.name}"
+                _status.value = I18n.t("status.world_deleted", world.name)
                 refreshWorlds()
             } catch (e: Throwable) {
-                _status.value = "删除失败：${e.message}"
+                _status.value = I18n.t("status.delete_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -3560,10 +3560,10 @@ class LauncherViewModel {
         scope.launch {
             try {
                 withContext(Dispatchers.IO) { core.worlds().restore(zipFile, worldName) }
-                _status.value = "已恢复世界 $worldName"
+                _status.value = I18n.t("status.world_restored", worldName)
                 refreshWorlds()
             } catch (e: Throwable) {
-                _status.value = "恢复失败：${e.message}"
+                _status.value = I18n.t("status.restore_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -3573,10 +3573,10 @@ class LauncherViewModel {
         scope.launch {
             try {
                 withContext(Dispatchers.IO) { core.worlds().importWorld(zipFile) }
-                _status.value = "已导入世界 ${zipFile.fileName}"
+                _status.value = I18n.t("status.world_imported", zipFile.fileName.toString())
                 refreshWorlds()
             } catch (e: Throwable) {
-                _status.value = "导入失败：${e.message}"
+                _status.value = I18n.t("status.import_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -3642,9 +3642,9 @@ class LauncherViewModel {
                     all
                 }
                 _screenshots.value = list
-                _status.value = "扫描到 ${list.size} 张截图 [build 20260708.6]"
+                _status.value = I18n.t("status.screenshots_scanned", list.size)
             } catch (e: Throwable) {
-                _status.value = "扫描截图失败：${e.message} [build 20260708.6]"
+                _status.value = I18n.t("status.scan_screenshots_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -3653,10 +3653,10 @@ class LauncherViewModel {
         scope.launch {
             try {
                 withContext(Dispatchers.IO) { core.screenshots().delete(shot) }
-                _status.value = "已删除 ${shot.name}"
+                _status.value = I18n.t("status.screenshot_deleted", shot.name)
                 refreshScreenshots()
             } catch (e: Throwable) {
-                _status.value = "删除失败：${e.message}"
+                _status.value = I18n.t("status.delete_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -3681,9 +3681,9 @@ class LauncherViewModel {
                         java.awt.Toolkit.getDefaultToolkit().systemClipboard.setContents(selection, null)
                     }
                 }
-                _status.value = "已复制 ${shot.name} 到剪贴板"
+                _status.value = I18n.t("status.screenshot_copied", shot.name)
             } catch (e: Throwable) {
-                _status.value = "复制失败：${e.message}"
+                _status.value = I18n.t("status.copy_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -3710,9 +3710,9 @@ class LauncherViewModel {
                         }
                     }
                 }
-                _status.value = "已导出 ${shots.size} 张截图到 $targetPath"
+                _status.value = I18n.t("status.screenshots_exported", shots.size, targetPath)
             } catch (e: Throwable) {
-                _status.value = "导出失败：${e.message}"
+                _status.value = I18n.t("status.export_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -3763,9 +3763,9 @@ class LauncherViewModel {
                     all
                 }
                 _resourcePacks.value = list
-                _status.value = "扫描到 ${list.size} 个资源包"
+                _status.value = I18n.t("status.resource_packs_scanned", list.size)
             } catch (e: Throwable) {
-                _status.value = "扫描资源包失败：${e.message}"
+                _status.value = I18n.t("status.scan_resource_packs_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -3774,10 +3774,10 @@ class LauncherViewModel {
         scope.launch {
             try {
                 withContext(Dispatchers.IO) { core.resourcePacks().enable(pack.name) }
-                _status.value = "已启用资源包 ${pack.name}"
+                _status.value = I18n.t("status.resource_pack_enabled", pack.name)
                 refreshResourcePacks()
             } catch (e: Throwable) {
-                _status.value = "启用失败：${e.message}"
+                _status.value = I18n.t("status.enable_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -3786,10 +3786,10 @@ class LauncherViewModel {
         scope.launch {
             try {
                 withContext(Dispatchers.IO) { core.resourcePacks().disable(pack.name) }
-                _status.value = "已禁用资源包 ${pack.name}"
+                _status.value = I18n.t("status.resource_pack_disabled", pack.name)
                 refreshResourcePacks()
             } catch (e: Throwable) {
-                _status.value = "禁用失败：${e.message}"
+                _status.value = I18n.t("status.disable_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -3798,10 +3798,10 @@ class LauncherViewModel {
         scope.launch {
             try {
                 withContext(Dispatchers.IO) { core.resourcePacks().delete(pack) }
-                _status.value = "已删除 ${pack.name}"
+                _status.value = I18n.t("status.resource_pack_deleted", pack.name)
                 refreshResourcePacks()
             } catch (e: Throwable) {
-                _status.value = "删除失败：${e.message}"
+                _status.value = I18n.t("status.delete_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -3818,10 +3818,10 @@ class LauncherViewModel {
                     java.nio.file.Files.copy(src, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
                     src.fileName.toString()
                 }
-                _status.value = "已导入资源包：$fileName"
+                _status.value = I18n.t("status.resource_pack_imported", fileName)
                 refreshResourcePacks()
             } catch (e: Throwable) {
-                _status.value = "导入失败：${e.message}"
+                _status.value = I18n.t("status.import_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -3837,10 +3837,10 @@ class LauncherViewModel {
                         } catch (_: Throwable) {}
                     }
                 }
-                _status.value = "已批量启用 ${packs.size} 个资源包"
+                _status.value = I18n.t("status.batch_enabled_resource_packs", packs.size)
                 refreshResourcePacks()
             } catch (e: Throwable) {
-                _status.value = "批量启用失败：${e.message}"
+                _status.value = I18n.t("status.batch_enable_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -3856,10 +3856,10 @@ class LauncherViewModel {
                         } catch (_: Throwable) {}
                     }
                 }
-                _status.value = "已批量禁用 ${packs.size} 个资源包"
+                _status.value = I18n.t("status.batch_disabled_resource_packs", packs.size)
                 refreshResourcePacks()
             } catch (e: Throwable) {
-                _status.value = "批量禁用失败：${e.message}"
+                _status.value = I18n.t("status.batch_disable_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -3875,10 +3875,10 @@ class LauncherViewModel {
                         } catch (_: Throwable) {}
                     }
                 }
-                _status.value = "已批量删除 ${packs.size} 个资源包"
+                _status.value = I18n.t("status.batch_deleted_resource_packs", packs.size)
                 refreshResourcePacks()
             } catch (e: Throwable) {
-                _status.value = "批量删除失败：${e.message}"
+                _status.value = I18n.t("status.batch_delete_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -3887,14 +3887,14 @@ class LauncherViewModel {
 
     fun checkIntegrity(versionId: String) {
         scope.launch {
-            _status.value = "正在校验 $versionId 完整性…"
+            _status.value = I18n.t("status.checking_integrity", versionId)
             try {
                 val r = withContext(Dispatchers.IO) { core.integrity().check(versionId) }
                 _integrityResult.value = r
-                _status.value = if (r.isOk()) "完整性校验通过"
-                    else "发现 ${r.issueCount} 个问题（缺失 ${r.missing.size} / 哈希不匹配 ${r.hashMismatch.size}）"
+                _status.value = if (r.isOk()) I18n.t("status.integrity_check_passed")
+                    else I18n.t("status.integrity_issues_found", r.issueCount, r.missing.size, r.hashMismatch.size)
             } catch (e: Throwable) {
-                _status.value = "校验失败：${e.message}"
+                _status.value = I18n.t("status.integrity_check_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -3908,9 +3908,9 @@ class LauncherViewModel {
                     core.crashAnalyzer().scanReports(config.getWorkDir())
                 }
                 _crashReports.value = list
-                _status.value = "扫描到 ${list.size} 份崩溃报告"
+                _status.value = I18n.t("status.crash_reports_scanned", list.size)
             } catch (e: Throwable) {
-                _status.value = "扫描崩溃报告失败：${e.message}"
+                _status.value = I18n.t("status.scan_crash_reports_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -3926,30 +3926,30 @@ class LauncherViewModel {
             CrashAnalyzer.RecoveryType.INCREASE_MEMORY -> increaseMemory()
             CrashAnalyzer.RecoveryType.SWITCH_JAVA -> {
                 _navigationRequest.value = "settings"
-                _recoveryMessage.value = "已跳转到设置，请在「Java 路径」中为 $versionId 指定正确版本"
+                _recoveryMessage.value = I18n.t("recovery.jump_to_settings_java", versionId)
             }
             CrashAnalyzer.RecoveryType.CHECK_MOD_CONFLICTS -> {
                 refreshInstalledMods()
-                _recoveryMessage.value = "正在扫描模组冲突，请稍后查看模组页面"
+                _recoveryMessage.value = I18n.t("recovery.scanning_mod_conflicts")
             }
             CrashAnalyzer.RecoveryType.DISABLE_RECENT_MODS -> disableRecentMods(versionId)
             CrashAnalyzer.RecoveryType.CHECK_INTEGRITY -> {
                 checkIntegrity(versionId)
-                _recoveryMessage.value = "正在校验 $versionId 完整性，缺失文件将自动补全"
+                _recoveryMessage.value = I18n.t("recovery.checking_integrity", versionId)
             }
             CrashAnalyzer.RecoveryType.REINSTALL_VERSION -> reinstallVersion(versionId)
             CrashAnalyzer.RecoveryType.CLEAR_GAME_CONFIG -> clearGameConfig(versionId)
             CrashAnalyzer.RecoveryType.SHARE_LOGS -> {
                 shareLogs()
-                _recoveryMessage.value = "正在上传日志到 paste.gg…"
+                _recoveryMessage.value = I18n.t("recovery.uploading_logs")
             }
             CrashAnalyzer.RecoveryType.OPEN_MODS_PAGE -> {
                 _navigationRequest.value = "content"
-                _recoveryMessage.value = "已跳转到模组管理页面"
+                _recoveryMessage.value = I18n.t("recovery.jumped_to_mods")
             }
             CrashAnalyzer.RecoveryType.OPEN_SETTINGS -> {
                 _navigationRequest.value = "settings"
-                _recoveryMessage.value = "已跳转到设置页面"
+                _recoveryMessage.value = I18n.t("recovery.jumped_to_settings")
             }
         }
     }
@@ -3961,10 +3961,10 @@ class LauncherViewModel {
         val ceiling = (sysMax * 0.8).toInt()
         val target = (current + 1024).coerceAtMost(ceiling)
         if (target <= current) {
-            _recoveryMessage.value = "内存已达上限 ${ceiling}MB（系统可用 ${sysMax}MB）"
+            _recoveryMessage.value = I18n.t("recovery.memory_at_limit", ceiling, sysMax)
         } else {
             preferences.setMaxMemoryMb(target)
-            _recoveryMessage.value = "最大内存已从 ${current}MB 调整为 ${target}MB，可重新启动游戏"
+            _recoveryMessage.value = I18n.t("recovery.memory_adjusted", current, target)
         }
     }
 
@@ -3997,11 +3997,11 @@ class LauncherViewModel {
                     count
                 }
                 _recoveryMessage.value = if (moved > 0)
-                    "已禁用 $moved 个最近添加的模组（已移至 mods/disabled）"
-                else "mods 目录下无可禁用的模组"
+                    I18n.t("recovery.disabled_mods", moved)
+                else I18n.t("recovery.no_mods_to_disable")
                 if (moved > 0) refreshInstalledMods()
             } catch (e: Throwable) {
-                _recoveryMessage.value = "禁用模组失败：${e.message}"
+                _recoveryMessage.value = I18n.t("recovery.disable_mods_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -4019,10 +4019,10 @@ class LauncherViewModel {
                         }
                     }
                 }
-                _recoveryMessage.value = "$versionId 旧文件已清除，正在重新安装…"
+                _recoveryMessage.value = I18n.t("recovery.reinstalling", versionId)
                 installVersion(versionId)
             } catch (e: Throwable) {
-                _recoveryMessage.value = "重新安装失败：${e.message}"
+                _recoveryMessage.value = I18n.t("recovery.reinstall_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -4049,10 +4049,10 @@ class LauncherViewModel {
                     count
                 }
                 _recoveryMessage.value = if (backedUp > 0)
-                    "已备份并清理 $backedUp 个配置文件（备份位于 config-backup-* 目录），可重新启动"
-                else "未发现可清理的配置文件"
+                    I18n.t("recovery.config_cleaned", backedUp)
+                else I18n.t("recovery.no_config_to_clean")
             } catch (e: Throwable) {
-                _recoveryMessage.value = "清理配置失败：${e.message}"
+                _recoveryMessage.value = I18n.t("recovery.clear_config_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -4062,7 +4062,7 @@ class LauncherViewModel {
     /** 用户修改网络配置后调用，立即生效 */
     fun applyNetworkPreferences() {
         core.applyNetworkPreferences()
-        _status.value = "已应用网络偏好（镜像/代理/限速）"
+        _status.value = I18n.t("status.network_prefs_applied")
     }
 
     // ============ 光影包 ============
@@ -4111,9 +4111,9 @@ class LauncherViewModel {
                     all
                 }
                 _shaderPacks.value = list
-                _status.value = "扫描到 ${list.size} 个光影包"
+                _status.value = I18n.t("status.shader_packs_scanned", list.size)
             } catch (e: Throwable) {
-                _status.value = "扫描光影包失败：${e.message}"
+                _status.value = I18n.t("status.scan_shader_packs_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -4122,10 +4122,10 @@ class LauncherViewModel {
         scope.launch {
             try {
                 withContext(Dispatchers.IO) { core.shaderPacks().enable(pack.name) }
-                _status.value = "已启用光影包 ${pack.name}"
+                _status.value = I18n.t("status.shader_pack_enabled", pack.name)
                 refreshShaderPacks()
             } catch (e: Throwable) {
-                _status.value = "启用失败：${e.message}"
+                _status.value = I18n.t("status.enable_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -4134,10 +4134,10 @@ class LauncherViewModel {
         scope.launch {
             try {
                 withContext(Dispatchers.IO) { core.shaderPacks().disable(pack.name) }
-                _status.value = "已禁用光影包 ${pack.name}"
+                _status.value = I18n.t("status.shader_pack_disabled", pack.name)
                 refreshShaderPacks()
             } catch (e: Throwable) {
-                _status.value = "禁用失败：${e.message}"
+                _status.value = I18n.t("status.disable_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -4146,10 +4146,10 @@ class LauncherViewModel {
         scope.launch {
             try {
                 withContext(Dispatchers.IO) { core.shaderPacks().delete(pack) }
-                _status.value = "已删除光影包 ${pack.name}"
+                _status.value = I18n.t("status.shader_pack_deleted", pack.name)
                 refreshShaderPacks()
             } catch (e: Throwable) {
-                _status.value = "删除失败：${e.message}"
+                _status.value = I18n.t("status.delete_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -4166,10 +4166,10 @@ class LauncherViewModel {
                     java.nio.file.Files.copy(src, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
                     src.fileName.toString()
                 }
-                _status.value = "已导入光影包：$fileName"
+                _status.value = I18n.t("status.shader_pack_imported", fileName)
                 refreshShaderPacks()
             } catch (e: Throwable) {
-                _status.value = "导入失败：${e.message}"
+                _status.value = I18n.t("status.import_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -4185,10 +4185,10 @@ class LauncherViewModel {
                         } catch (_: Throwable) {}
                     }
                 }
-                _status.value = "已批量启用 ${packs.size} 个光影包"
+                _status.value = I18n.t("status.batch_enabled_shader_packs", packs.size)
                 refreshShaderPacks()
             } catch (e: Throwable) {
-                _status.value = "批量启用失败：${e.message}"
+                _status.value = I18n.t("status.batch_enable_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -4204,10 +4204,10 @@ class LauncherViewModel {
                         } catch (_: Throwable) {}
                     }
                 }
-                _status.value = "已批量禁用 ${packs.size} 个光影包"
+                _status.value = I18n.t("status.batch_disabled_shader_packs", packs.size)
                 refreshShaderPacks()
             } catch (e: Throwable) {
-                _status.value = "批量禁用失败：${e.message}"
+                _status.value = I18n.t("status.batch_disable_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -4223,10 +4223,10 @@ class LauncherViewModel {
                         } catch (_: Throwable) {}
                     }
                 }
-                _status.value = "已批量删除 ${packs.size} 个光影包"
+                _status.value = I18n.t("status.batch_deleted_shader_packs", packs.size)
                 refreshShaderPacks()
             } catch (e: Throwable) {
-                _status.value = "批量删除失败：${e.message}"
+                _status.value = I18n.t("status.batch_delete_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -4236,10 +4236,10 @@ class LauncherViewModel {
         scope.launch {
             try {
                 withContext(Dispatchers.IO) { core.shaderPacks().setActive(pack) }
-                _status.value = "已应用光影包：${pack.name}"
+                _status.value = I18n.t("status.shader_pack_applied", pack.name)
                 refreshShaderPacks()
             } catch (e: Throwable) {
-                _status.value = "应用失败：${e.message}"
+                _status.value = I18n.t("status.apply_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -4249,10 +4249,10 @@ class LauncherViewModel {
         scope.launch {
             try {
                 withContext(Dispatchers.IO) { core.shaderPacks().clearActive() }
-                _status.value = "已关闭光影"
+                _status.value = I18n.t("status.shader_pack_cleared")
                 refreshShaderPacks()
             } catch (e: Throwable) {
-                _status.value = "关闭失败：${e.message}"
+                _status.value = I18n.t("status.clear_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -4274,9 +4274,9 @@ class LauncherViewModel {
             try {
                 val list = withContext(Dispatchers.IO) { core.datapacks().list(worldDir) }
                 _datapacks.value = list
-                _status.value = "扫描到 ${list.size} 个数据包"
+                _status.value = I18n.t("status.datapacks_scanned", list.size)
             } catch (e: Throwable) {
-                _status.value = "扫描数据包失败：${e.message}"
+                _status.value = I18n.t("status.scan_datapacks_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -4285,14 +4285,14 @@ class LauncherViewModel {
         scope.launch {
             try {
                 withContext(Dispatchers.IO) { core.datapacks().delete(pack) }
-                _status.value = "已删除数据包 ${pack.name}"
+                _status.value = I18n.t("status.datapack_deleted", pack.name)
                 // 删除后刷新当前选中的世界
                 _selectedDatapackWorld.value?.let { w ->
                     val list = withContext(Dispatchers.IO) { core.datapacks().list(w.dir) }
                     _datapacks.value = list
                 }
             } catch (e: Throwable) {
-                _status.value = "删除失败：${e.message}"
+                _status.value = I18n.t("status.delete_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -4302,12 +4302,12 @@ class LauncherViewModel {
             try {
                 _selectedDatapackWorld.value?.let { w ->
                     withContext(Dispatchers.IO) { core.datapacks().enable(w.dir, pack.name) }
-                    _status.value = "已启用数据包 ${pack.name}"
+                    _status.value = I18n.t("status.datapack_enabled", pack.name)
                     val list = withContext(Dispatchers.IO) { core.datapacks().list(w.dir) }
                     _datapacks.value = list
                 }
             } catch (e: Throwable) {
-                _status.value = "启用失败：${e.message}"
+                _status.value = I18n.t("status.enable_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -4317,12 +4317,12 @@ class LauncherViewModel {
             try {
                 _selectedDatapackWorld.value?.let { w ->
                     withContext(Dispatchers.IO) { core.datapacks().disable(w.dir, pack.name) }
-                    _status.value = "已禁用数据包 ${pack.name}"
+                    _status.value = I18n.t("status.datapack_disabled", pack.name)
                     val list = withContext(Dispatchers.IO) { core.datapacks().list(w.dir) }
                     _datapacks.value = list
                 }
             } catch (e: Throwable) {
-                _status.value = "禁用失败：${e.message}"
+                _status.value = I18n.t("status.disable_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -4331,7 +4331,7 @@ class LauncherViewModel {
     fun importDatapack(filePath: String) {
         val world = _selectedDatapackWorld.value
         if (world == null) {
-            _status.value = "请先选择世界"
+            _status.value = I18n.t("status.world_select_first")
             return
         }
         scope.launch {
@@ -4344,11 +4344,11 @@ class LauncherViewModel {
                     java.nio.file.Files.copy(src, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
                     src.fileName.toString()
                 }
-                _status.value = "已导入数据包：$fileName"
+                _status.value = I18n.t("status.datapack_imported", fileName)
                 val list = withContext(Dispatchers.IO) { core.datapacks().list(world.dir) }
                 _datapacks.value = list
             } catch (e: Throwable) {
-                _status.value = "导入失败：${e.message}"
+                _status.value = I18n.t("status.import_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -4357,7 +4357,7 @@ class LauncherViewModel {
     fun batchEnableDatapacks(packs: List<DatapackManager.Datapack>) {
         val world = _selectedDatapackWorld.value
         if (world == null) {
-            _status.value = "请先选择世界"
+            _status.value = I18n.t("status.world_select_first")
             return
         }
         scope.launch {
@@ -4369,11 +4369,11 @@ class LauncherViewModel {
                         } catch (_: Throwable) {}
                     }
                 }
-                _status.value = "已批量启用 ${packs.size} 个数据包"
+                _status.value = I18n.t("status.batch_enabled_datapacks", packs.size)
                 val list = withContext(Dispatchers.IO) { core.datapacks().list(world.dir) }
                 _datapacks.value = list
             } catch (e: Throwable) {
-                _status.value = "批量启用失败：${e.message}"
+                _status.value = I18n.t("status.batch_enable_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -4382,7 +4382,7 @@ class LauncherViewModel {
     fun batchDisableDatapacks(packs: List<DatapackManager.Datapack>) {
         val world = _selectedDatapackWorld.value
         if (world == null) {
-            _status.value = "请先选择世界"
+            _status.value = I18n.t("status.world_select_first")
             return
         }
         scope.launch {
@@ -4394,11 +4394,11 @@ class LauncherViewModel {
                         } catch (_: Throwable) {}
                     }
                 }
-                _status.value = "已批量禁用 ${packs.size} 个数据包"
+                _status.value = I18n.t("status.batch_disabled_datapacks", packs.size)
                 val list = withContext(Dispatchers.IO) { core.datapacks().list(world.dir) }
                 _datapacks.value = list
             } catch (e: Throwable) {
-                _status.value = "批量禁用失败：${e.message}"
+                _status.value = I18n.t("status.batch_disable_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -4407,7 +4407,7 @@ class LauncherViewModel {
     fun batchDeleteDatapacks(packs: List<DatapackManager.Datapack>) {
         val world = _selectedDatapackWorld.value
         if (world == null) {
-            _status.value = "请先选择世界"
+            _status.value = I18n.t("status.world_select_first")
             return
         }
         scope.launch {
@@ -4419,11 +4419,11 @@ class LauncherViewModel {
                         } catch (_: Throwable) {}
                     }
                 }
-                _status.value = "已批量删除 ${packs.size} 个数据包"
+                _status.value = I18n.t("status.batch_deleted_datapacks", packs.size)
                 val list = withContext(Dispatchers.IO) { core.datapacks().list(world.dir) }
                 _datapacks.value = list
             } catch (e: Throwable) {
-                _status.value = "批量删除失败：${e.message}"
+                _status.value = I18n.t("status.batch_delete_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -4454,9 +4454,9 @@ class LauncherViewModel {
         scope.launch {
             try {
                 withContext(Dispatchers.IO) { WikiBrowser.open(url) }
-                _status.value = "已在系统浏览器打开: $url"
+                _status.value = I18n.t("status.wiki_opened", url)
             } catch (e: Throwable) {
-                _status.value = "打开失败：${e.message}"
+                _status.value = I18n.t("status.open_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -4466,7 +4466,7 @@ class LauncherViewModel {
     fun setLanguage(lang: String) {
         preferences.setLanguage(lang)
         core.applyLanguage(lang)
-        _status.value = "已切换语言（重启 UI 后完全生效）"
+        _status.value = I18n.t("status.language_switched")
     }
 
     // ============ 日志导出/分享 ============
@@ -4492,10 +4492,10 @@ class LauncherViewModel {
                 append(logs.joinToString("\n"))
             }
             java.nio.file.Files.write(path, content.toByteArray(java.nio.charset.StandardCharsets.UTF_8))
-            _status.value = "日志已导出到: $targetPath"
+            _status.value = I18n.t("status.logs_exported", targetPath)
             true
         } catch (e: Throwable) {
-            _status.value = "日志导出失败: ${e.message}"
+            _status.value = I18n.t("status.logs_export_failed", e.message ?: I18n.t("common.unknown"))
             false
         }
     }
@@ -4507,7 +4507,7 @@ class LauncherViewModel {
         if (_logSharing.value) return
         val logs = _gameLogs.value
         if (logs.isEmpty()) {
-            _status.value = "暂无日志可分享"
+            _status.value = I18n.t("status.no_logs_to_share")
             return
         }
         _logSharing.value = true
@@ -4518,9 +4518,9 @@ class LauncherViewModel {
                 val name = "PMCL-Log-${java.text.SimpleDateFormat("yyyyMMdd-HHmmss").format(java.util.Date())}"
                 val url = core.pastebin().upload(content, name)
                 _shareUrl.value = url
-                _status.value = "日志已上传，分享链接已生成"
+                _status.value = I18n.t("status.logs_uploaded")
             } catch (e: Throwable) {
-                _status.value = "日志上传失败: ${e.message}"
+                _status.value = I18n.t("status.logs_upload_failed", e.message ?: I18n.t("common.unknown"))
             } finally {
                 _logSharing.value = false
             }
@@ -4560,7 +4560,7 @@ class LauncherViewModel {
                             _newsItems.value = list
                             fetchNewsCoverImages(list)
                             DataCache.save("news_list", list)
-                            _status.value = if (list.isEmpty()) "暂无新闻" else "已加载 ${list.size} 条新闻"
+                            _status.value = if (list.isEmpty()) I18n.t("status.no_news") else I18n.t("status.news_loaded", list.size)
                         } catch (_: Throwable) {
                             // 静默失败，保留缓存数据
                         }
@@ -4571,7 +4571,7 @@ class LauncherViewModel {
             }
             // 缓存不存在/已过期：正常网络请求
             _newsLoading.value = true
-            _status.value = "正在加载新闻…"
+            _status.value = I18n.t("status.loading_news")
             try {
                 val list = withContext(Dispatchers.IO) {
                     core.news().fetch(20).join()
@@ -4579,10 +4579,10 @@ class LauncherViewModel {
                 transferNewsImageUrls(list)
                 _newsItems.value = list
                 fetchNewsCoverImages(list)
-                _status.value = if (list.isEmpty()) "暂无新闻" else "已加载 ${list.size} 条新闻"
+                _status.value = if (list.isEmpty()) I18n.t("status.no_news") else I18n.t("status.news_loaded", list.size)
                 DataCache.save("news_list", list)
             } catch (e: Throwable) {
-                _status.value = "加载新闻失败：${e.message}"
+                _status.value = I18n.t("status.news_load_failed", e.message ?: I18n.t("common.unknown"))
             } finally {
                 _newsLoading.value = false
             }
@@ -4638,15 +4638,15 @@ class LauncherViewModel {
     /** 在系统浏览器打开新闻原文链接 */
     fun openNewsLink(url: String) {
         if (url.isBlank()) {
-            _status.value = "该新闻没有可访问的链接"
+            _status.value = I18n.t("status.news_no_link")
             return
         }
         scope.launch {
             try {
                 withContext(Dispatchers.IO) { WikiBrowser.open(url) }
-                _status.value = "已在系统浏览器打开新闻"
+                _status.value = I18n.t("status.news_opened_in_browser")
             } catch (e: Throwable) {
-                _status.value = "打开失败：${e.message}"
+                _status.value = I18n.t("status.open_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -4789,7 +4789,7 @@ class LauncherViewModel {
     fun setMpBackend(b: com.pmcl.core.multiplayer.MultiplayerManager.Backend) {
         if (_mpState.value == com.pmcl.core.multiplayer.MultiplayerManager.State.CONNECTING ||
             _mpState.value == com.pmcl.core.multiplayer.MultiplayerManager.State.CONNECTED) {
-            _status.value = "请先离开当前房间再切换后端"
+            _status.value = I18n.t("status.leave_room_before_switch_backend")
             return
         }
         val name = when (b) {
@@ -4804,22 +4804,22 @@ class LauncherViewModel {
             com.pmcl.core.multiplayer.MultiplayerManager.Backend.EASYTIER -> "EasyTier"
             com.pmcl.core.multiplayer.MultiplayerManager.Backend.TERRACOTTA -> "Terracotta 陶瓦联机"
         }
-        _status.value = "已切换到 $label 联机后端"
+        _status.value = I18n.t("status.mp_backend_switched", label)
     }
 
     fun createRoom() {
         if (_mpState.value == com.pmcl.core.multiplayer.MultiplayerManager.State.CONNECTING ||
             _mpState.value == com.pmcl.core.multiplayer.MultiplayerManager.State.CONNECTED) {
-            _status.value = "已在房间中，请先离开"
+            _status.value = I18n.t("status.already_in_room")
             return
         }
         val backend = mpBackend
         _mpState.value = com.pmcl.core.multiplayer.MultiplayerManager.State.DOWNLOADING
-        _mpProgress.value = "准备中…"
+        _mpProgress.value = I18n.t("mp.progress.preparing")
         _status.value = when (backend) {
-            com.pmcl.core.multiplayer.MultiplayerManager.Backend.CONNECTX -> "正在创建 ConnectX 房间…"
-            com.pmcl.core.multiplayer.MultiplayerManager.Backend.TERRACOTTA -> "正在创建陶瓦联机房间（Terracotta）…"
-            com.pmcl.core.multiplayer.MultiplayerManager.Backend.EASYTIER -> "正在创建陶瓦联机房间…"
+            com.pmcl.core.multiplayer.MultiplayerManager.Backend.CONNECTX -> I18n.t("status.creating_connectx_room")
+            com.pmcl.core.multiplayer.MultiplayerManager.Backend.TERRACOTTA -> I18n.t("status.creating_terracotta_room")
+            com.pmcl.core.multiplayer.MultiplayerManager.Backend.EASYTIER -> I18n.t("status.creating_mp_room")
         }
         scope.launch {
             try {
@@ -4847,18 +4847,18 @@ class LauncherViewModel {
                     com.pmcl.core.multiplayer.MultiplayerManager.State.CONNECTED) {
                     when (backend) {
                         com.pmcl.core.multiplayer.MultiplayerManager.Backend.TERRACOTTA ->
-                            "已创建房间，房间码：${core.multiplayer().currentRoomCode}"
+                            I18n.t("status.room_created_with_code", core.multiplayer().currentRoomCode)
                         com.pmcl.core.multiplayer.MultiplayerManager.Backend.CONNECTX ->
-                            "已创建 ConnectX 房间"
+                            I18n.t("status.connectx_room_created")
                         else ->
-                            "已创建房间，虚拟 IP：${core.multiplayer().virtualIp}"
+                            I18n.t("status.room_created_with_vip", core.multiplayer().virtualIp)
                     }
                 } else {
-                    "房间已启动，等待连接…"
+                    I18n.t("status.room_started_waiting")
                 }
             } catch (e: Throwable) {
                 _mpState.value = com.pmcl.core.multiplayer.MultiplayerManager.State.FAILED
-                _status.value = "创建房间失败：${e.message}"
+                _status.value = I18n.t("status.create_room_failed", e.message ?: I18n.t("common.unknown"))
             } finally {
                 _mpProgress.value = ""
             }
@@ -4868,20 +4868,20 @@ class LauncherViewModel {
     /** 通过邀请码/房间码加入房间 */
     fun joinRoom(invitation: String) {
         if (invitation.isBlank()) {
-            _status.value = "请输入房间码或邀请码"
+            _status.value = I18n.t("status.enter_room_code_or_invitation")
             return
         }
         if (_mpState.value == com.pmcl.core.multiplayer.MultiplayerManager.State.CONNECTING ||
             _mpState.value == com.pmcl.core.multiplayer.MultiplayerManager.State.CONNECTED) {
-            _status.value = "已在房间中，请先离开"
+            _status.value = I18n.t("status.already_in_room")
             return
         }
         val isConnectX = invitation.trim().startsWith("connectx-")
         val isTerracotta = invitation.trim().startsWith("U/") ||
             mpBackend == com.pmcl.core.multiplayer.MultiplayerManager.Backend.TERRACOTTA
         _mpState.value = com.pmcl.core.multiplayer.MultiplayerManager.State.DOWNLOADING
-        _mpProgress.value = "解析房间码…"
-        _status.value = "正在加入房间…"
+        _mpProgress.value = I18n.t("mp.progress.parsing_code")
+        _status.value = I18n.t("status.joining_room")
         scope.launch {
             try {
                 withContext(Dispatchers.IO) {
@@ -4908,16 +4908,16 @@ class LauncherViewModel {
                         }
                     }
                     if (isTerracotta && core.multiplayer().localMcAddr.isNotEmpty()) {
-                        "已加入房间，MC 地址：${core.multiplayer().localMcAddr}（直接连接用此地址）"
+                        I18n.t("status.joined_room_mc_addr", core.multiplayer().localMcAddr)
                     } else {
-                        "已加入房间，虚拟 IP：${core.multiplayer().virtualIp}"
+                        I18n.t("status.joined_room_vip", core.multiplayer().virtualIp)
                     }
                 } else {
-                    "正在连接房间…"
+                    I18n.t("status.connecting_room")
                 }
             } catch (e: Throwable) {
                 _mpState.value = com.pmcl.core.multiplayer.MultiplayerManager.State.FAILED
-                _status.value = "加入房间失败：${e.message}"
+                _status.value = I18n.t("status.join_room_failed", e.message ?: I18n.t("common.unknown"))
             } finally {
                 _mpProgress.value = ""
             }
@@ -4936,7 +4936,7 @@ class LauncherViewModel {
                 }
                 withContext(Dispatchers.IO) { core.multiplayer().leaveRoom() }
             } catch (e: Throwable) {
-                _status.value = "离开房间失败：${e.message}"
+                _status.value = I18n.t("status.leave_room_failed", e.message ?: I18n.t("common.unknown"))
             }
             refreshMpState()
             _mpInvitation.value = ""
@@ -4944,9 +4944,9 @@ class LauncherViewModel {
             _mpLocalMcAddr.value = ""
             val backend = mpBackend
             _status.value = when (backend) {
-                com.pmcl.core.multiplayer.MultiplayerManager.Backend.CONNECTX -> "已离开 ConnectX 房间"
-                com.pmcl.core.multiplayer.MultiplayerManager.Backend.TERRACOTTA -> "已离开陶瓦联机房间"
-                else -> "已离开陶瓦联机房间"
+                com.pmcl.core.multiplayer.MultiplayerManager.Backend.CONNECTX -> I18n.t("status.left_connectx_room")
+                com.pmcl.core.multiplayer.MultiplayerManager.Backend.TERRACOTTA -> I18n.t("status.left_terracotta_room")
+                else -> I18n.t("status.left_terracotta_room")
             }
         }
     }
@@ -4964,7 +4964,7 @@ class LauncherViewModel {
     fun copyInvitation() {
         val code = core.multiplayer().generateInvitation()
         if (code.isEmpty()) {
-            _status.value = "当前没有可分享的邀请码"
+            _status.value = I18n.t("status.no_invitation_to_share")
             return
         }
         scope.launch {
@@ -4975,9 +4975,9 @@ class LauncherViewModel {
                             java.awt.datatransfer.StringSelection(code), null
                         )
                 }
-                _status.value = "邀请码已复制到剪贴板"
+                _status.value = I18n.t("status.invitation_copied")
             } catch (e: Throwable) {
-                _status.value = "复制失败：${e.message}"
+                _status.value = I18n.t("status.copy_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -4993,9 +4993,9 @@ class LauncherViewModel {
                             java.awt.datatransfer.StringSelection(text), null
                         )
                 }
-                _status.value = "已复制：$text"
+                _status.value = I18n.t("status.copied", text)
             } catch (e: Throwable) {
-                _status.value = "复制失败：${e.message}"
+                _status.value = I18n.t("status.copy_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -5036,7 +5036,7 @@ class LauncherViewModel {
     fun setDirectConnectServer(host: String, port: Int) {
         preferences.setGameServerHost(host)
         preferences.setGameServerPort(port)
-        _status.value = "已设置直连服务器：$host:$port"
+        _status.value = I18n.t("status.direct_connect_server_set", "$host:$port")
     }
 
     /** ping 单个服务器 */
@@ -5080,7 +5080,7 @@ class LauncherViewModel {
                 val list = withContext(Dispatchers.IO) { core.instances().listInstances() }
                 _instances.value = list
             } catch (e: Throwable) {
-                _status.value = "加载实例失败: ${e.message}"
+                _status.value = I18n.t("status.load_instances_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -5093,9 +5093,9 @@ class LauncherViewModel {
                     core.instances().createInstance(name, baseVersionId, loader, loaderVersion)
                 }
                 loadInstances()
-                _status.value = "实例「$name」已创建"
+                _status.value = I18n.t("status.instance_created", name)
             } catch (e: Throwable) {
-                _status.value = "创建实例失败: ${e.message}"
+                _status.value = I18n.t("status.instance_create_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -5108,9 +5108,9 @@ class LauncherViewModel {
                     core.instances().copyInstance(instanceId, newName)
                 }
                 loadInstances()
-                _status.value = "实例「$newName」已从原实例复制"
+                _status.value = I18n.t("status.instance_copied", newName)
             } catch (e: Throwable) {
-                _status.value = "复制实例失败: ${e.message}"
+                _status.value = I18n.t("status.instance_copy_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -5123,9 +5123,9 @@ class LauncherViewModel {
                     core.instances().renameInstance(instanceId, newName)
                 }
                 loadInstances()
-                _status.value = "实例已重命名为「$newName」"
+                _status.value = I18n.t("status.instance_renamed", newName)
             } catch (e: Throwable) {
-                _status.value = "重命名失败: ${e.message}"
+                _status.value = I18n.t("status.rename_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -5138,9 +5138,9 @@ class LauncherViewModel {
                     core.instances().deleteInstance(instanceId)
                 }
                 loadInstances()
-                _status.value = "实例已删除"
+                _status.value = I18n.t("status.instance_deleted")
             } catch (e: Throwable) {
-                _status.value = "删除实例失败: ${e.message}"
+                _status.value = I18n.t("status.instance_delete_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -5149,7 +5149,7 @@ class LauncherViewModel {
     fun launchInstance(instanceId: String) {
         val info = _instances.value.find { it.getInstanceId() == instanceId } ?: return
         if (!info.isLaunchable()) {
-            _status.value = "实例「${info.getName()}」缺少基础版本，无法启动"
+            _status.value = I18n.t("status.instance_missing_base_version", info.getName())
             return
         }
         // 设置实例上下文，launch() 会读取此字段用 buildInstance 代替 build
@@ -5168,9 +5168,9 @@ class LauncherViewModel {
             try {
                 val list = withContext(Dispatchers.IO) { core.migration().detectSources() }
                 _migrationSources.value = list
-                _status.value = if (list.isEmpty()) "未检测到可迁移的启动器" else "检测到 ${list.size} 个可迁移来源"
+                _status.value = if (list.isEmpty()) I18n.t("status.no_migration_sources") else I18n.t("status.migration_sources_detected", list.size)
             } catch (e: Throwable) {
-                _status.value = "扫描失败：${e.message}"
+                _status.value = I18n.t("status.scan_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -5181,7 +5181,7 @@ class LauncherViewModel {
         scope.launch {
             _migrating.value = true
             _migrationProgress.value = "开始从 ${source.getName()} 迁移…"
-            _status.value = "正在从 ${source.getName()} 迁移游戏数据…"
+            _status.value = I18n.t("status.migrating_from", source.getName())
             try {
                 withContext(Dispatchers.IO) {
                     core.migration().migrate(source) { msg ->
@@ -5190,10 +5190,10 @@ class LauncherViewModel {
                 }
                 // 迁移完成后刷新本地版本
                 refreshLocalVersions()
-                _status.value = "迁移完成，已加载本地版本"
+                _status.value = I18n.t("status.migration_complete")
                 _migrationProgress.value = "迁移完成"
             } catch (e: Throwable) {
-                _status.value = "迁移失败：${e.message}"
+                _status.value = I18n.t("status.migration_failed", e.message ?: I18n.t("common.unknown"))
                 _migrationProgress.value = "迁移失败：${e.message}"
             } finally {
                 _migrating.value = false

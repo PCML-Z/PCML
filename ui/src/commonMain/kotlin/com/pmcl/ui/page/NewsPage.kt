@@ -131,7 +131,7 @@ fun NewsPage(vm: LauncherViewModel) {
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         // 标题栏
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Minecraft 新闻",
+            Text(I18n.t("news.title"),
                  style = MaterialTheme.typography.headlineSmall,
                  fontWeight = FontWeight.Bold,
                  modifier = Modifier.weight(1f))
@@ -278,7 +278,7 @@ private fun ArticleDetailView(
                     Icon(Icons.Filled.Search, contentDescription = null,
                          modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("在浏览器打开")
+                    Text(I18n.t("news.open_browser"))
                 }
             }
         }
@@ -661,7 +661,7 @@ private fun NewsCard(
                     } else {
                         Spacer(Modifier.weight(1f))
                     }
-                    Text("查看全文 →",
+                    Text(I18n.t("news.view_full"),
                          style = MaterialTheme.typography.labelSmall,
                          color = MaterialTheme.colorScheme.primary,
                          fontSize = 11.sp)

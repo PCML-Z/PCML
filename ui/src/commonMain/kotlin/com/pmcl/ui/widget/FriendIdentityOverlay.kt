@@ -29,6 +29,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pmcl.core.friend.FriendIdentityManager
+import com.pmcl.core.i18n.I18n
 import org.jetbrains.skia.Image as SkiaImage
 
 /**
@@ -152,18 +153,18 @@ fun IdentityCard(
                                 border = BorderStroke(2.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
-                                    Icon(Icons.Filled.Lock, "未登录",
+                                    Icon(Icons.Filled.Lock, I18n.t("friend.not_logged_in"),
                                         modifier = Modifier.size(40.dp),
                                         tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.25f))
                                 }
                             }
                             Spacer(Modifier.height(16.dp))
-                            Text("未登录账号",
+                            Text(I18n.t("friend.not_logged_in_account"),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Medium,
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f))
                             Spacer(Modifier.height(4.dp))
-                            Text("登录后显示身份信息",
+                            Text(I18n.t("friend.identity_hint"),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f))
                             Spacer(Modifier.height(10.dp))
@@ -171,7 +172,7 @@ fun IdentityCard(
                                 onClick = onToggleExpand,
                                 modifier = Modifier.size(38.dp)
                             ) {
-                                Icon(Icons.Filled.FullscreenExit, "收起", modifier = Modifier.size(18.dp))
+                                Icon(Icons.Filled.FullscreenExit, I18n.t("friend.collapse"), modifier = Modifier.size(18.dp))
                             }
                         } else {
                         // QR 码
@@ -185,14 +186,14 @@ fun IdentityCard(
                                 Box(contentAlignment = Alignment.Center) {
                                     Image(
                                         bitmap = qrBitmap,
-                                        contentDescription = "好友二维码",
+                                        contentDescription = I18n.t("friend.qr_code"),
                                         modifier = Modifier.size(144.dp)
                                     )
                                 }
                             }
                         } else {
                             Box(Modifier.size(160.dp), contentAlignment = Alignment.Center) {
-                                Text("QR 生成中...",
+                                Text(I18n.t("friend.qr_generating"),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f))
                             }
@@ -248,13 +249,13 @@ fun IdentityCard(
                                 onClick = onPickBackground,
                                 modifier = Modifier.size(38.dp)
                             ) {
-                                Icon(Icons.Filled.Image, "更换背景", modifier = Modifier.size(18.dp))
+                                Icon(Icons.Filled.Image, I18n.t("friend.change_background"), modifier = Modifier.size(18.dp))
                             }
                             FilledTonalIconButton(
                                 onClick = onToggleExpand,
                                 modifier = Modifier.size(38.dp)
                             ) {
-                                Icon(Icons.Filled.FullscreenExit, "收起", modifier = Modifier.size(18.dp))
+                                Icon(Icons.Filled.FullscreenExit, I18n.t("friend.collapse"), modifier = Modifier.size(18.dp))
                             }
                         }
                         }
@@ -269,20 +270,20 @@ fun IdentityCard(
                                 border = BorderStroke(2.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
-                                    Icon(Icons.Filled.Lock, "未登录",
+                                    Icon(Icons.Filled.Lock, I18n.t("friend.not_logged_in"),
                                         modifier = Modifier.size(28.dp),
                                         tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.25f))
                                 }
                             }
                             Spacer(Modifier.height(10.dp))
-                            Text("未登录账号",
+                            Text(I18n.t("friend.not_logged_in_account"),
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Medium,
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis)
                             Spacer(Modifier.height(2.dp))
-                            Text("登录后显示",
+                            Text(I18n.t("friend.identity_hint_short"),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f))
                             Spacer(Modifier.height(8.dp))
@@ -290,7 +291,7 @@ fun IdentityCard(
                                 onClick = onToggleExpand,
                                 modifier = Modifier.size(30.dp)
                             ) {
-                                Icon(Icons.Filled.Fullscreen, "展开", modifier = Modifier.size(14.dp))
+                                Icon(Icons.Filled.Fullscreen, I18n.t("friend.expand"), modifier = Modifier.size(14.dp))
                             }
                         } else {
                         // QR 码
@@ -304,14 +305,14 @@ fun IdentityCard(
                                 Box(contentAlignment = Alignment.Center) {
                                     Image(
                                         bitmap = qrBitmap,
-                                        contentDescription = "好友二维码",
+                                        contentDescription = I18n.t("friend.qr_code"),
                                         modifier = Modifier.size(86.dp)
                                     )
                                 }
                             }
                         } else {
                             Box(Modifier.size(100.dp), contentAlignment = Alignment.Center) {
-                                Text("QR 生成中...",
+                                Text(I18n.t("friend.qr_generating"),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f))
                             }
@@ -367,13 +368,13 @@ fun IdentityCard(
                                 onClick = onPickBackground,
                                 modifier = Modifier.size(30.dp)
                             ) {
-                                Icon(Icons.Filled.Image, "更换背景", modifier = Modifier.size(14.dp))
+                                Icon(Icons.Filled.Image, I18n.t("friend.change_background"), modifier = Modifier.size(14.dp))
                             }
                             FilledTonalIconButton(
                                 onClick = onToggleExpand,
                                 modifier = Modifier.size(30.dp)
                             ) {
-                                Icon(Icons.Filled.Fullscreen, "展开", modifier = Modifier.size(14.dp))
+                                Icon(Icons.Filled.Fullscreen, I18n.t("friend.expand"), modifier = Modifier.size(14.dp))
                             }
                         }
                         }

@@ -1,5 +1,7 @@
 package com.pmcl.ui.page
 
+import com.pmcl.core.i18n.I18n
+
 /**
  * 内容板块通用工具函数。
  *
@@ -60,7 +62,7 @@ object ContentUtils {
             46 -> "1.21.4"
             55 -> "1.21.5"
             66 -> "1.21.6+"
-            else -> if (packFormat > 66) "1.21.6+" else "未知"
+            else -> if (packFormat > 66) "1.21.6+" else I18n.t("content.unknown")
         }
     }
 

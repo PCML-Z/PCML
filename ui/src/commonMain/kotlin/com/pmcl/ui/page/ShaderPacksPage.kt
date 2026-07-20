@@ -128,13 +128,13 @@ fun ShaderPacksPage(vm: LauncherViewModel) {
                 OutlinedButton(onClick = { sortExpanded = true }) {
                     Icon(Icons.AutoMirrored.Filled.Sort, null, Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text(sortBy.label)
+                    Text(I18n.t(sortBy.labelKey))
                     Icon(Icons.Filled.ArrowDropDown, null, Modifier.size(16.dp))
                 }
                 DropdownMenu(expanded = sortExpanded, onDismissRequest = { sortExpanded = false }) {
                     ShaderSort.entries.forEach { s ->
                         DropdownMenuItem(
-                            text = { Text(s.label) },
+                            text = { Text(I18n.t(s.labelKey)) },
                             onClick = { sortBy = s; sortExpanded = false }
                         )
                     }
@@ -233,7 +233,7 @@ fun ShaderPacksPage(vm: LauncherViewModel) {
             }
         }
         Spacer(Modifier.height(8.dp))
-        Text("状态: $status",
+        Text(I18n.t("shader.status_format", status),
              style = MaterialTheme.typography.labelSmall,
              color = MaterialTheme.colorScheme.outline)
     }
@@ -249,8 +249,8 @@ fun ShaderPacksPage(vm: LauncherViewModel) {
     }
 }
 
-enum class ShaderSort(val label: String) {
-    NAME("按名称"), SIZE_DESC("大小 ↓"), SIZE_ASC("大小 ↑"), ACTIVE("已应用优先")
+enum class ShaderSort(val labelKey: String) {
+    NAME("shader.sort.name"), SIZE_DESC("shader.sort.size_desc"), SIZE_ASC("shader.sort.size_asc"), ACTIVE("shader.sort.active")
 }
 
 @Composable
@@ -431,7 +431,7 @@ private fun ShaderPackRow(
                     Text(I18n.t("shader.detail_source", pack.source ?: "—"),
                          style = MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.height(4.dp))
-                    Text("${I18n.t("common.status")}: $stateLabel",
+                    Text(I18n.t("shader.status_format", stateLabel),
                          style = MaterialTheme.typography.bodySmall)
                 }
             },

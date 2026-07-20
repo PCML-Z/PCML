@@ -20,6 +20,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.pmcl.core.i18n.I18n
 import com.pmcl.ui.viewmodel.LauncherViewModel
 
 /**
@@ -55,13 +56,13 @@ fun AgreementGatePage(vm: LauncherViewModel) {
         )
         Spacer(Modifier.height(16.dp))
         Text(
-            "欢迎使用 PMCL",
+            I18n.t("agreement.title"),
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold
         )
         Spacer(Modifier.height(8.dp))
         Text(
-            "在开始使用之前，请您仔细阅读并同意以下协议。\n这些协议明确了您与开发者之间的权利与义务。",
+            I18n.t("agreement.subtitle"),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
@@ -72,8 +73,8 @@ fun AgreementGatePage(vm: LauncherViewModel) {
         // ===== 协议 1：用户协议 =====
         AgreementItem(
             icon = Icons.Filled.Gavel,
-            title = "PMCL 用户协议",
-            description = "规定了您使用本软件的权利、义务及行为规范",
+            title = I18n.t("agreement.user_agreement_title"),
+            description = I18n.t("agreement.user_agreement_desc"),
             resourceName = "USER_AGREEMENT.txt",
             agreed = agreeUserAgreement,
             onAgreedChange = { agreeUserAgreement = it },
@@ -88,8 +89,8 @@ fun AgreementGatePage(vm: LauncherViewModel) {
         // ===== 协议 2：免责协议 =====
         AgreementItem(
             icon = Icons.Filled.Shield,
-            title = "PMCL 免责协议",
-            description = "明确了开发者在各类情形下的责任范围与免责条款",
+            title = I18n.t("agreement.disclaimer_title"),
+            description = I18n.t("agreement.disclaimer_desc"),
             resourceName = "DISCLAIMER.txt",
             agreed = agreeDisclaimer,
             onAgreedChange = { agreeDisclaimer = it },
@@ -104,8 +105,8 @@ fun AgreementGatePage(vm: LauncherViewModel) {
         // ===== 协议 3：软件技术许可证 =====
         AgreementItem(
             icon = Icons.Filled.Article,
-            title = "PMCL 软件技术许可证 v1.1",
-            description = "本软件的版权授权条款（中文为权威版本）",
+            title = I18n.t("agreement.license_title"),
+            description = I18n.t("agreement.license_desc"),
             resourceName = "LICENSE.zh.txt",
             agreed = agreeLicense,
             onAgreedChange = { agreeLicense = it },
@@ -128,7 +129,7 @@ fun AgreementGatePage(vm: LauncherViewModel) {
                     // 不同意则退出应用
                     kotlin.system.exitProcess(0)
                 }
-            ) { Text("不同意，退出") }
+            ) { Text(I18n.t("agreement.decline")) }
 
             Button(
                 onClick = { vm.acceptAgreements() },
@@ -136,14 +137,14 @@ fun AgreementGatePage(vm: LauncherViewModel) {
             ) {
                 Icon(Icons.Filled.CheckCircle, null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
-                Text("同意并继续")
+                Text(I18n.t("agreement.continue"))
             }
         }
 
         Spacer(Modifier.height(8.dp))
         if (!allAgreed) {
             Text(
-                "请勾选同意全部三项协议后方可继续",
+                I18n.t("agreement.warning"),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.outline
             )
@@ -177,8 +178,8 @@ private fun AgreementItem(
                     ?.getResourceAsStream(resourceName)
                     ?.bufferedReader()
                     ?.use { it.readText() }
-                    ?: "文档未找到：$resourceName"
-            }.getOrElse { "加载失败：${it.message}" }
+                    ?: I18n.t("agreement.doc_not_found", resourceName)
+            }.getOrElse { I18n.t("agreement.load_failed", it.message ?: "") }
         )
     }
 
@@ -208,7 +209,7 @@ private fun AgreementItem(
                 FilterChip(
                     selected = agreed,
                     onClick = { onAgreedChange(!agreed) },
-                    label = { Text(if (agreed) "已同意" else "未同意") },
+                    label = { Text(if (agreed) I18n.t("agreement.agreed") else I18n.t("agreement.not_agreed")) },
                     leadingIcon = if (agreed) {
                         { Icon(Icons.Filled.CheckCircle, null, Modifier.size(16.dp)) }
                     } else null
@@ -223,11 +224,11 @@ private fun AgreementItem(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 TextButton(onClick = onExpandToggle) {
-                    Text(if (expanded) "收起全文" else "查看全文")
+                    Text(if (expanded) I18n.t("agreement.collapse") else I18n.t("agreement.expand"))
                 }
                 TextButton(onClick = {
                     clipboardManager.setText(AnnotatedString(docText))
-                }) { Text("复制全文") }
+                }) { Text(I18n.t("agreement.copy")) }
             }
 
             // 展开时显示全文

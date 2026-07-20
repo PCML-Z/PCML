@@ -27,6 +27,12 @@ public final class I18n {
     private static final Map<String, String> JA = new LinkedHashMap<>();
 
     static {
+        initZh();
+        initEn();
+        initJa();
+    }
+
+    private static void initZh() {
         // ===== 通用 =====
         ZH.put("app.title", "PMCL 启动器");
         ZH.put("common.refresh", "刷新");
@@ -1100,6 +1106,625 @@ public final class I18n {
         ZH.put("market.cat.social", "社交");
         ZH.put("market.cat.game_mechanics", "游戏机制");
 
+        // ===== 命令面板关键词 =====
+        ZH.put("cmd.kw.launch", "启动");
+        ZH.put("cmd.kw.start", "开始");
+        ZH.put("cmd.kw.scan", "扫描");
+        ZH.put("cmd.kw.refresh", "刷新");
+        ZH.put("cmd.kw.version", "版本");
+        ZH.put("cmd.kw.mod", "模组");
+        ZH.put("cmd.kw.theme", "主题");
+        ZH.put("cmd.kw.dark", "暗色");
+        ZH.put("cmd.kw.toggle", "切换");
+        ZH.put("cmd.kw.settings", "设置");
+        ZH.put("cmd.kw.preferences", "偏好");
+        ZH.put("cmd.kw.config", "配置");
+        ZH.put("cmd.kw.modpack", "整合包");
+        ZH.put("cmd.kw.shader", "光影");
+        ZH.put("cmd.kw.shader_alt", "着色器");
+        ZH.put("cmd.kw.resource_pack", "资源包");
+        ZH.put("cmd.kw.texture", "材质");
+        ZH.put("cmd.kw.datapack", "数据包");
+        ZH.put("cmd.kw.edit", "编辑");
+        ZH.put("cmd.kw.install", "安装");
+        ZH.put("cmd.kw.market", "市场");
+        ZH.put("cmd.kw.store", "商店");
+        ZH.put("cmd.kw.queue", "队列");
+        ZH.put("cmd.kw.download", "下载");
+        ZH.put("cmd.kw.wiki", "百科");
+        ZH.put("cmd.kw.world", "世界");
+        ZH.put("cmd.kw.save", "存档");
+        ZH.put("cmd.kw.screenshot", "截图");
+        ZH.put("cmd.kw.instance", "实例");
+        ZH.put("cmd.kw.game", "游戏");
+        ZH.put("cmd.kw.news", "新闻");
+        ZH.put("cmd.kw.info", "资讯");
+        ZH.put("cmd.kw.multiplayer", "联机");
+        ZH.put("cmd.kw.server", "服务器");
+        ZH.put("cmd.kw.friend", "好友");
+        ZH.put("cmd.kw.chat", "聊天");
+        ZH.put("cmd.kw.contact", "联系人");
+        ZH.put("cmd.kw.qrcode", "二维码");
+        ZH.put("cmd.kw.content", "内容");
+        ZH.put("cmd.kw.resource", "资源");
+        ZH.put("cmd.kw.statistics", "统计");
+        ZH.put("cmd.kw.account", "账号");
+        ZH.put("cmd.kw.login", "登录");
+        ZH.put("cmd.kw.microsoft", "微软");
+        ZH.put("cmd.kw.terminal", "终端");
+        ZH.put("cmd.kw.console", "命令行");
+        ZH.put("cmd.kw.plugin", "插件");
+        ZH.put("cmd.kw.extension", "扩展");
+        ZH.put("cmd.kw.standalone", "独立");
+
+        // ===== 统计页新增 =====
+        ZH.put("stats.realtime_performance", "实时设备性能负载");
+        ZH.put("stats.realtime", "实时");
+        ZH.put("stats.system_memory", "系统内存");
+        ZH.put("stats.jvm_heap", "JVM 堆");
+        ZH.put("stats.network", "网络");
+        ZH.put("stats.gpu", "显卡");
+        ZH.put("stats.disk", "磁盘");
+        ZH.put("stats.system_uptime", "系统已运行");
+        ZH.put("stats.peak", "峰值 {0}");
+        ZH.put("stats.cpu_cores", "{0}P/{1}L 核");
+        ZH.put("stats.threads", "{0} 线程");
+        ZH.put("stats.heap_limit", "上限 {0} MB");
+        ZH.put("stats.net_peak", "峰值 ↑ {0}  ↓ {1}");
+        ZH.put("stats.play_records", "游玩记录");
+        ZH.put("stats.longest_session", "最长会话");
+        ZH.put("stats.longest_streak", "最长连续");
+        ZH.put("stats.current_streak", "当前连续");
+        ZH.put("stats.total_days", "总天数");
+        ZH.put("stats.days_count", "{0} 天");
+        ZH.put("stats.first_play", "首次游玩");
+        ZH.put("stats.most_played_hour", "最常时段");
+        ZH.put("stats.longest_version", "最长版本");
+        ZH.put("stats.record_date", "记录日期");
+        ZH.put("stats.duration", "时长");
+        ZH.put("stats.count", "次数");
+        ZH.put("stats.time_heatmap", "时段热力图");
+        ZH.put("stats.heatmap_desc", "行=周几，列=小时，颜色越深游玩越多");
+        ZH.put("stats.heatmap_less", "少");
+        ZH.put("stats.heatmap_more", "多");
+        ZH.put("stats.weekday_short_mon", "一");
+        ZH.put("stats.weekday_short_tue", "二");
+        ZH.put("stats.weekday_short_wed", "三");
+        ZH.put("stats.weekday_short_thu", "四");
+        ZH.put("stats.weekday_short_fri", "五");
+        ZH.put("stats.weekday_short_sat", "六");
+        ZH.put("stats.weekday_short_sun", "日");
+        ZH.put("stats.weekday_distribution", "周几分布");
+        ZH.put("stats.other", "其他");
+        ZH.put("stats.session_records", "会话记录");
+        ZH.put("stats.total_count", "共 {0} 条");
+        ZH.put("stats.load_more", "加载更多");
+
+        // ===== 世界页新增 =====
+        ZH.put("world.unknown_source", "未知");
+        ZH.put("world.scan_summary", "已合并扫描：PMCL / 外部启动器 / 整合包版本目录下的 saves");
+        ZH.put("world.search_placeholder", "搜索世界名…");
+        ZH.put("world.source_label", "来源：");
+        ZH.put("world.source_all", "全部");
+        ZH.put("world.count", "共 {0} 个世界");
+        ZH.put("world.count_filtered", "共 {0} 个世界 · 当前显示 {1}");
+        ZH.put("world.no_match", "无匹配结果");
+        ZH.put("world.sort.name", "按名称");
+        ZH.put("world.sort.size_desc", "大小 ↓");
+        ZH.put("world.sort.size_asc", "大小 ↑");
+        ZH.put("world.sort.modified", "修改时间");
+        ZH.put("world.import_title", "导入世界存档");
+        ZH.put("world.restore", "恢复");
+        ZH.put("world.restore_title", "恢复世界 — {0}");
+        ZH.put("world.restore_select_hint", "选择要恢复的备份（将覆盖当前世界）：");
+        ZH.put("world.loading_backups", "加载备份列表…");
+        ZH.put("world.no_backups", "暂无备份。请先点击「备份」创建一个。");
+        ZH.put("world.delete_title", "删除世界");
+        ZH.put("world.delete_confirm", "确定要删除 {0} 吗？\n此操作不可恢复。\n路径：{1}");
+
+        // ===== 账号页新增 =====
+        ZH.put("accounts.default_avatar", "默认头像");
+        ZH.put("accounts.username_value", "用户名：{0}");
+        ZH.put("accounts.uuid", "UUID：{0}");
+        ZH.put("accounts.type", "类型：{0}");
+        ZH.put("accounts.skin_url", "皮肤：{0}…");
+        ZH.put("accounts.skin_model_value", "模型：{0}");
+        ZH.put("accounts.custom_skin", "自定义皮肤");
+        ZH.put("accounts.custom_skin_hint", "输入皮肤图片 URL（如 https://crafatar.com/avatars/<UUID>）或留空清除");
+        ZH.put("accounts.skin_image_url", "皮肤图片 URL");
+        ZH.put("accounts.skin_model", "皮肤模型");
+        ZH.put("accounts.apply_skin", "应用皮肤");
+        ZH.put("accounts.clear_skin", "清除");
+        ZH.put("accounts.ms_browser_flow_hint", "点击登录后将打开浏览器，在浏览器中完成微软账号授权即可。\n自动同步 Mojang 服务器皮肤。");
+        ZH.put("accounts.ms_device_flow_hint", "使用设备码流程登录，点击下方按钮后按提示操作。\n自动同步 Mojang 服务器皮肤。");
+        ZH.put("accounts.device_code_ready", "设备码已生成，请查看弹窗");
+        ZH.put("accounts.view_device_code", "查看设备码");
+        ZH.put("accounts.github", "GitHub 登录");
+        ZH.put("accounts.github_hint", "使用设备码流程登录，无需输入密码。\n登录后可用 GitHub 头像和用户名。");
+        ZH.put("accounts.open_browser_failed", "打开浏览器失败：{0}");
+        ZH.put("accounts.device_code_title", "设备码登录");
+        ZH.put("accounts.device_code_step1", "步骤 1：点击下方按钮打开浏览器");
+        ZH.put("accounts.device_code_step2", "步骤 2：在浏览器中输入以下代码");
+        ZH.put("common.copy", "复制");
+        ZH.put("common.copied", "已复制");
+        ZH.put("accounts.code_copied", "代码已复制到剪贴板");
+        ZH.put("accounts.device_code_wait_hint", "登录完成后启动器会自动继续，请勿关闭此窗口。");
+        ZH.put("accounts.skin_preview", "皮肤预览");
+
+        // ===== 下载页新增 =====
+        ZH.put("download.page_title", "下载与安装");
+        ZH.put("download.mc_version", "MC 版本");
+        ZH.put("download.fetch_versions", "拉取版本");
+        ZH.put("download.status", "状态：{0}");
+        ZH.put("download.category_all", "全部");
+        ZH.put("download.release", "正式版");
+        ZH.put("download.snapshot", "快照");
+        ZH.put("download.old_beta", "旧版Beta");
+        ZH.put("download.old_alpha", "旧版Alpha");
+        ZH.put("download.search_placeholder", "搜索版本号（如 1.20.4）");
+        ZH.put("download.version_count", "共 {0} 个版本");
+        ZH.put("download.filtered", "（已筛选）");
+        ZH.put("download.stable", "稳定");
+        ZH.put("download.unstable", "不稳定");
+        ZH.put("download.experimental", "实验型");
+
+        // ===== 协议页新增 =====
+        ZH.put("agreement.title", "欢迎使用 PMCL");
+        ZH.put("agreement.subtitle", "在开始使用之前，请您仔细阅读并同意以下协议。\n这些协议明确了您与开发者之间的权利与义务。");
+        ZH.put("agreement.user_agreement_title", "PMCL 用户协议");
+        ZH.put("agreement.user_agreement_desc", "规定了您使用本软件的权利、义务及行为规范");
+        ZH.put("agreement.disclaimer_title", "PMCL 免责协议");
+        ZH.put("agreement.disclaimer_desc", "明确了开发者在各类情形下的责任范围与免责条款");
+        ZH.put("agreement.license_title", "PMCL 软件技术许可证 v1.1");
+        ZH.put("agreement.license_desc", "本软件的版权授权条款（中文为权威版本）");
+        ZH.put("agreement.decline", "不同意，退出");
+        ZH.put("agreement.continue", "同意并继续");
+        ZH.put("agreement.warning", "请勾选同意全部三项协议后方可继续");
+        ZH.put("agreement.doc_not_found", "文档未找到：{0}");
+        ZH.put("agreement.load_failed", "加载失败：{0}");
+        ZH.put("agreement.agreed", "已同意");
+        ZH.put("agreement.not_agreed", "未同意");
+        ZH.put("agreement.collapse", "收起全文");
+        ZH.put("agreement.expand", "查看全文");
+        ZH.put("agreement.copy", "复制全文");
+
+        // ===== 截图页新增 =====
+        ZH.put("screenshot.title", "截图");
+        ZH.put("screenshot.export_zip_dialog", "导出截图 ZIP");
+        ZH.put("screenshot.export_zip", "导出 ZIP");
+        ZH.put("screenshot.scan_hint", "已合并扫描：PMCL / 外部启动器 / 整合包版本目录下的 screenshots · 选中后按空格预览");
+        ZH.put("screenshot.empty", "暂无截图。游戏内按 F2 截图后会自动保存到 screenshots 目录。");
+        ZH.put("screenshot.source", "来源: {0}");
+        ZH.put("screenshot.copy", "复制");
+        ZH.put("screenshot.preview", "预览");
+        ZH.put("screenshot.status", "状态: {0}");
+        ZH.put("screenshot.count", "{0} / {1}");
+        ZH.put("screenshot.preview_hint", "空格/ESC 关闭 · ← → 切换");
+        ZH.put("screenshot.load_error", "无法加载图片");
+        ZH.put("screenshot.prev", "上一张");
+        ZH.put("screenshot.next", "下一张");
+
+        // ===== 视频通话新增 =====
+        ZH.put("call.waiting_for_answer", "等待对方接听…");
+        ZH.put("call.incoming_call", "来电中…");
+        ZH.put("call.connecting", "正在建立连接…");
+        ZH.put("call.waiting_for_video", "等待视频画面…");
+        ZH.put("call.ended", "通话结束");
+        ZH.put("call.calling", "正在呼叫…");
+        ZH.put("call.mute", "静音");
+        ZH.put("call.unmute", "取消静音");
+        ZH.put("call.camera_off", "关闭摄像头");
+        ZH.put("call.camera_on", "开启摄像头");
+        ZH.put("call.end_call", "挂断");
+        ZH.put("call.incoming_title", "来电");
+        ZH.put("call.accept", "接听");
+        ZH.put("call.reject", "拒绝");
+
+        // ===== 好友身份卡片新增 =====
+        ZH.put("friend.not_logged_in", "未登录");
+        ZH.put("friend.not_logged_in_account", "未登录账号");
+        ZH.put("friend.identity_hint", "登录后显示身份信息");
+        ZH.put("friend.identity_hint_short", "登录后显示");
+        ZH.put("friend.collapse", "收起");
+        ZH.put("friend.expand", "展开");
+        ZH.put("friend.qr_code", "好友二维码");
+        ZH.put("friend.qr_generating", "QR 生成中...");
+        ZH.put("friend.change_background", "更换背景");
+
+        // ===== 锁屏页新增 =====
+        ZH.put("lockscreen.greeting.morning", "早上好");
+        ZH.put("lockscreen.greeting.noon", "中午好");
+        ZH.put("lockscreen.greeting.afternoon", "下午好");
+        ZH.put("lockscreen.greeting.evening", "晚上好");
+        ZH.put("lockscreen.greeting.late_night", "夜深了");
+        ZH.put("lockscreen.enter_main_hint", "进入启动器主界面");
+        ZH.put("lockscreen.enter_main", "进入");
+
+        // ===== 数据包页新增 =====
+        ZH.put("datapack.location_hint", "数据包位于 saves/<世界>/datapacks/，请先选择一个世界");
+        ZH.put("datapack.source", "来源：{0}");
+        ZH.put("datapack.no_worlds", "未扫描到存档。请先在游戏中创建世界。");
+        ZH.put("datapack.status_format", "状态: {0}");
+        ZH.put("datapack.compatible", "兼容：{0}");
+        ZH.put("datapack.path_label", "路径");
+
+        // ===== 资源包页新增 =====
+        ZH.put("resource.dir_label", "目录: {0}");
+        ZH.put("resource.status_format", "状态: {0}");
+        ZH.put("resource.sort.name", "按名称");
+        ZH.put("resource.sort.format_asc", "版本 ↑");
+        ZH.put("resource.sort.format_desc", "版本 ↓");
+        ZH.put("resource.sort.type", "类型");
+        ZH.put("resource.compatible", "兼容：{0}");
+        ZH.put("resource.path_label", "路径");
+
+        // ===== 光影包页新增 =====
+        ZH.put("shader.status_format", "状态: {0}");
+        ZH.put("shader.sort.name", "按名称");
+        ZH.put("shader.sort.size_desc", "大小 ↓");
+        ZH.put("shader.sort.size_asc", "大小 ↑");
+        ZH.put("shader.sort.active", "已应用优先");
+
+        // ===== Wiki 页新增 =====
+        ZH.put("wiki.status_format", "状态: {0}");
+
+        // ===== 内容通用新增 =====
+        ZH.put("content.unknown", "未知");
+
+        // ===== 通用新增 =====
+        ZH.put("common.enabled", "启用");
+        ZH.put("common.disabled", "禁用");
+        ZH.put("common.unknown", "未知");
+
+        // ===== 状态消息 - 通用 =====
+        ZH.put("status.ready", "就绪");
+        ZH.put("status.internal_error", "内部错误：{0}");
+
+        // ===== 状态消息 - 本地版本扫描 =====
+        ZH.put("status.scanning_local_versions", "正在扫描本地版本…");
+        ZH.put("status.scan_progress", "扫描进度：{0}/{1}（{2}）");
+        ZH.put("status.scan_complete", "扫描完成，共 {0} 个版本");
+        ZH.put("status.scan_complete_with_mc", "扫描完成，共 {0} 个版本（含系统 .minecraft：{1}）");
+        ZH.put("status.scan_complete_no_versions_with_mc", "扫描完成，未找到任何版本（PMCL：{0}，系统 .minecraft：{1}）");
+        ZH.put("status.scan_complete_no_versions_no_mc", "扫描完成，未找到任何版本（PMCL：{0}）");
+        ZH.put("status.scan_local_failed", "扫描本地版本失败：{0}");
+
+        // ===== 状态消息 - 磁贴 =====
+        ZH.put("status.pinned", "已固定版本：{0}");
+        ZH.put("status.tile_deleted", "磁贴已删除：{0}");
+        ZH.put("status.tile_name_reset", "已重置 {0} 的磁贴名称");
+        ZH.put("status.tile_renamed", "已将 {0} 重命名为 {1}");
+        ZH.put("status.tile_invalid", "版本 {0} 已失效，磁贴已清理");
+        ZH.put("status.login_first_to_launch", "请先登录账号再启动游戏");
+        ZH.put("status.records_purged", "已清除 {0} 的所有游玩记录");
+
+        // ===== 状态消息 - 账号 =====
+        ZH.put("status.account_loaded", "已加载账号：{0}（{1}）");
+        ZH.put("status.account_load_failed", "加载账号失败：{0}");
+        ZH.put("status.account_save_failed", "保存账号失败：{0}");
+        ZH.put("status.account_switched", "已切换到账号：{0}");
+        ZH.put("status.account_removed", "已移除当前账号");
+        ZH.put("status.fetching_version_manifest", "正在获取版本清单…");
+        ZH.put("status.versions_loaded", "已加载 {0} 个版本");
+        ZH.put("status.fetch_failed", "获取失败：{0}");
+        ZH.put("status.username_required", "请输入用户名");
+        ZH.put("status.logged_in_offline", "已以离线模式登录：{0}");
+        ZH.put("status.login_first", "请先登录");
+        ZH.put("status.offline_skin_microsoft_unsupported", "离线账号不支持 Microsoft 皮肤");
+        ZH.put("status.skin_cleared", "已清除自定义皮肤");
+        ZH.put("status.skin_set", "已设置自定义皮肤");
+
+        // ===== 状态消息 - 壁纸取色 =====
+        ZH.put("status.extracting_wallpaper_color", "正在提取壁纸主色…");
+        ZH.put("status.wallpaper_color_failed_default", "壁纸取色失败，使用默认配色");
+        ZH.put("status.monet_applied", "已应用莫奈配色：#{0}");
+        ZH.put("status.wallpaper_color_failed", "壁纸取色失败：{0}");
+        ZH.put("status.re_extracting_wallpaper_color", "正在重新提取壁纸主色…");
+        ZH.put("status.monet_refreshed", "已刷新莫奈配色：#{0}");
+        ZH.put("status.custom_accent_applied", "已应用自定义强调色：#{0}");
+        ZH.put("status.default_color_restored", "已恢复默认配色");
+
+        // ===== 状态消息 - 微软/GitHub 登录 =====
+        ZH.put("status.opening_browser_login", "正在打开浏览器登录…");
+        ZH.put("status.requesting_device_code", "正在请求设备码…");
+        ZH.put("status.open_verification_url", "请访问 {0} 并输入代码：{1}");
+        ZH.put("status.logged_in_microsoft", "已登录 Microsoft：{0}");
+        ZH.put("status.microsoft_login_failed_network", "Microsoft 登录失败（网络）：{0}");
+        ZH.put("status.microsoft_login_failed", "Microsoft 登录失败：{0}");
+        ZH.put("status.requesting_github_device_code", "正在请求 GitHub 设备码…");
+        ZH.put("status.logged_in_github", "已登录 GitHub：{0}");
+        ZH.put("status.github_login_failed", "GitHub 登录失败：{0}");
+
+        // ===== 状态消息 - 游戏安装 =====
+        ZH.put("status.install_starting", "开始安装 {0}…");
+        ZH.put("status.install_progress", "{0}：{1}");
+        ZH.put("status.install_complete", "{0} 安装完成");
+        ZH.put("status.installing_loader", "正在安装 {0} {1}…");
+        ZH.put("status.loader_install_complete", "{0} {1} 安装完成");
+        ZH.put("status.install_failed", "安装失败：{0}");
+
+        // ===== 状态消息 - 模组加载器版本 =====
+        ZH.put("status.loader_versions_loaded_cache", "已从缓存加载 {0} 个 {1} 版本");
+        ZH.put("status.fetching_loader_versions", "正在获取 {0} 版本列表…");
+        ZH.put("status.loader_versions_loaded", "已加载 {0} 个 {1} 版本");
+
+        // ===== 状态消息 - 模组市场 =====
+        ZH.put("status.searching", "正在搜索：{0}…");
+        ZH.put("status.mods_found", "找到 {0} 个模组（CurseForge：{1}）");
+        ZH.put("status.search_failed", "搜索失败：{0}");
+        ZH.put("status.popular_mods_loaded", "已加载 {0} 个热门模组");
+        ZH.put("status.loading_popular_mods", "正在加载热门模组…");
+        ZH.put("status.popular_mods_load_failed", "加载热门模组失败：{0}");
+        ZH.put("status.loading_category", "正在加载分类：{0}…");
+        ZH.put("status.category_mods_loaded", "已加载 {0} 个分类模组");
+        ZH.put("status.category_load_failed", "加载分类失败：{0}");
+        ZH.put("status.fetching_project_files", "正在获取 {0} 的文件列表…");
+        ZH.put("status.project_files_loaded", "已加载 {0} 的 {1} 个文件");
+        ZH.put("status.downloading_mod", "正在下载模组：{0}…");
+        ZH.put("status.mod_installed", "已安装模组：{0}");
+        ZH.put("status.mod_install_failed", "安装模组失败：{0}");
+        ZH.put("status.installing_mod_with_deps", "正在安装 {0} 及其依赖…");
+        ZH.put("status.mod_install_complete_with_deps", "{0} 安装完成（含依赖）：{1}");
+        ZH.put("status.mod_install_complete_no_deps", "{0} 安装完成（无依赖）");
+
+        // ===== 状态消息 - 已安装模组 =====
+        ZH.put("status.mods_scanned", "已扫描 {0} 个模组（来自 {1} 个目录）");
+        ZH.put("status.scan_mods_failed", "扫描模组失败：{0}");
+        ZH.put("status.mod_deleted", "已删除模组：{0}");
+        ZH.put("status.delete_failed", "删除失败：{0}");
+        ZH.put("status.mod_disabled", "已禁用模组：{0}");
+        ZH.put("status.disable_failed", "禁用失败：{0}");
+        ZH.put("status.mod_enabled", "已启用模组：{0}");
+        ZH.put("status.enable_failed", "启用失败：{0}");
+        ZH.put("status.mod_imported", "已导入模组：{0}");
+        ZH.put("status.import_failed", "导入失败：{0}");
+        ZH.put("status.batch_enabled_mods", "已启用 {0} 个模组");
+        ZH.put("status.batch_enable_failed", "批量启用失败：{0}");
+        ZH.put("status.batch_disabled_mods", "已禁用 {0} 个模组");
+        ZH.put("status.batch_disable_failed", "批量禁用失败：{0}");
+        ZH.put("status.batch_deleted_mods", "已删除 {0} 个模组");
+        ZH.put("status.batch_delete_failed", "批量删除失败：{0}");
+        ZH.put("status.open_dir_failed", "打开目录失败：{0}");
+
+        // ===== 状态消息 - 整合包 =====
+        ZH.put("status.refresh_modpacks_failed", "刷新整合包失败：{0}");
+        ZH.put("status.modpack_busy", "整合包操作进行中，请稍候");
+        ZH.put("status.modpack_import_complete", "整合包导入完成");
+        ZH.put("status.modpack_import_failed", "整合包导入失败：{0}");
+        ZH.put("status.version_select_first", "请先选择版本");
+        ZH.put("status.modpack_exported", "整合包已导出");
+        ZH.put("status.modpack_export_failed", "整合包导出失败：{0}");
+        ZH.put("status.checking_modpack_updates", "正在检查整合包更新…");
+        ZH.put("status.modpack_has_updates", "整合包有可用更新");
+        ZH.put("status.modpack_up_to_date", "整合包已是最新");
+        ZH.put("status.check_updates_failed_default", "检查更新失败");
+        ZH.put("status.check_updates_failed", "检查更新失败：{0}");
+        ZH.put("status.modpack_deleted", "整合包已删除");
+        ZH.put("status.modpack_delete_failed", "删除整合包失败：{0}");
+
+        // ===== 状态消息 - NBT 编辑器 =====
+        ZH.put("status.nbt_loaded", "已加载 NBT 文件");
+        ZH.put("status.nbt_read_failed", "读取 NBT 失败：{0}");
+        ZH.put("status.nbt_saved", "NBT 已保存");
+        ZH.put("status.nbt_save_failed", "保存 NBT 失败：{0}");
+
+        // ===== 状态消息 - 下载队列 =====
+        ZH.put("status.queued_minecraft_version", "已加入下载队列：{0}");
+        ZH.put("status.queued_loader", "已加入下载队列：{0} {1}");
+        ZH.put("status.queued_mod", "已加入下载队列：模组 {0}");
+
+        // ===== 状态消息 - 配置文件 =====
+        ZH.put("status.config_files_load_failed", "加载配置文件列表失败：{0}");
+        ZH.put("status.config_file_read_failed", "读取配置文件失败：{0}");
+        ZH.put("status.config_file_saved", "配置文件已保存");
+        ZH.put("status.config_file_save_failed", "保存配置文件失败：{0}");
+        ZH.put("status.config_file_deleted", "配置文件已删除");
+        ZH.put("status.config_file_created", "配置文件已创建");
+        ZH.put("status.config_file_create_failed", "创建配置文件失败：{0}");
+
+        // ===== 状态消息 - 模组更新检测 =====
+        ZH.put("status.no_installed_mods", "没有已安装的模组");
+        ZH.put("status.checking_mod_updates", "正在检查模组更新…");
+        ZH.put("status.mod_updates_found", "发现 {0} 个模组可更新");
+        ZH.put("status.mod_updates_all_latest", "所有模组均为最新");
+        ZH.put("status.check_mod_updates_failed", "检查模组更新失败：{0}");
+        ZH.put("status.mod_update_complete", "模组更新完成");
+        ZH.put("status.mod_update_failed", "模组更新失败：{0}");
+        ZH.put("status.no_mods_to_update", "没有可更新的模组");
+        ZH.put("status.batch_updating_mods", "正在批量更新模组…");
+        ZH.put("status.batch_updating_progress", "更新中：{0}");
+        ZH.put("status.batch_update_complete", "批量更新完成");
+        ZH.put("status.batch_update_failed", "批量更新失败：{0}");
+
+        // ===== 状态消息 - 启动游戏 =====
+        ZH.put("status.building_launch_profile", "正在构建启动配置…");
+        ZH.put("status.launch_failed_no_java", "启动失败：未找到 Java 运行时");
+        ZH.put("status.compat_hint_loongson", "检测到龙芯架构，已自动应用兼容层");
+        ZH.put("status.cannot_open_browser", "无法打开浏览器：{0}");
+        ZH.put("status.compat_hint_riscv", "检测到 RISC-V 架构，已自动应用兼容层");
+        ZH.put("status.compat_issue_arch_mismatch", "架构不匹配，可能需要兼容层");
+        ZH.put("status.compat_layer_suffix", "（兼容层）");
+        ZH.put("status.launching", "正在启动游戏…");
+        ZH.put("status.game_exited_with_version", "{0} 已退出");
+        ZH.put("status.game_exited", "游戏已退出");
+        ZH.put("status.launch_failed", "启动失败：{0}");
+        ZH.put("status.launching_with_specific_java", "正在使用指定 Java 启动…");
+        ZH.put("status.launching_with_external_launcher", "正在通过外部启动器启动…");
+        ZH.put("status.external_launcher_opened", "已打开外部启动器：{0}");
+        ZH.put("status.external_launcher_failed", "外部启动器 {0} 启动失败：{1}");
+
+        // ===== 状态消息 - 启动预设 =====
+        ZH.put("status.preset_name_empty", "预设名称不能为空");
+        ZH.put("status.preset_saved", "预设已保存");
+        ZH.put("status.preset_applied", "预设已应用");
+        ZH.put("status.preset_deleted", "预设已删除");
+
+        // ===== 状态消息 - Java 下载 =====
+        ZH.put("status.unsupported_java_version", "不支持的 Java 版本：{0}");
+        ZH.put("status.java_download_failed_empty_manifest", "Java 下载失败：清单为空");
+        ZH.put("status.java_install_complete", "Java {0} 安装完成");
+        ZH.put("status.java_download_failed", "Java {0} 下载失败：{1}");
+        ZH.put("status.java_path_reset", "Java 路径已重置");
+        ZH.put("status.java_path_set", "Java 路径已设置");
+
+        // ===== 状态消息 - 世界 =====
+        ZH.put("status.worlds_scanned", "已扫描 {0} 个世界");
+        ZH.put("status.scan_worlds_failed", "扫描世界失败：{0}");
+        ZH.put("status.world_backed_up", "世界已备份");
+        ZH.put("status.backup_failed", "备份失败：{0}");
+        ZH.put("status.world_deleted", "世界已删除");
+        ZH.put("status.world_restored", "世界已恢复");
+        ZH.put("status.restore_failed", "恢复失败：{0}");
+        ZH.put("status.world_imported", "世界已导入");
+
+        // ===== 状态消息 - 截图 =====
+        ZH.put("status.screenshots_scanned", "已扫描 {0} 张截图");
+        ZH.put("status.scan_screenshots_failed", "扫描截图失败：{0}");
+        ZH.put("status.screenshot_deleted", "截图已删除");
+        ZH.put("status.screenshot_copied", "截图已复制");
+        ZH.put("status.copy_failed", "复制失败：{0}");
+        ZH.put("status.screenshots_exported", "已导出 {0} 张截图");
+        ZH.put("status.export_failed", "导出失败：{0}");
+
+        // ===== 状态消息 - 资源包 =====
+        ZH.put("status.resource_packs_scanned", "已扫描 {0} 个资源包");
+        ZH.put("status.scan_resource_packs_failed", "扫描资源包失败：{0}");
+        ZH.put("status.resource_pack_enabled", "已启用资源包：{0}");
+        ZH.put("status.resource_pack_disabled", "已禁用资源包：{0}");
+        ZH.put("status.resource_pack_deleted", "已删除资源包：{0}");
+        ZH.put("status.resource_pack_imported", "已导入资源包：{0}");
+        ZH.put("status.batch_enabled_resource_packs", "已启用 {0} 个资源包");
+        ZH.put("status.batch_disabled_resource_packs", "已禁用 {0} 个资源包");
+        ZH.put("status.batch_deleted_resource_packs", "已删除 {0} 个资源包");
+
+        // ===== 状态消息 - 完整性/崩溃 =====
+        ZH.put("status.checking_integrity", "正在检查完整性…");
+        ZH.put("status.integrity_check_passed", "完整性检查通过");
+        ZH.put("status.integrity_issues_found", "发现 {0} 个完整性问题");
+        ZH.put("status.integrity_check_failed", "完整性检查失败：{0}");
+        ZH.put("status.crash_reports_scanned", "已扫描 {0} 个崩溃报告");
+        ZH.put("status.scan_crash_reports_failed", "扫描崩溃报告失败：{0}");
+
+        // ===== 状态消息 - 光影包 =====
+        ZH.put("status.shader_packs_scanned", "已扫描 {0} 个光影包");
+        ZH.put("status.scan_shader_packs_failed", "扫描光影包失败：{0}");
+        ZH.put("status.shader_pack_enabled", "已启用光影包：{0}");
+        ZH.put("status.shader_pack_disabled", "已禁用光影包：{0}");
+        ZH.put("status.shader_pack_deleted", "已删除光影包：{0}");
+        ZH.put("status.shader_pack_imported", "已导入光影包：{0}");
+        ZH.put("status.batch_enabled_shader_packs", "已启用 {0} 个光影包");
+        ZH.put("status.batch_disabled_shader_packs", "已禁用 {0} 个光影包");
+        ZH.put("status.batch_deleted_shader_packs", "已删除 {0} 个光影包");
+        ZH.put("status.shader_pack_applied", "已应用光影包：{0}");
+        ZH.put("status.apply_failed", "应用失败：{0}");
+        ZH.put("status.shader_pack_cleared", "已清除光影包");
+        ZH.put("status.clear_failed", "清除失败：{0}");
+
+        // ===== 状态消息 - 数据包 =====
+        ZH.put("status.datapacks_scanned", "已扫描 {0} 个数据包");
+        ZH.put("status.scan_datapacks_failed", "扫描数据包失败：{0}");
+        ZH.put("status.datapack_deleted", "已删除数据包：{0}");
+        ZH.put("status.datapack_enabled", "已启用数据包：{0}");
+        ZH.put("status.datapack_disabled", "已禁用数据包：{0}");
+        ZH.put("status.world_select_first", "请先选择世界");
+        ZH.put("status.datapack_imported", "已导入数据包：{0}");
+        ZH.put("status.batch_enabled_datapacks", "已启用 {0} 个数据包");
+        ZH.put("status.batch_disabled_datapacks", "已禁用 {0} 个数据包");
+        ZH.put("status.batch_deleted_datapacks", "已删除 {0} 个数据包");
+
+        // ===== 状态消息 - Wiki/语言/日志 =====
+        ZH.put("status.wiki_opened", "已打开 Wiki 页面");
+        ZH.put("status.open_failed", "打开失败：{0}");
+        ZH.put("status.language_switched", "已切换语言");
+        ZH.put("status.logs_exported", "日志已导出");
+        ZH.put("status.logs_export_failed", "日志导出失败：{0}");
+        ZH.put("status.no_logs_to_share", "暂无日志可分享");
+        ZH.put("status.logs_uploaded", "日志已上传，分享链接已生成");
+        ZH.put("status.logs_upload_failed", "日志上传失败: {0}");
+
+        // ===== 状态消息 - 新闻 =====
+        ZH.put("status.no_news", "暂无新闻");
+        ZH.put("status.news_loaded", "已加载 {0} 条新闻");
+        ZH.put("status.loading_news", "正在加载新闻…");
+        ZH.put("status.news_load_failed", "加载新闻失败：{0}");
+        ZH.put("status.news_no_link", "该新闻没有可访问的链接");
+        ZH.put("status.news_opened_in_browser", "已在系统浏览器打开新闻");
+
+        // ===== 状态消息 - 网络偏好 =====
+        ZH.put("status.network_prefs_applied", "已应用网络偏好设置");
+
+        // ===== 状态消息 - 多人联机 =====
+        ZH.put("status.leave_room_before_switch_backend", "请先离开当前房间再切换后端");
+        ZH.put("status.mp_backend_switched", "已切换到 {0} 联机后端");
+        ZH.put("status.already_in_room", "已在房间中，请先离开");
+        ZH.put("status.creating_connectx_room", "正在创建 ConnectX 房间…");
+        ZH.put("status.creating_terracotta_room", "正在创建陶瓦联机房间（Terracotta）…");
+        ZH.put("status.creating_mp_room", "正在创建陶瓦联机房间…");
+        ZH.put("status.room_created_with_code", "已创建房间，房间码：{0}");
+        ZH.put("status.connectx_room_created", "已创建 ConnectX 房间");
+        ZH.put("status.room_created_with_vip", "已创建房间，虚拟 IP：{0}");
+        ZH.put("status.room_started_waiting", "房间已启动，等待连接…");
+        ZH.put("status.create_room_failed", "创建房间失败：{0}");
+        ZH.put("status.enter_room_code_or_invitation", "请输入房间码或邀请码");
+        ZH.put("status.joining_room", "正在加入房间…");
+        ZH.put("status.joined_room_mc_addr", "已加入房间，MC 地址：{0}（直接连接用此地址）");
+        ZH.put("status.joined_room_vip", "已加入房间，虚拟 IP：{0}");
+        ZH.put("status.connecting_room", "正在连接房间…");
+        ZH.put("status.join_room_failed", "加入房间失败：{0}");
+        ZH.put("status.leave_room_failed", "离开房间失败：{0}");
+        ZH.put("status.left_connectx_room", "已离开 ConnectX 房间");
+        ZH.put("status.left_terracotta_room", "已离开陶瓦联机房间");
+        ZH.put("status.no_invitation_to_share", "当前没有可分享的邀请码");
+        ZH.put("status.invitation_copied", "邀请码已复制到剪贴板");
+        ZH.put("status.copied", "已复制：{0}");
+
+        // ===== 状态消息 - 收藏服务器 =====
+        ZH.put("status.direct_connect_server_set", "已设置直连服务器：{0}");
+
+        // ===== 状态消息 - 实例 =====
+        ZH.put("status.load_instances_failed", "加载实例失败: {0}");
+        ZH.put("status.instance_created", "实例「{0}」已创建");
+        ZH.put("status.instance_create_failed", "创建实例失败: {0}");
+        ZH.put("status.instance_copied", "实例「{0}」已从原实例复制");
+        ZH.put("status.instance_copy_failed", "复制实例失败: {0}");
+        ZH.put("status.instance_renamed", "实例已重命名为「{0}」");
+        ZH.put("status.rename_failed", "重命名失败: {0}");
+        ZH.put("status.instance_deleted", "实例已删除");
+        ZH.put("status.instance_delete_failed", "删除实例失败: {0}");
+        ZH.put("status.instance_missing_base_version", "实例「{0}」缺少基础版本，无法启动");
+
+        // ===== 状态消息 - 迁移 =====
+        ZH.put("status.no_migration_sources", "未检测到可迁移的启动器");
+        ZH.put("status.migration_sources_detected", "检测到 {0} 个可迁移来源");
+        ZH.put("status.scan_failed", "扫描失败：{0}");
+        ZH.put("status.migrating_from", "正在从 {0} 迁移游戏数据…");
+        ZH.put("status.migration_complete", "迁移完成，已加载本地版本");
+        ZH.put("status.migration_failed", "迁移失败：{0}");
+
+        // ===== 恢复消息 =====
+        ZH.put("recovery.jump_to_settings_java", "已跳转到设置，请在「Java 路径」中为 {0} 指定正确版本");
+        ZH.put("recovery.scanning_mod_conflicts", "正在扫描模组冲突，请稍后查看模组页面");
+        ZH.put("recovery.checking_integrity", "正在校验 {0} 完整性，缺失文件将自动补全");
+        ZH.put("recovery.uploading_logs", "正在上传日志到 paste.gg…");
+        ZH.put("recovery.jumped_to_mods", "已跳转到模组管理页面");
+        ZH.put("recovery.jumped_to_settings", "已跳转到设置页面");
+        ZH.put("recovery.memory_at_limit", "内存已达上限 {0}MB（系统可用 {1}MB）");
+        ZH.put("recovery.memory_adjusted", "最大内存已从 {0}MB 调整为 {1}MB，可重新启动游戏");
+        ZH.put("recovery.disabled_mods", "已禁用 {0} 个最近添加的模组（已移至 mods/disabled）");
+        ZH.put("recovery.no_mods_to_disable", "mods 目录下无可禁用的模组");
+        ZH.put("recovery.disable_mods_failed", "禁用模组失败：{0}");
+        ZH.put("recovery.reinstalling", "{0} 旧文件已清除，正在重新安装…");
+        ZH.put("recovery.reinstall_failed", "重新安装失败：{0}");
+        ZH.put("recovery.config_cleaned", "已备份并清理 {0} 个配置文件（备份位于 config-backup-* 目录），可重新启动");
+        ZH.put("recovery.no_config_to_clean", "未发现可清理的配置文件");
+        ZH.put("recovery.clear_config_failed", "清理配置失败：{0}");
+
+        // ===== 联机进度 =====
+        ZH.put("mp.progress.preparing", "准备中…");
+        ZH.put("mp.progress.parsing_code", "解析房间码…");
+    }
+
+    private static void initEn() {
         // ========================================
         // EN 翻译
         // ========================================
@@ -2150,6 +2775,565 @@ public final class I18n {
         EN.put("market.cat.social", "Social");
         EN.put("market.cat.game_mechanics", "Game mechanics");
 
+        // ===== Command palette keywords =====
+        EN.put("cmd.kw.launch", "Launch");
+        EN.put("cmd.kw.start", "Start");
+        EN.put("cmd.kw.scan", "Scan");
+        EN.put("cmd.kw.refresh", "Refresh");
+        EN.put("cmd.kw.version", "Version");
+        EN.put("cmd.kw.mod", "Mod");
+        EN.put("cmd.kw.theme", "Theme");
+        EN.put("cmd.kw.dark", "Dark");
+        EN.put("cmd.kw.toggle", "Toggle");
+        EN.put("cmd.kw.settings", "Settings");
+        EN.put("cmd.kw.preferences", "Preferences");
+        EN.put("cmd.kw.config", "Config");
+        EN.put("cmd.kw.modpack", "Modpack");
+        EN.put("cmd.kw.shader", "Shader");
+        EN.put("cmd.kw.shader_alt", "Shader");
+        EN.put("cmd.kw.resource_pack", "Resource Pack");
+        EN.put("cmd.kw.texture", "Texture");
+        EN.put("cmd.kw.datapack", "Datapack");
+        EN.put("cmd.kw.edit", "Edit");
+        EN.put("cmd.kw.install", "Install");
+        EN.put("cmd.kw.market", "Market");
+        EN.put("cmd.kw.store", "Store");
+        EN.put("cmd.kw.queue", "Queue");
+        EN.put("cmd.kw.download", "Download");
+        EN.put("cmd.kw.wiki", "Wiki");
+        EN.put("cmd.kw.world", "World");
+        EN.put("cmd.kw.save", "Save");
+        EN.put("cmd.kw.screenshot", "Screenshot");
+        EN.put("cmd.kw.instance", "Instance");
+        EN.put("cmd.kw.game", "Game");
+        EN.put("cmd.kw.news", "News");
+        EN.put("cmd.kw.info", "Info");
+        EN.put("cmd.kw.multiplayer", "Multiplayer");
+        EN.put("cmd.kw.server", "Server");
+        EN.put("cmd.kw.friend", "Friend");
+        EN.put("cmd.kw.chat", "Chat");
+        EN.put("cmd.kw.contact", "Contact");
+        EN.put("cmd.kw.qrcode", "QR Code");
+        EN.put("cmd.kw.content", "Content");
+        EN.put("cmd.kw.resource", "Resource");
+        EN.put("cmd.kw.statistics", "Statistics");
+        EN.put("cmd.kw.account", "Account");
+        EN.put("cmd.kw.login", "Login");
+        EN.put("cmd.kw.microsoft", "Microsoft");
+        EN.put("cmd.kw.terminal", "Terminal");
+        EN.put("cmd.kw.console", "Console");
+        EN.put("cmd.kw.plugin", "Plugin");
+        EN.put("cmd.kw.extension", "Extension");
+        EN.put("cmd.kw.standalone", "Standalone");
+
+        // ===== Statistics page new =====
+        EN.put("stats.realtime_performance", "Realtime Performance");
+        EN.put("stats.realtime", "Live");
+        EN.put("stats.system_memory", "System Memory");
+        EN.put("stats.jvm_heap", "JVM Heap");
+        EN.put("stats.network", "Network");
+        EN.put("stats.gpu", "GPU");
+        EN.put("stats.disk", "Disk");
+        EN.put("stats.system_uptime", "System Uptime");
+        EN.put("stats.peak", "Peak {0}");
+        EN.put("stats.cpu_cores", "{0}P/{1}L cores");
+        EN.put("stats.threads", "{0} threads");
+        EN.put("stats.heap_limit", "Limit {0} MB");
+        EN.put("stats.net_peak", "Peak ↑ {0}  ↓ {1}");
+        EN.put("stats.play_records", "Play Records");
+        EN.put("stats.longest_session", "Longest Session");
+        EN.put("stats.longest_streak", "Longest Streak");
+        EN.put("stats.current_streak", "Current Streak");
+        EN.put("stats.total_days", "Total Days");
+        EN.put("stats.days_count", "{0} days");
+        EN.put("stats.first_play", "First Played");
+        EN.put("stats.most_played_hour", "Most Played Hour");
+        EN.put("stats.longest_version", "Top Version");
+        EN.put("stats.record_date", "Record Date");
+        EN.put("stats.duration", "Duration");
+        EN.put("stats.count", "Count");
+        EN.put("stats.time_heatmap", "Time-of-Day Heatmap");
+        EN.put("stats.heatmap_desc", "Rows=weekday, Cols=hour, darker means more play");
+        EN.put("stats.heatmap_less", "Less");
+        EN.put("stats.heatmap_more", "More");
+        EN.put("stats.weekday_short_mon", "Mon");
+        EN.put("stats.weekday_short_tue", "Tue");
+        EN.put("stats.weekday_short_wed", "Wed");
+        EN.put("stats.weekday_short_thu", "Thu");
+        EN.put("stats.weekday_short_fri", "Fri");
+        EN.put("stats.weekday_short_sat", "Sat");
+        EN.put("stats.weekday_short_sun", "Sun");
+        EN.put("stats.weekday_distribution", "Weekday Distribution");
+        EN.put("stats.other", "Other");
+        EN.put("stats.session_records", "Session Records");
+        EN.put("stats.total_count", "{0} total");
+        EN.put("stats.load_more", "Load More");
+
+        // ===== Worlds page new =====
+        EN.put("world.unknown_source", "Unknown");
+        EN.put("world.scan_summary", "Merged scan: PMCL / external launchers / modpack version directories' saves");
+        EN.put("world.search_placeholder", "Search worlds…");
+        EN.put("world.source_label", "Source:");
+        EN.put("world.source_all", "All");
+        EN.put("world.count", "{0} world(s)");
+        EN.put("world.count_filtered", "{0} world(s) · {1} shown");
+        EN.put("world.no_match", "No matches");
+        EN.put("world.sort.name", "Name");
+        EN.put("world.sort.size_desc", "Size ↓");
+        EN.put("world.sort.size_asc", "Size ↑");
+        EN.put("world.sort.modified", "Modified");
+        EN.put("world.import_title", "Import World Save");
+        EN.put("world.restore", "Restore");
+        EN.put("world.restore_title", "Restore World — {0}");
+        EN.put("world.restore_select_hint", "Select a backup to restore (will overwrite the current world):");
+        EN.put("world.loading_backups", "Loading backups…");
+        EN.put("world.no_backups", "No backups yet. Click \"Backup\" to create one.");
+        EN.put("world.delete_title", "Delete World");
+        EN.put("world.delete_confirm", "Are you sure you want to delete {0}?\nThis action cannot be undone.\nPath: {1}");
+
+        // ===== Accounts page new =====
+        EN.put("accounts.default_avatar", "Default avatar");
+        EN.put("accounts.username_value", "Username: {0}");
+        EN.put("accounts.uuid", "UUID: {0}");
+        EN.put("accounts.type", "Type: {0}");
+        EN.put("accounts.skin_url", "Skin: {0}…");
+        EN.put("accounts.skin_model_value", "Model: {0}");
+        EN.put("accounts.custom_skin", "Custom Skin");
+        EN.put("accounts.custom_skin_hint", "Enter skin image URL (e.g. https://crafatar.com/avatars/<UUID>) or leave empty to clear");
+        EN.put("accounts.skin_image_url", "Skin image URL");
+        EN.put("accounts.skin_model", "Skin model");
+        EN.put("accounts.apply_skin", "Apply Skin");
+        EN.put("accounts.clear_skin", "Clear");
+        EN.put("accounts.ms_browser_flow_hint", "After clicking login, a browser will open. Complete the Microsoft account authorization in the browser.\nMojang server skin is synced automatically.");
+        EN.put("accounts.ms_device_flow_hint", "Log in using the device code flow. Click the button below and follow the instructions.\nMojang server skin is synced automatically.");
+        EN.put("accounts.device_code_ready", "Device code generated, please view the dialog");
+        EN.put("accounts.view_device_code", "View device code");
+        EN.put("accounts.github", "GitHub Login");
+        EN.put("accounts.github_hint", "Log in using the device code flow, no password required.\nGitHub avatar and username will be available after login.");
+        EN.put("accounts.open_browser_failed", "Failed to open browser: {0}");
+        EN.put("accounts.device_code_title", "Device Code Login");
+        EN.put("accounts.device_code_step1", "Step 1: Click the button below to open the browser");
+        EN.put("accounts.device_code_step2", "Step 2: Enter the following code in the browser");
+        EN.put("common.copy", "Copy");
+        EN.put("common.copied", "Copied");
+        EN.put("accounts.code_copied", "Code copied to clipboard");
+        EN.put("accounts.device_code_wait_hint", "The launcher will continue automatically after login is complete. Please do not close this window.");
+        EN.put("accounts.skin_preview", "Skin preview");
+
+        // ===== Download page new =====
+        EN.put("download.page_title", "Download & Install");
+        EN.put("download.mc_version", "MC Version");
+        EN.put("download.fetch_versions", "Fetch Versions");
+        EN.put("download.status", "Status: {0}");
+        EN.put("download.category_all", "All");
+        EN.put("download.release", "Release");
+        EN.put("download.snapshot", "Snapshot");
+        EN.put("download.old_beta", "Old Beta");
+        EN.put("download.old_alpha", "Old Alpha");
+        EN.put("download.search_placeholder", "Search version (e.g. 1.20.4)");
+        EN.put("download.version_count", "{0} versions");
+        EN.put("download.filtered", " (filtered)");
+        EN.put("download.stable", "Stable");
+        EN.put("download.unstable", "Unstable");
+        EN.put("download.experimental", "Experimental");
+
+        // ===== Agreement gate new =====
+        EN.put("agreement.title", "Welcome to PMCL");
+        EN.put("agreement.subtitle", "Before you start, please carefully read and agree to the following agreements.\nThese agreements define the rights and obligations between you and the developer.");
+        EN.put("agreement.user_agreement_title", "PMCL User Agreement");
+        EN.put("agreement.user_agreement_desc", "Specifies your rights, obligations, and conduct rules when using this software");
+        EN.put("agreement.disclaimer_title", "PMCL Disclaimer");
+        EN.put("agreement.disclaimer_desc", "Defines the developer's scope of responsibility and disclaimer terms in various situations");
+        EN.put("agreement.license_title", "PMCL Software Technical License v1.1");
+        EN.put("agreement.license_desc", "Copyright licensing terms for this software (Chinese version is authoritative)");
+        EN.put("agreement.decline", "Decline & Exit");
+        EN.put("agreement.continue", "Agree & Continue");
+        EN.put("agreement.warning", "Please check all three agreements to continue");
+        EN.put("agreement.doc_not_found", "Document not found: {0}");
+        EN.put("agreement.load_failed", "Failed to load: {0}");
+        EN.put("agreement.agreed", "Agreed");
+        EN.put("agreement.not_agreed", "Not Agreed");
+        EN.put("agreement.collapse", "Collapse");
+        EN.put("agreement.expand", "View Full Text");
+        EN.put("agreement.copy", "Copy Full Text");
+
+        // ===== Screenshots page new =====
+        EN.put("screenshot.title", "Screenshots");
+        EN.put("screenshot.export_zip_dialog", "Export Screenshots ZIP");
+        EN.put("screenshot.export_zip", "Export ZIP");
+        EN.put("screenshot.scan_hint", "Merged scan: PMCL / external launcher / modpack version screenshots folders · Select then press Space to preview");
+        EN.put("screenshot.empty", "No screenshots. Press F2 in-game to capture; they are saved to the screenshots folder.");
+        EN.put("screenshot.source", "Source: {0}");
+        EN.put("screenshot.copy", "Copy");
+        EN.put("screenshot.preview", "Preview");
+        EN.put("screenshot.status", "Status: {0}");
+        EN.put("screenshot.count", "{0} / {1}");
+        EN.put("screenshot.preview_hint", "Space/ESC to close · ← → to navigate");
+        EN.put("screenshot.load_error", "Failed to load image");
+        EN.put("screenshot.prev", "Previous");
+        EN.put("screenshot.next", "Next");
+
+        // ===== Video call new =====
+        EN.put("call.waiting_for_answer", "Waiting for answer…");
+        EN.put("call.incoming_call", "Incoming call…");
+        EN.put("call.connecting", "Connecting…");
+        EN.put("call.waiting_for_video", "Waiting for video…");
+        EN.put("call.ended", "Call ended");
+        EN.put("call.calling", "Calling…");
+        EN.put("call.mute", "Mute");
+        EN.put("call.unmute", "Unmute");
+        EN.put("call.camera_off", "Camera off");
+        EN.put("call.camera_on", "Camera on");
+        EN.put("call.end_call", "Hang up");
+        EN.put("call.incoming_title", "Incoming call");
+        EN.put("call.accept", "Accept");
+        EN.put("call.reject", "Reject");
+
+        // ===== Friend identity overlay new =====
+        EN.put("friend.not_logged_in", "Not signed in");
+        EN.put("friend.not_logged_in_account", "Not signed in");
+        EN.put("friend.identity_hint", "Sign in to view identity info");
+        EN.put("friend.identity_hint_short", "Sign in to view");
+        EN.put("friend.collapse", "Collapse");
+        EN.put("friend.expand", "Expand");
+        EN.put("friend.qr_code", "Friend QR code");
+        EN.put("friend.qr_generating", "Generating QR…");
+        EN.put("friend.change_background", "Change background");
+
+        // ===== Lockscreen new =====
+        EN.put("lockscreen.greeting.morning", "Good morning");
+        EN.put("lockscreen.greeting.noon", "Good noon");
+        EN.put("lockscreen.greeting.afternoon", "Good afternoon");
+        EN.put("lockscreen.greeting.evening", "Good evening");
+        EN.put("lockscreen.greeting.late_night", "It's late");
+        EN.put("lockscreen.enter_main_hint", "Enter the launcher main interface");
+        EN.put("lockscreen.enter_main", "Enter");
+
+        // ===== Datapacks page new =====
+        EN.put("datapack.location_hint", "Datapacks are located in saves/<world>/datapacks/. Please select a world first.");
+        EN.put("datapack.source", "Source: {0}");
+        EN.put("datapack.no_worlds", "No saves found. Please create a world in-game first.");
+        EN.put("datapack.status_format", "Status: {0}");
+        EN.put("datapack.compatible", "Compatible: {0}");
+        EN.put("datapack.path_label", "Path");
+
+        // ===== Resource packs page new =====
+        EN.put("resource.dir_label", "Directory: {0}");
+        EN.put("resource.status_format", "Status: {0}");
+        EN.put("resource.sort.name", "By name");
+        EN.put("resource.sort.format_asc", "Version ↑");
+        EN.put("resource.sort.format_desc", "Version ↓");
+        EN.put("resource.sort.type", "Type");
+        EN.put("resource.compatible", "Compatible: {0}");
+        EN.put("resource.path_label", "Path");
+
+        // ===== Shader packs page new =====
+        EN.put("shader.status_format", "Status: {0}");
+        EN.put("shader.sort.name", "By name");
+        EN.put("shader.sort.size_desc", "Size ↓");
+        EN.put("shader.sort.size_asc", "Size ↑");
+        EN.put("shader.sort.active", "Active first");
+
+        // ===== Wiki page new =====
+        EN.put("wiki.status_format", "Status: {0}");
+
+        // ===== Content common new =====
+        EN.put("content.unknown", "Unknown");
+
+        // ===== Common new =====
+        EN.put("common.enabled", "Enabled");
+        EN.put("common.disabled", "Disabled");
+        EN.put("common.unknown", "Unknown");
+
+        // ===== Status - General =====
+        EN.put("status.ready", "Ready");
+        EN.put("status.internal_error", "Internal error: {0}");
+        EN.put("status.scanning_local_versions", "Scanning local versions…");
+        EN.put("status.scan_progress", "Scan progress: {0}/{1} ({2})");
+        EN.put("status.scan_complete", "Scan complete, {0} versions found");
+        EN.put("status.scan_complete_with_mc", "Scan complete, {0} versions (including system .minecraft: {1})");
+        EN.put("status.scan_complete_no_versions_with_mc", "Scan complete, no versions found (PMCL: {0}, system .minecraft: {1})");
+        EN.put("status.scan_complete_no_versions_no_mc", "Scan complete, no versions found (PMCL: {0})");
+        EN.put("status.scan_local_failed", "Failed to scan local versions: {0}");
+        EN.put("status.pinned", "Pinned version: {0}");
+        EN.put("status.tile_deleted", "Tile deleted: {0}");
+        EN.put("status.tile_name_reset", "Reset tile name for {0}");
+        EN.put("status.tile_renamed", "Renamed {0} to {1}");
+        EN.put("status.tile_invalid", "Version {0} no longer exists, tile removed");
+        EN.put("status.login_first_to_launch", "Please log in before launching");
+        EN.put("status.records_purged", "Purged all play records for {0}");
+        EN.put("status.account_loaded", "Loaded account: {0} ({1})");
+        EN.put("status.account_load_failed", "Failed to load account: {0}");
+        EN.put("status.account_save_failed", "Failed to save account: {0}");
+        EN.put("status.account_switched", "Switched to account: {0}");
+        EN.put("status.account_removed", "Current account removed");
+        EN.put("status.fetching_version_manifest", "Fetching version manifest…");
+        EN.put("status.versions_loaded", "Loaded {0} versions");
+        EN.put("status.fetch_failed", "Fetch failed: {0}");
+        EN.put("status.username_required", "Please enter a username");
+        EN.put("status.logged_in_offline", "Logged in offline: {0}");
+        EN.put("status.login_first", "Please log in first");
+        EN.put("status.offline_skin_microsoft_unsupported", "Offline accounts do not support Microsoft skins");
+        EN.put("status.skin_cleared", "Custom skin cleared");
+        EN.put("status.skin_set", "Custom skin set");
+        EN.put("status.extracting_wallpaper_color", "Extracting wallpaper color…");
+        EN.put("status.wallpaper_color_failed_default", "Wallpaper color extraction failed, using default colors");
+        EN.put("status.monet_applied", "Monet colors applied: #{0}");
+        EN.put("status.wallpaper_color_failed", "Wallpaper color extraction failed: {0}");
+        EN.put("status.re_extracting_wallpaper_color", "Re-extracting wallpaper color…");
+        EN.put("status.monet_refreshed", "Monet colors refreshed: #{0}");
+        EN.put("status.custom_accent_applied", "Custom accent applied: #{0}");
+        EN.put("status.default_color_restored", "Default colors restored");
+        EN.put("status.opening_browser_login", "Opening browser for login…");
+        EN.put("status.requesting_device_code", "Requesting device code…");
+        EN.put("status.open_verification_url", "Visit {0} and enter code: {1}");
+        EN.put("status.logged_in_microsoft", "Logged in to Microsoft: {0}");
+        EN.put("status.microsoft_login_failed_network", "Microsoft login failed (network): {0}");
+        EN.put("status.microsoft_login_failed", "Microsoft login failed: {0}");
+        EN.put("status.requesting_github_device_code", "Requesting GitHub device code…");
+        EN.put("status.logged_in_github", "Logged in to GitHub: {0}");
+        EN.put("status.github_login_failed", "GitHub login failed: {0}");
+        EN.put("status.install_starting", "Installing {0}…");
+        EN.put("status.install_progress", "{0}: {1}");
+        EN.put("status.install_complete", "{0} installed");
+        EN.put("status.installing_loader", "Installing {0} {1}…");
+        EN.put("status.loader_install_complete", "{0} {1} installed");
+        EN.put("status.install_failed", "Install failed: {0}");
+        EN.put("status.loader_versions_loaded_cache", "Loaded {0} {1} versions from cache");
+        EN.put("status.fetching_loader_versions", "Fetching {0} version list…");
+        EN.put("status.loader_versions_loaded", "Loaded {0} {1} versions");
+        EN.put("status.searching", "Searching for: {0}…");
+        EN.put("status.mods_found", "Found {0} mods (CurseForge: {1})");
+        EN.put("status.search_failed", "Search failed: {0}");
+        EN.put("status.popular_mods_loaded", "Loaded {0} popular mods");
+        EN.put("status.loading_popular_mods", "Loading popular mods…");
+        EN.put("status.popular_mods_load_failed", "Failed to load popular mods: {0}");
+        EN.put("status.loading_category", "Loading category: {0}…");
+        EN.put("status.category_mods_loaded", "Loaded {0} category mods");
+        EN.put("status.category_load_failed", "Failed to load category: {0}");
+        EN.put("status.fetching_project_files", "Fetching file list for {0}…");
+        EN.put("status.project_files_loaded", "Loaded {1} files for {0}");
+        EN.put("status.downloading_mod", "Downloading mod: {0}…");
+        EN.put("status.mod_installed", "Installed mod: {0}");
+        EN.put("status.mod_install_failed", "Failed to install mod: {0}");
+        EN.put("status.installing_mod_with_deps", "Installing {0} with dependencies…");
+        EN.put("status.mod_install_complete_with_deps", "{0} installed (with deps): {1}");
+        EN.put("status.mod_install_complete_no_deps", "{0} installed (no deps)");
+        EN.put("status.mods_scanned", "Scanned {0} mods (from {1} directories)");
+        EN.put("status.scan_mods_failed", "Failed to scan mods: {0}");
+        EN.put("status.mod_deleted", "Deleted mod: {0}");
+        EN.put("status.delete_failed", "Delete failed: {0}");
+        EN.put("status.mod_disabled", "Disabled mod: {0}");
+        EN.put("status.disable_failed", "Disable failed: {0}");
+        EN.put("status.mod_enabled", "Enabled mod: {0}");
+        EN.put("status.enable_failed", "Enable failed: {0}");
+        EN.put("status.mod_imported", "Imported mod: {0}");
+        EN.put("status.import_failed", "Import failed: {0}");
+        EN.put("status.batch_enabled_mods", "Enabled {0} mods");
+        EN.put("status.batch_enable_failed", "Batch enable failed: {0}");
+        EN.put("status.batch_disabled_mods", "Disabled {0} mods");
+        EN.put("status.batch_disable_failed", "Batch disable failed: {0}");
+        EN.put("status.batch_deleted_mods", "Deleted {0} mods");
+        EN.put("status.batch_delete_failed", "Batch delete failed: {0}");
+        EN.put("status.open_dir_failed", "Failed to open directory: {0}");
+        EN.put("status.refresh_modpacks_failed", "Failed to refresh modpacks: {0}");
+        EN.put("status.modpack_busy", "Modpack operation in progress, please wait");
+        EN.put("status.modpack_import_complete", "Modpack imported");
+        EN.put("status.modpack_import_failed", "Failed to import modpack: {0}");
+        EN.put("status.version_select_first", "Please select a version first");
+        EN.put("status.modpack_exported", "Modpack exported");
+        EN.put("status.modpack_export_failed", "Failed to export modpack: {0}");
+        EN.put("status.checking_modpack_updates", "Checking modpack updates…");
+        EN.put("status.modpack_has_updates", "Modpack has updates available");
+        EN.put("status.modpack_up_to_date", "Modpack is up to date");
+        EN.put("status.check_updates_failed_default", "Failed to check for updates");
+        EN.put("status.check_updates_failed", "Failed to check for updates: {0}");
+        EN.put("status.modpack_deleted", "Modpack deleted");
+        EN.put("status.modpack_delete_failed", "Failed to delete modpack: {0}");
+        EN.put("status.nbt_loaded", "NBT file loaded");
+        EN.put("status.nbt_read_failed", "Failed to read NBT: {0}");
+        EN.put("status.nbt_saved", "NBT saved");
+        EN.put("status.nbt_save_failed", "Failed to save NBT: {0}");
+        EN.put("status.queued_minecraft_version", "Queued for download: {0}");
+        EN.put("status.queued_loader", "Queued for download: {0} {1}");
+        EN.put("status.queued_mod", "Queued for download: mod {0}");
+        EN.put("status.config_files_load_failed", "Failed to load config file list: {0}");
+        EN.put("status.config_file_read_failed", "Failed to read config file: {0}");
+        EN.put("status.config_file_saved", "Config file saved");
+        EN.put("status.config_file_save_failed", "Failed to save config file: {0}");
+        EN.put("status.config_file_deleted", "Config file deleted");
+        EN.put("status.config_file_created", "Config file created");
+        EN.put("status.config_file_create_failed", "Failed to create config file: {0}");
+        EN.put("status.no_installed_mods", "No installed mods");
+        EN.put("status.checking_mod_updates", "Checking for mod updates…");
+        EN.put("status.mod_updates_found", "Found {0} mods to update");
+        EN.put("status.mod_updates_all_latest", "All mods are up to date");
+        EN.put("status.check_mod_updates_failed", "Failed to check for mod updates: {0}");
+        EN.put("status.mod_update_complete", "Mod update complete");
+        EN.put("status.mod_update_failed", "Mod update failed: {0}");
+        EN.put("status.no_mods_to_update", "No mods to update");
+        EN.put("status.batch_updating_mods", "Batch updating mods…");
+        EN.put("status.batch_updating_progress", "Updating: {0}");
+        EN.put("status.batch_update_complete", "Batch update complete");
+        EN.put("status.batch_update_failed", "Batch update failed: {0}");
+        EN.put("status.building_launch_profile", "Building launch profile…");
+        EN.put("status.launch_failed_no_java", "Launch failed: no Java runtime found");
+        EN.put("status.compat_hint_loongson", "LoongArch detected, compatibility layer auto-applied");
+        EN.put("status.cannot_open_browser", "Cannot open browser: {0}");
+        EN.put("status.compat_hint_riscv", "RISC-V detected, compatibility layer auto-applied");
+        EN.put("status.compat_issue_arch_mismatch", "Architecture mismatch, compatibility layer may be needed");
+        EN.put("status.compat_layer_suffix", " (compat layer)");
+        EN.put("status.launching", "Launching game…");
+        EN.put("status.game_exited_with_version", "{0} exited");
+        EN.put("status.game_exited", "Game exited");
+        EN.put("status.launch_failed", "Launch failed: {0}");
+        EN.put("status.launching_with_specific_java", "Launching with specified Java…");
+        EN.put("status.launching_with_external_launcher", "Launching via external launcher…");
+        EN.put("status.external_launcher_opened", "Opened external launcher: {0}");
+        EN.put("status.external_launcher_failed", "External launcher {0} failed: {1}");
+        EN.put("status.preset_name_empty", "Preset name cannot be empty");
+        EN.put("status.preset_saved", "Preset saved");
+        EN.put("status.preset_applied", "Preset applied");
+        EN.put("status.preset_deleted", "Preset deleted");
+        EN.put("status.unsupported_java_version", "Unsupported Java version: {0}");
+        EN.put("status.java_download_failed_empty_manifest", "Java download failed: empty manifest");
+        EN.put("status.java_install_complete", "Java {0} installed");
+        EN.put("status.java_download_failed", "Java {0} download failed: {1}");
+        EN.put("status.java_path_reset", "Java path reset");
+        EN.put("status.java_path_set", "Java path set");
+        EN.put("status.worlds_scanned", "Scanned {0} worlds");
+        EN.put("status.scan_worlds_failed", "Failed to scan worlds: {0}");
+        EN.put("status.world_backed_up", "World backed up");
+        EN.put("status.backup_failed", "Backup failed: {0}");
+        EN.put("status.world_deleted", "World deleted");
+        EN.put("status.world_restored", "World restored");
+        EN.put("status.restore_failed", "Restore failed: {0}");
+        EN.put("status.world_imported", "World imported");
+        EN.put("status.screenshots_scanned", "Scanned {0} screenshots");
+        EN.put("status.scan_screenshots_failed", "Failed to scan screenshots: {0}");
+        EN.put("status.screenshot_deleted", "Screenshot deleted");
+        EN.put("status.screenshot_copied", "Screenshot copied");
+        EN.put("status.copy_failed", "Copy failed: {0}");
+        EN.put("status.screenshots_exported", "Exported {0} screenshots");
+        EN.put("status.export_failed", "Export failed: {0}");
+        EN.put("status.resource_packs_scanned", "Scanned {0} resource packs");
+        EN.put("status.scan_resource_packs_failed", "Failed to scan resource packs: {0}");
+        EN.put("status.resource_pack_enabled", "Enabled resource pack: {0}");
+        EN.put("status.resource_pack_disabled", "Disabled resource pack: {0}");
+        EN.put("status.resource_pack_deleted", "Deleted resource pack: {0}");
+        EN.put("status.resource_pack_imported", "Imported resource pack: {0}");
+        EN.put("status.batch_enabled_resource_packs", "Enabled {0} resource packs");
+        EN.put("status.batch_disabled_resource_packs", "Disabled {0} resource packs");
+        EN.put("status.batch_deleted_resource_packs", "Deleted {0} resource packs");
+        EN.put("status.checking_integrity", "Checking integrity…");
+        EN.put("status.integrity_check_passed", "Integrity check passed");
+        EN.put("status.integrity_issues_found", "Found {0} integrity issues");
+        EN.put("status.integrity_check_failed", "Integrity check failed: {0}");
+        EN.put("status.crash_reports_scanned", "Scanned {0} crash reports");
+        EN.put("status.scan_crash_reports_failed", "Failed to scan crash reports: {0}");
+        EN.put("status.shader_packs_scanned", "Scanned {0} shader packs");
+        EN.put("status.scan_shader_packs_failed", "Failed to scan shader packs: {0}");
+        EN.put("status.shader_pack_enabled", "Enabled shader pack: {0}");
+        EN.put("status.shader_pack_disabled", "Disabled shader pack: {0}");
+        EN.put("status.shader_pack_deleted", "Deleted shader pack: {0}");
+        EN.put("status.shader_pack_imported", "Imported shader pack: {0}");
+        EN.put("status.batch_enabled_shader_packs", "Enabled {0} shader packs");
+        EN.put("status.batch_disabled_shader_packs", "Disabled {0} shader packs");
+        EN.put("status.batch_deleted_shader_packs", "Deleted {0} shader packs");
+        EN.put("status.shader_pack_applied", "Applied shader pack: {0}");
+        EN.put("status.apply_failed", "Apply failed: {0}");
+        EN.put("status.shader_pack_cleared", "Shader pack cleared");
+        EN.put("status.clear_failed", "Clear failed: {0}");
+        EN.put("status.datapacks_scanned", "Scanned {0} datapacks");
+        EN.put("status.scan_datapacks_failed", "Failed to scan datapacks: {0}");
+        EN.put("status.datapack_deleted", "Deleted datapack: {0}");
+        EN.put("status.datapack_enabled", "Enabled datapack: {0}");
+        EN.put("status.datapack_disabled", "Disabled datapack: {0}");
+        EN.put("status.world_select_first", "Please select a world first");
+        EN.put("status.datapack_imported", "Imported datapack: {0}");
+        EN.put("status.batch_enabled_datapacks", "Enabled {0} datapacks");
+        EN.put("status.batch_disabled_datapacks", "Disabled {0} datapacks");
+        EN.put("status.batch_deleted_datapacks", "Deleted {0} datapacks");
+        EN.put("status.wiki_opened", "Opened Wiki page");
+        EN.put("status.open_failed", "Open failed: {0}");
+        EN.put("status.language_switched", "Language switched");
+        EN.put("status.logs_exported", "Logs exported");
+        EN.put("status.logs_export_failed", "Failed to export logs: {0}");
+        EN.put("status.no_logs_to_share", "No logs to share");
+        EN.put("status.logs_uploaded", "Logs uploaded, share link generated");
+        EN.put("status.logs_upload_failed", "Log upload failed: {0}");
+        EN.put("status.no_news", "No news");
+        EN.put("status.news_loaded", "Loaded {0} news items");
+        EN.put("status.loading_news", "Loading news…");
+        EN.put("status.news_load_failed", "Failed to load news: {0}");
+        EN.put("status.news_no_link", "This news has no accessible link");
+        EN.put("status.news_opened_in_browser", "Opened news in system browser");
+        EN.put("status.network_prefs_applied", "Network preferences applied");
+        EN.put("status.leave_room_before_switch_backend", "Please leave the current room before switching backend");
+        EN.put("status.mp_backend_switched", "Switched to {0} multiplayer backend");
+        EN.put("status.already_in_room", "Already in a room, please leave first");
+        EN.put("status.creating_connectx_room", "Creating ConnectX room…");
+        EN.put("status.creating_terracotta_room", "Creating Terracotta room…");
+        EN.put("status.creating_mp_room", "Creating multiplayer room…");
+        EN.put("status.room_created_with_code", "Room created, code: {0}");
+        EN.put("status.connectx_room_created", "ConnectX room created");
+        EN.put("status.room_created_with_vip", "Room created, virtual IP: {0}");
+        EN.put("status.room_started_waiting", "Room started, waiting for connections…");
+        EN.put("status.create_room_failed", "Failed to create room: {0}");
+        EN.put("status.enter_room_code_or_invitation", "Please enter a room code or invitation");
+        EN.put("status.joining_room", "Joining room…");
+        EN.put("status.joined_room_mc_addr", "Joined room, MC address: {0} (use this for direct connection)");
+        EN.put("status.joined_room_vip", "Joined room, virtual IP: {0}");
+        EN.put("status.connecting_room", "Connecting to room…");
+        EN.put("status.join_room_failed", "Failed to join room: {0}");
+        EN.put("status.leave_room_failed", "Failed to leave room: {0}");
+        EN.put("status.left_connectx_room", "Left ConnectX room");
+        EN.put("status.left_terracotta_room", "Left Terracotta room");
+        EN.put("status.no_invitation_to_share", "No invitation to share");
+        EN.put("status.invitation_copied", "Invitation copied to clipboard");
+        EN.put("status.copied", "Copied: {0}");
+        EN.put("status.direct_connect_server_set", "Direct connect server set: {0}");
+        EN.put("status.load_instances_failed", "Failed to load instances: {0}");
+        EN.put("status.instance_created", "Instance \"{0}\" created");
+        EN.put("status.instance_create_failed", "Failed to create instance: {0}");
+        EN.put("status.instance_copied", "Instance \"{0}\" copied from source");
+        EN.put("status.instance_copy_failed", "Failed to copy instance: {0}");
+        EN.put("status.instance_renamed", "Instance renamed to \"{0}\"");
+        EN.put("status.rename_failed", "Rename failed: {0}");
+        EN.put("status.instance_deleted", "Instance deleted");
+        EN.put("status.instance_delete_failed", "Failed to delete instance: {0}");
+        EN.put("status.instance_missing_base_version", "Instance \"{0}\" is missing its base version, cannot launch");
+        EN.put("status.no_migration_sources", "No migration sources detected");
+        EN.put("status.migration_sources_detected", "Detected {0} migration sources");
+        EN.put("status.scan_failed", "Scan failed: {0}");
+        EN.put("status.migrating_from", "Migrating game data from {0}…");
+        EN.put("status.migration_complete", "Migration complete, local versions loaded");
+        EN.put("status.migration_failed", "Migration failed: {0}");
+
+        // ===== Recovery messages =====
+        EN.put("recovery.jump_to_settings_java", "Jumped to settings. Please specify the correct Java version for {0} in \"Java Path\".");
+        EN.put("recovery.scanning_mod_conflicts", "Scanning for mod conflicts, please check the mods page later.");
+        EN.put("recovery.checking_integrity", "Verifying integrity of {0}, missing files will be auto-filled.");
+        EN.put("recovery.uploading_logs", "Uploading logs to paste.gg…");
+        EN.put("recovery.jumped_to_mods", "Jumped to mods management page");
+        EN.put("recovery.jumped_to_settings", "Jumped to settings page");
+        EN.put("recovery.memory_at_limit", "Memory at limit {0}MB (system available {1}MB)");
+        EN.put("recovery.memory_adjusted", "Max memory adjusted from {0}MB to {1}MB, you can restart the game");
+        EN.put("recovery.disabled_mods", "Disabled {0} recently added mods (moved to mods/disabled)");
+        EN.put("recovery.no_mods_to_disable", "No mods to disable in mods directory");
+        EN.put("recovery.disable_mods_failed", "Failed to disable mods: {0}");
+        EN.put("recovery.reinstalling", "{0} old files cleared, reinstalling…");
+        EN.put("recovery.reinstall_failed", "Reinstall failed: {0}");
+        EN.put("recovery.config_cleaned", "Backed up and cleaned {0} config files (backup in config-backup-* directory), you can restart");
+        EN.put("recovery.no_config_to_clean", "No config files to clean");
+        EN.put("recovery.clear_config_failed", "Failed to clean config: {0}");
+
+        // ===== Multiplayer progress =====
+        EN.put("mp.progress.preparing", "Preparing…");
+        EN.put("mp.progress.parsing_code", "Parsing room code…");
+    }
+
+    private static void initJa() {
         // ========================================
         // JA 翻訳
         // ========================================
@@ -3199,6 +4383,623 @@ public final class I18n {
         JA.put("market.cat.transportation", "輸送");
         JA.put("market.cat.social", "ソーシャル");
         JA.put("market.cat.game_mechanics", "ゲームメカニクス");
+
+        // ===== コマンドパレットキーワード =====
+        JA.put("cmd.kw.launch", "起動");
+        JA.put("cmd.kw.start", "開始");
+        JA.put("cmd.kw.scan", "スキャン");
+        JA.put("cmd.kw.refresh", "更新");
+        JA.put("cmd.kw.version", "バージョン");
+        JA.put("cmd.kw.mod", "Mod");
+        JA.put("cmd.kw.theme", "テーマ");
+        JA.put("cmd.kw.dark", "ダーク");
+        JA.put("cmd.kw.toggle", "切替");
+        JA.put("cmd.kw.settings", "設定");
+        JA.put("cmd.kw.preferences", "環境設定");
+        JA.put("cmd.kw.config", "構成");
+        JA.put("cmd.kw.modpack", "Modpack");
+        JA.put("cmd.kw.shader", "シェーダー");
+        JA.put("cmd.kw.shader_alt", "シェーダー");
+        JA.put("cmd.kw.resource_pack", "リソースパック");
+        JA.put("cmd.kw.texture", "テクスチャ");
+        JA.put("cmd.kw.datapack", "データパック");
+        JA.put("cmd.kw.edit", "編集");
+        JA.put("cmd.kw.install", "インストール");
+        JA.put("cmd.kw.market", "マーケット");
+        JA.put("cmd.kw.store", "ストア");
+        JA.put("cmd.kw.queue", "キュー");
+        JA.put("cmd.kw.download", "ダウンロード");
+        JA.put("cmd.kw.wiki", "Wiki");
+        JA.put("cmd.kw.world", "ワールド");
+        JA.put("cmd.kw.save", "セーブ");
+        JA.put("cmd.kw.screenshot", "スクリーンショット");
+        JA.put("cmd.kw.instance", "インスタンス");
+        JA.put("cmd.kw.game", "ゲーム");
+        JA.put("cmd.kw.news", "ニュース");
+        JA.put("cmd.kw.info", "情報");
+        JA.put("cmd.kw.multiplayer", "マルチプレイ");
+        JA.put("cmd.kw.server", "サーバー");
+        JA.put("cmd.kw.friend", "フレンド");
+        JA.put("cmd.kw.chat", "チャット");
+        JA.put("cmd.kw.contact", "連絡先");
+        JA.put("cmd.kw.qrcode", "QRコード");
+        JA.put("cmd.kw.content", "コンテンツ");
+        JA.put("cmd.kw.resource", "リソース");
+        JA.put("cmd.kw.statistics", "統計");
+        JA.put("cmd.kw.account", "アカウント");
+        JA.put("cmd.kw.login", "ログイン");
+        JA.put("cmd.kw.microsoft", "Microsoft");
+        JA.put("cmd.kw.terminal", "ターミナル");
+        JA.put("cmd.kw.console", "コンソール");
+        JA.put("cmd.kw.plugin", "プラグイン");
+        JA.put("cmd.kw.extension", "拡張");
+        JA.put("cmd.kw.standalone", "単体");
+
+        // ===== 統計ページ新規 =====
+        JA.put("stats.realtime_performance", "リアルタイムデバイス性能");
+        JA.put("stats.realtime", "リアル");
+        JA.put("stats.system_memory", "システムメモリ");
+        JA.put("stats.jvm_heap", "JVM ヒープ");
+        JA.put("stats.network", "ネットワーク");
+        JA.put("stats.gpu", "GPU");
+        JA.put("stats.disk", "ディスク");
+        JA.put("stats.system_uptime", "システム稼働時間");
+        JA.put("stats.peak", "ピーク {0}");
+        JA.put("stats.cpu_cores", "{0}P/{1}L コア");
+        JA.put("stats.threads", "{0} スレッド");
+        JA.put("stats.heap_limit", "上限 {0} MB");
+        JA.put("stats.net_peak", "ピーク ↑ {0}  ↓ {1}");
+        JA.put("stats.play_records", "プレイ記録");
+        JA.put("stats.longest_session", "最長セッション");
+        JA.put("stats.longest_streak", "最長連続");
+        JA.put("stats.current_streak", "現在連続");
+        JA.put("stats.total_days", "総日数");
+        JA.put("stats.days_count", "{0} 日");
+        JA.put("stats.first_play", "初プレイ");
+        JA.put("stats.most_played_hour", "最頻時間帯");
+        JA.put("stats.longest_version", "トップバージョン");
+        JA.put("stats.record_date", "記録日");
+        JA.put("stats.duration", "時間");
+        JA.put("stats.count", "回数");
+        JA.put("stats.time_heatmap", "時間帯ヒートマップ");
+        JA.put("stats.heatmap_desc", "行=曜日、列=時間、色が濃いほどプレイ多い");
+        JA.put("stats.heatmap_less", "少");
+        JA.put("stats.heatmap_more", "多");
+        JA.put("stats.weekday_short_mon", "月");
+        JA.put("stats.weekday_short_tue", "火");
+        JA.put("stats.weekday_short_wed", "水");
+        JA.put("stats.weekday_short_thu", "木");
+        JA.put("stats.weekday_short_fri", "金");
+        JA.put("stats.weekday_short_sat", "土");
+        JA.put("stats.weekday_short_sun", "日");
+        JA.put("stats.weekday_distribution", "曜日分布");
+        JA.put("stats.other", "その他");
+        JA.put("stats.session_records", "セッション記録");
+        JA.put("stats.total_count", "合計 {0} 件");
+        JA.put("stats.load_more", "もっと読み込む");
+
+        // ===== ワールドページ新規 =====
+        JA.put("world.unknown_source", "不明");
+        JA.put("world.scan_summary", "統合スキャン：PMCL / 外部ランチャー / Modpack バージョンディレクトリの saves");
+        JA.put("world.search_placeholder", "ワールド名を検索…");
+        JA.put("world.source_label", "ソース：");
+        JA.put("world.source_all", "すべて");
+        JA.put("world.count", "ワールド {0} 件");
+        JA.put("world.count_filtered", "ワールド {0} 件 · 表示中 {1}");
+        JA.put("world.no_match", "該当なし");
+        JA.put("world.sort.name", "名前順");
+        JA.put("world.sort.size_desc", "サイズ ↓");
+        JA.put("world.sort.size_asc", "サイズ ↑");
+        JA.put("world.sort.modified", "更新日時");
+        JA.put("world.import_title", "ワールドセーブをインポート");
+        JA.put("world.restore", "復元");
+        JA.put("world.restore_title", "ワールドを復元 — {0}");
+        JA.put("world.restore_select_hint", "復元するバックアップを選択（現在のワールドを上書きします）：");
+        JA.put("world.loading_backups", "バックアップリストを読み込み中…");
+        JA.put("world.no_backups", "バックアップがありません。「バックアップ」をクリックして作成してください。");
+        JA.put("world.delete_title", "ワールドを削除");
+        JA.put("world.delete_confirm", "{0} を削除しますか？\nこの操作は取り消せません。\nパス：{1}");
+
+        // ===== アカウントページ新規 =====
+        JA.put("accounts.default_avatar", "デフォルトアバター");
+        JA.put("accounts.username_value", "ユーザー名：{0}");
+        JA.put("accounts.uuid", "UUID：{0}");
+        JA.put("accounts.type", "タイプ：{0}");
+        JA.put("accounts.skin_url", "スキン：{0}…");
+        JA.put("accounts.skin_model_value", "モデル：{0}");
+        JA.put("accounts.custom_skin", "カスタムスキン");
+        JA.put("accounts.custom_skin_hint", "スキン画像 URL を入力（例：https://crafatar.com/avatars/<UUID>）、空欄でクリア");
+        JA.put("accounts.skin_image_url", "スキン画像 URL");
+        JA.put("accounts.skin_model", "スキンモデル");
+        JA.put("accounts.apply_skin", "スキンを適用");
+        JA.put("accounts.clear_skin", "クリア");
+        JA.put("accounts.ms_browser_flow_hint", "ログインをクリックするとブラウザが開きます。ブラウザで Microsoft アカウントの認証を完了してください。\nMojang サーバーのスキンが自動同期されます。");
+        JA.put("accounts.ms_device_flow_hint", "デバイスコードフローでログイン。下のボタンをクリックし、指示に従ってください。\nMojang サーバーのスキンが自動同期されます。");
+        JA.put("accounts.device_code_ready", "デバイスコードが生成されました。ダイアログを確認してください");
+        JA.put("accounts.view_device_code", "デバイスコードを表示");
+        JA.put("accounts.github", "GitHub ログイン");
+        JA.put("accounts.github_hint", "デバイスコードフローでログイン、パスワード不要。\nログイン後に GitHub アバターとユーザー名が利用可能になります。");
+        JA.put("accounts.open_browser_failed", "ブラウザを開けませんでした：{0}");
+        JA.put("accounts.device_code_title", "デバイスコードログイン");
+        JA.put("accounts.device_code_step1", "ステップ 1：下のボタンをクリックしてブラウザを開く");
+        JA.put("accounts.device_code_step2", "ステップ 2：ブラウザに以下のコードを入力");
+        JA.put("common.copy", "コピー");
+        JA.put("common.copied", "コピー済み");
+        JA.put("accounts.code_copied", "コードをクリップボードにコピーしました");
+        JA.put("accounts.device_code_wait_hint", "ログイン完了後にランチャーは自動的に続行します。このウィンドウを閉じないでください。");
+        JA.put("accounts.skin_preview", "スキンプレビュー");
+
+        // ===== ダウンロードページ新規 =====
+        JA.put("download.page_title", "ダウンロードとインストール");
+        JA.put("download.mc_version", "MC バージョン");
+        JA.put("download.fetch_versions", "バージョン取得");
+        JA.put("download.status", "ステータス：{0}");
+        JA.put("download.category_all", "すべて");
+        JA.put("download.release", "リリース");
+        JA.put("download.snapshot", "スナップショット");
+        JA.put("download.old_beta", "旧 Beta");
+        JA.put("download.old_alpha", "旧 Alpha");
+        JA.put("download.search_placeholder", "バージョン番号を検索（例：1.20.4）");
+        JA.put("download.version_count", "バージョン {0} 件");
+        JA.put("download.filtered", "（フィルタ済み）");
+        JA.put("download.stable", "安定");
+        JA.put("download.unstable", "不安定");
+        JA.put("download.experimental", "実験的");
+
+        // ===== 同意画面新規 =====
+        JA.put("agreement.title", "PMCL へようこそ");
+        JA.put("agreement.subtitle", "使い始める前に、以下の規約をよく読んで同意してください。\nこれらの規約はあなたと開発者間の権利と義務を定めます。");
+        JA.put("agreement.user_agreement_title", "PMCL ユーザー規約");
+        JA.put("agreement.user_agreement_desc", "本ソフトウェア使用時の権利、義務、行動規範を規定");
+        JA.put("agreement.disclaimer_title", "PMCL 免責事項");
+        JA.put("agreement.disclaimer_desc", "各種状況における開発者の責任範囲と免責条項を明示");
+        JA.put("agreement.license_title", "PMCL ソフトウェア技術ライセンス v1.1");
+        JA.put("agreement.license_desc", "本ソフトウェアの著作権ライセンス条項（中国語版が権威）");
+        JA.put("agreement.decline", "同意せず終了");
+        JA.put("agreement.continue", "同意して続行");
+        JA.put("agreement.warning", "続行するには 3 つの規約すべてに同意してください");
+        JA.put("agreement.doc_not_found", "ドキュメントが見つかりません：{0}");
+        JA.put("agreement.load_failed", "読み込み失敗：{0}");
+        JA.put("agreement.agreed", "同意済み");
+        JA.put("agreement.not_agreed", "未同意");
+        JA.put("agreement.collapse", "折りたたむ");
+        JA.put("agreement.expand", "全文を表示");
+        JA.put("agreement.copy", "全文をコピー");
+
+        // ===== スクリーンショットページ新規 =====
+        JA.put("screenshot.title", "スクリーンショット");
+        JA.put("screenshot.export_zip_dialog", "スクリーンショット ZIP をエクスポート");
+        JA.put("screenshot.export_zip", "ZIP をエクスポート");
+        JA.put("screenshot.scan_hint", "統合スキャン：PMCL / 外部ランチャー / Modpack バージョンの screenshots · 選択後 Space でプレビュー");
+        JA.put("screenshot.empty", "スクリーンショットがありません。ゲーム内で F2 を押すと screenshots に保存されます。");
+        JA.put("screenshot.source", "ソース：{0}");
+        JA.put("screenshot.copy", "コピー");
+        JA.put("screenshot.preview", "プレビュー");
+        JA.put("screenshot.status", "ステータス：{0}");
+        JA.put("screenshot.count", "{0} / {1}");
+        JA.put("screenshot.preview_hint", "Space/ESC で閉じる · ← → で切替");
+        JA.put("screenshot.load_error", "画像を読み込めません");
+        JA.put("screenshot.prev", "前へ");
+        JA.put("screenshot.next", "次へ");
+
+        // ===== ビデオ通話新規 =====
+        JA.put("call.waiting_for_answer", "相手の応答を待っています…");
+        JA.put("call.incoming_call", "着信中…");
+        JA.put("call.connecting", "接続を確立中…");
+        JA.put("call.waiting_for_video", "映像を待っています…");
+        JA.put("call.ended", "通話終了");
+        JA.put("call.calling", "発信中…");
+        JA.put("call.mute", "ミュート");
+        JA.put("call.unmute", "ミュート解除");
+        JA.put("call.camera_off", "カメラオフ");
+        JA.put("call.camera_on", "カメラオン");
+        JA.put("call.end_call", "通話終了");
+        JA.put("call.incoming_title", "着信");
+        JA.put("call.accept", "応答");
+        JA.put("call.reject", "拒否");
+
+        // ===== フレンド身分カード新規 =====
+        JA.put("friend.not_logged_in", "未ログイン");
+        JA.put("friend.not_logged_in_account", "アカウント未ログイン");
+        JA.put("friend.identity_hint", "ログイン後に身分情報を表示");
+        JA.put("friend.identity_hint_short", "ログイン後に表示");
+        JA.put("friend.collapse", "折りたたむ");
+        JA.put("friend.expand", "展開");
+        JA.put("friend.qr_code", "フレンド QR コード");
+        JA.put("friend.qr_generating", "QR 生成中...");
+        JA.put("friend.change_background", "背景を変更");
+
+        // ===== ロック画面新規 =====
+        JA.put("lockscreen.greeting.morning", "おはようございます");
+        JA.put("lockscreen.greeting.noon", "こんにちは");
+        JA.put("lockscreen.greeting.afternoon", "こんにちは");
+        JA.put("lockscreen.greeting.evening", "こんばんは");
+        JA.put("lockscreen.greeting.late_night", "夜更けです");
+        JA.put("lockscreen.enter_main_hint", "ランチャーのメイン画面へ");
+        JA.put("lockscreen.enter_main", "進入");
+
+        // ===== データパックページ新規 =====
+        JA.put("datapack.location_hint", "データパックは saves/<ワールド>/datapacks/ にあります。まずワールドを選択してください。");
+        JA.put("datapack.source", "ソース：{0}");
+        JA.put("datapack.no_worlds", "セーブが見つかりません。ゲーム内でワールドを作成してください。");
+        JA.put("datapack.status_format", "ステータス：{0}");
+        JA.put("datapack.compatible", "互換性：{0}");
+        JA.put("datapack.path_label", "パス");
+
+        // ===== リソースパックページ新規 =====
+        JA.put("resource.dir_label", "ディレクトリ：{0}");
+        JA.put("resource.status_format", "ステータス：{0}");
+        JA.put("resource.sort.name", "名前順");
+        JA.put("resource.sort.format_asc", "バージョン ↑");
+        JA.put("resource.sort.format_desc", "バージョン ↓");
+        JA.put("resource.sort.type", "タイプ");
+        JA.put("resource.compatible", "互換性：{0}");
+        JA.put("resource.path_label", "パス");
+
+        // ===== シェーダーパックページ新規 =====
+        JA.put("shader.status_format", "ステータス：{0}");
+        JA.put("shader.sort.name", "名前順");
+        JA.put("shader.sort.size_desc", "サイズ ↓");
+        JA.put("shader.sort.size_asc", "サイズ ↑");
+        JA.put("shader.sort.active", "適用中優先");
+
+        // ===== Wiki ページ新規 =====
+        JA.put("wiki.status_format", "ステータス：{0}");
+
+        // ===== コンテンツ共通新規 =====
+        JA.put("content.unknown", "不明");
+
+        // ===== 共通新規 =====
+        JA.put("common.enabled", "有効");
+        JA.put("common.disabled", "無効");
+        JA.put("common.unknown", "不明");
+
+        // ===== ステータスメッセージ - 共通 =====
+        JA.put("status.ready", "準備完了");
+        JA.put("status.internal_error", "内部エラー：{0}");
+
+        // ===== ステータスメッセージ - ローカルバージョンスキャン =====
+        JA.put("status.scanning_local_versions", "ローカルバージョンをスキャン中…");
+        JA.put("status.scan_progress", "スキャン進捗：{0}/{1}（{2}）");
+        JA.put("status.scan_complete", "スキャン完了、バージョン {0} 件");
+        JA.put("status.scan_complete_with_mc", "スキャン完了、バージョン {0} 件（システム .minecraft 含む：{1}）");
+        JA.put("status.scan_complete_no_versions_with_mc", "スキャン完了、バージョンが見つかりません（PMCL：{0}、システム .minecraft：{1}）");
+        JA.put("status.scan_complete_no_versions_no_mc", "スキャン完了、バージョンが見つかりません（PMCL：{0}）");
+        JA.put("status.scan_local_failed", "ローカルバージョンのスキャンに失敗：{0}");
+
+        // ===== ステータスメッセージ - タイル =====
+        JA.put("status.pinned", "ピン留めバージョン：{0}");
+        JA.put("status.tile_deleted", "タイルを削除：{0}");
+        JA.put("status.tile_name_reset", "{0} のタイル名をリセット");
+        JA.put("status.tile_renamed", "{0} を {1} にリネーム");
+        JA.put("status.tile_invalid", "バージョン {0} は無効、タイルをクリア");
+        JA.put("status.login_first_to_launch", "起動前にログインしてください");
+        JA.put("status.records_purged", "{0} のすべてのプレイ記録を消去");
+
+        // ===== ステータスメッセージ - アカウント =====
+        JA.put("status.account_loaded", "アカウント読み込み：{0}（{1}）");
+        JA.put("status.account_load_failed", "アカウント読み込み失敗：{0}");
+        JA.put("status.account_save_failed", "アカウント保存失敗：{0}");
+        JA.put("status.account_switched", "アカウント切替：{0}");
+        JA.put("status.account_removed", "現在のアカウントを削除");
+        JA.put("status.fetching_version_manifest", "バージョンマニフェストを取得中…");
+        JA.put("status.versions_loaded", "バージョン {0} 件を読み込み");
+        JA.put("status.fetch_failed", "取得失敗：{0}");
+        JA.put("status.username_required", "ユーザー名を入力してください");
+        JA.put("status.logged_in_offline", "オフラインでログイン：{0}");
+        JA.put("status.login_first", "先にログインしてください");
+        JA.put("status.offline_skin_microsoft_unsupported", "オフラインアカウントは Microsoft スキンをサポートしません");
+        JA.put("status.skin_cleared", "カスタムスキンをクリア");
+        JA.put("status.skin_set", "カスタムスキンを設定");
+
+        // ===== ステータスメッセージ - 壁紙色抽出 =====
+        JA.put("status.extracting_wallpaper_color", "壁紙のメインカラーを抽出中…");
+        JA.put("status.wallpaper_color_failed_default", "壁紙色抽出失敗、デフォルト色を使用");
+        JA.put("status.monet_applied", "Monet 配色を適用：#{0}");
+        JA.put("status.wallpaper_color_failed", "壁紙色抽出失敗：{0}");
+        JA.put("status.re_extracting_wallpaper_color", "壁紙のメインカラーを再抽出中…");
+        JA.put("status.monet_refreshed", "Monet 配色を更新：#{0}");
+        JA.put("status.custom_accent_applied", "カスタムアクセント色を適用：#{0}");
+        JA.put("status.default_color_restored", "デフォルト配色を復元");
+
+        // ===== ステータスメッセージ - Microsoft/GitHub ログイン =====
+        JA.put("status.opening_browser_login", "ブラウザでログインを開いています…");
+        JA.put("status.requesting_device_code", "デバイスコードを要求中…");
+        JA.put("status.open_verification_url", "{0} にアクセスしてコードを入力：{1}");
+        JA.put("status.logged_in_microsoft", "Microsoft にログイン：{0}");
+        JA.put("status.microsoft_login_failed_network", "Microsoft ログイン失敗（ネットワーク）：{0}");
+        JA.put("status.microsoft_login_failed", "Microsoft ログイン失敗：{0}");
+        JA.put("status.requesting_github_device_code", "GitHub デバイスコードを要求中…");
+        JA.put("status.logged_in_github", "GitHub にログイン：{0}");
+        JA.put("status.github_login_failed", "GitHub ログイン失敗：{0}");
+
+        // ===== ステータスメッセージ - ゲームインストール =====
+        JA.put("status.install_starting", "{0} のインストールを開始…");
+        JA.put("status.install_progress", "{0}：{1}");
+        JA.put("status.install_complete", "{0} のインストール完了");
+        JA.put("status.installing_loader", "{0} {1} をインストール中…");
+        JA.put("status.loader_install_complete", "{0} {1} のインストール完了");
+        JA.put("status.install_failed", "インストール失敗：{0}");
+
+        // ===== ステータスメッセージ - Mod ローダーバージョン =====
+        JA.put("status.loader_versions_loaded_cache", "キャッシュから {0} 個の {1} バージョンを読み込み");
+        JA.put("status.fetching_loader_versions", "{0} のバージョンリストを取得中…");
+        JA.put("status.loader_versions_loaded", "{0} 個の {1} バージョンを読み込み");
+
+        // ===== ステータスメッセージ - Mod マーケット =====
+        JA.put("status.searching", "検索中：{0}…");
+        JA.put("status.mods_found", "Mod {0} 件ヒット（CurseForge：{1}）");
+        JA.put("status.search_failed", "検索失敗：{0}");
+        JA.put("status.popular_mods_loaded", "人気 Mod {0} 件を読み込み");
+        JA.put("status.loading_popular_mods", "人気 Mod を読み込み中…");
+        JA.put("status.popular_mods_load_failed", "人気 Mod の読み込み失敗：{0}");
+        JA.put("status.loading_category", "カテゴリを読み込み中：{0}…");
+        JA.put("status.category_mods_loaded", "カテゴリ Mod {0} 件を読み込み");
+        JA.put("status.category_load_failed", "カテゴリ読み込み失敗：{0}");
+        JA.put("status.fetching_project_files", "{0} のファイルリストを取得中…");
+        JA.put("status.project_files_loaded", "{0} のファイル {1} 件を読み込み");
+        JA.put("status.downloading_mod", "Mod をダウンロード中：{0}…");
+        JA.put("status.mod_installed", "Mod をインストール：{0}");
+        JA.put("status.mod_install_failed", "Mod インストール失敗：{0}");
+        JA.put("status.installing_mod_with_deps", "{0} と依存関係をインストール中…");
+        JA.put("status.mod_install_complete_with_deps", "{0} のインストール完了（依存含む）：{1}");
+        JA.put("status.mod_install_complete_no_deps", "{0} のインストール完了（依存なし）");
+
+        // ===== ステータスメッセージ - インストール済み Mod =====
+        JA.put("status.mods_scanned", "Mod {0} 件をスキャン（{1} ディレクトリから）");
+        JA.put("status.scan_mods_failed", "Mod スキャン失敗：{0}");
+        JA.put("status.mod_deleted", "Mod を削除：{0}");
+        JA.put("status.delete_failed", "削除失敗：{0}");
+        JA.put("status.mod_disabled", "Mod を無効化：{0}");
+        JA.put("status.disable_failed", "無効化失敗：{0}");
+        JA.put("status.mod_enabled", "Mod を有効化：{0}");
+        JA.put("status.enable_failed", "有効化失敗：{0}");
+        JA.put("status.mod_imported", "Mod をインポート：{0}");
+        JA.put("status.import_failed", "インポート失敗：{0}");
+        JA.put("status.batch_enabled_mods", "Mod {0} 件を有効化");
+        JA.put("status.batch_enable_failed", "一括有効化失敗：{0}");
+        JA.put("status.batch_disabled_mods", "Mod {0} 件を無効化");
+        JA.put("status.batch_disable_failed", "一括無効化失敗：{0}");
+        JA.put("status.batch_deleted_mods", "Mod {0} 件を削除");
+        JA.put("status.batch_delete_failed", "一括削除失敗：{0}");
+        JA.put("status.open_dir_failed", "ディレクトリを開けません：{0}");
+
+        // ===== ステータスメッセージ - Modpack =====
+        JA.put("status.refresh_modpacks_failed", "Modpack の更新失敗：{0}");
+        JA.put("status.modpack_busy", "Modpack 操作進行中、お待ちください");
+        JA.put("status.modpack_import_complete", "Modpack のインポート完了");
+        JA.put("status.modpack_import_failed", "Modpack インポート失敗：{0}");
+        JA.put("status.version_select_first", "バージョンを先に選択してください");
+        JA.put("status.modpack_exported", "Modpack をエクスポート");
+        JA.put("status.modpack_export_failed", "Modpack エクスポート失敗：{0}");
+        JA.put("status.checking_modpack_updates", "Modpack の更新を確認中…");
+        JA.put("status.modpack_has_updates", "Modpack に更新があります");
+        JA.put("status.modpack_up_to_date", "Modpack は最新です");
+        JA.put("status.check_updates_failed_default", "更新確認に失敗");
+        JA.put("status.check_updates_failed", "更新確認失敗：{0}");
+        JA.put("status.modpack_deleted", "Modpack を削除");
+        JA.put("status.modpack_delete_failed", "Modpack 削除失敗：{0}");
+
+        // ===== ステータスメッセージ - NBT エディタ =====
+        JA.put("status.nbt_loaded", "NBT ファイルを読み込み");
+        JA.put("status.nbt_read_failed", "NBT 読み込み失敗：{0}");
+        JA.put("status.nbt_saved", "NBT を保存");
+        JA.put("status.nbt_save_failed", "NBT 保存失敗：{0}");
+
+        // ===== ステータスメッセージ - ダウンロードキュー =====
+        JA.put("status.queued_minecraft_version", "ダウンロードキューに追加：{0}");
+        JA.put("status.queued_loader", "ダウンロードキューに追加：{0} {1}");
+        JA.put("status.queued_mod", "ダウンロードキューに追加：Mod {0}");
+
+        // ===== ステータスメッセージ - 設定ファイル =====
+        JA.put("status.config_files_load_failed", "設定ファイルリストの読み込み失敗：{0}");
+        JA.put("status.config_file_read_failed", "設定ファイルの読み込み失敗：{0}");
+        JA.put("status.config_file_saved", "設定ファイルを保存");
+        JA.put("status.config_file_save_failed", "設定ファイルの保存失敗：{0}");
+        JA.put("status.config_file_deleted", "設定ファイルを削除");
+        JA.put("status.config_file_created", "設定ファイルを作成");
+        JA.put("status.config_file_create_failed", "設定ファイルの作成失敗：{0}");
+
+        // ===== ステータスメッセージ - Mod 更新確認 =====
+        JA.put("status.no_installed_mods", "インストールされた Mod がありません");
+        JA.put("status.checking_mod_updates", "Mod 更新を確認中…");
+        JA.put("status.mod_updates_found", "{0} 件の更新可能な Mod");
+        JA.put("status.mod_updates_all_latest", "すべての Mod が最新です");
+        JA.put("status.check_mod_updates_failed", "Mod 更新確認失敗：{0}");
+        JA.put("status.mod_update_complete", "Mod 更新完了");
+        JA.put("status.mod_update_failed", "Mod 更新失敗：{0}");
+        JA.put("status.no_mods_to_update", "更新可能な Mod がありません");
+        JA.put("status.batch_updating_mods", "Mod を一括更新中…");
+        JA.put("status.batch_updating_progress", "更新中：{0}");
+        JA.put("status.batch_update_complete", "一括更新完了");
+        JA.put("status.batch_update_failed", "一括更新失敗：{0}");
+
+        // ===== ステータスメッセージ - ゲーム起動 =====
+        JA.put("status.building_launch_profile", "起動プロファイルを構築中…");
+        JA.put("status.launch_failed_no_java", "起動失敗：Java ランタイムが見つかりません");
+        JA.put("status.compat_hint_loongson", "LoongArch を検出、互換レイヤーを自動適用");
+        JA.put("status.cannot_open_browser", "ブラウザを開けません：{0}");
+        JA.put("status.compat_hint_riscv", "RISC-V を検出、互換レイヤーを自動適用");
+        JA.put("status.compat_issue_arch_mismatch", "アーキテクチャ不一致、互換レイヤーが必要かもしれません");
+        JA.put("status.compat_layer_suffix", "（互換レイヤー）");
+        JA.put("status.launching", "ゲームを起動中…");
+        JA.put("status.game_exited_with_version", "{0} が終了");
+        JA.put("status.game_exited", "ゲームが終了");
+        JA.put("status.launch_failed", "起動失敗：{0}");
+        JA.put("status.launching_with_specific_java", "指定 Java で起動中…");
+        JA.put("status.launching_with_external_launcher", "外部ランチャーで起動中…");
+        JA.put("status.external_launcher_opened", "外部ランチャーを開く：{0}");
+        JA.put("status.external_launcher_failed", "外部ランチャー {0} 起動失敗：{1}");
+
+        // ===== ステータスメッセージ - 起動プリセット =====
+        JA.put("status.preset_name_empty", "プリセット名は空にできません");
+        JA.put("status.preset_saved", "プリセットを保存");
+        JA.put("status.preset_applied", "プリセットを適用");
+        JA.put("status.preset_deleted", "プリセットを削除");
+
+        // ===== ステータスメッセージ - Java ダウンロード =====
+        JA.put("status.unsupported_java_version", "サポートされていない Java バージョン：{0}");
+        JA.put("status.java_download_failed_empty_manifest", "Java ダウンロード失敗：マニフェストが空");
+        JA.put("status.java_install_complete", "Java {0} のインストール完了");
+        JA.put("status.java_download_failed", "Java {0} のダウンロード失敗：{1}");
+        JA.put("status.java_path_reset", "Java パスをリセット");
+        JA.put("status.java_path_set", "Java パスを設定");
+
+        // ===== ステータスメッセージ - ワールド =====
+        JA.put("status.worlds_scanned", "ワールド {0} 件をスキャン");
+        JA.put("status.scan_worlds_failed", "ワールドスキャン失敗：{0}");
+        JA.put("status.world_backed_up", "ワールドをバックアップ");
+        JA.put("status.backup_failed", "バックアップ失敗：{0}");
+        JA.put("status.world_deleted", "ワールドを削除");
+        JA.put("status.world_restored", "ワールドを復元");
+        JA.put("status.restore_failed", "復元失敗：{0}");
+        JA.put("status.world_imported", "ワールドをインポート");
+
+        // ===== ステータスメッセージ - スクリーンショット =====
+        JA.put("status.screenshots_scanned", "スクリーンショット {0} 件をスキャン");
+        JA.put("status.scan_screenshots_failed", "スクリーンショットスキャン失敗：{0}");
+        JA.put("status.screenshot_deleted", "スクリーンショットを削除");
+        JA.put("status.screenshot_copied", "スクリーンショットをコピー");
+        JA.put("status.copy_failed", "コピー失敗：{0}");
+        JA.put("status.screenshots_exported", "スクリーンショット {0} 件をエクスポート");
+        JA.put("status.export_failed", "エクスポート失敗：{0}");
+
+        // ===== ステータスメッセージ - リソースパック =====
+        JA.put("status.resource_packs_scanned", "リソースパック {0} 件をスキャン");
+        JA.put("status.scan_resource_packs_failed", "リソースパックスキャン失敗：{0}");
+        JA.put("status.resource_pack_enabled", "リソースパックを有効化：{0}");
+        JA.put("status.resource_pack_disabled", "リソースパックを無効化：{0}");
+        JA.put("status.resource_pack_deleted", "リソースパックを削除：{0}");
+        JA.put("status.resource_pack_imported", "リソースパックをインポート：{0}");
+        JA.put("status.batch_enabled_resource_packs", "リソースパック {0} 件を有効化");
+        JA.put("status.batch_disabled_resource_packs", "リソースパック {0} 件を無効化");
+        JA.put("status.batch_deleted_resource_packs", "リソースパック {0} 件を削除");
+
+        // ===== ステータスメッセージ - 完全性/クラッシュ =====
+        JA.put("status.checking_integrity", "完全性を確認中…");
+        JA.put("status.integrity_check_passed", "完全性チェック通過");
+        JA.put("status.integrity_issues_found", "{0} 件の完全性問題を発見");
+        JA.put("status.integrity_check_failed", "完全性チェック失敗：{0}");
+        JA.put("status.crash_reports_scanned", "クラッシュレポート {0} 件をスキャン");
+        JA.put("status.scan_crash_reports_failed", "クラッシュレポートスキャン失敗：{0}");
+
+        // ===== ステータスメッセージ - シェーダーパック =====
+        JA.put("status.shader_packs_scanned", "シェーダーパック {0} 件をスキャン");
+        JA.put("status.scan_shader_packs_failed", "シェーダーパックスキャン失敗：{0}");
+        JA.put("status.shader_pack_enabled", "シェーダーパックを有効化：{0}");
+        JA.put("status.shader_pack_disabled", "シェーダーパックを無効化：{0}");
+        JA.put("status.shader_pack_deleted", "シェーダーパックを削除：{0}");
+        JA.put("status.shader_pack_imported", "シェーダーパックをインポート：{0}");
+        JA.put("status.batch_enabled_shader_packs", "シェーダーパック {0} 件を有効化");
+        JA.put("status.batch_disabled_shader_packs", "シェーダーパック {0} 件を無効化");
+        JA.put("status.batch_deleted_shader_packs", "シェーダーパック {0} 件を削除");
+        JA.put("status.shader_pack_applied", "シェーダーパックを適用：{0}");
+        JA.put("status.apply_failed", "適用失敗：{0}");
+        JA.put("status.shader_pack_cleared", "シェーダーパックをクリア");
+        JA.put("status.clear_failed", "クリア失敗：{0}");
+
+        // ===== ステータスメッセージ - データパック =====
+        JA.put("status.datapacks_scanned", "データパック {0} 件をスキャン");
+        JA.put("status.scan_datapacks_failed", "データパックスキャン失敗：{0}");
+        JA.put("status.datapack_deleted", "データパックを削除：{0}");
+        JA.put("status.datapack_enabled", "データパックを有効化：{0}");
+        JA.put("status.datapack_disabled", "データパックを無効化：{0}");
+        JA.put("status.world_select_first", "ワールドを先に選択してください");
+        JA.put("status.datapack_imported", "データパックをインポート：{0}");
+        JA.put("status.batch_enabled_datapacks", "データパック {0} 件を有効化");
+        JA.put("status.batch_disabled_datapacks", "データパック {0} 件を無効化");
+        JA.put("status.batch_deleted_datapacks", "データパック {0} 件を削除");
+
+        // ===== ステータスメッセージ - Wiki/言語/ログ =====
+        JA.put("status.wiki_opened", "Wiki ページを開く");
+        JA.put("status.open_failed", "開く失敗：{0}");
+        JA.put("status.language_switched", "言語を切替");
+        JA.put("status.logs_exported", "ログをエクスポート");
+        JA.put("status.logs_export_failed", "ログエクスポート失敗：{0}");
+        JA.put("status.no_logs_to_share", "共有するログがありません");
+        JA.put("status.logs_uploaded", "ログをアップロード、共有リンクを生成");
+        JA.put("status.logs_upload_failed", "ログアップロード失敗：{0}");
+
+        // ===== ステータスメッセージ - ニュース =====
+        JA.put("status.no_news", "ニュースがありません");
+        JA.put("status.news_loaded", "ニュース {0} 件を読み込み");
+        JA.put("status.loading_news", "ニュースを読み込み中…");
+        JA.put("status.news_load_failed", "ニュース読み込み失敗：{0}");
+        JA.put("status.news_no_link", "このニュースにはアクセス可能なリンクがありません");
+        JA.put("status.news_opened_in_browser", "システムブラウザでニュースを開く");
+
+        // ===== ステータスメッセージ - ネットワーク設定 =====
+        JA.put("status.network_prefs_applied", "ネットワーク設定を適用");
+
+        // ===== ステータスメッセージ - マルチプレイ =====
+        JA.put("status.leave_room_before_switch_backend", "バックエンド切替前に現在のルームを離脱してください");
+        JA.put("status.mp_backend_switched", "{0} マルチプレイバックエンドに切替");
+        JA.put("status.already_in_room", "ルームに参加済み、先に離脱してください");
+        JA.put("status.creating_connectx_room", "ConnectX ルームを作成中…");
+        JA.put("status.creating_terracotta_room", "Terracotta ルームを作成中…");
+        JA.put("status.creating_mp_room", "マルチプレイルームを作成中…");
+        JA.put("status.room_created_with_code", "ルーム作成、ルームコード：{0}");
+        JA.put("status.connectx_room_created", "ConnectX ルームを作成");
+        JA.put("status.room_created_with_vip", "ルーム作成、仮想 IP：{0}");
+        JA.put("status.room_started_waiting", "ルーム開始、接続待機中…");
+        JA.put("status.create_room_failed", "ルーム作成失敗：{0}");
+        JA.put("status.enter_room_code_or_invitation", "ルームコードまたは招待コードを入力");
+        JA.put("status.joining_room", "ルームに参加中…");
+        JA.put("status.joined_room_mc_addr", "ルームに参加、MC アドレス：{0}（直接接続に使用）");
+        JA.put("status.joined_room_vip", "ルームに参加、仮想 IP：{0}");
+        JA.put("status.connecting_room", "ルームに接続中…");
+        JA.put("status.join_room_failed", "ルーム参加失敗：{0}");
+        JA.put("status.leave_room_failed", "ルーム離脱失敗：{0}");
+        JA.put("status.left_connectx_room", "ConnectX ルームから離脱");
+        JA.put("status.left_terracotta_room", "Terracotta ルームから離脱");
+        JA.put("status.no_invitation_to_share", "共有可能な招待コードがありません");
+        JA.put("status.invitation_copied", "招待コードをクリップボードにコピー");
+        JA.put("status.copied", "コピー済み：{0}");
+
+        // ===== ステータスメッセージ - お気に入りサーバー =====
+        JA.put("status.direct_connect_server_set", "直接接続サーバーを設定：{0}");
+
+        // ===== ステータスメッセージ - インスタンス =====
+        JA.put("status.load_instances_failed", "インスタンス読み込み失敗：{0}");
+        JA.put("status.instance_created", "インスタンス「{0}」を作成");
+        JA.put("status.instance_create_failed", "インスタンス作成失敗：{0}");
+        JA.put("status.instance_copied", "インスタンス「{0}」をコピー元から複製");
+        JA.put("status.instance_copy_failed", "インスタンスコピー失敗：{0}");
+        JA.put("status.instance_renamed", "インスタンスを「{0}」にリネーム");
+        JA.put("status.rename_failed", "リネーム失敗：{0}");
+        JA.put("status.instance_deleted", "インスタンスを削除");
+        JA.put("status.instance_delete_failed", "インスタンス削除失敗：{0}");
+        JA.put("status.instance_missing_base_version", "インスタンス「{0}」はベースバージョンが欠落、起動できません");
+
+        // ===== ステータスメッセージ - 移行 =====
+        JA.put("status.no_migration_sources", "移行可能なランチャーを検出できません");
+        JA.put("status.migration_sources_detected", "移行可能なソース {0} 件を検出");
+        JA.put("status.scan_failed", "スキャン失敗：{0}");
+        JA.put("status.migrating_from", "{0} からゲームデータを移行中…");
+        JA.put("status.migration_complete", "移行完了、ローカルバージョンを読み込み");
+        JA.put("status.migration_failed", "移行失敗：{0}");
+
+        // ===== 復旧メッセージ =====
+        JA.put("recovery.jump_to_settings_java", "設定に遷移しました。「Java パス」で {0} の正しいバージョンを指定してください");
+        JA.put("recovery.scanning_mod_conflicts", "Mod 競合をスキャン中、後で Mod ページを確認してください");
+        JA.put("recovery.checking_integrity", "{0} の完全性を検証中、不足ファイルは自動補完されます");
+        JA.put("recovery.uploading_logs", "ログを paste.gg にアップロード中…");
+        JA.put("recovery.jumped_to_mods", "Mod 管理ページに遷移");
+        JA.put("recovery.jumped_to_settings", "設定ページに遷移");
+        JA.put("recovery.memory_at_limit", "メモリが上限 {0}MB に達しました（システム利用可能 {1}MB）");
+        JA.put("recovery.memory_adjusted", "最大メモリを {0}MB から {1}MB に調整、ゲームを再起動できます");
+        JA.put("recovery.disabled_mods", "最近追加された Mod {0} 件を無効化（mods/disabled に移動）");
+        JA.put("recovery.no_mods_to_disable", "mods ディレクトリに無効化可能な Mod がありません");
+        JA.put("recovery.disable_mods_failed", "Mod 無効化失敗：{0}");
+        JA.put("recovery.reinstalling", "{0} の旧ファイルをクリア、再インストール中…");
+        JA.put("recovery.reinstall_failed", "再インストール失敗：{0}");
+        JA.put("recovery.config_cleaned", "{0} 件の設定ファイルをバックアップしてクリア（バックアップは config-backup-* ディレクトリ）、再起動可能");
+        JA.put("recovery.no_config_to_clean", "クリア可能な設定ファイルがありません");
+        JA.put("recovery.clear_config_failed", "設定クリア失敗：{0}");
+
+        // ===== マルチプレイ進捗 =====
+        JA.put("mp.progress.preparing", "準備中…");
+        JA.put("mp.progress.parsing_code", "ルームコードを解析中…");
     }
 
     public static Locale getCurrentLocale() { return current; }

@@ -58,11 +58,11 @@ fun LockscreenLaunchPage(
     val greeting = remember {
         val h = SimpleDateFormat("HH", Locale.getDefault()).format(Date()).toIntOrNull() ?: 0
         when (h) {
-            in 5..10    -> "早上好"
-            in 11..13   -> "中午好"
-            in 14..17   -> "下午好"
-            in 18..22   -> "晚上好"
-            else        -> "夜深了"
+            in 5..10    -> I18n.t("lockscreen.greeting.morning")
+            in 11..13   -> I18n.t("lockscreen.greeting.noon")
+            in 14..17   -> I18n.t("lockscreen.greeting.afternoon")
+            in 18..22   -> I18n.t("lockscreen.greeting.evening")
+            else        -> I18n.t("lockscreen.greeting.late_night")
         }
     }
 
@@ -244,7 +244,7 @@ fun LockscreenLaunchPage(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            "进入启动器主界面",
+                            I18n.t("lockscreen.enter_main_hint"),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.outline
                         )
@@ -274,7 +274,7 @@ fun LockscreenLaunchPage(
                             Text(I18n.t("launch.enter"),
                                  style = MaterialTheme.typography.titleMedium)
                             Spacer(Modifier.width(8.dp))
-                            Icon(Icons.AutoMirrored.Filled.ArrowForward, "进入",
+                            Icon(Icons.AutoMirrored.Filled.ArrowForward, I18n.t("lockscreen.enter_main"),
                                  modifier = Modifier.size(18.dp))
                         }
                     }

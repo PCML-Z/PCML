@@ -13,6 +13,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.pmcl.core.i18n.I18n
 import com.pmcl.core.modloader.ModLoader
 import com.pmcl.ui.animation.StaggeredAppear
 import com.pmcl.ui.theme.LocalThemeState
@@ -38,7 +39,7 @@ fun DownloadPage(vm: LauncherViewModel) {
     LaunchedEffect(Unit) { if (versions.isEmpty()) vm.refreshVersions() }
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
-        Text("下载与安装", style = MaterialTheme.typography.headlineSmall,
+        Text(I18n.t("download.page_title"), style = MaterialTheme.typography.headlineSmall,
              fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(16.dp))
 
@@ -84,7 +85,7 @@ fun DownloadPage(vm: LauncherViewModel) {
             OutlinedTextField(
                 value = selectedGameVersion,
                 onValueChange = { selectedGameVersion = it },
-                label = { Text("MC 版本") },
+                label = { Text(I18n.t("download.mc_version")) },
                 singleLine = true,
                 modifier = Modifier.width(180.dp)
             )
@@ -99,10 +100,10 @@ fun DownloadPage(vm: LauncherViewModel) {
                         else -> ModLoader.FORGE
                     }
                     vm.listModLoaderVersions(loader, selectedGameVersion)
-                }) { Text("拉取版本") }
+                }) { Text(I18n.t("download.fetch_versions")) }
             }
             Spacer(Modifier.weight(1f))
-            Text("状态：$status", style = MaterialTheme.typography.labelSmall,
+            Text(I18n.t("download.status", status), style = MaterialTheme.typography.labelSmall,
                  color = MaterialTheme.colorScheme.outline)
         }
 
@@ -112,7 +113,13 @@ fun DownloadPage(vm: LauncherViewModel) {
         if (tab == 0) {
             // Vanilla 列表：分类筛选 + 搜索
             // 分类滑动选择器
-            val categories = listOf("全部", "正式版", "快照", "旧版Beta", "旧版Alpha")
+            val categories = listOf(
+                I18n.t("download.category_all"),
+                I18n.t("download.release"),
+                I18n.t("download.snapshot"),
+                I18n.t("download.old_beta"),
+                I18n.t("download.old_alpha")
+            )
             com.pmcl.ui.animation.AnimatedSegmentedSelector(
                 items = categories,
                 selectedIndex = versionCategory,
@@ -127,7 +134,7 @@ fun DownloadPage(vm: LauncherViewModel) {
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
-                label = { Text("搜索版本号（如 1.20.4）") },
+                label = { Text(I18n.t("download.search_placeholder")) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -154,8 +161,8 @@ fun DownloadPage(vm: LauncherViewModel) {
 
             // 分类计数提示
             Text(
-                "共 ${filtered.size} 个版本" +
-                    if (versionCategory != 0) "（已筛选）" else "",
+                I18n.t("download.version_count", filtered.size) +
+                    if (versionCategory != 0) I18n.t("download.filtered") else "",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.outline,
                 modifier = Modifier.padding(bottom = 8.dp)
@@ -168,7 +175,7 @@ fun DownloadPage(vm: LauncherViewModel) {
                     DownloadRow(
                         title = v.getId(),
                         subtitle = "${typeLabel(v.getType())} · ${(v.getReleaseTime() ?: "").take(10)}",
-                        buttonText = "安装",
+                        buttonText = I18n.t("download.install"),
                         installing = installing,
                         onAction = { vm.enqueueVersionInstall(v.getId()) }
                     )
@@ -184,8 +191,8 @@ fun DownloadPage(vm: LauncherViewModel) {
                     StaggeredAppear(index) {
                     DownloadRow(
                         title = lv.getLoaderVersion(),
-                        subtitle = "MC ${lv.getGameVersion()} · ${if (lv.isStable()) "稳定" else "不稳定"}",
-                        buttonText = "安装",
+                        subtitle = "MC ${lv.getGameVersion()} · ${if (lv.isStable()) I18n.t("download.stable") else I18n.t("download.unstable")}",
+                        buttonText = I18n.t("download.install"),
                         installing = installing,
                         selected = lv.getLoaderVersion() == selectedLoaderVersion,
                         onSelect = { selectedLoaderVersion = lv.getLoaderVersion() },
@@ -209,11 +216,11 @@ fun DownloadPage(vm: LauncherViewModel) {
 
 /** Mojang 版本 type 字段转中文标签 */
 private fun typeLabel(type: String): String = when (type) {
-    "release" -> "正式版"
-    "snapshot" -> "快照"
-    "old_beta" -> "旧版Beta"
-    "old_alpha" -> "旧版Alpha"
-    "experiment" -> "实验性"
+    "release" -> I18n.t("download.release")
+    "snapshot" -> I18n.t("download.snapshot")
+    "old_beta" -> I18n.t("download.old_beta")
+    "old_alpha" -> I18n.t("download.old_alpha")
+    "experiment" -> I18n.t("download.experimental")
     else -> type
 }
 

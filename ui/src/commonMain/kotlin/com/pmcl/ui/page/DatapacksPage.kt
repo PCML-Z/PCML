@@ -101,7 +101,7 @@ fun DatapacksPage(vm: LauncherViewModel) {
             }
         }
         Spacer(Modifier.height(8.dp))
-        Text("数据包位于 saves/<世界>/datapacks/，请先选择一个世界",
+        Text(I18n.t("datapack.location_hint"),
              style = MaterialTheme.typography.labelSmall,
              color = MaterialTheme.colorScheme.outline)
 
@@ -116,7 +116,7 @@ fun DatapacksPage(vm: LauncherViewModel) {
                 Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(I18n.t("datapack.current_world", sw.name),
                          fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                    Text("来源：${sw.source}",
+                    Text(I18n.t("datapack.source", sw.source),
                          style = MaterialTheme.typography.labelSmall,
                          color = MaterialTheme.colorScheme.outline)
                     Spacer(Modifier.width(8.dp))
@@ -160,7 +160,7 @@ fun DatapacksPage(vm: LauncherViewModel) {
                     modifier = Modifier.fillMaxWidth().weight(1f)
                 ) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(if (worlds.isEmpty()) "未扫描到存档。请先在游戏中创建世界。"
+                        Text(if (worlds.isEmpty()) I18n.t("datapack.no_worlds")
                              else I18n.t("datapack.no_match"),
                              color = MaterialTheme.colorScheme.outline)
                     }
@@ -291,7 +291,7 @@ fun DatapacksPage(vm: LauncherViewModel) {
         }
 
         Spacer(Modifier.height(8.dp))
-        Text("状态: $status",
+        Text(I18n.t("datapack.status_format", status),
              style = MaterialTheme.typography.labelSmall,
              color = MaterialTheme.colorScheme.outline)
     }
@@ -321,7 +321,7 @@ private fun WorldSelectRow(world: WorldManager.WorldInfo, vm: LauncherViewModel)
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(world.name, fontWeight = FontWeight.SemiBold)
-                Text("来源：${world.source}",
+                Text(I18n.t("datapack.source", world.source),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
             }
@@ -397,7 +397,7 @@ private fun DatapackRow(
                          maxLines = 2)
                 }
                 Spacer(Modifier.height(4.dp))
-                Text("兼容：${ContentUtils.packFormatHint(pack.packFormat)}",
+                Text(I18n.t("datapack.compatible", ContentUtils.packFormatHint(pack.packFormat)),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
 
@@ -476,7 +476,7 @@ private fun ImportDatapackDialog(onDismiss: () -> Unit, onConfirm: (String) -> U
                 OutlinedTextField(
                     value = path,
                     onValueChange = { path = it },
-                    label = { Text("路径") },
+                    label = { Text(I18n.t("datapack.path_label")) },
                     modifier = Modifier.fillMaxWidth(),
                     trailingIcon = {
                         IconButton(onClick = {

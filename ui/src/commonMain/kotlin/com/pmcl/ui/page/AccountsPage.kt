@@ -103,8 +103,8 @@ fun AccountsPage(vm: LauncherViewModel) {
                                 shape = RoundedCornerShape(8.dp),
                                 modifier = Modifier.size(64.dp)
                             ) {
-                                Icon(Icons.Filled.Person, "默认头像",
-                                     modifier = Modifier.padding(16.dp))
+                                Icon(Icons.Filled.Person, I18n.t("accounts.default_avatar"),
+                                 modifier = Modifier.padding(16.dp))
                             }
                         }
                         // 全身渲染（微软账号）
@@ -113,15 +113,15 @@ fun AccountsPage(vm: LauncherViewModel) {
                         }
                         // 信息列
                         Column(Modifier.weight(1f)) {
-                            Text("用户名：${acc.getUsername()}", fontWeight = FontWeight.SemiBold)
-                            Text("UUID：${acc.getUuid()}", style = MaterialTheme.typography.labelSmall,
+                            Text(I18n.t("accounts.username_value", acc.getUsername()), fontWeight = FontWeight.SemiBold)
+                            Text(I18n.t("accounts.uuid", acc.getUuid()), style = MaterialTheme.typography.labelSmall,
                                  color = MaterialTheme.colorScheme.outline)
-                            Text("类型：${acc.getType()}")
+                            Text(I18n.t("accounts.type", acc.getType()))
                             if ((acc.getSkinUrl() ?: "").isNotEmpty()) {
-                                Text("皮肤：${(acc.getSkinUrl() ?: "").take(40)}…",
+                                Text(I18n.t("accounts.skin_url", (acc.getSkinUrl() ?: "").take(40)),
                                      style = MaterialTheme.typography.labelSmall,
                                      color = MaterialTheme.colorScheme.outline)
-                                Text("模型：${acc.getSkinModel()}",
+                                Text(I18n.t("accounts.skin_model_value", acc.getSkinModel()),
                                      style = MaterialTheme.typography.labelSmall,
                                      color = MaterialTheme.colorScheme.outline)
                             }
@@ -143,22 +143,22 @@ fun AccountsPage(vm: LauncherViewModel) {
         if (account?.getType() == Account.AccountType.OFFLINE) {
             Card(Modifier.fillMaxWidth(), colors = glassCardColors()) {
                 Column(Modifier.padding(16.dp)) {
-                    Text("自定义皮肤", style = MaterialTheme.typography.titleSmall,
+                    Text(I18n.t("accounts.custom_skin"), style = MaterialTheme.typography.titleSmall,
                          fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(4.dp))
-                    Text("输入皮肤图片 URL（如 https://crafatar.com/avatars/<UUID>）或留空清除",
+                    Text(I18n.t("accounts.custom_skin_hint"),
                          style = MaterialTheme.typography.labelSmall,
                          color = MaterialTheme.colorScheme.outline)
                     Spacer(Modifier.height(8.dp))
                     OutlinedTextField(
                         value = customSkinUrl, onValueChange = { customSkinUrl = it },
-                        label = { Text("皮肤图片 URL") },
+                        label = { Text(I18n.t("accounts.skin_image_url")) },
                         placeholder = { Text("https://…") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(Modifier.height(8.dp))
-                    Text("皮肤模型", style = MaterialTheme.typography.labelMedium,
+                    Text(I18n.t("accounts.skin_model"), style = MaterialTheme.typography.labelMedium,
                          color = MaterialTheme.colorScheme.outline)
                     Spacer(Modifier.height(4.dp))
                     com.pmcl.ui.animation.AnimatedSegmentedSelector(
@@ -169,13 +169,13 @@ fun AccountsPage(vm: LauncherViewModel) {
                     Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = { vm.setOfflineSkin(customSkinUrl, skinModel) }) {
-                            Text("应用皮肤")
+                            Text(I18n.t("accounts.apply_skin"))
                         }
                         OutlinedButton(onClick = {
                             customSkinUrl = ""
                             vm.setOfflineSkin("", "classic")
                         }) {
-                            Text("清除")
+                            Text(I18n.t("accounts.clear_skin"))
                         }
                     }
                 }
@@ -213,9 +213,9 @@ fun AccountsPage(vm: LauncherViewModel) {
                 val usingBrowserFlow = vm.core.auth().hasCustomClientId()
                 Text(
                     if (usingBrowserFlow)
-                        "点击登录后将打开浏览器，在浏览器中完成微软账号授权即可。\n自动同步 Mojang 服务器皮肤。"
+                        I18n.t("accounts.ms_browser_flow_hint")
                     else
-                        "使用设备码流程登录，点击下方按钮后按提示操作。\n自动同步 Mojang 服务器皮肤。",
+                        I18n.t("accounts.ms_device_flow_hint"),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.outline
                 )
@@ -240,7 +240,7 @@ fun AccountsPage(vm: LauncherViewModel) {
                             }
                             Spacer(Modifier.width(12.dp))
                             Text(
-                                if (deviceCode != null) "设备码已生成，请查看弹窗"
+                                if (deviceCode != null) I18n.t("accounts.device_code_ready")
                                 else status,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -248,7 +248,7 @@ fun AccountsPage(vm: LauncherViewModel) {
                             )
                             if (deviceCode != null && hideDeviceCodeDialog) {
                                 TextButton(onClick = { hideDeviceCodeDialog = false }) {
-                                    Text("查看设备码")
+                                    Text(I18n.t("accounts.view_device_code"))
                                 }
                             }
                         }
@@ -271,10 +271,10 @@ fun AccountsPage(vm: LauncherViewModel) {
         // GitHub 登录卡片
         Card(Modifier.fillMaxWidth(), colors = glassCardColors()) {
             Column(Modifier.padding(16.dp)) {
-                Text("GitHub 登录", style = MaterialTheme.typography.titleSmall,
+                Text(I18n.t("accounts.github"), style = MaterialTheme.typography.titleSmall,
                      fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(8.dp))
-                Text("使用设备码流程登录，无需输入密码。\n登录后可用 GitHub 头像和用户名。",
+                Text(I18n.t("accounts.github_hint"),
                      style = MaterialTheme.typography.bodySmall,
                      color = MaterialTheme.colorScheme.outline)
                 Spacer(Modifier.height(12.dp))
@@ -291,7 +291,7 @@ fun AccountsPage(vm: LauncherViewModel) {
                             Icon(Icons.Filled.Key, null, Modifier.size(20.dp))
                             Spacer(Modifier.width(12.dp))
                             Text(
-                                if (deviceCode != null) "设备码已生成，请查看弹窗"
+                                if (deviceCode != null) I18n.t("accounts.device_code_ready")
                                 else status,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -299,7 +299,7 @@ fun AccountsPage(vm: LauncherViewModel) {
                             )
                             if (deviceCode != null && hideDeviceCodeDialog) {
                                 TextButton(onClick = { hideDeviceCodeDialog = false }) {
-                                    Text("查看设备码")
+                                    Text(I18n.t("accounts.view_device_code"))
                                 }
                             }
                         }
@@ -309,7 +309,7 @@ fun AccountsPage(vm: LauncherViewModel) {
                         loginMode = "github"
                         vm.startGitHubLogin()
                     }, enabled = !loggingIn) {
-                        Text(if (loggingIn) I18n.t("accounts.logging_in") else "GitHub 登录")
+                        Text(if (loggingIn) I18n.t("accounts.logging_in") else I18n.t("accounts.github"))
                     }
                 }
             }
@@ -334,7 +334,7 @@ fun AccountsPage(vm: LauncherViewModel) {
                 try {
                     com.pmcl.core.web.WikiBrowser.open(dc.getVerificationUri())
                 } catch (t: Throwable) {
-                    vm.updateStatus("打开浏览器失败：" + (t.message ?: t.toString()))
+                    vm.updateStatus(I18n.t("accounts.open_browser_failed", (t.message ?: t.toString())))
                 }
             },
             onClose = { hideDeviceCodeDialog = true }
@@ -385,14 +385,14 @@ private fun DeviceCodeDialog(
                     Icon(Icons.Filled.Key, null, Modifier.size(22.dp),
                          tint = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.width(8.dp))
-                    Text("设备码登录", style = MaterialTheme.typography.titleMedium,
+                    Text(I18n.t("accounts.device_code_title"), style = MaterialTheme.typography.titleMedium,
                          fontWeight = FontWeight.Bold)
                 }
 
                 Spacer(Modifier.height(16.dp))
 
                 // 步骤 1：打开浏览器
-                Text("步骤 1：点击下方按钮打开浏览器",
+                Text(I18n.t("accounts.device_code_step1"),
                      style = MaterialTheme.typography.labelMedium,
                      fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(6.dp))
@@ -405,7 +405,7 @@ private fun DeviceCodeDialog(
                 Spacer(Modifier.height(16.dp))
 
                 // 步骤 2：输入代码
-                Text("步骤 2：在浏览器中输入以下代码",
+                Text(I18n.t("accounts.device_code_step2"),
                      style = MaterialTheme.typography.labelMedium,
                      fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(6.dp))
@@ -438,7 +438,7 @@ private fun DeviceCodeDialog(
                         }) {
                             Icon(
                                 if (copied) Icons.Filled.Check else Icons.Filled.ContentCopy,
-                                if (copied) "已复制" else "复制",
+                                if (copied) I18n.t("common.copied") else I18n.t("common.copy"),
                                 Modifier.size(18.dp)
                             )
                         }
@@ -446,7 +446,7 @@ private fun DeviceCodeDialog(
                 }
                 if (copied) {
                     Spacer(Modifier.height(4.dp))
-                    Text("代码已复制到剪贴板",
+                    Text(I18n.t("accounts.code_copied"),
                          style = MaterialTheme.typography.labelSmall,
                          color = MaterialTheme.colorScheme.primary)
                 }
@@ -467,7 +467,7 @@ private fun DeviceCodeDialog(
                     )
                 }
                 Spacer(Modifier.height(6.dp))
-                Text("登录完成后启动器会自动继续，请勿关闭此窗口。",
+                Text(I18n.t("accounts.device_code_wait_hint"),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline.copy(alpha = 0.7f))
 
@@ -478,7 +478,7 @@ private fun DeviceCodeDialog(
                     Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End
                 ) {
-                    TextButton(onClick = onClose) { Text("关闭") }
+                    TextButton(onClick = onClose) { Text(I18n.t("common.close")) }
                 }
             }
         }
@@ -584,7 +584,7 @@ private fun SkinImage(url: String, sizePx: Int) {
         if (bmp == null) return
         Image(
             bitmap = bmp,
-            contentDescription = "皮肤预览",
+            contentDescription = I18n.t("accounts.skin_preview"),
             modifier = Modifier.size(sizePx.dp).clip(RoundedCornerShape(8.dp))
         )
     } else {
@@ -593,7 +593,7 @@ private fun SkinImage(url: String, sizePx: Int) {
             shape = RoundedCornerShape(8.dp),
             modifier = Modifier.size(sizePx.dp)
         ) {
-            Icon(Icons.Filled.Person, "加载中",
+            Icon(Icons.Filled.Person, I18n.t("common.loading"),
                  modifier = Modifier.padding(sizePx.dp / 4))
         }
     }

@@ -75,7 +75,7 @@ fun WikiPage(vm: LauncherViewModel) {
         }
 
         Spacer(Modifier.height(8.dp))
-        Text("状态: $status",
+        Text(I18n.t("wiki.status_format", status),
              style = MaterialTheme.typography.labelSmall,
              color = MaterialTheme.colorScheme.outline)
         if (!WikiBrowser.isSupported()) {

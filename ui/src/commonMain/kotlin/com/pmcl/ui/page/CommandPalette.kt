@@ -85,7 +85,7 @@ fun buildSearchIndex(vm: LauncherViewModel): List<SearchItem> {
         subtitle = I18n.t("search.action.launch.desc"),
         icon = Icons.Filled.PlayArrow,
         group = GROUP_ACTION,
-        keywords = listOf("启动", "launch", "play", "开始"),
+        keywords = listOf(I18n.t("cmd.kw.launch"), "launch", "play", I18n.t("cmd.kw.start")),
         onSelect = {
             vm.requestNavigation("launch")
             vm.launch()
@@ -96,7 +96,7 @@ fun buildSearchIndex(vm: LauncherViewModel): List<SearchItem> {
         subtitle = I18n.t("search.action.scan_versions.desc"),
         icon = Icons.Filled.Refresh,
         group = GROUP_ACTION,
-        keywords = listOf("扫描", "scan", "刷新", "refresh", "版本"),
+        keywords = listOf(I18n.t("cmd.kw.scan"), "scan", I18n.t("cmd.kw.refresh"), "refresh", I18n.t("cmd.kw.version")),
         onSelect = { vm.refreshLocalVersions() }
     ))
     items.add(SearchItem(
@@ -104,7 +104,7 @@ fun buildSearchIndex(vm: LauncherViewModel): List<SearchItem> {
         subtitle = I18n.t("search.action.scan_mods.desc"),
         icon = Icons.Filled.Extension,
         group = GROUP_ACTION,
-        keywords = listOf("模组", "mod", "扫描", "scan"),
+        keywords = listOf(I18n.t("cmd.kw.mod"), "mod", I18n.t("cmd.kw.scan"), "scan"),
         onSelect = {
             vm.requestNavigation("content")
             vm.requestHubTab("content", 0)
@@ -116,7 +116,7 @@ fun buildSearchIndex(vm: LauncherViewModel): List<SearchItem> {
         subtitle = I18n.t("search.action.toggle_theme.desc"),
         icon = Icons.Filled.DarkMode,
         group = GROUP_ACTION,
-        keywords = listOf("主题", "theme", "暗色", "dark", "切换", "toggle"),
+        keywords = listOf(I18n.t("cmd.kw.theme"), "theme", I18n.t("cmd.kw.dark"), "dark", I18n.t("cmd.kw.toggle"), "toggle"),
         onSelect = { vm.themeState?.toggle() }
     ))
     items.add(SearchItem(
@@ -124,7 +124,7 @@ fun buildSearchIndex(vm: LauncherViewModel): List<SearchItem> {
         subtitle = I18n.t("search.action.settings.desc"),
         icon = Icons.Filled.Settings,
         group = GROUP_ACTION,
-        keywords = listOf("设置", "settings", "偏好", "配置"),
+        keywords = listOf(I18n.t("cmd.kw.settings"), "settings", I18n.t("cmd.kw.preferences"), I18n.t("cmd.kw.config")),
         onSelect = { vm.requestNavigation("settings") }
     ))
 
@@ -143,42 +143,42 @@ fun buildSearchIndex(vm: LauncherViewModel): List<SearchItem> {
 
     // ===== Hub 子页面 =====
     // Content Hub
-    items.add(SearchItem(I18n.t("nav.mods"), I18n.t("search.hub.mods"), Icons.Filled.Extension, GROUP_NAV, listOf("mod", "mods", "模组")) {
+    items.add(SearchItem(I18n.t("nav.mods"), I18n.t("search.hub.mods"), Icons.Filled.Extension, GROUP_NAV, listOf("mod", "mods", I18n.t("cmd.kw.mod"))) {
         vm.requestNavigation("content"); vm.requestHubTab("content", 0)
     })
-    items.add(SearchItem(I18n.t("nav.modpacks"), I18n.t("search.hub.modpacks"), Icons.Filled.Inventory2, GROUP_NAV, listOf("modpack", "整合包")) {
+    items.add(SearchItem(I18n.t("nav.modpacks"), I18n.t("search.hub.modpacks"), Icons.Filled.Inventory2, GROUP_NAV, listOf("modpack", I18n.t("cmd.kw.modpack"))) {
         vm.requestNavigation("content"); vm.requestHubTab("content", 1)
     })
-    items.add(SearchItem(I18n.t("nav.shaders"), I18n.t("search.hub.shaders"), Icons.Filled.WbSunny, GROUP_NAV, listOf("shader", "光影", "着色器")) {
+    items.add(SearchItem(I18n.t("nav.shaders"), I18n.t("search.hub.shaders"), Icons.Filled.WbSunny, GROUP_NAV, listOf("shader", I18n.t("cmd.kw.shader"), I18n.t("cmd.kw.shader_alt"))) {
         vm.requestNavigation("content"); vm.requestHubTab("content", 2)
     })
-    items.add(SearchItem(I18n.t("nav.resourcepacks"), I18n.t("search.hub.resourcepacks"), Icons.Filled.Palette, GROUP_NAV, listOf("resource", "资源包", "材质")) {
+    items.add(SearchItem(I18n.t("nav.resourcepacks"), I18n.t("search.hub.resourcepacks"), Icons.Filled.Palette, GROUP_NAV, listOf("resource", I18n.t("cmd.kw.resource_pack"), I18n.t("cmd.kw.texture"))) {
         vm.requestNavigation("content"); vm.requestHubTab("content", 3)
     })
-    items.add(SearchItem(I18n.t("nav.datapacks"), I18n.t("search.hub.datapacks"), Icons.Filled.Dataset, GROUP_NAV, listOf("datapack", "数据包")) {
+    items.add(SearchItem(I18n.t("nav.datapacks"), I18n.t("search.hub.datapacks"), Icons.Filled.Dataset, GROUP_NAV, listOf("datapack", I18n.t("cmd.kw.datapack"))) {
         vm.requestNavigation("content"); vm.requestHubTab("content", 4)
     })
-    items.add(SearchItem(I18n.t("nav.configs"), I18n.t("search.hub.configs"), Icons.Filled.Edit, GROUP_NAV, listOf("config", "配置", "编辑")) {
+    items.add(SearchItem(I18n.t("nav.configs"), I18n.t("search.hub.configs"), Icons.Filled.Edit, GROUP_NAV, listOf("config", I18n.t("cmd.kw.config"), I18n.t("cmd.kw.edit"))) {
         vm.requestNavigation("content"); vm.requestHubTab("content", 5)
     })
     // Download Hub
-    items.add(SearchItem(I18n.t("download.local_versions"), I18n.t("search.hub.local_versions"), Icons.Filled.Build, GROUP_NAV, listOf("version", "版本", "安装")) {
+    items.add(SearchItem(I18n.t("download.local_versions"), I18n.t("search.hub.local_versions"), Icons.Filled.Build, GROUP_NAV, listOf("version", I18n.t("cmd.kw.version"), I18n.t("cmd.kw.install"))) {
         vm.requestNavigation("download"); vm.requestHubTab("download", 0)
     })
-    items.add(SearchItem(I18n.t("nav.market"), I18n.t("search.hub.market"), Icons.Filled.Store, GROUP_NAV, listOf("market", "市场", "商店")) {
+    items.add(SearchItem(I18n.t("nav.market"), I18n.t("search.hub.market"), Icons.Filled.Store, GROUP_NAV, listOf("market", I18n.t("cmd.kw.market"), I18n.t("cmd.kw.store"))) {
         vm.requestNavigation("download"); vm.requestHubTab("download", 1)
     })
-    items.add(SearchItem(I18n.t("nav.queue"), I18n.t("search.hub.queue"), Icons.Filled.Download, GROUP_NAV, listOf("queue", "队列", "下载")) {
+    items.add(SearchItem(I18n.t("nav.queue"), I18n.t("search.hub.queue"), Icons.Filled.Download, GROUP_NAV, listOf("queue", I18n.t("cmd.kw.queue"), I18n.t("cmd.kw.download"))) {
         vm.requestNavigation("download"); vm.requestHubTab("download", 2)
     })
-    items.add(SearchItem(I18n.t("nav.wiki"), I18n.t("search.hub.wiki"), Icons.AutoMirrored.Filled.MenuBook, GROUP_NAV, listOf("wiki", "百科")) {
+    items.add(SearchItem(I18n.t("nav.wiki"), I18n.t("search.hub.wiki"), Icons.AutoMirrored.Filled.MenuBook, GROUP_NAV, listOf("wiki", I18n.t("cmd.kw.wiki"))) {
         vm.requestNavigation("download"); vm.requestHubTab("download", 3)
     })
     // Saves Hub
-    items.add(SearchItem(I18n.t("nav.worlds"), I18n.t("search.hub.worlds"), Icons.Filled.Public, GROUP_NAV, listOf("world", "世界", "存档")) {
+    items.add(SearchItem(I18n.t("nav.worlds"), I18n.t("search.hub.worlds"), Icons.Filled.Public, GROUP_NAV, listOf("world", I18n.t("cmd.kw.world"), I18n.t("cmd.kw.save"))) {
         vm.requestNavigation("saves"); vm.requestHubTab("saves", 0)
     })
-    items.add(SearchItem(I18n.t("nav.screenshots"), I18n.t("search.hub.screenshots"), Icons.Filled.Image, GROUP_NAV, listOf("screenshot", "截图")) {
+    items.add(SearchItem(I18n.t("nav.screenshots"), I18n.t("search.hub.screenshots"), Icons.Filled.Image, GROUP_NAV, listOf("screenshot", I18n.t("cmd.kw.screenshot"))) {
         vm.requestNavigation("saves"); vm.requestHubTab("saves", 1)
     })
 
@@ -192,7 +192,7 @@ fun buildSearchIndex(vm: LauncherViewModel): List<SearchItem> {
                        else I18n.t("search.version.not_installed"),
             icon = Icons.Filled.Build,
             group = GROUP_VERSION,
-            keywords = listOf("version", "版本", "启动", "launch"),
+            keywords = listOf("version", I18n.t("cmd.kw.version"), I18n.t("cmd.kw.launch"), "launch"),
             onSelect = {
                 vm.selectVersion(vid)
                 vm.requestNavigation("launch")
@@ -214,7 +214,7 @@ fun buildSearchIndex(vm: LauncherViewModel): List<SearchItem> {
             },
             icon = Icons.Filled.Extension,
             group = GROUP_MOD,
-            keywords = listOf("mod", "模组", mod.getModId() ?: "", name),
+            keywords = listOf("mod", I18n.t("cmd.kw.mod"), mod.getModId() ?: "", name),
             onSelect = {
                 vm.requestNavigation("content")
                 vm.requestHubTab("content", 0)
@@ -235,7 +235,7 @@ fun buildSearchIndex(vm: LauncherViewModel): List<SearchItem> {
             },
             icon = Icons.Filled.Dashboard,
             group = GROUP_INSTANCE,
-            keywords = listOf("instance", "实例", instName, inst.getBaseVersionId() ?: ""),
+            keywords = listOf("instance", I18n.t("cmd.kw.instance"), instName, inst.getBaseVersionId() ?: ""),
             onSelect = {
                 vm.requestNavigation("instances")
                 if (inst.isLaunchable()) vm.launchInstance(inst.getInstanceId())
@@ -264,19 +264,19 @@ private fun describeRoute(route: String): String = when (route) {
 }
 
 private fun keywordsForRoute(route: String, label: String): List<String> = when (route) {
-    "launch" -> listOf("启动", "launcher", "play", "游戏")
-    "news" -> listOf("新闻", "资讯", "news")
-    "multiplayer" -> listOf("联机", "服务器", "multiplayer", "server")
-    "friends" -> listOf("好友", "聊天", "friend", "chat", "联系人", "contact", "QR", "二维码")
-    "download" -> listOf("下载", "download", "安装")
-    "content" -> listOf("内容", "content", "资源")
-    "saves" -> listOf("存档", "saves", "save")
-    "statistics" -> listOf("统计", "statistics", "stats")
-    "accounts" -> listOf("账号", "account", "登录", "微软")
-    "settings" -> listOf("设置", "settings", "偏好", "配置")
-    "terminal" -> listOf("终端", "terminal", "命令行", "console")
-    "plugins" -> listOf("插件", "plugin", "扩展")
-    "instances" -> listOf("实例", "instance", "独立", "prism", "multimc")
+    "launch" -> listOf(I18n.t("cmd.kw.launch"), "launcher", "play", I18n.t("cmd.kw.game"))
+    "news" -> listOf(I18n.t("cmd.kw.news"), I18n.t("cmd.kw.info"), "news")
+    "multiplayer" -> listOf(I18n.t("cmd.kw.multiplayer"), I18n.t("cmd.kw.server"), "multiplayer", "server")
+    "friends" -> listOf(I18n.t("cmd.kw.friend"), I18n.t("cmd.kw.chat"), "friend", "chat", I18n.t("cmd.kw.contact"), "contact", "QR", I18n.t("cmd.kw.qrcode"))
+    "download" -> listOf(I18n.t("cmd.kw.download"), "download", I18n.t("cmd.kw.install"))
+    "content" -> listOf(I18n.t("cmd.kw.content"), "content", I18n.t("cmd.kw.resource"))
+    "saves" -> listOf(I18n.t("cmd.kw.save"), "saves", "save")
+    "statistics" -> listOf(I18n.t("cmd.kw.statistics"), "statistics", "stats")
+    "accounts" -> listOf(I18n.t("cmd.kw.account"), "account", I18n.t("cmd.kw.login"), I18n.t("cmd.kw.microsoft"))
+    "settings" -> listOf(I18n.t("cmd.kw.settings"), "settings", I18n.t("cmd.kw.preferences"), I18n.t("cmd.kw.config"))
+    "terminal" -> listOf(I18n.t("cmd.kw.terminal"), "terminal", I18n.t("cmd.kw.console"), "console")
+    "plugins" -> listOf(I18n.t("cmd.kw.plugin"), "plugin", I18n.t("cmd.kw.extension"))
+    "instances" -> listOf(I18n.t("cmd.kw.instance"), "instance", I18n.t("cmd.kw.standalone"), "prism", "multimc")
     else -> listOf(label)
 }
 

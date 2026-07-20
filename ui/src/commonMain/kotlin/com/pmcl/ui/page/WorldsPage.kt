@@ -25,6 +25,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.gamecontent.WorldManager
+import com.pmcl.core.i18n.I18n
 import com.pmcl.ui.animation.StaggeredAppear
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import kotlinx.coroutines.launch
@@ -50,14 +51,14 @@ fun WorldsPage(vm: LauncherViewModel) {
     LaunchedEffect(Unit) { if (worlds.isEmpty()) vm.refreshWorlds() }
 
     val sources = remember(worlds) {
-        worlds.map { it.source ?: "未知" }.distinct().sorted()
+        worlds.map { it.source ?: I18n.t("world.unknown_source") }.distinct().sorted()
     }
 
     val processedWorlds = remember(worlds, query, selectedSource, sortBy) {
         var list = if (query.isBlank()) worlds
         else worlds.filter { it.name.contains(query, ignoreCase = true) }
         if (selectedSource != null) {
-            list = list.filter { (it.source ?: "未知") == selectedSource }
+            list = list.filter { (it.source ?: I18n.t("world.unknown_source")) == selectedSource }
         }
         when (sortBy) {
             WorldSort.NAME -> list.sortedBy { it.name.lowercase() }
@@ -70,10 +71,10 @@ fun WorldsPage(vm: LauncherViewModel) {
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         // === 标题栏 ===
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("世界管理", style = MaterialTheme.typography.headlineSmall,
+            Text(I18n.t("worlds.title"), style = MaterialTheme.typography.headlineSmall,
                  fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
             OutlinedButton(onClick = {
-                val fd = FileDialog(null as Frame?, "导入世界存档", FileDialog.LOAD)
+                val fd = FileDialog(null as Frame?, I18n.t("world.import_title"), FileDialog.LOAD)
                 fd.file = "*.zip"
                 fd.filenameFilter = FilenameFilter { _, name -> name.endsWith(".zip") }
                 fd.isVisible = true
@@ -84,17 +85,17 @@ fun WorldsPage(vm: LauncherViewModel) {
             }) {
                 Icon(Icons.Filled.Upload, null, Modifier.size(16.dp))
                 Spacer(Modifier.width(4.dp))
-                Text("导入")
+                Text(I18n.t("common.import"))
             }
             Spacer(Modifier.width(8.dp))
             OutlinedButton(onClick = { vm.refreshWorlds() }) {
                 Icon(Icons.Filled.Refresh, null, Modifier.size(16.dp))
                 Spacer(Modifier.width(4.dp))
-                Text("刷新")
+                Text(I18n.t("common.refresh"))
             }
         }
         Spacer(Modifier.height(8.dp))
-        Text("已合并扫描：PMCL / 外部启动器 / 整合包版本目录下的 saves",
+        Text(I18n.t("world.scan_summary"),
              style = MaterialTheme.typography.labelSmall,
              color = MaterialTheme.colorScheme.outline)
 
@@ -104,7 +105,7 @@ fun WorldsPage(vm: LauncherViewModel) {
             value = query,
             onValueChange = { query = it },
             modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("搜索世界名…") },
+            placeholder = { Text(I18n.t("world.search_placeholder")) },
             leadingIcon = { Icon(Icons.Filled.Search, null, Modifier.size(18.dp)) },
             singleLine = true,
             shape = RoundedCornerShape(12.dp)
@@ -117,9 +118,9 @@ fun WorldsPage(vm: LauncherViewModel) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Text("来源：", style = MaterialTheme.typography.labelMedium,
+                Text(I18n.t("world.source_label"), style = MaterialTheme.typography.labelMedium,
                      color = MaterialTheme.colorScheme.outline)
-                val sourceItems = listOf("全部") + sources
+                val sourceItems = listOf(I18n.t("world.source_all")) + sources
                 com.pmcl.ui.animation.AnimatedSegmentedSelector(
                     items = sourceItems,
                     selectedIndex = if (selectedSource == null) 0
@@ -133,9 +134,10 @@ fun WorldsPage(vm: LauncherViewModel) {
         // === 统计 + 排序 ===
         Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("共 ${worlds.size} 个世界" +
-                 if (query.isNotBlank() || selectedSource != null)
-                     " · 当前显示 ${processedWorlds.size}" else "",
+            Text(if (query.isNotBlank() || selectedSource != null)
+                     I18n.t("world.count_filtered", worlds.size, processedWorlds.size)
+                 else
+                     I18n.t("world.count", worlds.size),
                  style = MaterialTheme.typography.titleMedium,
                  fontWeight = FontWeight.SemiBold,
                  modifier = Modifier.weight(1f))
@@ -143,13 +145,13 @@ fun WorldsPage(vm: LauncherViewModel) {
                 OutlinedButton(onClick = { sortExpanded = true }) {
                     Icon(Icons.AutoMirrored.Filled.Sort, null, Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text(sortBy.label)
+                    Text(I18n.t(sortBy.labelKey))
                     Icon(Icons.Filled.ArrowDropDown, null, Modifier.size(16.dp))
                 }
                 DropdownMenu(expanded = sortExpanded, onDismissRequest = { sortExpanded = false }) {
                     WorldSort.entries.forEach { s ->
                         DropdownMenuItem(
-                            text = { Text(s.label) },
+                            text = { Text(I18n.t(s.labelKey)) },
                             onClick = { sortBy = s; sortExpanded = false }
                         )
                     }
@@ -166,8 +168,8 @@ fun WorldsPage(vm: LauncherViewModel) {
                 modifier = Modifier.fillMaxWidth().weight(1f)
             ) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(if (worlds.isEmpty()) "暂无世界。开始游戏后会自动在 saves 目录创建。"
-                         else "无匹配结果",
+                    Text(if (worlds.isEmpty()) I18n.t("worlds.empty")
+                         else I18n.t("world.no_match"),
                          color = MaterialTheme.colorScheme.outline)
                 }
             }
@@ -187,14 +189,14 @@ fun WorldsPage(vm: LauncherViewModel) {
         }
 
         Spacer(Modifier.height(8.dp))
-        Text("状态: $status",
+        Text("${I18n.t("common.status")}: $status",
              style = MaterialTheme.typography.labelSmall,
              color = MaterialTheme.colorScheme.outline)
     }
 }
 
-enum class WorldSort(val label: String) {
-    NAME("按名称"), SIZE_DESC("大小 ↓"), SIZE_ASC("大小 ↑"), MODIFIED("修改时间")
+enum class WorldSort(val labelKey: String) {
+    NAME("world.sort.name"), SIZE_DESC("world.sort.size_desc"), SIZE_ASC("world.sort.size_asc"), MODIFIED("world.sort.modified")
 }
 
 @Composable
@@ -220,7 +222,7 @@ private fun WorldRow(
                      modifier = Modifier.weight(1f))
                 AssistChip(
                     onClick = {},
-                    label = { Text(world.source ?: "未知") },
+                    label = { Text(world.source ?: I18n.t("world.unknown_source")) },
                     colors = AssistChipDefaults.assistChipColors(
                         containerColor = MaterialTheme.colorScheme.secondaryContainer
                     )
@@ -231,7 +233,7 @@ private fun WorldRow(
                      color = MaterialTheme.colorScheme.outline)
             }
             Spacer(Modifier.height(4.dp))
-            Text("最后修改: ${format.format(Date(world.lastModified))}",
+            Text("${I18n.t("worlds.modified")}: ${format.format(Date(world.lastModified))}",
                  style = MaterialTheme.typography.bodySmall,
                  color = MaterialTheme.colorScheme.outline)
 
@@ -242,7 +244,7 @@ private fun WorldRow(
                 }) {
                     Icon(Icons.Filled.Archive, null, Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("备份")
+                    Text(I18n.t("common.backup"))
                 }
                 OutlinedButton(onClick = {
                     loadingBackups = true
@@ -254,21 +256,21 @@ private fun WorldRow(
                 }) {
                     Icon(Icons.Filled.Restore, null, Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("恢复")
+                    Text(I18n.t("world.restore"))
                 }
                 OutlinedButton(onClick = {
                     scope.launch { vm.refreshDatapacks(world.dir) }
                 }) {
                     Icon(Icons.Filled.Folder, null, Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("数据包")
+                    Text(I18n.t("datapack.title"))
                 }
                 OutlinedButton(onClick = { showDeleteDialog = true },
                     colors = ButtonDefaults.outlinedButtonColors(
                         contentColor = MaterialTheme.colorScheme.error)) {
                     Icon(Icons.Filled.Delete, null, Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("删除")
+                    Text(I18n.t("common.delete"))
                 }
             }
         }
@@ -278,10 +280,10 @@ private fun WorldRow(
     if (showRestoreDialog) {
         AlertDialog(
             onDismissRequest = { showRestoreDialog = false },
-            title = { Text("恢复世界 — ${world.name}") },
+            title = { Text(I18n.t("world.restore_title", world.name)) },
             text = {
                 Column {
-                    Text("选择要恢复的备份（将覆盖当前世界）：",
+                    Text(I18n.t("world.restore_select_hint"),
                          style = MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.height(8.dp))
                     when {
@@ -289,11 +291,11 @@ private fun WorldRow(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                                 Spacer(Modifier.width(8.dp))
-                                Text("加载备份列表…", style = MaterialTheme.typography.bodySmall)
+                                Text(I18n.t("world.loading_backups"), style = MaterialTheme.typography.bodySmall)
                             }
                         }
                         backups.isEmpty() -> {
-                            Text("暂无备份。请先点击「备份」创建一个。",
+                            Text(I18n.t("world.no_backups"),
                                  style = MaterialTheme.typography.bodySmall,
                                  color = MaterialTheme.colorScheme.outline)
                         }
@@ -319,7 +321,7 @@ private fun WorldRow(
                                         TextButton(onClick = {
                                             vm.restoreWorld(zip, world.name)
                                             showRestoreDialog = false
-                                        }) { Text("恢复") }
+                                        }) { Text(I18n.t("world.restore")) }
                                     }
                                 }
                             }
@@ -328,7 +330,7 @@ private fun WorldRow(
                 }
             },
             confirmButton = {
-                TextButton(onClick = { showRestoreDialog = false }) { Text("关闭") }
+                TextButton(onClick = { showRestoreDialog = false }) { Text(I18n.t("common.close")) }
             }
         )
     }
@@ -336,8 +338,8 @@ private fun WorldRow(
     if (showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
-            title = { Text("删除世界") },
-            text = { Text("确定要删除 ${world.name} 吗？\n此操作不可恢复。\n路径：${world.dir}") },
+            title = { Text(I18n.t("world.delete_title")) },
+            text = { Text(I18n.t("world.delete_confirm", world.name, world.dir)) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -347,10 +349,10 @@ private fun WorldRow(
                     colors = ButtonDefaults.textButtonColors(
                         contentColor = MaterialTheme.colorScheme.error
                     )
-                ) { Text("删除") }
+                ) { Text(I18n.t("common.delete")) }
             },
             dismissButton = {
-                TextButton(onClick = { showDeleteDialog = false }) { Text("取消") }
+                TextButton(onClick = { showDeleteDialog = false }) { Text(I18n.t("common.cancel")) }
             }
         )
     }

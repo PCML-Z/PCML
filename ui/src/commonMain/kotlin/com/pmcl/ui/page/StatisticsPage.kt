@@ -310,7 +310,7 @@ private fun RealtimePerformanceCard(entranceDelay: Int = 0) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Filled.Speed, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(8.dp))
-                Text("实时设备性能负载", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(I18n.t("stats.realtime_performance"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.weight(1f))
                 val infiniteTransition = rememberInfiniteTransition(label = "perfPulse")
                 val pulseAlpha by infiniteTransition.animateFloat(
@@ -320,7 +320,7 @@ private fun RealtimePerformanceCard(entranceDelay: Int = 0) {
                 )
                 Canvas(Modifier.size(8.dp)) { drawCircle(color = Color(0xFF4CAF50).copy(alpha = pulseAlpha)) }
                 Spacer(Modifier.width(4.dp))
-                Text("实时", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                Text(I18n.t("stats.realtime"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
             }
 
             Spacer(Modifier.height(12.dp))
@@ -329,32 +329,32 @@ private fun RealtimePerformanceCard(entranceDelay: Int = 0) {
                 PerformanceRow(
                     icon = Icons.Filled.Speed, label = "CPU",
                     valueText = "${"%.1f".format(s.cpuLoad * 100)}%",
-                    subText = "${s.cpuName}  ·  ${s.cpuPhysicalCores}P/${s.cpuLogicalCores}L 核  ·  峰值 ${"%.0f".format(peaks.cpuPeak)}%",
+                    subText = "${s.cpuName}  ·  ${I18n.t("stats.cpu_cores", s.cpuPhysicalCores, s.cpuLogicalCores)}  ·  ${I18n.t("stats.peak", "${"%.0f".format(peaks.cpuPeak)}%")}",
                     progress = s.cpuLoad.toFloat(), history = cpuHistory, color = Color(0xFF2196F3)
                 )
                 Spacer(Modifier.height(14.dp))
 
                 PerformanceRow(
-                    icon = Icons.Filled.Memory, label = "系统内存",
+                    icon = Icons.Filled.Memory, label = I18n.t("stats.system_memory"),
                     valueText = "${"%.1f".format(s.memLoad * 100)}%",
-                    subText = "${((s.totalMemMb - s.availableMemMb) / 1024.0).format(1)} / ${(s.totalMemMb / 1024.0).format(1)} GB  ·  峰值 ${"%.0f".format(peaks.memPeak)}%",
+                    subText = "${((s.totalMemMb - s.availableMemMb) / 1024.0).format(1)} / ${(s.totalMemMb / 1024.0).format(1)} GB  ·  ${I18n.t("stats.peak", "${"%.0f".format(peaks.memPeak)}%")}",
                     progress = s.memLoad.toFloat(), history = memHistory, color = Color(0xFF4CAF50)
                 )
                 Spacer(Modifier.height(14.dp))
 
                 PerformanceRow(
-                    icon = Icons.Filled.DeveloperBoard, label = "JVM 堆",
+                    icon = Icons.Filled.DeveloperBoard, label = I18n.t("stats.jvm_heap"),
                     valueText = "${"%.1f".format(s.jvmHeapLoad * 100)}%",
-                    subText = "${s.jvmHeapUsedMb} / ${s.jvmHeapAllocatedMb} MB (上限 ${s.jvmHeapMaxMb} MB)  ·  ${s.threadCount} 线程  ·  峰值 ${"%.0f".format(peaks.jvmPeak)}%",
+                    subText = "${s.jvmHeapUsedMb} / ${s.jvmHeapAllocatedMb} MB (${I18n.t("stats.heap_limit", s.jvmHeapMaxMb)})  ·  ${I18n.t("stats.threads", s.threadCount)}  ·  ${I18n.t("stats.peak", "${"%.0f".format(peaks.jvmPeak)}%")}",
                     progress = s.jvmHeapLoad.toFloat(), history = jvmHistory, color = Color(0xFFFF9800)
                 )
                 Spacer(Modifier.height(14.dp))
 
                 // 网络流量
                 PerformanceRow(
-                    icon = Icons.Filled.NetworkCheck, label = "网络",
+                    icon = Icons.Filled.NetworkCheck, label = I18n.t("stats.network"),
                     valueText = "↑ ${formatNetSpeed(s.netUpKbS)}  ↓ ${formatNetSpeed(s.netDownKbS)}",
-                    subText = "峰值 ↑ ${formatNetSpeed(peaks.netUpPeak)}  ↓ ${formatNetSpeed(peaks.netDownPeak)}",
+                    subText = I18n.t("stats.net_peak", formatNetSpeed(peaks.netUpPeak), formatNetSpeed(peaks.netDownPeak)),
                     progress = ((s.netUpKbS + s.netDownKbS) / 1024.0).coerceIn(0.0, 1.0).toFloat(),
                     history = netHistory, color = Color(0xFF00BCD4)
                 )
@@ -362,7 +362,7 @@ private fun RealtimePerformanceCard(entranceDelay: Int = 0) {
 
                 // GPU 信息
                 PerformanceRow(
-                    icon = Icons.Filled.VideogameAsset, label = "显卡",
+                    icon = Icons.Filled.VideogameAsset, label = I18n.t("stats.gpu"),
                     valueText = if (s.gpuVramMb > 0) "${s.gpuVramMb} MB" else "N/A",
                     subText = "${s.gpuName}",
                     progress = -1f, history = null, color = Color(0xFFE91E63)
@@ -370,7 +370,7 @@ private fun RealtimePerformanceCard(entranceDelay: Int = 0) {
                 Spacer(Modifier.height(14.dp))
 
                 PerformanceRow(
-                    icon = Icons.Filled.Storage, label = "磁盘",
+                    icon = Icons.Filled.Storage, label = I18n.t("stats.disk"),
                     valueText = "${"%.1f".format(s.diskLoad * 100)}%",
                     subText = "${"%.1f".format(s.diskUsedGb)} / ${"%.1f".format(s.diskTotalGb)} GB",
                     progress = s.diskLoad.toFloat(), history = null, color = Color(0xFF9C27B0)
@@ -381,7 +381,7 @@ private fun RealtimePerformanceCard(entranceDelay: Int = 0) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Filled.Schedule, null, tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("系统已运行", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.outline)
+                    Text(I18n.t("stats.system_uptime"), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.outline)
                     Spacer(Modifier.weight(1f))
                     Text(formatUptime(s.systemUptimeSec), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium)
                 }
@@ -539,23 +539,23 @@ private fun RecordsCard(records: PlayTimeTracker.RecordsStat, entranceDelay: Int
     val entranceProgress by rememberEntranceProgress(delayMs = entranceDelay, durationMs = 600)
     Card(modifier = Modifier.fillMaxWidth().entrance(entranceProgress), shape = RoundedCornerShape(12.dp)) {
         Column(Modifier.padding(16.dp)) {
-            Text("游玩记录", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(I18n.t("stats.play_records"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(12.dp))
             // 4 列记录
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                RecordItem("最长会话", records.longestSession?.let {
+                RecordItem(I18n.t("stats.longest_session"), records.longestSession?.let {
                     PlayTimeTracker.formatDurationShort(it.duration)
                 } ?: "—", entranceDelay + 100)
-                RecordItem("最长连续", "${records.longestStreakDays} 天", entranceDelay + 160)
-                RecordItem("当前连续", "${records.currentStreakDays} 天", entranceDelay + 220)
-                RecordItem("总天数", "${records.totalDays} 天", entranceDelay + 280)
+                RecordItem(I18n.t("stats.longest_streak"), I18n.t("stats.days_count", records.longestStreakDays), entranceDelay + 160)
+                RecordItem(I18n.t("stats.current_streak"), I18n.t("stats.days_count", records.currentStreakDays), entranceDelay + 220)
+                RecordItem(I18n.t("stats.total_days"), I18n.t("stats.days_count", records.totalDays), entranceDelay + 280)
             }
             Spacer(Modifier.height(12.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                RecordItem("首次游玩", records.firstPlayDate.ifEmpty { "—" }, entranceDelay + 340)
-                RecordItem("最常时段", records.mostPlayedHour.ifEmpty { "—"}, entranceDelay + 400)
-                RecordItem("最长版本", records.longestSession?.version ?: "—", entranceDelay + 460)
-                RecordItem("记录日期", records.longestSession?.let {
+                RecordItem(I18n.t("stats.first_play"), records.firstPlayDate.ifEmpty { "—" }, entranceDelay + 340)
+                RecordItem(I18n.t("stats.most_played_hour"), records.mostPlayedHour.ifEmpty { "—"}, entranceDelay + 400)
+                RecordItem(I18n.t("stats.longest_version"), records.longestSession?.version ?: "—", entranceDelay + 460)
+                RecordItem(I18n.t("stats.record_date"), records.longestSession?.let {
                     SimpleDateFormat("MM/dd HH:mm", Locale.getDefault()).format(Date(it.start))
                 } ?: "—", entranceDelay + 520)
             }
@@ -607,13 +607,13 @@ private fun DailyTrendCard(dailyStats: List<PlayTimeTracker.DailyStat>, days: In
                 FilterChip(
                     selected = !showSessions,
                     onClick = { showSessions = false },
-                    label = { Text("时长", fontSize = 11.sp) }
+                    label = { Text(I18n.t("stats.duration"), fontSize = 11.sp) }
                 )
                 Spacer(Modifier.width(4.dp))
                 FilterChip(
                     selected = showSessions,
                     onClick = { showSessions = true },
-                    label = { Text("次数", fontSize = 11.sp) }
+                    label = { Text(I18n.t("stats.count"), fontSize = 11.sp) }
                 )
             }
             Spacer(Modifier.height(16.dp))
@@ -744,7 +744,7 @@ private fun DailyTrendChart(dailyStats: List<PlayTimeTracker.DailyStat>, showSes
             val dateStr = try {
                 LocalDate.parse(stat.date).format(DateTimeFormatter.ofPattern("MM/dd"))
             } catch (_: Throwable) { stat.date }
-            val valueStr = if (showSessions) "${stat.sessionCount} 次"
+            val valueStr = if (showSessions) "${stat.sessionCount} ${I18n.t("common.times")}"
                 else PlayTimeTracker.formatDurationShort(stat.totalDuration)
             Surface(
                 modifier = Modifier.padding(top = 4.dp, start = 48.dp),
@@ -794,16 +794,24 @@ private fun HeatmapCard(heatmap: PlayTimeTracker.HeatmapStat, entranceDelay: Int
     val cellProgressValue by cellProgress.asState()
     Card(modifier = Modifier.fillMaxWidth().entrance(entranceProgress), shape = RoundedCornerShape(12.dp)) {
         Column(Modifier.padding(16.dp)) {
-            Text("时段热力图", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(I18n.t("stats.time_heatmap"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(4.dp))
-            Text("行=周几，列=小时，颜色越深游玩越多",
+            Text(I18n.t("stats.heatmap_desc"),
                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
             Spacer(Modifier.height(12.dp))
 
             val maxV = heatmap.maxValue.coerceAtLeast(1)
             val primaryColor = MaterialTheme.colorScheme.primary
             val emptyColor = MaterialTheme.colorScheme.surfaceVariant
-            val days = listOf("一", "二", "三", "四", "五", "六", "日")
+            val days = listOf(
+                I18n.t("stats.weekday_short_mon"),
+                I18n.t("stats.weekday_short_tue"),
+                I18n.t("stats.weekday_short_wed"),
+                I18n.t("stats.weekday_short_thu"),
+                I18n.t("stats.weekday_short_fri"),
+                I18n.t("stats.weekday_short_sat"),
+                I18n.t("stats.weekday_short_sun")
+            )
 
             // 表头：小时
             Row(modifier = Modifier.fillMaxWidth()) {
@@ -848,7 +856,7 @@ private fun HeatmapCard(heatmap: PlayTimeTracker.HeatmapStat, entranceDelay: Int
             Spacer(Modifier.height(4.dp))
             // 图例
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("少", fontSize = 9.sp, color = MaterialTheme.colorScheme.outline)
+                Text(I18n.t("stats.heatmap_less"), fontSize = 9.sp, color = MaterialTheme.colorScheme.outline)
                 Spacer(Modifier.width(4.dp))
                 (1..5).forEach { i ->
                     Box(Modifier.size(10.dp).padding(1.dp)) {
@@ -858,7 +866,7 @@ private fun HeatmapCard(heatmap: PlayTimeTracker.HeatmapStat, entranceDelay: Int
                     }
                 }
                 Spacer(Modifier.width(4.dp))
-                Text("多", fontSize = 9.sp, color = MaterialTheme.colorScheme.outline)
+                Text(I18n.t("stats.heatmap_more"), fontSize = 9.sp, color = MaterialTheme.colorScheme.outline)
             }
         }
     }
@@ -871,7 +879,7 @@ private fun WeekdayDistributionCard(weekdayDist: List<PlayTimeTracker.WeekdaySta
     val entranceProgress by rememberEntranceProgress(delayMs = entranceDelay, durationMs = 600)
     Card(modifier = Modifier.fillMaxWidth().entrance(entranceProgress), shape = RoundedCornerShape(12.dp)) {
         Column(Modifier.padding(16.dp)) {
-            Text("周几分布", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(I18n.t("stats.weekday_distribution"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(16.dp))
             val maxDuration = weekdayDist.maxOfOrNull { it.totalDuration } ?: 0L
             val primaryColor = MaterialTheme.colorScheme.primary
@@ -968,7 +976,7 @@ private fun VersionPieCard(versions: List<PlayTimeTracker.VersionStat>, entrance
                 // 图例（按进度渐入）
                 Column(modifier = Modifier.weight(1f)) {
                     pieData.forEachIndexed { i, pair ->
-                        val version = pair.first?.version ?: "其他"
+                        val version = pair.first?.version ?: I18n.t("stats.other")
                         val pct = if (total > 0) pair.second.toFloat() / total.toFloat() * 100 else 0f
                         val legendAlpha = (sweepProgressValue * pieData.size - i).coerceIn(0f, 1f)
                         Row(verticalAlignment = Alignment.CenterVertically,
@@ -1022,9 +1030,9 @@ private fun SessionListCard(vm: LauncherViewModel, entranceDelay: Int = 0) {
                 modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded },
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("会话记录", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(I18n.t("stats.session_records"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.weight(1f))
-                Text("共 ${totalCount} 条", style = MaterialTheme.typography.labelSmall,
+                Text(I18n.t("stats.total_count", totalCount), style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.width(4.dp))
                 Icon(
@@ -1057,7 +1065,7 @@ private fun SessionListCard(vm: LauncherViewModel, entranceDelay: Int = 0) {
                                     sessions.take(currentPage * pageSize)
                             },
                             modifier = Modifier.fillMaxWidth()
-                        ) { Text("加载更多", style = MaterialTheme.typography.labelMedium) }
+                        ) { Text(I18n.t("stats.load_more"), style = MaterialTheme.typography.labelMedium) }
                     }
                 }
             }
