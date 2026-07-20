@@ -1289,7 +1289,20 @@ class LauncherViewModel {
                 _status.value = "已登录（微软）：${account.getUsername()}"
                 _deviceCode.value = null
             } catch (e: Throwable) {
-                _status.value = "微软登录失败：${e.message}"
+                // 失败时清空设备码，避免 UI 仍显示旧码误导用户
+                _deviceCode.value = null
+                // 根据错误特征给出可操作建议
+                val msg = e.message ?: e.toString()
+                _status.value = if (msg.contains("SSL", ignoreCase = true) ||
+                    msg.contains("TLS", ignoreCase = true) ||
+                    msg.contains("handshake", ignoreCase = true) ||
+                    msg.contains("SYSCALL", ignoreCase = true) ||
+                    msg.contains("reset", ignoreCase = true) ||
+                    msg.contains("网络错误", ignoreCase = true)) {
+                    "微软登录失败：网络连接失败（可能是 GFW 干扰 SSL）。请在设置中配置 HTTP 代理后重试。原始错误：$msg"
+                } else {
+                    "微软登录失败：$msg"
+                }
             } finally {
                 _loggingIn.value = false
             }

@@ -79,6 +79,78 @@ public final class CurlFallback {
     }
 
     /**
+     * 用 curl 发起 POST 请求并返回响应体字符串。
+     * <p>
+     * 用于 OkHttp SSL 握手失败时的 fallback（GFW 环境下 Java TLS 指纹被识别并 RST）。
+     *
+     * @param url         请求 URL
+     * @param body        请求体
+     * @param contentType Content-Type（如 "application/json" 或 "application/x-www-form-urlencoded"）
+     * @param headers     额外请求头，可为 null
+     * @return 响应体字符串
+     */
+    public static String postString(String url, String body, String contentType,
+                                     List<String> headers) throws IOException {
+        List<String> cmd = new ArrayList<>();
+        cmd.add("curl");
+        cmd.add("-sS");
+        cmd.add("-f");                     // HTTP 4xx/5xx 返回非零退出码
+        cmd.add("--max-time"); cmd.add(String.valueOf(TIMEOUT_SEC));
+        cmd.add("--connect-timeout"); cmd.add("10");
+        cmd.add("-L");                     // 跟随重定向
+        cmd.add("-X"); cmd.add("POST");
+        cmd.add("-H"); cmd.add("User-Agent: PMCL/1.0");
+        cmd.add("-H"); cmd.add("Accept: */*");
+        if (contentType != null && !contentType.isEmpty()) {
+            cmd.add("-H"); cmd.add("Content-Type: " + contentType);
+        }
+        if (headers != null) {
+            for (String h : headers) {
+                cmd.add("-H"); cmd.add(h);
+            }
+        }
+        cmd.add("--data-binary"); cmd.add(body);
+        cmd.add(url);
+
+        Process p = new ProcessBuilder(cmd).start();
+        try {
+            // 关闭 stdin（curl 用 --data-binary 参数传 body，不从 stdin 读）
+            try (OutputStream os = p.getOutputStream()) {
+                os.close();
+            }
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            try (InputStream in = p.getInputStream()) {
+                byte[] buf = new byte[64 * 1024];
+                int n;
+                while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
+            }
+            ByteArrayOutputStream err = new ByteArrayOutputStream();
+            try (InputStream in = p.getErrorStream()) {
+                byte[] buf = new byte[4096];
+                int n;
+                while ((n = in.read(buf)) != -1) err.write(buf, 0, n);
+            }
+            boolean done = p.waitFor(TIMEOUT_SEC + 5, TimeUnit.SECONDS);
+            if (!done) {
+                p.destroyForcibly();
+                throw new IOException("curl POST 超时: " + url);
+            }
+            int exit = p.exitValue();
+            if (exit != 0) {
+                String errMsg = err.toString(java.nio.charset.StandardCharsets.UTF_8).trim();
+                throw new IOException("curl POST 失败 exit=" + exit + ": " + errMsg + " url=" + url);
+            }
+            return out.toString(java.nio.charset.StandardCharsets.UTF_8);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            p.destroyForcibly();
+            throw new IOException("curl POST 被中断: " + url, e);
+        } finally {
+            p.destroyForcibly();
+        }
+    }
+
+    /**
      * 用 curl 下载文本内容，自定义超时（秒）。
      * 用于快速探测被屏蔽的源（如 Google Translate 在 GFW 环境下），
      * 避免使用默认 30 秒超时导致长时间阻塞。

@@ -5,6 +5,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.pmcl.core.download.CurlFallback;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -12,6 +13,8 @@ import okhttp3.RequestBody;
 import okhttp3.Response;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -76,17 +79,32 @@ public final class MicrosoftAuthFlow {
 
     /**
      * 第一步：请求设备码。用户需要在浏览器中打开 verificationUri 并输入 userCode。
+     * <p>
+     * 直连失败时自动 fallback 到系统 curl（绕过 GFW 对 Java TLS 指纹的 RST 干扰）。
      */
     public DeviceCode requestDeviceCode() throws IOException {
         String body = "client_id=" + CLIENT_ID +
                 "&scope=" + java.net.URLEncoder.encode(SCOPE, "UTF-8");
-        Request req = new Request.Builder()
-                .url(DEVICE_CODE_URL)
-                .post(RequestBody.create(body,
-                        MediaType.get("application/x-www-form-urlencoded")))
-                .build();
-        try (Response resp = http.newCall(req).execute()) {
-            String json = resp.body() != null ? resp.body().string() : "";
+        String json;
+        try {
+            Request req = new Request.Builder()
+                    .url(DEVICE_CODE_URL)
+                    .post(RequestBody.create(body,
+                            MediaType.get("application/x-www-form-urlencoded")))
+                    .build();
+            try (Response resp = http.newCall(req).execute()) {
+                json = resp.body() != null ? resp.body().string() : "";
+            }
+        } catch (IOException e) {
+            // SSL 握手失败（GFW 干扰）→ fallback 到 curl
+            if (CurlFallback.isSslHandshakeFailure(e) && CurlFallback.isAvailable()) {
+                json = CurlFallback.postString(DEVICE_CODE_URL, body,
+                        "application/x-www-form-urlencoded", null);
+            } else {
+                throw new IOException("请求设备码失败: " + e.getMessage(), e);
+            }
+        }
+        try {
             JsonObject o = JsonParser.parseString(json).getAsJsonObject();
             return new DeviceCode(
                     safeStr(o, "device_code"),
@@ -96,8 +114,8 @@ public final class MicrosoftAuthFlow {
                     o.has("interval") && !o.get("interval").isJsonNull() ? o.get("interval").getAsInt() : 0,
                     safeStr(o, "message")
             );
-        } catch (IOException e) {
-            throw new RuntimeException("网络错误", e);
+        } catch (Throwable t) {
+            throw new IOException("解析设备码响应失败: " + t.getMessage() + " body=" + json, t);
         }
     }
 
@@ -151,7 +169,8 @@ public final class MicrosoftAuthFlow {
                     return;
             }
         } catch (Throwable e) {
-            future.completeExceptionally(new RuntimeException("网络错误", e));
+            // 保留原始异常消息（如 SSL_ERROR_SYSCALL），便于诊断 GFW 干扰
+            future.completeExceptionally(new RuntimeException("网络错误: " + e.getMessage(), e));
             return;
         }
         // 间隔后重试
@@ -218,34 +237,47 @@ public final class MicrosoftAuthFlow {
      * 返回 [name, uuid, skinUrl, skinModel]
      */
     public String[] fetchProfile(String mcAccessToken) throws IOException {
-        Request req = new Request.Builder()
-                .url(MC_PROFILE_URL)
-                .header("Authorization", "Bearer " + mcAccessToken)
-                .get().build();
-        try (Response resp = http.newCall(req).execute()) {
-            if (!resp.isSuccessful()) {
-                throw new IOException("获取档案失败 code=" + resp.code());
+        String profileJson;
+        try {
+            Request req = new Request.Builder()
+                    .url(MC_PROFILE_URL)
+                    .header("Authorization", "Bearer " + mcAccessToken)
+                    .get().build();
+            try (Response resp = http.newCall(req).execute()) {
+                if (!resp.isSuccessful()) {
+                    throw new IOException("获取档案失败 code=" + resp.code());
+                }
+                profileJson = resp.body() != null ? resp.body().string() : "";
             }
-            String profileJson = resp.body() != null ? resp.body().string() : "";
-            JsonObject o = JsonParser.parseString(profileJson).getAsJsonObject();
-            String name = safeStr(o, "name");
-            String uuid = safeStr(o, "id");
-            // 提取皮肤数据：skins 数组中 state=ACTIVE 的条目
-            String skinUrl = "";
-            String skinModel = "classic";
-            if (o.has("skins")) {
-                for (JsonElement skinElem : o.getAsJsonArray("skins")) {
-                    JsonObject skin = skinElem.getAsJsonObject();
-                    String state = skin.has("state") ? skin.get("state").getAsString() : "";
-                    if ("ACTIVE".equalsIgnoreCase(state)) {
-                        skinUrl = skin.has("url") ? skin.get("url").getAsString() : "";
-                        skinModel = skin.has("variant") ? skin.get("variant").getAsString() : "classic";
-                        break;
-                    }
+        } catch (IOException e) {
+            // SSL 握手失败（GFW 干扰）→ fallback 到 curl
+            if (CurlFallback.isSslHandshakeFailure(e) && CurlFallback.isAvailable()) {
+                List<String> headers = new ArrayList<>();
+                headers.add("Authorization: Bearer " + mcAccessToken);
+                byte[] bytes = CurlFallback.getBytes(MC_PROFILE_URL, "GET", headers);
+                profileJson = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+            } else {
+                throw e;
+            }
+        }
+        JsonObject o = JsonParser.parseString(profileJson).getAsJsonObject();
+        String name = safeStr(o, "name");
+        String uuid = safeStr(o, "id");
+        // 提取皮肤数据：skins 数组中 state=ACTIVE 的条目
+        String skinUrl = "";
+        String skinModel = "classic";
+        if (o.has("skins")) {
+            for (JsonElement skinElem : o.getAsJsonArray("skins")) {
+                JsonObject skin = skinElem.getAsJsonObject();
+                String state = skin.has("state") ? skin.get("state").getAsString() : "";
+                if ("ACTIVE".equalsIgnoreCase(state)) {
+                    skinUrl = skin.has("url") ? skin.get("url").getAsString() : "";
+                    skinModel = skin.has("variant") ? skin.get("variant").getAsString() : "classic";
+                    break;
                 }
             }
-            return new String[]{name, uuid, skinUrl, skinModel};
         }
+        return new String[]{name, uuid, skinUrl, skinModel};
     }
 
     /**
@@ -274,18 +306,31 @@ public final class MicrosoftAuthFlow {
     }
 
     private JsonObject postJson(String url, JsonObject payload) throws IOException {
-        Request req = new Request.Builder()
-                .url(url)
-                .header("Accept", "application/json")
-                .post(RequestBody.create(gson.toJson(payload), JSON))
-                .build();
-        try (Response resp = http.newCall(req).execute()) {
-            String body = resp.body() != null ? resp.body().string() : "";
-            if (!resp.isSuccessful()) {
-                throw new IOException("请求失败 " + url + " code=" + resp.code() + " body=" + body);
+        String bodyJson = gson.toJson(payload);
+        String body;
+        try {
+            Request req = new Request.Builder()
+                    .url(url)
+                    .header("Accept", "application/json")
+                    .post(RequestBody.create(bodyJson, JSON))
+                    .build();
+            try (Response resp = http.newCall(req).execute()) {
+                body = resp.body() != null ? resp.body().string() : "";
+                if (!resp.isSuccessful()) {
+                    throw new IOException("请求失败 " + url + " code=" + resp.code() + " body=" + body);
+                }
             }
-            return JsonParser.parseString(body).getAsJsonObject();
+        } catch (IOException e) {
+            // SSL 握手失败（GFW 干扰）→ fallback 到 curl
+            if (CurlFallback.isSslHandshakeFailure(e) && CurlFallback.isAvailable()) {
+                List<String> headers = new ArrayList<>();
+                headers.add("Accept: application/json");
+                body = CurlFallback.postString(url, bodyJson, "application/json", headers);
+            } else {
+                throw e;
+            }
         }
+        return JsonParser.parseString(body).getAsJsonObject();
     }
 
     private static String safeStr(JsonObject o, String key) {
