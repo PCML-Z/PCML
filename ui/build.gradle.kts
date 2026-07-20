@@ -33,6 +33,7 @@ kotlin {
                 implementation(project(":core"))
                 implementation(project(":cli"))
                 implementation(project(":video"))
+                implementation(project(":music"))
 
                 // WebSocket 服务宿主（伴随模式）
                 implementation(libs.ktor.server.core)

@@ -41,6 +41,12 @@ import com.pmcl.core.launch.CrashAnalyzer
 import com.pmcl.core.instance.InstanceInfo
 import com.pmcl.core.instance.InstanceManager
 import com.pmcl.core.web.WikiBrowser
+import com.pmcl.core.i18n.I18n
+import com.pmcl.music.source.AudioSourceResolver
+import com.pmcl.music.player.MusicPlayer
+import com.pmcl.music.player.PlaybackState
+import com.pmcl.music.player.MusicPlayerListener
+import com.pmcl.ui.page.MusicTrack
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.Dispatchers
@@ -273,6 +279,41 @@ class LauncherViewModel {
     val perfHudVisible: StateFlow<Boolean> = _perfHudVisible.asStateFlow()
     private val _perfHudMetrics = MutableStateFlow(preferences.getPerfHudMetrics())
     val perfHudMetrics: StateFlow<String> = _perfHudMetrics.asStateFlow()
+
+    // ===== 音乐播放器 =====
+    private val gson = com.google.gson.Gson()
+    private val musicPlayer = MusicPlayer()
+    private val audioResolver = AudioSourceResolver()
+
+    private val _musicPlaylist = MutableStateFlow<List<MusicTrack>>(emptyList())
+    val musicPlaylist: StateFlow<List<MusicTrack>> = _musicPlaylist.asStateFlow()
+
+    private val _musicCurrentIndex = MutableStateFlow(-1)
+    val musicCurrentIndex: StateFlow<Int> = _musicCurrentIndex.asStateFlow()
+
+    private val _musicPlaybackState = MutableStateFlow(PlaybackState.IDLE)
+    val musicPlaybackState: StateFlow<PlaybackState> = _musicPlaybackState.asStateFlow()
+
+    private val _musicCurrentMs = MutableStateFlow(0L)
+    val musicCurrentMs: StateFlow<Long> = _musicCurrentMs.asStateFlow()
+
+    private val _musicDurationMs = MutableStateFlow(0L)
+    val musicDurationMs: StateFlow<Long> = _musicDurationMs.asStateFlow()
+
+    private val _musicVolume = MutableStateFlow(80)
+    val musicVolume: StateFlow<Int> = _musicVolume.asStateFlow()
+
+    private val _musicMuted = MutableStateFlow(false)
+    val musicMuted: StateFlow<Boolean> = _musicMuted.asStateFlow()
+
+    private val _musicLoadingUrl = MutableStateFlow<String?>(null)
+    val musicLoadingUrl: StateFlow<String?> = _musicLoadingUrl.asStateFlow()
+
+    private val _musicRepeatMode = MutableStateFlow(0)  // 0=顺序, 1=列表循环, 2=单曲循环
+    val musicRepeatMode: StateFlow<Int> = _musicRepeatMode.asStateFlow()
+
+    private val _musicShuffle = MutableStateFlow(false)
+    val musicShuffle: StateFlow<Boolean> = _musicShuffle.asStateFlow()
 
     fun setPerfHudVisible(v: Boolean) {
         preferences.setShowPerfHud(v)
@@ -775,6 +816,39 @@ class LauncherViewModel {
         // 注：refreshInstalledMods 和 warmupConnections 已延迟到首次需要时执行，
         // 避免冷启动时阻塞首屏渲染（ModsPage LaunchedEffect 会触发 mod 扫描，
         // warmupConnections 延迟到首次下载时由 DownloadManager 内部触发）
+
+        // ===== 音乐播放器监听器 =====
+        musicPlayer.addListener(object : MusicPlayerListener {
+            override fun onStateChanged(state: PlaybackState) {
+                _musicPlaybackState.value = state
+                if (state == PlaybackState.ENDED) {
+                    // 自动播放下一曲
+                    playNextMusic()
+                }
+            }
+            override fun onProgress(currentMs: Long, durationMs: Long) {
+                _musicCurrentMs.value = currentMs
+                if (durationMs > 0) _musicDurationMs.value = durationMs
+            }
+            override fun onError(message: String) {
+                _status.value = I18n.t("music.error_play", message)
+            }
+            override fun onTrackEnded() {}
+        })
+
+        // 加载持久化播放列表
+        scope.launch {
+            try {
+                val file = java.io.File(System.getProperty("user.home"), ".pmcl/music/playlist.json")
+                if (file.exists()) {
+                    val type = object : TypeToken<List<MusicTrack>>() {}.type
+                    val list: List<MusicTrack> = withContext(Dispatchers.IO) {
+                        gson.fromJson(file.readText(), type) ?: emptyList()
+                    }
+                    _musicPlaylist.value = list
+                }
+            } catch (_: Throwable) {}
+        }
     }
 
     /** 扫描本地已安装版本（详细信息），自动检测 .pmcl/versions + 系统默认 Minecraft 目录，带进度回调 */
@@ -5111,4 +5185,166 @@ class LauncherViewModel {
         preferences.setAgreementAccepted(true)
         _agreementAccepted.value = true
     }
+
+    // ===== 音乐播放器方法 =====
+
+    /** 解析 URL 并添加到播放列表 */
+    fun resolveAndAddMusicTrack(url: String) {
+        if (url.isBlank()) return
+        scope.launch {
+            _musicLoadingUrl.value = url
+            try {
+                val info = withContext(Dispatchers.IO) { audioResolver.resolve(url) }
+                val track = MusicTrack(
+                    sourceUrl = url.trim(),
+                    title = info.title.ifBlank { url },
+                    uploader = info.uploader,
+                    durationMs = info.durationMs,
+                    coverUrl = info.coverUrl ?: "",
+                    sourceType = info.sourceType,
+                    originalId = info.originalId
+                )
+                _musicPlaylist.value = _musicPlaylist.value + track
+                persistMusicPlaylist()
+                _status.value = I18n.t("music.resolve_success", track.title)
+            } catch (e: Throwable) {
+                _status.value = I18n.t("music.resolve_failed", e.message ?: "?")
+            } finally {
+                _musicLoadingUrl.value = null
+            }
+        }
+    }
+
+    /** 播放指定索引的曲目 */
+    fun playMusicAt(index: Int) {
+        val list = _musicPlaylist.value
+        if (index !in list.indices) return
+        val track = list[index]
+        _musicCurrentIndex.value = index
+        scope.launch {
+            _musicPlaybackState.value = PlaybackState.LOADING
+            try {
+                val info = withContext(Dispatchers.IO) { audioResolver.resolve(track.sourceUrl) }
+                withContext(Dispatchers.IO) {
+                    musicPlayer.play(info.audioUrl, info.headers, info.durationMs.coerceAtLeast(track.durationMs))
+                }
+            } catch (e: Throwable) {
+                _musicPlaybackState.value = PlaybackState.ERROR
+                _status.value = I18n.t("music.error_load", e.message ?: "?")
+            }
+        }
+    }
+
+    /** 播放/暂停切换 */
+    fun toggleMusicPlayPause() {
+        when (_musicPlaybackState.value) {
+            PlaybackState.PLAYING -> musicPlayer.pause()
+            PlaybackState.PAUSED -> musicPlayer.resume()
+            PlaybackState.IDLE, PlaybackState.STOPPED, PlaybackState.ENDED, PlaybackState.ERROR -> {
+                val idx = _musicCurrentIndex.value
+                if (idx >= 0) playMusicAt(idx)
+                else if (_musicPlaylist.value.isNotEmpty()) playMusicAt(0)
+            }
+            else -> {}
+        }
+    }
+
+    fun pauseMusic() { musicPlayer.pause() }
+    fun resumeMusic() { musicPlayer.resume() }
+    fun stopMusic() {
+        musicPlayer.stop()
+        _musicCurrentMs.value = 0
+    }
+
+    fun playNextMusic() {
+        val list = _musicPlaylist.value
+        if (list.isEmpty()) return
+        val cur = _musicCurrentIndex.value
+        val next = if (_musicShuffle.value) {
+            if (list.size == 1) 0 else (0 until list.size).filter { it != cur }.random()
+        } else {
+            when (_musicRepeatMode.value) {
+                2 -> cur  // 单曲循环
+                1 -> (cur + 1) % list.size  // 列表循环
+                else -> if (cur + 1 < list.size) cur + 1 else -1  // 顺序，末尾停止
+            }
+        }
+        if (next >= 0) playMusicAt(next)
+        else stopMusic()
+    }
+
+    fun playPreviousMusic() {
+        val list = _musicPlaylist.value
+        if (list.isEmpty()) return
+        val cur = _musicCurrentIndex.value
+        val prev = if (cur - 1 >= 0) cur - 1 else list.size - 1
+        playMusicAt(prev)
+    }
+
+    fun seekMusicTo(ms: Long) { musicPlayer.seekTo(ms) }
+
+    fun setMusicVolume(v: Int) {
+        val normalized = v.coerceIn(0, 100)
+        _musicVolume.value = normalized
+        _musicMuted.value = normalized == 0
+        musicPlayer.setVolume(normalized)
+    }
+
+    fun toggleMusicMute() {
+        val muted = !_musicMuted.value
+        _musicMuted.value = muted
+        musicPlayer.setVolume(if (muted) 0 else _musicVolume.value)
+    }
+
+    fun cycleMusicRepeatMode() {
+        _musicRepeatMode.value = (_musicRepeatMode.value + 1) % 3
+    }
+
+    fun toggleMusicShuffle() {
+        _musicShuffle.value = !_musicShuffle.value
+    }
+
+    fun removeMusicTrack(index: Int) {
+        val list = _musicPlaylist.value.toMutableList()
+        if (index !in list.indices) return
+        list.removeAt(index)
+        _musicPlaylist.value = list
+        persistMusicPlaylist()
+        // 调整当前索引
+        val cur = _musicCurrentIndex.value
+        when {
+            index < cur -> _musicCurrentIndex.value = cur - 1
+            index == cur -> {
+                stopMusic()
+                _musicCurrentIndex.value = -1
+            }
+        }
+    }
+
+    fun clearMusicPlaylist() {
+        stopMusic()
+        _musicPlaylist.value = emptyList()
+        _musicCurrentIndex.value = -1
+        persistMusicPlaylist()
+    }
+
+    private fun persistMusicPlaylist() {
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val file = java.io.File(System.getProperty("user.home"), ".pmcl/music/playlist.json")
+                    file.parentFile.mkdirs()
+                    file.writeText(gson.toJson(_musicPlaylist.value))
+                }
+            } catch (_: Throwable) {}
+        }
+    }
+
+    /** 当前曲目（用于 MiniBar 显示） */
+    val currentMusicTrack: MusicTrack?
+        get() {
+            val idx = _musicCurrentIndex.value
+            val list = _musicPlaylist.value
+            return if (idx in list.indices) list[idx] else null
+        }
 }

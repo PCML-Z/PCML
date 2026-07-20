@@ -7,6 +7,7 @@ import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
@@ -42,6 +43,7 @@ sealed class NavDestination(val route: String, val labelKey: String, val icon: I
     data object Plugins     : NavDestination("plugins",     "nav.plugins",     Icons.Filled.Extension)
     data object Instances   : NavDestination("instances",   "nav.instances",   Icons.Filled.Dashboard)
     data object NbtEditor   : NavDestination("nbt",         "nav.nbt",         Icons.Filled.AccountTree)
+    data object Music       : NavDestination("music",       "nav.music",       Icons.Filled.MusicNote)
 }
 
 val allDestinations = listOf(
@@ -58,5 +60,6 @@ val allDestinations = listOf(
     NavDestination.Terminal,
     NavDestination.Plugins,
     NavDestination.Instances,
-    NavDestination.NbtEditor
+    NavDestination.NbtEditor,
+    NavDestination.Music
 )

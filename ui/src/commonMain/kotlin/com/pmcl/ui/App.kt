@@ -29,6 +29,7 @@ import com.pmcl.ui.page.LockscreenLaunchPage
 import com.pmcl.ui.page.NbtEditorPage
 import com.pmcl.ui.page.MultiplayerPage
 import com.pmcl.ui.page.FriendPage
+import com.pmcl.ui.page.MusicPage
 import com.pmcl.ui.page.NewsPage
 import com.pmcl.ui.page.PluginPage
 import com.pmcl.ui.page.QuickLaunchPage
@@ -41,6 +42,7 @@ import com.pmcl.ui.theme.LauncherTheme
 import com.pmcl.ui.theme.LocalThemeState
 import com.pmcl.ui.theme.ThemeState
 import com.pmcl.ui.viewmodel.LauncherViewModel
+import com.pmcl.ui.widget.MiniMusicBar
 
 @Composable
 fun App(vm: LauncherViewModel) {
@@ -246,36 +248,47 @@ private fun MainWindowContent(vm: LauncherViewModel) {
             }
         }
 
-        Box(Modifier.weight(1f).fillMaxHeight()) {
-            EntranceAnimation(delayMs = 120, durationMs = 400, offsetDp = 32) {
-                AnimatedPageSwitch(targetState = current, direction = navDirection) { target ->
-                    when (target) {
-                        is NavTarget.BuiltIn -> when (target.dest) {
-                            NavDestination.Launch      -> LaunchPage(vm)
-                            NavDestination.News        -> NewsPage(vm)
-                            NavDestination.Multiplayer -> MultiplayerPage(vm)
-                            NavDestination.Friends     -> FriendPage(vm)
-                            NavDestination.Download    -> DownloadHubPage(vm)
-                            NavDestination.Content     -> ContentHubPage(vm)
-                            NavDestination.Saves       -> SavesHubPage(vm)
-                            NavDestination.Statistics  -> StatisticsPage(vm)
-                            NavDestination.Accounts    -> AccountsPage(vm)
-                            NavDestination.Settings    -> SettingsPage(vm)
-                            NavDestination.Terminal    -> TerminalPage(vm)
-                            NavDestination.Plugins     -> PluginPage(vm)
-                            NavDestination.Instances   -> InstancesPage(vm)
-                            NavDestination.NbtEditor   -> NbtEditorPage(vm)
-                        }
-                        is NavTarget.PluginPage -> {
-                            target.page.content.invoke()
+        Column(Modifier.weight(1f).fillMaxHeight()) {
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                EntranceAnimation(delayMs = 120, durationMs = 400, offsetDp = 32) {
+                    AnimatedPageSwitch(targetState = current, direction = navDirection) { target ->
+                        when (target) {
+                            is NavTarget.BuiltIn -> when (target.dest) {
+                                NavDestination.Launch      -> LaunchPage(vm)
+                                NavDestination.News        -> NewsPage(vm)
+                                NavDestination.Multiplayer -> MultiplayerPage(vm)
+                                NavDestination.Friends     -> FriendPage(vm)
+                                NavDestination.Download    -> DownloadHubPage(vm)
+                                NavDestination.Content     -> ContentHubPage(vm)
+                                NavDestination.Saves       -> SavesHubPage(vm)
+                                NavDestination.Statistics  -> StatisticsPage(vm)
+                                NavDestination.Accounts    -> AccountsPage(vm)
+                                NavDestination.Settings    -> SettingsPage(vm)
+                                NavDestination.Terminal    -> TerminalPage(vm)
+                                NavDestination.Plugins     -> PluginPage(vm)
+                                NavDestination.Instances   -> InstancesPage(vm)
+                                NavDestination.NbtEditor   -> NbtEditorPage(vm)
+                                NavDestination.Music       -> MusicPage(vm)
+                            }
+                            is NavTarget.PluginPage -> {
+                                target.page.content.invoke()
+                            }
                         }
                     }
                 }
+                SnackbarHost(
+                    hostState = snackbarHostState,
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp)
+                )
             }
-            SnackbarHost(
-                hostState = snackbarHostState,
-                modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp)
-            )
+
+            // 底部音乐迷你条（仅当有当前曲目时显示）
+            val musicCurrentIdx by vm.musicCurrentIndex.collectAsState()
+            val musicPlaylist by vm.musicPlaylist.collectAsState()
+            if (musicPlaylist.isNotEmpty() && musicCurrentIdx >= 0) {
+                Spacer(Modifier.height(4.dp))
+                MiniMusicBar(vm)
+            }
         }
     } // close Row
 
