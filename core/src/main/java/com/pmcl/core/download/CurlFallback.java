@@ -82,6 +82,9 @@ public final class CurlFallback {
      * 用 curl 发起 POST 请求并返回响应体字符串。
      * <p>
      * 用于 OkHttp SSL 握手失败时的 fallback（GFW 环境下 Java TLS 指纹被识别并 RST）。
+     * <p>
+     * 注意：不用 -f（4xx 时需返回 body 便于诊断），不用 -L（POST 重定向会丢 body），
+     * 不用 -X POST（--data-binary 已隐含 POST 方法）。
      *
      * @param url         请求 URL
      * @param body        请求体
@@ -94,11 +97,9 @@ public final class CurlFallback {
         List<String> cmd = new ArrayList<>();
         cmd.add("curl");
         cmd.add("-sS");
-        cmd.add("-f");                     // HTTP 4xx/5xx 返回非零退出码
         cmd.add("--max-time"); cmd.add(String.valueOf(TIMEOUT_SEC));
         cmd.add("--connect-timeout"); cmd.add("10");
-        cmd.add("-L");                     // 跟随重定向
-        cmd.add("-X"); cmd.add("POST");
+        // --data-binary 隐含 POST，无需 -X POST
         cmd.add("-H"); cmd.add("User-Agent: PMCL/1.0");
         cmd.add("-H"); cmd.add("Accept: */*");
         if (contentType != null && !contentType.isEmpty()) {
@@ -109,12 +110,15 @@ public final class CurlFallback {
                 cmd.add("-H"); cmd.add(h);
             }
         }
+        // body 作为 argv 传递（ProcessBuilder 不经 shell，%, &, = 不会被特殊处理）
         cmd.add("--data-binary"); cmd.add(body);
+        // 在 body 末尾追加 HTTP 状态码，用于判断 4xx/5xx
+        cmd.add("-w"); cmd.add("\n__HTTP_CODE__%{http_code}");
         cmd.add(url);
 
         Process p = new ProcessBuilder(cmd).start();
         try {
-            // 关闭 stdin（curl 用 --data-binary 参数传 body，不从 stdin 读）
+            // 关闭 stdin（body 通过 argv 传递，不从 stdin 读）
             try (OutputStream os = p.getOutputStream()) {
                 os.close();
             }
@@ -136,11 +140,30 @@ public final class CurlFallback {
                 throw new IOException("curl POST 超时: " + url);
             }
             int exit = p.exitValue();
+            String errMsg = err.toString(java.nio.charset.StandardCharsets.UTF_8).trim();
+            // curl 退出码非 0 说明网络层错误（SSL/连接/超时）
             if (exit != 0) {
-                String errMsg = err.toString(java.nio.charset.StandardCharsets.UTF_8).trim();
-                throw new IOException("curl POST 失败 exit=" + exit + ": " + errMsg + " url=" + url);
+                throw new IOException("curl POST 网络失败 exit=" + exit + ": " + errMsg + " url=" + url);
             }
-            return out.toString(java.nio.charset.StandardCharsets.UTF_8);
+            String output = out.toString(java.nio.charset.StandardCharsets.UTF_8);
+            // 解析 -w 追加的 HTTP 状态码
+            int sepIdx = output.lastIndexOf("\n__HTTP_CODE__");
+            if (sepIdx < 0) {
+                return output;
+            }
+            String httpCodeStr = output.substring(sepIdx + "\n__HTTP_CODE__".length()).trim();
+            String responseBody = output.substring(0, sepIdx);
+            int httpCode;
+            try {
+                httpCode = Integer.parseInt(httpCodeStr);
+            } catch (NumberFormatException nfe) {
+                return output;
+            }
+            if (httpCode < 200 || httpCode >= 300) {
+                // httpCode=0 表示未收到 HTTP 响应（网络层失败）；4xx/5xx 包含 body 便于诊断
+                throw new IOException("HTTP " + httpCode + " url=" + url + " body=" + responseBody);
+            }
+            return responseBody;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             p.destroyForcibly();
