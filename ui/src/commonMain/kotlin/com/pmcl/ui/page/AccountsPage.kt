@@ -331,7 +331,11 @@ fun AccountsPage(vm: LauncherViewModel) {
             userCode = dc.getUserCode(),
             status = status,
             onOpenBrowser = {
-                try { com.pmcl.core.web.WikiBrowser.open(dc.getVerificationUri()) } catch (_: Throwable) {}
+                try {
+                    com.pmcl.core.web.WikiBrowser.open(dc.getVerificationUri())
+                } catch (t: Throwable) {
+                    vm.updateStatus("打开浏览器失败：" + (t.message ?: t.toString()))
+                }
             },
             onClose = { hideDeviceCodeDialog = true }
         )

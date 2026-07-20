@@ -23,10 +23,33 @@ public final class WikiBrowser {
 
     /** 在系统浏览器打开指定 URL */
     public static void open(String url) throws IOException {
-        if (!isSupported()) {
-            throw new IOException("当前平台不支持系统浏览器");
+        // 优先尝试 Desktop API（部分平台/线程下会静默失败）
+        if (isSupported()) {
+            try {
+                Desktop.getDesktop().browse(URI.create(url));
+                return;
+            } catch (Throwable t) {
+                System.err.println("[WikiBrowser] Desktop.browse 失败，尝试系统命令兜底: " + t);
+            }
         }
-        Desktop.getDesktop().browse(URI.create(url));
+        // Fallback：用平台特定命令打开浏览器
+        String os = System.getProperty("os.name", "").toLowerCase();
+        String[] cmd;
+        if (os.contains("mac")) {
+            cmd = new String[]{"open", url};
+        } else if (os.contains("win")) {
+            // Windows 需要对 URL 中的 & 等特殊字符做保护，rundll32 单参数模式
+            cmd = new String[]{"rundll32", "url.dll,FileProtocolHandler", url};
+        } else {
+            // Linux / Unix
+            cmd = new String[]{"xdg-open", url};
+        }
+        try {
+            Runtime.getRuntime().exec(cmd);
+        } catch (IOException ioe) {
+            System.err.println("[WikiBrowser] 系统命令打开失败: " + ioe.getMessage());
+            throw ioe;
+        }
     }
 
     /** 构造 Modrinth 项目页 URL */

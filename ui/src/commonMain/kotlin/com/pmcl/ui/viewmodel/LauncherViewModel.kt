@@ -144,6 +144,11 @@ class LauncherViewModel {
     private val _status = MutableStateFlow("就绪")
     val status: StateFlow<String> = _status.asStateFlow()
 
+    /** UI 层更新状态栏文本（如浏览器打开失败等错误提示） */
+    fun updateStatus(msg: String) {
+        _status.value = msg
+    }
+
     private val _account = MutableStateFlow<Account?>(null)
     val account: StateFlow<Account?> = _account.asStateFlow()
 
