@@ -60,6 +60,10 @@ public final class MicrosoftAuthFlow {
             "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize";
     private static final String V2_TOKEN_URL =
             "https://login.microsoftonline.com/consumers/oauth2/v2.0/token";
+    // v2.0 device code 端点：wiki.vg 明确要求使用 consumers tenant + XboxLive.signin scope，
+    // 否则 Xbox Live /user/authenticate 会返回 401（空 body）。旧 MBI_SSL scope 已被微软废弃。
+    private static final String V2_DEVICE_CODE_URL =
+            "https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode";
     private static final String XBL_URL =
             "https://user.auth.xboxlive.com/user/authenticate";
     private static final String XSTS_URL =
@@ -121,15 +125,14 @@ public final class MicrosoftAuthFlow {
      * 直连失败时自动 fallback 到系统 curl（绕过 GFW 对 Java TLS 指纹的 RST 干扰）。
      */
     public DeviceCode requestDeviceCode() throws IOException {
-        // response_type=device_code 是 legacy login.live.com 端点 device code flow 的必需参数
-        // 缺失会被 Microsoft 以 400 invalid_request "must include a 'response_type'" 拒绝
+        // v2.0 device code 端点：不需要 response_type 参数（v2.0 规范中 grant_type 由 URL path 隐式指定）。
+        // scope 必须是 XboxLive.signin（而非旧的 MBI_SSL），否则 Xbox Live 会返回 401。
         String body = "client_id=" + clientId +
-                "&scope=" + java.net.URLEncoder.encode(SCOPE, "UTF-8") +
-                "&response_type=device_code";
+                "&scope=" + java.net.URLEncoder.encode(V2_SCOPE, "UTF-8");
         String json;
         try {
             Request req = new Request.Builder()
-                    .url(DEVICE_CODE_URL)
+                    .url(V2_DEVICE_CODE_URL)
                     .post(RequestBody.create(body,
                             MediaType.get("application/x-www-form-urlencoded")))
                     .build();
@@ -139,7 +142,7 @@ public final class MicrosoftAuthFlow {
         } catch (IOException e) {
             // SSL 握手失败（GFW 干扰）→ fallback 到 curl
             if (CurlFallback.isSslHandshakeFailure(e) && CurlFallback.isAvailable()) {
-                json = CurlFallback.postString(DEVICE_CODE_URL, body,
+                json = CurlFallback.postString(V2_DEVICE_CODE_URL, body,
                         "application/x-www-form-urlencoded", null);
             } else {
                 throw new IOException("请求设备码失败: " + e.getMessage(), e);
@@ -178,13 +181,15 @@ public final class MicrosoftAuthFlow {
 
     private void pollOnce(DeviceCode dc, Consumer<String> onPending,
                           CompletableFuture<String> future) {
+        // v2.0 token 端点：必须带 scope=XboxLive.signin，否则返回的 token 缺少 Xbox Live audience。
         String body = "client_id=" + clientId +
                 "&grant_type=urn:ietf:params:oauth:grant-type:device_code" +
-                "&device_code=" + dc.getDeviceCode();
+                "&device_code=" + dc.getDeviceCode() +
+                "&scope=" + java.net.URLEncoder.encode(V2_SCOPE, java.nio.charset.StandardCharsets.UTF_8);
         String json;
         try {
             Request req = new Request.Builder()
-                    .url(TOKEN_URL)
+                    .url(V2_TOKEN_URL)
                     .post(RequestBody.create(body,
                             MediaType.get("application/x-www-form-urlencoded")))
                     .build();
@@ -197,7 +202,7 @@ public final class MicrosoftAuthFlow {
                 try {
                     // token 端点对 pending/slow_down/expired/declined 都返回 HTTP 400，
                     // 必须用 postStringAllowingErrors 拿到 body 才能区分具体状态
-                    json = CurlFallback.postStringAllowingErrors(TOKEN_URL, body,
+                    json = CurlFallback.postStringAllowingErrors(V2_TOKEN_URL, body,
                             "application/x-www-form-urlencoded", null);
                 } catch (IOException ce) {
                     future.completeExceptionally(new RuntimeException("网络错误: " + ce.getMessage(), ce));
