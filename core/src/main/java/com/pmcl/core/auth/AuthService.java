@@ -67,6 +67,27 @@ public final class AuthService {
                 });
     }
 
+    /**
+     * 浏览器授权码流程登录（推荐方式）。
+     * <p>
+     * 打开系统浏览器让用户登录，授权后自动回调本地服务器完成登录。
+     * 相比设备码流程，用户体验更佳（无需手动输入代码）。
+     *
+     * @param onStatus    状态回调（UI 显示进度）
+     * @param openBrowser 接收授权 URL 并打开系统浏览器的回调
+     * @return CompletableFuture<Account>
+     */
+    public CompletableFuture<Account> loginMicrosoftViaBrowser(Consumer<String> onStatus,
+                                                                Consumer<String> openBrowser) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                return flow.loginViaBrowser(onStatus, openBrowser);
+            } catch (IOException e) {
+                throw new RuntimeException("微软登录失败", e);
+            }
+        });
+    }
+
     // ============ GitHub 登录 ============
 
     /**

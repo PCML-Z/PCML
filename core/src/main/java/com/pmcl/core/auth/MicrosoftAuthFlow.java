@@ -39,6 +39,8 @@ public final class MicrosoftAuthFlow {
 
     private static final String DEVICE_CODE_URL =
             "https://login.live.com/oauth20_connect.srf";
+    private static final String AUTHORIZE_URL =
+            "https://login.live.com/oauth20_authorize.srf";
     private static final String TOKEN_URL =
             "https://login.live.com/oauth20_token.srf";
     private static final String XBL_URL =
@@ -330,6 +332,109 @@ public final class MicrosoftAuthFlow {
         String[] profile = fetchProfile(mcToken);
         return new Account(profile[0], profile[1], mcToken, Account.AccountType.MICROSOFT,
                 profile[2], profile[3]);
+    }
+
+    /**
+     * 浏览器授权码流程登录（推荐方式，用户体验最佳）。
+     * <p>
+     * 流程：
+     * <ol>
+     *   <li>启动本地 HTTP 服务器监听回调</li>
+     *   <li>构造授权 URL，调用 openBrowser 回调打开浏览器</li>
+     *   <li>用户在浏览器登录授权</li>
+     *   <li>Microsoft 重定向回本地服务器，附带 code</li>
+     *   <li>用 code 交换 access_token</li>
+     *   <li>继续 XBL → XSTS → MC 登录流程</li>
+     * </ol>
+     * <p>
+     * 浏览器走系统网络栈，不受 Java TLS 指纹被 GFW RST 的影响；
+     * token 交换和后续 API 调用仍带 curl fallback。
+     *
+     * @param onStatus    状态回调（UI 显示进度）
+     * @param openBrowser 接收授权 URL 并打开系统浏览器的回调
+     * @return 完整 Account
+     */
+    public Account loginViaBrowser(Consumer<String> onStatus,
+                                    Consumer<String> openBrowser) throws IOException {
+        onStatus.accept("准备登录…");
+        try (OAuthCallbackServer server = new OAuthCallbackServer()) {
+            String redirectUri = server.getRedirectUri();
+
+            // 构造授权 URL
+            String authUrl = AUTHORIZE_URL + "?" +
+                    "client_id=" + CLIENT_ID +
+                    "&response_type=code" +
+                    "&redirect_uri=" + java.net.URLEncoder.encode(redirectUri, "UTF-8") +
+                    "&scope=" + java.net.URLEncoder.encode(SCOPE, "UTF-8") +
+                    "&prompt=login";  // 强制重新登录，避免缓存的账号干扰
+
+            onStatus.accept("打开浏览器登录…");
+            openBrowser.accept(authUrl);
+
+            // 等待授权码（5 分钟超时）
+            String code = server.awaitCode(300);
+
+            onStatus.accept("交换 access_token…");
+            String msAccessToken = exchangeCodeForToken(code, redirectUri);
+
+            onStatus.accept("登录 Xbox Live…");
+            String[] xbl = authXboxLive(msAccessToken);
+
+            onStatus.accept("获取 XSTS token…");
+            String xsts = authXsts(xbl[0]);
+
+            onStatus.accept("登录 Minecraft…");
+            String mcToken = loginMinecraft(xbl[1], xsts);
+
+            onStatus.accept("获取玩家档案…");
+            String[] profile = fetchProfile(mcToken);
+
+            return new Account(profile[0], profile[1], mcToken, Account.AccountType.MICROSOFT,
+                    profile[2], profile[3]);
+        }
+    }
+
+    /**
+     * 用授权码交换 MS access_token。
+     * 带 curl fallback，防止 GFW 拦截 Java TLS。
+     */
+    private String exchangeCodeForToken(String code, String redirectUri) throws IOException {
+        String body = "client_id=" + CLIENT_ID +
+                "&grant_type=authorization_code" +
+                "&code=" + java.net.URLEncoder.encode(code, "UTF-8") +
+                "&redirect_uri=" + java.net.URLEncoder.encode(redirectUri, "UTF-8");
+        String json;
+        try {
+            Request req = new Request.Builder()
+                    .url(TOKEN_URL)
+                    .post(RequestBody.create(body,
+                            MediaType.get("application/x-www-form-urlencoded")))
+                    .build();
+            try (Response resp = http.newCall(req).execute()) {
+                json = resp.body() != null ? resp.body().string() : "";
+            }
+        } catch (IOException e) {
+            if (CurlFallback.isSslHandshakeFailure(e) && CurlFallback.isAvailable()) {
+                json = CurlFallback.postString(TOKEN_URL, body,
+                        "application/x-www-form-urlencoded", null);
+            } else {
+                throw new IOException("交换 access_token 失败: " + e.getMessage(), e);
+            }
+        }
+        try {
+            JsonObject o = JsonParser.parseString(json).getAsJsonObject();
+            String error = safeStr(o, "error");
+            if (!error.isEmpty()) {
+                throw new IOException("交换 token 失败: " + error + " " + safeStr(o, "error_description"));
+            }
+            String token = safeStr(o, "access_token");
+            if (token.isEmpty()) {
+                throw new IOException("access_token 为空: " + json);
+            }
+            return token;
+        } catch (Throwable t) {
+            throw new IOException("解析 token 响应失败: " + t.getMessage() + " body=" + json, t);
+        }
     }
 
     private JsonObject postJson(String url, JsonObject payload) throws IOException {

@@ -1273,25 +1273,20 @@ class LauncherViewModel {
     fun startMicrosoftLogin() {
         scope.launch {
             _loggingIn.value = true
-            _status.value = "请求设备码…"
+            _status.value = "打开浏览器登录…"
             try {
-                val dc = withContext(Dispatchers.IO) { core.auth().requestDeviceCode() }
-                _deviceCode.value = dc
-                _status.value = "请打开 ${dc.getVerificationUri()} 输入 ${dc.getUserCode()}"
-
                 val account = withContext(Dispatchers.IO) {
-                    core.auth().loginMicrosoftAsync(dc) { msg ->
-                        _status.value = msg
-                    }.join()
+                    core.auth().loginMicrosoftViaBrowser(
+                        { msg -> _status.value = msg },
+                        { url ->
+                            try { com.pmcl.core.web.WikiBrowser.open(url) } catch (_: Throwable) {}
+                        }
+                    ).join()
                 }
                 _account.value = account
                 upsertAccount(account)
                 _status.value = "已登录（微软）：${account.getUsername()}"
-                _deviceCode.value = null
             } catch (e: Throwable) {
-                // 失败时清空设备码，避免 UI 仍显示旧码误导用户
-                _deviceCode.value = null
-                // 根据错误特征给出可操作建议
                 val msg = e.message ?: e.toString()
                 _status.value = if (msg.contains("SSL", ignoreCase = true) ||
                     msg.contains("TLS", ignoreCase = true) ||
