@@ -28,28 +28,40 @@ public final class WikiBrowser {
         }
         System.err.println("[WikiBrowser] Opening URL: " + url);
         String os = System.getProperty("os.name", "").toLowerCase();
-        // macOS：`open` 和 Desktop.browse() 对含特殊字符的 URL（如 OAuth 授权 URL）
-        // 可能被解释为文件路径而打开访达。AppleScript 的 `open location` 明确指定
-        // 打开"位置"（URL），是最可靠的方式。
+        // macOS：使用完整路径 /usr/bin/open 避免 GUI 进程 PATH 受限。
+        // 不用 Desktop.browse()——它对含 ?&= 的 OAuth URL 可能误识别为文件路径而打开访达。
         if (os.contains("mac")) {
-            // 首选：osascript + open location（明确语义为打开 URL，不会误识别为文件）
-            // 不等待进程结束，避免阻塞 UI 线程（AccountsPage 按钮回调直接调用此方法）
+            IOException last = null;
+            // 方案 1：/usr/bin/open（直接传 URL，open 命令对 http(s):// 开头的参数会交给浏览器）
             try {
-                String script = "open location \"" + url.replace("\"", "\\\"") + "\"";
-                new ProcessBuilder("osascript", "-e", script).start();
-                return;
-            } catch (Throwable t) {
-                System.err.println("[WikiBrowser] osascript 失败，尝试 open 命令: " + t.getMessage());
-            }
-            // 次选：open 命令（参数以 http 开头时通常能正确识别为 URL）
-            try {
-                new ProcessBuilder("open", url).start();
+                new ProcessBuilder("/usr/bin/open", url).start();
                 return;
             } catch (IOException ioe) {
-                System.err.println("[WikiBrowser] macOS open 命令失败，尝试 Desktop API: " + ioe.getMessage());
+                last = ioe;
+                System.err.println("[WikiBrowser] /usr/bin/open 失败: " + ioe.getMessage());
             }
+            // 方案 2：osascript + open location（明确语义为打开 URL）
+            try {
+                String script = "open location \"" + url.replace("\"", "\\\"") + "\"";
+                new ProcessBuilder("/usr/bin/osascript", "-e", script).start();
+                return;
+            } catch (IOException ioe) {
+                last = ioe;
+                System.err.println("[WikiBrowser] osascript 失败: " + ioe.getMessage());
+            }
+            // 方案 3：Desktop API（最后手段）
+            if (isSupported()) {
+                try {
+                    Desktop.getDesktop().browse(URI.create(url));
+                    return;
+                } catch (Throwable t) {
+                    System.err.println("[WikiBrowser] Desktop.browse 失败: " + t);
+                    throw new IOException("macOS 打开浏览器失败: open=" + (last != null ? last.getMessage() : "N/A") + ", Desktop=" + t.getMessage());
+                }
+            }
+            throw new IOException("macOS 打开浏览器失败: " + (last != null ? last.getMessage() : "unknown"));
         }
-        // 非 macOS 优先尝试 Desktop API（部分平台/线程下会静默失败）
+        // Windows / Linux
         if (isSupported()) {
             try {
                 Desktop.getDesktop().browse(URI.create(url));
@@ -58,23 +70,13 @@ public final class WikiBrowser {
                 System.err.println("[WikiBrowser] Desktop.browse 失败，尝试系统命令兜底: " + t);
             }
         }
-        // Fallback：用平台特定命令打开浏览器
         String[] cmd;
-        if (os.contains("mac")) {
-            cmd = new String[]{"open", url};
-        } else if (os.contains("win")) {
-            // Windows 需要对 URL 中的 & 等特殊字符做保护，rundll32 单参数模式
+        if (os.contains("win")) {
             cmd = new String[]{"rundll32", "url.dll,FileProtocolHandler", url};
         } else {
-            // Linux / Unix
             cmd = new String[]{"xdg-open", url};
         }
-        try {
-            new ProcessBuilder(cmd).start();
-        } catch (IOException ioe) {
-            System.err.println("[WikiBrowser] 系统命令打开失败: " + ioe.getMessage());
-            throw ioe;
-        }
+        new ProcessBuilder(cmd).start();
     }
 
     /** 构造 Modrinth 项目页 URL */

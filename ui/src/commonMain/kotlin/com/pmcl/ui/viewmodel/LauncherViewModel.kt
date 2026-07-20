@@ -1286,7 +1286,10 @@ class LauncherViewModel {
                         core.auth().loginMicrosoftViaBrowser(
                             { msg -> _status.value = msg },
                             { url ->
-                                try { com.pmcl.core.web.WikiBrowser.open(url) } catch (_: Throwable) {}
+                                try { com.pmcl.core.web.WikiBrowser.open(url) }
+                                catch (t: Throwable) {
+                                    _status.value = I18n.t("accounts.open_browser_failed", t.message ?: t.toString())
+                                }
                             }
                         ).join()
                     }
