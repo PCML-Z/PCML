@@ -81,7 +81,8 @@ public class MusicPlayer {
 
     public long getCurrentMs() {
         FFmpegFrameGrabber g = grabber;
-        return g != null ? g.getTimestamp() * 1000L : 0L;
+        // FFmpegFrameGrabber.getTimestamp() 返回微秒（μs），转换为毫秒
+        return g != null ? g.getTimestamp() / 1000L : 0L;
     }
 
     // ---------------------------------------------------------------------------
@@ -195,7 +196,8 @@ public class MusicPlayer {
                 // seek 处理
                 if (seekRequested) {
                     try {
-                        g.setTimestamp(seekTargetMs / 1000L);
+                        // setTimestamp 接收微秒（μs），seekTargetMs 是毫秒
+                        g.setTimestamp(seekTargetMs * 1000L);
                     } catch (Throwable ignored) {}
                     seekRequested = false;
                     // 清空 line 缓冲，避免播放旧数据
@@ -223,7 +225,8 @@ public class MusicPlayer {
                 l.write(pcm, 0, pcm.length);
 
                 // 进度回调（限频 500ms）
-                long curMs = g.getTimestamp() * 1000L;
+                // getTimestamp() 返回微秒，转换为毫秒
+                long curMs = g.getTimestamp() / 1000L;
                 notifyProgressThrottled(curMs, durationMs);
             }
 
