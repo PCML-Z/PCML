@@ -2508,6 +2508,11 @@ class LauncherViewModel {
         val vid = versionId ?: _selectedVersion.value
         core.downloadQueue().submitModDownload(modFile, gameVersion, vid)
         _status.value = I18n.t("status.queued_mod", modFile.fileName)
+        // 若该模组有 API 声明的依赖，提醒用户可使用"带依赖下载"
+        val deps = modFile.getDependencies()
+        if (deps != null && deps.isNotEmpty()) {
+            _status.value = I18n.t("status.mod_has_deps", modFile.fileName, deps.size)
+        }
         refreshQueue()
     }
 

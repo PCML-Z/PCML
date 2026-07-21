@@ -1517,6 +1517,7 @@ public final class I18n {
         ZH.put("status.queued_minecraft_version", "已加入下载队列：{0}");
         ZH.put("status.queued_loader", "已加入下载队列：{0} {1}");
         ZH.put("status.queued_mod", "已加入下载队列：模组 {0}");
+        ZH.put("status.mod_has_deps", "{0} 有 {1} 个前置依赖，建议使用「带依赖下载」");
 
         // ===== 状态消息 - 配置文件 =====
         ZH.put("status.config_files_load_failed", "加载配置文件列表失败：{0}");
@@ -3170,6 +3171,7 @@ public final class I18n {
         EN.put("status.queued_minecraft_version", "Queued for download: {0}");
         EN.put("status.queued_loader", "Queued for download: {0} {1}");
         EN.put("status.queued_mod", "Queued for download: mod {0}");
+        EN.put("status.mod_has_deps", "{0} has {1} dependencies. Consider using \"Download with deps\"");
         EN.put("status.config_files_load_failed", "Failed to load config file list: {0}");
         EN.put("status.config_file_read_failed", "Failed to read config file: {0}");
         EN.put("status.config_file_saved", "Config file saved");
@@ -4811,6 +4813,7 @@ public final class I18n {
         JA.put("status.queued_minecraft_version", "ダウンロードキューに追加：{0}");
         JA.put("status.queued_loader", "ダウンロードキューに追加：{0} {1}");
         JA.put("status.queued_mod", "ダウンロードキューに追加：Mod {0}");
+        JA.put("status.mod_has_deps", "{0} には {1} 個の依存関係があります。「依存関係付きダウンロード」の使用を推奨");
 
         // ===== ステータスメッセージ - 設定ファイル =====
         JA.put("status.config_files_load_failed", "設定ファイルリストの読み込み失敗：{0}");

@@ -240,6 +240,8 @@ public final class ModrinthClient implements ModMarketClient {
                         String versionType = v.has("version_type") ? v.get("version_type").getAsString() : "release";
                         List<String> gameVersions = jsonArrToStrings(v, "game_versions");
                         List<String> loaders = jsonArrToStrings(v, "loaders");
+                        // 解析 dependencies 字段（Modrinth API：project ID 字符串数组）
+                        List<String> deps = jsonArrToStrings(v, "dependencies");
 
                         // 一个 version 可能含多个 file，通常取主 jar
                         if (v.has("files")) {
@@ -250,7 +252,7 @@ public final class ModrinthClient implements ModMarketClient {
                                         safeStr(fo, "filename"),
                                         fo.has("size") ? fo.get("size").getAsLong() : 0,
                                         safeStr(fo, "url"),
-                                        gameVersions, loaders, versionType
+                                        gameVersions, loaders, versionType, deps
                                 ));
                             }
                         }
@@ -382,9 +384,11 @@ public final class ModrinthClient implements ModMarketClient {
     }
 
     private List<String> jsonArrToStrings(JsonObject o, String key) {
-        if (!o.has(key)) return Collections.emptyList();
+        if (!o.has(key) || o.get(key).isJsonNull()) return Collections.emptyList();
         List<String> list = new ArrayList<>();
-        for (JsonElement e : o.getAsJsonArray(key)) list.add(e.getAsString());
+        for (JsonElement e : o.getAsJsonArray(key)) {
+            if (e != null && !e.isJsonNull() && e.isJsonPrimitive()) list.add(e.getAsString());
+        }
         return list;
     }
 

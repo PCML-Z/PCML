@@ -112,10 +112,11 @@ public final class ModDependencyResolver {
      * 流程：
      * <ol>
      *   <li>下载安装主模组 jar</li>
-     *   <li>用 {@link ModScanner#parseJar} 解析 jar 内元数据获取 depends 列表</li>
+     *   <li>优先使用 ModFile.getDependencies()（来自 Modrinth API 的 dependencies 字段）获取依赖列表</li>
+     *   <li>若 API 未提供依赖信息，则用 {@link ModScanner#parseJar} 解析 jar 内元数据获取 depends 列表</li>
      *   <li>过滤系统依赖（minecraft、java、fabricloader 等）</li>
-     *   <li>对每个剩余依赖 modId，检查是否已安装</li>
-     *   <li>未安装的，在 Modrinth 上搜索（modId 作为 slug），获取兼容版本文件并安装</li>
+     *   <li>对每个剩余依赖 modId/projectId，检查是否已安装</li>
+     *   <li>未安装的，在 Modrinth 上搜索，获取兼容版本文件并安装</li>
      *   <li>递归处理依赖的依赖（带循环检测）</li>
      * </ol>
      *
@@ -141,21 +142,30 @@ public final class ModDependencyResolver {
                 if (onStatus != null) onStatus.accept("正在下载: " + modFile.getFileName());
                 marketManager.installMod(modFile, gameVersion, versionId, preferences, onStatus).join();
 
-                // 2. 解析已下载 jar 的依赖
-                Path jarPath = resolveModsDir(versionId, gameVersion).resolve(modFile.getFileName());
-                if (!Files.exists(jarPath)) {
-                    return new DependencyResult(modFile.getFileName(), installed, skippedInstalled,
-                            skippedSystem, failed, notFound);
+                // 2. 优先使用 API 提供的依赖信息（无需解析 jar）
+                List<String> deps = modFile.getDependencies();
+                String modName = modFile.getFileName();
+
+                if (deps == null || deps.isEmpty()) {
+                    // API 未提供依赖信息，回退到解析 jar 内元数据
+                    Path jarPath = resolveModsDir(versionId, gameVersion).resolve(modFile.getFileName());
+                    if (!Files.exists(jarPath)) {
+                        return new DependencyResult(modName, installed, skippedInstalled,
+                                skippedSystem, failed, notFound);
+                    }
+
+                    ModMeta meta = ModScanner.parseJar(jarPath);
+                    if (meta == null) {
+                        return new DependencyResult(modName, installed, skippedInstalled,
+                                skippedSystem, failed, notFound);
+                    }
+
+                    modName = meta.getName() != null ? meta.getName() : meta.getModId();
+                    deps = meta.getDepends();
+                } else {
+                    if (onStatus != null) onStatus.accept("从 API 获取到 " + deps.size() + " 个依赖");
                 }
 
-                ModMeta meta = ModScanner.parseJar(jarPath);
-                if (meta == null) {
-                    return new DependencyResult(modFile.getFileName(), installed, skippedInstalled,
-                            skippedSystem, failed, notFound);
-                }
-
-                String modName = meta.getName() != null ? meta.getName() : meta.getModId();
-                List<String> deps = meta.getDepends();
                 if (deps == null || deps.isEmpty()) {
                     if (onStatus != null) onStatus.accept("无额外依赖");
                     return new DependencyResult(modName, installed, skippedInstalled,
