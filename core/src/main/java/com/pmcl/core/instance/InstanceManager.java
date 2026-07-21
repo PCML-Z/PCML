@@ -188,6 +188,59 @@ public final class InstanceManager {
         saveInstanceInfo(info);
     }
 
+    /**
+     * 设置实例图标：将用户选择的图片复制到实例目录下，并更新 iconPath。
+     * 支持 png/jpg/jpeg/gif/webp 格式。
+     *
+     * @param instanceId  实例 ID
+     * @param sourceImage 源图片文件路径
+     * @return 图标在实例目录中的相对路径（如 "icon.png"），失败返回空字符串
+     */
+    public String setInstanceIcon(String instanceId, Path sourceImage) throws IOException {
+        Path instanceDir = getInstanceDir(instanceId);
+        if (!Files.isDirectory(instanceDir)) {
+            throw new IOException("实例目录不存在: " + instanceId);
+        }
+        if (sourceImage == null || !Files.exists(sourceImage)) {
+            throw new IOException("源图片不存在");
+        }
+        // 推断扩展名
+        String fileName = sourceImage.getFileName().toString().toLowerCase();
+        String ext = "png";
+        if (fileName.endsWith(".jpg") || fileName.endsWith(".jpeg")) ext = "jpg";
+        else if (fileName.endsWith(".gif")) ext = "gif";
+        else if (fileName.endsWith(".webp")) ext = "webp";
+        else if (!fileName.endsWith(".png")) ext = "png";
+
+        // 复制到实例目录下 icon.ext
+        String iconName = "icon." + ext;
+        Path target = instanceDir.resolve(iconName);
+        Files.copy(sourceImage, target, StandardCopyOption.REPLACE_EXISTING);
+
+        // 更新 instance.json
+        InstanceInfo info = loadInstanceInfo(instanceDir);
+        if (info != null) {
+            info.setIconPath(iconName);
+            saveInstanceInfo(info);
+        }
+        return iconName;
+    }
+
+    /** 清除实例图标（删除图标文件并清空 iconPath） */
+    public void clearInstanceIcon(String instanceId) throws IOException {
+        Path instanceDir = getInstanceDir(instanceId);
+        if (!Files.isDirectory(instanceDir)) return;
+        InstanceInfo info = loadInstanceInfo(instanceDir);
+        if (info == null) return;
+        String iconPath = info.getIconPath();
+        if (iconPath != null && !iconPath.isEmpty()) {
+            Path iconFile = instanceDir.resolve(iconPath);
+            Files.deleteIfExists(iconFile);
+            info.setIconPath("");
+            saveInstanceInfo(info);
+        }
+    }
+
     /** 删除实例（递归删除整个目录） */
     public void deleteInstance(String instanceId) throws IOException {
         Path dir = getInstanceDir(instanceId);

@@ -1,5 +1,6 @@
 package com.pmcl.ui.page
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -10,6 +11,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.loadImageBitmap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -17,6 +21,8 @@ import com.pmcl.core.i18n.I18n
 import com.pmcl.core.instance.InstanceInfo
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import java.awt.Desktop
+import java.awt.FileDialog
+import java.io.File
 
 /**
  * 独立实例管理页面（Prism/MultiMC 风格）。
@@ -117,6 +123,7 @@ fun InstancesPage(vm: LauncherViewModel) {
                         info = info,
                         isLaunching = instanceLaunching == info.getInstanceId(),
                         boundAccountName = vm.getBoundAccount(info)?.getUsername(),
+                        vm = vm,
                         onLaunch = { vm.launchInstance(info.getInstanceId()) },
                         onCopy = { copyTarget = info },
                         onRename = { renameTarget = info },
@@ -226,6 +233,7 @@ private fun InstanceCard(
     info: InstanceInfo,
     isLaunching: Boolean,
     boundAccountName: String?,
+    vm: LauncherViewModel,
     onLaunch: () -> Unit,
     onCopy: () -> Unit,
     onRename: () -> Unit,
@@ -241,14 +249,39 @@ private fun InstanceCard(
             modifier = Modifier.padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 图标
-            Icon(
-                imageVector = if (info.getType() == InstanceInfo.Type.MODPACK)
-                    Icons.Filled.Inventory2 else Icons.Filled.Dashboard,
-                contentDescription = null,
-                modifier = Modifier.size(40.dp),
-                tint = MaterialTheme.colorScheme.primary
-            )
+            // 图标：优先显示自定义图标，无则按类型显示 Material 图标
+            val iconFile = remember(info) { vm.getInstanceIconFile(info) }
+            if (iconFile != null) {
+                val bitmap = remember(iconFile) {
+                    try {
+                        iconFile.toFile().inputStream().use { loadImageBitmap(it) }
+                    } catch (_: Throwable) { null }
+                }
+                if (bitmap != null) {
+                    Image(
+                        bitmap = bitmap,
+                        contentDescription = null,
+                        modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Icon(
+                        imageVector = if (info.getType() == InstanceInfo.Type.MODPACK)
+                            Icons.Filled.Inventory2 else Icons.Filled.Dashboard,
+                        contentDescription = null,
+                        modifier = Modifier.size(40.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+            } else {
+                Icon(
+                    imageVector = if (info.getType() == InstanceInfo.Type.MODPACK)
+                        Icons.Filled.Inventory2 else Icons.Filled.Dashboard,
+                    contentDescription = null,
+                    modifier = Modifier.size(40.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
             Spacer(Modifier.width(12.dp))
 
             // 信息列
@@ -363,6 +396,24 @@ private fun InstanceCard(
                     Icon(Icons.Filled.Person, contentDescription = I18n.t("instance.bind_account"),
                         modifier = Modifier.size(18.dp),
                         tint = if (boundAccountName.isNullOrEmpty()) MaterialTheme.colorScheme.onSurfaceVariant
+                               else MaterialTheme.colorScheme.primary)
+                }
+                // 更换图标
+                IconButton(onClick = {
+                    // 弹出文件选择器
+                    val fd = FileDialog(java.awt.Frame(), I18n.t("instance.select_icon"), FileDialog.LOAD)
+                    fd.setFilenameFilter { _, name -> name.lowercase().matches(Regex(".*\\.(png|jpg|jpeg|gif|webp)$")) }
+                    fd.isVisible = true
+                    val selectedFile = fd.file
+                    val selectedDir = fd.directory
+                    if (selectedFile != null && selectedDir != null) {
+                        val path = java.nio.file.Paths.get(selectedDir, selectedFile)
+                        vm.setInstanceIcon(info.getInstanceId(), path)
+                    }
+                }, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Filled.Image, contentDescription = I18n.t("instance.change_icon"),
+                        modifier = Modifier.size(18.dp),
+                        tint = if (info.getIconPath().isNullOrEmpty()) MaterialTheme.colorScheme.onSurfaceVariant
                                else MaterialTheme.colorScheme.primary)
                 }
                 // 复制

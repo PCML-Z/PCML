@@ -5311,6 +5311,45 @@ class LauncherViewModel {
         return _accounts.value.find { it.getUuid() == uuid }
     }
 
+    /** 设置实例图标（复制图片到实例目录） */
+    fun setInstanceIcon(instanceId: String, imagePath: java.nio.file.Path) {
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    core.instances().setInstanceIcon(instanceId, imagePath)
+                }
+                loadInstances()
+                _status.value = I18n.t("status.instance_icon_set")
+            } catch (e: Throwable) {
+                _status.value = I18n.t("status.instance_icon_set_failed", e.message ?: I18n.t("common.unknown"))
+            }
+        }
+    }
+
+    /** 清除实例图标 */
+    fun clearInstanceIcon(instanceId: String) {
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    core.instances().clearInstanceIcon(instanceId)
+                }
+                loadInstances()
+                _status.value = I18n.t("status.instance_icon_cleared")
+            } catch (e: Throwable) {
+                _status.value = I18n.t("status.instance_icon_set_failed", e.message ?: I18n.t("common.unknown"))
+            }
+        }
+    }
+
+    /** 返回实例图标文件路径（不存在返回 null） */
+    fun getInstanceIconFile(info: InstanceInfo): java.nio.file.Path? {
+        val iconPath = info.getIconPath() ?: return null
+        if (iconPath.isEmpty()) return null
+        val dir = info.getInstanceDir() ?: return null
+        val iconFile = dir.resolve(iconPath)
+        return if (java.nio.file.Files.exists(iconFile)) iconFile else null
+    }
+
     // ============ 首次启动 / 迁移 ============
 
     /** 扫描本机其他启动器的数据目录（HMCL / PCL / 系统 .minecraft） */
