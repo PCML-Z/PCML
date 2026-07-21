@@ -477,7 +477,7 @@ public final class TerracottaManager {
         });
     }
 
-    /** 回到空闲状态（端点为 /state/ide，非 /state/idle），并等待状态确认 */
+    /** 回到空闲状态（M58 修复：端点应为 /state/idle，非 /state/ide） */
     public void toIdle() {
         if (httpPort == 0) return;
         // 记录调用来源，方便排查意外的 toIdle 调用
@@ -492,7 +492,7 @@ public final class TerracottaManager {
         System.out.println("[TerracottaManager] " + caller);
         try {
             Request req = new Request.Builder()
-                    .url("http://127.0.0.1:" + httpPort + "/state/ide")
+                    .url("http://127.0.0.1:" + httpPort + "/state/idle")
                     .get().build();
             try (Response resp = http.newCall(req).execute()) {}
         } catch (IOException ignored) {}

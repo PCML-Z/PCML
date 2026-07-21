@@ -161,15 +161,24 @@ public class AcFunAudioSource implements AudioSource {
         );
     }
 
-    /** 从 URL 或字符串提取视频 ID（数字） */
+    /** 从 URL 或字符串提取视频 ID（数字）。
+     *  M62 修复：从 URL 路径提取数字，排除查询参数中的数字（如 ?t=123 不会误提取）。
+     */
     private String extractVideoId(String s) {
         Matcher m = AC_PATTERN.matcher(s);
         if (m.find()) return m.group(1);
         // 纯数字
         String trimmed = s.trim();
         if (DIGIT_PATTERN.matcher(trimmed).matches()) return trimmed;
-        // 从 URL 路径中提取数字
-        Matcher dm = DIGIT_PATTERN.matcher(s);
+        // M62: 从 URL 路径提取数字，排除查询参数
+        String path = s;
+        try {
+            java.net.URL url = new java.net.URL(s);
+            path = url.getPath();
+        } catch (java.net.MalformedURLException ignored) {
+            // 非 URL 格式，回退到对整个字符串匹配
+        }
+        Matcher dm = DIGIT_PATTERN.matcher(path);
         String last = null;
         while (dm.find()) {
             last = dm.group();

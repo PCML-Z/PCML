@@ -17,6 +17,9 @@ import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
 import com.pmcl.music.player.PlaybackState
 import com.pmcl.ui.viewmodel.LauncherViewModel
+import com.pmcl.ui.viewmodel.playPreviousMusic
+import com.pmcl.ui.viewmodel.toggleMusicPlayPause
+import com.pmcl.ui.viewmodel.playNextMusic
 
 /**
  * 全局底部音乐迷你条：当前曲目信息 + 进度 + 控制按钮。

@@ -185,14 +185,11 @@ public final class JavaRuntimeDownloader {
 
     private static void extractTarGz(Path archive, Path target) throws IOException {
         // 先检查 tar 是否可用
+        Process check = null;
         try {
-            Process check = new ProcessBuilder("tar", "--version").redirectErrorStream(true).start();
-            try {
-                if (!check.waitFor(3, TimeUnit.SECONDS) || check.exitValue() != 0) {
-                    throw new IOException("tar 不可用");
-                }
-            } finally {
-                check.destroyForcibly();
+            check = new ProcessBuilder("tar", "--version").redirectErrorStream(true).start();
+            if (!check.waitFor(3, TimeUnit.SECONDS) || check.exitValue() != 0) {
+                throw new IOException("tar 不可用");
             }
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
@@ -201,17 +198,26 @@ public final class JavaRuntimeDownloader {
             throw new IOException("tar.gz 解压需要系统 tar 命令，但当前环境不可用。"
                     + "请安装 tar（macOS/Linux 自带，Windows 需启用 WSL 或安装 bsdtar），"
                     + "或手动解压 " + archive + " 到 " + target, ioe);
+        } finally {
+            if (check != null) check.destroyForcibly();
         }
+        // M82: 不用 pb.inheritIO()——子进程 stdout/stderr 直接继承会污染启动器日志。
+        // 改为 redirectErrorStream + 丢弃输出，错误时仅记录摘要到 stderr。
         ProcessBuilder pb = new ProcessBuilder("tar", "-xzf", archive.toString(), "-C", target.toString());
-        pb.inheritIO();
+        pb.redirectErrorStream(true);
+        pb.redirectOutput(ProcessBuilder.Redirect.DISCARD);
         Process p = null;
         try {
             p = pb.start();
             if (!p.waitFor(120, TimeUnit.SECONDS)) {
-                throw new IOException("解压超时");
+                p.destroyForcibly();
+                throw new IOException("解压超时（120s）: " + archive);
             }
             int code = p.exitValue();
-            if (code != 0) throw new IOException("解压失败 code=" + code);
+            if (code != 0) {
+                throw new IOException("tar 解压失败 code=" + code + "（archive=" + archive
+                        + ", target=" + target + "）");
+            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IOException("解压被中断", e);

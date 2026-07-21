@@ -564,15 +564,22 @@ public final class LaunchProfileBuilder {
         try {
             videoPath = Path.of(videoPathStr);
         } catch (Throwable e) {
+            System.err.println("[LaunchProfileBuilder] installMenuBackground 路径解析失败: " + e.getMessage());
             return;
         }
         if (!java.nio.file.Files.isRegularFile(videoPath)) return;
         Path cacheDir = config.getWorkDir().resolve("cache");
-        String packFileName = menuBackgroundProvider.installTo(gameDir, videoPath, cacheDir, versionId);
-        if (packFileName == null || packFileName.isEmpty()) return;
-        // 启用资源包：写入 options.txt 的 resourcePacks 字段
-        com.pmcl.core.gamecontent.OptionsTxtWriter.enableResourcePack(
-                gameDir.resolve("options.txt"), "file/" + packFileName);
+        try {
+            String packFileName = menuBackgroundProvider.installTo(gameDir, videoPath, cacheDir, versionId);
+            if (packFileName == null || packFileName.isEmpty()) return;
+            // 启用资源包：写入 options.txt 的 resourcePacks 字段
+            com.pmcl.core.gamecontent.OptionsTxtWriter.enableResourcePack(
+                    gameDir.resolve("options.txt"), "file/" + packFileName);
+        } catch (Throwable e) {
+            // M76: 任何异常都应记录，避免静默吞错导致用户不知菜单背景未生效
+            System.err.println("[LaunchProfileBuilder] installMenuBackground 失败: "
+                    + e.getClass().getSimpleName() + ": " + e.getMessage());
+        }
     }
 
     /**
@@ -616,8 +623,9 @@ public final class LaunchProfileBuilder {
             if (!found) lines.add("lang:" + mcLang);
             Files.writeString(optionsFile, String.join("\n", lines) + "\n",
                     java.nio.charset.StandardCharsets.UTF_8);
-        } catch (IOException ignored) {
-            // 语言同步失败不应阻塞启动
+        } catch (IOException e) {
+            // 语言同步失败不应阻塞启动，但记录原因便于排查
+            System.err.println("[LaunchProfileBuilder] syncGameLanguage 失败: " + e.getMessage());
         }
     }
 
@@ -639,8 +647,9 @@ public final class LaunchProfileBuilder {
             // 缩放并写入 16x16 和 32x32
             writeResizedPng(img, 16, iconsDir.resolve("icon_16x16.png"));
             writeResizedPng(img, 32, iconsDir.resolve("icon_32x32.png"));
-        } catch (IOException ignored) {
-            // 图标注入失败不应阻塞启动
+        } catch (IOException e) {
+            // 图标注入失败不应阻塞启动，但记录原因便于排查
+            System.err.println("[LaunchProfileBuilder] injectWindowIcon 失败: " + e.getMessage());
         }
     }
 
@@ -685,14 +694,20 @@ public final class LaunchProfileBuilder {
         Path modsDir = gameDir.resolve("mods");
         if (!java.nio.file.Files.isDirectory(modsDir)) return;
 
-        // 1. 扫描 mods 目录，检测是否有 Kotlin mod
+        // 1. 递归扫描 mods 目录（深度 4，覆盖 Forge 的 mods/<version>/ 子目录），
+        //    检测是否有 Kotlin mod
         boolean hasKotlinMod = false;
-        try (var stream = java.nio.file.Files.list(modsDir)) {
+        int scanned = 0;
+        try (var stream = java.nio.file.Files.walk(modsDir, 4)) {
             var jars = stream
-                    .filter(p -> p.getFileName().toString().toLowerCase(java.util.Locale.ROOT)
-                            .endsWith(".jar"))
+                    .filter(p -> !java.nio.file.Files.isSymbolicLink(p))
+                    .filter(p -> {
+                        String name = p.getFileName().toString().toLowerCase(java.util.Locale.ROOT);
+                        return name.endsWith(".jar");
+                    })
                     .toList();
             for (Path jar : jars) {
+                scanned++;
                 if (isKotlinJar(jar)) {
                     hasKotlinMod = true;
                     break;
@@ -700,14 +715,20 @@ public final class LaunchProfileBuilder {
             }
         } catch (IOException e) {
             // 扫描失败不影响启动
+            System.err.println("[LaunchProfileBuilder] 扫描 mods 目录失败: " + e.getMessage());
             return;
         }
-        if (!hasKotlinMod) return;
+        if (!hasKotlinMod) {
+            System.err.println("[LaunchProfileBuilder] 未检测到 Kotlin mod（扫描 " + scanned + " 个 jar）");
+            return;
+        }
+        System.err.println("[LaunchProfileBuilder] 检测到 Kotlin mod（扫描 " + scanned + " 个 jar）");
 
         // 2. 检查 classpath 是否已包含 kotlin-stdlib（可能是 fabric-language-kotlin 等已自带）
         for (String s : seen) {
             if (s.contains("kotlin-stdlib") || s.contains("fabric-language-kotlin")
                     || s.contains("KotlinLanguageAdapter")) {
+                System.err.println("[LaunchProfileBuilder] classpath 已含 Kotlin 运行时: " + s);
                 return; // 已有 Kotlin 运行时
             }
         }
@@ -722,37 +743,75 @@ public final class LaunchProfileBuilder {
         if (!java.nio.file.Files.exists(kotlinJar)) {
             try {
                 java.nio.file.Files.createDirectories(kotlinJar.getParent());
-                String mavenUrl = "https://repo1.maven.org/maven2/"
-                        + groupPath + "/" + kotlinVersion + "/" + jarName;
-                System.err.println("[LaunchProfileBuilder] 检测到 Kotlin mod，正在下载 kotlin-stdlib "
+                String groupPathUrl = groupPath.replace('/', '.');
+                // 主源 Maven Central + 阿里云镜像 fallback（国内网络下 Maven Central 可能超时）
+                String[] mavenUrls = {
+                    "https://repo1.maven.org/maven2/" + groupPath + "/" + kotlinVersion + "/" + jarName,
+                    "https://maven.aliyun.com/repository/public/"
+                            + groupPathUrl + "/" + kotlinVersion + "/" + jarName
+                };
+                System.err.println("[LaunchProfileBuilder] 正在下载 kotlin-stdlib "
                         + kotlinVersion + " ...");
-                if (downloadManager != null) {
-                    downloadManager.downloadTo(mavenUrl, kotlinJar);
-                } else {
-                    // 无下载器时尝试直接 HTTP 下载
-                    try (var in = new java.net.URL(mavenUrl).openStream()) {
-                        java.nio.file.Files.copy(in, kotlinJar,
-                                java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                IOException lastErr = null;
+                boolean downloaded = false;
+                for (String mavenUrl : mavenUrls) {
+                    try {
+                        if (downloadManager != null) {
+                            downloadManager.downloadTo(mavenUrl, kotlinJar);
+                        } else {
+                            try (var in = new java.net.URL(mavenUrl).openStream()) {
+                                java.nio.file.Files.copy(in, kotlinJar,
+                                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                            }
+                        }
+                        downloaded = true;
+                        break;
+                    } catch (IOException e) {
+                        lastErr = e;
+                        System.err.println("[LaunchProfileBuilder] 从 " + mavenUrl + " 下载失败: "
+                                + e.getMessage() + "，尝试下一个镜像");
                     }
                 }
+                if (!downloaded) throw lastErr;
                 System.err.println("[LaunchProfileBuilder] kotlin-stdlib 下载完成: " + kotlinJar);
             } catch (IOException e) {
-                System.err.println("[LaunchProfileBuilder] 下载 kotlin-stdlib 失败: " + e.getMessage());
+                System.err.println("[LaunchProfileBuilder] 下载 kotlin-stdlib 失败: " + e.getMessage()
+                        + " — Kotlin mod 可能因 NoClassDefFoundError 崩溃");
                 return;
             }
         }
 
         // 4. 加入 classpath
         addClasspath(profile, seen, kotlinJar);
+        System.err.println("[LaunchProfileBuilder] kotlin-stdlib 已加入 classpath: " + kotlinJar);
     }
 
     /**
-     * 检查 JAR 文件是否为 Kotlin 编译（含 Kotlin class 或元数据）。
-     * 通过 ZipInputStream 快速扫描，不解压到磁盘。
+     * 检查 JAR 文件是否为 Kotlin 编译或依赖 Kotlin 运行时。
+     * <p>
+     * 检测方式（任一命中即返回 true）：
+     * <ul>
+     *   <li>META-INF/kotlin-*.kotlin_module 元数据文件（Kotlin 编译器生成）</li>
+     *   <li>kotlin/ 包前缀的 class 文件（shade 了 kotlin-stdlib 的 mod，如 KotlinForForge）</li>
+     *   <li>MANIFEST.MF 声明了 KotlinForForge 或引用了 kotlinforforge（Java 编写但依赖 Kotlin 运行时）</li>
+     * </ul>
      */
     private boolean isKotlinJar(Path jarPath) {
         try (var zip = new java.util.zip.ZipFile(jarPath.toFile())) {
-            // 优先检查 META-INF/kotlin-*.kotlin_module（Kotlin 编译器生成的元数据文件）
+            // 1. 优先检查 MANIFEST.MF（快速路径，单文件读取）
+            var manifestEntry = zip.getEntry("META-INF/MANIFEST.MF");
+            if (manifestEntry != null) {
+                try (var in = zip.getInputStream(manifestEntry)) {
+                    String manifest = new String(in.readAllBytes(),
+                            java.nio.charset.StandardCharsets.UTF_8);
+                    // KotlinForForge 会在 manifest 中声明，或 mod 依赖了 kotlinforforge
+                    if (manifest.contains("KotlinForForge") || manifest.contains("kotlinforforge")
+                            || manifest.contains("kotlin-for-forge")) {
+                        return true;
+                    }
+                }
+            }
+            // 2. 检查 kotlin_module 元数据和 kotlin/ 包 class
             var entries = zip.entries();
             while (entries.hasMoreElements()) {
                 var entry = entries.nextElement();
@@ -761,7 +820,7 @@ public final class LaunchProfileBuilder {
                 if (name.startsWith("META-INF/kotlin-") && name.endsWith(".kotlin_module")) {
                     return true;
                 }
-                // Kotlin class 文件（kotlin/ 包前缀）
+                // Kotlin class 文件（kotlin/ 包前缀，如 shade 了 stdlib 的 KotlinForForge）
                 if (name.startsWith("kotlin/") && name.endsWith(".class")) {
                     return true;
                 }
@@ -1058,6 +1117,10 @@ public final class LaunchProfileBuilder {
      * 若本地不存在则下载。返回配置文件路径，无 logging 字段返回 null。
      * 配置文件中的相对路径 logs/latest.log 会被改写为基于 gameDir 的绝对路径，
      * 避免 macOS 权限问题导致 FileAppender 创建失败。
+     * <p>
+     * M75: 原实现把改写后的内容写回原文件，多次启动会累积 stale 绝对路径
+     * （gameDir 变化时旧路径残留）。改为保留原始文件（.orig 后缀），
+     * 每次基于原始内容生成改写副本，避免污染源文件。
      */
     private Path resolveLog4jConfig(VersionJson vj, Path versionsDir, String versionId) {
         try {
@@ -1071,10 +1134,12 @@ public final class LaunchProfileBuilder {
             String fileId = file.has("id") && !file.get("id").isJsonNull() ? file.get("id").getAsString() : "";
             String url = file.has("url") && !file.get("url").isJsonNull() ? file.get("url").getAsString() : "";
 
-            // 存储到 versions/{id}/{fileId}（如 client-1.12.xml）
+            // M75: 原始文件存储为 <fileId>.orig，改写后的副本存储为 <fileId>
+            // 这样原始内容永不污染，每次基于 .orig 生成新的改写副本
+            Path origPath = versionsDir.resolve(versionId).resolve(fileId + ".orig");
             Path target = versionsDir.resolve(versionId).resolve(fileId);
-            if (!java.nio.file.Files.exists(target) || java.nio.file.Files.size(target) == 0) {
-                // 下载
+            if (!java.nio.file.Files.exists(origPath) || java.nio.file.Files.size(origPath) == 0) {
+                // 下载原始内容到 .orig（首次或被清理后重新下载）
                 okhttp3.OkHttpClient http = downloadManager != null ? downloadManager.httpClient()
                     : new okhttp3.OkHttpClient.Builder()
                         .connectTimeout(java.time.Duration.ofSeconds(10))
@@ -1084,9 +1149,9 @@ public final class LaunchProfileBuilder {
                 try (okhttp3.Response resp = http.newCall(req).execute()) {
                     if (!resp.isSuccessful()) return null;
                     if (resp.body() == null) return null;
-                    java.nio.file.Files.createDirectories(target.getParent());
+                    java.nio.file.Files.createDirectories(origPath.getParent());
                     try (java.io.InputStream is = resp.body().byteStream();
-                         java.io.OutputStream os = java.nio.file.Files.newOutputStream(target)) {
+                         java.io.OutputStream os = java.nio.file.Files.newOutputStream(origPath)) {
                         is.transferTo(os);
                     }
                 }
@@ -1096,13 +1161,13 @@ public final class LaunchProfileBuilder {
             // 需要改为绝对路径，否则 macOS 权限问题导致 FileAppender 创建失败
             Path mcRoot = resolveMcRoot(versionId);
             Path absLogs = mcRoot.resolve("logs").toAbsolutePath();
-            String content = java.nio.file.Files.readString(target, java.nio.charset.StandardCharsets.UTF_8);
+            String content = java.nio.file.Files.readString(origPath, java.nio.charset.StandardCharsets.UTF_8);
             // 简单替换：把 "logs/latest.log" 和 "logs/" 改为绝对路径
             content = content.replace("fileName=\"logs/latest.log\"",
                     "fileName=\"" + absLogs.resolve("latest.log") + "\"");
             content = content.replace("filePattern=\"logs/",
                     "filePattern=\"" + absLogs + "/");
-            // 写回
+            // 写入改写后的副本（target），原文件 .orig 保持不变
             java.nio.file.Files.writeString(target, content, java.nio.charset.StandardCharsets.UTF_8);
             return target;
         } catch (Exception e) {
@@ -1111,12 +1176,21 @@ public final class LaunchProfileBuilder {
     }
 
     private VersionJson loadVersionJson(String versionId) throws IOException {
-        return loadVersionJson(versionId, new java.util.HashSet<>());
+        return loadVersionJson(versionId, new java.util.HashSet<>(), 0);
     }
 
-    private VersionJson loadVersionJson(String versionId, java.util.Set<String> visiting) throws IOException {
+    /**
+     * @param visiting 已访问的版本 ID 集合，用于检测循环继承
+     * @param depth 当前递归深度，防止超长 inheritsFrom 链导致 StackOverflowError
+     *              （正常版本继承深度很少超过 2，Fabric/Forge 通常 1 层，限制 16 足够冗余）
+     */
+    private VersionJson loadVersionJson(String versionId, java.util.Set<String> visiting, int depth) throws IOException {
         if (!visiting.add(versionId)) {
             throw new IOException("检测到循环版本继承: " + visiting + " -> " + versionId);
+        }
+        if (depth > 16) {
+            throw new IOException("版本继承链过深（>" + depth + "）: " + visiting
+                    + "，可能存在异常 inheritsFrom 链");
         }
         Path jsonPath = findVersionJson(versionId);
         if (jsonPath == null) {
@@ -1127,7 +1201,7 @@ public final class LaunchProfileBuilder {
         VersionJson vj = VersionJson.parse(json);
 
         if (vj.getInheritsFrom() != null && !vj.getInheritsFrom().equals(versionId)) {
-            VersionJson parent = loadVersionJson(vj.getInheritsFrom(), visiting);
+            VersionJson parent = loadVersionJson(vj.getInheritsFrom(), visiting, depth + 1);
             com.google.gson.JsonObject childObj = vj.getRawJson();
             if (!childObj.has("mainClass") && parent.getMainClass() != null) {
                 childObj.addProperty("mainClass", parent.getMainClass());
@@ -1244,7 +1318,9 @@ public final class LaunchProfileBuilder {
                 // 极旧版本可能引用 ${game_assets}，指向 assets 目录
                 .replace("${game_assets}", assetsDir.toString())
                 .replace("${clientid}", "")
-                .replace("${auth_xuid}", "")
+                // auth_xuid：微软账号的 Xbox Live userHash（uhs），连接 Realms 或需
+                // Xbox Live 验证的服务器时必需；离线/GitHub 账号为空字符串。
+                .replace("${auth_xuid}", account.getXuid())
                 .replace("${version_type}", "PMCL");
     }
 }

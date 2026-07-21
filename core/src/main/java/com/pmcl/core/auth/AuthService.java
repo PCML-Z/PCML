@@ -161,10 +161,13 @@ public final class AuthService {
                 accounts.add(new Account(
                         o.has("username") && !o.get("username").isJsonNull() ? o.get("username").getAsString() : "",
                         o.has("uuid") && !o.get("uuid").isJsonNull() ? o.get("uuid").getAsString() : "",
-                        o.has("accessToken") && !o.get("accessToken").isJsonNull() ? o.get("accessToken").getAsString() : "",
+                        // 解密 accessToken（兼容旧明文格式——非加密格式原样返回）
+                        TokenEncryptor.decrypt(
+                            o.has("accessToken") && !o.get("accessToken").isJsonNull() ? o.get("accessToken").getAsString() : ""),
                         accountType,
                         o.has("skinUrl") && !o.get("skinUrl").isJsonNull() ? o.get("skinUrl").getAsString() : "",
-                        o.has("skinModel") && !o.get("skinModel").isJsonNull() ? o.get("skinModel").getAsString() : "classic"
+                        o.has("skinModel") && !o.get("skinModel").isJsonNull() ? o.get("skinModel").getAsString() : "classic",
+                        o.has("xuid") && !o.get("xuid").isJsonNull() ? o.get("xuid").getAsString() : ""
                 ));
             }
         }
@@ -186,10 +189,12 @@ public final class AuthService {
             JsonObject o = new JsonObject();
             o.addProperty("uuid", a.getUuid());
             o.addProperty("username", a.getUsername());
-            o.addProperty("accessToken", a.getAccessToken());
+            // 加密 accessToken（AES-256-GCM，基于机器标识派生密钥）
+            o.addProperty("accessToken", TokenEncryptor.encrypt(a.getAccessToken()));
             o.addProperty("type", a.getType().name());
             o.addProperty("skinUrl", a.getSkinUrl());
             o.addProperty("skinModel", a.getSkinModel());
+            o.addProperty("xuid", a.getXuid());
             arr.add(o);
         }
         root.add("accounts", arr);

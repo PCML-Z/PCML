@@ -86,9 +86,20 @@ public final class InstanceManager {
             // 无标记文件但存在 mods/ 子目录（versionIsolation 创建的目录）
             if (Files.isDirectory(instanceDir.resolve("mods"))) {
                 String dirName = instanceDir.getFileName().toString();
-                InstanceInfo info = new InstanceInfo(UUID.randomUUID().toString(),
+                // M64: 基于目录绝对路径生成稳定 UUID（nameUUIDFromBytes），
+                // 避免每次扫描生成新 UUID 导致 UI 认为新实例出现
+                String stableId = UUID.nameUUIDFromBytes(
+                    instanceDir.toAbsolutePath().toString().getBytes(java.nio.charset.StandardCharsets.UTF_8)
+                ).toString();
+                InstanceInfo info = new InstanceInfo(stableId,
                     dirName, dirName, InstanceInfo.Type.CUSTOM);
                 info.setInstanceDir(instanceDir);
+                // 持久化 instance.json，下次扫描直接读取，无需重新生成
+                try {
+                    saveInstanceInfo(info);
+                } catch (IOException saveErr) {
+                    // 持久化失败不影响本次返回，下次扫描会重新生成（稳定的 UUID）
+                }
                 return info;
             }
         } catch (Exception ignored) {
@@ -215,18 +226,24 @@ public final class InstanceManager {
 
     private static void copyDirectory(Path source, Path target) throws IOException {
         Files.createDirectories(target);
-        try (Stream<Path> stream = Files.walk(source)) {
-            stream.forEach(src -> {
-                try {
-                    Path dst = target.resolve(source.relativize(src));
-                    if (Files.isDirectory(src)) {
-                        Files.createDirectories(dst);
-                    } else {
-                        Files.copy(src, dst, StandardCopyOption.REPLACE_EXISTING);
+        try {
+            try (Stream<Path> stream = Files.walk(source)) {
+                stream.forEach(src -> {
+                    try {
+                        Path dst = target.resolve(source.relativize(src));
+                        if (Files.isDirectory(src)) {
+                            Files.createDirectories(dst);
+                        } else {
+                            Files.copy(src, dst, StandardCopyOption.REPLACE_EXISTING);
+                        }
+                    } catch (IOException e) {
+                        // M65: 不静默吞异常，包装为 UncheckedIOException 抛出
+                        throw new java.io.UncheckedIOException("复制失败: " + src, e);
                     }
-                } catch (IOException ignored) {
-                }
-            });
+                });
+            }
+        } catch (java.io.UncheckedIOException e) {
+            throw e.getCause(); // 解包为 IOException 传播给调用方
         }
     }
 

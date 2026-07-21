@@ -35,7 +35,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
 import com.pmcl.ui.theme.LocalThemeState
+import com.pmcl.ui.theme.glassCardBorder
 import com.pmcl.ui.theme.glassCardColors
+import com.pmcl.ui.theme.glassCardElevation
 import com.pmcl.ui.viewmodel.LauncherViewModel
 
 @Composable
@@ -57,7 +59,7 @@ fun SettingsPage(vm: LauncherViewModel) {
         Spacer(Modifier.height(16.dp))
 
         // 内存
-        Card(Modifier.fillMaxWidth(), colors = glassCardColors()) {
+        Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
             Column(Modifier.padding(16.dp)) {
                 Text(I18n.t("settings.memory"), style = MaterialTheme.typography.titleSmall,
                      fontWeight = FontWeight.SemiBold)
@@ -66,8 +68,15 @@ fun SettingsPage(vm: LauncherViewModel) {
                     OutlinedTextField(
                         value = minMem,
                         onValueChange = {
-                            minMem = it
-                            it.toIntOrNull()?.let { v -> pref.setMinMemoryMb(v) }
+                            // M40 修复：原代码输入 "abc" 时 minMem="abc" 但 toIntOrNull 返回 null，
+                            // pref 不更新，导致 UI 显示 "abc" 与持久化状态不一致。
+                            // 改为：仅当输入为空或合法整数时才更新 UI 状态；非法输入保持上一次值。
+                            // 空输入允许（用户清空准备重新输入），但持久化用 0 兜底。
+                            if (it.isEmpty() || it.toIntOrNull() != null) {
+                                minMem = it
+                                val v = it.toIntOrNull() ?: 0
+                                if (v >= 0) pref.setMinMemoryMb(v)
+                            }
                         },
                         label = { Text(I18n.t("settings.min_memory")) }, singleLine = true,
                         modifier = Modifier.weight(1f)
@@ -75,8 +84,12 @@ fun SettingsPage(vm: LauncherViewModel) {
                     OutlinedTextField(
                         value = maxMem,
                         onValueChange = {
-                            maxMem = it
-                            it.toIntOrNull()?.let { v -> pref.setMaxMemoryMb(v) }
+                            // M40 修复：同上，非法输入不更新 UI 与持久化
+                            if (it.isEmpty() || it.toIntOrNull() != null) {
+                                maxMem = it
+                                val v = it.toIntOrNull() ?: 0
+                                if (v >= 0) pref.setMaxMemoryMb(v)
+                            }
                         },
                         label = { Text(I18n.t("settings.max_memory")) }, singleLine = true,
                         modifier = Modifier.weight(1f)
@@ -92,7 +105,7 @@ fun SettingsPage(vm: LauncherViewModel) {
         Spacer(Modifier.height(16.dp))
 
         // JVM 高级配置
-        Card(Modifier.fillMaxWidth(), colors = glassCardColors()) {
+        Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
             Column(Modifier.padding(16.dp)) {
                 Text(I18n.t("settings.jvm_advanced"), style = MaterialTheme.typography.titleSmall,
                      fontWeight = FontWeight.SemiBold)
@@ -164,7 +177,7 @@ fun SettingsPage(vm: LauncherViewModel) {
         Spacer(Modifier.height(16.dp))
 
         // 外观
-        Card(Modifier.fillMaxWidth(), colors = glassCardColors()) {
+        Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
             Column(Modifier.padding(16.dp)) {
                 Text(I18n.t("settings.appearance"), style = MaterialTheme.typography.titleSmall,
                      fontWeight = FontWeight.SemiBold)
@@ -479,7 +492,7 @@ fun SettingsPage(vm: LauncherViewModel) {
         Spacer(Modifier.height(16.dp))
 
         // 系统信息
-        Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp), colors = glassCardColors()) {
+        Card(Modifier.fillMaxWidth().glassCardBorder(8.dp), shape = RoundedCornerShape(8.dp), colors = glassCardColors(), elevation = glassCardElevation()) {
             Column(Modifier.padding(16.dp)) {
                 Text(I18n.t("settings.system_info"), style = MaterialTheme.typography.titleSmall,
                      fontWeight = FontWeight.SemiBold)
@@ -496,8 +509,80 @@ fun SettingsPage(vm: LauncherViewModel) {
 
         Spacer(Modifier.height(16.dp))
 
+        // GitHub Release 同步更新
+        GithubSyncCard(vm, pref)
+
+        Spacer(Modifier.height(16.dp))
+
         // 关于
         AboutCard(vm)
+    }
+}
+
+@Composable
+private fun GithubSyncCard(vm: LauncherViewModel, pref: com.pmcl.core.preferences.Preferences) {
+    var syncEnabled by remember { mutableStateOf(pref.isGithubSyncEnabled()) }
+    var repoInput by remember { mutableStateOf(pref.getGithubRepo()) }
+    val syncActive by vm.syncActive.collectAsState()
+    val pushStatusText by vm.pushStatusText.collectAsState()
+
+    Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
+        Column(Modifier.padding(16.dp)) {
+            Text("GitHub Release 同步", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(8.dp))
+            Text("直接同步 GitHub Release：启动器定时轮询指定仓库的最新 Release，发现新版本时主动通知（无需独立推送服务器）。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline)
+            Spacer(Modifier.height(12.dp))
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(checked = syncEnabled, onCheckedChange = {
+                    syncEnabled = it
+                    vm.setGithubSyncEnabled(it)
+                })
+                Spacer(Modifier.width(8.dp))
+                Text("启用 GitHub Release 同步")
+            }
+
+            Spacer(Modifier.height(12.dp))
+            OutlinedTextField(
+                value = repoInput,
+                onValueChange = { repoInput = it },
+                label = { Text("GitHub 仓库") },
+                placeholder = { Text("owner/repo") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                trailingIcon = {
+                    IconButton(onClick = { vm.setGithubRepo(repoInput.trim()) }) {
+                        Icon(Icons.Filled.Check, contentDescription = "保存仓库")
+                    }
+                }
+            )
+            Spacer(Modifier.height(4.dp))
+            Text("格式: owner/repo（如 peddlejumper/PMCL）。Release 资产中需包含名称带 pmcl 字样的 .jar 文件。每 30 分钟检查一次。",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline)
+
+            Spacer(Modifier.height(8.dp))
+            // 同步状态指示
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier.size(8.dp).background(
+                        color = if (syncActive) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.outline,
+                        shape = CircleShape
+                    )
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    if (pushStatusText.isEmpty()) {
+                        if (syncEnabled) "等待检查..." else "未启用"
+                    } else pushStatusText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
+            }
+        }
     }
 }
 
@@ -507,7 +592,7 @@ private fun AboutCard(vm: LauncherViewModel) {
     var showAgreementDialog by remember { mutableStateOf(false) }
     var showDisclaimerDialog by remember { mutableStateOf(false) }
 
-    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp), colors = glassCardColors()) {
+    Card(Modifier.fillMaxWidth().glassCardBorder(8.dp), shape = RoundedCornerShape(8.dp), colors = glassCardColors(), elevation = glassCardElevation()) {
         Column(Modifier.padding(16.dp)) {
             // === 头部：Logo + 名称 + 版本 ===
             Row(verticalAlignment = Alignment.CenterVertically) {

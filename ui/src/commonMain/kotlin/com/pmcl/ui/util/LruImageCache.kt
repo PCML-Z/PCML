@@ -23,23 +23,48 @@ class LruImageCache(private val maxSize: Int = 64) {
         }
     }
 
-    // 已知下载/解码失败的 URL，避免每次重组都重试
-    private val failedUrls: MutableSet<String> = ConcurrentHashMap.newKeySet()
+    // M31 修复：failedUrls 永不清理会导致网络恢复后也不重试。
+    // 改为带时间戳的失败记录，超过 TTL 自动失效，允许重试。
+    // 记录 (url -> 失败时间戳)，TTL 默认 60 秒（足够避免短时间内反复重试，
+    // 又不会因网络抖动永久放弃）。
+    private data class FailureEntry(val timestamp: Long)
+    private val failedUrls = ConcurrentHashMap<String, FailureEntry>()
+    private val failureTtlMs: Long = 60_000L
 
     /** 获取缓存中的图片，未命中返回 null */
     @Synchronized
     fun get(url: String): ImageBitmap? = map[url]
 
-    /** 是否为已知失败 URL（避免重试） */
-    fun isKnownFailed(url: String): Boolean = url in failedUrls
+    /** 是否为已知失败 URL（避免重试）。M31：超过 TTL 的失败记录视为可重试 */
+    fun isKnownFailed(url: String): Boolean {
+        val entry = failedUrls[url] ?: return false
+        if (System.currentTimeMillis() - entry.timestamp > failureTtlMs) {
+            // TTL 过期，清除并允许重试
+            failedUrls.remove(url, entry)
+            return false
+        }
+        return true
+    }
 
     /** 标记某 URL 下载/解码失败 */
-    fun markFailed(url: String) { failedUrls.add(url) }
+    fun markFailed(url: String) {
+        failedUrls[url] = FailureEntry(System.currentTimeMillis())
+    }
+
+    /**
+     * M31 修复：主动清除失败记录（网络恢复后调用，或用户手动触发刷新时）。
+     * 清除后所有 URL 都会重新尝试下载。
+     */
+    fun clearFailures() {
+        failedUrls.clear()
+    }
 
     /** 写入缓存，超过容量时自动淘汰最久未访问的条目（LRU） */
     @Synchronized
     fun put(url: String, bitmap: ImageBitmap) {
         map[url] = bitmap
+        // 下载成功，清除该 URL 的失败记录
+        failedUrls.remove(url)
     }
 
     @Synchronized

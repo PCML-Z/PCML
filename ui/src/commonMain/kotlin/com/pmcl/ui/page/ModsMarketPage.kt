@@ -1048,7 +1048,8 @@ private fun CategoryBar(
 /**
  * 图片内存缓存：URL → ImageBitmap。避免滚动时重复下载与解码。
  */
-private val modImageCache = java.util.concurrent.ConcurrentHashMap<String, ImageBitmap>()
+// M32 修复：复用全局 LruImageCache
+private val modImageCache = com.pmcl.ui.util.LruImageCache(64)
 
 /**
  * 异步加载网络图片为 ImageBitmap（基于 Skia）。
@@ -1056,28 +1057,23 @@ private val modImageCache = java.util.concurrent.ConcurrentHashMap<String, Image
  */
 @Composable
 private fun rememberUrlImage(url: String): ImageBitmap? {
-    var image by remember(url) { mutableStateOf<ImageBitmap?>(modImageCache[url]) }
+    var image by remember(url) { mutableStateOf<ImageBitmap?>(modImageCache.get(url)) }
     LaunchedEffect(url) {
         if (url.isEmpty()) {
             image = null
             return@LaunchedEffect
         }
-        if (modImageCache.containsKey(url)) {
-            image = modImageCache[url]
-            return@LaunchedEffect
-        }
+        if (modImageCache.isKnownFailed(url)) { image = null; return@LaunchedEffect }
+        val existing = modImageCache.get(url)
+        if (existing != null) { image = existing; return@LaunchedEffect }
         withContext(Dispatchers.IO) {
             try {
                 val bytes = URL(url).readBytes()
                 val bmp = SkiaImage.makeFromEncoded(bytes).toComposeImageBitmap()
-                modImageCache[url] = bmp
-                while (modImageCache.size > 50) {
-                    val iterator = modImageCache.keys.iterator()
-                    if (iterator.hasNext()) { iterator.next(); iterator.remove() }
-                    else break
-                }
+                modImageCache.put(url, bmp)
                 image = bmp
             } catch (_: Throwable) {
+                modImageCache.markFailed(url)
                 image = null
             }
         }

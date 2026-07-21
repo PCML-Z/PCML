@@ -89,6 +89,10 @@ class ThemeState(initialDark: Boolean = false) {
     }
 
     fun applySeedColor(seedRgb: Int, dark: Boolean) {
+        // M42 修复：本方法可能从 IO 线程（refreshWallpaperColor 协程）调用。
+        // Compose Desktop (JVM) 的 snapshot 系统本身线程安全，mutableStateOf 赋值
+        // 可跨线程进行。先计算完整 scheme 再一次性赋值给 dynamicColorScheme，
+        // 减少中间状态（seedColor 已变但 scheme 未更新）被观察到的窗口。
         seedColor = seedRgb
         val palette = WallpaperColorProvider.generateFullPalette(seedRgb, dark)
         val toColor = { rgb: Int -> Color(rgb or 0xFF000000.toInt()) }

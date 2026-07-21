@@ -303,15 +303,16 @@ fun main() = application {
 }
 
 /**
- * 轻量读取 borderlessWindow 偏好（仅正则匹配 JSON 字段，不构造完整 Preferences，
- * 避免与 LauncherCore 中的 Preferences 重复加载文件+解析+创建线程池）。
+ * 轻量读取 borderlessWindow 偏好（M37 修复：改用 Gson 解析 JsonObject，
+ * 避免正则在嵌套对象/转义字符串中误匹配）。
  */
 private fun readBorderlessPref(path: String): Boolean {
     return try {
         val json = java.nio.file.Files.readString(java.nio.file.Paths.get(path), java.nio.charset.StandardCharsets.UTF_8)
-        // 简单正则提取，避免完整 JSON 解析开销
-        val m = Regex("\"borderlessWindow\"\\s*:\\s*(true|false)").find(json)
-        m?.groupValues?.get(1)?.toBoolean() ?: false
+        val obj = com.google.gson.JsonParser.parseString(json).asJsonObject
+        if (obj.has("borderlessWindow") && !obj.get("borderlessWindow").isJsonNull) {
+            obj.get("borderlessWindow").asBoolean
+        } else false
     } catch (_: Throwable) { false }
 }
 
@@ -321,8 +322,10 @@ private fun readBorderlessPref(path: String): Boolean {
 private fun readDarkThemePref(path: String): Boolean {
     return try {
         val json = java.nio.file.Files.readString(java.nio.file.Paths.get(path), java.nio.charset.StandardCharsets.UTF_8)
-        val m = Regex("\"useDarkTheme\"\\s*:\\s*(true|false)").find(json)
-        m?.groupValues?.get(1)?.toBoolean() ?: false
+        val obj = com.google.gson.JsonParser.parseString(json).asJsonObject
+        if (obj.has("useDarkTheme") && !obj.get("useDarkTheme").isJsonNull) {
+            obj.get("useDarkTheme").asBoolean
+        } else false
     } catch (_: Throwable) { false }
 }
 

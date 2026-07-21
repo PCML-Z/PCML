@@ -34,7 +34,7 @@ import java.util.function.Consumer;
  * LiteLoaderTweaker。不需要执行 installer.jar，直接写入 JSON 即可运行。
  * <p>
  * 库下载 URL：
- *   - ivy 类型（RELEASE，1.5.2-1.8）：http://dl.liteloader.com/versions/ + maven path
+ *   - ivy 类型（RELEASE，1.5.2-1.8）：https://dl.liteloader.com/versions/ + maven path
  *   - m2 类型（SNAPSHOT，1.8.9-1.12.2）：https://bmclapi2.bangbang93.com/maven/ + maven path
  *     （repo.mumfrey.com 已下线，BMCLAPI maven 提供 302 重定向到教育网镜像）
  */
@@ -266,8 +266,8 @@ public final class LiteLoaderInstaller implements ModLoaderInstaller {
             // repo.mumfrey.com 已下线，用 BMCLAPI maven 镜像
             return BMCLAPI_MAVEN;
         }
-        // ivy: dl.liteloader.com/versions/（Cloudflare CDN）
-        return "http://dl.liteloader.com/versions/";
+        // ivy: dl.liteloader.com/versions/（Cloudflare CDN，强制 HTTPS 防中间人篡改）
+        return "https://dl.liteloader.com/versions/";
     }
 
     /**

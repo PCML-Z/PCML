@@ -57,7 +57,9 @@ import com.pmcl.core.i18n.I18n
 import com.pmcl.ui.animation.StaggeredAppear
 import com.pmcl.ui.animation.pressScale
 import com.pmcl.ui.theme.LocalThemeState
+import com.pmcl.ui.theme.glassCardBorder
 import com.pmcl.ui.theme.glassCardColors
+import com.pmcl.ui.theme.glassCardElevation
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -138,7 +140,14 @@ fun LaunchPage(vm: LauncherViewModel) {
     // 远程版本分类筛选状态（提到 LazyColumn 外，供 items() 引用 filtered 列表）
     var versionCategory by remember { mutableStateOf(1) }
     var searchQuery by remember { mutableStateOf("") }
-    val filtered = remember(versions, versionCategory, searchQuery) {
+    // M41 修复：searchQuery 每次按键触发 remember 重新计算全量过滤，
+    // 列表大时（数百版本）会卡顿。用 debounced 缓存上次输入，仅在停止输入后过滤。
+    var debouncedQuery by remember { mutableStateOf("") }
+    LaunchedEffect(searchQuery) {
+        kotlinx.coroutines.delay(250)  // 250ms debounce
+        debouncedQuery = searchQuery
+    }
+    val filtered = remember(versions, versionCategory, debouncedQuery) {
         var list = versions
         if (versionCategory != 0) {
             val typeFilter = when (versionCategory) {
@@ -149,8 +158,8 @@ fun LaunchPage(vm: LauncherViewModel) {
             }
             list = list.filter { it.getType() == typeFilter }
         }
-        if (searchQuery.isNotEmpty()) {
-            list = list.filter { it.getId()?.contains(searchQuery, ignoreCase = true) == true }
+        if (debouncedQuery.isNotEmpty()) {
+            list = list.filter { it.getId()?.contains(debouncedQuery, ignoreCase = true) == true }
         }
         list.take(200) // 最多显示 200 个，避免列表过长
     }
@@ -316,7 +325,7 @@ fun LaunchPage(vm: LauncherViewModel) {
             // ===== 本地版本列表 =====
             if (localInfos.isEmpty()) {
                 item {
-                    Card(Modifier.fillMaxWidth(), colors = glassCardColors()) {
+                    Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
                         Column(Modifier.padding(16.dp)) {
                             Text(I18n.t("launch.local_empty_title"),
                                  style = MaterialTheme.typography.titleSmall,
@@ -1835,8 +1844,9 @@ private fun RemoteVersionRow(
 
 @Composable
 private fun AccountCard(account: com.pmcl.core.auth.Account?, vm: LauncherViewModel) {
-    var username by remember { mutableStateOf("Steve") }
-    Card(Modifier.fillMaxWidth(), colors = glassCardColors()) {
+    // 初始值从持久化读取，避免每次打开页面重置为 Steve
+    var username by remember { mutableStateOf(vm.lastOfflineUsername().ifBlank { "Steve" }) }
+    Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
         Column(Modifier.padding(16.dp)) {
             Text(I18n.t("launch.account"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(8.dp))

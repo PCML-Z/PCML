@@ -20,7 +20,9 @@ import com.pmcl.core.i18n.I18n
 import com.pmcl.core.install.InstallProgress
 import com.pmcl.core.modpack.ModpackManager
 import com.pmcl.ui.theme.LocalThemeState
+import com.pmcl.ui.theme.glassCardBorder
 import com.pmcl.ui.theme.glassCardColors
+import com.pmcl.ui.theme.glassCardElevation
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import java.awt.FileDialog
 import java.awt.Frame
@@ -153,7 +155,7 @@ fun ModpacksPage(vm: LauncherViewModel) {
         // 进度条
         if (progress != null) {
             val p = progress!!
-            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = glassCardColors()) {
+            Card(Modifier.fillMaxWidth().glassCardBorder(12.dp), shape = RoundedCornerShape(12.dp), colors = glassCardColors(), elevation = glassCardElevation()) {
                 Column(Modifier.padding(12.dp)) {
                     Text(p.getMessage() ?: I18n.t("common.processing"), style = MaterialTheme.typography.bodySmall)
                     if (p.getTotal() > 0) {
@@ -302,7 +304,7 @@ private fun ModpackCard(
 ) {
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
-    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = glassCardColors()) {
+    Card(Modifier.fillMaxWidth().glassCardBorder(12.dp), shape = RoundedCornerShape(12.dp), colors = glassCardColors(), elevation = glassCardElevation()) {
         Row(
             modifier = Modifier.padding(12.dp),
             verticalAlignment = Alignment.CenterVertically

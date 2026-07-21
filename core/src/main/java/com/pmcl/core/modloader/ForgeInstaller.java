@@ -196,10 +196,19 @@ public final class ForgeInstaller implements ModLoaderInstaller {
         // 1. 收集 installer.jar 内嵌的 maven 路径
         java.util.Set<String> embeddedPaths = new java.util.HashSet<>();
         int count = 0;
+        // S22 安全修复：ZipBomb 防护
+        final long MAX_TOTAL = com.pmcl.core.util.SafeZipExtractor.DEFAULT_MAX_TOTAL_SIZE;
+        final int MAX_ENTRIES = com.pmcl.core.util.SafeZipExtractor.DEFAULT_MAX_ENTRIES;
+        long totalSize = 0;
+        int entryCount = 0;
         try (ZipFile zip = new ZipFile(installerJar.toFile())) {
             Enumeration<? extends ZipEntry> en = zip.entries();
             while (en.hasMoreElements()) {
                 ZipEntry e = en.nextElement();
+                if (++entryCount > MAX_ENTRIES) {
+                    throw new IOException("ZipBomb detected: entry count exceeds limit " + MAX_ENTRIES
+                            + " in " + installerJar);
+                }
                 String name = e.getName();
                 if (!e.isDirectory() && (name.startsWith("maven/") || name.startsWith("libraries/"))) {
                     String relPath = name.startsWith("maven/") ? name.substring("maven/".length())
@@ -209,8 +218,22 @@ public final class ForgeInstaller implements ModLoaderInstaller {
                     // ZIP SLIP 防护：确保目标路径仍在 librariesDir 内
                     if (!target.startsWith(librariesDir.normalize())) continue;
                     Files.createDirectories(target.getParent());
-                    try (InputStream in = zip.getInputStream(e)) {
-                        Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
+                    // S22 安全修复：流式写入并累计字节数
+                    try (InputStream in = zip.getInputStream(e);
+                         java.io.OutputStream out = Files.newOutputStream(target,
+                                 java.nio.file.StandardOpenOption.CREATE,
+                                 java.nio.file.StandardOpenOption.TRUNCATE_EXISTING,
+                                 java.nio.file.StandardOpenOption.WRITE)) {
+                        byte[] buf = new byte[8192];
+                        int n;
+                        while ((n = in.read(buf)) > 0) {
+                            totalSize += n;
+                            if (totalSize > MAX_TOTAL) {
+                                throw new IOException("ZipBomb detected: total extracted size exceeds "
+                                        + MAX_TOTAL + " bytes in " + installerJar);
+                            }
+                            out.write(buf, 0, n);
+                        }
                     }
                     embeddedPaths.add(relPath);
                     count++;

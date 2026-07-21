@@ -4,27 +4,29 @@ plugins {
 }
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_17
-    targetCompatibility = JavaVersion.VERSION_17
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
 }
 
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
-    kotlinOptions.jvmTarget = "17"
+    kotlinOptions.jvmTarget = "21"
 }
 
 dependencies {
     compileOnly(project(":plugin-api"))
     compileOnly(project(":core"))
     // Compose runtime — for @Composable annotations in plugin GUI pages
-    compileOnly("org.jetbrains.compose.runtime:runtime:1.7.0")
+    // M2/M8 安全修复：使用 libs.versions.toml 统一版本，避免硬编码导致 UI 升级时签名不匹配
+    val composeVer = libs.versions.compose.multiplatform.get()
+    compileOnly("org.jetbrains.compose.runtime:runtime:$composeVer")
     // Material3 — for UI components (provided by PMCL at runtime)
-    compileOnly("org.jetbrains.compose.material3:material3:1.7.0")
-    compileOnly("org.jetbrains.compose.foundation:foundation:1.7.0")
-    compileOnly("org.jetbrains.compose.ui:ui:1.7.0")
+    compileOnly("org.jetbrains.compose.material3:material3:$composeVer")
+    compileOnly("org.jetbrains.compose.foundation:foundation:$composeVer")
+    compileOnly("org.jetbrains.compose.ui:ui:$composeVer")
     // Material icons extended — for Icons.Filled.Download, Save, etc.
-    compileOnly("org.jetbrains.compose.material:material-icons-extended:1.7.0")
+    compileOnly("org.jetbrains.compose.material:material-icons-extended:$composeVer")
     // Coroutines — for launch/withContext in download operations
-    compileOnly("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
+    compileOnly(libs.kotlin.coroutines.core)
 }
 
 tasks.register<Zip>("ppk") {

@@ -156,17 +156,25 @@ private fun DownloaderPage(dl: DownloadManager) {
                                         result
                                     }
                                     statusText = "Downloaded ${result.length} characters"
-                                    history = history + DownloadHistoryEntry(
+                                    // M70 修复：历史记录最多保留 50 条，防止无限增长导致内存占用与 UI 卡顿
+                                    history = (history + DownloadHistoryEntry(
                                         url = urlInput,
                                         target = "(text preview)",
                                         size = result.length.toLong(),
                                         success = true,
                                         timestamp = System.currentTimeMillis()
-                                    )
+                                    )).takeLast(MAX_HISTORY)
                                 }
                                 DownloadMode.FILE -> {
+                                    // S23 安全修复：保存路径必须位于 ~/.pmcl/downloads/ 内
                                     val target = if (savePath.isNotBlank()) {
-                                        Paths.get(savePath)
+                                        try {
+                                            FileHelper.sanitizeSavePath(savePath)
+                                        } catch (e: IllegalArgumentException) {
+                                            statusText = "Error: ${e.message}"
+                                            statusError = true
+                                            return@launch
+                                        }
                                     } else {
                                         val filename = FileHelper.extractFilename(urlInput)
                                         Paths.get(System.getProperty("user.home"), ".pmcl", "downloads", filename)
@@ -179,25 +187,25 @@ private fun DownloaderPage(dl: DownloadManager) {
                                     }
                                     val size = Files.size(target)
                                     statusText = "Saved to: $target (${formatSize(size)})"
-                                    history = history + DownloadHistoryEntry(
+                                    history = (history + DownloadHistoryEntry(
                                         url = urlInput,
                                         target = target.toString(),
                                         size = size,
                                         success = true,
                                         timestamp = System.currentTimeMillis()
-                                    )
+                                    )).takeLast(MAX_HISTORY)
                                 }
                             }
                         } catch (e: Exception) {
                             statusText = "Error: ${e.message}"
                             statusError = true
-                            history = history + DownloadHistoryEntry(
+                            history = (history + DownloadHistoryEntry(
                                 url = urlInput,
                                 target = mode.name,
                                 size = 0L,
                                 success = false,
                                 timestamp = System.currentTimeMillis()
-                            )
+                            )).takeLast(MAX_HISTORY)
                         } finally {
                             isDownloading = false
                         }
@@ -361,6 +369,9 @@ private fun HistoryItem(entry: DownloadHistoryEntry) {
 }
 
 // ==================== Data ====================
+
+/** M70：历史记录最大保留条数 */
+private const val MAX_HISTORY = 50
 
 enum class DownloadMode { TEXT, FILE }
 

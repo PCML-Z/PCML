@@ -38,7 +38,9 @@ import androidx.compose.ui.window.Dialog
 import com.pmcl.core.gamecontent.ScreenshotManager.Screenshot
 import com.pmcl.core.i18n.I18n
 import com.pmcl.ui.theme.LocalThemeState
+import com.pmcl.ui.theme.glassCardBorder
 import com.pmcl.ui.theme.glassCardColors
+import com.pmcl.ui.theme.glassCardElevation
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -125,7 +127,7 @@ fun ScreenshotsPage(vm: LauncherViewModel) {
         Spacer(Modifier.height(16.dp))
 
         if (shots.isEmpty()) {
-            Card(Modifier.fillMaxWidth(), colors = glassCardColors()) {
+            Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
                 Text(I18n.t("screenshot.empty"),
                      modifier = Modifier.padding(16.dp),
                      color = MaterialTheme.colorScheme.outline)
@@ -155,9 +157,10 @@ fun ScreenshotsPage(vm: LauncherViewModel) {
                             ) {
                                 selectedIndex = index
                                 focusRequester.requestFocus()
-                            },
+                            }.glassCardBorder(12.dp),
                         shape = cardShape,
-                        colors = glassCardColors()
+                        colors = glassCardColors(),
+                        elevation = glassCardElevation()
                     ) {
                         Column(Modifier.padding(8.dp)) {
                             Text(shot.name, fontWeight = FontWeight.SemiBold,

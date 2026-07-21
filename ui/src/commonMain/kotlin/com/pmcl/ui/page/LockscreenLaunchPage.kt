@@ -19,7 +19,9 @@ import androidx.compose.ui.unit.sp
 import com.pmcl.core.i18n.I18n
 import com.pmcl.ui.theme.LocalThemeState
 import com.pmcl.ui.theme.ParallaxBackground
+import com.pmcl.ui.theme.glassCardBorder
 import com.pmcl.ui.theme.glassCardColors
+import com.pmcl.ui.theme.glassCardElevation
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -123,9 +125,10 @@ fun LockscreenLaunchPage(
 
             // ----- 底部：单一大方形卡片，内部左右分栏（启动 / 进入主界面），等高对齐 -----
             Card(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().glassCardBorder(4.dp),
                 shape = cardShape,
-                colors = glassCardColors()
+                colors = glassCardColors(),
+                elevation = glassCardElevation()
             ) {
                 Row(Modifier.fillMaxWidth().heightIn(min = 180.dp)) {
                     // 左侧：启动区

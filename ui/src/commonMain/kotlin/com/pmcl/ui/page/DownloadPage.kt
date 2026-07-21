@@ -17,7 +17,9 @@ import com.pmcl.core.i18n.I18n
 import com.pmcl.core.modloader.ModLoader
 import com.pmcl.ui.animation.StaggeredAppear
 import com.pmcl.ui.theme.LocalThemeState
+import com.pmcl.ui.theme.glassCardBorder
 import com.pmcl.ui.theme.glassCardColors
+import com.pmcl.ui.theme.glassCardElevation
 import com.pmcl.ui.viewmodel.LauncherViewModel
 
 @Composable
@@ -67,7 +69,7 @@ fun DownloadPage(vm: LauncherViewModel) {
         // 进度条
         if (installing && progress != null) {
             val p = progress ?: return@Column
-            Card(Modifier.fillMaxWidth(), colors = glassCardColors()) {
+            Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
                 Column(Modifier.padding(12.dp)) {
                     Text(p.getMessage() ?: "", style = MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.height(8.dp))

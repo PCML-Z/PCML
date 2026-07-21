@@ -326,11 +326,19 @@ public final class ExternalLauncherDetector {
         String os = System.getProperty("os.name", "").toLowerCase();
         String javaExeName = os.contains("win") ? "java.exe" : "java";
 
+        // M80: 加超时保护（5 秒），避免网络挂载点或慢速磁盘导致扫描线程长期阻塞
+        long deadlineMs = System.currentTimeMillis() + 5000;
         try (Stream<Path> stream = Files.walk(dir, 4)) {
-            stream.filter(p -> p.getFileName().toString().equals(javaExeName)
-                    && Files.isExecutable(p)).forEach(javaPath -> {
+            var it = stream.iterator();
+            while (it.hasNext()) {
+                if (System.currentTimeMillis() > deadlineMs) {
+                    System.err.println("[ExternalLauncherDetector] 扫描超时（5s），部分目录跳过: " + dirPath);
+                    break;
+                }
+                Path p = it.next();
+                if (!p.getFileName().toString().equals(javaExeName) || !Files.isExecutable(p)) continue;
                 try {
-                    String absPath = javaPath.toAbsolutePath().toString();
+                    String absPath = p.toAbsolutePath().toString();
                     Integer ver = JavaRuntimeFinder.getMajorVersion(absPath);
                     String arch = JavaRuntimeFinder.getArchitecture(absPath);
                     if (ver != null) {
@@ -340,9 +348,17 @@ public final class ExternalLauncherDetector {
                                 : dirPath.contains("pmcl") ? "PMCL" : "外部启动器";
                         result.add(new JavaRuntimeInfo(absPath, ver, arch, source));
                     }
-                } catch (Exception ignored) {}
-            });
-        } catch (Exception ignored) {}
+                } catch (Exception e) {
+                    // M80: 记录异常便于排查为何某 Java 未被识别
+                    System.err.println("[ExternalLauncherDetector] 解析 Java 失败: " + p
+                            + " - " + e.getClass().getSimpleName() + ": " + e.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            // M80: 记录扫描异常（如权限拒绝、目录不可读），避免静默吞错
+            System.err.println("[ExternalLauncherDetector] 扫描目录失败: " + dirPath
+                    + " - " + e.getClass().getSimpleName() + ": " + e.getMessage());
+        }
     }
 
     /**

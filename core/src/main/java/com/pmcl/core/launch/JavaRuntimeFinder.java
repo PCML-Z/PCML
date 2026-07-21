@@ -139,14 +139,14 @@ public final class JavaRuntimeFinder {
         }
 
         // 4. java 命令在 PATH（兜底）
+        // M78: try-finally 确保 Process 被销毁（Process 未实现 AutoCloseable，不能用 try-with-resources）
+        Process p = null;
         try {
-            Process p = new ProcessBuilder("java", "-version").redirectErrorStream(true).start();
-            try {
-                if (p.waitFor(5, TimeUnit.SECONDS) && p.exitValue() == 0) return "java";
-            } finally {
-                p.destroyForcibly();
-            }
+            p = new ProcessBuilder("java", "-version").redirectErrorStream(true).start();
+            if (p.waitFor(5, TimeUnit.SECONDS) && p.exitValue() == 0) return "java";
         } catch (IOException | InterruptedException ignored) {
+        } finally {
+            if (p != null) p.destroyForcibly();
         }
 
         // 5. 未找到任何 Java 运行时（返回 null 让调用方引导用户安装）
@@ -233,15 +233,19 @@ public final class JavaRuntimeFinder {
     private static boolean isAppleSiliconMac() {
         if (!System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("mac")) return false;
         // 优先用 sysctl 检测真实硬件架构（Rosetta 2 下 os.arch 不可靠）
+        // M78: try-finally 确保 Process 被销毁（Process 未实现 AutoCloseable）
+        Process p = null;
         try {
-            Process p = new ProcessBuilder("sysctl", "-n", "hw.optional.arm64").start();
+            p = new ProcessBuilder("sysctl", "-n", "hw.optional.arm64").start();
             try (var in = p.getInputStream()) {
                 String out = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8).trim();
                 if (p.waitFor(2, java.util.concurrent.TimeUnit.SECONDS) && p.exitValue() == 0) {
                     return "1".equals(out);
                 }
             }
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {} finally {
+            if (p != null) p.destroyForcibly();
+        }
         // 回退：os.arch（非 Rosetta 场景可靠）
         String arch = System.getProperty("os.arch", "");
         return "aarch64".equals(arch);
@@ -311,8 +315,10 @@ public final class JavaRuntimeFinder {
 
     /** 实际通过 fork java -version 解析版本号 */
     private static Integer computeMajorVersion(String javaExe) {
+        // M78: try-finally 确保 Process 被销毁（Process 未实现 AutoCloseable）
+        Process p = null;
         try {
-            Process p = new ProcessBuilder(javaExe, "-version").redirectErrorStream(true).start();
+            p = new ProcessBuilder(javaExe, "-version").redirectErrorStream(true).start();
             try (java.io.InputStream is = p.getInputStream()) {
                 String output = new String(is.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
                 if (!p.waitFor(5, TimeUnit.SECONDS)) {
@@ -322,10 +328,10 @@ public final class JavaRuntimeFinder {
                 //          openjdk version "17.0.9" 2023-10-17
                 Matcher m = VERSION_PATTERN.matcher(output);
                 if (m.find()) return Integer.parseInt(m.group(1));
-            } finally {
-                p.destroyForcibly();
             }
-        } catch (IOException | InterruptedException ignored) {}
+        } catch (IOException | InterruptedException ignored) {} finally {
+            if (p != null) p.destroyForcibly();
+        }
         return null;
     }
 
@@ -350,8 +356,10 @@ public final class JavaRuntimeFinder {
 
     /** 实际通过 fork java -XshowSettings:properties -version 解析 os.arch */
     private static String computeArchitecture(String javaExe) {
+        // M78: try-finally 确保 Process 被销毁（Process 未实现 AutoCloseable）
+        Process p = null;
         try {
-            Process p = new ProcessBuilder(javaExe, "-XshowSettings:properties", "-version")
+            p = new ProcessBuilder(javaExe, "-XshowSettings:properties", "-version")
                     .redirectErrorStream(true).start();
             try (java.io.InputStream is = p.getInputStream()) {
                 String output = new String(is.readAllBytes(),
@@ -362,10 +370,10 @@ public final class JavaRuntimeFinder {
                 // 输出包含:    os.arch = aarch64  或  os.arch = x86_64  或  os.arch = amd64
                 Matcher m = ARCH_PATTERN.matcher(output);
                 if (m.find()) return m.group(1);
-            } finally {
-                p.destroyForcibly();
             }
-        } catch (IOException | InterruptedException ignored) {}
+        } catch (IOException | InterruptedException ignored) {} finally {
+            if (p != null) p.destroyForcibly();
+        }
         return null;
     }
 

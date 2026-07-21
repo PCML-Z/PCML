@@ -172,6 +172,8 @@ public final class VersionInstaller {
     private void extractNatives(VersionJson vj) throws IOException {
         Path nativesDir = config.getVersionsDir().resolve(vj.getId()).resolve("natives");
         Files.createDirectories(nativesDir);
+        // M73: 预先规范化基目录，作为 ZipSlip 最终路径归属校验基准
+        final Path nativesDirAbs = nativesDir.toAbsolutePath().normalize();
         // 清空旧 natives
         try (var stream = Files.list(nativesDir)) {
             stream.filter(Files::isRegularFile).forEach(p -> {
@@ -184,20 +186,56 @@ public final class VersionInstaller {
             if (classifier == null) continue;
             Path nativeJar = config.getLibrariesDir().resolve(lib.getPathForClassifier(classifier));
             if (!Files.exists(nativeJar)) continue;
+            // S22 安全修复：ZipBomb 防护
+            final long MAX_TOTAL = com.pmcl.core.util.SafeZipExtractor.DEFAULT_MAX_TOTAL_SIZE;
+            final int MAX_ENTRIES = com.pmcl.core.util.SafeZipExtractor.DEFAULT_MAX_ENTRIES;
+            long totalSize = 0;
+            int entryCount = 0;
             try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(nativeJar.toFile())) {
                 java.util.Enumeration<? extends java.util.zip.ZipEntry> en = zip.entries();
                 while (en.hasMoreElements()) {
                     java.util.zip.ZipEntry entry = en.nextElement();
+                    if (++entryCount > MAX_ENTRIES) {
+                        throw new IOException("ZipBomb detected: entry count exceeds limit " + MAX_ENTRIES
+                                + " in " + nativeJar);
+                    }
                     if (entry.isDirectory()) continue;
                     String name = entry.getName();
                     // 跳过签名文件与元数据
                     if (name.startsWith("META-INF/")) continue;
-                    Path target = nativesDir.resolve(name).normalize();
-                    // ZIP SLIP 防护：确保目标路径仍在 nativesDir 内
-                    if (!target.startsWith(nativesDir.normalize())) continue;
-                    Files.createDirectories(target.getParent());
-                    try (var in = zip.getInputStream(entry)) {
-                        Files.copy(in, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    // M73: ZipSlip 纵深防御 — 第一层：entry name 早期过滤
+                    // 拒绝绝对路径（Unix/Windows）、空名、包含路径穿越段（..）的 entry
+                    if (name.isEmpty()) continue;
+                    if (name.startsWith("/") || name.startsWith("\\")
+                            || name.matches("^[A-Za-z]:[\\\\/].*")) continue;
+                    boolean hasDotDot = false;
+                    for (String seg : name.replace('\\', '/').split("/")) {
+                        if ("..".equals(seg)) { hasDotDot = true; break; }
+                    }
+                    if (hasDotDot) continue;
+                    // M73: 第二层 — 最终路径归属校验（即使 entry name 伪装也得过这一关）
+                    Path target = nativesDir.resolve(name).toAbsolutePath().normalize();
+                    if (!target.startsWith(nativesDirAbs)) continue;
+                    // 第三层 — 父目录也必须落在 nativesDir 内（防止 createDirectories 创建外部目录）
+                    Path parent = target.getParent();
+                    if (parent == null || !parent.startsWith(nativesDirAbs)) continue;
+                    Files.createDirectories(parent);
+                    // S22 安全修复：流式写入并累计字节数
+                    try (var in = zip.getInputStream(entry);
+                         java.io.OutputStream out = Files.newOutputStream(target,
+                                 java.nio.file.StandardOpenOption.CREATE,
+                                 java.nio.file.StandardOpenOption.TRUNCATE_EXISTING,
+                                 java.nio.file.StandardOpenOption.WRITE)) {
+                        byte[] buf = new byte[8192];
+                        int n;
+                        while ((n = in.read(buf)) > 0) {
+                            totalSize += n;
+                            if (totalSize > MAX_TOTAL) {
+                                throw new IOException("ZipBomb detected: total extracted size exceeds "
+                                        + MAX_TOTAL + " bytes in " + nativeJar);
+                            }
+                            out.write(buf, 0, n);
+                        }
                     }
                 }
             } catch (java.util.zip.ZipException ignored) {
@@ -256,6 +294,43 @@ public final class VersionInstaller {
         }
         if (!childObj.has("downloads") && parentObj.has("downloads")) {
             childObj.add("downloads", parentObj.get("downloads"));
+        }
+        // M83: 合并 arguments.game/jvm（与 LaunchProfileBuilder.loadVersionJson 逻辑对齐）
+        // 子版本的参数在前，父版本的在后（保证子版本自定义参数优先级）
+        if (parentObj.has("arguments")) {
+            JsonObject parentArgs = parentObj.getAsJsonObject("arguments");
+            if (!childObj.has("arguments")) {
+                // 子版本完全没有 arguments，直接用父版本的整体
+                childObj.add("arguments", parentArgs);
+            } else {
+                JsonObject childArgs = childObj.getAsJsonObject("arguments");
+                // 合并 game 数组
+                if (parentArgs.has("game")) {
+                    com.google.gson.JsonArray mergedGame = new com.google.gson.JsonArray();
+                    if (childArgs.has("game")) {
+                        for (var e : childArgs.getAsJsonArray("game")) mergedGame.add(e);
+                    }
+                    for (var e : parentArgs.getAsJsonArray("game")) mergedGame.add(e);
+                    childArgs.add("game", mergedGame);
+                }
+                // 合并 jvm 数组
+                if (parentArgs.has("jvm")) {
+                    com.google.gson.JsonArray mergedJvm = new com.google.gson.JsonArray();
+                    if (childArgs.has("jvm")) {
+                        for (var e : childArgs.getAsJsonArray("jvm")) mergedJvm.add(e);
+                    }
+                    for (var e : parentArgs.getAsJsonArray("jvm")) mergedJvm.add(e);
+                    childArgs.add("jvm", mergedJvm);
+                }
+            }
+        }
+        // 合并旧格式 minecraftArguments（子版本没有时用父版本）
+        if (!childObj.has("minecraftArguments") && parentObj.has("minecraftArguments")) {
+            childObj.add("minecraftArguments", parentObj.get("minecraftArguments"));
+        }
+        // 继承 javaVersion（子版本未指定时用父版本）
+        if (!childObj.has("javaVersion") && parentObj.has("javaVersion")) {
+            childObj.add("javaVersion", parentObj.get("javaVersion"));
         }
         // 合并 libraries（子的覆盖父的同名库）
         if (parentObj.has("libraries")) {

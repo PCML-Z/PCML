@@ -51,6 +51,10 @@ public class MusicPlayer {
     /** 进度通知限频：上次通知的墙钟时间戳（ms） */
     private volatile long lastNotifyWallMs;
 
+    // M56+M57: 可复用的帧缓冲区，避免每帧分配新数组造成 GC 压力
+    private short[] volumeScratch = new short[0];
+    private byte[] pcmBuf = new byte[0];
+
     // ---------------------------------------------------------------------------
     // 监听器
     // ---------------------------------------------------------------------------
@@ -251,6 +255,8 @@ public class MusicPlayer {
      * <p>JavaCV 默认按 planar 输出（每个声道一个 buffer）；
      * 但设置了 AV_SAMPLE_FMT_S16 后实际是交错格式（packed），samples[0] 即为所有样本。
      * 这里同时兼容两种情况。
+     *
+     * <p>M57 修复：复用 pcmBuf 字节缓冲区，避免每帧分配新数组。
      */
     private byte[] frameToPcmBytes(Frame frame, int channels) {
         Object first = frame.samples[0];
@@ -258,39 +264,48 @@ public class MusicPlayer {
             // 单 buffer：视为交错 packed
             if (frame.samples.length == 1) {
                 int remaining = sb.remaining();
-                short[] shorts = new short[remaining];
-                sb.get(shorts);
-                ByteBuffer bb = ByteBuffer.allocate(remaining * 2)
-                        .order(ByteOrder.LITTLE_ENDIAN);
-                for (short s : shorts) bb.putShort(s);
-                return bb.array();
+                int byteLen = remaining * 2;
+                // M57: 复用 pcmBuf，按需扩容
+                if (pcmBuf.length < byteLen) pcmBuf = new byte[byteLen];
+                // 用 ShortBuffer 视图批量写入，避免逐样本 putShort 调用
+                ShortBuffer view = ByteBuffer.wrap(pcmBuf, 0, byteLen)
+                        .order(ByteOrder.LITTLE_ENDIAN).asShortBuffer();
+                view.put(sb);
+                return java.util.Arrays.copyOf(pcmBuf, byteLen);
             }
             // 多 buffer：planar，需要交错合并
             int perChannel = sb.remaining();
             int totalSamples = perChannel * frame.samples.length;
-            short[] interleaved = new short[totalSamples];
+            int byteLen = totalSamples * 2;
+            // M57: 复用 volumeScratch 和 pcmBuf
+            if (volumeScratch.length < totalSamples) volumeScratch = new short[totalSamples];
+            if (pcmBuf.length < byteLen) pcmBuf = new byte[byteLen];
             for (int c = 0; c < frame.samples.length; c++) {
                 ShortBuffer chBuf = (ShortBuffer) frame.samples[c];
                 chBuf.rewind();
                 for (int i = 0; i < perChannel; i++) {
-                    interleaved[i * frame.samples.length + c] = chBuf.get();
+                    volumeScratch[i * frame.samples.length + c] = chBuf.get();
                 }
             }
-            ByteBuffer bb = ByteBuffer.allocate(interleaved.length * 2)
+            ByteBuffer bb = ByteBuffer.wrap(pcmBuf, 0, byteLen)
                     .order(ByteOrder.LITTLE_ENDIAN);
-            for (short s : interleaved) bb.putShort(s);
-            return bb.array();
+            for (int i = 0; i < totalSamples; i++) bb.putShort(volumeScratch[i]);
+            return java.util.Arrays.copyOf(pcmBuf, byteLen);
         } else if (first instanceof ByteBuffer bb) {
             // 已经是字节缓冲，直接拷贝
             bb.order(ByteOrder.LITTLE_ENDIAN);
-            byte[] pcm = new byte[bb.remaining()];
-            bb.get(pcm);
-            return pcm;
+            int len = bb.remaining();
+            if (pcmBuf.length < len) pcmBuf = new byte[len];
+            bb.get(pcmBuf, 0, len);
+            return java.util.Arrays.copyOf(pcmBuf, len);
         }
         return new byte[0];
     }
 
-    /** 对 16-bit PCM 小端字节应用音量（volume 0-100） */
+    /**
+     * 对 16-bit PCM 小端字节应用音量（volume 0-100）。
+     * <p>M56 修复：使用 ShortBuffer 批量读取替代每样本 ByteBuffer.getShort/putShort，降低 CPU 开销。
+     */
     private void applyVolume(byte[] pcm, int vol) {
         if (vol == 100) return; // 100% 不处理
         if (vol <= 0) {
@@ -298,12 +313,16 @@ public class MusicPlayer {
             return;
         }
         double scale = vol / 100.0;
-        ByteBuffer bb = ByteBuffer.wrap(pcm).order(ByteOrder.LITTLE_ENDIAN);
-        for (int i = 0; i < pcm.length; i += 2) {
-            short s = bb.getShort(i);
-            s = (short) Math.round(s * scale);
-            bb.putShort(i, s);
+        ShortBuffer sb = ByteBuffer.wrap(pcm).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer();
+        int len = sb.remaining();
+        // M56: 批量读取 short 数组，循环处理后再批量写回
+        if (volumeScratch.length < len) volumeScratch = new short[len];
+        sb.get(volumeScratch, 0, len);
+        for (int i = 0; i < len; i++) {
+            volumeScratch[i] = (short) Math.round(volumeScratch[i] * scale);
         }
+        sb.rewind();
+        sb.put(volumeScratch, 0, len);
     }
 
     /** 构建 FFmpeg headers 选项字符串：每行 "Key: Value\r\n" */

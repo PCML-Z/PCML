@@ -1,7 +1,9 @@
 package com.pmcl.core.util;
 
+import com.google.gson.Gson;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import okhttp3.MediaType;
-import okhttp3.MultipartBody;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
@@ -69,14 +71,20 @@ public final class PastebinClient {
      */
     public String upload(String content, String name) throws IOException {
         String safeName = (name == null || name.isBlank()) ? "PMCL Log" : name;
-        // 构造 paste.gg API 的 JSON payload
-        // 转义 JSON 特殊字符
-        String escapedContent = escapeJson(content);
-        String escapedName = escapeJson(safeName);
-        String payload = "{\"name\":\"" + escapedName + "\","
-                + "\"visibility\":\"unlisted\","
-                + "\"files\":[{\"name\":\"log.txt\",\"content\":{\"format\":\"text\",\"value\":\""
-                + escapedContent + "\"}}]}";
+        // M55 修复：用 Gson 构建 JSON payload，替代手动转义
+        JsonObject payloadObj = new JsonObject();
+        payloadObj.addProperty("name", safeName);
+        payloadObj.addProperty("visibility", "unlisted");
+        JsonObject fileObj = new JsonObject();
+        fileObj.addProperty("name", "log.txt");
+        JsonObject contentObj = new JsonObject();
+        contentObj.addProperty("format", "text");
+        contentObj.addProperty("value", content);
+        fileObj.add("content", contentObj);
+        var filesArray = new com.google.gson.JsonArray();
+        filesArray.add(fileObj);
+        payloadObj.add("files", filesArray);
+        String payload = new Gson().toJson(payloadObj);
 
         RequestBody body = RequestBody.create(payload, JSON);
         Request req = new Request.Builder()
@@ -91,8 +99,7 @@ public final class PastebinClient {
                 throw new IOException("paste.gg HTTP " + resp.code());
             }
             String respBody = resp.body() != null ? resp.body().string() : "";
-            // 响应格式: {"status":"success","result":{"id":"...","url":"https://paste.gg/..."}}
-            // 或失败: {"status":"fail",...}
+            // M55 修复：用 Gson 解析响应，替代手动字符串搜索
             String url = extractUrl(respBody);
             if (url == null) {
                 throw new IOException("paste.gg 响应解析失败: " + truncate(respBody, 200));
@@ -101,49 +108,23 @@ public final class PastebinClient {
         }
     }
 
-    /** 从 paste.gg JSON 响应中提取 result.url 字段 */
+    /** 从 paste.gg JSON 响应中提取 result.url 字段（M55: 改用 Gson 解析） */
     private static String extractUrl(String json) {
         if (json == null || json.isEmpty()) return null;
-        // 简单解析，避免引入完整 JSON 库依赖
-        int idx = json.indexOf("\"url\"");
-        if (idx < 0) return null;
-        int colon = json.indexOf(':', idx);
-        if (colon < 0) return null;
-        int start = json.indexOf('"', colon + 1);
-        if (start < 0) return null;
-        int end = json.indexOf('"', start + 1);
-        if (end < 0) return null;
-        String url = json.substring(start + 1, end);
-        // paste.gg 返回的是相对路径 /u/anonymous/xxx，补全为完整 URL
-        if (url.startsWith("/")) {
-            return "https://paste.gg" + url;
-        }
-        return url;
-    }
-
-    /** 简单 JSON 字符串转义 */
-    private static String escapeJson(String s) {
-        if (s == null) return "";
-        StringBuilder sb = new StringBuilder(s.length() + 16);
-        for (int i = 0; i < s.length(); i++) {
-            char c = s.charAt(i);
-            switch (c) {
-                case '"': sb.append("\\\""); break;
-                case '\\': sb.append("\\\\"); break;
-                case '\n': sb.append("\\n"); break;
-                case '\r': sb.append("\\r"); break;
-                case '\t': sb.append("\\t"); break;
-                case '\b': sb.append("\\b"); break;
-                case '\f': sb.append("\\f"); break;
-                default:
-                    if (c < 0x20) {
-                        sb.append(String.format("\\u%04x", (int) c));
-                    } else {
-                        sb.append(c);
-                    }
+        try {
+            JsonObject root = JsonParser.parseString(json).getAsJsonObject();
+            if (!root.has("result") || root.get("result").isJsonNull()) return null;
+            JsonObject result = root.getAsJsonObject("result");
+            if (!result.has("url") || result.get("url").isJsonNull()) return null;
+            String url = result.get("url").getAsString();
+            // paste.gg 返回的是相对路径 /u/anonymous/xxx，补全为完整 URL
+            if (url.startsWith("/")) {
+                return "https://paste.gg" + url;
             }
+            return url;
+        } catch (Exception e) {
+            return null;
         }
-        return sb.toString();
     }
 
     private static String truncate(String s, int max) {

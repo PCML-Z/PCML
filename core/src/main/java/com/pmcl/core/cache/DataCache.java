@@ -56,10 +56,14 @@ public final class DataCache {
 
     /**
      * 保存数据到缓存。
+     * M51 修复：移除 synchronized 关键字，统一使用 ConcurrentHashMap + 原子文件移动。
+     * save() 和 load() 都通过 ConcurrentHashMap 保证内存层面线程安全，
+     * 磁盘层面通过 tmp + ATOMIC_MOVE 保证写入原子性。
+     * 旧的 synchronized 只在 save() 上，load() 无锁，导致锁策略不一致且不必要地串行化不同 key 的写入。
      * @param key  缓存键（用作文件名，如 "versions_remote"）
      * @param data 数据对象（会被 JSON 序列化）
      */
-    public static synchronized <T> void save(String key, T data) {
+    public static <T> void save(String key, T data) {
         try {
             Path file = CACHE_DIR.resolve(key + ".json");
             Map<String, Object> wrapper = new HashMap<>();
@@ -74,6 +78,7 @@ public final class DataCache {
             } catch (java.nio.file.AtomicMoveNotSupportedException e) {
                 Files.move(tmp, file, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
             }
+            // 先写磁盘成功再更新内存缓存，避免内存指向尚未持久化的数据
             memCache.put(key, new CacheEntry<>(data, System.currentTimeMillis()));
         } catch (Exception e) {
             System.err.println("[DataCache] save failed for " + key + ": " + e.getMessage());

@@ -257,12 +257,14 @@ public final class VersionManager {
      *   <li>Windows: %APPDATA%\.minecraft\versions</li>
      *   <li>Linux: ~/.minecraft/versions</li>
      * </ul>
+     * <p>M66 修复：缓存 TTL 从 30s 降至 10s，并增加 clearCache() 方法用于多实例/测试场景手动失效。
+     * 系统级目录检测本身是全局共享的（同一 JVM 内目录路径不变），static 缓存设计正确。
      */
     public static java.util.List<Path> detectAllMinecraftVersionsDirs() {
-        // TTL 缓存：同一启动会话内 30 秒不重复 stat，避免 refreshLocalVersions 和
+        // TTL 缓存：同一启动会话内 10 秒不重复 stat，避免 refreshLocalVersions 和
         // refreshInstalledMods 各自调用导致的重复磁盘 I/O
         long now = System.currentTimeMillis();
-        if (cachedMinecraftDirs != null && (now - cachedMinecraftDirsTime) < 30_000L) {
+        if (cachedMinecraftDirs != null && (now - cachedMinecraftDirsTime) < 10_000L) {
             return cachedMinecraftDirs;
         }
         java.util.List<Path> result = new java.util.ArrayList<>();
@@ -291,7 +293,13 @@ public final class VersionManager {
         return result;
     }
 
-    /** detectAllMinecraftVersionsDirs 的 TTL 缓存 */
+    /** M66: 手动清除缓存，用于多实例/测试场景 */
+    public static void clearCache() {
+        cachedMinecraftDirs = null;
+        cachedMinecraftDirsTime = 0L;
+    }
+
+    /** detectAllMinecraftVersionsDirs 的 TTL 缓存（M66: TTL 10s + clearCache 可手动失效） */
     private static volatile java.util.List<Path> cachedMinecraftDirs = null;
     private static volatile long cachedMinecraftDirsTime = 0L;
 

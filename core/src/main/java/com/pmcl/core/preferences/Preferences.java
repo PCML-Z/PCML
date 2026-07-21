@@ -21,7 +21,8 @@ import java.util.Locale;
 public final class Preferences {
 
     private final Path file;
-    private final Gson gson = new Gson();
+    // M15 修复：基础设施字段标 transient，防止误序列化（ExecutorService/Future 不可序列化）
+    private final transient Gson gson = new Gson();
 
     // 默认值
     private boolean useDarkTheme = false;
@@ -42,6 +43,9 @@ public final class Preferences {
     private java.util.List<String> pinnedVersions = new java.util.ArrayList<>();
     private java.util.List<String> recentVersions = new java.util.ArrayList<>();  // 最近使用（LRU，最多 5 个）
     private String lastSelectedVersion = "";       // 上次选中的版本（启动时恢复）
+    private String lastOfflineUsername = "";      // 上次离线登录用户名（启动时恢复，避免每次重置为 Steve）
+    private boolean githubSyncEnabled = false;    // 是否启用 GitHub Release 同步更新
+    private String githubRepo = "";               // GitHub 仓库（格式 "owner/repo"，如 "peddlejumper/PMCL"）
     private java.util.Map<String, Long> lastPlayedTimes = new java.util.HashMap<>();  // versionId → epoch millis
     private java.util.Map<String, String> pinnedTileLabels = new java.util.HashMap<>();  // versionId → 自定义磁贴名称
     private String customJvmArgs = "";
@@ -78,6 +82,9 @@ public final class Preferences {
     private int downloadRetryCount = 3;
     private boolean enableResume = true;           // 断点续传
     private int chunkedDownloadThreads = 4;        // 分片下载连接数（>1 启用多线程分片）
+    // M11 修复：总下载线程数可配置（替代 LauncherConfig 硬编码的 16）
+    // 默认 16 与原硬编码值一致；用户可在设置中调整
+    private int downloadThreads = 16;
     private boolean versionIsolation = false;      // 版本隔离：各版本独立 mods/saves/config 目录
 
     // ===== 启动预设 =====
@@ -106,22 +113,24 @@ public final class Preferences {
     // ===== 防抖磁盘写入（性能优化）=====
     // 每次 setter 只标记 dirty 并调度一次延迟写入，连续修改（如拖动 UI 缩放滑块）只会触发一次磁盘 IO。
     // 内存状态始终即时更新（synchronized 保护），仅磁盘写入被合并。
-    private volatile boolean dirty = false;
-    private final java.util.concurrent.ScheduledExecutorService saveExecutor =
+    // M15 修复：dirty/pendingSave/saveExecutor 均标 transient，防止误序列化
+    private transient volatile boolean dirty = false;
+    private final transient java.util.concurrent.ScheduledExecutorService saveExecutor =
         java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "pmcl-prefs-writer");
             t.setDaemon(true);
             return t;
         });
     // pendingSave 必须可见：flush()/save() 在 shutdown hook 线程调用时需读到最新引用
-    private volatile java.util.concurrent.ScheduledFuture<?> pendingSave = null;
+    private transient volatile java.util.concurrent.ScheduledFuture<?> pendingSave = null;
     private static final long SAVE_DEBOUNCE_MS = 200;
 
     public Preferences(Path file) {
         this.file = file;
         load();
-        // JVM 退出时强制刷新未落盘的修改，避免防抖导致数据丢失
-        Runtime.getRuntime().addShutdownHook(new Thread(this::flush, "pmcl-prefs-shutdown"));
+        // M16 修复：JVM 退出时调用 shutdown() 而非 flush()，
+        // 确保数据落盘 + 线程池被显式关闭
+        Runtime.getRuntime().addShutdownHook(new Thread(this::shutdown, "pmcl-prefs-shutdown"));
     }
 
     public synchronized boolean isUseDarkTheme() { return useDarkTheme; }
@@ -151,9 +160,9 @@ public final class Preferences {
     public synchronized boolean isLockscreenLaunchTheme() { return lockscreenLaunchTheme; }
     public synchronized void setLockscreenLaunchTheme(boolean v) { lockscreenLaunchTheme = v; scheduleSave(); }
     public synchronized void setUiScale(float v) {
-        // 过滤 NaN/Infinity，避免写出非法 JSON
+        // M18 修复：范围与注释一致（0.8~1.5），过滤 NaN/Infinity
         if (Float.isNaN(v) || Float.isInfinite(v)) return;
-        uiScale = Math.max(0.7f, Math.min(1.6f, v)); scheduleSave();
+        uiScale = Math.max(0.8f, Math.min(1.5f, v)); scheduleSave();
     }
 
     public synchronized String getLanguage() { return language; }
@@ -244,6 +253,22 @@ public final class Preferences {
         lastSelectedVersion = v == null ? "" : v; scheduleSave();
     }
 
+    // ===== 最后离线用户名（启动时恢复，避免每次重置为 Steve） =====
+    public synchronized String getLastOfflineUsername() { return lastOfflineUsername; }
+    public synchronized void setLastOfflineUsername(String v) {
+        lastOfflineUsername = v == null ? "" : v; scheduleSave();
+    }
+
+    // ===== GitHub Release 同步更新 =====
+    public synchronized boolean isGithubSyncEnabled() { return githubSyncEnabled; }
+    public synchronized void setGithubSyncEnabled(boolean v) {
+        githubSyncEnabled = v; scheduleSave();
+    }
+    public synchronized String getGithubRepo() { return githubRepo; }
+    public synchronized void setGithubRepo(String v) {
+        githubRepo = v == null ? "" : v; scheduleSave();
+    }
+
     // ===== 最后游玩时间戳（versionId → epoch millis） =====
     public synchronized Long getLastPlayedTime(String versionId) {
         return lastPlayedTimes.get(versionId);
@@ -332,9 +357,14 @@ public final class Preferences {
     }
 
     // ===== 收藏服务器列表 =====
-    /** 返回收藏服务器列表的副本，每项为 [name, host, port] */
+    /** 返回收藏服务器列表的深拷贝，每项为 [name, host, port]。
+     *  M17 修复：浅拷贝时外部可修改 String[] 元素影响内部状态，改为深拷贝每个数组。 */
     public synchronized java.util.List<String[]> getFavoriteServers() {
-        return new java.util.ArrayList<>(favoriteServers);
+        java.util.List<String[]> copy = new java.util.ArrayList<>(favoriteServers.size());
+        for (String[] s : favoriteServers) {
+            copy.add(s.clone()); // 深拷贝每个 String[]
+        }
+        return copy;
     }
 
     /** 添加收藏服务器，name 为空时用 host:port 代替 */
@@ -419,6 +449,14 @@ public final class Preferences {
     public synchronized int getChunkedDownloadThreads() { return chunkedDownloadThreads; }
     public synchronized void setChunkedDownloadThreads(int v) {
         chunkedDownloadThreads = Math.max(1, v); scheduleSave();
+    }
+
+    // M11 修复：总下载线程数可配置
+    public synchronized int getDownloadThreads() { return downloadThreads; }
+    public synchronized void setDownloadThreads(int v) {
+        // 约束在 [1, 64]，避免 0 导致 ExecutorSizes.newFixedThreadPool 抛 IllegalArgumentException
+        // 以及过大导致线程过多。16 为默认值，64 为上限。
+        downloadThreads = Math.max(1, Math.min(64, v)); scheduleSave();
     }
 
     public synchronized boolean isVersionIsolation() { return versionIsolation; }
@@ -548,45 +586,185 @@ public final class Preferences {
         scheduleSave();
     }
 
-    /** 从磁盘加载（不存在或损坏则保持默认） */
+    // ===== M12 修复：带范围校验的加载辅助方法 =====
+    // load() 复用这些方法，确保从磁盘读取的损坏值（如 maxMemoryMb=-1）不会直接赋值，
+    // 而是回退到默认值，与 setter 的校验逻辑保持一致。
+
+    /** 读取 int 字段，缺失/损坏/超范围时返回 def */
+    private static int loadInt(JsonObject o, String key, int def, int min, int max) {
+        if (!o.has(key) || o.get(key).isJsonNull()) return def;
+        try {
+            int v = o.get(key).getAsInt();
+            return (v < min || v > max) ? def : v;
+        } catch (Exception e) {
+            return def;
+        }
+    }
+
+    /** 读取 float 字段，缺失/损坏/NaN/Infinity/超范围时返回 def */
+    private static float loadFloat(JsonObject o, String key, float def, float min, float max) {
+        if (!o.has(key) || o.get(key).isJsonNull()) return def;
+        try {
+            float v = o.get(key).getAsFloat();
+            return (Float.isNaN(v) || Float.isInfinite(v) || v < min || v > max) ? def : v;
+        } catch (Exception e) {
+            return def;
+        }
+    }
+
+    /** 读取 String 字段，缺失/损坏时返回 def */
+    private static String loadString(JsonObject o, String key, String def) {
+        if (!o.has(key) || o.get(key).isJsonNull()) return def;
+        try {
+            return o.get(key).getAsString();
+        } catch (Exception e) {
+            return def;
+        }
+    }
+
+    /** 读取 boolean 字段，缺失/损坏时返回 def */
+    private static boolean loadBool(JsonObject o, String key, boolean def) {
+        if (!o.has(key) || o.get(key).isJsonNull()) return def;
+        try {
+            return o.get(key).getAsBoolean();
+        } catch (Exception e) {
+            return def;
+        }
+    }
+
+    /** 从磁盘加载（不存在或损坏则保持默认）。
+     *  M12 修复：所有数值字段通过 loadInt/loadFloat 辅助方法读取，
+     *  确保损坏值（如 maxMemoryMb=-1）回退到默认值而非直接赋值。
+     *  <p>
+     *  M72 修复：区分 JSON 语法错误与字段级错误。语法错误（整个文件不是合法 JSON）
+     *  才备份后重置；字段级错误（如某字段类型不匹配）只跳过该字段继续加载其他字段，
+     *  避免单个损坏字段导致全部配置丢失。 */
     public synchronized void load() {
         if (!Files.exists(file)) return;
+        String content;
         try {
-            String content = Files.readString(file, java.nio.charset.StandardCharsets.UTF_8);
-            if (content.isBlank()) return;
+            content = Files.readString(file, java.nio.charset.StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            System.err.println("[Preferences] 配置文件读取失败: " + e.getMessage());
+            return;
+        }
+        if (content.isBlank()) return;
+
+        // 阶段 1：JSON 语法解析。失败说明文件整体损坏，备份后保持默认。
+        JsonObject o;
+        try {
             var parsed = JsonParser.parseString(content);
             if (parsed == null || !parsed.isJsonObject()) return;
-            JsonObject o = parsed.getAsJsonObject();
-            if (o.has("useDarkTheme")) useDarkTheme = o.get("useDarkTheme").getAsBoolean();
-            if (o.has("dynamicColor")) dynamicColor = o.get("dynamicColor").getAsBoolean();
-            if (o.has("customAccentColor")) customAccentColor = o.get("customAccentColor").getAsInt();
-            if (o.has("monetSeedColor")) monetSeedColor = o.get("monetSeedColor").getAsInt();
-            if (o.has("predictiveLaunch")) predictiveLaunch = o.get("predictiveLaunch").getAsBoolean();
-            if (o.has("borderlessWindow")) borderlessWindow = o.get("borderlessWindow").getAsBoolean();
-            if (o.has("showPerfHud")) showPerfHud = o.get("showPerfHud").getAsBoolean();
-            if (o.has("perfHudMetrics") && !o.get("perfHudMetrics").isJsonNull()) perfHudMetrics = o.get("perfHudMetrics").getAsString();
-            if (o.has("uiScale")) uiScale = o.get("uiScale").getAsFloat();
-            if (o.has("parallaxBackground")) parallaxBackground = o.get("parallaxBackground").getAsBoolean();
-            if (o.has("glassTheme")) glassTheme = o.get("glassTheme").getAsBoolean();
-            if (o.has("lockscreenLaunchTheme")) lockscreenLaunchTheme = o.get("lockscreenLaunchTheme").getAsBoolean();
-            if (o.has("language") && !o.get("language").isJsonNull()) language = o.get("language").getAsString();
-            if (o.has("firstLaunchCompleted")) firstLaunchCompleted = o.get("firstLaunchCompleted").getAsBoolean();
-            if (o.has("agreementAccepted")) agreementAccepted = o.get("agreementAccepted").getAsBoolean();
+            o = parsed.getAsJsonObject();
+        } catch (Exception e) {
+            System.err.println("[Preferences] 配置文件 JSON 语法错误，将备份后使用默认配置: " + e.getMessage());
+            try {
+                java.nio.file.Path backup = file.resolveSibling(file.getFileName() + ".corrupt");
+                Files.move(file, backup, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                System.err.println("[Preferences] 损坏文件已备份至: " + backup);
+            } catch (Exception backupErr) {
+                System.err.println("[Preferences] 备份损坏文件失败: " + backupErr.getMessage());
+            }
+            return;
+        }
+
+        // 阶段 2：逐字段加载。每个复合字段（列表/映射）独立 try-catch，
+        // 单个字段损坏只跳过该字段，不影响其他字段加载。
+        try {
+            // 布尔字段
+            useDarkTheme = loadBool(o, "useDarkTheme", false);
+            dynamicColor = loadBool(o, "dynamicColor", false);
+            predictiveLaunch = loadBool(o, "predictiveLaunch", false);
+            borderlessWindow = loadBool(o, "borderlessWindow", false);
+            showPerfHud = loadBool(o, "showPerfHud", false);
+            parallaxBackground = loadBool(o, "parallaxBackground", false);
+            glassTheme = loadBool(o, "glassTheme", false);
+            lockscreenLaunchTheme = loadBool(o, "lockscreenLaunchTheme", false);
+            firstLaunchCompleted = loadBool(o, "firstLaunchCompleted", false);
+            agreementAccepted = loadBool(o, "agreementAccepted", false);
+            useAikarFlags = loadBool(o, "useAikarFlags", true);
+            gameFullscreen = loadBool(o, "gameFullscreen", false);
+            gameDemo = loadBool(o, "gameDemo", false);
+            useProxy = loadBool(o, "useProxy", false);
+            useHttpAuth = loadBool(o, "useHttpAuth", false);
+            enableResume = loadBool(o, "enableResume", true);
+            versionIsolation = loadBool(o, "versionIsolation", false);
+            mioModeEnabled = loadBool(o, "mioModeEnabled", false);
+            mioModeJvm = loadBool(o, "mioModeJvm", true);
+            mioModeProcess = loadBool(o, "mioModeProcess", true);
+            mioModeSystemPower = loadBool(o, "mioModeSystemPower", false);
+            mioModeCrazyPriority = loadBool(o, "mioModeCrazyPriority", false);
+            mioModeLargePages = loadBool(o, "mioModeLargePages", false);
+            mioModeZgc = loadBool(o, "mioModeZgc", false);
+            mioModeRenderOpt = loadBool(o, "mioModeRenderOpt", true);
+            mioModeJitAggressive = loadBool(o, "mioModeJitAggressive", true);
+            mioModeNetworkOpt = loadBool(o, "mioModeNetworkOpt", true);
+            mioModeMetaspace = loadBool(o, "mioModeMetaspace", true);
+            // 整数字段（带范围校验）
+            customAccentColor = loadInt(o, "customAccentColor", -1, Integer.MIN_VALUE, Integer.MAX_VALUE);
+            monetSeedColor = loadInt(o, "monetSeedColor", -1, Integer.MIN_VALUE, Integer.MAX_VALUE);
+            minMemoryMb = loadInt(o, "minMemoryMb", 512, 128, Integer.MAX_VALUE);
+            maxMemoryMb = loadInt(o, "maxMemoryMb", 4096, 512, Integer.MAX_VALUE);
+            gameWindowWidth = loadInt(o, "gameWindowWidth", 854, 1, Integer.MAX_VALUE);
+            gameWindowHeight = loadInt(o, "gameWindowHeight", 480, 1, Integer.MAX_VALUE);
+            gameServerPort = loadInt(o, "gameServerPort", 25565, 1, 65535);
+            proxyPort = loadInt(o, "proxyPort", 0, 0, 65535);
+            downloadSpeedLimitKb = loadInt(o, "downloadSpeedLimitKb", 0, 0, Integer.MAX_VALUE);
+            downloadRetryCount = loadInt(o, "downloadRetryCount", 3, 0, Integer.MAX_VALUE);
+            chunkedDownloadThreads = loadInt(o, "chunkedDownloadThreads", 4, 1, Integer.MAX_VALUE);
+            downloadThreads = loadInt(o, "downloadThreads", 16, 1, 64);
+            connectxServerPort = loadInt(o, "connectxServerPort", 3535, 1, 65535);
+            // 浮点字段（带范围校验 + NaN/Infinity 过滤）
+            uiScale = loadFloat(o, "uiScale", 1.0f, 0.8f, 1.5f);
+            // 字符串字段
+            perfHudMetrics = loadString(o, "perfHudMetrics", "CPU,MEM,GPU,FPS");
+            language = loadString(o, "language", "zh_CN");
+            lastSelectedVersion = loadString(o, "lastSelectedVersion", "");
+            lastOfflineUsername = loadString(o, "lastOfflineUsername", "");
+            githubSyncEnabled = loadBool(o, "githubSyncEnabled", false);
+            githubRepo = loadString(o, "githubRepo", "");
+            customJvmArgs = loadString(o, "customJvmArgs", "");
+            gcType = loadString(o, "gcType", "G1GC");
+            javaPath = loadString(o, "javaPath", "");
+            gameServerHost = loadString(o, "gameServerHost", "");
+            gameRenderer = loadString(o, "gameRenderer", "AUTO");
+            windowIconPath = loadString(o, "windowIconPath", "");
+            customMenuBackgroundVideo = loadString(o, "customMenuBackgroundVideo", "");
+            mirrorType = loadString(o, "mirrorType", "OFFICIAL");
+            customMirrorBase = loadString(o, "customMirrorBase", "");
+            proxyHost = loadString(o, "proxyHost", "");
+            proxyUsername = loadString(o, "proxyUsername", "");
+            proxyPassword = loadString(o, "proxyPassword", "");
+            mpBackend = loadString(o, "mpBackend", "TERRACOTTA");
+            connectxServerAddress = loadString(o, "connectxServerAddress", "");
+            connectxBinaryPath = loadString(o, "connectxBinaryPath", "");
+        } catch (Exception e) {
+            // 标量字段加载异常（理论上 loadInt/loadBool 等已有内部 try-catch，此处为兜底）
+            System.err.println("[Preferences] 标量字段加载异常（已跳过后续标量字段）: " + e.getMessage());
+        }
+
+        // 复合字段：每个独立 try-catch，单个损坏不影响其他
+        try {
             if (o.has("pinnedVersions")) {
                 pinnedVersions = new java.util.ArrayList<>();
                 for (var e : o.getAsJsonArray("pinnedVersions")) {
                     if (!e.isJsonNull()) pinnedVersions.add(e.getAsString());
                 }
             }
+        } catch (Exception e) {
+            System.err.println("[Preferences] pinnedVersions 字段损坏，已跳过: " + e.getMessage());
+        }
+        try {
             if (o.has("recentVersions")) {
                 recentVersions = new java.util.ArrayList<>();
                 for (var e : o.getAsJsonArray("recentVersions")) {
                     if (!e.isJsonNull()) recentVersions.add(e.getAsString());
                 }
             }
-            if (o.has("lastSelectedVersion") && !o.get("lastSelectedVersion").isJsonNull()) {
-                lastSelectedVersion = o.get("lastSelectedVersion").getAsString();
-            }
+        } catch (Exception e) {
+            System.err.println("[Preferences] recentVersions 字段损坏，已跳过: " + e.getMessage());
+        }
+        try {
             if (o.has("lastPlayedTimes") && o.get("lastPlayedTimes").isJsonObject()) {
                 lastPlayedTimes = new java.util.HashMap<>();
                 JsonObject times = o.getAsJsonObject("lastPlayedTimes");
@@ -596,6 +774,10 @@ public final class Preferences {
                     } catch (Exception ignored) {}
                 }
             }
+        } catch (Exception e) {
+            System.err.println("[Preferences] lastPlayedTimes 字段损坏，已跳过: " + e.getMessage());
+        }
+        try {
             if (o.has("pinnedTileLabels") && o.get("pinnedTileLabels").isJsonObject()) {
                 pinnedTileLabels = new java.util.HashMap<>();
                 JsonObject labels = o.getAsJsonObject("pinnedTileLabels");
@@ -605,12 +787,10 @@ public final class Preferences {
                     } catch (Exception ignored) {}
                 }
             }
-            if (o.has("customJvmArgs") && !o.get("customJvmArgs").isJsonNull()) customJvmArgs = o.get("customJvmArgs").getAsString();
-            if (o.has("gcType") && !o.get("gcType").isJsonNull()) gcType = o.get("gcType").getAsString();
-            if (o.has("useAikarFlags")) useAikarFlags = o.get("useAikarFlags").getAsBoolean();
-            if (o.has("minMemoryMb")) minMemoryMb = o.get("minMemoryMb").getAsInt();
-            if (o.has("maxMemoryMb")) maxMemoryMb = o.get("maxMemoryMb").getAsInt();
-            if (o.has("javaPath") && !o.get("javaPath").isJsonNull()) javaPath = o.get("javaPath").getAsString();
+        } catch (Exception e) {
+            System.err.println("[Preferences] pinnedTileLabels 字段损坏，已跳过: " + e.getMessage());
+        }
+        try {
             if (o.has("versionJavaPaths") && !o.get("versionJavaPaths").isJsonNull()) {
                 JsonObject vjp = o.getAsJsonObject("versionJavaPaths");
                 versionJavaPaths.clear();
@@ -620,12 +800,10 @@ public final class Preferences {
                     }
                 }
             }
-            if (o.has("gameWindowWidth")) gameWindowWidth = o.get("gameWindowWidth").getAsInt();
-            if (o.has("gameWindowHeight")) gameWindowHeight = o.get("gameWindowHeight").getAsInt();
-            if (o.has("gameFullscreen")) gameFullscreen = o.get("gameFullscreen").getAsBoolean();
-            if (o.has("gameDemo")) gameDemo = o.get("gameDemo").getAsBoolean();
-            if (o.has("gameServerHost") && !o.get("gameServerHost").isJsonNull()) gameServerHost = o.get("gameServerHost").getAsString();
-            if (o.has("gameServerPort")) gameServerPort = o.get("gameServerPort").getAsInt();
+        } catch (Exception e) {
+            System.err.println("[Preferences] versionJavaPaths 字段损坏，已跳过: " + e.getMessage());
+        }
+        try {
             if (o.has("favoriteServers") && o.get("favoriteServers").isJsonArray()) {
                 favoriteServers = new java.util.ArrayList<>();
                 for (var elem : o.getAsJsonArray("favoriteServers")) {
@@ -639,37 +817,10 @@ public final class Preferences {
                     } catch (Exception ignored) {}
                 }
             }
-            if (o.has("gameRenderer") && !o.get("gameRenderer").isJsonNull()) gameRenderer = o.get("gameRenderer").getAsString();
-            if (o.has("windowIconPath") && !o.get("windowIconPath").isJsonNull()) windowIconPath = o.get("windowIconPath").getAsString();
-            if (o.has("customMenuBackgroundVideo") && !o.get("customMenuBackgroundVideo").isJsonNull()) customMenuBackgroundVideo = o.get("customMenuBackgroundVideo").getAsString();
-            if (o.has("mirrorType") && !o.get("mirrorType").isJsonNull()) mirrorType = o.get("mirrorType").getAsString();
-            if (o.has("customMirrorBase") && !o.get("customMirrorBase").isJsonNull()) customMirrorBase = o.get("customMirrorBase").getAsString();
-            if (o.has("useProxy")) useProxy = o.get("useProxy").getAsBoolean();
-            if (o.has("proxyHost") && !o.get("proxyHost").isJsonNull()) proxyHost = o.get("proxyHost").getAsString();
-            if (o.has("proxyPort")) proxyPort = o.get("proxyPort").getAsInt();
-            if (o.has("useHttpAuth")) useHttpAuth = o.get("useHttpAuth").getAsBoolean();
-            if (o.has("proxyUsername") && !o.get("proxyUsername").isJsonNull()) proxyUsername = o.get("proxyUsername").getAsString();
-            if (o.has("proxyPassword") && !o.get("proxyPassword").isJsonNull()) proxyPassword = o.get("proxyPassword").getAsString();
-            if (o.has("downloadSpeedLimitKb")) downloadSpeedLimitKb = o.get("downloadSpeedLimitKb").getAsInt();
-            if (o.has("downloadRetryCount")) downloadRetryCount = o.get("downloadRetryCount").getAsInt();
-            if (o.has("enableResume")) enableResume = o.get("enableResume").getAsBoolean();
-            if (o.has("chunkedDownloadThreads")) chunkedDownloadThreads = o.get("chunkedDownloadThreads").getAsInt();
-            if (o.has("versionIsolation")) versionIsolation = o.get("versionIsolation").getAsBoolean();
-            if (o.has("mioModeEnabled")) mioModeEnabled = o.get("mioModeEnabled").getAsBoolean();
-            if (o.has("mioModeJvm")) mioModeJvm = o.get("mioModeJvm").getAsBoolean();
-            if (o.has("mioModeProcess")) mioModeProcess = o.get("mioModeProcess").getAsBoolean();
-            if (o.has("mioModeSystemPower")) mioModeSystemPower = o.get("mioModeSystemPower").getAsBoolean();
-            if (o.has("mioModeCrazyPriority")) mioModeCrazyPriority = o.get("mioModeCrazyPriority").getAsBoolean();
-            if (o.has("mioModeLargePages")) mioModeLargePages = o.get("mioModeLargePages").getAsBoolean();
-            if (o.has("mioModeZgc")) mioModeZgc = o.get("mioModeZgc").getAsBoolean();
-            if (o.has("mioModeRenderOpt")) mioModeRenderOpt = o.get("mioModeRenderOpt").getAsBoolean();
-            if (o.has("mioModeJitAggressive")) mioModeJitAggressive = o.get("mioModeJitAggressive").getAsBoolean();
-            if (o.has("mioModeNetworkOpt")) mioModeNetworkOpt = o.get("mioModeNetworkOpt").getAsBoolean();
-            if (o.has("mioModeMetaspace")) mioModeMetaspace = o.get("mioModeMetaspace").getAsBoolean();
-            if (o.has("mpBackend") && !o.get("mpBackend").isJsonNull()) mpBackend = o.get("mpBackend").getAsString();
-            if (o.has("connectxServerAddress") && !o.get("connectxServerAddress").isJsonNull()) connectxServerAddress = o.get("connectxServerAddress").getAsString();
-            if (o.has("connectxServerPort")) connectxServerPort = o.get("connectxServerPort").getAsInt();
-            if (o.has("connectxBinaryPath") && !o.get("connectxBinaryPath").isJsonNull()) connectxBinaryPath = o.get("connectxBinaryPath").getAsString();
+        } catch (Exception e) {
+            System.err.println("[Preferences] favoriteServers 字段损坏，已跳过: " + e.getMessage());
+        }
+        try {
             if (o.has("launchPresets") && o.get("launchPresets").isJsonObject()) {
                 launchPresets.clear();
                 JsonObject presetsObj = o.getAsJsonObject("launchPresets");
@@ -678,32 +829,24 @@ public final class Preferences {
                         JsonObject p = entry.getValue().getAsJsonObject();
                         launchPresets.put(entry.getKey(), new LaunchPreset(
                                 entry.getKey(),
-                                p.has("minMemoryMb") ? p.get("minMemoryMb").getAsInt() : 512,
-                                p.has("maxMemoryMb") ? p.get("maxMemoryMb").getAsInt() : 4096,
-                                p.has("gcType") && !p.get("gcType").isJsonNull() ? p.get("gcType").getAsString() : "G1GC",
-                                p.has("useAikarFlags") ? p.get("useAikarFlags").getAsBoolean() : true,
-                                p.has("customJvmArgs") && !p.get("customJvmArgs").isJsonNull() ? p.get("customJvmArgs").getAsString() : "",
-                                p.has("gameWindowWidth") ? p.get("gameWindowWidth").getAsInt() : 854,
-                                p.has("gameWindowHeight") ? p.get("gameWindowHeight").getAsInt() : 480,
-                                p.has("gameFullscreen") ? p.get("gameFullscreen").getAsBoolean() : false,
-                                p.has("gameDemo") ? p.get("gameDemo").getAsBoolean() : false,
-                                p.has("gameRenderer") && !p.get("gameRenderer").isJsonNull() ? p.get("gameRenderer").getAsString() : "AUTO",
-                                p.has("gameServerHost") && !p.get("gameServerHost").isJsonNull() ? p.get("gameServerHost").getAsString() : "",
-                                p.has("gameServerPort") ? p.get("gameServerPort").getAsInt() : 25565
+                                loadInt(p, "minMemoryMb", 512, 128, Integer.MAX_VALUE),
+                                loadInt(p, "maxMemoryMb", 4096, 512, Integer.MAX_VALUE),
+                                loadString(p, "gcType", "G1GC"),
+                                loadBool(p, "useAikarFlags", true),
+                                loadString(p, "customJvmArgs", ""),
+                                loadInt(p, "gameWindowWidth", 854, 1, Integer.MAX_VALUE),
+                                loadInt(p, "gameWindowHeight", 480, 1, Integer.MAX_VALUE),
+                                loadBool(p, "gameFullscreen", false),
+                                loadBool(p, "gameDemo", false),
+                                loadString(p, "gameRenderer", "AUTO"),
+                                loadString(p, "gameServerHost", ""),
+                                loadInt(p, "gameServerPort", 25565, 1, 65535)
                         ));
                     } catch (Exception ignored2) {}
                 }
             }
         } catch (Exception e) {
-            // 配置文件损坏：备份后保持默认，避免静默丢失用户数据
-            System.err.println("[Preferences] 配置文件解析失败，将备份后使用默认配置: " + e.getMessage());
-            try {
-                java.nio.file.Path backup = file.resolveSibling(file.getFileName() + ".corrupt");
-                Files.move(file, backup, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                System.err.println("[Preferences] 损坏文件已备份至: " + backup);
-            } catch (Exception backupErr) {
-                System.err.println("[Preferences] 备份损坏文件失败: " + backupErr.getMessage());
-            }
+            System.err.println("[Preferences] launchPresets 字段损坏，已跳过: " + e.getMessage());
         }
     }
 
@@ -713,8 +856,11 @@ public final class Preferences {
      * 连续快速调用（如拖动滑块、连续输入）时，仅最后一次调用后 200ms 才真正写盘，
      * 避免每个 setter 都触发完整的 JSON 序列化 + 文件 IO。
      * 内存状态在 synchronized 保护下始终即时生效。
+     * <p>
+     * M14 修复：声明 synchronized，确保 pendingSave 的 check-then-act 操作原子化，
+     * 防止多线程并发调用时竞态调度多次写入或丢失调度。
      */
-    protected void scheduleSave() {
+    protected synchronized void scheduleSave() {
         dirty = true;
         // 若有待执行或正在执行的防抖任务，不重复调度；
         // doSave 完成后会重新检查 dirty 并在需要时再次调度，避免漏写。
@@ -724,7 +870,8 @@ public final class Preferences {
     }
 
     /** 后台线程执行的实际写盘操作，在 synchronized 块内构建 JSON 快照后异步写盘。
-     *  采用 tmp + ATOMIC_MOVE 原子写入，防止崩溃导致配置文件损坏。 */
+     *  采用 tmp + ATOMIC_MOVE 原子写入，防止崩溃导致配置文件损坏。
+     *  M13 修复：磁盘写入通过 writeSnapshot() 在锁外执行，不阻塞 getter/setter。 */
     private void doSave() {
         JsonObject snapshot;
         synchronized (this) {
@@ -732,36 +879,11 @@ public final class Preferences {
             dirty = false;
             snapshot = buildJson();
         }
-        java.nio.file.Path tmp = null;
-        try {
-            java.nio.file.Path parent = file.getParent();
-            if (parent != null) Files.createDirectories(parent);
-            // 写入临时文件后原子移动到目标，避免崩溃中途写入损坏文件
-            tmp = parent == null
-                    ? java.nio.file.Paths.get(file.getFileName() + ".tmp")
-                    : parent.resolve(file.getFileName() + ".tmp");
-            Files.writeString(tmp, gson.toJson(snapshot), java.nio.charset.StandardCharsets.UTF_8);
-            try {
-                Files.move(tmp, file,
-                        java.nio.file.StandardCopyOption.ATOMIC_MOVE,
-                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-            } catch (java.nio.file.AtomicMoveNotSupportedException e) {
-                Files.move(tmp, file,
-                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-            }
-            tmp = null; // 移动成功，无需清理
-        } catch (Exception e) {
-            System.err.println("[Preferences] 配置保存失败: " + e.getMessage());
-            // 清理残留临时文件
-            if (tmp != null) {
-                try { Files.deleteIfExists(tmp); } catch (Exception ignored) {}
-            }
-        } finally {
-            // 修复漏调度：doSave 执行期间若有新的 setter 标记 dirty，需重新调度一次写盘
-            synchronized (this) {
-                if (dirty && (pendingSave == null || pendingSave.isDone())) {
-                    pendingSave = saveExecutor.schedule(this::doSave, SAVE_DEBOUNCE_MS, java.util.concurrent.TimeUnit.MILLISECONDS);
-                }
+        writeSnapshot(snapshot);
+        // 修复漏调度：doSave 执行期间若有新的 setter 标记 dirty，需重新调度一次写盘
+        synchronized (this) {
+            if (dirty && (pendingSave == null || pendingSave.isDone())) {
+                pendingSave = saveExecutor.schedule(this::doSave, SAVE_DEBOUNCE_MS, java.util.concurrent.TimeUnit.MILLISECONDS);
             }
         }
     }
@@ -791,6 +913,9 @@ public final class Preferences {
         for (String v : recentVersions) recentArr.add(v);
         o.add("recentVersions", recentArr);
         o.addProperty("lastSelectedVersion", lastSelectedVersion);
+        o.addProperty("lastOfflineUsername", lastOfflineUsername);
+        o.addProperty("githubSyncEnabled", githubSyncEnabled);
+        o.addProperty("githubRepo", githubRepo);
         JsonObject timesObj = new JsonObject();
         for (var entry : lastPlayedTimes.entrySet()) {
             timesObj.addProperty(entry.getKey(), entry.getValue());
@@ -840,6 +965,7 @@ public final class Preferences {
         o.addProperty("downloadRetryCount", downloadRetryCount);
         o.addProperty("enableResume", enableResume);
         o.addProperty("chunkedDownloadThreads", chunkedDownloadThreads);
+        o.addProperty("downloadThreads", downloadThreads);
         o.addProperty("versionIsolation", versionIsolation);
         o.addProperty("mioModeEnabled", mioModeEnabled);
         o.addProperty("mioModeJvm", mioModeJvm);
@@ -878,20 +1004,19 @@ public final class Preferences {
         return o;
     }
 
-    /** 立即同步保存到磁盘（取消待执行的防抖写入）。外部需要确保数据立即落盘时调用。
-     *  与 doSave() 一样使用 tmp + ATOMIC_MOVE 原子写入，防止崩溃损坏文件。 */
-    public synchronized void save() {
-        if (pendingSave != null) pendingSave.cancel(false);
-        dirty = false;
+    /**
+     * 将 JSON 快照写入磁盘（tmp + ATOMIC_MOVE 原子写入）。
+     * M13 修复：提取为独立方法，在锁外执行磁盘 IO，不阻塞 getter/setter。
+     */
+    private void writeSnapshot(JsonObject snapshot) {
         java.nio.file.Path tmp = null;
         try {
-            JsonObject o = buildJson();
             java.nio.file.Path parent = file.getParent();
             if (parent != null) Files.createDirectories(parent);
             tmp = parent == null
                     ? java.nio.file.Paths.get(file.getFileName() + ".tmp")
                     : parent.resolve(file.getFileName() + ".tmp");
-            Files.writeString(tmp, gson.toJson(o), java.nio.charset.StandardCharsets.UTF_8);
+            Files.writeString(tmp, gson.toJson(snapshot), java.nio.charset.StandardCharsets.UTF_8);
             try {
                 Files.move(tmp, file,
                         java.nio.file.StandardCopyOption.ATOMIC_MOVE,
@@ -902,17 +1027,54 @@ public final class Preferences {
             }
             tmp = null;
         } catch (Exception e) {
-            System.err.println("[Preferences] 立即保存失败: " + e.getMessage());
+            System.err.println("[Preferences] 配置写入磁盘失败: " + e.getMessage());
             if (tmp != null) {
                 try { Files.deleteIfExists(tmp); } catch (Exception ignored) {}
             }
         }
     }
 
-    /** 刷新所有待写入的修改到磁盘（供关闭钩子调用）。 */
-    public synchronized void flush() {
-        // 取消待执行的防抖任务，直接同步写盘
-        if (pendingSave != null) pendingSave.cancel(false);
-        doSave();
+    /**
+     * 立即同步保存到磁盘（取消待执行的防抖写入）。
+     * M13 修复：不再持有 synchronized 锁做磁盘 IO。
+     * 仅在 synchronized 块内构建快照 + 取消 pendingSave，磁盘写入在锁外执行。
+     */
+    public void save() {
+        JsonObject snapshot;
+        synchronized (this) {
+            if (pendingSave != null) pendingSave.cancel(false);
+            dirty = false;
+            snapshot = buildJson();
+        }
+        writeSnapshot(snapshot);
+    }
+
+    /**
+     * 刷新所有待写入的修改到磁盘（供关闭钩子调用）。
+     * M13 修复：不再持有 synchronized 锁做磁盘 IO。
+     */
+    public void flush() {
+        synchronized (this) {
+            if (pendingSave != null) pendingSave.cancel(false);
+        }
+        doSave(); // doSave 内部已正确地在锁内构建快照、锁外写盘
+    }
+
+    /**
+     * 关闭防抖写入线程池。应用退出时调用，释放后台线程资源。
+     * M16 修复：提供显式 shutdown 方法，而非依赖 daemon 线程在 JVM 退出时被杀死。
+     * 调用前会先 flush 确保所有待写入数据落盘。
+     */
+    public void shutdown() {
+        flush();
+        saveExecutor.shutdown();
+        try {
+            if (!saveExecutor.awaitTermination(3, java.util.concurrent.TimeUnit.SECONDS)) {
+                saveExecutor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            saveExecutor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
     }
 }

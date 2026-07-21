@@ -12,7 +12,9 @@ import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
 import com.pmcl.core.web.WikiBrowser
 import com.pmcl.ui.theme.LocalThemeState
+import com.pmcl.ui.theme.glassCardBorder
 import com.pmcl.ui.theme.glassCardColors
+import com.pmcl.ui.theme.glassCardElevation
 import com.pmcl.ui.viewmodel.LauncherViewModel
 
 /**
@@ -64,7 +66,7 @@ fun WikiPage(vm: LauncherViewModel) {
         }
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(wikiLinks, key = { it.first }) { (label, url) ->
-                Card(Modifier.fillMaxWidth(), colors = glassCardColors()) {
+                Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
                     Row(Modifier.padding(12.dp).fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically) {
                         Text(label, modifier = Modifier.weight(1f))

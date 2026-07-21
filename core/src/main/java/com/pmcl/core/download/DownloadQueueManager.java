@@ -558,7 +558,8 @@ public final class DownloadQueueManager {
             }
             throw e;
         } finally {
-            if (task.status == TaskStatus.DONE) clearResumeWork(task.id);
+            // M52 修复：所有终态（DONE/FAILED/CANCELLED）都清理 resumeWork，避免内存泄漏
+            if (isTerminalStatus(task.status)) clearResumeWork(task.id);
         }
     }
 
@@ -585,7 +586,7 @@ public final class DownloadQueueManager {
                 task.completedBytes = 1;
             }
         } finally {
-            if (task.status == TaskStatus.DONE) clearResumeWork(task.id);
+            if (isTerminalStatus(task.status)) clearResumeWork(task.id);
         }
     }
 
@@ -602,7 +603,7 @@ public final class DownloadQueueManager {
             }).join();
             task.completedBytes = task.totalBytes;
         } finally {
-            if (task.status == TaskStatus.DONE) clearResumeWork(task.id);
+            if (isTerminalStatus(task.status)) clearResumeWork(task.id);
         }
     }
 
@@ -634,8 +635,15 @@ public final class DownloadQueueManager {
             if (e instanceof RuntimeException) throw (RuntimeException) e;
             throw new RuntimeException(e);
         } finally {
-            if (task.status == TaskStatus.DONE) clearResumeWork(task.id);
+            if (isTerminalStatus(task.status)) clearResumeWork(task.id);
         }
+    }
+
+    /** M52: 判断任务是否处于终态（DONE/FAILED/CANCELLED），终态需清理 resumeWork */
+    private static boolean isTerminalStatus(TaskStatus status) {
+        return status == TaskStatus.DONE
+                || status == TaskStatus.FAILED
+                || status == TaskStatus.CANCELLED;
     }
 
     /** 关闭队列管理器，释放线程池 */

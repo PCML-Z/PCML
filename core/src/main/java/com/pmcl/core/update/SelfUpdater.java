@@ -41,17 +41,24 @@ public final class SelfUpdater {
         private final String version;
         private final String url;
         private final String sha1;
+        private final String sha256;  // M54: 增加 SHA-256 校验（SHA-1 已不安全）
         private final long size;
         private final String notes;
 
         public UpdateInfo(String version, String url, String sha1, long size, String notes) {
+            this(version, url, sha1, null, size, notes);
+        }
+
+        public UpdateInfo(String version, String url, String sha1, String sha256, long size, String notes) {
             this.version = version; this.url = url;
-            this.sha1 = sha1; this.size = size;
+            this.sha1 = sha1; this.sha256 = sha256;
+            this.size = size;
             this.notes = notes;
         }
         public String getVersion() { return version; }
         public String getUrl() { return url; }
         public String getSha1() { return sha1; }
+        public String getSha256() { return sha256; }
         public long getSize() { return size; }
         public String getNotes() { return notes; }
     }
@@ -71,6 +78,7 @@ public final class SelfUpdater {
                         ver,
                         o.has("url") && !o.get("url").isJsonNull() ? o.get("url").getAsString() : "",
                         o.has("sha1") && !o.get("sha1").isJsonNull() ? o.get("sha1").getAsString() : "",
+                        o.has("sha256") && !o.get("sha256").isJsonNull() ? o.get("sha256").getAsString() : "",
                         o.has("size") && !o.get("size").isJsonNull() ? o.get("size").getAsLong() : 0L,
                         o.has("notes") && !o.get("notes").isJsonNull() ? o.get("notes").getAsString() : "");
             } catch (IOException e) {
@@ -87,8 +95,14 @@ public final class SelfUpdater {
                 tmp = Files.createTempFile("pmcl-update-", ".jar");
                 Files.deleteIfExists(tmp);
                 downloadManager.downloadTo(info.getUrl(), tmp);
-                // 校验
-                if (info.getSha1() != null && !info.getSha1().isEmpty()) {
+                // M54 修复：优先校验 SHA-256（更强），回退 SHA-1（兼容旧清单）
+                String sha256 = info.getSha256();
+                if (sha256 != null && !sha256.isEmpty()) {
+                    String actual = sha256(tmp);
+                    if (!actual.equalsIgnoreCase(sha256)) {
+                        throw new IOException("更新文件 SHA-256 校验失败：期望 " + sha256 + " 实际 " + actual);
+                    }
+                } else if (info.getSha1() != null && !info.getSha1().isEmpty()) {
                     String actual = sha1(tmp);
                     if (!actual.equalsIgnoreCase(info.getSha1())) {
                         throw new IOException("更新文件 SHA1 校验失败");
@@ -113,19 +127,28 @@ public final class SelfUpdater {
     }
 
     private static String sha1(Path file) throws IOException {
+        return hash(file, "SHA-1");
+    }
+
+    /** M54: SHA-256 计算，用于更强校验 */
+    private static String sha256(Path file) throws IOException {
+        return hash(file, "SHA-256");
+    }
+
+    private static String hash(Path file, String algorithm) throws IOException {
         try {
-            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-1");
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance(algorithm);
             try (var is = Files.newInputStream(file)) {
                 byte[] buf = new byte[8192];
                 int n;
                 while ((n = is.read(buf)) != -1) md.update(buf, 0, n);
             }
             byte[] digest = md.digest();
-            StringBuilder sb = new StringBuilder();
+            StringBuilder sb = new StringBuilder(digest.length * 2);
             for (byte b : digest) sb.append(String.format("%02x", b));
             return sb.toString();
         } catch (Exception e) {
-            throw new IOException("SHA1 计算失败", e);
+            throw new IOException(algorithm + " 计算失败", e);
         }
     }
 }

@@ -24,7 +24,6 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
-import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -97,6 +96,15 @@ public final class PluginManager {
     // Plugin configs (persisted per-plugin)
     private Map<String, Map<String, String>> pluginConfigs = new HashMap<>();
 
+    // M24 修复：异步事件派发线程池。慢 listener 不再阻塞调用方（loadPlugin/enablePlugin 等）。
+    // 使用守护线程，JVM 退出时自动终止；事件通知是 best-effort，无需等待。
+    private final java.util.concurrent.ExecutorService eventExecutor =
+            java.util.concurrent.Executors.newFixedThreadPool(4, r -> {
+                Thread t = new Thread(r, "pmcl-plugin-event");
+                t.setDaemon(true);
+                return t;
+            });
+
     public PluginManager(LauncherCore core) {
         this.core = core;
         this.pluginsDir = core.getConfig().getWorkDir().resolve(PLUGINS_DIR_NAME);
@@ -117,6 +125,11 @@ public final class PluginManager {
 
     @SuppressWarnings("unchecked")
     private void loadState() {
+        // M26 修复：先清理旧状态，确保 loadState 二次调用行为一致。
+        // 否则若 JSON 缺少某字段或解析失败，会残留前一次的数据，导致状态不一致。
+        // 使用 clear()+putAll() 而非 reassign，避免外部持有旧引用导致 stale read。
+        enabledState.clear();
+        pluginConfigs.clear();
         try {
             if (Files.exists(stateFile)) {
                 String json = Files.readString(stateFile, java.nio.charset.StandardCharsets.UTF_8);
@@ -124,11 +137,11 @@ public final class PluginManager {
                 if (state != null) {
                     Object enabled = state.get("enabled");
                     if (enabled instanceof Map) {
-                        enabledState = new HashMap<>((Map<String, Boolean>) enabled);
+                        enabledState.putAll((Map<String, Boolean>) enabled);
                     }
                     Object configs = state.get("configs");
                     if (configs instanceof Map) {
-                        pluginConfigs = (Map<String, Map<String, String>>) configs;
+                        pluginConfigs.putAll((Map<String, Map<String, String>>) configs);
                     }
                 }
             }
@@ -180,8 +193,8 @@ public final class PluginManager {
         }
         // Auto-enable plugins that were previously enabled
         for (PluginEntry entry : new ArrayList<>(loadedPlugins.values())) {
-            if (entry.state == PluginState.LOADED && isEnabled(entry.info.getId())) {
-                enablePlugin(entry.info.getId());
+            if (entry.getState() == PluginState.LOADED && isEnabled(entry.getInfo().getId())) {
+                enablePlugin(entry.getInfo().getId());
             }
         }
     }
@@ -192,6 +205,20 @@ public final class PluginManager {
      * @throws Exception if loading fails
      */
     public synchronized PluginInfo loadPlugin(Path jarPath) throws Exception {
+        // M25 修复：校验 jarPath 必须在 pluginsDir 下。
+        // 防止插件或未来代码被诱导加载任意路径（如系统目录、临时目录）的 JAR，
+        // 规避"插件从非受控位置加载"的安全风险。
+        // 注意：installFromPath 会先将源 JAR 复制到 pluginsDir，再调用 loadPlugin(target)，
+        // 因此该检查不影响正常安装流程。
+        Path normalizedJar = jarPath.normalize();
+        Path normalizedPlugins = pluginsDir.normalize();
+        if (!normalizedJar.startsWith(normalizedPlugins)) {
+            throw new IllegalArgumentException(
+                    "Plugin JAR must be inside plugins directory (" + normalizedPlugins +
+                    "), got: " + normalizedJar +
+                    ". Use installFromPath() to install from external locations.");
+        }
+
         // Parse descriptor
         PluginInfo info = parseDescriptor(jarPath);
         info.validate();
@@ -210,9 +237,11 @@ public final class PluginManager {
             }
         }
 
-        // Create classloader with PMCL classloader as parent
+        // Create classloader with PMCL classloader as parent — 使用隔离 ClassLoader
+        // 阻止插件直接加载 com.pmcl.core.* 内部类，强制走 getService
         URL[] urls = {jarPath.toUri().toURL()};
-        URLClassLoader classLoader = new URLClassLoader(urls, getClass().getClassLoader());
+        PluginIsolatingClassLoader classLoader = new PluginIsolatingClassLoader(
+                info.getId(), urls, getClass().getClassLoader());
 
         // Load main class — 异常路径关闭 classLoader 防止 jar 句柄泄漏
         PmclPlugin plugin;
@@ -230,10 +259,10 @@ public final class PluginManager {
         }
 
         // Create context
-        PluginContextImpl ctx = new PluginContextImpl(info.getId());
+        PluginContextImpl ctx = new PluginContextImpl(this, info.getId());
 
         PluginEntry entry = new PluginEntry(info, plugin, ctx, classLoader, jarPath);
-        entry.state = PluginState.LOADED;
+        entry.setState(PluginState.LOADED);
         loadedPlugins.put(info.getId(), entry);
 
         // Call onLoad
@@ -241,7 +270,7 @@ public final class PluginManager {
             plugin.onLoad();
         } catch (Exception e) {
             System.err.println("[PluginManager] onLoad failed for " + info.getId() + ": " + e.getMessage());
-            entry.state = PluginState.FAILED;
+            entry.setState(PluginState.FAILED);
             fireEvent(new PluginErrorEvent(info.getId(), e));
         }
 
@@ -257,13 +286,13 @@ public final class PluginManager {
     public synchronized void enablePlugin(String pluginId) {
         PluginEntry entry = loadedPlugins.get(pluginId);
         if (entry == null) throw new IllegalStateException("Plugin not loaded: " + pluginId);
-        if (entry.state == PluginState.ENABLED) return;
-        if (entry.state != PluginState.LOADED && entry.state != PluginState.DISABLED)
-            throw new IllegalStateException("Plugin not in loadable state: " + pluginId + " (" + entry.state + ")");
+        if (entry.getState() == PluginState.ENABLED) return;
+        if (entry.getState() != PluginState.LOADED && entry.getState() != PluginState.DISABLED)
+            throw new IllegalStateException("Plugin not in loadable state: " + pluginId + " (" + entry.getState() + ")");
 
         try {
-            entry.plugin.onEnable(entry.context);
-            entry.state = PluginState.ENABLED;
+            entry.getPlugin().onEnable(entry.getContext());
+            entry.setState(PluginState.ENABLED);
             enabledState.put(pluginId, true);
             saveState();
             System.out.println("[PluginManager] Enabled plugin: " + pluginId);
@@ -271,7 +300,7 @@ public final class PluginManager {
             fireEvent(new PluginEnabledEvent(pluginId));
         } catch (Exception e) {
             System.err.println("[PluginManager] Failed to enable " + pluginId + ": " + e.getMessage());
-            entry.state = PluginState.FAILED;
+            entry.setState(PluginState.FAILED);
             fireEvent(new PluginErrorEvent(pluginId, e));
         }
     }
@@ -282,10 +311,10 @@ public final class PluginManager {
     public synchronized void disablePlugin(String pluginId) {
         PluginEntry entry = loadedPlugins.get(pluginId);
         if (entry == null) return;
-        if (entry.state != PluginState.ENABLED) return;
+        if (entry.getState() != PluginState.ENABLED) return;
 
         try {
-            entry.plugin.onDisable();
+            entry.getPlugin().onDisable();
         } catch (Exception e) {
             System.err.println("[PluginManager] onDisable failed for " + pluginId + ": " + e.getMessage());
         }
@@ -298,7 +327,7 @@ public final class PluginManager {
         launchHooks.removeIf(h -> h instanceof TrackedLaunchHook &&
                 ((TrackedLaunchHook) h).pluginId.equals(pluginId));
 
-        entry.state = PluginState.DISABLED;
+        entry.setState(PluginState.DISABLED);
         enabledState.put(pluginId, false);
         saveState();
         System.out.println("[PluginManager] Disabled plugin: " + pluginId);
@@ -314,7 +343,7 @@ public final class PluginManager {
         PluginEntry entry = loadedPlugins.remove(pluginId);
         if (entry != null) {
             try {
-                entry.classLoader.close();
+                entry.getClassLoader().close();
             } catch (IOException e) {
                 System.err.println("[PluginManager] Failed to close classloader for " + pluginId);
             }
@@ -331,9 +360,9 @@ public final class PluginManager {
     public synchronized void reloadPlugin(String pluginId) throws Exception {
         PluginEntry entry = loadedPlugins.get(pluginId);
         if (entry == null) throw new IllegalStateException("Plugin not loaded: " + pluginId);
-        boolean wasEnabled = entry.state == PluginState.ENABLED;
-        Path sourcePath = entry.jarPath;
-        boolean wasPackage = entry.isPackage;
+        boolean wasEnabled = entry.getState() == PluginState.ENABLED;
+        Path sourcePath = entry.getJarPath();
+        boolean wasPackage = entry.isPackage();
         unloadPlugin(pluginId);
         if (wasPackage) {
             loadPluginPackage(sourcePath);
@@ -369,8 +398,15 @@ public final class PluginManager {
     /**
      * Install a plugin from a URL.
      * Downloads the JAR first, then installs.
+     * <p>
+     * S4+M69 安全修复：URL 必须通过 SSRF 校验，禁止指向内网/回环/链路本地地址，
+     * 防止用户被诱导从内部服务下载恶意插件。
      */
     public PluginInfo installFromUrl(String url) throws Exception {
+        String ssrfError = com.pmcl.core.util.SsrfChecker.validate(url);
+        if (ssrfError != null) {
+            throw new IllegalArgumentException("Plugin URL rejected (SSRF protection): " + ssrfError);
+        }
         Path tempFile = Files.createTempFile("pmcl-plugin-", ".jar");
         try {
             System.out.println("[PluginManager] Downloading plugin from: " + url);
@@ -419,8 +455,10 @@ public final class PluginManager {
         // Validate runtime structure (must have classes/)
         PluginPackageBuilder.validateRuntimeStructure(packageDir);
 
-        // Create classloader from classes/ + lib/*.jar
-        URLClassLoader classLoader = PluginPackageBuilder.createClassLoader(packageDir, pkg, getClass().getClassLoader());
+        // Create classloader from classes/ + lib/*.jar — 使用隔离 ClassLoader
+        // 阻止插件直接加载 com.pmcl.core.* 内部类，强制走 getService
+        PluginIsolatingClassLoader classLoader = PluginPackageBuilder.createClassLoader(
+                packageDir, pkg, getClass().getClassLoader());
 
         // Load main class
         Class<?> mainClass = classLoader.loadClass(info.getMainClass());
@@ -434,10 +472,10 @@ public final class PluginManager {
         PmclPlugin plugin = (PmclPlugin) mainClass.getDeclaredConstructor().newInstance();
 
         // Create context
-        PluginContextImpl ctx = new PluginContextImpl(info.getId());
+        PluginContextImpl ctx = new PluginContextImpl(this, info.getId());
 
         PluginEntry entry = new PluginEntry(info, plugin, ctx, classLoader, ppkPath, true);
-        entry.state = PluginState.LOADED;
+        entry.setState(PluginState.LOADED);
         loadedPlugins.put(info.getId(), entry);
 
         // Call onLoad
@@ -445,7 +483,7 @@ public final class PluginManager {
             plugin.onLoad();
         } catch (Exception e) {
             System.err.println("[PluginManager] onLoad failed for " + info.getId() + ": " + e.getMessage());
-            entry.state = PluginState.FAILED;
+            entry.setState(PluginState.FAILED);
             fireEvent(new PluginErrorEvent(info.getId(), e));
         }
 
@@ -487,8 +525,14 @@ public final class PluginManager {
     /**
      * Install a plugin package from a URL.
      * Downloads the .ppk first, then installs.
+     * <p>
+     * S4+M69 安全修复：URL 必须通过 SSRF 校验，禁止指向内网/回环/链路本地地址。
      */
     public PluginInfo installFromPackageUrl(String url) throws Exception {
+        String ssrfError = com.pmcl.core.util.SsrfChecker.validate(url);
+        if (ssrfError != null) {
+            throw new IllegalArgumentException("Plugin package URL rejected (SSRF protection): " + ssrfError);
+        }
         Path tempFile = Files.createTempFile("pmcl-plugin-", ".ppk");
         try {
             System.out.println("[PluginManager] Downloading plugin package from: " + url);
@@ -500,22 +544,57 @@ public final class PluginManager {
     }
 
     /**
-     * Uninstall a plugin (unload + delete JAR/.ppk + delete extracted dir + delete data).
+     * Uninstall a plugin (unload + delete JAR/.ppk + delete extracted files).
+     * <p>
+     * M27 修复：默认保留用户数据目录（plugins/&lt;id&gt;/data/），避免卸载后重新安装
+     * 同 id 插件时丢失配置/存档/缓存。如需彻底清除，调用 [uninstallPlugin(id, false)]。
+     *
+     * @param pluginId plugin id
      */
     public synchronized void uninstallPlugin(String pluginId) throws IOException {
+        uninstallPlugin(pluginId, true);
+    }
+
+    /**
+     * Uninstall a plugin with control over user data preservation.
+     *
+     * @param pluginId plugin id
+     * @param keepUserData true to preserve plugins/&lt;id&gt;/data/, false to delete everything
+     */
+    public synchronized void uninstallPlugin(String pluginId, boolean keepUserData) throws IOException {
         unloadPlugin(pluginId);
         // Delete the source file (could be .jar or .ppk)
         Path jar = pluginsDir.resolve(pluginId + ".jar");
         Path ppk = pluginsDir.resolve(pluginId + ".ppk");
         Files.deleteIfExists(jar);
         Files.deleteIfExists(ppk);
-        // Delete the extracted package directory (for .ppk plugins)
-        Path dataDir = pluginsDir.resolve(pluginId);
-        deleteDirectory(dataDir);
+        // M27 修复：删除解压的包文件，但可选保留 data/ 目录（用户数据）。
+        Path pluginDir = pluginsDir.resolve(pluginId);
+        Path dataDir = pluginDir.resolve("data");
+        if (Files.exists(pluginDir)) {
+            if (keepUserData && Files.exists(dataDir)) {
+                // 保留 data/：删除 pluginDir 下除 data/ 外的所有内容
+                try (var stream = Files.walk(pluginDir)) {
+                    stream.filter(p -> !p.equals(pluginDir))                          // 不删 pluginDir 本身
+                          .filter(p -> !p.equals(dataDir) && !p.startsWith(dataDir))  // 保留 data/ 及其内容
+                          .sorted((a, b) -> b.compareTo(a))                            // 反序：子先于父
+                          .forEach(p -> {
+                              try { Files.deleteIfExists(p); } catch (IOException ignored) {}
+                          });
+                }
+                // pluginDir 仍包含 data/，保留它
+            } else {
+                // 不保留数据：删除整个 pluginDir
+                deleteDirectory(pluginDir);
+            }
+        }
         enabledState.remove(pluginId);
         pluginConfigs.remove(pluginId);
         saveState();
-        System.out.println("[PluginManager] Uninstalled plugin: " + pluginId);
+        String dataNote = (keepUserData && Files.exists(dataDir))
+                ? " (user data preserved at " + dataDir + ")"
+                : "";
+        System.out.println("[PluginManager] Uninstalled plugin: " + pluginId + dataNote);
         bumpRevision();
     }
 
@@ -570,12 +649,17 @@ public final class PluginManager {
     // ==================== Event System ====================
 
     public void fireEvent(PmclEvent event) {
+        // M24 修复：异步派发——快照 listeners，提交到线程池，避免慢 listener 阻塞调用方。
+        // 注意：同一 listener 可能收到乱序事件；若需顺序保证，应在 listener 内部加队列。
+        // eventListeners 是 CopyOnWriteArrayList，迭代时自动快照，无需额外复制。
         for (EventListener listener : eventListeners) {
-            try {
-                listener.onEvent(event);
-            } catch (Exception e) {
-                System.err.println("[PluginManager] Event listener error: " + e.getMessage());
-            }
+            eventExecutor.submit(() -> {
+                try {
+                    listener.onEvent(event);
+                } catch (Exception e) {
+                    System.err.println("[PluginManager] Event listener error: " + e.getMessage());
+                }
+            });
         }
     }
 
@@ -608,7 +692,27 @@ public final class PluginManager {
     // ==================== Descriptor Parsing ====================
 
     private PluginInfo parseDescriptor(Path jarPath) throws Exception {
-        try (JarFile jar = new JarFile(jarPath.toFile())) {
+        // M28 修复：启用 JAR 签名校验。
+        // - new JarFile(file, true) 开启验签：读取任何 signed entry 时自动校验
+        //   若 JAR 被签名且 entry 被篡改 → getInputStream() 抛 SecurityException
+        // - 后续 classLoader.loadClass() 读取 .class entry 时也会触发验签
+        // - 若 JAR 未签名：允许加载（向后兼容现有插件生态），但记录警告
+        // - 若 JAR 已签名但验签失败：SecurityException 阻止加载被重打包的恶意插件
+        try (JarFile jar = new JarFile(jarPath.toFile(), true)) {
+            // 检测 JAR 是否包含签名块（META-INF/*.SF / *.RSA / *.DSA / *.EC）
+            boolean isSigned = false;
+            try (var entryStream = jar.stream()) {
+                isSigned = entryStream.anyMatch(e -> {
+                    String n = e.getName();
+                    return n.startsWith("META-INF/") &&
+                            (n.endsWith(".SF") || n.endsWith(".RSA") || n.endsWith(".DSA") || n.endsWith(".EC"));
+                });
+            }
+            if (!isSigned) {
+                System.err.println("[PluginManager] WARNING: plugin JAR is not signed (" +
+                        jarPath + ") — integrity cannot be verified against tampering.");
+            }
+
             JarEntry entry = jar.getJarEntry(PluginInfo.PROPERTIES_PATH);
             if (entry == null) {
                 throw new IllegalArgumentException(
@@ -617,8 +721,11 @@ public final class PluginManager {
                         "(case-sensitive). See PluginInfo docs for format specification.");
             }
             Properties props = new Properties();
+            // M21 修复：Properties.load(InputStream) 默认 ISO-8859-1，中文插件名/描述会乱码。
+            // 改用 Reader + UTF-8，与 .ppk 包内 META-INF/pmcl-plugin.properties 的实际编码一致。
+            // M28：getInputStream 在 verify=true 模式下会自动验签当前 entry
             try (InputStream is = jar.getInputStream(entry)) {
-                props.load(is);
+                props.load(new java.io.InputStreamReader(is, java.nio.charset.StandardCharsets.UTF_8));
             }
 
             // Read required fields — must be present and non-blank
@@ -671,8 +778,17 @@ public final class PluginManager {
             String license = props.getProperty(PluginInfo.KEY_LICENSE, "");
             if (license != null && license.isBlank()) license = "";
 
+            // Read permissions (optional) — comma-separated list of PluginPermission names
+            String permsStr = props.getProperty(PluginInfo.KEY_PERMISSIONS, "");
+            if (permsStr != null && permsStr.isBlank()) permsStr = "";
+            List<String> permissions = permsStr.isEmpty() ? Collections.emptyList() :
+                    Arrays.stream(permsStr.split(","))
+                            .map(String::trim)
+                            .filter(s -> !s.isEmpty())
+                            .collect(Collectors.toList());
+
             return new PluginInfo(id, name, version, author, description, apiVersion, mainClass,
-                    dependencies, website, license);
+                    dependencies, website, license, permissions);
         }
     }
 
@@ -703,24 +819,26 @@ public final class PluginManager {
         LOADED, ENABLED, DISABLED, FAILED
     }
 
-    /** A loaded plugin entry */
+    /** A loaded plugin entry.
+     *  M19 修复：所有字段 private，仅通过 getter 暴露只读视图；
+     *  state 转换通过包级 setState 方法，强制走 PluginManager 的状态机。 */
     public static class PluginEntry {
-        public final PluginInfo info;
-        public final PmclPlugin plugin;
-        public final PluginContextImpl context;
-        public final URLClassLoader classLoader;
-        public final Path jarPath;
+        private final PluginInfo info;
+        private final PmclPlugin plugin;
+        private final PluginContextImpl context;
+        private final PluginIsolatingClassLoader classLoader;
+        private final Path jarPath;
         /** Whether this plugin was loaded from a .ppk package (true) or a single .jar (false). */
-        public final boolean isPackage;
-        public PluginState state;
+        private final boolean isPackage;
+        private volatile PluginState state;
 
         PluginEntry(PluginInfo info, PmclPlugin plugin, PluginContextImpl context,
-                    URLClassLoader classLoader, Path jarPath) {
+                    PluginIsolatingClassLoader classLoader, Path jarPath) {
             this(info, plugin, context, classLoader, jarPath, false);
         }
 
         PluginEntry(PluginInfo info, PmclPlugin plugin, PluginContextImpl context,
-                    URLClassLoader classLoader, Path jarPath, boolean isPackage) {
+                    PluginIsolatingClassLoader classLoader, Path jarPath, boolean isPackage) {
             this.info = info;
             this.plugin = plugin;
             this.context = context;
@@ -728,6 +846,19 @@ public final class PluginManager {
             this.jarPath = jarPath;
             this.isPackage = isPackage;
             this.state = PluginState.LOADED;
+        }
+
+        public PluginInfo getInfo() { return info; }
+        public PmclPlugin getPlugin() { return plugin; }
+        public PluginContextImpl getContext() { return context; }
+        public PluginIsolatingClassLoader getClassLoader() { return classLoader; }
+        public Path getJarPath() { return jarPath; }
+        public boolean isPackage() { return isPackage; }
+        public PluginState getState() { return state; }
+
+        /** 包级状态转换方法：仅 PluginManager 可调用，确保状态机一致性 */
+        void setState(PluginState newState) {
+            this.state = newState;
         }
     }
 
@@ -792,47 +923,90 @@ public final class PluginManager {
 
     // ==================== PluginContext Implementation ====================
 
-    public class PluginContextImpl implements PluginContext {
+    // M20 修复：改为静态内部类，避免持有外部 PluginManager 引用导致的 GC 障碍；
+    // 通过构造函数显式注入 manager。
+    public static class PluginContextImpl implements PluginContext {
+        private final PluginManager manager;
         private final String pluginId;
 
-        PluginContextImpl(String pluginId) {
+        PluginContextImpl(PluginManager manager, String pluginId) {
+            this.manager = manager;
             this.pluginId = pluginId;
         }
 
         @Override
         @SuppressWarnings("unchecked")
         public <T> T getService(Class<T> type) {
-            if (type == LauncherCore.class) return (T) core;
-            if (type == com.pmcl.core.preferences.Preferences.class) return (T) core.getPreferences();
-            if (type == com.pmcl.core.version.VersionManager.class) return (T) core.versions();
-            if (type == com.pmcl.core.download.DownloadManager.class) return (T) core.downloads();
-            if (type == com.pmcl.core.launch.LaunchManager.class) return (T) core.launch();
-            if (type == com.pmcl.core.multiplayer.MultiplayerManager.class) return (T) core.multiplayer();
-            if (type == com.pmcl.core.auth.AuthService.class) return (T) core.auth();
-            if (type == com.pmcl.core.install.VersionInstaller.class) return (T) core.install();
-            if (type == com.pmcl.core.modloader.ModLoaderManager.class) return (T) core.modLoaders();
-            if (type == com.pmcl.core.market.ModMarketManager.class) return (T) core.modMarket();
-            if (type == com.pmcl.core.mods.ModManager.class) return (T) core.modManager();
-            if (type == com.pmcl.core.news.NewsClient.class) return (T) core.news();
-            if (type == com.pmcl.core.migration.MigrationManager.class) return (T) core.migration();
-            if (type == com.pmcl.core.runtime.RuntimeManager.class) return (T) core.runtime();
-            if (type == com.pmcl.core.runtime.JavaRuntimeDownloader.class) return (T) core.javaDownloader();
-            if (type == com.pmcl.core.update.SelfUpdater.class) return (T) core.selfUpdater();
-            if (type == com.pmcl.core.gamecontent.WorldManager.class) return (T) core.worlds();
-            if (type == com.pmcl.core.gamecontent.ScreenshotManager.class) return (T) core.screenshots();
-            if (type == com.pmcl.core.gamecontent.ResourcePackManager.class) return (T) core.resourcePacks();
-            if (type == com.pmcl.core.gamecontent.ShaderPackManager.class) return (T) core.shaderPacks();
-            if (type == com.pmcl.core.gamecontent.DatapackManager.class) return (T) core.datapacks();
-            if (type == com.pmcl.core.install.IntegrityChecker.class) return (T) core.integrity();
-            if (type == com.pmcl.core.launch.CrashAnalyzer.class) return (T) core.crashAnalyzer();
-            if (type == com.pmcl.core.launch.ProcessMonitor.class) return (T) core.processMonitor();
-            if (type == com.pmcl.core.launch.LaunchProfileBuilder.class) return (T) core.profileBuilder();
+            // 权限校验：敏感服务要求插件声明对应权限
+            String requiredPermission = requiredPermissionFor(type);
+            if (requiredPermission != null) {
+                PluginEntry entry = manager.loadedPlugins.get(pluginId);
+                List<String> perms = (entry != null) ? entry.getInfo().getPermissions() : java.util.Collections.emptyList();
+                if (!perms.contains(requiredPermission)) {
+                    System.err.println("[PluginManager] SECURITY: plugin '" + pluginId
+                            + "' attempted to access " + type.getSimpleName()
+                            + " without declaring permission " + requiredPermission);
+                    throw new SecurityException(
+                            "Plugin '" + pluginId + "' lacks required permission '" + requiredPermission
+                            + "' to access " + type.getSimpleName()
+                            + ". Declare it via 'plugin.permissions=" + requiredPermission
+                            + "' in META-INF/pmcl-plugin.properties.");
+                }
+                // 审计日志：敏感服务访问记录
+                System.err.println("[PluginManager] AUDIT: plugin '" + pluginId
+                        + "' acquired " + type.getSimpleName()
+                        + " (permission=" + requiredPermission + ")");
+            }
+
+            if (type == LauncherCore.class) return (T) manager.core;
+            if (type == com.pmcl.core.preferences.Preferences.class) return (T) manager.core.getPreferences();
+            if (type == com.pmcl.core.version.VersionManager.class) return (T) manager.core.versions();
+            if (type == com.pmcl.core.download.DownloadManager.class) return (T) manager.core.downloads();
+            if (type == com.pmcl.core.launch.LaunchManager.class) return (T) manager.core.launch();
+            if (type == com.pmcl.core.multiplayer.MultiplayerManager.class) return (T) manager.core.multiplayer();
+            if (type == com.pmcl.core.auth.AuthService.class) return (T) manager.core.auth();
+            if (type == com.pmcl.core.install.VersionInstaller.class) return (T) manager.core.install();
+            if (type == com.pmcl.core.modloader.ModLoaderManager.class) return (T) manager.core.modLoaders();
+            if (type == com.pmcl.core.market.ModMarketManager.class) return (T) manager.core.modMarket();
+            if (type == com.pmcl.core.mods.ModManager.class) return (T) manager.core.modManager();
+            if (type == com.pmcl.core.news.NewsClient.class) return (T) manager.core.news();
+            if (type == com.pmcl.core.migration.MigrationManager.class) return (T) manager.core.migration();
+            if (type == com.pmcl.core.runtime.RuntimeManager.class) return (T) manager.core.runtime();
+            if (type == com.pmcl.core.runtime.JavaRuntimeDownloader.class) return (T) manager.core.javaDownloader();
+            if (type == com.pmcl.core.update.SelfUpdater.class) return (T) manager.core.selfUpdater();
+            if (type == com.pmcl.core.gamecontent.WorldManager.class) return (T) manager.core.worlds();
+            if (type == com.pmcl.core.gamecontent.ScreenshotManager.class) return (T) manager.core.screenshots();
+            if (type == com.pmcl.core.gamecontent.ResourcePackManager.class) return (T) manager.core.resourcePacks();
+            if (type == com.pmcl.core.gamecontent.ShaderPackManager.class) return (T) manager.core.shaderPacks();
+            if (type == com.pmcl.core.gamecontent.DatapackManager.class) return (T) manager.core.datapacks();
+            if (type == com.pmcl.core.install.IntegrityChecker.class) return (T) manager.core.integrity();
+            if (type == com.pmcl.core.launch.CrashAnalyzer.class) return (T) manager.core.crashAnalyzer();
+            if (type == com.pmcl.core.launch.ProcessMonitor.class) return (T) manager.core.processMonitor();
+            if (type == com.pmcl.core.launch.LaunchProfileBuilder.class) return (T) manager.core.profileBuilder();
+            return null;
+        }
+
+        /**
+         * 返回访问给定服务类型所需的权限名称。返回 null 表示该服务无需特殊权限。
+         * 与 PluginPermission 枚举中的常量名匹配。
+         */
+        private static String requiredPermissionFor(Class<?> type) {
+            // 含 token / 账号凭据
+            if (type == com.pmcl.core.auth.AuthService.class) return "READ_ACCOUNTS";
+            // 可启动/停止 Minecraft 进程
+            if (type == com.pmcl.core.launch.LaunchManager.class) return "CONTROL_LAUNCH";
+            if (type == com.pmcl.core.launch.LaunchProfileBuilder.class) return "CONTROL_LAUNCH";
+            // 可杀死进程
+            if (type == com.pmcl.core.launch.ProcessMonitor.class) return "KILL_PROCESS";
+            // 可替换启动器 JAR
+            if (type == com.pmcl.core.update.SelfUpdater.class) return "SELF_UPDATE";
+            // 其他服务（Preferences/VersionManager/DownloadManager 等）默认开放
             return null;
         }
 
         @Override
         public Path getDataDir() {
-            Path dir = pluginsDir.resolve(pluginId).resolve("data");
+            Path dir = manager.pluginsDir.resolve(pluginId).resolve("data");
             try {
                 Files.createDirectories(dir);
             } catch (IOException e) {
@@ -843,17 +1017,17 @@ public final class PluginManager {
 
         @Override
         public String getConfig(String key) {
-            synchronized (PluginManager.this) {
-                Map<String, String> cfg = pluginConfigs.get(pluginId);
+            synchronized (manager) {
+                Map<String, String> cfg = manager.pluginConfigs.get(pluginId);
                 return cfg != null ? cfg.get(key) : null;
             }
         }
 
         @Override
         public void setConfig(String key, String value) {
-            synchronized (PluginManager.this) {
-                pluginConfigs.computeIfAbsent(pluginId, k -> new HashMap<>()).put(key, value);
-                saveState();
+            synchronized (manager) {
+                manager.pluginConfigs.computeIfAbsent(pluginId, k -> new HashMap<>()).put(key, value);
+                manager.saveState();
             }
         }
 
@@ -897,9 +1071,9 @@ public final class PluginManager {
             if (handler == null) {
                 throw new NullPointerException("Command handler must not be null (command: " + name + ", plugin: " + pluginId + ")");
             }
-            synchronized (PluginManager.this) {
+            synchronized (manager) {
                 // Check for duplicate command name within the same plugin
-                List<RegisteredCommand> existing = customCommands.get(pluginId);
+                List<RegisteredCommand> existing = manager.customCommands.get(pluginId);
                 if (existing != null) {
                     for (RegisteredCommand c : existing) {
                         if (c.name.equals(name)) {
@@ -909,7 +1083,7 @@ public final class PluginManager {
                     }
                 }
                 RegisteredCommand cmd = new RegisteredCommand(pluginId, name, description, handler);
-                customCommands.computeIfAbsent(pluginId, k -> new ArrayList<>()).add(cmd);
+                manager.customCommands.computeIfAbsent(pluginId, k -> new ArrayList<>()).add(cmd);
             }
         }
 
@@ -932,9 +1106,9 @@ public final class PluginManager {
             if (content == null) {
                 throw new NullPointerException("Page content must not be null (page: " + id + ", plugin: " + pluginId + ")");
             }
-            synchronized (PluginManager.this) {
+            synchronized (manager) {
                 // Check for duplicate page id within the same plugin
-                List<RegisteredPage> existingPages = customPages.get(pluginId);
+                List<RegisteredPage> existingPages = manager.customPages.get(pluginId);
                 if (existingPages != null) {
                     for (RegisteredPage p : existingPages) {
                         if (p.id.equals(id)) {
@@ -944,23 +1118,23 @@ public final class PluginManager {
                     }
                 }
                 RegisteredPage page = new RegisteredPage(pluginId, id, title, content);
-                customPages.computeIfAbsent(pluginId, k -> new ArrayList<>()).add(page);
+                manager.customPages.computeIfAbsent(pluginId, k -> new ArrayList<>()).add(page);
             }
         }
 
         @Override
         public void registerLaunchHook(LaunchHook hook) {
-            launchHooks.add(new TrackedLaunchHook(pluginId, hook));
+            manager.launchHooks.add(new TrackedLaunchHook(pluginId, hook));
         }
 
         @Override
         public void addEventListener(EventListener listener) {
-            eventListeners.add(new TrackedEventListener(pluginId, listener));
+            manager.eventListeners.add(new TrackedEventListener(pluginId, listener));
         }
 
         @Override
         public void fireEvent(PmclEvent event) {
-            PluginManager.this.fireEvent(event);
+            manager.fireEvent(event);
         }
     }
 }

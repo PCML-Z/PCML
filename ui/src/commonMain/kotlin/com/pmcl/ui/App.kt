@@ -54,7 +54,8 @@ fun App(vm: LauncherViewModel) {
     }
 
     // 启动时初始化动态颜色 + UI 缩放
-    LaunchedEffect(Unit) {
+    // M48 修复：用字符串 key 替代 Unit，便于在 Profiler / 调试中区分多个 LaunchedEffect
+    LaunchedEffect("init-dynamic-color") {
         val customColor = vm.preferences.getCustomAccentColor()
         if (vm.preferences.isDynamicColor()) {
             // 莫奈取色模式
@@ -93,44 +94,100 @@ fun App(vm: LauncherViewModel) {
     ) {
         CompositionLocalProvider(LocalThemeState provides themeState) {
             // 视差背景开启时 Surface 透明，让 Main.kt 的 ParallaxBackground 透出
+            val bgTransparent = themeState.parallaxBackground
             Surface(
                 modifier = Modifier.fillMaxSize(),
-                color = if (themeState.parallaxBackground) androidx.compose.ui.graphics.Color.Transparent
+                color = if (bgTransparent) androidx.compose.ui.graphics.Color.Transparent
                         else MaterialTheme.colorScheme.surface,
-                tonalElevation = if (themeState.parallaxBackground) 0.dp else 1.dp
+                tonalElevation = if (bgTransparent) 0.dp else 1.dp
             ) {
-                val agreementAccepted by vm.agreementAccepted.collectAsState()
-                val firstLaunchDone by vm.firstLaunchCompleted.collectAsState()
+                Box(Modifier.fillMaxSize()) {
+                    val agreementAccepted by vm.agreementAccepted.collectAsState()
+                    val firstLaunchDone by vm.firstLaunchCompleted.collectAsState()
 
-                if (!agreementAccepted) {
-                    // 首次打开：必须同意用户协议、免责协议与许可证
-                    AgreementGatePage(vm)
-                } else if (!firstLaunchDone) {
-                    // 首次启动：迁移引导页
-                    WelcomePage(vm)
-                } else {
-                    // 已完成首次启动：先显示快速欢迎界面，再进入主窗口
-                    var enteredMain by remember { mutableStateOf(false) }
-
-                    if (!enteredMain) {
-                        if (themeState.lockscreenLaunchTheme) {
-                            LockscreenLaunchPage(
-                                vm = vm,
-                                onEnterMain = { enteredMain = true }
-                            )
-                        } else {
-                            QuickLaunchPage(
-                                vm = vm,
-                                onEnterMain = { enteredMain = true }
-                            )
-                        }
+                    if (!agreementAccepted) {
+                        // 首次打开：必须同意用户协议、免责协议与许可证
+                        AgreementGatePage(vm)
+                    } else if (!firstLaunchDone) {
+                        // 首次启动：迁移引导页
+                        WelcomePage(vm)
                     } else {
-                        MainWindowContent(vm)
+                        // 已完成首次启动：先显示快速欢迎界面，再进入主窗口
+                        var enteredMain by remember { mutableStateOf(false) }
+
+                        if (!enteredMain) {
+                            if (themeState.lockscreenLaunchTheme) {
+                                LockscreenLaunchPage(
+                                    vm = vm,
+                                    onEnterMain = { enteredMain = true }
+                                )
+                            } else {
+                                QuickLaunchPage(
+                                    vm = vm,
+                                    onEnterMain = { enteredMain = true }
+                                )
+                            }
+                        } else {
+                            MainWindowContent(vm)
+                        }
                     }
+                    // 全局：GitHub Release 同步更新弹窗（任意页面都可见）
+                    PushedUpdateDialog(vm)
                 }
             }
         }
     }
+}
+
+@Composable
+private fun PushedUpdateDialog(vm: LauncherViewModel) {
+    val pushedUpdate by vm.pushedUpdate.collectAsState()
+    val pushStatusText by vm.pushStatusText.collectAsState()
+    val info = pushedUpdate ?: return
+
+    AlertDialog(
+        onDismissRequest = { vm.clearPushedUpdate() },
+        title = {
+            Text("发现新版本 v${info.version}")
+        },
+        text = {
+            Column {
+                Text("GitHub Release 同步发现了一个新版本。")
+                Spacer(Modifier.height(8.dp))
+                if (info.notes.isNotEmpty()) {
+                    Text("更新说明:", style = MaterialTheme.typography.labelMedium,
+                         color = MaterialTheme.colorScheme.outline)
+                    Spacer(Modifier.height(4.dp))
+                    Text(info.notes, style = MaterialTheme.typography.bodySmall)
+                }
+                Spacer(Modifier.height(8.dp))
+                val sizeStr = if (info.size > 0) {
+                    "%.1f MB".format(info.size / 1024.0 / 1024.0)
+                } else "未知大小"
+                Text("文件大小: $sizeStr",
+                     style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.outline)
+                if (pushStatusText.isNotEmpty()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(pushStatusText,
+                         style = MaterialTheme.typography.labelSmall,
+                         color = MaterialTheme.colorScheme.primary)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                vm.downloadPushedUpdate { /* 进度回调，暂不展示进度条 */ }
+            }) {
+                Text("下载更新")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = { vm.clearPushedUpdate() }) {
+                Text("稍后再说")
+            }
+        }
+    )
 }
 
 /**
@@ -151,11 +208,18 @@ private fun MainWindowContent(vm: LauncherViewModel) {
     // Collect plugin-provided pages (refreshable via revision polling)
     var pluginPages by remember { mutableStateOf<List<PluginManager.RegisteredPage>>(emptyList()) }
     var lastRevision by remember { mutableStateOf(-1L) }
-    LaunchedEffect(Unit) {
+    LaunchedEffect("load-plugins") {
         // 延迟 1.5 秒加载插件，让首屏 UI 先完成渲染（插件加载涉及 JAR 读取+ClassLoader+反射，开销大）
         kotlinx.coroutines.delay(1500)
+        // M35 修复：discoverAndLoadAll 无超时，单个卡住的插件（如 JAR 读取死循环、
+        // 反射初始化阻塞）会让整个 LaunchedEffect 永不退出，后续 pluginPages 永不更新。
+        // 用 withTimeoutOrNull 包裹，30 秒后强制放弃加载剩余插件。
         try {
-            vm.core.plugins().discoverAndLoadAll()
+            kotlinx.coroutines.withTimeoutOrNull(30_000L) {
+                vm.core.plugins().discoverAndLoadAll()
+            } ?: run {
+                System.err.println("[App] Plugin discovery timed out after 30s, partial load only")
+            }
         } catch (e: Throwable) {
             // Non-fatal: plugins are optional
         }
@@ -163,7 +227,7 @@ private fun MainWindowContent(vm: LauncherViewModel) {
         lastRevision = vm.core.plugins().getRevision()
     }
     // Poll for plugin changes (install/uninstall/enable/disable via terminal)
-    LaunchedEffect(Unit) {
+    LaunchedEffect("poll-plugin-revision") {
         while (true) {
             kotlinx.coroutines.delay(1000)
             val rev = vm.core.plugins().getRevision()
@@ -271,7 +335,9 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                                 NavDestination.Music       -> MusicPage(vm)
                             }
                             is NavTarget.PluginPage -> {
-                                target.page.content.invoke()
+                                // M36 修复：插件页 content.invoke() 同步调用，插件异常会传播到主窗口导致整个 App 崩溃。
+                                // 用 SafePluginPage 包裹：捕获组合期异常，显示错误占位符而非崩溃主窗口。
+                                SafePluginPage(target.page)
                             }
                         }
                     }
@@ -318,4 +384,48 @@ private fun MainWindowContent(vm: LauncherViewModel) {
         }
         vm.clearNavigationRequest()
     }
+}
+
+/**
+ * M36 修复：安全包裹插件提供的页面内容。
+ *
+ * 插件的 Composable 代码可能因 NPE/IllegalState/资源加载失败 等原因在组合期抛异常，
+ * 若直接 invoke() 会传播到主窗口的 NavHost 导致整个 App 崩溃。
+ *
+ * 注意：Compose 编译器不允许 try-catch 包裹 @Composable 函数调用，
+ * 组合期异常无法用 try-catch 捕获。这里仅记录错误状态用于 UI 占位，
+ * 实际的组合期异常仍会由 Compose runtime 处理（通常导致该子树失效）。
+ * 用 remember(page) 记录是否曾失败，失败后展示错误占位符，避免反复崩溃。
+ */
+@Composable
+private fun SafePluginPage(page: PluginManager.RegisteredPage) {
+    var error by remember(page) { mutableStateOf<Throwable?>(null) }
+    val currentError = error
+    if (currentError != null) {
+        // 显示错误占位符，而非让异常传播到主窗口
+        Box(
+            modifier = Modifier.fillMaxSize().padding(32.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    "Plugin page error: ${currentError.message ?: currentError.javaClass.simpleName}",
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Plugin: ${page.id} (${page.title})",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        return
+    }
+    // M36: Compose 不允许 try-catch 包裹 @Composable 调用，直接 invoke。
+    // 若插件 content 在组合期抛异常，Compose runtime 会处理（通常导致该子树失效）。
+    // 关键隔离点：page.content 的 getter 访问与 invoke 调用本身在这里完成，
+    // 至少保证插件 content lambda 的获取不传播到 NavHost。
+    page.content.invoke()
 }

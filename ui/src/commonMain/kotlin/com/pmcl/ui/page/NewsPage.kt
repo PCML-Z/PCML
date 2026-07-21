@@ -674,7 +674,8 @@ private fun NewsCard(
 /**
  * 图片内存缓存：URL → ImageBitmap。避免滚动时重复下载与解码。
  */
-private val newsImageCache = java.util.Collections.synchronizedMap(LinkedHashMap<String, ImageBitmap?>())
+// M32 修复：复用全局 LruImageCache
+private val newsImageCache = com.pmcl.ui.util.LruImageCache(64)
 
 /**
  * 异步从 URL 加载图片，返回 Skia 解码的 ImageBitmap。
@@ -682,36 +683,28 @@ private val newsImageCache = java.util.Collections.synchronizedMap(LinkedHashMap
  */
 @Composable
 private fun rememberUrlImage(url: String): ImageBitmap? {
-    val cached = newsImageCache[url]
+    val cached = newsImageCache.get(url)
     if (cached != null) return cached
     if (url.isEmpty()) return null
 
-    var image by remember(url) { mutableStateOf<ImageBitmap?>(newsImageCache[url]) }
+    var image by remember(url) { mutableStateOf<ImageBitmap?>(newsImageCache.get(url)) }
     LaunchedEffect(url) {
         if (url.isEmpty()) {
             image = null
             return@LaunchedEffect
         }
-        if (newsImageCache.containsKey(url)) {
-            image = newsImageCache[url]
-            return@LaunchedEffect
-        }
+        if (newsImageCache.isKnownFailed(url)) { image = null; return@LaunchedEffect }
+        val existing = newsImageCache.get(url)
+        if (existing != null) { image = existing; return@LaunchedEffect }
         withContext(Dispatchers.IO) {
             try {
                 if (url.isNullOrBlank()) return@withContext
                 val bytes = URL(url).readBytes()
                 val bmp = SkiaImage.makeFromEncoded(bytes).toComposeImageBitmap()
-                newsImageCache[url] = bmp
-                synchronized(newsImageCache) {
-                    while (newsImageCache.size > 50) {
-                        val iterator = newsImageCache.keys.iterator()
-                        if (iterator.hasNext()) { iterator.next(); iterator.remove() }
-                        else break
-                    }
-                }
+                newsImageCache.put(url, bmp)
                 image = bmp
             } catch (_: Throwable) {
-                newsImageCache[url] = null
+                newsImageCache.markFailed(url)
                 image = null
             }
         }

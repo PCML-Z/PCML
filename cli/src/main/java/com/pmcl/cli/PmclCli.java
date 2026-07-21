@@ -1753,15 +1753,15 @@ public final class PmclCli {
         System.out.printf("Loaded plugins (%d):%n", plugins.size());
         System.out.println(SEP);
         for (PluginManager.PluginEntry entry : plugins) {
-            String stateIcon = switch (entry.state) {
+            String stateIcon = switch (entry.getState()) {
                 case ENABLED -> "[ENABLED]";
                 case LOADED -> "[LOADED]";
                 case DISABLED -> "[DISABLED]";
                 case FAILED -> "[FAILED]";
             };
             System.out.printf("  %-12s %-25s v%-10s by %s%n",
-                    stateIcon, entry.info.getName(), entry.info.getVersion(), entry.info.getAuthor());
-            System.out.printf("  %14s id: %-20s api: %s%n", "", entry.info.getId(), entry.info.getApiVersion());
+                    stateIcon, entry.getInfo().getName(), entry.getInfo().getVersion(), entry.getInfo().getAuthor());
+            System.out.printf("  %14s id: %-20s api: %s%n", "", entry.getInfo().getId(), entry.getInfo().getApiVersion());
         }
         // Show custom commands from plugins
         List<PluginManager.RegisteredCommand> cmds = pm.getCustomCommands();
@@ -1871,7 +1871,7 @@ public final class PmclCli {
             System.err.println("Plugin not loaded: " + id);
             return;
         }
-        PluginInfo info = entry.info;
+        PluginInfo info = entry.getInfo();
         System.out.println(SEP);
         System.out.println("Plugin Details:");
         System.out.println(SEP);
@@ -1882,9 +1882,9 @@ public final class PmclCli {
         System.out.println("  Description:  " + info.getDescription());
         System.out.println("  API version:  " + info.getApiVersion());
         System.out.println("  Main class:   " + info.getMainClass());
-        System.out.println("  State:        " + entry.state);
-        System.out.println("  JAR path:     " + entry.jarPath);
-        System.out.println("  Data dir:     " + pm.getPlugin(id).context.getDataDir());
+        System.out.println("  State:        " + entry.getState());
+        System.out.println("  JAR path:     " + entry.getJarPath());
+        System.out.println("  Data dir:     " + pm.getPlugin(id).getContext().getDataDir());
         if (!info.getDependencies().isEmpty()) {
             System.out.println("  Dependencies: " + String.join(", ", info.getDependencies()));
         }

@@ -160,8 +160,18 @@ public final class ProcessTuner {
             "caffeinate", "-i", "-w", String.valueOf(pid));
         pb.redirectErrorStream(true);
         caffeinateProcess = pb.start();
-        // 读取输出避免管道阻塞
-        caffeinateProcess.getInputStream().transferTo(java.io.OutputStream.nullOutputStream());
+        // M79: transferTo 会阻塞调用线程直到 EOF（即 caffeinate 退出），
+        // 与 -w（等待游戏退出）语义叠加后会一直阻塞主线程。
+        // 改用守护线程异步读取输出，避免阻塞 UI/启动线程。
+        Thread reader = new Thread(() -> {
+            try (java.io.InputStream is = caffeinateProcess.getInputStream()) {
+                is.transferTo(java.io.OutputStream.nullOutputStream());
+            } catch (IOException ignored) {
+                // 进程被销毁时读取会失败，可忽略
+            }
+        }, "mio-caffeinate-reader");
+        reader.setDaemon(true);
+        reader.start();
         System.out.println("[MioMode] L2 已启动 caffeinate 防休眠: pid=" + pid);
     }
 
@@ -230,27 +240,41 @@ public final class ProcessTuner {
 
     /** 查询当前 lowpowermode 状态（0=关闭，1=开启），失败返回 null */
     private Integer queryLowPowerMode() {
+        // M78: try-finally 确保 Process 被销毁（Process 未实现 AutoCloseable）
+        Process p = null;
         try {
-            Process p = new ProcessBuilder("pmset", "-g").redirectErrorStream(true).start();
-            String out = new String(p.getInputStream().readAllBytes());
-            p.waitFor();
+            p = new ProcessBuilder("pmset", "-g").redirectErrorStream(true).start();
+            String out = new String(p.getInputStream().readAllBytes(),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            if (!p.waitFor(5, TimeUnit.SECONDS)) {
+                return null;
+            }
             // pmset -g 输出含 "lowpowermode     0" 或 "lowpowermode     1"
             java.util.regex.Matcher m = java.util.regex.Pattern.compile(
                 "lowpowermode\\s+(\\d)").matcher(out);
             if (m.find()) return Integer.parseInt(m.group(1));
         } catch (Exception e) {
             System.err.println("[MioMode] 查询 lowpowermode 失败: " + e.getMessage());
+        } finally {
+            if (p != null) p.destroyForcibly();
         }
         return null;
     }
 
     private void runCommand(String... cmd) throws IOException {
-        Process p = new ProcessBuilder(cmd).redirectErrorStream(true).start();
+        // M78: try-finally 确保 Process 被销毁
+        Process p = null;
         try {
+            p = new ProcessBuilder(cmd).redirectErrorStream(true).start();
             p.getInputStream().transferTo(java.io.OutputStream.nullOutputStream());
-            p.waitFor(5, TimeUnit.SECONDS);
+            if (!p.waitFor(5, TimeUnit.SECONDS)) {
+                // 超时不抛异常：调用方依赖 runCommand 静默降级语义
+                // finally 中 destroyForcibly 兜底销毁
+            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+        } finally {
+            if (p != null) p.destroyForcibly();
         }
     }
 }

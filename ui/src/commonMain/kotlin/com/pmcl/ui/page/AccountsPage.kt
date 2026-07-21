@@ -28,7 +28,9 @@ import androidx.compose.ui.unit.dp
 import com.pmcl.core.auth.Account
 import com.pmcl.core.i18n.I18n
 import com.pmcl.ui.theme.LocalThemeState
+import com.pmcl.ui.theme.glassCardBorder
 import com.pmcl.ui.theme.glassCardColors
+import com.pmcl.ui.theme.glassCardElevation
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -79,7 +81,7 @@ fun AccountsPage(vm: LauncherViewModel) {
         }
 
         // 当前账号 + 皮肤预览
-        Card(Modifier.fillMaxWidth(), colors = glassCardColors()) {
+        Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
             Column(Modifier.padding(16.dp)) {
                 Text(I18n.t("accounts.current"), style = MaterialTheme.typography.titleSmall,
                      fontWeight = FontWeight.SemiBold)
@@ -141,7 +143,7 @@ fun AccountsPage(vm: LauncherViewModel) {
 
         // 自定义皮肤（仅离线账号）
         if (account?.getType() == Account.AccountType.OFFLINE) {
-            Card(Modifier.fillMaxWidth(), colors = glassCardColors()) {
+            Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
                 Column(Modifier.padding(16.dp)) {
                     Text(I18n.t("accounts.custom_skin"), style = MaterialTheme.typography.titleSmall,
                          fontWeight = FontWeight.SemiBold)
@@ -184,7 +186,7 @@ fun AccountsPage(vm: LauncherViewModel) {
         }
 
         // 离线登录卡片
-        Card(Modifier.fillMaxWidth(), colors = glassCardColors()) {
+        Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
             Column(Modifier.padding(16.dp)) {
                 Text(I18n.t("accounts.offline"), style = MaterialTheme.typography.titleSmall,
                      fontWeight = FontWeight.SemiBold)
@@ -205,7 +207,7 @@ fun AccountsPage(vm: LauncherViewModel) {
         Spacer(Modifier.height(16.dp))
 
         // 微软登录卡片
-        Card(Modifier.fillMaxWidth(), colors = glassCardColors()) {
+        Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
             Column(Modifier.padding(16.dp)) {
                 Text(I18n.t("accounts.microsoft"), style = MaterialTheme.typography.titleSmall,
                      fontWeight = FontWeight.SemiBold)
@@ -269,7 +271,7 @@ fun AccountsPage(vm: LauncherViewModel) {
         Spacer(Modifier.height(16.dp))
 
         // GitHub 登录卡片
-        Card(Modifier.fillMaxWidth(), colors = glassCardColors()) {
+        Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
             Column(Modifier.padding(16.dp)) {
                 Text(I18n.t("accounts.github"), style = MaterialTheme.typography.titleSmall,
                      fontWeight = FontWeight.SemiBold)
@@ -551,30 +553,27 @@ private fun AccountRow(
 }
 
 // ============ 皮肤图片加载（带内存缓存） ============
-
-private val skinImageCache = java.util.Collections.synchronizedMap(
-    object : LinkedHashMap<String, ImageBitmap?>(32, 0.75f, true) {
-        override fun removeEldestEntry(eldest: Map.Entry<String, ImageBitmap?>): Boolean {
-            return size > 50
-        }
-    })
+// M32 修复：复用全局 LruImageCache
+private val skinImageCache = com.pmcl.ui.util.LruImageCache(64)
 
 /** 异步加载皮肤图片，带内存缓存 */
 @Composable
 private fun SkinImage(url: String, sizePx: Int) {
-    var image by remember(url) { mutableStateOf<ImageBitmap?>(skinImageCache[url]) }
+    var image by remember(url) { mutableStateOf<ImageBitmap?>(skinImageCache.get(url)) }
     LaunchedEffect(url) {
         if (url.isEmpty()) { image = null; return@LaunchedEffect }
-        if (skinImageCache.containsKey(url)) { image = skinImageCache[url]; return@LaunchedEffect }
+        if (skinImageCache.isKnownFailed(url)) { image = null; return@LaunchedEffect }
+        val existing = skinImageCache.get(url)
+        if (existing != null) { image = existing; return@LaunchedEffect }
         withContext(Dispatchers.IO) {
             try {
                 if (url.isNullOrBlank()) return@withContext
                 val bytes = URL(url).readBytes()
                 val bmp = SkiaImage.makeFromEncoded(bytes).toComposeImageBitmap()
-                skinImageCache[url] = bmp
+                skinImageCache.put(url, bmp)
                 image = bmp
             } catch (_: Throwable) {
-                skinImageCache[url] = null
+                skinImageCache.markFailed(url)
                 image = null
             }
         }

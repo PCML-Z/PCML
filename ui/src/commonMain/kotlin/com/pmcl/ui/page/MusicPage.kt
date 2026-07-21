@@ -21,6 +21,18 @@ import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
 import com.pmcl.music.player.PlaybackState
 import com.pmcl.ui.viewmodel.LauncherViewModel
+import com.pmcl.ui.viewmodel.resolveAndAddMusicTrack
+import com.pmcl.ui.viewmodel.playMusicAt
+import com.pmcl.ui.viewmodel.clearMusicPlaylist
+import com.pmcl.ui.viewmodel.removeMusicTrack
+import com.pmcl.ui.viewmodel.toggleMusicPlayPause
+import com.pmcl.ui.viewmodel.seekMusicTo
+import com.pmcl.ui.viewmodel.playPreviousMusic
+import com.pmcl.ui.viewmodel.playNextMusic
+import com.pmcl.ui.viewmodel.cycleMusicRepeatMode
+import com.pmcl.ui.viewmodel.toggleMusicShuffle
+import com.pmcl.ui.viewmodel.toggleMusicMute
+import com.pmcl.ui.viewmodel.setMusicVolume
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.skia.Image as SkiaImage
@@ -575,37 +587,30 @@ private fun formatMusicDuration(ms: Long): String {
     } else "%d:%02d".format(m, s)
 }
 
-/** 图片内存缓存：URL → ImageBitmap。 */
-private val musicImageCache = java.util.Collections.synchronizedMap(LinkedHashMap<String, ImageBitmap?>())
+// M32 修复：复用全局 LruImageCache，避免每个页面各自实现缓存导致内存浪费与不一致策略
+private val musicImageCache = com.pmcl.ui.util.LruImageCache(64)
 
 /** 异步从 URL 加载图片，返回 Skia 解码的 ImageBitmap。失败返回 null。 */
 @Composable
 private fun rememberUrlImage(url: String): ImageBitmap? {
     if (url.isEmpty()) return null
-    val cached = musicImageCache[url]
+    val cached = musicImageCache.get(url)
     if (cached != null) return cached
 
-    var image by remember(url) { mutableStateOf<ImageBitmap?>(musicImageCache[url]) }
+    var image by remember(url) { mutableStateOf<ImageBitmap?>(musicImageCache.get(url)) }
     LaunchedEffect(url) {
         if (url.isEmpty()) { image = null; return@LaunchedEffect }
-        if (musicImageCache.containsKey(url)) {
-            image = musicImageCache[url]
-            return@LaunchedEffect
-        }
+        if (musicImageCache.isKnownFailed(url)) { image = null; return@LaunchedEffect }
+        val existing = musicImageCache.get(url)
+        if (existing != null) { image = existing; return@LaunchedEffect }
         withContext(Dispatchers.IO) {
             try {
                 val bytes = URL(url).readBytes()
                 val bmp = SkiaImage.makeFromEncoded(bytes).toComposeImageBitmap()
-                musicImageCache[url] = bmp
-                synchronized(musicImageCache) {
-                    while (musicImageCache.size > 50) {
-                        val it = musicImageCache.keys.iterator()
-                        if (it.hasNext()) { it.next(); it.remove() } else break
-                    }
-                }
+                musicImageCache.put(url, bmp)
                 image = bmp
             } catch (_: Throwable) {
-                musicImageCache[url] = null
+                musicImageCache.markFailed(url)
                 image = null
             }
         }

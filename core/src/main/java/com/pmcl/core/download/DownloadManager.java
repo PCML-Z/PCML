@@ -92,10 +92,12 @@ public final class DownloadManager {
     /** 带 Preferences 的构造函数：一次性构建正确的 HttpClient，避免构造后再 reconfigure 重复构建 */
     public DownloadManager(LauncherConfig config, Preferences pref) {
         this.config = config;
-        this.pool = Executors.newFixedThreadPool(config.getDownloadThreads());
-        this.chunkedPool = Executors.newFixedThreadPool(
-                Math.min(16, config.getDownloadThreads()));
-        this.downloadLimiter = new Semaphore(config.getDownloadThreads());
+        // M11 修复：优先使用 Preferences.downloadThreads，回退到 config.getDownloadThreads()
+        int threads = (pref != null) ? pref.getDownloadThreads() : config.getDownloadThreads();
+        threads = Math.max(1, threads); // 防止 0 导致 newFixedThreadPool 抛异常
+        this.pool = Executors.newFixedThreadPool(threads);
+        this.chunkedPool = Executors.newFixedThreadPool(Math.min(16, threads));
+        this.downloadLimiter = new Semaphore(threads);
         if (pref != null) {
             // 直接按偏好构建，跳过默认 client 的无谓构建+丢弃
             Proxy proxy = null;
@@ -258,43 +260,49 @@ public final class DownloadManager {
         final AtomicLong lastNotifyTime = new AtomicLong(0);
 
         CompletableFuture<?>[] futures = tasks.stream()
-                .map(t -> CompletableFuture.runAsync(() -> {
-                    try {
-                        // 阶段1：下载（持有 semaphore）
-                        downloadLimiter.acquire();
-                        Path partFile;
+                .map(t -> {
+                    // 阶段1：下载（持有 semaphore）
+                    CompletableFuture<Path> downloadFuture = CompletableFuture.supplyAsync(() -> {
                         try {
-                            partFile = downloadOneWithRetry(t, deltaBytes -> {
-                                // 实时回调：下载过程中也通知进度
-                                if (onBytes != null) {
-                                    long now = completed.addAndGet(deltaBytes);
-                                    long t2 = System.currentTimeMillis();
-                                    if (t2 - lastNotifyTime.get() >= PROGRESS_THROTTLE_MS) {
-                                        lastNotifyTime.set(t2);
-                                        onBytes.accept(now);
+                            downloadLimiter.acquire();
+                            try {
+                                return downloadOneWithRetry(t, deltaBytes -> {
+                                    // 实时回调：下载过程中也通知进度
+                                    if (onBytes != null) {
+                                        long now = completed.addAndGet(deltaBytes);
+                                        long t2 = System.currentTimeMillis();
+                                        if (t2 - lastNotifyTime.get() >= PROGRESS_THROTTLE_MS) {
+                                            lastNotifyTime.set(t2);
+                                            onBytes.accept(now);
+                                        }
                                     }
-                                }
-                            });
-                        } finally {
-                            downloadLimiter.release();
+                                });
+                            } finally {
+                                downloadLimiter.release();
+                            }
+                        } catch (IOException e) {
+                            throw new RuntimeException("下载失败: " + t.getUrl(), e);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            throw new RuntimeException("下载被中断: " + t.getUrl(), e);
                         }
-                        // 阶段2：SHA1 校验（已释放 semaphore，不占用下载槽位）
-                        if (partFile != null) {
-                            verifyAndRename(t, partFile);
-                        }
-                        // 文件已完成（含跳过的情况）
+                    }, pool);
+                    // 阶段2：SHA1 校验 + 重命名（异步链式，不阻塞下载线程）
+                    return downloadFuture.thenCompose(partFile -> {
                         if (partFile == null) {
+                            // 文件已存在且跳过
                             completed.addAndGet(t.getSize());
+                            if (onBytes != null) onBytes.accept(completed.get());
+                            if (onFileDone != null) onFileDone.accept(t.getRelativePath());
+                            return CompletableFuture.completedFuture(null);
                         }
-                        if (onBytes != null) onBytes.accept(completed.get());
-                        if (onFileDone != null) onFileDone.accept(t.getRelativePath());
-                    } catch (IOException e) {
-                        throw new RuntimeException("下载失败: " + t.getUrl(), e);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        throw new RuntimeException("下载被中断: " + t.getUrl(), e);
-                    }
-                }, pool))
+                        // M61: 校验在 verifyPool 异步执行，下载线程释放处理下一个任务
+                        return verifyAndRename(t, partFile).thenRun(() -> {
+                            if (onBytes != null) onBytes.accept(completed.get());
+                            if (onFileDone != null) onFileDone.accept(t.getRelativePath());
+                        });
+                    });
+                })
                 .toArray(CompletableFuture[]::new);
 
         return CompletableFuture.allOf(futures)
@@ -329,21 +337,34 @@ public final class DownloadManager {
 
     /**
      * SHA1 校验并原子重命名。校验失败删除 .part 文件并抛异常。
+     * <p>M61 修复：返回 CompletableFuture，校验在 verifyPool 异步执行，不阻塞下载线程。
      */
-    private void verifyAndRename(DownloadTask task, Path partFile) throws IOException {
+    private CompletableFuture<Void> verifyAndRename(DownloadTask task, Path partFile) {
         Path target = config.getWorkDir().resolve(task.getRelativePath());
-        if (task.getSha1() != null && !task.getSha1().isEmpty()) {
-            String actual = sha1Async(partFile);
-            if (!actual.equalsIgnoreCase(task.getSha1())) {
-                Files.deleteIfExists(partFile);
-                throw new IOException("SHA1 校验失败: " + task.getRelativePath() +
-                        " 期望=" + task.getSha1() + " 实际=" + actual);
-            }
+        if (task.getSha1() == null || task.getSha1().isEmpty()) {
+            // 无需校验，直接重命名
+            return CompletableFuture.runAsync(() -> movePartFile(partFile, target), pool);
         }
+        String expected = task.getSha1();
+        return sha1Async(partFile).thenAcceptAsync(actual -> {
+            if (!actual.equalsIgnoreCase(expected)) {
+                try { Files.deleteIfExists(partFile); } catch (IOException ignored) {}
+                throw new RuntimeException(new IOException("SHA1 校验失败: " + task.getRelativePath() +
+                        " 期望=" + expected + " 实际=" + actual));
+            }
+            movePartFile(partFile, target);
+        }, pool);
+    }
+
+    /** 原子移动 .part 文件到目标路径 */
+    private void movePartFile(Path partFile, Path target) {
         try {
             Files.move(partFile, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
         } catch (java.nio.file.AtomicMoveNotSupportedException e) {
-            Files.move(partFile, target, StandardCopyOption.REPLACE_EXISTING);
+            try { Files.move(partFile, target, StandardCopyOption.REPLACE_EXISTING); }
+            catch (IOException e2) { throw new RuntimeException(e2); }
+        } catch (IOException e) {
+            throw new RuntimeException(e);
         }
     }
 
@@ -358,7 +379,8 @@ public final class DownloadManager {
 
         // 已存在且 SHA1 匹配则跳过
         if (Files.exists(target) && task.getSha1() != null && !task.getSha1().isEmpty()) {
-            String existing = sha1Async(target);
+            // M61: skip 检查是同步决策点，直接调用 sha1() 而非异步
+            String existing = sha1(target);
             if (existing.equalsIgnoreCase(task.getSha1())) {
                 return null;
             }
@@ -594,16 +616,15 @@ public final class DownloadManager {
     }
 
     /**
-     * SHA1 校验：提交到独立线程池，避免阻塞下载线程。
-     * 如果校验池已满，当前线程会等待（保证校验一定完成）。
+     * SHA1 异步校验：返回 CompletableFuture，不阻塞调用线程。
+     * <p>M61 修复：原实现 .get() 阻塞下载线程，实际并行度被 verifyPool（4 线程）限制。
+     * 改为返回 Future，调用方通过 thenCompose 链式处理，下载线程释放后可处理下一个任务。
      */
-    private String sha1Async(Path file) throws IOException {
-        try {
-            return verifyPool.submit(() -> sha1(file)).get();
-        } catch (Exception e) {
-            if (e.getCause() instanceof IOException) throw (IOException) e.getCause();
-            throw new IOException("SHA1 校验失败", e);
-        }
+    private CompletableFuture<String> sha1Async(Path file) {
+        return CompletableFuture.supplyAsync(() -> {
+            try { return sha1(file); }
+            catch (IOException e) { throw new RuntimeException(e); }
+        }, verifyPool);
     }
 
     private static String sha1(Path file) throws IOException {

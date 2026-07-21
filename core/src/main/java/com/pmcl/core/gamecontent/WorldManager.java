@@ -122,20 +122,9 @@ public final class WorldManager {
         Files.createDirectories(savesDir);
         if (Files.exists(target)) deleteRecursive(target);
         Files.createDirectories(target);
+        // S22 安全修复：使用 SafeZipExtractor 统一防护 ZipSlip 与 ZipBomb
         try (ZipInputStream zis = new ZipInputStream(Files.newInputStream(zipFile))) {
-            ZipEntry e;
-            while ((e = zis.getNextEntry()) != null) {
-                Path out = target.resolve(e.getName()).normalize();
-                if (!out.startsWith(target)) {
-                    throw new IOException("ZIP SLIP detected: " + e.getName());
-                }
-                if (e.isDirectory()) {
-                    Files.createDirectories(out);
-                } else {
-                    if (out.getParent() != null) Files.createDirectories(out.getParent());
-                    Files.copy(zis, out, StandardCopyOption.REPLACE_EXISTING);
-                }
-            }
+            com.pmcl.core.util.SafeZipExtractor.extractStreamSafely(zis, target, null);
         }
     }
 

@@ -62,6 +62,9 @@ class PmclHostServer(
     private var statsJob: Job? = null
 
     // ---- 好友事件监听 ----
+    // M45 修复：同时保存 friendMgr 引用，避免 stop() 时 vm.core.friend() 返回不同实例
+    // 导致 removeListener 失败，listener 泄漏。
+    private var friendMgrRef: com.pmcl.core.friend.FriendManager? = null
     private var friendListener: java.util.function.Consumer<com.pmcl.core.friend.FriendManager.FriendEvent>? = null
 
     @Volatile
@@ -117,8 +120,9 @@ class PmclHostServer(
         server = null
         connections.clear()
         statsSubscribers.clear()
-        friendListener?.let { vm.core.friend()?.removeListener(it) }
+        friendListener?.let { friendMgrRef?.removeListener(it) }
         friendListener = null
+        friendMgrRef = null
         println("[PmclHostServer] stopped")
     }
 
@@ -229,7 +233,7 @@ class PmclHostServer(
         return when (action) {
             "ping" -> okResponse(null)
 
-            "listVersions" -> handleListVersions()
+            "listVersions" -> handleListVersionsAsync()
 
             "launch" -> handleLaunch(payload)
 
@@ -263,9 +267,14 @@ class PmclHostServer(
     //  Handler: 版本列表
     // ================================================================
 
-    private fun handleListVersions(): JsonObject {
+    // M39 修复：handleListVersions 同步调 listLocalVersions 阻塞 WebSocket 线程。
+    // 改为 suspend + withContext(Dispatchers.IO)，让 IO 在后台线程池执行，
+    // 不阻塞 Ktor WebSocket 协程，避免慢扫描时其他 WS 请求被卡住。
+    private suspend fun handleListVersionsAsync(): JsonObject {
         val core = vm.core
-        val versions = core.versions().listLocalVersions()
+        val versions = withContext(kotlinx.coroutines.Dispatchers.IO) {
+            core.versions().listLocalVersions()
+        }
         val arr = com.google.gson.JsonArray()
         for (v in versions) {
             val obj = JsonObject()
@@ -281,8 +290,10 @@ class PmclHostServer(
     }
 
     private fun inferVersionType(versionId: String): String {
+        // M38 修复：原正则 ^\d{2}w\d{2}[a-z] 仅匹配 2 位年份，2030 年后若 Mojang 改用 4 位年份
+        // （或社区 modpack 用 4 位前缀）会漏判。改为 \d{2,4} 兼容 2-4 位年份，并锚定完整前缀。
         // 快照格式：24w14a, 23w13a_or_whatever 等
-        if (Regex("""^\d{2}w\d{2}[a-z]""").matches(versionId)) return "snapshot"
+        if (Regex("""^\d{2,4}w\d{1,2}[a-z]""").matches(versionId)) return "snapshot"
         if (versionId.contains("pre", ignoreCase = true)) return "snapshot"
         if (versionId.contains("rc", ignoreCase = true) &&
             !versionId.contains("craft", ignoreCase = true)) return "snapshot"
@@ -641,6 +652,7 @@ class PmclHostServer(
         }
         friendMgr.addListener(listener)
         friendListener = listener
+        friendMgrRef = friendMgr  // M45: 保存引用供 stop() 使用
     }
 
     // ================================================================

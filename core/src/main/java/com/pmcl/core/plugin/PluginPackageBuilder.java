@@ -5,18 +5,12 @@ import com.pmcl.plugin.PluginPackageParser;
 import com.pmcl.plugin.PluginPackageParser.PluginPackage;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.net.URL;
-import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
-import java.util.Enumeration;
 import java.util.List;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipFile;
 
 /**
  * Extracts and assembles a plugin package (.ppk) into a loadable plugin.
@@ -35,7 +29,7 @@ import java.util.zip.ZipFile;
  * <ol>
  *   <li>Parse and validate the .ppk via {@link PluginPackageParser}</li>
  *   <li>Extract the ZIP to a per-plugin directory under ~/.pmcl/plugins/&lt;id&gt;/</li>
- *   <li>Build a {@link URLClassLoader} from classes/ + lib/*.jar</li>
+ *   <li>Build a {@link com.pmcl.core.plugin.PluginIsolatingClassLoader} from classes/ + lib/*.jar</li>
  *   <li>Load the main class and instantiate the plugin</li>
  * </ol>
  *
@@ -53,6 +47,9 @@ public final class PluginPackageBuilder {
     /**
      * Extract a .ppk package to the target directory.
      * The target directory will contain: plugin.xml, classes/, lib/, resources/, src/
+     * <p>
+     * S22 安全修复：使用 {@link com.pmcl.core.util.SafeZipExtractor} 统一防护
+     * ZipSlip（路径穿越）与 ZipBomb（解压炸弹）。
      *
      * @param ppkPath    Path to the .ppk file
      * @param targetDir  Directory to extract into (will be created if not exists)
@@ -69,29 +66,10 @@ public final class PluginPackageBuilder {
         // Clean target if it already exists (re-install scenario)
         deleteDirectoryContents(targetDir);
 
-        // Extract the ZIP
-        try (ZipFile zip = new ZipFile(ppkPath.toFile())) {
-            Enumeration<? extends ZipEntry> entries = zip.entries();
-            while (entries.hasMoreElements()) {
-                ZipEntry entry = entries.nextElement();
-                if (entry.isDirectory()) continue;
-
-                String entryPath = entry.getName();
-                // Skip the properties file — it's only needed for single-JAR plugins;
-                // the plugin.xml is the authoritative manifest for packages.
-                if (entryPath.equals(PluginPackageParser.PROPERTIES_PATH)) continue;
-
-                Path dest = targetDir.resolve(entryPath);
-                // Guard against zip slip (path traversal)
-                if (!dest.normalize().startsWith(targetDir.normalize())) {
-                    throw new IOException("Zip entry outside target dir: " + entryPath);
-                }
-                Files.createDirectories(dest.getParent());
-                try (InputStream is = zip.getInputStream(entry)) {
-                    Files.copy(is, dest, StandardCopyOption.REPLACE_EXISTING);
-                }
-            }
-        }
+        // S22 安全修复：使用 SafeZipExtractor 防护 ZipSlip 与 ZipBomb
+        // 跳过 META-INF/pmcl-plugin.properties（仅 single-JAR 需要，.ppk 以 plugin.xml 为准）
+        com.pmcl.core.util.SafeZipExtractor.extractSafely(ppkPath, targetDir,
+                entry -> !entry.getName().equals(PluginPackageParser.PROPERTIES_PATH));
 
         return pkg;
     }
@@ -145,17 +123,18 @@ public final class PluginPackageBuilder {
     }
 
     /**
-     * Create a URLClassLoader for an extracted plugin package.
+     * Create a PluginIsolatingClassLoader for an extracted plugin package.
+     * 使用隔离 ClassLoader 阻止插件直接加载 com.pmcl.core.* 内部类。
      *
      * @param extractedDir The directory where the package was extracted
      * @param pkg          The parsed package manifest
      * @param parent       The parent classloader (should be PMCL's classloader)
-     * @return A new URLClassLoader with classes/ + lib/*.jar on the classpath
+     * @return A new PluginIsolatingClassLoader with classes/ + lib/*.jar on the classpath
      * @throws IOException if classpath construction fails
      */
-    public static URLClassLoader createClassLoader(Path extractedDir, PluginPackage pkg, ClassLoader parent) throws IOException {
+    public static PluginIsolatingClassLoader createClassLoader(Path extractedDir, PluginPackage pkg, ClassLoader parent) throws IOException {
         URL[] urls = buildClasspath(extractedDir, pkg.getLibraries());
-        return new URLClassLoader(urls, parent);
+        return new PluginIsolatingClassLoader(pkg.getInfo().getId(), urls, parent);
     }
 
     /**

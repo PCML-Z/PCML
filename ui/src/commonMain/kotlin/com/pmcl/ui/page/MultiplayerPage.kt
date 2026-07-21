@@ -24,7 +24,9 @@ import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
 import com.pmcl.core.multiplayer.MultiplayerManager
 import com.pmcl.ui.theme.LocalThemeState
+import com.pmcl.ui.theme.glassCardBorder
 import com.pmcl.ui.theme.glassCardColors
+import com.pmcl.ui.theme.glassCardElevation
 import com.pmcl.ui.viewmodel.LauncherViewModel
 
 /**
@@ -621,7 +623,7 @@ private fun FavoriteServersCard(vm: LauncherViewModel) {
     var newHost by remember { mutableStateOf("") }
     var newPort by remember { mutableStateOf("25565") }
 
-    Card(Modifier.fillMaxWidth(), colors = glassCardColors()) {
+    Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Filled.Speed, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))

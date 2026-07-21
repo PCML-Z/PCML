@@ -77,7 +77,9 @@ public final class VideoCallSession {
     private final MediaType mediaType;
     private final List<CallListener> listeners = new CopyOnWriteArrayList<>();
 
-    private volatile State state = State.RINGING;
+    // M60 修复：state 改为 AtomicReference，统一并发访问，消除 volatile + synchronized 混用
+    private final java.util.concurrent.atomic.AtomicReference<State> stateRef =
+            new java.util.concurrent.atomic.AtomicReference<>(State.RINGING);
     private Agent iceAgent;
 
     // 摄像头采集
@@ -88,6 +90,16 @@ public final class VideoCallSession {
     private final AtomicBoolean capturing = new AtomicBoolean(false);
     private volatile boolean cameraEnabled = true;
     private volatile boolean muted = false;
+
+    // M53 修复：JPEG 压缩移到独立线程，避免阻塞采集线程
+    private final java.util.concurrent.ExecutorService compressionExecutor =
+            java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+                Thread t = new Thread(r, "VideoCall-Compress");
+                t.setDaemon(true);
+                return t;
+            });
+    // 压缩背压：压缩线程忙时丢帧，避免队列堆积 OOM
+    private final AtomicBoolean compressBusy = new AtomicBoolean(false);
 
     // 视频参数
     private static final int VIDEO_WIDTH = 640;
@@ -128,13 +140,21 @@ public final class VideoCallSession {
     public String getRemoteName() { return remoteName; }
     public boolean isInitiator() { return isInitiator; }
     public MediaType getMediaType() { return mediaType; }
-    public State getState() { return state; }
+    public State getState() { return stateRef.get(); }
 
     public void addListener(CallListener listener) { listeners.add(listener); }
     public void removeListener(CallListener listener) { listeners.remove(listener); }
 
+    /**
+     * M60 修复：使用 CAS 原子转换状态，终态（ENDED）不可逆。
+     * 监听器通知在状态更新成功后触发，不持锁，避免回调阻塞其他线程。
+     */
     private void setState(State newState) {
-        this.state = newState;
+        State old;
+        do {
+            old = stateRef.get();
+            if (old == State.ENDED) return; // 终态不可逆
+        } while (!stateRef.compareAndSet(old, newState));
         for (CallListener l : listeners) {
             try { l.onStateChanged(newState); } catch (Exception ignored) {}
         }
@@ -354,7 +374,8 @@ public final class VideoCallSession {
                     try {
                         Thread.sleep(2000);
                         synchronized (VideoCallSession.this) {
-                            if (iceAgent != null && state == State.NEGOTIATING && !iceConnectivityStarted) {
+                            // M60: 使用 stateRef 替代直接访问 volatile state
+                            if (iceAgent != null && stateRef.get() == State.NEGOTIATING && !iceConnectivityStarted) {
                                 iceConnectivityStarted = true;
                                 System.out.println("[VideoCall] 收到 " + remoteCandidateCount + " 个远端候选，启动 ICE 连通性检查");
                                 iceAgent.startConnectivityEstablishment();
@@ -469,8 +490,9 @@ public final class VideoCallSession {
                 System.out.println("[VideoCall] 摄像头采集已启动");
 
                 long frameCount = 0;
-                long sentCount = 0;
-                long skippedCount = 0;
+                // M53 修复：使用 AtomicLong 以便在压缩线程 lambda 中安全自增
+                java.util.concurrent.atomic.AtomicLong sentCount = new java.util.concurrent.atomic.AtomicLong(0);
+                java.util.concurrent.atomic.AtomicLong skippedCount = new java.util.concurrent.atomic.AtomicLong(0);
                 long audioFrameCount = 0;
                 long lastLogTime = System.currentTimeMillis();
 
@@ -499,35 +521,45 @@ public final class VideoCallSession {
                         try { l.onLocalFrame(img); } catch (Exception ignored) {}
                     }
 
-                    // JPEG 压缩（带降级重试：quality 60 → 40 → 25）
-                    byte[] jpegData = compressJpeg(img, JPEG_QUALITY);
-                    if (jpegData != null && jpegData.length > MAX_PACKET_SIZE) {
-                        // 降级重试
-                        jpegData = compressJpeg(img, 40);
-                    }
-                    if (jpegData != null && jpegData.length > MAX_PACKET_SIZE) {
-                        jpegData = compressJpeg(img, 25);
-                    }
-                    if (jpegData == null || jpegData.length > MAX_PACKET_SIZE) {
-                        skippedCount++;
-                        continue;
-                    }
-
-                    // UDP 发送
-                    try {
-                        DatagramPacket packet = new DatagramPacket(jpegData, jpegData.length, remoteAddress);
-                        socket.send(packet);
-                        sentCount++;
-                    } catch (Exception e) {
-                        // 发送失败可能是网络问题，忽略
+                    // M53 修复：JPEG 压缩 + UDP 发送移到独立线程，不阻塞采集线程
+                    // 背压策略：压缩线程忙时丢帧（实时视频容忍丢帧，不允许延迟堆积）
+                    if (compressBusy.compareAndSet(false, true)) {
+                        final BufferedImage frameImg = img;
+                        compressionExecutor.submit(() -> {
+                            try {
+                                // JPEG 压缩（带降级重试：quality 60 → 40 → 25）
+                                byte[] jpegData = compressJpeg(frameImg, JPEG_QUALITY);
+                                if (jpegData != null && jpegData.length > MAX_PACKET_SIZE) {
+                                    jpegData = compressJpeg(frameImg, 40);
+                                }
+                                if (jpegData != null && jpegData.length > MAX_PACKET_SIZE) {
+                                    jpegData = compressJpeg(frameImg, 25);
+                                }
+                                if (jpegData == null || jpegData.length > MAX_PACKET_SIZE) {
+                                    skippedCount.incrementAndGet();
+                                    return;
+                                }
+                                // UDP 发送
+                                try {
+                                    DatagramPacket packet = new DatagramPacket(jpegData, jpegData.length, remoteAddress);
+                                    socket.send(packet);
+                                    sentCount.incrementAndGet();
+                                } catch (Exception e) {
+                                    // 发送失败可能是网络问题，忽略
+                                }
+                            } finally {
+                                compressBusy.set(false);
+                            }
+                        });
+                    } else {
+                        skippedCount.incrementAndGet(); // 压缩线程忙，丢帧
                     }
 
                     // 每 5 秒打印一次帧统计
                     if (System.currentTimeMillis() - lastLogTime > 5000) {
                         System.out.println("[VideoCall] 帧统计: 采集=" + frameCount
-                                + " 发送=" + sentCount + " 丢弃=" + skippedCount
-                                + " 音频帧跳过=" + audioFrameCount
-                                + " 大小~" + (sentCount > 0 ? jpegData.length : 0) + "B");
+                                + " 发送=" + sentCount.get() + " 丢弃=" + skippedCount.get()
+                                + " 音频帧跳过=" + audioFrameCount);
                         if (frameCount == 0 && audioFrameCount > 0) {
                             System.err.println("[VideoCall] 警告: 只收到音频帧无视频帧！请检查 macOS 摄像头权限（系统设置→隐私与安全性→摄像头→允许 Terminal）");
                         }
@@ -645,8 +677,13 @@ public final class VideoCallSession {
     // 通话控制
     // ---------------------------------------------------------------------------
 
-    public synchronized void end() {
-        if (state == State.ENDED) return;
+    public void end() {
+        // M60 修复：CAS 保证只执行一次清理，无需 synchronized
+        State current;
+        do {
+            current = stateRef.get();
+            if (current == State.ENDED) return; // 已结束，跳过
+        } while (!stateRef.compareAndSet(current, State.ENDED));
 
         capturing.set(false);
 
@@ -673,8 +710,12 @@ public final class VideoCallSession {
                 try { videoSocket.close(); } catch (Exception ignored) {}
                 videoSocket = null;
             }
+            // M53 修复：关闭压缩线程池
+            compressionExecutor.shutdownNow();
         } finally {
-            setState(State.ENDED);
+            for (CallListener l : listeners) {
+                try { l.onStateChanged(State.ENDED); } catch (Exception ignored) {}
+            }
             System.out.println("[VideoCall] 通话已结束: " + callId);
         }
     }

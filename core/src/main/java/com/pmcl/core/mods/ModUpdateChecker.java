@@ -364,8 +364,18 @@ public final class ModUpdateChecker {
         return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
     }
 
-    /** 关闭线程池 */
+    /** 关闭线程池：先停止接受新任务，再等待已提交任务完成（最多 5 秒） */
     public void shutdown() {
         checkPool.shutdown();
+        try {
+            if (!checkPool.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS)) {
+                // 仍有任务未完成，强制中断
+                checkPool.shutdownNow();
+                checkPool.awaitTermination(2, java.util.concurrent.TimeUnit.SECONDS);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            checkPool.shutdownNow();
+        }
     }
 }

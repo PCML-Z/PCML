@@ -8,7 +8,9 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.withFrameNanos
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -136,26 +138,43 @@ private fun PerfHudContent(
         }
     }
 
-    // FPS 统计：withFrameNanos 每秒统计一次帧数。try-catch 防止窗口边界异常中断统计。
+    // FPS 统计：M44 修复——withFrameNanos 在窗口不可见时停止回调，导致 FPS 卡在最后值。
+    // 改为：用 withTimeoutOrNull 等待帧，超时则置 0；窗口恢复可见后自动恢复统计。
     LaunchedEffect(Unit) {
         var frameCount = 0
         var lastSecondNanos = 0L
         while (isActive) {
             try {
-                withFrameNanos { now ->
-                    if (lastSecondNanos == 0L) {
-                        lastSecondNanos = now
-                        return@withFrameNanos
-                    }
-                    frameCount++
-                    val elapsed = now - lastSecondNanos
-                    if (elapsed >= 1_000_000_000L) {
-                        fps = (frameCount * 1_000_000_000L / elapsed).toInt()
-                        fpsHistory.add(fps.toFloat())
+                // 等待下一帧，最多等 2 秒；超时说明窗口不可见或暂停渲染
+                val frameNanos = withTimeoutOrNull(2_000L) {
+                    val result = CompletableDeferred<Long>()
+                    withFrameNanos { now -> result.complete(now) }
+                    result.await()
+                }
+                if (frameNanos == null) {
+                    // 超时：窗口不可见，FPS 置 0
+                    if (fps != 0) {
+                        fps = 0
+                        fpsHistory.add(0f)
                         while (fpsHistory.size > 40) fpsHistory.removeAt(0)
-                        frameCount = 0
-                        lastSecondNanos = now
                     }
+                    lastSecondNanos = 0L
+                    frameCount = 0
+                    continue
+                }
+                val now = frameNanos
+                if (lastSecondNanos == 0L) {
+                    lastSecondNanos = now
+                    continue
+                }
+                frameCount++
+                val elapsed = now - lastSecondNanos
+                if (elapsed >= 1_000_000_000L) {
+                    fps = (frameCount * 1_000_000_000L / elapsed).toInt()
+                    fpsHistory.add(fps.toFloat())
+                    while (fpsHistory.size > 40) fpsHistory.removeAt(0)
+                    frameCount = 0
+                    lastSecondNanos = now
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e

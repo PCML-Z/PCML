@@ -60,21 +60,34 @@ public final class InstanceInfo {
         this.createdAt = System.currentTimeMillis();
     }
 
-    /** 从 JSON 加载实例元数据 */
+    /** 从 JSON 加载实例元数据。
+     *  M63 修复：必填字段缺失时返回 null 而非 NPE，由调用方决定如何处理。
+     */
     public static InstanceInfo fromJson(String json, Path instanceDir) {
         JsonObject o = JsonParser.parseString(json).getAsJsonObject();
-        String id = o.has("instanceId") ? o.get("instanceId").getAsString() : UUID.randomUUID().toString();
-        String name = o.get("name").getAsString();
-        String baseVersionId = o.has("baseVersionId") ? o.get("baseVersionId").getAsString() : "";
-        Type type = o.has("type") ? Type.valueOf(o.get("type").getAsString()) : Type.CUSTOM;
+        String id = o.has("instanceId") && !o.get("instanceId").isJsonNull()
+                ? o.get("instanceId").getAsString() : UUID.randomUUID().toString();
+        // M63: name 字段缺失时使用目录名作为回退，而非 NPE
+        String name = o.has("name") && !o.get("name").isJsonNull()
+                ? o.get("name").getAsString()
+                : (instanceDir != null ? instanceDir.getFileName().toString() : "Unknown");
+        String baseVersionId = o.has("baseVersionId") && !o.get("baseVersionId").isJsonNull()
+                ? o.get("baseVersionId").getAsString() : "";
+        Type type;
+        try {
+            type = o.has("type") && !o.get("type").isJsonNull()
+                    ? Type.valueOf(o.get("type").getAsString()) : Type.CUSTOM;
+        } catch (IllegalArgumentException e) {
+            type = Type.CUSTOM; // 未知类型回退
+        }
         InstanceInfo info = new InstanceInfo(id, name, baseVersionId, type);
-        if (o.has("loader")) info.loader = o.get("loader").getAsString();
-        if (o.has("loaderVersion")) info.loaderVersion = o.get("loaderVersion").getAsString();
-        if (o.has("description")) info.description = o.get("description").getAsString();
-        if (o.has("iconPath")) info.iconPath = o.get("iconPath").getAsString();
-        if (o.has("createdAt")) info.createdAt = o.get("createdAt").getAsLong();
-        if (o.has("lastPlayedAt")) info.lastPlayedAt = o.get("lastPlayedAt").getAsLong();
-        if (o.has("totalPlayTimeSeconds")) info.totalPlayTimeSeconds = o.get("totalPlayTimeSeconds").getAsLong();
+        if (o.has("loader") && !o.get("loader").isJsonNull()) info.loader = o.get("loader").getAsString();
+        if (o.has("loaderVersion") && !o.get("loaderVersion").isJsonNull()) info.loaderVersion = o.get("loaderVersion").getAsString();
+        if (o.has("description") && !o.get("description").isJsonNull()) info.description = o.get("description").getAsString();
+        if (o.has("iconPath") && !o.get("iconPath").isJsonNull()) info.iconPath = o.get("iconPath").getAsString();
+        if (o.has("createdAt") && !o.get("createdAt").isJsonNull()) info.createdAt = o.get("createdAt").getAsLong();
+        if (o.has("lastPlayedAt") && !o.get("lastPlayedAt").isJsonNull()) info.lastPlayedAt = o.get("lastPlayedAt").getAsLong();
+        if (o.has("totalPlayTimeSeconds") && !o.get("totalPlayTimeSeconds").isJsonNull()) info.totalPlayTimeSeconds = o.get("totalPlayTimeSeconds").getAsLong();
         info.instanceDir = instanceDir;
         return info;
     }

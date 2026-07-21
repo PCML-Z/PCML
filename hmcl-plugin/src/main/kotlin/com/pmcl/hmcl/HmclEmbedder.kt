@@ -30,14 +30,33 @@ object HmclEmbedder {
 
     private const val TAG = "[HmclEmbedder]"
 
+    /**
+     * M67 修复：调试日志开关。生产环境保持 false，避免大量 println 污染 stdout。
+     * 需要排查问题时通过反射或调试器设置为 true 即可恢复详细日志。
+     */
+    @Volatile
+    private var debug = false
+
     private val panelRef = AtomicReference<JFXPanel?>(null)
     private val statusRef = AtomicReference("Idle — click Start to embed HMCL")
     @Volatile
     private var sceneStolen = false
 
+    /**
+     * 普通调试日志：仅 debug=true 时输出到 stderr（不缓冲，无需 flush）。
+     */
     private fun log(msg: String) {
-        println("$TAG $msg")
-        System.out.flush()
+        if (debug) {
+            System.err.println("$TAG $msg")
+        }
+    }
+
+    /**
+     * 错误日志：始终输出到 stderr，确保生产环境异常可见。
+     */
+    private fun error(msg: String, e: Throwable? = null) {
+        System.err.println("$TAG ERROR: $msg")
+        e?.printStackTrace()
     }
 
     /**
@@ -74,9 +93,8 @@ object HmclEmbedder {
             try {
                 loadHmclInto(panel)
             } catch (e: Throwable) {
-                log("ERROR in startHmclAsync: ${e.message ?: e.toString()}")
+                error("in startHmclAsync: ${e.message ?: e.toString()}", e)
                 statusRef.set("Error: ${e.message ?: e.toString()}")
-                e.printStackTrace()
             }
         }
     }
@@ -148,19 +166,17 @@ object HmclEmbedder {
                                 try {
                                     injectPmclIcon(scene)
                                 } catch (e: Throwable) {
-                                    log("Icon injection failed (non-fatal): ${e.message}")
+                                    error("Icon injection failed (non-fatal): ${e.message}", e)
                                 }
                             }
                         } catch (e: Throwable) {
-                            log("FAILED to attach scene to JFXPanel: ${e.message}")
+                            error("FAILED to attach scene to JFXPanel: ${e.message}", e)
                             statusRef.set("Failed to attach scene: ${e.message}")
-                            e.printStackTrace()
                         }
                     }
                 } catch (e: Throwable) {
-                    log("FAILED to steal scene: ${e.message}")
+                    error("FAILED to steal scene: ${e.message}", e)
                     statusRef.set("Failed to steal scene: ${e.message}")
-                    e.printStackTrace()
                 }
             }
         }
@@ -205,12 +221,12 @@ object HmclEmbedder {
         val iconStream = cl.getResourceAsStream("resources/pmcl_icon.png")
             ?: cl.getResourceAsStream("pmcl_icon.png")
         if (iconStream == null) {
-            log("PMCL icon resource not found in plugin classpath")
+            error("PMCL icon resource not found in plugin classpath")
             return
         }
         val iconImage = iconStream.use { Image(it) }
         if (iconImage.isError) {
-            log("Failed to load PMCL icon: ${iconImage.exception?.message}")
+            error("Failed to load PMCL icon: ${iconImage.exception?.message}", iconImage.exception)
             return
         }
         log("PMCL icon loaded: ${iconImage.width}x${iconImage.height}")
@@ -248,7 +264,7 @@ object HmclEmbedder {
                 return
             }
         } catch (e: Throwable) {
-            log("Reflection injection failed: ${e.message}")
+            error("Reflection injection failed", e)
         }
 
         log("Icon injection skipped — no suitable target found")
@@ -405,9 +421,24 @@ object HmclEmbedder {
 
     /**
      * Shutdown HMCL and release resources.
+     *
+     * M68 修复：原实现仅 panelRef.set(null) 但未释放 JFXPanel 持有的 JavaFX Scene
+     * 及其内部资源（Stage/Pulse timers/Scene graph 节点）。反复启停会导致：
+     * - JFXPanel 累积，每个都持有 JavaFX Scene 引用无法 GC
+     * - JavaFX 内部 pulse 动画定时器持续运行，内存逐次增长
+     *
+     * 修复策略：
+     * 1. 在 JavaFX 线程调用 HMCL onApplicationStop 清理 HMCL 资源
+     * 2. 释放 JFXPanel 持有的 Scene（setScene(null)）
+     * 3. 调用 removeNotify() 让 JFXPanel 卸载其 Swing peer 与 JavaFX surface
+     * 4. 重置 panelRef/sceneStolen/statusRef 状态
      */
     fun shutdown() {
         log("Shutdown requested")
+        val panel = panelRef.getAndSet(null)
+        sceneStolen = false
+        statusRef.set("Stopped")
+        if (panel == null) return
         Platform.runLater {
             try {
                 val controllersClass = Class.forName("org.jackhuang.hmcl.ui.Controllers")
@@ -415,11 +446,28 @@ object HmclEmbedder {
                 stopMethod.invoke(null)
                 log("HMCL onApplicationStop called")
             } catch (e: Throwable) {
-                log("Shutdown error (non-fatal): ${e.message}")
+                error("Shutdown HMCL onApplicationStop error (non-fatal)", e)
+            }
+            try {
+                // 释放 JFXPanel 持有的 Scene，断开 JavaFX Scene graph 与面板的引用
+                panel.setScene(null)
+            } catch (e: Throwable) {
+                error("Failed to detach scene during shutdown (non-fatal)", e)
+            }
+            try {
+                // removeNotify 会触发 JFXPanel 卸载其内部的 JavaFX surface
+                // （EmbeddedSceneInterface / HostInterface），停止 pulse 定时器，
+                // 释放 Swing 端的 peer 资源。必须在 JavaFX 线程外调用以避免死锁。
+                javax.swing.SwingUtilities.invokeLater {
+                    try {
+                        panel.removeNotify()
+                    } catch (e: Throwable) {
+                        error("JFXPanel.removeNotify failed (non-fatal)", e)
+                    }
+                }
+            } catch (e: Throwable) {
+                error("Failed to schedule removeNotify (non-fatal)", e)
             }
         }
-        panelRef.set(null)
-        sceneStolen = false
-        statusRef.set("Stopped")
     }
 }

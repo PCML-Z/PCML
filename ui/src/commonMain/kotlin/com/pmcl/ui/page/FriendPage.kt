@@ -86,7 +86,19 @@ fun FriendPage(vm: LauncherViewModel) {
     // 用 identityManager.version 作为 key，账户切换/背景图变化时重新加载
     val identityVersion = identityManager.version
     var bgImagePath by remember(identityVersion) { mutableStateOf(identityManager.backgroundPath) }
-    val bgBitmap by produceState<ImageBitmap?>(null, bgImagePath) {
+    // M46 修复：bgBitmap 仅以 bgImagePath 为 key，外部修改文件内容（路径不变）不会触发重载。
+    // 增加 file mtime 作为 key，文件被外部修改后下次重组会重新解码。
+    var bgFileMtime by remember(identityVersion) { mutableStateOf(0L) }
+    LaunchedEffect(bgImagePath) {
+        if (bgImagePath != null) {
+            bgFileMtime = withContext(Dispatchers.IO) {
+                try { File(bgImagePath).lastModified() } catch (_: Throwable) { 0L }
+            }
+        } else {
+            bgFileMtime = 0L
+        }
+    }
+    val bgBitmap by produceState<ImageBitmap?>(null, bgImagePath, bgFileMtime) {
         if (bgImagePath != null) {
             value = withContext(Dispatchers.IO) {
                 try {
@@ -411,6 +423,8 @@ fun FriendPage(vm: LauncherViewModel) {
                                                 activeCallSession = null
                                             }
                                         })
+                                        // M47 修复：切换 session 前先结束旧 session，避免资源泄漏（旧 socket/线程未清理）
+                                        activeCallSession?.end()
                                         activeCallSession = session
                                         // 将视频 socket 附加到 session（用反射设置 videoSocket 字段）
                                         try {
@@ -624,8 +638,10 @@ fun FriendPage(vm: LauncherViewModel) {
                                 activeCallSession = null
                             }
                         })
-                        activeCallSession = session
-                        friendManager.sendCallAccept(callerId, callId, "", videoPort)
+                                        // M47 修复：切换 session 前先结束旧 session，避免资源泄漏
+                                        activeCallSession?.end()
+                                        activeCallSession = session
+                                        friendManager.sendCallAccept(callerId, callId, "", videoPort)
                         incomingCall = null
                         session.startIceNegotiation()
                     }

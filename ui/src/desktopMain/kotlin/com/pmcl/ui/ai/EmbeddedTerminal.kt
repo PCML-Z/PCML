@@ -110,16 +110,19 @@ fun EmbeddedTerminal(
         modifier
             .fillMaxSize()
             .background(bgColor)
-            .onKeyEvent { event ->
-                val p = process ?: return@onKeyEvent false
-                if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+            // M43 修复：onKeyEvent 返回 false 时事件被父级消费（如 ScrollableColumn 滚动），
+            // 导致方向键等控制键被父级拦截而无法传到终端进程。
+            // 改用 onPreviewKeyEvent：在父级处理前拦截，确保终端键事件优先消费。
+            .onPreviewKeyEvent { event ->
+                val p = process ?: return@onPreviewKeyEvent false
+                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 val ch = event.key.toCharOrNull()
                 if (ch != null && ch != Char(0)) {
                     try {
                         p.outputStream.write(ch.code)
                         p.outputStream.flush()
                     } catch (_: Throwable) {}
-                    return@onKeyEvent true
+                    return@onPreviewKeyEvent true
                 }
                 // 控制键映射
                 val ctrl = (if (event.isCtrlPressed) 0x40 else 0)

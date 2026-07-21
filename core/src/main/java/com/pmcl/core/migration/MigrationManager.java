@@ -11,6 +11,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
 /**
@@ -34,19 +35,33 @@ public final class MigrationManager {
         private final String name;          // 显示名（如 "HMCL"）
         private final Path configDir;       // 启动器配置目录（用于识别，可能为 null）
         private final Path gameRoot;        // 游戏根目录（含 versions/libraries/assets）
-        private final long estimatedSize;   // 预估迁移大小（字节，仅 versions 目录）
+        private volatile long estimatedSize;   // 预估迁移大小（字节，仅 versions 目录）
+        // M50 修复：异步估算的大小，完成后填充到 estimatedSize
+        private final CompletableFuture<Long> estimatedSizeFuture;
 
         public Source(String name, Path configDir, Path gameRoot, long estimatedSize) {
+            this(name, configDir, gameRoot, estimatedSize, CompletableFuture.completedFuture(estimatedSize));
+        }
+
+        public Source(String name, Path configDir, Path gameRoot,
+                      long estimatedSize, CompletableFuture<Long> sizeFuture) {
             this.name = name;
             this.configDir = configDir;
             this.gameRoot = gameRoot;
             this.estimatedSize = estimatedSize;
+            this.estimatedSizeFuture = sizeFuture;
+            // 异步估算完成后更新 estimatedSize 字段
+            sizeFuture.whenComplete((size, err) -> {
+                if (err == null) this.estimatedSize = size;
+            });
         }
 
         public String getName() { return name; }
         public Path getConfigDir() { return configDir; }
         public Path getGameRoot() { return gameRoot; }
         public long getEstimatedSize() { return estimatedSize; }
+        /** M50: 异步估算的 Future，UI 可监听完成后刷新显示 */
+        public CompletableFuture<Long> getEstimatedSizeFuture() { return estimatedSizeFuture; }
 
         /** 是否存在可迁移的 versions 目录 */
         public boolean hasVersions() {
@@ -154,8 +169,10 @@ public final class MigrationManager {
 
     private void addSourceIfValid(List<Source> result, String name, Path configDir, Path gameRoot) {
         if (gameRoot == null || !Files.isDirectory(gameRoot.resolve("versions"))) return;
-        long size = estimateVersionsSize(gameRoot.resolve("versions"));
-        result.add(new Source(name, configDir, gameRoot, size));
+        // M50 修复：异步估算 versions 目录大小，避免阻塞 detectSources 调用线程
+        Path versionsDir = gameRoot.resolve("versions");
+        CompletableFuture<Long> sizeFuture = CompletableFuture.supplyAsync(() -> estimateVersionsSize(versionsDir));
+        result.add(new Source(name, configDir, gameRoot, 0L, sizeFuture));
     }
 
     /** 判断目录是否为 Minecraft 根目录（含 versions 子目录） */
@@ -206,19 +223,24 @@ public final class MigrationManager {
 
     /**
      * 递归复制源目录到目标目录（覆盖已存在文件，保留目标独有文件）。
+     * M49 修复：校验 resolved path 始终在 dstRoot 内，防止符号链接/相对路径穿越。
      */
     private void copyDirIfExists(Path src, Path dst, String label, Consumer<String> progress) throws IOException {
         if (!Files.isDirectory(src)) return;
         Files.createDirectories(dst);
         if (progress != null) progress.accept("正在复制 " + label + " …");
 
-        final Path srcRoot = src;
-        final Path dstRoot = dst;
+        final Path srcRoot = src.toAbsolutePath().normalize();
+        final Path dstRoot = dst.toAbsolutePath().normalize();
         Files.walkFileTree(srcRoot, new SimpleFileVisitor<Path>() {
             @Override
             public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
                 Path relative = srcRoot.relativize(dir);
-                Path target = dstRoot.resolve(relative);
+                Path target = dstRoot.resolve(relative).normalize();
+                // 校验 target 未逃逸出 dstRoot
+                if (!target.startsWith(dstRoot)) {
+                    throw new IOException("路径穿越检测: " + dir + " -> " + target);
+                }
                 Files.createDirectories(target);
                 return FileVisitResult.CONTINUE;
             }
@@ -226,7 +248,11 @@ public final class MigrationManager {
             @Override
             public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
                 Path relative = srcRoot.relativize(file);
-                Path target = dstRoot.resolve(relative);
+                Path target = dstRoot.resolve(relative).normalize();
+                // 校验 target 未逃逸出 dstRoot
+                if (!target.startsWith(dstRoot)) {
+                    throw new IOException("路径穿越检测: " + file + " -> " + target);
+                }
                 Files.createDirectories(target.getParent());
                 Files.copy(file, target, StandardCopyOption.REPLACE_EXISTING);
                 return FileVisitResult.CONTINUE;

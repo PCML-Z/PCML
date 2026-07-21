@@ -25,6 +25,7 @@ import com.pmcl.core.stats.PlayTimeTracker;
 import com.pmcl.core.translate.TranslateClient;
 import com.pmcl.core.util.PastebinClient;
 import com.pmcl.core.update.SelfUpdater;
+import com.pmcl.core.update.GitHubReleaseSyncChecker;
 import com.pmcl.core.version.VersionManager;
 import com.pmcl.core.gamecontent.WorldManager;
 import com.pmcl.core.gamecontent.ScreenshotManager;
@@ -77,6 +78,7 @@ public final class LauncherCore {
     private final CrashAnalyzer crashAnalyzer;
     private final ProcessMonitor processMonitor;
     private final SelfUpdater selfUpdater;
+    private final GitHubReleaseSyncChecker githubSync;
     private final NewsClient newsClient;
     private final MultiplayerManager multiplayerManager;
     private final FriendManager friendManager;
@@ -142,6 +144,22 @@ public final class LauncherCore {
         // 可选子系统：失败不中断启动器，对应功能降级不可用
         this.selfUpdater = initOptional("SelfUpdater",
                 () -> new SelfUpdater(downloadManager, "", "0.0.0"));
+        // GitHub Release 同步更新（从 Preferences 读取配置，enabled 时自动检查）
+        this.githubSync = initOptional("GitHubReleaseSync",
+                () -> {
+                    GitHubReleaseSyncChecker checker = new GitHubReleaseSyncChecker("1.0.0");
+                    checker.setGithubRepo(preferences.getGithubRepo());
+                    if (preferences.isGithubSyncEnabled()) {
+                        try {
+                            checker.start();
+                            System.err.println("[LauncherCore] GitHub Release 同步已启动: "
+                                    + preferences.getGithubRepo());
+                        } catch (Throwable t) {
+                            System.err.println("[LauncherCore] GitHub Release 同步启动失败: " + t.getMessage());
+                        }
+                    }
+                    return checker;
+                });
         this.newsClient = initOptional("NewsClient",
                 () -> new NewsClient(downloadManager.httpClient()));
         this.multiplayerManager = initOptional("MultiplayerManager",
@@ -238,6 +256,17 @@ public final class LauncherCore {
             }
         }
         if (host != null && !host.isEmpty() && port != null) {
+            // M71 修复：校验 host 字符合法性，防止 null 字节注入等攻击
+            // 合法 host 仅允许字母、数字、点、连字符、冒号（IPv6 地址）
+            // 拒绝包含空格、控制字符、换行等可能导致系统属性注入的字符
+            if (!isSafeProxyHost(host)) {
+                System.err.println("[LauncherCore] 拒绝设置代理系统属性：host 包含非法字符");
+                System.clearProperty("http.proxyHost");
+                System.clearProperty("http.proxyPort");
+                System.clearProperty("https.proxyHost");
+                System.clearProperty("https.proxyPort");
+                return;
+            }
             System.setProperty("http.proxyHost", host);
             System.setProperty("http.proxyPort", port);
             System.setProperty("https.proxyHost", host);
@@ -248,6 +277,32 @@ public final class LauncherCore {
             System.clearProperty("https.proxyHost");
             System.clearProperty("https.proxyPort");
         }
+    }
+
+    /**
+     * M71：校验代理 host 字符集，防止 null 字节、控制字符、空白字符注入。
+     * <p>
+     * 合法字符：
+     * <ul>
+     *   <li>字母 a-z A-Z</li>
+     *   <li>数字 0-9</li>
+     *   <li>点（.）、连字符（-）、冒号（:）—— 支持 IPv6 地址</li>
+     *   <li>方括号 [ ] —— 支持 [IPv6] 格式</li>
+     * </ul>
+     * 拒绝空格、换行、tab、null 字节（\0）及其他控制字符。
+     */
+    private static boolean isSafeProxyHost(String host) {
+        if (host == null || host.isEmpty()) return false;
+        for (int i = 0; i < host.length(); i++) {
+            char c = host.charAt(i);
+            if (c == '.' || c == '-' || c == ':' || c == '[' || c == ']') continue;
+            if (c >= 'a' && c <= 'z') continue;
+            if (c >= 'A' && c <= 'Z') continue;
+            if (c >= '0' && c <= '9') continue;
+            // 非法字符：空格、控制字符、null 字节、换行等
+            return false;
+        }
+        return true;
     }
 
     public AuthService auth() { return authService; }
@@ -273,6 +328,8 @@ public final class LauncherCore {
     public ProcessMonitor processMonitor() { return processMonitor; }
 
     public SelfUpdater selfUpdater() { return selfUpdater; }
+
+    public GitHubReleaseSyncChecker githubSync() { return githubSync; }
 
     public NewsClient news() { return newsClient; }
 

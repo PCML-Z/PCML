@@ -109,4 +109,9 @@ tasks.register<Jar>("fatJar") {
     // 排除所有 module-info.class（fat jar 作为 unnamed module 运行，否则 Java 9+ 启动时报 JNI 错误）
     exclude("module-info.class")
     exclude("META-INF/versions/*/module-info.class")
+
+    // M3 合规修复：保留开源协议元数据，满足 Apache 2.0 / MIT / BSD 等协议的归属要求
+    // - META-INF/maven/** 包含 groupId/artifactId/version 的 POM 元数据（各依赖路径不同，不冲突，自动合并）
+    // - META-INF/LICENSE* / META-INF/NOTICE* 文件由 duplicatesStrategy = EXCLUDE 自动保留第一份副本
+    // - 不排除 LICENSE / NOTICE / pom.properties / pom.xml，确保协议合规
 }

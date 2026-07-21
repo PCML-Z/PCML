@@ -109,6 +109,9 @@ public final class FriendChatClient implements AutoCloseable {
             writer = new PrintWriter(new OutputStreamWriter(s.getOutputStream(), StandardCharsets.UTF_8), true);
             running.set(true);
 
+            // S3 安全修复：连接建立后必须立即发送 auth 握手，否则服务器会在 5 秒后关闭连接
+            sendAuthHandshake();
+
             // 启动读取线程
             readThread = new Thread(this::readLoop, "FriendChat-Read-" + host + ":" + port);
             readThread.setDaemon(true);
@@ -124,6 +127,20 @@ public final class FriendChatClient implements AutoCloseable {
             try { s.close(); } catch (IOException ignored) {}
             throw e;
         }
+    }
+
+    /**
+     * 发送 auth 握手：第一条消息必须是 {"type":"auth","identity":"XXX-...-XXX"}。
+     * 服务器据此校验本客户端是否为已知好友。
+     */
+    private void sendAuthHandshake() {
+        if (myIdentity == null || myIdentity.isBlank()) return;
+        com.google.gson.JsonObject auth = new com.google.gson.JsonObject();
+        auth.addProperty("type", "auth");
+        auth.addProperty("identity", myIdentity);
+        // 直接写入，不进队列：握手必须在所有其他消息之前发送
+        writer.write(auth.toString() + "\n");
+        writer.flush();
     }
 
     /** 发送消息（非阻塞，入队） */

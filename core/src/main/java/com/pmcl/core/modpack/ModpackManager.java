@@ -555,10 +555,15 @@ public final class ModpackManager {
     private void addOverrideDir(ZipOutputStream zos, Path gameDir, String dirName) throws IOException {
         Path dir = gameDir.resolve(dirName);
         if (!Files.isDirectory(dir)) return;
-        try (var stream = Files.walk(dir)) {
+        // M88: Files.walk 无深度限制时，恶意目录结构（或符号链接形成的深链）可导致
+        // StackOverflowError 或极长耗时。限制最大深度为 32（足够覆盖 config/shaderpacks
+        // 等正常目录结构），并跳过符号链接（避免循环）。
+        try (var stream = Files.walk(dir, 32)) {
             var it = stream.iterator();
             while (it.hasNext()) {
                 Path p = it.next();
+                // 跳过符号链接：避免链接到 gameDir 外部造成 zip 内容泄漏或循环
+                if (Files.isSymbolicLink(p)) continue;
                 if (Files.isDirectory(p)) continue;
                 String relative = gameDir.relativize(p).toString().replace('\\', '/');
                 String entryName = "overrides/" + relative;
@@ -670,6 +675,12 @@ public final class ModpackManager {
     }
 
     private void deleteRecursive(Path path) throws IOException {
+        // M87: 符号链接循环防护。直接对符号链接调用 Files.isDirectory 会跟随，
+        // 可能进入循环导致 StackOverflowError；对符号链接本身只删除链接不递归。
+        if (Files.isSymbolicLink(path)) {
+            Files.deleteIfExists(path);
+            return;
+        }
         if (Files.isDirectory(path)) {
             try (var stream = Files.list(path)) {
                 var it = stream.iterator();
@@ -1050,10 +1061,20 @@ public final class ModpackManager {
         } else {
             prefixes = List.of("overrides/");
         }
+
+        // S22 安全修复：ZipBomb 防护阈值
+        final long MAX_TOTAL = com.pmcl.core.util.SafeZipExtractor.DEFAULT_MAX_TOTAL_SIZE;
+        final int MAX_ENTRIES = com.pmcl.core.util.SafeZipExtractor.DEFAULT_MAX_ENTRIES;
+        long totalSize = 0;
+        int entryCount = 0;
+
         try (ZipFile zf = new ZipFile(file.toFile())) {
             var entries = zf.entries();
             while (entries.hasMoreElements()) {
                 ZipEntry entry = entries.nextElement();
+                if (++entryCount > MAX_ENTRIES) {
+                    throw new IOException("ZipBomb detected: entry count exceeds limit " + MAX_ENTRIES);
+                }
                 if (entry.isDirectory()) continue;
                 String name = entry.getName();
 
@@ -1071,8 +1092,23 @@ public final class ModpackManager {
                 if (!target.startsWith(instanceDir)) continue;
 
                 Files.createDirectories(target.getParent());
-                try (InputStream in = zf.getInputStream(entry)) {
-                    Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
+                // S22 安全修复：流式写入并累计字节数，防止超大 entry 导致 OOM
+                try (InputStream in = zf.getInputStream(entry);
+                     java.io.OutputStream out = Files.newOutputStream(target,
+                             StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING,
+                             StandardOpenOption.WRITE)) {
+                    byte[] buf = new byte[8192];
+                    int n;
+                    long entrySize = 0;
+                    while ((n = in.read(buf)) > 0) {
+                        entrySize += n;
+                        totalSize += n;
+                        if (totalSize > MAX_TOTAL) {
+                            throw new IOException("ZipBomb detected: total extracted size exceeds "
+                                    + MAX_TOTAL + " bytes in " + file);
+                        }
+                        out.write(buf, 0, n);
+                    }
                 }
             }
         }
@@ -1122,7 +1158,31 @@ public final class ModpackManager {
     }
 
     private String sanitizeName(String name) {
-        return name.replaceAll("[^a-zA-Z0-9._-]", "_");
+        if (name == null) return "unnamed";
+        // M91: 仅过滤文件系统非法字符（Windows/Linux/macOS 通用），
+        // 保留中文/日文/韩文等 Unicode 字符，避免整合包名 "我的整合包" 变成 "_"。
+        // 同时过滤控制字符、路径分隔符、通配符等。
+        // 空白字符替换为下划线（整合包名通常不含空格更友好）。
+        StringBuilder sb = new StringBuilder(name.length());
+        for (int i = 0; i < name.length(); i++) {
+            char c = name.charAt(i);
+            if (c == '/' || c == '\\' || c == ':' || c == '*'
+                    || c == '?' || c == '"' || c == '<' || c == '>'
+                    || c == '|' || c < 0x20) {
+                sb.append('_');
+            } else if (c == ' ' || c == '\t') {
+                sb.append('_');
+            } else {
+                sb.append(c);
+            }
+        }
+        String result = sb.toString();
+        // 去除尾部点和空格（Windows 不允许文件名以 . 结尾）
+        while (result.endsWith(".") || result.endsWith(" ")) {
+            result = result.substring(0, result.length() - 1);
+        }
+        if (result.isEmpty()) return "unnamed";
+        return result;
     }
 
     private String sha1Hex(Path file) throws IOException {

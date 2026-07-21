@@ -90,7 +90,21 @@ data class PluginInfo(
     val mainClass: String,
     val dependencies: List<String> = emptyList(),
     val website: String = "",
-    val license: String = ""
+    val license: String = "",
+    /**
+     * 声明插件所需的敏感权限（逗号分隔的 [PluginPermission] 名称）。
+     * <p>
+     * 访问敏感服务（AuthService/SelfUpdater/ProcessMonitor 等）需要对应权限：
+     * - `READ_ACCOUNTS` — 读取账号信息（含 accessToken）
+     * - `WRITE_ACCOUNTS` — 修改账号
+     * - `CONTROL_LAUNCH` — 启动/停止 Minecraft
+     * - `KILL_PROCESS` — 杀死进程
+     * - `SELF_UPDATE` — 替换启动器 JAR
+     * - `MANAGE_PLUGINS` — 管理其他插件
+     * <p>
+     * 示例：`plugin.permissions=READ_ACCOUNTS,CONTROL_LAUNCH`
+     */
+    val permissions: List<String> = emptyList()
 ) {
     companion object {
         const val SUPPORTED_API_VERSION = "1.0"
@@ -108,6 +122,7 @@ data class PluginInfo(
         const val KEY_DEPENDENCIES = "plugin.dependencies"
         const val KEY_WEBSITE = "plugin.website"
         const val KEY_LICENSE = "plugin.license"
+        const val KEY_PERMISSIONS = "plugin.permissions"
 
         // ==================== Length Limits ====================
 

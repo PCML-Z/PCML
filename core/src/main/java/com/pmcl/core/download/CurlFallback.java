@@ -53,18 +53,30 @@ public final class CurlFallback {
 
     /**
      * 判断异常是否为 SSL 握手失败（应该 fallback 到 curl）。
+     * M59 修复：移除 "reset"/"broken pipe" 等过宽匹配——这些通常是连接被对端中断，
+     * 而非 SSL 握手失败。仅匹配真正的 SSL/TLS 握手错误。
      */
     public static boolean isSslHandshakeFailure(Throwable e) {
         if (e == null) return false;
+        // SSLHandshakeException 是最明确的信号
+        if (e instanceof javax.net.ssl.SSLHandshakeException) return true;
+        // SSLException 仅在消息包含握手/TLS 关键词时才视为握手失败
+        if (e instanceof javax.net.ssl.SSLException) {
+            String msg = e.getMessage();
+            if (msg == null) return false;
+            String lower = msg.toLowerCase(java.util.Locale.ROOT);
+            return lower.contains("handshake")
+                    || lower.contains("ssl")
+                    || lower.contains("tls")
+                    || lower.contains("remote host terminated");
+        }
+        // 非 SSLException 的异常，仅在消息明确提及握手失败时才 fallback
         String msg = e.getMessage();
-        if (msg == null) msg = "";
-        // SSL 握手失败的常见错误消息
-        return msg.contains("handshake") || msg.contains("SSL") || msg.contains("TLS")
-                || msg.contains("Remote host terminated")
-                || msg.contains("reset")
-                || msg.contains("broken pipe")
-                || e instanceof javax.net.ssl.SSLHandshakeException
-                || e instanceof javax.net.ssl.SSLException;
+        if (msg == null) return false;
+        String lower = msg.toLowerCase(java.util.Locale.ROOT);
+        return lower.contains("ssl handshake")
+                || lower.contains("tls handshake")
+                || lower.contains("remote host terminated the handshake");
     }
 
     /**

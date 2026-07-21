@@ -29,6 +29,8 @@ import com.pmcl.core.nbt.NbtTag
 import com.pmcl.core.nbt.NbtWriter
 import com.pmcl.core.preferences.Preferences
 import com.pmcl.core.stats.PlayTimeTracker
+import com.pmcl.core.update.GitHubReleaseSyncChecker
+import com.pmcl.core.update.SelfUpdater
 import com.pmcl.core.version.McVersion
 import com.pmcl.core.gamecontent.WorldManager
 import com.pmcl.core.gamecontent.ScreenshotManager
@@ -69,7 +71,8 @@ import java.nio.file.Paths
  */
 class LauncherViewModel {
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default +
+    // M29 拆分：scope 标 @PublishedApi internal 以便同模块扩展函数（Music/NBT 等）访问
+    @PublishedApi internal val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default +
         CoroutineExceptionHandler { _, throwable ->
             System.err.println("[LauncherViewModel] 未捕获的协程异常: ${throwable.message}")
             throwable.printStackTrace()
@@ -79,6 +82,22 @@ class LauncherViewModel {
 
     val core = LauncherCore()
 
+    // ===== GitHub Release 同步更新 =====
+    /** 同步是否处于活动状态（已启用且调度器已启动） */
+    private val _syncActive = kotlinx.coroutines.flow.MutableStateFlow(false)
+    val syncActive: kotlinx.coroutines.flow.StateFlow<Boolean> = _syncActive
+
+    /** 发现的新版本（null = 无；非 null = 待用户处理的更新通知） */
+    private val _pushedUpdate = kotlinx.coroutines.flow.MutableStateFlow<SelfUpdater.UpdateInfo?>(null)
+    val pushedUpdate: kotlinx.coroutines.flow.StateFlow<SelfUpdater.UpdateInfo?> = _pushedUpdate
+
+    /** 同步状态描述（检查中 / 已是最新 / 错误 / 速率限制等） */
+    private val _pushStatusText = kotlinx.coroutines.flow.MutableStateFlow("")
+    val pushStatusText: kotlinx.coroutines.flow.StateFlow<String> = _pushStatusText
+
+    /** 同步监听器引用（用于 start/stop 时 add/remove） */
+    private var syncListener: GitHubReleaseSyncChecker.Listener? = null
+
     init {
         // 注入 video 模块的主菜单背景视频处理器（JavaCV 实现）
         // core 模块不依赖 video，通过接口注入避免循环依赖；video 模块未就绪时该功能降级不可用
@@ -86,6 +105,97 @@ class LauncherViewModel {
             core.profileBuilder().setMenuBackgroundProvider(com.pmcl.video.MenuBackgroundManager())
         } catch (e: Throwable) {
             System.err.println("[LauncherViewModel] MenuBackgroundProvider 注入失败: ${e.message}")
+        }
+        // 注册 GitHub Release 同步监听器
+        setupGithubSyncListener()
+    }
+
+    /**
+     * 注册 GitHub Release 同步监听器，将同步事件映射到 StateFlow 供 UI 观察。
+     * 仅注册一次；启用/禁用通过 start() 控制，不重复 add/remove。
+     */
+    private fun setupGithubSyncListener() {
+        val client = core.githubSync() ?: return
+        val listener = object : GitHubReleaseSyncChecker.Listener {
+            override fun onUpdateAvailable(info: SelfUpdater.UpdateInfo) {
+                // 仅当尚未有待处理更新时才覆盖，避免覆盖用户尚未响应的更新
+                if (_pushedUpdate.value == null) {
+                    _pushedUpdate.value = info
+                }
+                _pushStatusText.value = "发现新版本 v${info.version}"
+            }
+            override fun onUpToDate() {
+                _pushStatusText.value = "已是最新版本"
+            }
+            override fun onError(message: String, cause: Throwable?) {
+                _pushStatusText.value = "错误: $message"
+            }
+            override fun onRateLimited(retryAfterMinutes: Long) {
+                _pushStatusText.value = "GitHub API 速率限制，${retryAfterMinutes}分钟后重试"
+            }
+        }
+        client.addListener(listener)
+        syncListener = listener
+        // 若 core 初始化时已启动同步，则反映活动状态
+        if (preferences.isGithubSyncEnabled() && preferences.getGithubRepo().isNotEmpty()) {
+            _syncActive.value = true
+        }
+    }
+
+    /** 用户在设置页开启/关闭 GitHub Release 同步 */
+    fun setGithubSyncEnabled(enabled: Boolean) {
+        val client = core.githubSync() ?: return
+        preferences.setGithubSyncEnabled(enabled)
+        if (enabled) {
+            val repo = preferences.getGithubRepo()
+            if (repo.isNotEmpty()) {
+                client.setGithubRepo(repo)
+                client.start()
+                _syncActive.value = true
+                _pushStatusText.value = "已启用，正在检查更新..."
+            } else {
+                _pushStatusText.value = "已启用，请填写 GitHub 仓库地址"
+            }
+        } else {
+            // 关闭：不调用 client.close()（会销毁调度器，后续无法重启）
+            // 用户重启启动器后才会真正停止调度器
+            _syncActive.value = false
+            _pushStatusText.value = "已禁用（重启后生效）"
+        }
+    }
+
+    /** 用户在设置页修改 GitHub 仓库（格式 "owner/repo"） */
+    fun setGithubRepo(repo: String) {
+        val client = core.githubSync() ?: return
+        preferences.setGithubRepo(repo)
+        client.setGithubRepo(repo)
+        // 仓库变更后立即触发一次检查（若已启用）
+        if (preferences.isGithubSyncEnabled() && repo.isNotEmpty()) {
+            client.checkNow()
+            _pushStatusText.value = "仓库已更新，正在检查..."
+        } else {
+            _pushStatusText.value = "仓库已保存（启用后生效）"
+        }
+    }
+
+    /** 用户响应了更新弹窗（无论下载/取消），清除待处理状态 */
+    fun clearPushedUpdate() {
+        _pushedUpdate.value = null
+    }
+
+    /** 用户确认下载发现的更新 */
+    fun downloadPushedUpdate(onProgress: (Long) -> Unit) {
+        val info = _pushedUpdate.value ?: return
+        val updater = core.selfUpdater() ?: return
+        scope.launch {
+            try {
+                _pushStatusText.value = "正在下载更新 v${info.version}..."
+                updater.downloadUpdate(info, onProgress).join()
+                _pushStatusText.value = "更新已下载，下次启动时生效"
+                _pushedUpdate.value = null
+            } catch (e: Throwable) {
+                _pushStatusText.value = "下载更新失败: ${e.message}"
+            }
         }
     }
 
@@ -141,7 +251,7 @@ class LauncherViewModel {
     val selectedVersion: StateFlow<String?> = _selectedVersion.asStateFlow()
 
     // ===== 状态/账号 =====
-    private val _status = MutableStateFlow(I18n.t("status.ready"))
+    @PublishedApi internal val _status = MutableStateFlow(I18n.t("status.ready"))
     val status: StateFlow<String> = _status.asStateFlow()
 
     /** UI 层更新状态栏文本（如浏览器打开失败等错误提示） */
@@ -286,38 +396,40 @@ class LauncherViewModel {
     val perfHudMetrics: StateFlow<String> = _perfHudMetrics.asStateFlow()
 
     // ===== 音乐播放器 =====
-    private val gson = com.google.gson.Gson()
-    private val musicPlayer = MusicPlayer()
-    private val audioResolver = AudioSourceResolver()
+    // M29 拆分：音乐域状态/函数已移至 LauncherViewModelMusic.kt（扩展函数）。
+    // 此处状态标 @PublishedApi internal 以便同模块扩展函数访问，公共只读视图保持不变。
+    @PublishedApi internal val gson = com.google.gson.Gson()
+    @PublishedApi internal val musicPlayer = MusicPlayer()
+    @PublishedApi internal val audioResolver = AudioSourceResolver()
 
-    private val _musicPlaylist = MutableStateFlow<List<MusicTrack>>(emptyList())
+    @PublishedApi internal val _musicPlaylist = MutableStateFlow<List<MusicTrack>>(emptyList())
     val musicPlaylist: StateFlow<List<MusicTrack>> = _musicPlaylist.asStateFlow()
 
-    private val _musicCurrentIndex = MutableStateFlow(-1)
+    @PublishedApi internal val _musicCurrentIndex = MutableStateFlow(-1)
     val musicCurrentIndex: StateFlow<Int> = _musicCurrentIndex.asStateFlow()
 
-    private val _musicPlaybackState = MutableStateFlow(PlaybackState.IDLE)
+    @PublishedApi internal val _musicPlaybackState = MutableStateFlow(PlaybackState.IDLE)
     val musicPlaybackState: StateFlow<PlaybackState> = _musicPlaybackState.asStateFlow()
 
-    private val _musicCurrentMs = MutableStateFlow(0L)
+    @PublishedApi internal val _musicCurrentMs = MutableStateFlow(0L)
     val musicCurrentMs: StateFlow<Long> = _musicCurrentMs.asStateFlow()
 
-    private val _musicDurationMs = MutableStateFlow(0L)
+    @PublishedApi internal val _musicDurationMs = MutableStateFlow(0L)
     val musicDurationMs: StateFlow<Long> = _musicDurationMs.asStateFlow()
 
-    private val _musicVolume = MutableStateFlow(80)
+    @PublishedApi internal val _musicVolume = MutableStateFlow(80)
     val musicVolume: StateFlow<Int> = _musicVolume.asStateFlow()
 
-    private val _musicMuted = MutableStateFlow(false)
+    @PublishedApi internal val _musicMuted = MutableStateFlow(false)
     val musicMuted: StateFlow<Boolean> = _musicMuted.asStateFlow()
 
-    private val _musicLoadingUrl = MutableStateFlow<String?>(null)
+    @PublishedApi internal val _musicLoadingUrl = MutableStateFlow<String?>(null)
     val musicLoadingUrl: StateFlow<String?> = _musicLoadingUrl.asStateFlow()
 
-    private val _musicRepeatMode = MutableStateFlow(0)  // 0=顺序, 1=列表循环, 2=单曲循环
+    @PublishedApi internal val _musicRepeatMode = MutableStateFlow(0)  // 0=顺序, 1=列表循环, 2=单曲循环
     val musicRepeatMode: StateFlow<Int> = _musicRepeatMode.asStateFlow()
 
-    private val _musicShuffle = MutableStateFlow(false)
+    @PublishedApi internal val _musicShuffle = MutableStateFlow(false)
     val musicShuffle: StateFlow<Boolean> = _musicShuffle.asStateFlow()
 
     fun setPerfHudVisible(v: Boolean) {
@@ -799,7 +911,9 @@ class LauncherViewModel {
     val preferences: Preferences get() = core.getPreferences()
 
     /** mods 目录扫描缓存：key=目录路径, value=[mtime, 扫描结果] */
-    private val modScanCache = java.util.concurrent.ConcurrentHashMap<Path, Array<Any>>()
+    // M30 修复：用类型安全的 data class 替代 Array<Any>，避免 unchecked cast 与运行时类型错误
+    private data class ModScanCacheEntry(val dirMtime: Long, val mods: List<ModMeta>)
+    private val modScanCache = java.util.concurrent.ConcurrentHashMap<Path, ModScanCacheEntry>()
 
     init {
         loadSavedAccount()
@@ -858,15 +972,17 @@ class LauncherViewModel {
 
     /** 扫描本地已安装版本（详细信息），自动检测 .pmcl/versions + 系统默认 Minecraft 目录，带进度回调 */
     fun refreshLocalVersions() {
-        // 先读缓存秒开（独立协程，不阻塞 UI，不影响扫描重入守卫）
+        // M34 修复：缓存协程与扫描协程竞态——原代码用 check-then-act（isEmpty() 后赋值），
+        // 若扫描协程在 isEmpty() 检查后、赋值前完成，缓存会覆盖新鲜扫描结果。
+        // 改用 update {} 原子检查：仅当当前值仍为空时才赋缓存值。
         scope.launch {
             try {
                 val cached = withContext(Dispatchers.IO) {
                     DataCache.load("local_versions", object : TypeToken<List<com.pmcl.core.version.VersionManager.LocalVersionInfo>>() {})
                 }
-                if (cached != null && cached.isNotEmpty() && _localVersionInfos.value.isEmpty()) {
-                    _localVersionInfos.value = cached
-                    _localVersions.value = cached.map { it.getId() }
+                if (cached != null && cached.isNotEmpty()) {
+                    _localVersionInfos.update { current -> if (current.isEmpty()) cached else current }
+                    _localVersions.update { current -> if (current.isEmpty()) cached.map { it.getId() } else current }
                 }
             } catch (e: Throwable) {
                 // 缓存读取失败不影响后续正常扫描，静默处理
@@ -1150,8 +1266,13 @@ class LauncherViewModel {
         }
         val acc = core.auth().offline(username)
         upsertAccount(acc)
+        // 持久化用户名，下次启动时恢复，避免每次重置为 Steve
+        preferences.setLastOfflineUsername(username)
         _status.value = I18n.t("status.logged_in_offline", username)
     }
+
+    /** 上次离线登录用户名（启动时恢复） */
+    fun lastOfflineUsername(): String = preferences.getLastOfflineUsername()
 
     /** 为当前离线账号设置自定义皮肤 URL（如 Crafatar 头像 URL 或其他皮肤图） */
     fun setOfflineSkin(skinUrl: String, skinModel: String = "classic") {
@@ -1727,12 +1848,11 @@ class LauncherViewModel {
                             // 基于目录 mtime 的缓存：未变化则复用上次扫描结果
                             val dirMtime = try { java.nio.file.Files.getLastModifiedTime(modsDir).toMillis() } catch (_: Throwable) { 0L }
                             val cached = modScanCache[modsDir]
-                            @Suppress("UNCHECKED_CAST")
-                            val part = if (cached != null && cached[0] as Long == dirMtime && dirMtime > 0L) {
-                                cached[1] as List<ModMeta>
+                            val part = if (cached != null && cached.dirMtime == dirMtime && dirMtime > 0L) {
+                                cached.mods
                             } else {
                                 val scanned = ModScanner.scanDirectory(modsDir)
-                                modScanCache[modsDir] = arrayOf(dirMtime, scanned)
+                                modScanCache[modsDir] = ModScanCacheEntry(dirMtime, scanned)
                                 scanned
                             }
                             // 为每个 mod 设置来源标签
@@ -5207,164 +5327,10 @@ class LauncherViewModel {
     }
 
     // ===== 音乐播放器方法 =====
-
-    /** 解析 URL 并添加到播放列表 */
-    fun resolveAndAddMusicTrack(url: String) {
-        if (url.isBlank()) return
-        scope.launch {
-            _musicLoadingUrl.value = url
-            try {
-                val info = withContext(Dispatchers.IO) { audioResolver.resolve(url) }
-                val track = MusicTrack(
-                    sourceUrl = url.trim(),
-                    title = info.title.ifBlank { url },
-                    uploader = info.uploader,
-                    durationMs = info.durationMs,
-                    coverUrl = info.coverUrl ?: "",
-                    sourceType = info.sourceType,
-                    originalId = info.originalId
-                )
-                _musicPlaylist.value = _musicPlaylist.value + track
-                persistMusicPlaylist()
-                _status.value = I18n.t("music.resolve_success", track.title)
-            } catch (e: Throwable) {
-                _status.value = I18n.t("music.resolve_failed", e.message ?: "?")
-            } finally {
-                _musicLoadingUrl.value = null
-            }
-        }
-    }
-
-    /** 播放指定索引的曲目 */
-    fun playMusicAt(index: Int) {
-        val list = _musicPlaylist.value
-        if (index !in list.indices) return
-        val track = list[index]
-        _musicCurrentIndex.value = index
-        scope.launch {
-            _musicPlaybackState.value = PlaybackState.LOADING
-            try {
-                val info = withContext(Dispatchers.IO) { audioResolver.resolve(track.sourceUrl) }
-                withContext(Dispatchers.IO) {
-                    musicPlayer.play(info.audioUrl, info.headers, info.durationMs.coerceAtLeast(track.durationMs))
-                }
-            } catch (e: Throwable) {
-                _musicPlaybackState.value = PlaybackState.ERROR
-                _status.value = I18n.t("music.error_load", e.message ?: "?")
-            }
-        }
-    }
-
-    /** 播放/暂停切换 */
-    fun toggleMusicPlayPause() {
-        when (_musicPlaybackState.value) {
-            PlaybackState.PLAYING -> musicPlayer.pause()
-            PlaybackState.PAUSED -> musicPlayer.resume()
-            PlaybackState.IDLE, PlaybackState.STOPPED, PlaybackState.ENDED, PlaybackState.ERROR -> {
-                val idx = _musicCurrentIndex.value
-                if (idx >= 0) playMusicAt(idx)
-                else if (_musicPlaylist.value.isNotEmpty()) playMusicAt(0)
-            }
-            else -> {}
-        }
-    }
-
-    fun pauseMusic() { musicPlayer.pause() }
-    fun resumeMusic() { musicPlayer.resume() }
-    fun stopMusic() {
-        musicPlayer.stop()
-        _musicCurrentMs.value = 0
-    }
-
-    fun playNextMusic() {
-        val list = _musicPlaylist.value
-        if (list.isEmpty()) return
-        val cur = _musicCurrentIndex.value
-        val next = if (_musicShuffle.value) {
-            if (list.size == 1) 0 else (0 until list.size).filter { it != cur }.random()
-        } else {
-            when (_musicRepeatMode.value) {
-                2 -> cur  // 单曲循环
-                1 -> (cur + 1) % list.size  // 列表循环
-                else -> if (cur + 1 < list.size) cur + 1 else -1  // 顺序，末尾停止
-            }
-        }
-        if (next >= 0) playMusicAt(next)
-        else stopMusic()
-    }
-
-    fun playPreviousMusic() {
-        val list = _musicPlaylist.value
-        if (list.isEmpty()) return
-        val cur = _musicCurrentIndex.value
-        val prev = if (cur - 1 >= 0) cur - 1 else list.size - 1
-        playMusicAt(prev)
-    }
-
-    fun seekMusicTo(ms: Long) { musicPlayer.seekTo(ms) }
-
-    fun setMusicVolume(v: Int) {
-        val normalized = v.coerceIn(0, 100)
-        _musicVolume.value = normalized
-        _musicMuted.value = normalized == 0
-        musicPlayer.setVolume(normalized)
-    }
-
-    fun toggleMusicMute() {
-        val muted = !_musicMuted.value
-        _musicMuted.value = muted
-        musicPlayer.setVolume(if (muted) 0 else _musicVolume.value)
-    }
-
-    fun cycleMusicRepeatMode() {
-        _musicRepeatMode.value = (_musicRepeatMode.value + 1) % 3
-    }
-
-    fun toggleMusicShuffle() {
-        _musicShuffle.value = !_musicShuffle.value
-    }
-
-    fun removeMusicTrack(index: Int) {
-        val list = _musicPlaylist.value.toMutableList()
-        if (index !in list.indices) return
-        list.removeAt(index)
-        _musicPlaylist.value = list
-        persistMusicPlaylist()
-        // 调整当前索引
-        val cur = _musicCurrentIndex.value
-        when {
-            index < cur -> _musicCurrentIndex.value = cur - 1
-            index == cur -> {
-                stopMusic()
-                _musicCurrentIndex.value = -1
-            }
-        }
-    }
-
-    fun clearMusicPlaylist() {
-        stopMusic()
-        _musicPlaylist.value = emptyList()
-        _musicCurrentIndex.value = -1
-        persistMusicPlaylist()
-    }
-
-    private fun persistMusicPlaylist() {
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) {
-                    val file = java.io.File(System.getProperty("user.home"), ".pmcl/music/playlist.json")
-                    file.parentFile.mkdirs()
-                    file.writeText(gson.toJson(_musicPlaylist.value))
-                }
-            } catch (_: Throwable) {}
-        }
-    }
-
-    /** 当前曲目（用于 MiniBar 显示） */
-    val currentMusicTrack: MusicTrack?
-        get() {
-            val idx = _musicCurrentIndex.value
-            val list = _musicPlaylist.value
-            return if (idx in list.indices) list[idx] else null
-        }
+    // M29 拆分：音乐域方法已移至 LauncherViewModelMusic.kt（同包扩展函数）。
+    // UI 调用方签名不变（vm.playMusicAt / vm.musicPlaylist 等）。
+    // 入口：resolveAndAddMusicTrack / playMusicAt / toggleMusicPlayPause / pauseMusic / resumeMusic /
+    //       stopMusic / playNextMusic / playPreviousMusic / seekMusicTo / setMusicVolume /
+    //       toggleMusicMute / cycleMusicRepeatMode / toggleMusicShuffle / removeMusicTrack /
+    //       clearMusicPlaylist / currentMusicTrack / persistMusicPlaylist
 }

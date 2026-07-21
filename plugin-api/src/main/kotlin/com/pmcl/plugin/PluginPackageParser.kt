@@ -120,6 +120,17 @@ object PluginPackageParser {
     const val PLUGIN_XML_PATH = "plugin.xml"
     const val PROPERTIES_PATH = "META-INF/pmcl-plugin.properties"
 
+    // M22 修复：DoS 防护阈值。XML 解析前/解析中限制总大小、元素数、嵌套深度、属性数、
+    // 名称长度、实体扩展数，防止恶意 plugin.xml 耗尽内存或触发 StackOverflowError。
+    // JAXP 标准属性（Oracle JDK / OpenJDK 内置 Xerces2 解析器均支持）。
+    private const val MAX_XML_SIZE = 1 shl 20            // 1 MB：plugin.xml 是元数据文件，正常应远小于此
+    private const val MAX_ELEMENT_COUNT = 10_000         // 元素总数上限
+    private const val MAX_ELEMENT_DEPTH = 64             // 嵌套深度上限
+    private const val MAX_ATTRIBUTE_PER_ELEMENT = 32     // 单元素属性数上限
+    private const val MAX_NAME_LENGTH = 256              // 元素名/属性名长度上限
+    private const val MAX_ENTITY_EXPANSIONS = 1_000      // 实体扩展总数上限
+    private const val MAX_ENTITY_SIZE = 65_536           // 单个实体大小上限（字节）
+
     // ==================== Data Classes ====================
 
     /** A declared source file in the package. */
@@ -209,6 +220,13 @@ object PluginPackageParser {
      */
     @JvmStatic
     fun parseXml(xml: String): PluginPackage {
+        // M22 修复：先做大小检查，避免巨型 XML 在解析器内分配爆炸性内存
+        val xmlBytes = xml.toByteArray(Charsets.UTF_8)
+        if (xmlBytes.size > MAX_XML_SIZE) {
+            throw IllegalArgumentException(
+                "plugin.xml exceeds size limit: ${xmlBytes.size} bytes > $MAX_XML_SIZE bytes")
+        }
+
         val factory = DocumentBuilderFactory.newInstance()
         factory.isNamespaceAware = false
         factory.isValidating = false
@@ -220,9 +238,27 @@ object PluginPackageParser {
         } catch (e: Exception) {
             // Features may not be available on all parsers; non-fatal
         }
+        // M22 修复：DoS 防护——元素数/深度/属性数/名称长度/实体扩展上限。
+        // 这些 jdk.xml.* 属性是 JAXP 标准，Oracle JDK 与 OpenJDK 内置解析器均支持；
+        // 若运行在第三方解析器上则静默跳过（pre-size check 仍是兜底防线）。
+        setJaxpLimit(factory, "jdk.xml.maxElementCount", MAX_ELEMENT_COUNT)
+        setJaxpLimit(factory, "jdk.xml.maxElementDepth", MAX_ELEMENT_DEPTH)
+        setJaxpLimit(factory, "jdk.xml.elementAttributeLimit", MAX_ATTRIBUTE_PER_ELEMENT)
+        setJaxpLimit(factory, "jdk.xml.maxXMLNameLimit", MAX_NAME_LENGTH)
+        setJaxpLimit(factory, "jdk.xml.entityExpansionLimit", MAX_ENTITY_EXPANSIONS)
+        setJaxpLimit(factory, "jdk.xml.maxGeneralEntitySize", MAX_ENTITY_SIZE)
 
         val doc = factory.newDocumentBuilder().parse(InputSource(xml.byteInputStream(Charsets.UTF_8)))
         return parseDocument(doc)
+    }
+
+    /** 尝试设置 JAXP 限制属性；解析器不支持时静默跳过（非致命）。 */
+    private fun setJaxpLimit(factory: DocumentBuilderFactory, name: String, value: Int) {
+        try {
+            factory.setAttribute(name, value)
+        } catch (e: Exception) {
+            // 属性不被当前解析器支持，非致命——pre-size check 仍提供基础防护
+        }
     }
 
     // ==================== Internal Parsing ====================
@@ -282,6 +318,10 @@ object PluginPackageParser {
         val mainClass = elem.childText("main-class") ?: ""
         val website = elem.optionalChildText("website") ?: ""
         val license = elem.optionalChildText("license") ?: ""
+        // permissions: 逗号分隔的 PluginPermission 名称，如 "READ_ACCOUNTS,CONTROL_LAUNCH"
+        val permissionsStr = elem.optionalChildText("permissions") ?: ""
+        val permissions = if (permissionsStr.isBlank()) emptyList()
+            else permissionsStr.split(",").map { it.trim() }.filter { it.isNotEmpty() }
 
         // dependencies will be set later from the top-level <dependencies> element
         return PluginInfo(
@@ -294,7 +334,8 @@ object PluginPackageParser {
             mainClass = mainClass,
             dependencies = emptyList(),
             website = website,
-            license = license
+            license = license,
+            permissions = permissions
         )
     }
 
@@ -351,10 +392,18 @@ object PluginPackageParser {
 
     private fun parseVersions(elem: Element): List<VersionEntry> {
         val versions = mutableListOf<VersionEntry>()
+        // M23 修复：检测重复版本号，防止 plugin.xml 出现多个相同 number 的 <version> 条目
+        // 导致版本历史混淆或下游依赖解析出现非确定性匹配。
+        val seenNumbers = mutableSetOf<String>()
         val verElems = elem.getElementsByTagName("version")
         for (i in 0 until verElems.length) {
             val e = verElems.item(i) as Element
             val number = e.getAttribute("number")
+            if (!seenNumbers.add(number)) {
+                throw IllegalArgumentException(
+                    "Duplicate <version number=\"$number\"> in <versions>. " +
+                    "Each version entry must have a unique number.")
+            }
             val date = e.getAttribute("date")
             val author = e.getAttribute("author")
             val changelog = e.textContent.trim()

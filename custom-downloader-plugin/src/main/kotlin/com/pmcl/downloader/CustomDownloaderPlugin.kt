@@ -60,9 +60,13 @@ class CustomDownloaderPlugin : PmclPlugin {
             if (!UrlValidator.isValidUrl(url)) {
                 return@registerCommand "Error: Invalid URL — ${UrlValidator.getValidationError(url)}"
             }
-            // 确定保存路径
+            // S23 安全修复：保存路径必须位于 ~/.pmcl/downloads/ 内，防止路径穿越
             val savePath = if (args.size >= 2 && args[1].isNotBlank()) {
-                Paths.get(args[1])
+                try {
+                    FileHelper.sanitizeSavePath(args[1])
+                } catch (e: IllegalArgumentException) {
+                    return@registerCommand "Error: ${e.message}"
+                }
             } else {
                 val filename = FileHelper.extractFilename(url)
                 Paths.get(System.getProperty("user.home"), ".pmcl", "downloads", filename)

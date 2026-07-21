@@ -33,16 +33,17 @@ import java.util.function.Consumer;
  */
 public final class MicrosoftAuthFlow {
 
-    // Legacy 公共客户端ID（来自 HMCL 等开源启动器）。
-    // 该 client_id 仅支持 device code flow，不支持自定义 redirect_uri。
+    // Legacy 公共客户端ID（来自 Minecraft 官方启动器）。
+    // 该 client_id 仅在 login.live.com 端点可用；v2.0 consumers tenant
+    // (login.microsoftonline.com) 不识别它（返回 AADSTS700016）。
     // 若要使用浏览器授权码流程，需在 Azure 注册独立应用并将 client_id
     // 写入 ~/.pmcl/azure_client_id.txt。
     public static final String LEGACY_CLIENT_ID = "00000000402b5328";
-    // Legacy MBI_SSL scope：仅用于 login.live.com 的 device code flow，
-    // 返回的 compact token 可被 Xbox Live 接受（RpsTicket: d=<token>）。
+    // 已废弃：MBI_SSL scope 返回的 compact token (EwDIA+... 1292 字符) 会被
+    // Xbox Live /user/authenticate 以 401 空响应拒绝。保留常量仅供历史参考。
     public static final String SCOPE = "service::user.auth.xboxlive.com::MBI_SSL";
-    // v2.0 scope：用于 login.microsoftonline.com 的浏览器授权码流程，
-    // 返回的 JWT token 带 aud=XboxLive.signin，Xbox Live 可正确认证。
+    // 实际使用的 scope：login.live.com 端点支持此 v2.0 scope 且接受 LEGACY_CLIENT_ID。
+    // 返回 JWT token (eyJ... 前缀)，Xbox Live 可正确认证（RpsTicket: d=<token>）。
     // offline_access 用于获取 refresh_token（后续可刷新）。
     public static final String V2_SCOPE = "XboxLive.signin offline_access";
 
@@ -74,6 +75,10 @@ public final class MicrosoftAuthFlow {
             "https://api.minecraftservices.com/minecraft/profile";
     private static final String MC_ENTITLEMENT_URL =
             "https://api.minecraftservices.com/entitlements/mcstore";
+    // license 端点比 mcstore 更全面：包含 Xbox Game Pass 订阅状态。
+    // profile 404 时用它区分"未购买"和"有游戏但未创建档案"两种情况。
+    private static final String MC_LICENSE_URL =
+            "https://api.minecraftservices.com/entitlements/license";
 
     private static final MediaType JSON = MediaType.get("application/json; charset=utf-8");
 
@@ -125,14 +130,19 @@ public final class MicrosoftAuthFlow {
      * 直连失败时自动 fallback 到系统 curl（绕过 GFW 对 Java TLS 指纹的 RST 干扰）。
      */
     public DeviceCode requestDeviceCode() throws IOException {
-        // v2.0 device code 端点：不需要 response_type 参数（v2.0 规范中 grant_type 由 URL path 隐式指定）。
-        // scope 必须是 XboxLive.signin（而非旧的 MBI_SSL），否则 Xbox Live 会返回 401。
+        // login.live.com 端点同时支持 MBI_SSL 和 v2.0 scope，且接受 LEGACY_CLIENT_ID。
+        // v2.0 consumers tenant (login.microsoftonline.com) 不识别 LEGACY_CLIENT_ID（AADSTS700016）。
+        // 必须使用 V2_SCOPE (XboxLive.signin offline_access)：
+        //   - MBI_SSL 返回的 compact token (EwDIA+... 1292 字符) 会被 Xbox Live /user/authenticate 拒绝 (401 空响应)。
+        //   - XboxLive.signin 返回 JWT token (eyJ... 前缀)，Xbox Live 可正确认证。
+        // response_type=device_code 是 login.live.com 端点的必需参数。
         String body = "client_id=" + clientId +
-                "&scope=" + java.net.URLEncoder.encode(V2_SCOPE, "UTF-8");
+                "&scope=" + java.net.URLEncoder.encode(V2_SCOPE, "UTF-8") +
+                "&response_type=device_code";
         String json;
         try {
             Request req = new Request.Builder()
-                    .url(V2_DEVICE_CODE_URL)
+                    .url(DEVICE_CODE_URL)
                     .post(RequestBody.create(body,
                             MediaType.get("application/x-www-form-urlencoded")))
                     .build();
@@ -142,7 +152,7 @@ public final class MicrosoftAuthFlow {
         } catch (IOException e) {
             // SSL 握手失败（GFW 干扰）→ fallback 到 curl
             if (CurlFallback.isSslHandshakeFailure(e) && CurlFallback.isAvailable()) {
-                json = CurlFallback.postString(V2_DEVICE_CODE_URL, body,
+                json = CurlFallback.postString(DEVICE_CODE_URL, body,
                         "application/x-www-form-urlencoded", null);
             } else {
                 throw new IOException("请求设备码失败: " + e.getMessage(), e);
@@ -181,15 +191,15 @@ public final class MicrosoftAuthFlow {
 
     private void pollOnce(DeviceCode dc, Consumer<String> onPending,
                           CompletableFuture<String> future) {
-        // v2.0 token 轮询：不带 scope（scope 已在 devicecode 请求时指定，token 端点会自动继承）。
-        // HMCL 的实现也不带 scope，带 scope 反而会触发 invalid_request 错误。
+        // login.live.com 旧端点：与 requestDeviceCode 配套。
+        // 不带 scope（scope 已在 devicecode 请求时指定，token 端点会自动继承）。
         String body = "client_id=" + clientId +
                 "&grant_type=urn:ietf:params:oauth:grant-type:device_code" +
                 "&device_code=" + dc.getDeviceCode();
         String json;
         try {
             Request req = new Request.Builder()
-                    .url(V2_TOKEN_URL)
+                    .url(TOKEN_URL)
                     .post(RequestBody.create(body,
                             MediaType.get("application/x-www-form-urlencoded")))
                     .build();
@@ -202,7 +212,7 @@ public final class MicrosoftAuthFlow {
                 try {
                     // token 端点对 pending/slow_down/expired/declined 都返回 HTTP 400，
                     // 必须用 postStringAllowingErrors 拿到 body 才能区分具体状态
-                    json = CurlFallback.postStringAllowingErrors(V2_TOKEN_URL, body,
+                    json = CurlFallback.postStringAllowingErrors(TOKEN_URL, body,
                             "application/x-www-form-urlencoded", null);
                 } catch (IOException ce) {
                     future.completeExceptionally(new RuntimeException("网络错误: " + ce.getMessage(), ce));
@@ -227,8 +237,7 @@ public final class MicrosoftAuthFlow {
                     future.completeExceptionally(new RuntimeException("token 响应中 access_token 为空: " + json));
                     return;
                 }
-                System.err.println("[MSAuth] pollOnce 成功: tokenLen=" + token.length()
-                        + " isJwt=" + token.startsWith("eyJ"));
+                // 不输出 token 长度/前缀等元数据，防止凭据信息泄漏到共享日志
                 future.complete(token);
                 return;
             }
@@ -264,10 +273,6 @@ public final class MicrosoftAuthFlow {
      * 返回 [userToken, userHash]。
      */
     public String[] authXboxLive(String msAccessToken) throws IOException {
-        // 诊断信息：确认 token 是否有效（空 token / JWT / compact 格式）
-        String tPrefix = msAccessToken.length() > 15 ? msAccessToken.substring(0, 15) : msAccessToken;
-        System.err.println("[MSAuth] authXboxLive: tokenLen=" + msAccessToken.length()
-                + " prefix=" + tPrefix + " isJwt=" + msAccessToken.startsWith("eyJ"));
         if (msAccessToken.isEmpty()) {
             throw new IOException("MS access_token 为空，无法认证 Xbox Live");
         }
@@ -285,10 +290,9 @@ public final class MicrosoftAuthFlow {
         try {
             resp = postJson(XBL_URL, payload);
         } catch (IOException e) {
-            // 把 token 诊断信息加到错误消息，便于定位 401 根因
-            throw new IOException("Xbox Live 认证失败 (tokenLen=" + msAccessToken.length()
-                    + " prefix=" + tPrefix
-                    + " isJwt=" + msAccessToken.startsWith("eyJ") + "): " + e.getMessage(), e);
+            // 不在异常消息中暴露 token 元数据（长度/前缀/JWT 标记），仅说明失败原因
+            throw new IOException("Xbox Live 认证失败: " + e.getMessage()
+                    + "（可能原因：token 已过期 / 网络中断 / scope 不匹配）", e);
         }
         String userToken = safeStr(resp, "Token");
         String userHash = "";
@@ -332,6 +336,13 @@ public final class MicrosoftAuthFlow {
     /**
      * 第六步：获取玩家档案（username + uuid + skinUrl + skinModel）。
      * 返回 [name, uuid, skinUrl, skinModel]
+     * <p>
+     * 404 时调用 license 端点区分两种情况：
+     * <ul>
+     *   <li>有 game_minecraft license：账号有游戏但未创建档案（Game Pass 用户需先在
+     *       minecraft.net 登录一次以创建玩家档案）</li>
+     *   <li>无 license：账号未购买 Minecraft Java 版</li>
+     * </ul>
      */
     public String[] fetchProfile(String mcAccessToken) throws IOException {
         String profileJson;
@@ -341,6 +352,17 @@ public final class MicrosoftAuthFlow {
                     .header("Authorization", "Bearer " + mcAccessToken)
                     .get().build();
             try (Response resp = http.newCall(req).execute()) {
+                if (resp.code() == 404) {
+                    // profile 不存在。查 license 端点区分原因，给出明确错误。
+                    boolean hasGame = checkLicense(mcAccessToken);
+                    if (hasGame) {
+                        throw new IOException("账号已拥有 Minecraft 但无玩家档案 (404)。" +
+                                "请先在 minecraft.net 登录一次以创建档案，再返回启动器登录。");
+                    } else {
+                        throw new IOException("此微软账号未购买 Minecraft Java 版 (profile 404)，无法登录。" +
+                                "若你是 Xbox Game Pass 用户，需先在 minecraft.net 登录一次激活档案。");
+                    }
+                }
                 if (!resp.isSuccessful()) {
                     throw new IOException("获取档案失败 code=" + resp.code());
                 }
@@ -391,7 +413,51 @@ public final class MicrosoftAuthFlow {
     }
 
     /**
+     * 检查 license 端点是否包含 game_minecraft 项。
+     * 比 mcstore 更全面：mcstore 对 Game Pass 用户可能返回空，
+     * 而 license 端点会包含订阅状态。
+     */
+    public boolean checkLicense(String mcAccessToken) throws IOException {
+        String json;
+        try {
+            Request req = new Request.Builder()
+                    .url(MC_LICENSE_URL)
+                    .header("Authorization", "Bearer " + mcAccessToken)
+                    .get().build();
+            try (Response resp = http.newCall(req).execute()) {
+                if (!resp.isSuccessful()) return false;
+                json = resp.body() != null ? resp.body().string() : "";
+            }
+        } catch (IOException e) {
+            if (CurlFallback.isSslHandshakeFailure(e) && CurlFallback.isAvailable()) {
+                List<String> headers = new ArrayList<>();
+                headers.add("Authorization: Bearer " + mcAccessToken);
+                byte[] bytes = CurlFallback.getBytes(MC_LICENSE_URL, "GET", headers);
+                json = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+            } else {
+                throw e;
+            }
+        }
+        try {
+            JsonObject o = JsonParser.parseString(json).getAsJsonObject();
+            if (o.has("items") && o.get("items").isJsonArray()) {
+                for (JsonElement item : o.getAsJsonArray("items")) {
+                    JsonObject it = item.getAsJsonObject();
+                    String name = safeStr(it, "name");
+                    if ("game_minecraft".equals(name)) return true;
+                }
+            }
+            return false;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /**
      * 端到端登录：传入已完成的设备码，完成剩余流程，返回完整 Account。
+     * <p>
+     * 把 Xbox Live userHash（uhs）保存到 Account.xuid，供启动时填充
+     * ${auth_xuid} 参数（1.16+ 连接 Realms 或需 Xbox Live 验证的服务器时必需）。
      */
     public Account completeLogin(String msAccessToken) throws IOException {
         String[] xbl = authXboxLive(msAccessToken);
@@ -399,7 +465,7 @@ public final class MicrosoftAuthFlow {
         String mcToken = loginMinecraft(xsts, xbl[1]);
         String[] profile = fetchProfile(mcToken);
         return new Account(profile[0], profile[1], mcToken, Account.AccountType.MICROSOFT,
-                profile[2], profile[3]);
+                profile[2], profile[3], xbl[1]);
     }
 
     /**
@@ -458,7 +524,7 @@ public final class MicrosoftAuthFlow {
             String[] profile = fetchProfile(mcToken);
 
             return new Account(profile[0], profile[1], mcToken, Account.AccountType.MICROSOFT,
-                    profile[2], profile[3]);
+                    profile[2], profile[3], xbl[1]);
         }
     }
 

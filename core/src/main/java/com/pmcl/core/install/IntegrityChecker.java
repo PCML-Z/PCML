@@ -68,7 +68,23 @@ public final class IntegrityChecker {
         if (root.has("libraries")) {
             for (var e : root.getAsJsonArray("libraries")) {
                 JsonObject lib = e.getAsJsonObject();
-                if (!lib.has("downloads")) continue;
+                if (!lib.has("downloads")) {
+                    // M84: Fabric/Forge/NeoForge 第三方库格式（只有顶层 name + url，无 downloads/sha1）
+                    // 按 maven 规则拼接路径，仅校验文件存在（无 SHA1 可比对）
+                    if (lib.has("name") && !lib.get("name").isJsonNull()) {
+                        Library parsed = Library.parse(lib);
+                        String path = parsed.getPath();
+                        if (!path.isEmpty()) {
+                            Path libFile = config.getLibrariesDir().resolve(path);
+                            if (!Files.exists(libFile)) {
+                                result.getMissing().add(libFile.toString());
+                            } else {
+                                result.getOk().add(libFile.toString());
+                            }
+                        }
+                    }
+                    continue;
+                }
                 JsonObject downloads = lib.getAsJsonObject("downloads");
                 if (downloads.has("artifact")) {
                     JsonObject art = downloads.getAsJsonObject("artifact");

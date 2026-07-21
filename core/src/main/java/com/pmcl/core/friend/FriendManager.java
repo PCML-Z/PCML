@@ -127,8 +127,25 @@ public final class FriendManager implements AutoCloseable {
         store.load();
         store.resetAllOnline(); // 启动时重置在线状态
 
+        // S3 安全修复：设置身份校验器——只允许已知好友通过握手
+        // 同时允许自己的身份（同机器多实例回环连接）
+        chatServer.setIdentityValidator(identity -> {
+            if (identity == null || identity.isBlank()) return false;
+            if (identityManager.getIdentity() != null
+                    && identity.equals(identityManager.getIdentity().toString())) {
+                return true;
+            }
+            return store.isFriend(identity);
+        });
+
         // 监听聊天服务器消息
-        chatServer.addListener((remoteIp, jsonLine) -> handleIncomingMessage(remoteIp, jsonLine));
+        chatServer.addListener(new FriendChatServer.MessageListener() {
+            @Override
+            public void onMessage(String remoteIp, String identity, String jsonLine) {
+                // 服务器路径下 identity 已通过握手校验，直接作为发送者标识传入
+                handleIncomingMessage(identity, jsonLine);
+            }
+        });
 
         // 监听对等发现
         discovery.addListener(peer -> {

@@ -4,27 +4,28 @@ plugins {
 }
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_17
-    targetCompatibility = JavaVersion.VERSION_17
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
 }
 
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
-    kotlinOptions.jvmTarget = "17"
+    kotlinOptions.jvmTarget = "21"
 }
 
 dependencies {
     compileOnly(project(":plugin-api"))
     compileOnly(project(":core"))
-    // Compose runtime — for @Composable annotations in plugin GUI pages
-    compileOnly("org.jetbrains.compose.runtime:runtime:1.7.0")
-    compileOnly("org.jetbrains.compose.material3:material3:1.7.0")
-    compileOnly("org.jetbrains.compose.foundation:foundation:1.7.0")
-    compileOnly("org.jetbrains.compose.ui:ui:1.7.0")
+    // M2/M8 安全修复：使用 libs.versions.toml 统一 Compose / Kotlin 版本
+    val composeVer = libs.versions.compose.multiplatform.get()
+    compileOnly("org.jetbrains.compose.runtime:runtime:$composeVer")
+    compileOnly("org.jetbrains.compose.material3:material3:$composeVer")
+    compileOnly("org.jetbrains.compose.foundation:foundation:$composeVer")
+    compileOnly("org.jetbrains.compose.ui:ui:$composeVer")
     // Desktop-only UI variant — defines androidx.compose.ui.viewinterop.SwingPanel
     // (SwingPanel is in desktopMain, not commonMain; the plain `ui` artifact lacks it)
-    compileOnly("org.jetbrains.compose.ui:ui-desktop:1.7.0")
-    compileOnly("org.jetbrains.compose.material:material-icons-extended:1.7.0")
-    compileOnly("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
+    compileOnly("org.jetbrains.compose.ui:ui-desktop:$composeVer")
+    compileOnly("org.jetbrains.compose.material:material-icons-extended:$composeVer")
+    compileOnly(libs.kotlin.coroutines.core)
 
     // JavaFX + HMCL — compileOnly (bundled in lib/ at runtime)
     compileOnly(fileTree("lib") { include("*.jar") })

@@ -24,6 +24,10 @@
 
     <libraries>
         <library path="lib/HMCL-3.15.2.jar"/>
+        <!-- M7 已知限制：JavaFX native 库仅 macOS ARM64，跨平台分发需按目标平台
+             替换为对应 classifier 的 javafx-*-<os>-<arch>.jar。
+             官方 Maven 坐标：org.openjfx:javafx-*:25:<classifier>
+             classifier 取值：mac-aarch64 / mac-x64 / win / linux / linux-aarch64 -->
         <library path="lib/javafx-base-25-mac-aarch64.jar"/>
         <library path="lib/javafx-graphics-25-mac-aarch64.jar"/>
         <library path="lib/javafx-controls-25-mac-aarch64.jar"/>
@@ -36,6 +40,7 @@
             Initial release. Embeds HMCL 3.15.2 JavaFX UI into PMCL Compose Desktop
             using JFXPanel (JavaFX-Swing bridge) wrapped in Compose SwingPanel.
             Bundles JavaFX 25 runtime for macOS arm64.
+            已知限制：JavaFX native 库仅 macOS ARM64，跨平台分发需替换对应 classifier 的 jar。
         </version>
     </versions>
 

@@ -57,6 +57,9 @@ public final class ModScanner {
                 } catch (Throwable t) {
                     // 单个 jar 解析异常不能中断整个目录扫描
                     // （Gson 解析可能抛 RuntimeException，如 getAsString() 作用于非字符串）
+                    // 仍记录日志便于排查：静默吞异常会让用户无法定位为何 mod 未出现在列表中
+                    System.err.println("[ModScanner] 解析 jar 失败: " + p + " - " + t.getClass().getSimpleName()
+                            + ": " + t.getMessage());
                 }
             });
         }

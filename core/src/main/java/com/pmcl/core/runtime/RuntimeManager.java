@@ -29,7 +29,7 @@ public final class RuntimeManager {
     private long prevNetBytesSent;
     private long prevNetBytesRecv;
     private long prevNetTimeNs;
-    private boolean netInitialized = false;
+    private volatile boolean netInitialized = false;
 
     public RuntimeManager() {
         SystemInfo si = null;

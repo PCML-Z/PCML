@@ -1,7 +1,10 @@
 package com.pmcl.core.mods;
 
+import com.google.gson.JsonParser;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -69,54 +72,41 @@ public final class ModConflictChecker {
         return id.toLowerCase().replace('-', '_').replace("\"", "").trim();
     }
 
-    private static final Set<String> SYSTEM_DEPS = Set.of(
-            // 加载器与运行时
-            "minecraft", "java", "fabricloader", "fabric-language-kotlin",
-            "quilt_loader", "quilted_fabric_api", "forge", "neoforge", "fml",
-            // 常见 jar-in-jar 内嵌库（NeoForge mod 常打包这些库，静态扫描检测不到）
-            "cupboard", "kotlinforforge",
-            "cloth-config2", "cloth_config", "cloth-config",
-            "curios", "curiosity",
-            "jei", "rei", "emi",
-            "formations", "diagonalblocks",
-            "extensibleenums", "limitlesscontainers",
-            "lootintegrations", "coroutil",
-            "xaerolib", "c2me-base",
-            "kirin", "balm-fabric",
-            "fancymenu", "ambientsounds",
-            "dummmmmmy", "geckolib",
-            "entityculling", "create",
-            "embeddium", "rubidium",
-            "kubejs", "probejs",
-            "ftbchunks", "ftbranks", "ftblibrary",
-            "ftbteams", "ftbquests", "ftbxmodcompat",
-            "konkrete", "melody",
-            "cristellib", "biox",
-            "connector", "connectorextras",
-            "athena", "collective",
-            "drippyloadingscreen", "rrls",
-            "findme", "itemborders",
-            "equipmentcompare", "controllable",
-            "legendarytooltips", "merchantmarkers",
-            "advancementplaques", "worldtools",
-            "pneumaticcraft", "railcraft",
-            "occultism", "luckperms",
-            "openpartiesandclaims", "voicechat",
-            "irons_spellbooks", "ironsspells",
-            "farmersdelight", "crafttweaker",
-            "xaerobetterpvp", "xaerominimap",
-            "xaeroworldmap", "memoryleakfix",
-            "sodium", "indium",
-            "chatheads", "cubeattractors",
-            "rpgdemonstration", "cmi",
-            "essentials", "balm",
-            "libx", "bookshelf",
-            "catalogue", "fancytwitch",
-            "forgeconfigapiport", "architectury",
-            "mindfuldarkness", "commonality",
-            "yungsapi", "repurposed_structures",
-            "moonlight", "starstory"
-    );
+    /**
+     * M92: 系统依赖白名单外部化到资源文件（system_deps.json），降低维护成本。
+     * 通过 classpath 资源加载；加载失败时回退到最小硬编码集合保证基本可用。
+     */
+    private static final Set<String> SYSTEM_DEPS = loadSystemDeps();
+
+    private static Set<String> loadSystemDeps() {
+        // 兜底集合：仅包含加载器与运行时（保证资源加载失败时不影响核心冲突检测）
+        Set<String> fallback = new HashSet<>(Set.of(
+                "minecraft", "java", "fabricloader", "fabric-language-kotlin",
+                "quilt_loader", "quilted_fabric_api", "forge", "neoforge", "fml"
+        ));
+        try (var in = ModConflictChecker.class.getResourceAsStream(
+                "/com/pmcl/core/mods/system_deps.json")) {
+            if (in == null) {
+                System.err.println("[ModConflictChecker] system_deps.json 未找到，使用兜底集合");
+                return Collections.unmodifiableSet(fallback);
+            }
+            String content = new String(in.readAllBytes(),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            var arr = JsonParser.parseString(content).getAsJsonArray();
+            Set<String> set = new HashSet<>(arr.size());
+            for (var e : arr) {
+                String s = e.getAsString();
+                if (s != null) {
+                    set.add(s.toLowerCase(java.util.Locale.ROOT));
+                }
+            }
+            return Collections.unmodifiableSet(set);
+        } catch (Exception e) {
+            System.err.println("[ModConflictChecker] 加载 system_deps.json 失败，使用兜底集合: "
+                    + e.getClass().getSimpleName() + ": " + e.getMessage());
+            return Collections.unmodifiableSet(fallback);
+        }
+    }
 
     private static boolean isSystemDep(String id) {
         if (id == null) return false;
