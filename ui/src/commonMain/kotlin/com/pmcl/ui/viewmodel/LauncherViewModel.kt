@@ -5265,12 +5265,45 @@ class LauncherViewModel {
             _status.value = I18n.t("status.instance_missing_base_version", info.getName())
             return
         }
+        // 实例绑定账户：启动前切换到绑定账户（不改变全局选中，仅影响本次启动）
+        val boundUuid = info.getBoundAccountUuid()
+        if (boundUuid.isNotEmpty()) {
+            val boundAcc = _accounts.value.find { it.getUuid() == boundUuid }
+            if (boundAcc != null && boundAcc.getUuid() != _account.value?.getUuid()) {
+                _account.value = boundAcc
+            }
+        }
         // 设置实例上下文，launch() 会读取此字段用 buildInstance 代替 build
         _pendingInstanceDir = info.getInstanceDir()
         _pendingInstanceInfo = info
         // 选中基础版本并调用现有 launch 流程
         selectVersion(info.getBaseVersionId())
         launch()
+    }
+
+    /** 为实例绑定账户（uuid 为空则清除绑定） */
+    fun bindAccountToInstance(instanceId: String, uuid: String) {
+        val info = _instances.value.find { it.getInstanceId() == instanceId } ?: return
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    info.setBoundAccountUuid(uuid)
+                    core.instances().updateInstance(info)
+                }
+                loadInstances()
+                _status.value = if (uuid.isEmpty()) I18n.t("status.instance_account_unbound", info.getName())
+                                else I18n.t("status.instance_account_bound", info.getName())
+            } catch (e: Throwable) {
+                _status.value = I18n.t("status.instance_account_bind_failed", e.message ?: I18n.t("common.unknown"))
+            }
+        }
+    }
+
+    /** 返回实例绑定的账户（未绑定返回 null） */
+    fun getBoundAccount(info: InstanceInfo): Account? {
+        val uuid = info.getBoundAccountUuid()
+        if (uuid.isEmpty()) return null
+        return _accounts.value.find { it.getUuid() == uuid }
     }
 
     // ============ 首次启动 / 迁移 ============

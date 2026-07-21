@@ -37,6 +37,8 @@ fun InstancesPage(vm: LauncherViewModel) {
     var renameTarget by remember { mutableStateOf<InstanceInfo?>(null) }
     var copyTarget by remember { mutableStateOf<InstanceInfo?>(null) }
     var deleteTarget by remember { mutableStateOf<InstanceInfo?>(null) }
+    var accountTarget by remember { mutableStateOf<InstanceInfo?>(null) }
+    val accounts by vm.accounts.collectAsState()
 
     // 首次进入加载实例列表
     LaunchedEffect(Unit) { vm.loadInstances() }
@@ -114,10 +116,12 @@ fun InstancesPage(vm: LauncherViewModel) {
                     InstanceCard(
                         info = info,
                         isLaunching = instanceLaunching == info.getInstanceId(),
+                        boundAccountName = vm.getBoundAccount(info)?.getUsername(),
                         onLaunch = { vm.launchInstance(info.getInstanceId()) },
                         onCopy = { copyTarget = info },
                         onRename = { renameTarget = info },
                         onDelete = { deleteTarget = info },
+                        onBindAccount = { accountTarget = info },
                         onOpenDir = {
                             try {
                                 val dir = info.getInstanceDir()
@@ -198,6 +202,20 @@ fun InstancesPage(vm: LauncherViewModel) {
             }
         )
     }
+
+    // 绑定账户对话框
+    accountTarget?.let { target ->
+        BindAccountDialog(
+            instanceName = target.getName(),
+            accounts = accounts,
+            selectedUuid = target.getBoundAccountUuid(),
+            onDismiss = { accountTarget = null },
+            onConfirm = { uuid ->
+                vm.bindAccountToInstance(target.getInstanceId(), uuid)
+                accountTarget = null
+            }
+        )
+    }
 }
 
 /**
@@ -207,10 +225,12 @@ fun InstancesPage(vm: LauncherViewModel) {
 private fun InstanceCard(
     info: InstanceInfo,
     isLaunching: Boolean,
+    boundAccountName: String?,
     onLaunch: () -> Unit,
     onCopy: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
+    onBindAccount: () -> Unit,
     onOpenDir: () -> Unit
 ) {
     Card(
@@ -284,6 +304,24 @@ private fun InstanceCard(
                         }
                     }
                 }
+                // 绑定账户
+                if (!boundAccountName.isNullOrEmpty()) {
+                    Spacer(Modifier.height(2.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Filled.Person,
+                            contentDescription = null,
+                            modifier = Modifier.size(12.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            boundAccountName,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
                 // 游玩信息
                 if (info.getLastPlayedAt() > 0 || info.getTotalPlayTimeSeconds() > 0) {
                     Spacer(Modifier.height(2.dp))
@@ -319,6 +357,13 @@ private fun InstanceCard(
                 IconButton(onClick = onOpenDir, modifier = Modifier.size(36.dp)) {
                     Icon(Icons.Filled.Folder, contentDescription = I18n.t("instance.open_dir"),
                         modifier = Modifier.size(18.dp))
+                }
+                // 绑定账户
+                IconButton(onClick = onBindAccount, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Filled.Person, contentDescription = I18n.t("instance.bind_account"),
+                        modifier = Modifier.size(18.dp),
+                        tint = if (boundAccountName.isNullOrEmpty()) MaterialTheme.colorScheme.onSurfaceVariant
+                               else MaterialTheme.colorScheme.primary)
                 }
                 // 复制
                 IconButton(onClick = onCopy, modifier = Modifier.size(36.dp)) {
@@ -515,6 +560,93 @@ private fun RenameDialog(
                 onClick = { if (name.isNotBlank()) onConfirm(name.trim()) },
                 enabled = name.isNotBlank()
             ) {
+                Text(I18n.t("common.confirm"))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(I18n.t("common.cancel"))
+            }
+        }
+    )
+}
+
+/**
+ * 绑定账户对话框：选择一个已登录账户绑定到实例，或清除绑定。
+ */
+@Composable
+private fun BindAccountDialog(
+    instanceName: String,
+    accounts: List<com.pmcl.core.auth.Account>,
+    selectedUuid: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit
+) {
+    var selected by remember { mutableStateOf(selectedUuid) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(I18n.t("instance.bind_account_title", arrayOf(instanceName))) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    I18n.t("instance.bind_account_hint"),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(4.dp))
+                // 不绑定（使用全局默认账户）
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(
+                        selected = selected.isEmpty(),
+                        onClick = { selected = "" }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(I18n.t("instance.bind_account_default"))
+                }
+                // 已登录账户列表
+                if (accounts.isEmpty()) {
+                    Text(
+                        I18n.t("instance.bind_account_no_accounts"),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.padding(vertical = 8.dp)
+                    )
+                } else {
+                    accounts.forEach { acc ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = selected == acc.getUuid(),
+                                onClick = { selected = acc.getUuid() }
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    acc.getUsername(),
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                                Text(
+                                    acc.getType().toString(),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.outline
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = { onConfirm(selected) }) {
                 Text(I18n.t("common.confirm"))
             }
         },

@@ -49,6 +49,8 @@ public final class InstanceInfo {
     private long lastPlayedAt;
     /** 总游玩时长（秒） */
     private long totalPlayTimeSeconds;
+    /** 绑定的账户 UUID（空字符串 = 使用全局默认账户） */
+    private String boundAccountUuid = "";
     /** 实例目录绝对路径（运行时填充，不持久化） */
     private transient Path instanceDir;
 
@@ -88,6 +90,7 @@ public final class InstanceInfo {
         if (o.has("createdAt") && !o.get("createdAt").isJsonNull()) info.createdAt = o.get("createdAt").getAsLong();
         if (o.has("lastPlayedAt") && !o.get("lastPlayedAt").isJsonNull()) info.lastPlayedAt = o.get("lastPlayedAt").getAsLong();
         if (o.has("totalPlayTimeSeconds") && !o.get("totalPlayTimeSeconds").isJsonNull()) info.totalPlayTimeSeconds = o.get("totalPlayTimeSeconds").getAsLong();
+        if (o.has("boundAccountUuid") && !o.get("boundAccountUuid").isJsonNull()) info.boundAccountUuid = o.get("boundAccountUuid").getAsString();
         info.instanceDir = instanceDir;
         return info;
     }
@@ -120,6 +123,7 @@ public final class InstanceInfo {
         o.addProperty("createdAt", createdAt);
         o.addProperty("lastPlayedAt", lastPlayedAt);
         o.addProperty("totalPlayTimeSeconds", totalPlayTimeSeconds);
+        if (boundAccountUuid != null && !boundAccountUuid.isEmpty()) o.addProperty("boundAccountUuid", boundAccountUuid);
         return o.toString();
     }
 
@@ -143,6 +147,10 @@ public final class InstanceInfo {
     public void setLastPlayedAt(long t) { this.lastPlayedAt = t; }
     public long getTotalPlayTimeSeconds() { return totalPlayTimeSeconds; }
     public void setTotalPlayTimeSeconds(long t) { this.totalPlayTimeSeconds = t; }
+    /** 返回绑定的账户 UUID（空字符串表示未绑定，使用全局默认账户） */
+    public String getBoundAccountUuid() { return boundAccountUuid == null ? "" : boundAccountUuid; }
+    /** 绑定账户（传 null 或空字符串清除绑定） */
+    public void setBoundAccountUuid(String uuid) { this.boundAccountUuid = uuid == null ? "" : uuid; }
     public Path getInstanceDir() { return instanceDir; }
     public void setInstanceDir(Path dir) { this.instanceDir = dir; }
 

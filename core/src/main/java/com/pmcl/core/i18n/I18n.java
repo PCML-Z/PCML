@@ -514,6 +514,11 @@ public final class I18n {
         ZH.put("instance.delete", "删除");
         ZH.put("instance.launch", "启动");
         ZH.put("instance.open_dir", "打开目录");
+        ZH.put("instance.bind_account", "绑定账户");
+        ZH.put("instance.bind_account_title", "绑定账户 — {0}");
+        ZH.put("instance.bind_account_hint", "为实例绑定账户后，启动该实例时自动切换到绑定账户");
+        ZH.put("instance.bind_account_default", "不绑定（使用全局默认账户）");
+        ZH.put("instance.bind_account_no_accounts", "暂无已登录账户，请先在账户页登录");
         ZH.put("instance.create_title", "新建实例");
         ZH.put("instance.create_hint", "实例使用独立目录，可与同版本其他实例装不同 mod 并行存在");
         ZH.put("instance.name", "实例名称");
@@ -1692,6 +1697,9 @@ public final class I18n {
         ZH.put("status.instance_deleted", "实例已删除");
         ZH.put("status.instance_delete_failed", "删除实例失败: {0}");
         ZH.put("status.instance_missing_base_version", "实例「{0}」缺少基础版本，无法启动");
+        ZH.put("status.instance_account_bound", "实例「{0}」已绑定当前账户");
+        ZH.put("status.instance_account_unbound", "实例「{0}」已解除账户绑定");
+        ZH.put("status.instance_account_bind_failed", "绑定账户失败: {0}");
 
         // ===== 状态消息 - 迁移 =====
         ZH.put("status.no_migration_sources", "未检测到可迁移的启动器");
@@ -2196,6 +2204,11 @@ public final class I18n {
         EN.put("instance.delete", "Delete");
         EN.put("instance.launch", "Launch");
         EN.put("instance.open_dir", "Open Folder");
+        EN.put("instance.bind_account", "Bind Account");
+        EN.put("instance.bind_account_title", "Bind Account — {0}");
+        EN.put("instance.bind_account_hint", "Bind an account to auto-switch when launching this instance");
+        EN.put("instance.bind_account_default", "No binding (use global default account)");
+        EN.put("instance.bind_account_no_accounts", "No logged-in accounts. Please log in on the Accounts page first");
         EN.put("instance.create_title", "Create Instance");
         EN.put("instance.create_hint", "Instances use isolated directories; same version with different mods can coexist");
         EN.put("instance.name", "Instance name");
@@ -3303,6 +3316,9 @@ public final class I18n {
         EN.put("status.instance_deleted", "Instance deleted");
         EN.put("status.instance_delete_failed", "Failed to delete instance: {0}");
         EN.put("status.instance_missing_base_version", "Instance \"{0}\" is missing its base version, cannot launch");
+        EN.put("status.instance_account_bound", "Instance \"{0}\" account bound");
+        EN.put("status.instance_account_unbound", "Instance \"{0}\" account unbound");
+        EN.put("status.instance_account_bind_failed", "Failed to bind account: {0}");
         EN.put("status.no_migration_sources", "No migration sources detected");
         EN.put("status.migration_sources_detected", "Detected {0} migration sources");
         EN.put("status.scan_failed", "Scan failed: {0}");
@@ -3805,6 +3821,11 @@ public final class I18n {
         JA.put("instance.delete", "削除");
         JA.put("instance.launch", "起動");
         JA.put("instance.open_dir", "フォルダを開く");
+        JA.put("instance.bind_account", "アカウントバインド");
+        JA.put("instance.bind_account_title", "アカウントバインド — {0}");
+        JA.put("instance.bind_account_hint", "インスタンスにアカウントをバインドすると、起動時に自動的に切り替わります");
+        JA.put("instance.bind_account_default", "バインドしない（グローバルデフォルトを使用）");
+        JA.put("instance.bind_account_no_accounts", "ログイン済みアカウントがありません。アカウントページで先にログインしてください");
         JA.put("instance.create_title", "インスタンス作成");
         JA.put("instance.create_hint", "インスタンスは独立ディレクトリを使用。同バージョンの異なるModが並行可能");
         JA.put("instance.name", "インスタンス名");
@@ -4970,6 +4991,9 @@ public final class I18n {
         JA.put("status.instance_deleted", "インスタンスを削除");
         JA.put("status.instance_delete_failed", "インスタンス削除失敗：{0}");
         JA.put("status.instance_missing_base_version", "インスタンス「{0}」はベースバージョンが欠落、起動できません");
+        JA.put("status.instance_account_bound", "インスタンス「{0}」のアカウントをバインドしました");
+        JA.put("status.instance_account_unbound", "インスタンス「{0}」のアカウントバインドを解除しました");
+        JA.put("status.instance_account_bind_failed", "アカウントのバインドに失敗: {0}");
 
         // ===== ステータスメッセージ - 移行 =====
         JA.put("status.no_migration_sources", "移行可能なランチャーを検出できません");
