@@ -1184,6 +1184,7 @@ private fun GameBehaviorCard(pref: com.pmcl.core.preferences.Preferences) {
     var serverPort by remember { mutableStateOf(pref.getGameServerPort().toString()) }
     var windowIconPath by remember { mutableStateOf(pref.getWindowIconPath()) }
     var menuBgVideoPath by remember { mutableStateOf(pref.getCustomMenuBackgroundVideo()) }
+    var customNativesPath by remember { mutableStateOf(pref.getCustomNativesPath()) }
     var versionIsolation by remember { mutableStateOf(pref.isVersionIsolation()) }
 
     Card(Modifier.fillMaxWidth()) {
@@ -1401,6 +1402,48 @@ private fun GameBehaviorCard(pref: com.pmcl.core.preferences.Preferences) {
                 }
             )
             Text(I18n.t("settings.menu_bg_video_hint"),
+                 style = MaterialTheme.typography.labelSmall,
+                 color = MaterialTheme.colorScheme.outline)
+
+            Spacer(Modifier.height(12.dp))
+            Text(I18n.t("settings.custom_natives"), style = MaterialTheme.typography.labelMedium)
+            Spacer(Modifier.height(4.dp))
+            OutlinedTextField(
+                value = customNativesPath,
+                onValueChange = {
+                    customNativesPath = it
+                    pref.setCustomNativesPath(it)
+                },
+                label = { Text(I18n.t("settings.custom_natives_path")) },
+                singleLine = true,
+                placeholder = { Text(I18n.t("settings.custom_natives_empty")) },
+                modifier = Modifier.fillMaxWidth(),
+                trailingIcon = {
+                    Row {
+                        IconButton(onClick = {
+                            val fc = javax.swing.JFileChooser()
+                            fc.fileSelectionMode = javax.swing.JFileChooser.DIRECTORIES_ONLY
+                            fc.dialogTitle = I18n.t("settings.custom_natives_select")
+                            if (fc.showOpenDialog(null) == javax.swing.JFileChooser.APPROVE_OPTION) {
+                                val p = fc.selectedFile.absolutePath
+                                customNativesPath = p
+                                pref.setCustomNativesPath(p)
+                            }
+                        }) {
+                            Icon(Icons.Filled.FolderOpen, contentDescription = I18n.t("common.browse"))
+                        }
+                        if (customNativesPath.isNotEmpty()) {
+                            IconButton(onClick = {
+                                customNativesPath = ""
+                                pref.setCustomNativesPath("")
+                            }) {
+                                Icon(Icons.Filled.Clear, contentDescription = I18n.t("common.remove"))
+                            }
+                        }
+                    }
+                }
+            )
+            Text(I18n.t("settings.custom_natives_hint"),
                  style = MaterialTheme.typography.labelSmall,
                  color = MaterialTheme.colorScheme.outline)
         }

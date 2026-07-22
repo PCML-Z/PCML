@@ -68,6 +68,7 @@ public final class Preferences {
     private String gameRenderer = "AUTO";    // 渲染器：AUTO/OPENGL/VULKAN（--renderer）
     private String windowIconPath = "";      // 自定义游戏窗口图标 PNG 路径（注入到 <gameDir>/icons/）
     private String customMenuBackgroundVideo = "";  // 自定义主菜单背景视频路径（启动前提取 6 帧生成 panorama 资源包）
+    private String customNativesPath = "";   // 自定义原生库目录路径（为空则从版本 libraries 提取 natives）
 
     // 网络配置
     private String mirrorType = "OFFICIAL";        // OFFICIAL / BMCLAPI / CUSTOM
@@ -412,6 +413,12 @@ public final class Preferences {
         customMenuBackgroundVideo = v == null ? "" : v.trim(); scheduleSave();
     }
 
+    /** 自定义原生库目录路径（空则从版本 libraries 提取 natives）。用于修复旧版兼容性问题 */
+    public synchronized String getCustomNativesPath() { return customNativesPath; }
+    public synchronized void setCustomNativesPath(String v) {
+        customNativesPath = v == null ? "" : v.trim(); scheduleSave();
+    }
+
     // ===== 网络配置 =====
     public synchronized String getMirrorType() { return mirrorType; }
     public synchronized void setMirrorType(String v) { mirrorType = v == null ? "OFFICIAL" : v; scheduleSave(); }
@@ -730,6 +737,7 @@ public final class Preferences {
             gameRenderer = loadString(o, "gameRenderer", "AUTO");
             windowIconPath = loadString(o, "windowIconPath", "");
             customMenuBackgroundVideo = loadString(o, "customMenuBackgroundVideo", "");
+            customNativesPath = loadString(o, "customNativesPath", "");
             mirrorType = loadString(o, "mirrorType", "OFFICIAL");
             customMirrorBase = loadString(o, "customMirrorBase", "");
             proxyHost = loadString(o, "proxyHost", "");
@@ -953,6 +961,7 @@ public final class Preferences {
         o.addProperty("gameRenderer", gameRenderer);
         o.addProperty("windowIconPath", windowIconPath);
         o.addProperty("customMenuBackgroundVideo", customMenuBackgroundVideo);
+        if (!customNativesPath.isEmpty()) o.addProperty("customNativesPath", customNativesPath);
         o.addProperty("mirrorType", mirrorType);
         o.addProperty("customMirrorBase", customMirrorBase);
         o.addProperty("useProxy", useProxy);

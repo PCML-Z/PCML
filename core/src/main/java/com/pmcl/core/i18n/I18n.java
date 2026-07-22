@@ -723,6 +723,11 @@ public final class I18n {
         ZH.put("settings.menu_bg_video_empty", "留空使用默认全景图");
         ZH.put("settings.menu_bg_video_select", "选择视频文件");
         ZH.put("settings.menu_bg_video_hint", "启动前从视频中提取 6 帧生成 panorama 资源包替换主菜单背景。MC 主菜单原生不支持视频，这里用 6 帧静态图近似。支持 MP4/WebM/MOV/MKV/AVI");
+        ZH.put("settings.custom_natives", "自定义原生库目录");
+        ZH.put("settings.custom_natives_path", "原生库目录路径");
+        ZH.put("settings.custom_natives_empty", "留空则自动从版本 libraries 提取");
+        ZH.put("settings.custom_natives_select", "选择原生库目录");
+        ZH.put("settings.custom_natives_hint", "指定自定义 LWJGL/OpenAL 原生库目录后，启动器跳过原生库提取直接使用该目录。用于修复旧版本兼容性问题（如 Apple Silicon 旧版 LWJGL 缺少 ARM64 原生库）");
         ZH.put("drop_install.title", "拖放安装模组");
         ZH.put("drop_install.scanning", "正在解析 mod 元数据并反查 Modrinth…");
         ZH.put("drop_install.empty", "未识别到 mod 文件");
@@ -2411,6 +2416,11 @@ public final class I18n {
         EN.put("settings.menu_bg_video_empty", "Leave empty for default panorama");
         EN.put("settings.menu_bg_video_select", "Select video file");
         EN.put("settings.menu_bg_video_hint", "Extracts 6 frames from the video to generate a panorama resource pack replacing the main menu background. MC menu does not natively support video, so 6 static frames approximate it. Supports MP4/WebM/MOV/MKV/AVI");
+        EN.put("settings.custom_natives", "Custom Natives Directory");
+        EN.put("settings.custom_natives_path", "Natives directory path");
+        EN.put("settings.custom_natives_empty", "Leave empty to auto-extract from version libraries");
+        EN.put("settings.custom_natives_select", "Select Natives Directory");
+        EN.put("settings.custom_natives_hint", "When set, the launcher skips native library extraction and uses this directory directly. Useful for fixing old version compatibility (e.g. Apple Silicon old LWJGL missing ARM64 natives)");
         EN.put("drop_install.title", "Drop to Install Mods");
         EN.put("drop_install.scanning", "Parsing mod metadata and querying Modrinth…");
         EN.put("drop_install.empty", "No mod files detected");
@@ -4034,6 +4044,11 @@ public final class I18n {
         JA.put("settings.menu_bg_video_empty", "空欄でデフォルトのパノラマ");
         JA.put("settings.menu_bg_video_select", "動画ファイルを選択");
         JA.put("settings.menu_bg_video_hint", "起動前に動画から 6 フレームを抽出してパノラマリソースパックを生成し、メインメニュー背景を置き換えます。MC メニューは動画をネイティブサポートしないため、6 枚の静止フレームで近似します。MP4/WebM/MOV/MKV/AVI 対応");
+        JA.put("settings.custom_natives", "カスタムネイティブライブラリディレクトリ");
+        JA.put("settings.custom_natives_path", "ネイティブライブラリディレクトリパス");
+        JA.put("settings.custom_natives_empty", "空欄でバージョン libraries から自動抽出");
+        JA.put("settings.custom_natives_select", "ネイティブライブラリディレクトリを選択");
+        JA.put("settings.custom_natives_hint", "カスタム LWJGL/OpenAL ネイティブライブラリディレクトリを指定すると、抽出をスキップして直接使用します。旧バージョン互換性の修正に使用（Apple Silicon 旧 LWJGL の ARM64 ネイティブ不足など）");
         JA.put("drop_install.title", "ドラッグ＆ドロップでModインストール");
         JA.put("drop_install.scanning", "Mod メタデータを解析し Modrinth に照会中…");
         JA.put("drop_install.empty", "Mod ファイルが見つかりません");

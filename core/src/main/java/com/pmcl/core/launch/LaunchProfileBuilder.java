@@ -296,17 +296,35 @@ public final class LaunchProfileBuilder {
         }
 
         // 解压 natives 到 versions/{id}/natives/ 目录
-        Path nativesDir = versionsDir.resolve(versionId).resolve("natives");
-        try {
-            java.nio.file.Files.createDirectories(nativesDir);
-            // 清空 natives 目录（避免旧库残留）
-            try (var stream = java.nio.file.Files.list(nativesDir)) {
-                stream.forEach(p -> {
-                    try { java.nio.file.Files.deleteIfExists(p); } catch (IOException ignored) {}
-                });
+        // 若用户配置了自定义 natives 目录，则跳过提取直接使用该目录
+        String customNatives = preferences.getCustomNativesPath();
+        Path nativesDir;
+        boolean useCustomNatives = false;
+        if (customNatives != null && !customNatives.isEmpty()) {
+            Path customDir = java.nio.file.Paths.get(customNatives);
+            if (java.nio.file.Files.isDirectory(customDir)) {
+                nativesDir = customDir;
+                useCustomNatives = true;
+            } else {
+                System.err.println("[LaunchProfileBuilder] 自定义 natives 目录不存在，回退到默认提取: " + customNatives);
+                nativesDir = versionsDir.resolve(versionId).resolve("natives");
             }
-        } catch (IOException e) {
-            throw new IOException("无法创建 natives 目录: " + nativesDir, e);
+        } else {
+            nativesDir = versionsDir.resolve(versionId).resolve("natives");
+        }
+
+        if (!useCustomNatives) {
+            try {
+                java.nio.file.Files.createDirectories(nativesDir);
+                // 清空 natives 目录（避免旧库残留）
+                try (var stream = java.nio.file.Files.list(nativesDir)) {
+                    stream.forEach(p -> {
+                        try { java.nio.file.Files.deleteIfExists(p); } catch (IOException ignored) {}
+                    });
+                }
+            } catch (IOException e) {
+                throw new IOException("无法创建 natives 目录: " + nativesDir, e);
+            }
         }
 
         for (Library lib : vj.getLibraries()) {
@@ -316,9 +334,11 @@ public final class LaunchProfileBuilder {
             if (lib.getNameClassifier() != null && lib.getNameClassifier().startsWith("natives-")) {
                 // 只处理匹配当前平台的 native 条目
                 if (!lib.matchesCurrentNative()) continue;
-                Path nativeJar = librariesDir.resolve(lib.getPath());
-                if (java.nio.file.Files.exists(nativeJar)) {
-                    extractNatives(nativeJar, nativesDir);
+                if (!useCustomNatives) {
+                    Path nativeJar = librariesDir.resolve(lib.getPath());
+                    if (java.nio.file.Files.exists(nativeJar)) {
+                        extractNatives(nativeJar, nativesDir);
+                    }
                 }
                 continue;
             }
@@ -331,8 +351,8 @@ public final class LaunchProfileBuilder {
                 Path libPath = librariesDir.resolve(lib.getPath());
                 addClasspath(profile, seen, libPath);
             }
-            // native 库：解压到 nativesDir
-            if (lib.isNativeLib()) {
+            // native 库：解压到 nativesDir（自定义 natives 模式下跳过）
+            if (lib.isNativeLib() && !useCustomNatives) {
                 VersionJson.Artifact nativeArt = lib.getNativeArtifact();
                 if (nativeArt == null) continue;
                 String classifier = lib.getNativeClassifier();
