@@ -34,6 +34,7 @@ import com.pmcl.ui.page.NewsPage
 import com.pmcl.ui.page.PluginPage
 import com.pmcl.ui.page.QuickLaunchPage
 import com.pmcl.ui.page.SavesHubPage
+import com.pmcl.ui.page.ServersPage
 import com.pmcl.ui.page.SettingsPage
 import com.pmcl.ui.page.StatisticsPage
 import com.pmcl.ui.page.TerminalPage
@@ -321,6 +322,7 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                                 NavDestination.Launch      -> LaunchPage(vm)
                                 NavDestination.News        -> NewsPage(vm)
                                 NavDestination.Multiplayer -> MultiplayerPage(vm)
+                                NavDestination.Servers     -> ServersPage(vm)
                                 NavDestination.Friends     -> FriendPage(vm)
                                 NavDestination.Download    -> DownloadHubPage(vm)
                                 NavDestination.Content     -> ContentHubPage(vm)

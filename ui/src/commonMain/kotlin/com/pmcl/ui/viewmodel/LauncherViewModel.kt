@@ -5312,6 +5312,50 @@ class LauncherViewModel {
         servers.forEach { s -> pingServer(s.host, s.port) }
     }
 
+    // ===== 服务器完整状态 ping（MOTD/在线人数/版本） =====
+
+    /** 服务器完整状态（可观察），key = "host:port" */
+    private val _serverStatuses = MutableStateFlow<Map<String, com.pmcl.core.multiplayer.ServerPinger.ServerStatus>>(emptyMap())
+    val serverStatuses: StateFlow<Map<String, com.pmcl.core.multiplayer.ServerPinger.ServerStatus>> = _serverStatuses.asStateFlow()
+
+    /** 正在 ping 中的服务器集合（key = "host:port"） */
+    private val _pingingServers = MutableStateFlow<Set<String>>(emptySet())
+    val pingingServers: StateFlow<Set<String>> = _pingingServers.asStateFlow()
+
+    /** 完整 ping 单个服务器，返回 MOTD/在线人数/版本等完整信息 */
+    fun pingServerFull(host: String, port: Int) {
+        val key = "$host:$port"
+        _pingingServers.update { it + key }
+        scope.launch {
+            try {
+                val status = withContext(Dispatchers.IO) {
+                    com.pmcl.core.multiplayer.ServerPinger.pingFull(host, port)
+                }
+                _serverStatuses.update { it + (key to status) }
+                // 同步更新延迟 Map，保持与旧 API 兼容
+                _serverPings.update { it + (key to status.latency) }
+            } catch (e: Throwable) {
+                val err = com.pmcl.core.multiplayer.ServerPinger.ServerStatus(
+                    com.pmcl.core.multiplayer.ServerPinger.UNREACHABLE, "", 0, 0, "", 0, null, e.message)
+                _serverStatuses.update { it + (key to err) }
+            } finally {
+                _pingingServers.update { it - key }
+            }
+        }
+    }
+
+    /** 批量完整 ping 所有收藏服务器 */
+    fun pingAllServersFull() {
+        val servers = _favoriteServers.value
+        servers.forEach { s -> pingServerFull(s.host, s.port) }
+    }
+
+    /** 更新收藏服务器（名称/地址/端口） */
+    fun updateFavoriteServer(index: Int, name: String, host: String, port: Int) {
+        preferences.updateFavoriteServer(index, name, host, port)
+        loadFavoriteServers()
+    }
+
     // ============ 独立实例管理 ============
 
     private val _instances = MutableStateFlow<List<InstanceInfo>>(emptyList())

@@ -71,6 +71,7 @@ public final class I18n {
         ZH.put("nav.launch", "启动");
         ZH.put("nav.news", "新闻");
         ZH.put("nav.multiplayer", "联机");
+        ZH.put("nav.servers", "服务器");
         ZH.put("nav.friends", "好友");
         ZH.put("nav.download", "下载");
         ZH.put("nav.content", "内容");
@@ -1048,6 +1049,27 @@ public final class I18n {
         ZH.put("mp.favorite_servers", "收藏服务器");
         ZH.put("mp.ping_all", "全部测速");
         ZH.put("mp.add_server", "添加服务器");
+
+        // ===== 服务器列表管理页 =====
+        ZH.put("servers.title", "服务器列表");
+        ZH.put("servers.hint", "管理收藏的 Minecraft 服务器，查看延迟、在线人数、MOTD 和版本");
+        ZH.put("servers.add", "添加");
+        ZH.put("servers.refresh_all", "全部刷新");
+        ZH.put("servers.empty", "还没有添加任何服务器");
+        ZH.put("servers.empty_hint", "点击右上角「添加」按钮添加服务器");
+        ZH.put("servers.add_server", "添加服务器");
+        ZH.put("servers.edit_server", "编辑服务器");
+        ZH.put("servers.delete_title", "删除服务器");
+        ZH.put("servers.delete_confirm", "确定要删除服务器「{0}」吗？");
+        ZH.put("servers.server_name", "服务器名称");
+        ZH.put("servers.server_host", "服务器地址");
+        ZH.put("servers.server_port", "端口");
+        ZH.put("servers.ping", "测速");
+        ZH.put("servers.connect", "连接");
+        ZH.put("servers.pinging", "正在检测...");
+        ZH.put("servers.offline", "离线");
+        ZH.put("servers.timeout", "超时");
+        ZH.put("servers.players_count", "{0} / {1} 在线");
         ZH.put("mp.favorite_servers_hint", "管理收藏的 Minecraft 服务器，点击测速按钮检测延迟，点击直连设为启动时自动连接的目标");
         ZH.put("mp.no_favorite_servers", "暂无收藏服务器，点击 + 添加");
         ZH.put("mp.server.offline", "离线");
@@ -1835,6 +1857,7 @@ public final class I18n {
         EN.put("nav.launch", "Launch");
         EN.put("nav.news", "News");
         EN.put("nav.multiplayer", "Multiplayer");
+        EN.put("nav.servers", "Servers");
         EN.put("nav.friends", "Friends");
         EN.put("nav.download", "Download");
         EN.put("nav.content", "Content");
@@ -2788,6 +2811,27 @@ public final class I18n {
         EN.put("mp.favorite_servers", "Favorite Servers");
         EN.put("mp.ping_all", "Ping All");
         EN.put("mp.add_server", "Add Server");
+
+        // ===== Servers list page =====
+        EN.put("servers.title", "Server List");
+        EN.put("servers.hint", "Manage favorite Minecraft servers, view latency, player count, MOTD and version");
+        EN.put("servers.add", "Add");
+        EN.put("servers.refresh_all", "Refresh All");
+        EN.put("servers.empty", "No servers added yet");
+        EN.put("servers.empty_hint", "Click the Add button in the top right to add a server");
+        EN.put("servers.add_server", "Add Server");
+        EN.put("servers.edit_server", "Edit Server");
+        EN.put("servers.delete_title", "Delete Server");
+        EN.put("servers.delete_confirm", "Are you sure you want to delete server \"{0}\"?");
+        EN.put("servers.server_name", "Server Name");
+        EN.put("servers.server_host", "Server Address");
+        EN.put("servers.server_port", "Port");
+        EN.put("servers.ping", "Ping");
+        EN.put("servers.connect", "Connect");
+        EN.put("servers.pinging", "Pinging...");
+        EN.put("servers.offline", "Offline");
+        EN.put("servers.timeout", "Timeout");
+        EN.put("servers.players_count", "{0} / {1} online");
         EN.put("mp.favorite_servers_hint", "Manage your favorite Minecraft servers. Click the ping button to check latency, or click direct connect to set it as the auto-connect target on launch.");
         EN.put("mp.no_favorite_servers", "No favorite servers yet. Click + to add one.");
         EN.put("mp.server.offline", "Offline");
@@ -3515,6 +3559,7 @@ public final class I18n {
         JA.put("nav.launch", "起動");
         JA.put("nav.news", "ニュース");
         JA.put("nav.multiplayer", "マルチプレイ");
+        JA.put("nav.servers", "サーバー");
         JA.put("nav.friends", "フレンド");
         JA.put("nav.download", "ダウンロード");
         JA.put("nav.content", "コンテンツ");
@@ -4468,6 +4513,27 @@ public final class I18n {
         JA.put("mp.favorite_servers", "お気に入りサーバー");
         JA.put("mp.ping_all", "すべてPing測定");
         JA.put("mp.add_server", "サーバー追加");
+
+        // ===== サーバーリスト管理ページ =====
+        JA.put("servers.title", "サーバーリスト");
+        JA.put("servers.hint", "お気に入りのMinecraftサーバーを管理、遅延、オンライン人数、MOTD、バージョンを表示");
+        JA.put("servers.add", "追加");
+        JA.put("servers.refresh_all", "すべて更新");
+        JA.put("servers.empty", "サーバーが追加されていません");
+        JA.put("servers.empty_hint", "右上の「追加」ボタンをクリックしてサーバーを追加");
+        JA.put("servers.add_server", "サーバー追加");
+        JA.put("servers.edit_server", "サーバー編集");
+        JA.put("servers.delete_title", "サーバー削除");
+        JA.put("servers.delete_confirm", "サーバー「{0}」を削除しますか？");
+        JA.put("servers.server_name", "サーバー名");
+        JA.put("servers.server_host", "サーバーアドレス");
+        JA.put("servers.server_port", "ポート");
+        JA.put("servers.ping", "Ping");
+        JA.put("servers.connect", "接続");
+        JA.put("servers.pinging", "測定中...");
+        JA.put("servers.offline", "オフライン");
+        JA.put("servers.timeout", "タイムアウト");
+        JA.put("servers.players_count", "{0} / {1} オンライン");
         JA.put("mp.favorite_servers_hint", "お気に入りの Minecraft サーバーを管理します。Ping ボタンで遅延を測定、直接接続をクリックして起動時の自動接続先に設定します。");
         JA.put("mp.no_favorite_servers", "お気に入りサーバーがありません。「+」をクリックして追加");
         JA.put("mp.server.offline", "オフライン");
