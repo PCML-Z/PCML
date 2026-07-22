@@ -187,6 +187,9 @@ fun StatisticsPage(vm: LauncherViewModel) {
 
             // 会话详情列表
             SessionListCard(vm, entranceDelay = 640)
+
+            // 细分统计（按模组/世界/服务器/实例维度）
+            BreakdownCard(vm, entranceDelay = 720)
         }
     }
 }
@@ -1094,5 +1097,126 @@ private fun SessionRow(session: PlayTimeTracker.Session, entranceDelay: Int = 0)
         Text(PlayTimeTracker.formatDurationShort(session.duration),
              style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold,
              color = MaterialTheme.colorScheme.primary)
+    }
+}
+
+// ===== 细分统计卡片（按模组/世界/服务器/实例维度） =====
+
+/**
+ * 细分统计卡片：通过 Tab 切换查看按模组/世界/服务器/实例维度的时长分布。
+ * 数据通过 [PlayTimeTracker] 的 getModBreakdown / getWorldBreakdown /
+ * getServerBreakdown / getInstanceBreakdown 获取。
+ */
+@Composable
+private fun BreakdownCard(vm: LauncherViewModel, entranceDelay: Int = 0) {
+    val entranceProgress by rememberEntranceProgress(delayMs = entranceDelay, durationMs = 600)
+    // 0=模组 1=世界 2=服务器 3=实例
+    var tab by remember { mutableIntStateOf(0) }
+    var items by remember { mutableStateOf<List<PlayTimeTracker.BreakdownStat>>(emptyList()) }
+
+    // 切换 Tab 时重新加载数据
+    LaunchedEffect(tab) {
+        withContext(Dispatchers.IO) {
+            val tracker = vm.core.playTimeTracker()
+            items = when (tab) {
+                0 -> tracker.getModBreakdown(20)
+                1 -> tracker.getWorldBreakdown()
+                2 -> tracker.getServerBreakdown()
+                else -> tracker.getInstanceBreakdown()
+            }
+        }
+    }
+
+    Card(modifier = Modifier.fillMaxWidth().entrance(entranceProgress), shape = RoundedCornerShape(12.dp)) {
+        Column(Modifier.padding(16.dp)) {
+            Text(I18n.t("stats.breakdown"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(4.dp))
+            Text(I18n.t("stats.breakdown_desc"),
+                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+            Spacer(Modifier.height(12.dp))
+
+            // Tab 切换栏
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                val tabs = listOf(
+                    I18n.t("stats.breakdown_mod"),
+                    I18n.t("stats.breakdown_world"),
+                    I18n.t("stats.breakdown_server"),
+                    I18n.t("stats.breakdown_instance")
+                )
+                tabs.forEachIndexed { i, label ->
+                    FilterChip(
+                        selected = tab == i,
+                        onClick = { tab = i },
+                        label = { Text(label, style = MaterialTheme.typography.labelSmall) }
+                    )
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+
+            if (items.isEmpty()) {
+                Box(Modifier.fillMaxWidth().height(80.dp), contentAlignment = Alignment.Center) {
+                    Text(I18n.t("stats.breakdown_empty"), color = MaterialTheme.colorScheme.outline,
+                        style = MaterialTheme.typography.bodySmall)
+                }
+            } else {
+                val maxDuration = items.maxOfOrNull { it.totalDuration } ?: 0L
+                items.forEachIndexed { i, stat ->
+                    BreakdownRow(stat, maxDuration, entranceDelay + i * 40)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BreakdownRow(
+    stat: PlayTimeTracker.BreakdownStat,
+    maxDuration: Long,
+    barDelay: Int
+) {
+    val barProgress = remember(stat) { Animatable(0f) }
+    LaunchedEffect(stat) {
+        delay(barDelay.toLong())
+        barProgress.animateTo(1f, tween(500, easing = FastOutSlowInEasing))
+    }
+    val barProgressValue by barProgress.asState()
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val lastPlayedStr = if (stat.lastPlayed > 0) {
+        SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(stat.lastPlayed))
+    } else "—"
+
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(stat.displayName.ifEmpty { stat.key },
+                     style = MaterialTheme.typography.bodySmall,
+                     fontWeight = FontWeight.Medium,
+                     modifier = Modifier.weight(1f),
+                     maxLines = 1,
+                     overflow = TextOverflow.Ellipsis)
+                Text(PlayTimeTracker.formatDurationShort(stat.totalDuration),
+                     style = MaterialTheme.typography.labelMedium,
+                     fontWeight = FontWeight.Bold,
+                     color = primaryColor)
+            }
+            Spacer(Modifier.height(3.dp))
+            Box(modifier = Modifier.fillMaxWidth().height(6.dp)) {
+                Canvas(Modifier.fillMaxSize()) {
+                    val ratio = if (maxDuration > 0) stat.totalDuration.toFloat() / maxDuration.toFloat() else 0f
+                    val w = size.width * ratio * barProgressValue
+                    drawRect(color = primaryColor.copy(alpha = 0.2f))
+                    drawRect(color = primaryColor, size = Size(w, size.height))
+                }
+            }
+            Spacer(Modifier.height(2.dp))
+            Text(
+                I18n.t("stats.breakdown_meta", stat.sessionCount, lastPlayedStr),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline
+            )
+        }
     }
 }

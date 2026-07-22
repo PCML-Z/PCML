@@ -52,6 +52,8 @@ public final class I18n {
         ZH.put("common.pause", "暂停");
         ZH.put("common.resume", "继续");
         ZH.put("common.save", "保存");
+        ZH.put("common.add", "添加");
+        ZH.put("common.clear", "清除");
         ZH.put("common.browse", "浏览");
         ZH.put("common.retry", "重试");
         ZH.put("common.back", "返回");
@@ -355,6 +357,14 @@ public final class I18n {
         ZH.put("mods.source_filter", "来源");
         ZH.put("mods.loader_filter", "加载器");
         ZH.put("mods.unknown", "未知");
+        ZH.put("mods.tag_filter", "标签");
+        ZH.put("mods.edit_tags", "编辑标签");
+        ZH.put("mods.tag_edit_title", "标签管理");
+        ZH.put("mods.tag_edit_hint", "为「{0}」添加或移除标签");
+        ZH.put("mods.tag_selected", "已选标签");
+        ZH.put("mods.tag_candidates", "候选标签");
+        ZH.put("mods.tag_new", "新建标签");
+        ZH.put("mods.tag_new_placeholder", "输入标签名（如 性能/科技/魔法）...");
         ZH.put("mods.detail_modid", "modId：{0}");
         ZH.put("mods.detail_version", "版本：{0}");
         ZH.put("mods.detail_authors", "作者：{0}");
@@ -1249,6 +1259,14 @@ public final class I18n {
         ZH.put("stats.session_records", "会话记录");
         ZH.put("stats.total_count", "共 {0} 条");
         ZH.put("stats.load_more", "加载更多");
+        ZH.put("stats.breakdown", "细分统计");
+        ZH.put("stats.breakdown_desc", "按模组/世界/服务器/实例查看时长分布");
+        ZH.put("stats.breakdown_mod", "模组");
+        ZH.put("stats.breakdown_world", "世界");
+        ZH.put("stats.breakdown_server", "服务器");
+        ZH.put("stats.breakdown_instance", "实例");
+        ZH.put("stats.breakdown_empty", "暂无数据（启动游戏后会自动记录）");
+        ZH.put("stats.breakdown_meta", "{0} 次会话 · 最后 {1}");
 
         // ===== 世界页新增 =====
         ZH.put("world.unknown_source", "未知");
@@ -1839,6 +1857,8 @@ public final class I18n {
         EN.put("common.pause", "Pause");
         EN.put("common.resume", "Resume");
         EN.put("common.save", "Save");
+        EN.put("common.add", "Add");
+        EN.put("common.clear", "Clear");
         EN.put("common.browse", "Browse");
         EN.put("common.retry", "Retry");
         EN.put("common.back", "Back");
@@ -2132,6 +2152,14 @@ public final class I18n {
         EN.put("mods.source_filter", "Source");
         EN.put("mods.loader_filter", "Loader");
         EN.put("mods.unknown", "Unknown");
+        EN.put("mods.tag_filter", "Tag");
+        EN.put("mods.edit_tags", "Edit tags");
+        EN.put("mods.tag_edit_title", "Tag management");
+        EN.put("mods.tag_edit_hint", "Add or remove tags for \"{0}\"");
+        EN.put("mods.tag_selected", "Selected");
+        EN.put("mods.tag_candidates", "Candidates");
+        EN.put("mods.tag_new", "New tag");
+        EN.put("mods.tag_new_placeholder", "Enter tag name (e.g. Performance/Tech/Magic)...");
         EN.put("mods.detail_modid", "modId: {0}");
         EN.put("mods.detail_version", "Version: {0}");
         EN.put("mods.detail_authors", "Authors: {0}");
@@ -3011,6 +3039,14 @@ public final class I18n {
         EN.put("stats.session_records", "Session Records");
         EN.put("stats.total_count", "{0} total");
         EN.put("stats.load_more", "Load More");
+        EN.put("stats.breakdown", "Breakdown");
+        EN.put("stats.breakdown_desc", "Duration by mod / world / server / instance");
+        EN.put("stats.breakdown_mod", "Mods");
+        EN.put("stats.breakdown_world", "Worlds");
+        EN.put("stats.breakdown_server", "Servers");
+        EN.put("stats.breakdown_instance", "Instances");
+        EN.put("stats.breakdown_empty", "No data yet (recorded after playing)");
+        EN.put("stats.breakdown_meta", "{0} sessions · last {1}");
 
         // ===== Worlds page new =====
         EN.put("world.unknown_source", "Unknown");
@@ -3541,6 +3577,8 @@ public final class I18n {
         JA.put("common.pause", "一時停止");
         JA.put("common.resume", "再開");
         JA.put("common.save", "保存");
+        JA.put("common.add", "追加");
+        JA.put("common.clear", "クリア");
         JA.put("common.browse", "参照");
         JA.put("common.retry", "再試行");
         JA.put("common.back", "戻る");
@@ -3834,6 +3872,14 @@ public final class I18n {
         JA.put("mods.source_filter", "ソース");
         JA.put("mods.loader_filter", "ローダー");
         JA.put("mods.unknown", "不明");
+        JA.put("mods.tag_filter", "タグ");
+        JA.put("mods.edit_tags", "タグ編集");
+        JA.put("mods.tag_edit_title", "タグ管理");
+        JA.put("mods.tag_edit_hint", "「{0}」のタグを追加・削除");
+        JA.put("mods.tag_selected", "選択中");
+        JA.put("mods.tag_candidates", "候補");
+        JA.put("mods.tag_new", "新規タグ");
+        JA.put("mods.tag_new_placeholder", "タグ名を入力（例: パフォーマンス/テクノロジー/魔法）...");
         JA.put("mods.detail_modid", "modId: {0}");
         JA.put("mods.detail_version", "バージョン: {0}");
         JA.put("mods.detail_authors", "作者: {0}");
@@ -4713,6 +4759,14 @@ public final class I18n {
         JA.put("stats.session_records", "セッション記録");
         JA.put("stats.total_count", "合計 {0} 件");
         JA.put("stats.load_more", "もっと読み込む");
+        JA.put("stats.breakdown", "内訳統計");
+        JA.put("stats.breakdown_desc", "MOD/ワールド/サーバー/インスタンス別の時間分布");
+        JA.put("stats.breakdown_mod", "MOD");
+        JA.put("stats.breakdown_world", "ワールド");
+        JA.put("stats.breakdown_server", "サーバー");
+        JA.put("stats.breakdown_instance", "インスタンス");
+        JA.put("stats.breakdown_empty", "データなし（プレイ後に自動記録）");
+        JA.put("stats.breakdown_meta", "{0} 回 · 最終 {1}");
 
         // ===== ワールドページ新規 =====
         JA.put("world.unknown_source", "不明");

@@ -9,6 +9,7 @@ import com.pmcl.core.launch.LaunchProfileBuilder;
 import com.pmcl.core.market.ModMarketManager;
 import com.pmcl.core.modloader.ModLoaderManager;
 import com.pmcl.core.mods.ModManager;
+import com.pmcl.core.mods.ModTagStore;
 import com.pmcl.core.mods.ModUpdateChecker;
 import com.pmcl.core.mods.ModDependencyResolver;
 import com.pmcl.core.modpack.ModpackManager;
@@ -65,6 +66,7 @@ public final class LauncherCore {
     private final DownloadQueueManager downloadQueue;
     private final ModUpdateChecker modUpdateChecker;
     private final ModDependencyResolver modDependencyResolver;
+    private final ModTagStore modTagStore;
     private final PlayTimeTracker playTimeTracker;
     private final PastebinClient pastebinClient;
     private final LaunchProfileBuilder profileBuilder;
@@ -127,6 +129,8 @@ public final class LauncherCore {
                 modMarketManager, modLoaderManager, preferences);
         this.modUpdateChecker = new ModUpdateChecker(config, modMarketManager, preferences);
         this.modDependencyResolver = new ModDependencyResolver(config, modMarketManager, preferences);
+        this.modTagStore = new com.pmcl.core.mods.ModTagStore(
+                Paths.get(System.getProperty("user.home"), ".pmcl", "mod_tags.json"));
         this.playTimeTracker = new PlayTimeTracker(
                 Paths.get(System.getProperty("user.home"), ".pmcl", "playtime.json"));
         this.pastebinClient = new PastebinClient(downloadManager.httpClient());
@@ -350,6 +354,7 @@ public final class LauncherCore {
     public ModMarketManager modMarket() { return modMarketManager; }
 
     public ModManager modManager() { return modManager; }
+    public ModTagStore modTagStore() { return modTagStore; }
     public ModpackManager modpacks() { return modpackManager; }
     public DownloadQueueManager downloadQueue() { return downloadQueue; }
     public ModUpdateChecker modUpdateChecker() { return modUpdateChecker; }

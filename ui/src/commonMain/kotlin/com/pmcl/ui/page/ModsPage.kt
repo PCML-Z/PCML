@@ -1,8 +1,9 @@
-@file:OptIn(ExperimentalFoundationApi::class)
+@file:OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 
 package com.pmcl.ui.page
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -13,10 +14,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Circle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Label
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -54,10 +57,12 @@ fun ModsPage(vm: LauncherViewModel) {
     val checkingUpdates by vm.checkingUpdates.collectAsState()
     val updateProgress by vm.updateCheckProgress.collectAsState()
     val updatingMod by vm.updatingMod.collectAsState()
+    val allTags by vm.allModTags.collectAsState()
     var translateEnabled by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
     var selectedLoader by remember { mutableStateOf<String?>(null) }
     var selectedSource by remember { mutableStateOf<String?>(null) }
+    var selectedTag by remember { mutableStateOf<String?>(null) }
     var sortExpanded by remember { mutableStateOf(false) }
     var sortBy by remember { mutableStateOf(ModSort.NAME) }
     var showImportDialog by remember { mutableStateOf(false) }
@@ -65,6 +70,7 @@ fun ModsPage(vm: LauncherViewModel) {
     var selectionMode by remember { mutableStateOf(false) }
     var selectedMods by remember { mutableStateOf<Set<String>>(emptySet()) }
     var showBatchDeleteConfirm by remember { mutableStateOf(false) }
+    var editingTagMod by remember { mutableStateOf<ModMeta?>(null) }
 
     // 更新信息映射：modId → UpdateInfo
     val updateInfoMap = remember(modUpdates) {
@@ -82,6 +88,8 @@ fun ModsPage(vm: LauncherViewModel) {
             lastModsRefreshMs = now
             vm.refreshInstalledMods()
         }
+        // 刷新用户自定义标签列表（用于筛选栏 + 编辑对话框的候选标签）
+        vm.refreshModTags()
     }
 
     val loaders = remember(installedMods) {
@@ -91,7 +99,7 @@ fun ModsPage(vm: LauncherViewModel) {
         installedMods.map { it.getSource() ?: I18n.t("mods.unknown") }.distinct().sorted()
     }
 
-    val processedMods = remember(installedMods, query, selectedLoader, selectedSource, sortBy) {
+    val processedMods = remember(installedMods, query, selectedLoader, selectedSource, selectedTag, sortBy) {
         var list = if (query.isBlank()) installedMods
         else installedMods.filter {
             (it.getName() ?: "").contains(query, ignoreCase = true) ||
@@ -104,6 +112,9 @@ fun ModsPage(vm: LauncherViewModel) {
         if (selectedLoader != null) {
             list = list.filter { (it.getLoader() ?: "unknown") == selectedLoader }
         }
+        if (selectedTag != null) {
+            list = list.filter { selectedTag in it.getTags() }
+        }
         when (sortBy) {
             ModSort.NAME -> list.sortedBy { (it.getName() ?: "").lowercase() }
             ModSort.VERSION -> list.sortedBy { (it.getVersion() ?: "").lowercase() }
@@ -114,7 +125,7 @@ fun ModsPage(vm: LauncherViewModel) {
 
     val enabledCount = remember(installedMods) { installedMods.count { !it.isDisabled() } }
     val disabledCount = remember(installedMods) { installedMods.count { it.isDisabled() } }
-    val hasFilter = query.isNotBlank() || selectedLoader != null || selectedSource != null
+    val hasFilter = query.isNotBlank() || selectedLoader != null || selectedSource != null || selectedTag != null
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         // === 顶部栏：标题 + 计数 + 操作按钮 ===
@@ -346,6 +357,39 @@ fun ModsPage(vm: LauncherViewModel) {
             }
         }
 
+        // === 标签筛选栏：用户自定义标签（如「性能」「科技」「魔法」），横向可滚动 ===
+        if (allTags.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(I18n.t("mods.tag_filter"),
+                     style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.outline)
+                Spacer(Modifier.width(8.dp))
+                androidx.compose.foundation.layout.FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    allTags.forEach { tag ->
+                        FilterChip(
+                            selected = selectedTag == tag,
+                            onClick = { selectedTag = if (selectedTag == tag) null else tag },
+                            label = { Text(tag, style = MaterialTheme.typography.labelSmall) }
+                        )
+                    }
+                    if (selectedTag != null) {
+                        TextButton(
+                            onClick = { selectedTag = null },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                        ) { Text(I18n.t("common.clear"), style = MaterialTheme.typography.labelSmall) }
+                    }
+                }
+            }
+        }
+
         // === 冲突报告 ===
         val conflictsData = conflicts
         if (conflictsData != null && conflictsData.hasIssues()) {
@@ -397,7 +441,8 @@ fun ModsPage(vm: LauncherViewModel) {
                                                        else selectedMods + key
                                     }
                                 },
-                                onShowDetail = { detailMod = m }
+                                onShowDetail = { detailMod = m },
+                                onEditTags = { editingTagMod = m }
                             )
                         }
                     }
@@ -451,6 +496,23 @@ fun ModsPage(vm: LauncherViewModel) {
             }
         )
     }
+
+    // 标签编辑对话框
+    editingTagMod?.let { mod ->
+        val jarFile = mod.getJarFile() ?: ""
+        TagEditDialog(
+            modName = mod.getName() ?: jarFile,
+            initialTags = mod.getTags(),
+            candidateTags = allTags,
+            onDismiss = { editingTagMod = null },
+            onConfirm = { tags ->
+                if (jarFile.isNotEmpty()) {
+                    vm.setModTags(jarFile, tags)
+                }
+                editingTagMod = null
+            }
+        )
+    }
 }
 
 enum class ModSort {
@@ -474,7 +536,8 @@ private fun ModRow(
     selectionMode: Boolean = false,
     isSelected: Boolean = false,
     onToggleSelect: () -> Unit = {},
-    onShowDetail: () -> Unit = {}
+    onShowDetail: () -> Unit = {},
+    onEditTags: () -> Unit = {}
 ) {
     var showDeleteDialog by remember { mutableStateOf(false) }
 
@@ -598,6 +661,15 @@ private fun ModRow(
                                  tint = MaterialTheme.colorScheme.primary)
                         }
                     }
+                    // 标签编辑按钮
+                    IconButton(
+                        onClick = onEditTags,
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(Icons.Filled.Label, contentDescription = I18n.t("mods.edit_tags"),
+                             modifier = Modifier.size(16.dp),
+                             tint = MaterialTheme.colorScheme.secondary)
+                    }
                     IconButton(
                         onClick = { showDeleteDialog = true },
                         modifier = Modifier.size(28.dp)
@@ -634,6 +706,30 @@ private fun ModRow(
                  color = MaterialTheme.colorScheme.outline,
                  maxLines = 1,
                  overflow = TextOverflow.Ellipsis)
+
+            // 第四行：用户自定义标签（如「性能」「科技」「魔法」），无标签时不显示
+            val modTags = m.getTags()
+            if (modTags.isNotEmpty()) {
+                Spacer(Modifier.height(4.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    modTags.forEach { tag ->
+                        Surface(
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Text(
+                                tag,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                    }
+                }
+            }
 
             // 更新信息行（有更新时显示新版本详情）
             if (updateInfo != null && updateInfo.hasUpdate() && updateInfo.latestFile != null) {
@@ -817,6 +913,115 @@ private fun ImportModDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) 
                 onClick = { if (path.isNotEmpty()) onConfirm(path) },
                 enabled = path.isNotEmpty()
             ) { Text(I18n.t("common.import")) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(I18n.t("common.cancel")) }
+        }
+    )
+}
+
+/**
+ * 标签编辑对话框：为指定模组添加/移除用户自定义标签。
+ * <p>
+ * 上方展示已有候选标签（点击切换选中态），下方提供新建标签输入框。
+ */
+@Composable
+private fun TagEditDialog(
+    modName: String,
+    initialTags: List<String>,
+    candidateTags: List<String>,
+    onDismiss: () -> Unit,
+    onConfirm: (List<String>) -> Unit
+) {
+    // 当前选中的标签（可变集合）
+    val selected = remember { mutableStateListOf<String>().apply { addAll(initialTags) } }
+    var newTag by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(I18n.t("mods.tag_edit_title"), fontWeight = FontWeight.SemiBold) },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                Text(I18n.t("mods.tag_edit_hint", modName),
+                     style = MaterialTheme.typography.bodySmall,
+                     color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(8.dp))
+
+                // 已选标签展示（可点击移除）
+                if (selected.isNotEmpty()) {
+                    Text(I18n.t("mods.tag_selected"),
+                         style = MaterialTheme.typography.labelMedium,
+                         fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(4.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        selected.forEach { tag ->
+                            InputChip(
+                                selected = true,
+                                onClick = { selected.remove(tag) },
+                                label = { Text(tag, style = MaterialTheme.typography.labelSmall) },
+                                trailingIcon = {
+                                    Icon(Icons.Filled.Close, null, Modifier.size(12.dp))
+                                }
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
+
+                // 候选标签（点击添加，已在已选中的不重复显示）
+                val available = candidateTags.filter { it !in selected }
+                if (available.isNotEmpty()) {
+                    Text(I18n.t("mods.tag_candidates"),
+                         style = MaterialTheme.typography.labelMedium,
+                         fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(4.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        available.forEach { tag ->
+                            AssistChip(
+                                onClick = { if (tag !in selected) selected.add(tag) },
+                                label = { Text(tag, style = MaterialTheme.typography.labelSmall) }
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
+
+                // 新建标签输入
+                Text(I18n.t("mods.tag_new"),
+                     style = MaterialTheme.typography.labelMedium,
+                     fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = newTag,
+                        onValueChange = { newTag = it },
+                        modifier = Modifier.weight(1f),
+                        placeholder = { Text(I18n.t("mods.tag_new_placeholder")) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Button(
+                        onClick = {
+                            val t = newTag.trim()
+                            if (t.isNotEmpty() && t !in selected) {
+                                selected.add(t)
+                                newTag = ""
+                            }
+                        },
+                        enabled = newTag.isNotBlank()
+                    ) { Text(I18n.t("common.add")) }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(selected.toList()) }) { Text(I18n.t("common.save")) }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text(I18n.t("common.cancel")) }

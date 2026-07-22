@@ -2011,6 +2011,8 @@ class LauncherViewModel {
                         allWarnings.addAll(r.getWarnings())
                     }
                     _modConflicts.value = ModConflictChecker.Result(allErrors, allWarnings)
+                    // 应用用户自定义标签
+                    try { core.modTagStore().applyTags(allMods) } catch (_: Throwable) {}
                     allMods
                 }
                 _installedMods.value = mods
@@ -2021,6 +2023,35 @@ class LauncherViewModel {
                 System.err.println("[refreshInstalledMods] 顶层异常: ${e.javaClass.name}: ${e.message}")
                 e.printStackTrace()
             }
+        }
+    }
+
+    /** 所有已使用的模组标签（可观察） */
+    private val _allModTags = MutableStateFlow<List<String>>(emptyList())
+    val allModTags: StateFlow<List<String>> = _allModTags.asStateFlow()
+
+    /** 刷新标签列表（从 ModTagStore 加载） */
+    fun refreshModTags() {
+        _allModTags.value = core.modTagStore().getAllTags()
+    }
+
+    /** 设置模组标签（jarFile → tags），并刷新 UI */
+    fun setModTags(jarFile: String, tags: List<String>) {
+        scope.launch {
+            withContext(Dispatchers.IO) {
+                core.modTagStore().setTags(jarFile, tags)
+            }
+            // 更新内存中的 ModMeta
+            _installedMods.value = _installedMods.value.map { mod ->
+                if (mod.getJarFile() == jarFile) {
+                    mod.setTags(tags)
+                    mod
+                } else {
+                    mod
+                }
+            }
+            // 刷新标签列表
+            _allModTags.value = core.modTagStore().getAllTags()
         }
     }
 
@@ -3386,7 +3417,9 @@ class LauncherViewModel {
                 preferences.setLastPlayedTime(versionId, launchTime)
                 _recentVersions.value = preferences.getRecentVersions()
                 _lastPlayedTimes.value = HashMap(preferences.getLastPlayedTimesRaw())
-                core.playTimeTracker().recordStart(versionId)
+                // 携带实例 ID 和已安装模组列表，用于细分统计（按模组/按实例）
+                val sessionModIds = _installedMods.value.mapNotNull { it.getModId().takeIf(String::isNotEmpty) }
+                core.playTimeTracker().recordStart(versionId, instanceId ?: "", sessionModIds)
                 timeTracked = true
 
                 // launchAsync 返回 CompletableFuture，需等待进程退出，否则 gameRunning 会立即被 finally 重置
@@ -3407,6 +3440,28 @@ class LauncherViewModel {
                                 synchronized(logs) { logs.toList() }
                             } ?: emptyList()
                         }
+                        // 解析游戏日志，更新会话上下文（服务器地址 / 世界名）用于细分统计
+                        try {
+                            if (line.contains("Connecting to")) {
+                                // 例：[Render thread/INFO]: Connecting to mc.example.com, 25565
+                                val m = Regex("""Connecting to\s+([^,\s]+)(?:[,\s]+(\d+))?""").find(line)
+                                if (m != null) {
+                                    val host = m.groupValues[1]
+                                    val port = m.groupValues.getOrNull(2)?.takeIf { it.isNotEmpty() }
+                                    val server = if (port != null) "$host:$port" else host
+                                    core.playTimeTracker().updateSessionServer(versionId, server)
+                                }
+                            } else if (line.contains("Saving chunks for level")) {
+                                // 例：Saving chunks for level 'worldName'/minecraft:overworld
+                                val m = Regex("""Saving chunks for level '([^']+)'""").find(line)
+                                if (m != null) {
+                                    core.playTimeTracker().updateSessionWorld(versionId, m.groupValues[1])
+                                }
+                            } else if (line.contains("Preparing spawn area") && !line.contains("Connecting to")) {
+                                // 单人世界加载阶段，若尚未记录世界名，用 "单人世界" 占位
+                                core.playTimeTracker().updateSessionWorld(versionId, "Singleplayer")
+                            }
+                        } catch (_: Throwable) { }
                     },
                     instLogger
                 )
@@ -3548,8 +3603,9 @@ class LauncherViewModel {
                 )
                 _gameRunning.value = true
                 _status.value = I18n.t("status.launching", javaPath, javaMajorVer, javaArch, versionId)
-                // 记录游玩时长
-                core.playTimeTracker().recordStart(versionId)
+                // 记录游玩时长（携带已安装模组列表用于细分统计）
+                val sessionModIds = _installedMods.value.mapNotNull { it.getModId().takeIf(String::isNotEmpty) }
+                core.playTimeTracker().recordStart(versionId, "", sessionModIds)
                 timeTracked = true
                 preferences.recordRecentVersion(versionId)
                 preferences.setLastPlayedTime(versionId, System.currentTimeMillis())
@@ -3557,7 +3613,28 @@ class LauncherViewModel {
                 _lastPlayedTimes.value = HashMap(preferences.getLastPlayedTimesRaw())
                 val future = core.launch().launchAsync(
                     profile, javaPath,
-                    { line -> _gameLogs.update { old -> (old + line).takeLast(2000) } },
+                    { line ->
+                        _gameLogs.update { old -> (old + line).takeLast(2000) }
+                        // 解析游戏日志，更新会话上下文（服务器地址 / 世界名）用于细分统计
+                        try {
+                            if (line.contains("Connecting to")) {
+                                val m = Regex("""Connecting to\s+([^,\s]+)(?:[,\s]+(\d+))?""").find(line)
+                                if (m != null) {
+                                    val host = m.groupValues[1]
+                                    val port = m.groupValues.getOrNull(2)?.takeIf { it.isNotEmpty() }
+                                    val server = if (port != null) "$host:$port" else host
+                                    core.playTimeTracker().updateSessionServer(versionId, server)
+                                }
+                            } else if (line.contains("Saving chunks for level")) {
+                                val m = Regex("""Saving chunks for level '([^']+)'""").find(line)
+                                if (m != null) {
+                                    core.playTimeTracker().updateSessionWorld(versionId, m.groupValues[1])
+                                }
+                            } else if (line.contains("Preparing spawn area")) {
+                                core.playTimeTracker().updateSessionWorld(versionId, "Singleplayer")
+                            }
+                        } catch (_: Throwable) { }
+                    },
                     gameLogger
                 )
                 val exitCode = withContext(Dispatchers.IO) { future.join() }

@@ -43,12 +43,25 @@ public final class PlayTimeTracker {
         public final long start;      // 开始时间戳（毫秒）
         public final long end;        // 结束时间戳（毫秒）
         public final long duration;   // 时长（毫秒）
+        public final String instanceId;   // 实例 ID（可为空）
+        public final String server;       // 服务器地址 host:port（可为空，单人游戏时为空）
+        public final String worldName;    // 世界名称（可为空，多人游戏时为空）
+        public final List<String> modIds; // 会话期间已安装的 mod ID 列表（可为空）
 
         public Session(String version, long start, long end, long duration) {
+            this(version, start, end, duration, "", "", "", Collections.emptyList());
+        }
+
+        public Session(String version, long start, long end, long duration,
+                       String instanceId, String server, String worldName, List<String> modIds) {
             this.version = version;
             this.start = start;
             this.end = end;
             this.duration = duration;
+            this.instanceId = instanceId != null ? instanceId : "";
+            this.server = server != null ? server : "";
+            this.worldName = worldName != null ? worldName : "";
+            this.modIds = modIds != null ? Collections.unmodifiableList(new ArrayList<>(modIds)) : Collections.emptyList();
         }
     }
 
@@ -145,12 +158,40 @@ public final class PlayTimeTracker {
         }
     }
 
+    /** 按维度细分的统计项（通用：模组/世界/服务器/实例） */
+    public static final class BreakdownStat {
+        public final String key;             // 维度键（modId / worldName / server / instanceId）
+        public final String displayName;     // 显示名称
+        public final long totalDuration;     // 总时长（毫秒）
+        public final int sessionCount;       // 会话数
+        public final long lastPlayed;        // 最后游玩时间戳
+
+        public BreakdownStat(String key, String displayName, long totalDuration, int sessionCount, long lastPlayed) {
+            this.key = key;
+            this.displayName = displayName;
+            this.totalDuration = totalDuration;
+            this.sessionCount = sessionCount;
+            this.lastPlayed = lastPlayed;
+        }
+    }
+
     private final Path dataFile;
     private final Gson gson = new Gson();
     private final List<Session> sessions = Collections.synchronizedList(new ArrayList<>());
 
     /** 当前正在进行的会话：versionId → 开始时间戳 */
     private final ConcurrentHashMap<String, Long> activeStarts = new ConcurrentHashMap<>();
+
+    /** 当前会话上下文：versionId → 上下文信息（instanceId/server/world/modIds） */
+    private final ConcurrentHashMap<String, SessionContext> activeContexts = new ConcurrentHashMap<>();
+
+    /** 活跃会话上下文（在 recordStart 时初始化，recordEnd 时读取） */
+    private static final class SessionContext {
+        String instanceId = "";
+        String server = "";
+        String worldName = "";
+        List<String> modIds = Collections.emptyList();
+    }
 
     public PlayTimeTracker(Path dataFile) {
         this.dataFile = dataFile;
@@ -164,8 +205,42 @@ public final class PlayTimeTracker {
      * @param versionId 版本 ID
      */
     public void recordStart(String versionId) {
+        recordStart(versionId, "", Collections.emptyList());
+    }
+
+    /**
+     * 记录游戏启动（会话开始），携带实例和模组上下文。
+     * @param versionId   版本 ID
+     * @param instanceId  实例 ID（可为空）
+     * @param modIds      会话期间已安装的 mod ID 列表（可为空）
+     */
+    public void recordStart(String versionId, String instanceId, List<String> modIds) {
         if (versionId == null || versionId.isEmpty()) return;
         activeStarts.put(versionId, System.currentTimeMillis());
+        SessionContext ctx = new SessionContext();
+        ctx.instanceId = instanceId != null ? instanceId : "";
+        ctx.modIds = modIds != null ? new ArrayList<>(modIds) : Collections.emptyList();
+        activeContexts.put(versionId, ctx);
+    }
+
+    /**
+     * 更新活跃会话的服务器地址（从游戏日志解析「Connecting to」时调用）。
+     */
+    public void updateSessionServer(String versionId, String server) {
+        SessionContext ctx = activeContexts.get(versionId);
+        if (ctx != null && server != null && !server.isEmpty()) {
+            ctx.server = server;
+        }
+    }
+
+    /**
+     * 更新活跃会话的世界名称（从游戏日志解析单人世界加载时调用）。
+     */
+    public void updateSessionWorld(String versionId, String worldName) {
+        SessionContext ctx = activeContexts.get(versionId);
+        if (ctx != null && worldName != null && !worldName.isEmpty()) {
+            ctx.worldName = worldName;
+        }
     }
 
     /**
@@ -175,13 +250,20 @@ public final class PlayTimeTracker {
     public void recordEnd(String versionId) {
         if (versionId == null || versionId.isEmpty()) return;
         Long start = activeStarts.remove(versionId);
+        SessionContext ctx = activeContexts.remove(versionId);
         if (start == null) return;
 
         long end = System.currentTimeMillis();
         long duration = end - start;
         if (duration < 1000) return; // 不足 1 秒不记录
 
-        Session session = new Session(versionId, start, end, duration);
+        Session session;
+        if (ctx != null) {
+            session = new Session(versionId, start, end, duration,
+                    ctx.instanceId, ctx.server, ctx.worldName, ctx.modIds);
+        } else {
+            session = new Session(versionId, start, end, duration);
+        }
         sessions.add(session);
         save();
     }
@@ -401,6 +483,81 @@ public final class PlayTimeTracker {
                 firstPlay, mostPlayedHour, totalDays);
     }
 
+    // ===== 细分统计 =====
+
+    /**
+     * 按模组细分：统计每个 mod 的游玩时长（该 mod 存在的会话时长之和）。
+     * @param topN 返回前 N 个（按时长降序），0 表示全部
+     */
+    public List<BreakdownStat> getModBreakdown(int topN) {
+        List<Session> snapshot;
+        synchronized (sessions) {
+            snapshot = new ArrayList<>(sessions);
+        }
+        Map<String, long[]> agg = new LinkedHashMap<>(); // modId → [duration, count, lastPlayed]
+        for (Session s : snapshot) {
+            if (s.modIds == null || s.modIds.isEmpty()) continue;
+            for (String modId : s.modIds) {
+                long[] v = agg.computeIfAbsent(modId, k -> new long[]{0, 0, 0});
+                v[0] += s.duration;
+                v[1] += 1;
+                if (s.end > v[2]) v[2] = s.end;
+            }
+        }
+        List<BreakdownStat> result = new ArrayList<>();
+        for (Map.Entry<String, long[]> e : agg.entrySet()) {
+            long[] v = e.getValue();
+            result.add(new BreakdownStat(e.getKey(), e.getKey(), v[0], (int) v[1], v[2]));
+        }
+        result.sort((a, b) -> Long.compare(b.totalDuration, a.totalDuration));
+        if (topN > 0 && result.size() > topN) {
+            return new ArrayList<>(result.subList(0, topN));
+        }
+        return result;
+    }
+
+    /** 按服务器细分：统计每个服务器的游玩时长 */
+    public List<BreakdownStat> getServerBreakdown() {
+        return getBreakdownByField(s -> s.server, s -> s.server, "server");
+    }
+
+    /** 按世界细分：统计每个单人世界的游玩时长 */
+    public List<BreakdownStat> getWorldBreakdown() {
+        return getBreakdownByField(s -> s.worldName, s -> s.worldName, "world");
+    }
+
+    /** 按实例细分：统计每个实例的游玩时长 */
+    public List<BreakdownStat> getInstanceBreakdown() {
+        return getBreakdownByField(s -> s.instanceId, s -> s.instanceId, "instance");
+    }
+
+    /** 通用按字段聚合 */
+    private List<BreakdownStat> getBreakdownByField(
+            java.util.function.Function<Session, String> keyExtractor,
+            java.util.function.Function<Session, String> nameExtractor,
+            String fieldName) {
+        List<Session> snapshot;
+        synchronized (sessions) {
+            snapshot = new ArrayList<>(sessions);
+        }
+        Map<String, long[]> agg = new LinkedHashMap<>();
+        for (Session s : snapshot) {
+            String key = keyExtractor.apply(s);
+            if (key == null || key.isEmpty()) continue;
+            long[] v = agg.computeIfAbsent(key, k -> new long[]{0, 0, 0});
+            v[0] += s.duration;
+            v[1] += 1;
+            if (s.end > v[2]) v[2] = s.end;
+        }
+        List<BreakdownStat> result = new ArrayList<>();
+        for (Map.Entry<String, long[]> e : agg.entrySet()) {
+            long[] v = e.getValue();
+            result.add(new BreakdownStat(e.getKey(), e.getKey(), v[0], (int) v[1], v[2]));
+        }
+        result.sort((a, b) -> Long.compare(b.totalDuration, a.totalDuration));
+        return result;
+    }
+
     /**
      * 分页获取会话列表（按开始时间降序）。
      * @param offset 偏移量
@@ -442,8 +599,18 @@ public final class PlayTimeTracker {
                     long start = o.has("start") ? o.get("start").getAsLong() : 0;
                     long end = o.has("end") ? o.get("end").getAsLong() : 0;
                     long duration = o.has("duration") ? o.get("duration").getAsLong() : (end - start);
+                    String instanceId = safeStr(o, "instanceId");
+                    String server = safeStr(o, "server");
+                    String worldName = safeStr(o, "worldName");
+                    List<String> modIds = new ArrayList<>();
+                    if (o.has("modIds") && o.get("modIds").isJsonArray()) {
+                        for (com.google.gson.JsonElement me : o.getAsJsonArray("modIds")) {
+                            if (me.isJsonPrimitive()) modIds.add(me.getAsString());
+                        }
+                    }
                     if (!version.isEmpty() && duration > 0) {
-                        sessions.add(new Session(version, start, end, duration));
+                        sessions.add(new Session(version, start, end, duration,
+                                instanceId, server, worldName, modIds));
                     }
                 }
             }
@@ -467,6 +634,14 @@ public final class PlayTimeTracker {
                 o.addProperty("start", s.start);
                 o.addProperty("end", s.end);
                 o.addProperty("duration", s.duration);
+                if (!s.instanceId.isEmpty()) o.addProperty("instanceId", s.instanceId);
+                if (!s.server.isEmpty()) o.addProperty("server", s.server);
+                if (!s.worldName.isEmpty()) o.addProperty("worldName", s.worldName);
+                if (!s.modIds.isEmpty()) {
+                    com.google.gson.JsonArray modArr = new com.google.gson.JsonArray();
+                    for (String modId : s.modIds) modArr.add(modId);
+                    o.add("modIds", modArr);
+                }
                 arr.add(o);
             }
             root.add("sessions", arr);
