@@ -38,6 +38,10 @@ public final class LaunchProfileBuilder {
     /** 主菜单背景视频处理器（可选，由 UI 层注入 video 模块实现）。null 时该功能降级不可用 */
     private com.pmcl.core.gamecontent.MenuBackgroundProvider menuBackgroundProvider;
 
+    /** authlib-injector 管理器（皮肤站账号启动时注入 Java Agent） */
+    private final com.pmcl.core.auth.AuthlibInjectorManager authlibInjectorManager =
+            new com.pmcl.core.auth.AuthlibInjectorManager();
+
     public LaunchProfileBuilder(LauncherConfig config, Preferences preferences) {
         this(config, preferences, null);
     }
@@ -564,6 +568,14 @@ public final class LaunchProfileBuilder {
         // 自定义主菜单背景：从用户视频中提取 6 帧生成 panorama 资源包，并启用
         // Minecraft 主菜单原生只支持 6 张静态全景图，不支持视频；这里用帧提取近似实现
         installMenuBackground(gameDir, versionId);
+
+        // === authlib-injector 注入（皮肤站账号） ===
+        // YGGDRASIL 类型账号需通过 authlib-injector Java Agent 修改 authlib 请求 URL，
+        // 使 Minecraft 指向自定义皮肤站而非 Mojang 官方服务器。
+        // 采用预取方式：启动前 GET /api/yggdrasil 获取元数据，Base64 编码后通过 -D 参数传入。
+        if (account != null && account.getType() == Account.AccountType.YGGDRASIL) {
+            injectAuthlibInjector(profile, account);
+        }
 
         return profile;
     }
@@ -1342,5 +1354,54 @@ public final class LaunchProfileBuilder {
                 // Xbox Live 验证的服务器时必需；离线/GitHub 账号为空字符串。
                 .replace("${auth_xuid}", account.getXuid())
                 .replace("${version_type}", "PMCL");
+    }
+
+    /**
+     * 注入 authlib-injector Java Agent（皮肤站账号专用）。
+     * <p>
+     * 流程：
+     * <ol>
+     *   <li>确保 authlib-injector.jar 存在（不存在则从官方下载）</li>
+     *   <li>预取皮肤站 Yggdrasil API 元数据，Base64 编码</li>
+     *   <li>添加 -javaagent 和 -Dauthlibinjector.yggdrasil.prefetched 参数</li>
+     * </ol>
+     * 预取失败时回退到直接传服务器 URL 的方式（-javaagent:jar=URL）。
+     * 任何失败均记录到 stderr 但不中断启动（游戏可能仍能以离线模式运行）。
+     */
+    private void injectAuthlibInjector(LaunchProfile profile, Account account) {
+        String apiUrl = account.getAuthServerUrl();
+        if (apiUrl == null || apiUrl.isEmpty()) {
+            System.err.println("[LaunchProfileBuilder] YGGDRASIL 账号缺少 authServerUrl，跳过 authlib-injector 注入");
+            return;
+        }
+
+        // 1. 确保 authlib-injector.jar 存在
+        Path jarPath = config.getWorkDir().resolve("authlib-injector.jar");
+        try {
+            authlibInjectorManager.ensureJar(jarPath);
+        } catch (IOException e) {
+            System.err.println("[LaunchProfileBuilder] authlib-injector.jar 下载失败: " + e.getMessage());
+            return;
+        }
+        if (!java.nio.file.Files.exists(jarPath)) {
+            System.err.println("[LaunchProfileBuilder] authlib-injector.jar 不存在，跳过注入");
+            return;
+        }
+
+        // 2. 预取 Yggdrasil API 元数据
+        String prefetched = authlibInjectorManager.prefetchYggdrasilApi(apiUrl);
+
+        // 3. 注入参数
+        if (prefetched != null && !prefetched.isEmpty()) {
+            // 预取方式（推荐）：-javaagent:jar + -Dauthlibinjector.yggdrasil.prefetched=<base64>
+            profile.addJavaAgent(jarPath.toString(), null);
+            profile.addJvmArg("-Dauthlibinjector.yggdrasil.prefetched=" + prefetched);
+            System.err.println("[LaunchProfileBuilder] authlib-injector 注入成功（预取方式）");
+        } else {
+            // 回退方式：-javaagent:jar=服务器URL（运行时由 agent 自行获取 API 元数据）
+            String normalizedUrl = com.pmcl.core.auth.YggdrasilAuthFlow.normalizeApiUrl(apiUrl);
+            profile.addJavaAgent(jarPath.toString(), normalizedUrl);
+            System.err.println("[LaunchProfileBuilder] authlib-injector 注入成功（回退方式，URL=" + normalizedUrl + "）");
+        }
     }
 }

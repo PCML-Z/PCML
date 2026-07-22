@@ -34,6 +34,8 @@ public final class AuthService {
 
     private MicrosoftAuthFlow flow = new MicrosoftAuthFlow();
     private final GitHubAuthFlow githubFlow = new GitHubAuthFlow();
+    private final YggdrasilAuthFlow yggdrasilFlow = new YggdrasilAuthFlow();
+    private final AuthlibInjectorManager authlibInjectorManager = new AuthlibInjectorManager();
     private final Gson gson = new Gson();
 
     /**
@@ -124,6 +126,49 @@ public final class AuthService {
                 });
     }
 
+    // ============ 皮肤站（Yggdrasil / authlib-injector）登录 ============
+
+    /**
+     * 皮肤站登录（同步调用，UI 层应在 IO 线程调用）。
+     *
+     * @param apiUrl   皮肤站 API 根地址或首页地址（会自动规范化）
+     * @param username 用户名或邮箱
+     * @param password 密码
+     * @return 登录成功后的 Account
+     * @throws IOException 网络错误或认证失败
+     */
+    public Account yggdrasilLogin(String apiUrl, String username, String password) throws IOException {
+        return yggdrasilFlow.login(apiUrl, username, password);
+    }
+
+    /**
+     * 验证皮肤站 accessToken 是否有效。
+     */
+    public boolean yggdrasilValidate(String apiUrl, String accessToken) {
+        return yggdrasilFlow.validate(apiUrl, accessToken);
+    }
+
+    /**
+     * 刷新皮肤站 accessToken。失败返回 null。
+     */
+    public String yggdrasilRefresh(String apiUrl, String accessToken) {
+        return yggdrasilFlow.refresh(apiUrl, accessToken);
+    }
+
+    /**
+     * 确保 authlib-injector.jar 存在并返回其路径。
+     */
+    public java.nio.file.Path ensureAuthlibInjectorJar(java.nio.file.Path jarPath) throws IOException {
+        return authlibInjectorManager.ensureJar(jarPath);
+    }
+
+    /**
+     * 预取 Yggdrasil API 元数据，返回 Base64 编码的 prefetched 字符串。失败返回 null。
+     */
+    public String prefetchYggdrasilApi(String apiUrl) {
+        return authlibInjectorManager.prefetchYggdrasilApi(apiUrl);
+    }
+
     // ============ 多账号持久化 ============
 
     /**
@@ -167,7 +212,8 @@ public final class AuthService {
                         accountType,
                         o.has("skinUrl") && !o.get("skinUrl").isJsonNull() ? o.get("skinUrl").getAsString() : "",
                         o.has("skinModel") && !o.get("skinModel").isJsonNull() ? o.get("skinModel").getAsString() : "classic",
-                        o.has("xuid") && !o.get("xuid").isJsonNull() ? o.get("xuid").getAsString() : ""
+                        o.has("xuid") && !o.get("xuid").isJsonNull() ? o.get("xuid").getAsString() : "",
+                        o.has("authServerUrl") && !o.get("authServerUrl").isJsonNull() ? o.get("authServerUrl").getAsString() : ""
                 ));
             }
         }
@@ -195,6 +241,7 @@ public final class AuthService {
             o.addProperty("skinUrl", a.getSkinUrl());
             o.addProperty("skinModel", a.getSkinModel());
             o.addProperty("xuid", a.getXuid());
+            o.addProperty("authServerUrl", a.getAuthServerUrl());
             arr.add(o);
         }
         root.add("accounts", arr);

@@ -21,6 +21,8 @@ public final class LaunchProfile {
     private List<String> classpath = new ArrayList<>();
     private List<String> jvmArgs = new ArrayList<>();
     private List<String> gameArgs = new ArrayList<>();
+    /** Java Agent 参数（-javaagent:jar=path），插入在 JVM 参数最前面 */
+    private List<String> javaAgents = new ArrayList<>();
     /** 实际 Minecraft 根目录（外部安装时为 ~/.minecraft，.pmcl 安装时为 config.getWorkDir()） */
     private java.nio.file.Path gameDir;
 
@@ -72,9 +74,22 @@ public final class LaunchProfile {
         return this;
     }
 
+    /** 添加 Java Agent 参数（格式：jarPath[=options]） */
+    public LaunchProfile addJavaAgent(String jarPath, String options) {
+        if (options != null && !options.isEmpty()) {
+            javaAgents.add("-javaagent:" + jarPath + "=" + options);
+        } else {
+            javaAgents.add("-javaagent:" + jarPath);
+        }
+        return this;
+    }
+
     public List<String> buildCommand(String javaExecutable) {
         List<String> cmd = new ArrayList<>();
         cmd.add(javaExecutable);
+
+        // Java Agent 参数必须紧跟 java 可执行文件（在其他 JVM 参数之前）
+        cmd.addAll(javaAgents);
 
         // JVM 参数（内存/GC/Aikar 等已由 LaunchProfileBuilder 通过 addJvmArg 注入）
         cmd.addAll(jvmArgs);

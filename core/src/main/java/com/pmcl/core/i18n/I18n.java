@@ -1262,6 +1262,14 @@ public final class I18n {
         ZH.put("accounts.code_copied", "代码已复制到剪贴板");
         ZH.put("accounts.device_code_wait_hint", "登录完成后启动器会自动继续，请勿关闭此窗口。");
         ZH.put("accounts.skin_preview", "皮肤预览");
+        ZH.put("accounts.yggdrasil", "皮肤站登录");
+        ZH.put("accounts.yggdrasil_hint", "通过 authlib-injector 登录第三方皮肤站（如 LittleSkin）。\n登录后可使用皮肤站的皮肤和角色。");
+        ZH.put("accounts.yggdrasil_api_url", "皮肤站地址");
+        ZH.put("accounts.yggdrasil_username", "用户名或邮箱");
+        ZH.put("accounts.yggdrasil_password", "密码");
+        ZH.put("accounts.yggdrasil_login", "登录皮肤站");
+        ZH.put("accounts.show_password", "显示密码");
+        ZH.put("accounts.hide_password", "隐藏密码");
 
         // ===== 下载页新增 =====
         ZH.put("download.page_title", "下载与安装");
@@ -1446,6 +1454,10 @@ public final class I18n {
         ZH.put("status.requesting_github_device_code", "正在请求 GitHub 设备码…");
         ZH.put("status.logged_in_github", "已登录 GitHub：{0}");
         ZH.put("status.github_login_failed", "GitHub 登录失败：{0}");
+        ZH.put("status.yggdrasil_logging_in", "正在登录皮肤站…");
+        ZH.put("status.logged_in_yggdrasil", "已登录皮肤站：{0}");
+        ZH.put("status.yggdrasil_login_failed", "皮肤站登录失败：{0}");
+        ZH.put("status.yggdrasil_fields_required", "请填写皮肤站地址、用户名和密码");
 
         // ===== 状态消息 - 游戏安装 =====
         ZH.put("status.install_starting", "开始安装 {0}…");
@@ -2950,6 +2962,14 @@ public final class I18n {
         EN.put("accounts.code_copied", "Code copied to clipboard");
         EN.put("accounts.device_code_wait_hint", "The launcher will continue automatically after login is complete. Please do not close this window.");
         EN.put("accounts.skin_preview", "Skin preview");
+        EN.put("accounts.yggdrasil", "Skin Station Login");
+        EN.put("accounts.yggdrasil_hint", "Log in to third-party skin stations (e.g. LittleSkin) via authlib-injector.\nSkins and characters from the skin station will be available after login.");
+        EN.put("accounts.yggdrasil_api_url", "Skin station URL");
+        EN.put("accounts.yggdrasil_username", "Username or email");
+        EN.put("accounts.yggdrasil_password", "Password");
+        EN.put("accounts.yggdrasil_login", "Login to skin station");
+        EN.put("accounts.show_password", "Show password");
+        EN.put("accounts.hide_password", "Hide password");
 
         // ===== Download page new =====
         EN.put("download.page_title", "Download & Install");
@@ -3124,6 +3144,10 @@ public final class I18n {
         EN.put("status.requesting_github_device_code", "Requesting GitHub device code…");
         EN.put("status.logged_in_github", "Logged in to GitHub: {0}");
         EN.put("status.github_login_failed", "GitHub login failed: {0}");
+        EN.put("status.yggdrasil_logging_in", "Logging in to skin station…");
+        EN.put("status.logged_in_yggdrasil", "Logged in to skin station: {0}");
+        EN.put("status.yggdrasil_login_failed", "Skin station login failed: {0}");
+        EN.put("status.yggdrasil_fields_required", "Please fill in skin station URL, username and password");
         EN.put("status.install_starting", "Installing {0}…");
         EN.put("status.install_progress", "{0}: {1}");
         EN.put("status.install_complete", "{0} installed");
@@ -4578,6 +4602,14 @@ public final class I18n {
         JA.put("accounts.code_copied", "コードをクリップボードにコピーしました");
         JA.put("accounts.device_code_wait_hint", "ログイン完了後にランチャーは自動的に続行します。このウィンドウを閉じないでください。");
         JA.put("accounts.skin_preview", "スキンプレビュー");
+        JA.put("accounts.yggdrasil", "スキンサイトログイン");
+        JA.put("accounts.yggdrasil_hint", "authlib-injector でサードパーティのスキンサイト（例：LittleSkin）にログインします。\nログイン後にスキンサイトのスキンとキャラクターが利用可能になります。");
+        JA.put("accounts.yggdrasil_api_url", "スキンサイトアドレス");
+        JA.put("accounts.yggdrasil_username", "ユーザー名またはメール");
+        JA.put("accounts.yggdrasil_password", "パスワード");
+        JA.put("accounts.yggdrasil_login", "スキンサイトにログイン");
+        JA.put("accounts.show_password", "パスワードを表示");
+        JA.put("accounts.hide_password", "パスワードを非表示");
 
         // ===== ダウンロードページ新規 =====
         JA.put("download.page_title", "ダウンロードとインストール");
@@ -4762,6 +4794,10 @@ public final class I18n {
         JA.put("status.requesting_github_device_code", "GitHub デバイスコードを要求中…");
         JA.put("status.logged_in_github", "GitHub にログイン：{0}");
         JA.put("status.github_login_failed", "GitHub ログイン失敗：{0}");
+        JA.put("status.yggdrasil_logging_in", "スキンサイトにログイン中…");
+        JA.put("status.logged_in_yggdrasil", "スキンサイトにログイン：{0}");
+        JA.put("status.yggdrasil_login_failed", "スキンサイトログイン失敗：{0}");
+        JA.put("status.yggdrasil_fields_required", "スキンサイトアドレス、ユーザー名、パスワードを入力してください");
 
         // ===== ステータスメッセージ - ゲームインストール =====
         JA.put("status.install_starting", "{0} のインストールを開始…");

@@ -1464,6 +1464,30 @@ class LauncherViewModel {
         }
     }
 
+    /** 皮肤站（Yggdrasil / authlib-injector）登录 */
+    fun startYggdrasilLogin(apiUrl: String, username: String, password: String) {
+        if (apiUrl.isBlank() || username.isBlank() || password.isBlank()) {
+            _status.value = I18n.t("status.yggdrasil_fields_required")
+            return
+        }
+        scope.launch {
+            _loggingIn.value = true
+            _status.value = I18n.t("status.yggdrasil_logging_in")
+            try {
+                val account = withContext(Dispatchers.IO) {
+                    core.auth().yggdrasilLogin(apiUrl, username, password)
+                }
+                _account.value = account
+                upsertAccount(account)
+                _status.value = I18n.t("status.logged_in_yggdrasil", account.getUsername())
+            } catch (e: Throwable) {
+                _status.value = I18n.t("status.yggdrasil_login_failed", e.message ?: I18n.t("common.unknown"))
+            } finally {
+                _loggingIn.value = false
+            }
+        }
+    }
+
     /**
      * 触发游戏安装流程：先弹窗询问是否同时安装模组加载器，用户确认后再执行实际安装。
      * 此方法不立即开始下载，仅触发 [preInstallEvent] 事件。

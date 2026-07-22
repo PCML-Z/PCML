@@ -12,6 +12,7 @@ public final class Account {
     private final String skinUrl;   // 皮肤纹理 URL（微软账号来自 Mojang API，离线账号可自定义）
     private final String skinModel; // "classic" 或 "slim"
     private final String xuid;      // Xbox Live userHash（uhs），微软账号用于 auth_xuid 启动参数
+    private final String authServerUrl; // 皮肤站 API 地址（YGGDRASIL 账号专用），空表示非皮肤站
 
     public Account(String username, String uuid, String accessToken, AccountType type) {
         this(username, uuid, accessToken, type, "", "classic", "");
@@ -24,6 +25,11 @@ public final class Account {
 
     public Account(String username, String uuid, String accessToken, AccountType type,
                    String skinUrl, String skinModel, String xuid) {
+        this(username, uuid, accessToken, type, skinUrl, skinModel, xuid, "");
+    }
+
+    public Account(String username, String uuid, String accessToken, AccountType type,
+                   String skinUrl, String skinModel, String xuid, String authServerUrl) {
         this.username = username;
         this.uuid = uuid;
         this.accessToken = accessToken;
@@ -31,6 +37,7 @@ public final class Account {
         this.skinUrl = skinUrl != null ? skinUrl : "";
         this.skinModel = skinModel != null ? skinModel : "classic";
         this.xuid = xuid != null ? xuid : "";
+        this.authServerUrl = authServerUrl != null ? authServerUrl : "";
     }
 
     public String getUsername() { return username; }
@@ -41,10 +48,13 @@ public final class Account {
     public String getSkinModel() { return skinModel; }
     /** 返回 Xbox Live userHash（uhs），仅微软账号有效，离线/GitHub 账号返回空字符串。 */
     public String getXuid() { return xuid; }
+    /** 返回皮肤站 API 地址（YGGDRASIL 账号专用），非皮肤站账号返回空字符串。 */
+    public String getAuthServerUrl() { return authServerUrl; }
 
     /**
      * 返回头像 URL。
      * 微软账号用 Crafatar 通过 UUID 获取在线皮肤；
+     * YGGDRASIL 账号用皮肤站的 API 渲染头像；
      * GitHub 账号用 skinUrl 字段存储的 GitHub 头像 URL；
      * 离线账号若无自定义皮肤则返回空。
      */
@@ -52,15 +62,24 @@ public final class Account {
         if (type == AccountType.MICROSOFT) {
             return "https://crafatar.com/avatars/" + uuid + "?size=64&overlay";
         }
+        if (type == AccountType.YGGDRASIL && !authServerUrl.isEmpty()) {
+            // 皮肤站头像通过其自定义 API 渲染（去除末尾斜杠后拼接 /avatar/<uuid>）
+            String base = authServerUrl.endsWith("/") ? authServerUrl.substring(0, authServerUrl.length() - 1) : authServerUrl;
+            return base + "/avatar/" + uuid + "?size=64";
+        }
         return skinUrl;
     }
 
     /**
-     * 返回全身渲染 URL（仅微软账号有效）。
+     * 返回全身渲染 URL（仅微软账号和 YGGDRASIL 账号有效）。
      */
     public String getBodyRenderUrl() {
         if (type == AccountType.MICROSOFT) {
             return "https://crafatar.com/renders/body/" + uuid + "?size=128";
+        }
+        if (type == AccountType.YGGDRASIL && !authServerUrl.isEmpty()) {
+            String base = authServerUrl.endsWith("/") ? authServerUrl.substring(0, authServerUrl.length() - 1) : authServerUrl;
+            return base + "/renders/body/" + uuid + "?size=128";
         }
         return skinUrl;
     }
@@ -68,6 +87,7 @@ public final class Account {
     public enum AccountType {
         OFFLINE,
         MICROSOFT,
-        GITHUB
+        GITHUB,
+        YGGDRASIL
     }
 }
