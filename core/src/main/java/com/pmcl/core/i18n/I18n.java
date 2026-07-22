@@ -736,6 +736,11 @@ public final class I18n {
         ZH.put("settings.custom_natives_empty", "留空则自动从版本 libraries 提取");
         ZH.put("settings.custom_natives_select", "选择原生库目录");
         ZH.put("settings.custom_natives_hint", "指定自定义 LWJGL/OpenAL 原生库目录后，启动器跳过原生库提取直接使用该目录。用于修复旧版本兼容性问题（如 Apple Silicon 旧版 LWJGL 缺少 ARM64 原生库）");
+        ZH.put("settings.minecraft_roots", "Minecraft 根目录");
+        ZH.put("settings.minecraft_roots_hint", "添加额外的 Minecraft 根目录（含 versions 子目录），启动器将扫描其中的版本并支持启动。用于管理多盘/多启动器共存的 .minecraft 目录。");
+        ZH.put("settings.minecraft_roots_empty", "尚未添加额外 Minecraft 根目录");
+        ZH.put("settings.minecraft_roots_add", "添加根目录");
+        ZH.put("settings.minecraft_roots_select", "选择 Minecraft 根目录");
         ZH.put("drop_install.title", "拖放安装模组");
         ZH.put("drop_install.scanning", "正在解析 mod 元数据并反查 Modrinth…");
         ZH.put("drop_install.empty", "未识别到 mod 文件");
@@ -1472,6 +1477,10 @@ public final class I18n {
         ZH.put("status.instance_imported", "实例「{0}」已导入，含 {1} 个模组待重新下载");
         ZH.put("status.instance_imported_no_mods", "实例「{0}」已导入（无模组清单）");
         ZH.put("status.instance_import_failed", "导入失败：{0}");
+        ZH.put("status.minecraft_root_added", "已添加 Minecraft 根目录：{0}");
+        ZH.put("status.minecraft_root_removed", "已移除 Minecraft 根目录：{0}");
+        ZH.put("status.minecraft_root_empty", "路径不能为空");
+        ZH.put("status.minecraft_root_invalid", "无效的 Minecraft 根目录（缺少 versions 子目录）：{0}");
 
         // ===== 状态消息 - 游戏安装 =====
         ZH.put("status.install_starting", "开始安装 {0}…");
@@ -2455,6 +2464,11 @@ public final class I18n {
         EN.put("settings.custom_natives_empty", "Leave empty to auto-extract from version libraries");
         EN.put("settings.custom_natives_select", "Select Natives Directory");
         EN.put("settings.custom_natives_hint", "When set, the launcher skips native library extraction and uses this directory directly. Useful for fixing old version compatibility (e.g. Apple Silicon old LWJGL missing ARM64 natives)");
+        EN.put("settings.minecraft_roots", "Minecraft Root Directories");
+        EN.put("settings.minecraft_roots_hint", "Add extra Minecraft root directories (containing a versions subdirectory). The launcher will scan and launch versions from them. Useful for managing multi-disk/multi-launcher .minecraft directories.");
+        EN.put("settings.minecraft_roots_empty", "No extra Minecraft root directories added");
+        EN.put("settings.minecraft_roots_add", "Add Root");
+        EN.put("settings.minecraft_roots_select", "Select Minecraft root directory");
         EN.put("drop_install.title", "Drop to Install Mods");
         EN.put("drop_install.scanning", "Parsing mod metadata and querying Modrinth…");
         EN.put("drop_install.empty", "No mod files detected");
@@ -3176,6 +3190,10 @@ public final class I18n {
         EN.put("status.instance_imported", "Instance \"{0}\" imported, {1} mods need re-download");
         EN.put("status.instance_imported_no_mods", "Instance \"{0}\" imported (no mod list)");
         EN.put("status.instance_import_failed", "Import failed: {0}");
+        EN.put("status.minecraft_root_added", "Added Minecraft root: {0}");
+        EN.put("status.minecraft_root_removed", "Removed Minecraft root: {0}");
+        EN.put("status.minecraft_root_empty", "Path cannot be empty");
+        EN.put("status.minecraft_root_invalid", "Invalid Minecraft root (missing versions subdirectory): {0}");
         EN.put("status.install_starting", "Installing {0}…");
         EN.put("status.install_progress", "{0}: {1}");
         EN.put("status.install_complete", "{0} installed");
@@ -4109,6 +4127,11 @@ public final class I18n {
         JA.put("settings.custom_natives_empty", "空欄でバージョン libraries から自動抽出");
         JA.put("settings.custom_natives_select", "ネイティブライブラリディレクトリを選択");
         JA.put("settings.custom_natives_hint", "カスタム LWJGL/OpenAL ネイティブライブラリディレクトリを指定すると、抽出をスキップして直接使用します。旧バージョン互換性の修正に使用（Apple Silicon 旧 LWJGL の ARM64 ネイティブ不足など）");
+        JA.put("settings.minecraft_roots", "Minecraft ルートディレクトリ");
+        JA.put("settings.minecraft_roots_hint", "追加の Minecraft ルートディレクトリ（versions サブディレクトリを含む）を登録すると、ランチャーがその中のバージョンをスキャンして起動できるようになります。マルチディスク・マルチランチャーの .minecraft ディレクトリ管理に便利です。");
+        JA.put("settings.minecraft_roots_empty", "追加の Minecraft ルートディレクトリはありません");
+        JA.put("settings.minecraft_roots_add", "ルートを追加");
+        JA.put("settings.minecraft_roots_select", "Minecraft ルートディレクトリを選択");
         JA.put("drop_install.title", "ドラッグ＆ドロップでModインストール");
         JA.put("drop_install.scanning", "Mod メタデータを解析し Modrinth に照会中…");
         JA.put("drop_install.empty", "Mod ファイルが見つかりません");
@@ -4840,6 +4863,10 @@ public final class I18n {
         JA.put("status.instance_imported", "インスタンス「{0}」を読み込みました。{1} 件のModの再ダウンロードが必要です");
         JA.put("status.instance_imported_no_mods", "インスタンス「{0}」を読み込みました（Modリストなし）");
         JA.put("status.instance_import_failed", "読み込み失敗：{0}");
+        JA.put("status.minecraft_root_added", "Minecraft ルートを追加しました：{0}");
+        JA.put("status.minecraft_root_removed", "Minecraft ルートを削除しました：{0}");
+        JA.put("status.minecraft_root_empty", "パスを空にすることはできません");
+        JA.put("status.minecraft_root_invalid", "無効な Minecraft ルート（versions サブディレクトリがありません）：{0}");
 
         // ===== ステータスメッセージ - ゲームインストール =====
         JA.put("status.install_starting", "{0} のインストールを開始…");

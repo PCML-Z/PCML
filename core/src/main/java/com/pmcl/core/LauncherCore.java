@@ -97,7 +97,7 @@ public final class LauncherCore {
                 Paths.get(System.getProperty("user.home"), ".pmcl", "preferences.json"));
         this.instanceManager = new InstanceManager(config);
 
-        this.versionManager = new VersionManager(config);
+        this.versionManager = new VersionManager(config, preferences);
         // 直接传入 preferences 一次性构建正确的 HttpClient，避免构造+reconfigure 重复构建
         this.downloadManager = new DownloadManager(config, preferences);
         this.authService = new AuthService();

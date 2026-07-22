@@ -10,6 +10,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Article
 import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.Check
@@ -17,6 +18,7 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Gavel
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.FolderOpen
@@ -163,6 +165,11 @@ fun SettingsPage(vm: LauncherViewModel) {
 
         // 游戏通用行为
         GameBehaviorCard(pref)
+
+        Spacer(Modifier.height(16.dp))
+
+        // Minecraft 根目录管理
+        MinecraftRootsCard(vm)
 
         Spacer(Modifier.height(16.dp))
 
@@ -1168,6 +1175,102 @@ private fun MioModeCard(pref: com.pmcl.core.preferences.Preferences) {
                 Text(I18n.t("settings.perf.l3_system_power_warning"),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.error)
+            }
+        }
+    }
+}
+
+@Composable
+private fun MinecraftRootsCard(vm: LauncherViewModel) {
+    val status by vm.status.collectAsState()
+    var roots by remember { mutableStateOf(vm.getExtraMinecraftRoots()) }
+
+    Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.FolderOpen, null, Modifier.size(18.dp),
+                     tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(6.dp))
+                Text(I18n.t("settings.minecraft_roots"), style = MaterialTheme.typography.titleSmall,
+                     fontWeight = FontWeight.SemiBold)
+            }
+            Spacer(Modifier.height(4.dp))
+            Text(I18n.t("settings.minecraft_roots_hint"),
+                 style = MaterialTheme.typography.bodySmall,
+                 color = MaterialTheme.colorScheme.outline)
+
+            Spacer(Modifier.height(12.dp))
+
+            // 已添加的根目录列表
+            if (roots.isNotEmpty()) {
+                roots.forEach { root ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Filled.Folder, null, Modifier.size(16.dp),
+                             tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            root,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.weight(1f),
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        )
+                        IconButton(
+                            onClick = {
+                                vm.removeMinecraftRoot(root)
+                                roots = vm.getExtraMinecraftRoots()
+                            },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(Icons.Filled.Delete, contentDescription = I18n.t("common.delete"),
+                                modifier = Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+            } else {
+                Text(
+                    I18n.t("settings.minecraft_roots_empty"),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    modifier = Modifier.padding(vertical = 8.dp)
+                )
+            }
+
+            // 添加按钮
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedButton(
+                    onClick = {
+                        // 使用 JFileChooser 选择目录（比 FileDialog 更适合目录选择）
+                        val chooser = javax.swing.JFileChooser()
+                        chooser.fileSelectionMode = javax.swing.JFileChooser.DIRECTORIES_ONLY
+                        chooser.dialogTitle = I18n.t("settings.minecraft_roots_select")
+                        chooser.isAcceptAllFileFilterUsed = false
+                        if (chooser.showOpenDialog(null) == javax.swing.JFileChooser.APPROVE_OPTION) {
+                            val selected = chooser.selectedFile.absolutePath
+                            vm.addMinecraftRoot(selected)
+                            roots = vm.getExtraMinecraftRoots()
+                        }
+                    }
+                ) {
+                    Icon(Icons.Filled.Add, null, Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(I18n.t("settings.minecraft_roots_add"))
+                }
+            }
+
+            // 状态提示
+            if (status.isNotEmpty() && status.contains("minecraft")) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    status,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
             }
         }
     }

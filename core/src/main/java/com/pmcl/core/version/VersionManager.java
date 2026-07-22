@@ -6,6 +6,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.pmcl.core.LauncherConfig;
+import com.pmcl.core.preferences.Preferences;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -28,6 +29,7 @@ public final class VersionManager {
             "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
 
     private final LauncherConfig config;
+    private final Preferences preferences;
     private final OkHttpClient http = new OkHttpClient.Builder()
             .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
             .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
@@ -35,7 +37,12 @@ public final class VersionManager {
     private final Gson gson = new Gson();
 
     public VersionManager(LauncherConfig config) {
+        this(config, null);
+    }
+
+    public VersionManager(LauncherConfig config, Preferences preferences) {
         this.config = config;
+        this.preferences = preferences;
     }
 
     /**
@@ -299,6 +306,39 @@ public final class VersionManager {
         cachedMinecraftDirsTime = 0L;
     }
 
+    /**
+     * 获取所有应扫描的 Minecraft versions 目录（实例方法）。
+     * 合并三个来源：.pmcl/versions + 系统默认目录 + 用户自定义根目录。
+     * 用户自定义根目录从 Preferences.extraMinecraftRoots 读取，每项是 Minecraft 根目录
+     * （含 versions 子目录的父目录），本方法自动拼接 /versions。
+     *
+     * @return 去重后的 versions 目录路径列表（.pmcl 优先）
+     */
+    public List<Path> getAllScanDirs() {
+        List<Path> dirs = new ArrayList<>();
+        dirs.add(config.getVersionsDir());
+        // 系统默认目录
+        for (Path mcDir : detectAllMinecraftVersionsDirs()) {
+            if (!mcDir.equals(config.getVersionsDir()) && !dirs.contains(mcDir) && Files.isDirectory(mcDir)) {
+                dirs.add(mcDir);
+            }
+        }
+        // 用户自定义根目录
+        if (preferences != null) {
+            for (String root : preferences.getExtraMinecraftRoots()) {
+                try {
+                    Path versionsDir = Paths.get(root).resolve("versions");
+                    if (Files.isDirectory(versionsDir) && !dirs.contains(versionsDir)) {
+                        dirs.add(versionsDir);
+                    }
+                } catch (Throwable t) {
+                    System.err.println("[VersionManager] 无效的根目录路径: " + root + " - " + t.getMessage());
+                }
+            }
+        }
+        return dirs;
+    }
+
     /** detectAllMinecraftVersionsDirs 的 TTL 缓存（M66: TTL 10s + clearCache 可手动失效） */
     private static volatile java.util.List<Path> cachedMinecraftDirs = null;
     private static volatile long cachedMinecraftDirsTime = 0L;
@@ -308,15 +348,8 @@ public final class VersionManager {
      * 进度统计跨目录累计：先扫 .pmcl/versions，再扫外部目录，回调中的 currentDir 标识当前目录。
      */
     public List<LocalVersionInfo> scanAllLocalVersions(java.util.function.Consumer<ScanProgress> onProgress) {
-        // 先确定要扫描的目录列表
-        List<Path> dirs = new ArrayList<>();
-        dirs.add(config.getVersionsDir());
-        // 自动检测系统上所有 Minecraft versions 候选目录（macOS 可能同时有官方 + HMCL 两个）
-        for (Path mcDir : detectAllMinecraftVersionsDirs()) {
-            if (!mcDir.equals(config.getVersionsDir()) && !dirs.contains(mcDir) && Files.isDirectory(mcDir)) {
-                dirs.add(mcDir);
-            }
-        }
+        // 使用统一的 getAllScanDirs() 获取所有应扫描目录（.pmcl + 系统默认 + 用户自定义）
+        List<Path> dirs = getAllScanDirs();
 
         // 第一遍：逐目录扫描（scanVersionsDir 内部只 list 一次），收集结果和各目录计数
         List<List<LocalVersionInfo>> parts = new ArrayList<>();

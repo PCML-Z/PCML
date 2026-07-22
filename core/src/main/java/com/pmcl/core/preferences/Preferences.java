@@ -87,6 +87,7 @@ public final class Preferences {
     // 默认 16 与原硬编码值一致；用户可在设置中调整
     private int downloadThreads = 16;
     private boolean versionIsolation = false;      // 版本隔离：各版本独立 mods/saves/config 目录
+    private java.util.List<String> extraMinecraftRoots = new java.util.ArrayList<>();  // 用户自定义的额外 Minecraft 根目录列表
 
     // ===== 启动预设 =====
     private java.util.Map<String, LaunchPreset> launchPresets = new java.util.concurrent.ConcurrentHashMap<>();
@@ -469,6 +470,37 @@ public final class Preferences {
     public synchronized boolean isVersionIsolation() { return versionIsolation; }
     public synchronized void setVersionIsolation(boolean v) { versionIsolation = v; scheduleSave(); }
 
+    /** 返回用户自定义的额外 Minecraft 根目录列表（副本，不可修改内部状态） */
+    public synchronized java.util.List<String> getExtraMinecraftRoots() {
+        return new java.util.ArrayList<>(extraMinecraftRoots);
+    }
+    /** 设置额外 Minecraft 根目录列表 */
+    public synchronized void setExtraMinecraftRoots(java.util.List<String> roots) {
+        extraMinecraftRoots = new java.util.ArrayList<>();
+        if (roots != null) {
+            for (String r : roots) {
+                if (r != null && !r.isBlank()) extraMinecraftRoots.add(r.trim());
+            }
+        }
+        scheduleSave();
+    }
+    /** 添加一个额外 Minecraft 根目录（去重） */
+    public synchronized void addExtraMinecraftRoot(String root) {
+        if (root == null || root.isBlank()) return;
+        String trimmed = root.trim();
+        if (!extraMinecraftRoots.contains(trimmed)) {
+            extraMinecraftRoots.add(trimmed);
+            scheduleSave();
+        }
+    }
+    /** 移除一个额外 Minecraft 根目录 */
+    public synchronized void removeExtraMinecraftRoot(String root) {
+        if (root == null) return;
+        if (extraMinecraftRoots.remove(root.trim())) {
+            scheduleSave();
+        }
+    }
+
     // ===== 澪模式（Mio Mode）=====
     public synchronized boolean isMioModeEnabled() { return mioModeEnabled; }
     public synchronized void setMioModeEnabled(boolean v) { mioModeEnabled = v; scheduleSave(); }
@@ -696,6 +728,15 @@ public final class Preferences {
             useHttpAuth = loadBool(o, "useHttpAuth", false);
             enableResume = loadBool(o, "enableResume", true);
             versionIsolation = loadBool(o, "versionIsolation", false);
+            // 加载用户自定义的额外 Minecraft 根目录列表
+            if (o.has("extraMinecraftRoots") && o.get("extraMinecraftRoots").isJsonArray()) {
+                extraMinecraftRoots = new java.util.ArrayList<>();
+                for (var e : o.getAsJsonArray("extraMinecraftRoots")) {
+                    if (!e.isJsonNull() && !e.getAsString().isBlank()) {
+                        extraMinecraftRoots.add(e.getAsString().trim());
+                    }
+                }
+            }
             mioModeEnabled = loadBool(o, "mioModeEnabled", false);
             mioModeJvm = loadBool(o, "mioModeJvm", true);
             mioModeProcess = loadBool(o, "mioModeProcess", true);
@@ -976,6 +1017,11 @@ public final class Preferences {
         o.addProperty("chunkedDownloadThreads", chunkedDownloadThreads);
         o.addProperty("downloadThreads", downloadThreads);
         o.addProperty("versionIsolation", versionIsolation);
+        if (!extraMinecraftRoots.isEmpty()) {
+            com.google.gson.JsonArray rootsArr = new com.google.gson.JsonArray();
+            for (String r : extraMinecraftRoots) rootsArr.add(r);
+            o.add("extraMinecraftRoots", rootsArr);
+        }
         o.addProperty("mioModeEnabled", mioModeEnabled);
         o.addProperty("mioModeJvm", mioModeJvm);
         o.addProperty("mioModeProcess", mioModeProcess);

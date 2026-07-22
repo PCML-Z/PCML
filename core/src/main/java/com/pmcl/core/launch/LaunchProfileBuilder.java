@@ -60,14 +60,32 @@ public final class LaunchProfileBuilder {
     }
 
     /**
-     * 获取所有需要查找的 versions 目录（.pmcl 优先，再系统默认 Minecraft 目录）。
+     * 获取所有需要查找的 versions 目录。
+     * 合并三个来源：.pmcl/versions + 全部系统默认 Minecraft 目录 + 用户自定义根目录。
+     * 修复：原代码仅扫描第一个系统默认目录（detectDefaultMinecraftVersionsDir），
+     * 导致 macOS 上同时有官方目录和 HMCL 目录时，启动 HMCL 目录中的版本会失败。
      */
     private List<Path> getVersionsDirs() {
         List<Path> dirs = new ArrayList<>();
         dirs.add(config.getVersionsDir());
-        Path mcDir = VersionManager.detectDefaultMinecraftVersionsDir();
-        if (mcDir != null && !mcDir.equals(config.getVersionsDir())) {
-            dirs.add(mcDir);
+        // 全部系统默认 Minecraft versions 目录（macOS 可能同时有官方 + HMCL 两个）
+        for (Path mcDir : VersionManager.detectAllMinecraftVersionsDirs()) {
+            if (!mcDir.equals(config.getVersionsDir()) && !dirs.contains(mcDir)) {
+                dirs.add(mcDir);
+            }
+        }
+        // 用户自定义的额外 Minecraft 根目录
+        if (preferences != null) {
+            for (String root : preferences.getExtraMinecraftRoots()) {
+                try {
+                    Path versionsDir = java.nio.file.Paths.get(root).resolve("versions");
+                    if (java.nio.file.Files.isDirectory(versionsDir) && !dirs.contains(versionsDir)) {
+                        dirs.add(versionsDir);
+                    }
+                } catch (Throwable t) {
+                    System.err.println("[LaunchProfileBuilder] 无效的根目录路径: " + root + " - " + t.getMessage());
+                }
+            }
         }
         return dirs;
     }

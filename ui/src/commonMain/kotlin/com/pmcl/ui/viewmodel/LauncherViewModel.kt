@@ -5408,6 +5408,37 @@ class LauncherViewModel {
         }
     }
 
+    /** 添加额外 Minecraft 根目录，添加后自动刷新版本列表 */
+    fun addMinecraftRoot(rootPath: String) {
+        if (rootPath.isBlank()) {
+            _status.value = I18n.t("status.minecraft_root_empty")
+            return
+        }
+        val path = java.nio.file.Paths.get(rootPath).toAbsolutePath().toString()
+        // 校验：目录存在且含 versions 子目录
+        val versionsDir = java.nio.file.Paths.get(path, "versions")
+        if (!java.nio.file.Files.isDirectory(versionsDir)) {
+            _status.value = I18n.t("status.minecraft_root_invalid", path)
+            return
+        }
+        preferences.addExtraMinecraftRoot(path)
+        // 清除版本目录检测缓存，让下次扫描重新检测
+        com.pmcl.core.version.VersionManager.clearCache()
+        refreshLocalVersions()
+        _status.value = I18n.t("status.minecraft_root_added", path)
+    }
+
+    /** 移除额外 Minecraft 根目录，移除后自动刷新版本列表 */
+    fun removeMinecraftRoot(rootPath: String) {
+        preferences.removeExtraMinecraftRoot(rootPath)
+        com.pmcl.core.version.VersionManager.clearCache()
+        refreshLocalVersions()
+        _status.value = I18n.t("status.minecraft_root_removed", rootPath)
+    }
+
+    /** 返回用户自定义的额外 Minecraft 根目录列表 */
+    fun getExtraMinecraftRoots(): List<String> = preferences.getExtraMinecraftRoots()
+
     // ============ 首次启动 / 迁移 ============
 
     /** 扫描本机其他启动器的数据目录（HMCL / PCL / 系统 .minecraft） */
