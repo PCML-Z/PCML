@@ -1283,6 +1283,14 @@ public final class I18n {
         ZH.put("accounts.yggdrasil_login", "登录皮肤站");
         ZH.put("accounts.show_password", "显示密码");
         ZH.put("accounts.hide_password", "隐藏密码");
+        ZH.put("accounts.skin_upload", "皮肤上传与管理");
+        ZH.put("accounts.skin_upload_ms_hint", "为微软账号上传皮肤或切换经典/纤细模型");
+        ZH.put("accounts.skin_upload_ygg_hint", "为皮肤站账号上传皮肤（需重新输入密码验证）");
+        ZH.put("accounts.select_skin_file", "选择皮肤文件");
+        ZH.put("accounts.skin_server_password", "皮肤站密码");
+        ZH.put("accounts.toggle_password", "显示/隐藏密码");
+        ZH.put("accounts.upload_skin", "上传皮肤");
+        ZH.put("accounts.reset_skin", "重置皮肤");
 
         // ===== 下载页新增 =====
         ZH.put("download.page_title", "下载与安装");
@@ -1446,6 +1454,15 @@ public final class I18n {
         ZH.put("status.offline_skin_microsoft_unsupported", "离线账号不支持 Microsoft 皮肤");
         ZH.put("status.skin_cleared", "已清除自定义皮肤");
         ZH.put("status.skin_set", "已设置自定义皮肤");
+        ZH.put("status.skin_uploading", "正在上传皮肤…");
+        ZH.put("status.skin_uploaded", "皮肤上传成功");
+        ZH.put("status.skin_upload_failed", "皮肤上传失败：{0}");
+        ZH.put("status.skin_resetting", "正在重置皮肤…");
+        ZH.put("status.skin_reset", "皮肤已重置");
+        ZH.put("status.skin_reset_failed", "皮肤重置失败：{0}");
+        ZH.put("status.skin_upload_microsoft_only", "仅微软账号支持皮肤上传");
+        ZH.put("status.skin_upload_yggdrasil_only", "仅皮肤站账号支持此操作");
+        ZH.put("status.skin_upload_no_api_url", "缺少皮肤站 API 地址");
 
         // ===== 状态消息 - 壁纸取色 =====
         ZH.put("status.extracting_wallpaper_color", "正在提取壁纸主色…");
@@ -3006,6 +3023,14 @@ public final class I18n {
         EN.put("accounts.yggdrasil_login", "Login to skin station");
         EN.put("accounts.show_password", "Show password");
         EN.put("accounts.hide_password", "Hide password");
+        EN.put("accounts.skin_upload", "Skin Upload & Management");
+        EN.put("accounts.skin_upload_ms_hint", "Upload skin or switch classic/slim model for Microsoft account");
+        EN.put("accounts.skin_upload_ygg_hint", "Upload skin for skin server account (password required)");
+        EN.put("accounts.select_skin_file", "Select skin file");
+        EN.put("accounts.skin_server_password", "Skin server password");
+        EN.put("accounts.toggle_password", "Show/hide password");
+        EN.put("accounts.upload_skin", "Upload skin");
+        EN.put("accounts.reset_skin", "Reset skin");
 
         // ===== Download page new =====
         EN.put("download.page_title", "Download & Install");
@@ -3163,6 +3188,15 @@ public final class I18n {
         EN.put("status.offline_skin_microsoft_unsupported", "Offline accounts do not support Microsoft skins");
         EN.put("status.skin_cleared", "Custom skin cleared");
         EN.put("status.skin_set", "Custom skin set");
+        EN.put("status.skin_uploading", "Uploading skin…");
+        EN.put("status.skin_uploaded", "Skin uploaded successfully");
+        EN.put("status.skin_upload_failed", "Skin upload failed: {0}");
+        EN.put("status.skin_resetting", "Resetting skin…");
+        EN.put("status.skin_reset", "Skin reset");
+        EN.put("status.skin_reset_failed", "Skin reset failed: {0}");
+        EN.put("status.skin_upload_microsoft_only", "Skin upload is only available for Microsoft accounts");
+        EN.put("status.skin_upload_yggdrasil_only", "This action is only available for skin server accounts");
+        EN.put("status.skin_upload_no_api_url", "Missing skin server API URL");
         EN.put("status.extracting_wallpaper_color", "Extracting wallpaper color…");
         EN.put("status.wallpaper_color_failed_default", "Wallpaper color extraction failed, using default colors");
         EN.put("status.monet_applied", "Monet colors applied: #{0}");
@@ -4669,6 +4703,14 @@ public final class I18n {
         JA.put("accounts.yggdrasil_login", "スキンサイトにログイン");
         JA.put("accounts.show_password", "パスワードを表示");
         JA.put("accounts.hide_password", "パスワードを非表示");
+        JA.put("accounts.skin_upload", "スキンアップロードと管理");
+        JA.put("accounts.skin_upload_ms_hint", "Microsoftアカウントのスキンをアップロードまたはクラシック/スリムモデルを切り替え");
+        JA.put("accounts.skin_upload_ygg_hint", "スキンサーバーアカウントのスキンをアップロード（パスワード認証が必要）");
+        JA.put("accounts.select_skin_file", "スキンファイルを選択");
+        JA.put("accounts.skin_server_password", "スキンサーバーパスワード");
+        JA.put("accounts.toggle_password", "パスワード表示/非表示");
+        JA.put("accounts.upload_skin", "スキンをアップロード");
+        JA.put("accounts.reset_skin", "スキンをリセット");
 
         // ===== ダウンロードページ新規 =====
         JA.put("download.page_title", "ダウンロードとインストール");
@@ -4832,6 +4874,15 @@ public final class I18n {
         JA.put("status.offline_skin_microsoft_unsupported", "オフラインアカウントは Microsoft スキンをサポートしません");
         JA.put("status.skin_cleared", "カスタムスキンをクリア");
         JA.put("status.skin_set", "カスタムスキンを設定");
+        JA.put("status.skin_uploading", "スキンをアップロード中…");
+        JA.put("status.skin_uploaded", "スキンのアップロードに成功しました");
+        JA.put("status.skin_upload_failed", "スキンのアップロードに失敗：{0}");
+        JA.put("status.skin_resetting", "スキンをリセット中…");
+        JA.put("status.skin_reset", "スキンをリセットしました");
+        JA.put("status.skin_reset_failed", "スキンのリセットに失敗：{0}");
+        JA.put("status.skin_upload_microsoft_only", "スキンのアップロードはMicrosoftアカウントのみ対応しています");
+        JA.put("status.skin_upload_yggdrasil_only", "この操作はスキンサーバーアカウントのみ対応しています");
+        JA.put("status.skin_upload_no_api_url", "スキンサーバーAPIアドレスがありません");
 
         // ===== ステータスメッセージ - 壁紙色抽出 =====
         JA.put("status.extracting_wallpaper_color", "壁紙のメインカラーを抽出中…");

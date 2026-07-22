@@ -192,6 +192,34 @@ fun AccountsPage(vm: LauncherViewModel) {
             Spacer(Modifier.height(16.dp))
         }
 
+        // 皮肤上传与管理（微软账号）
+        if (account?.getType() == Account.AccountType.MICROSOFT) {
+            SkinUploadCard(
+                title = I18n.t("accounts.skin_upload"),
+                hint = I18n.t("accounts.skin_upload_ms_hint"),
+                modelOptions = listOf("Classic", "Slim"),
+                modelValues = listOf("classic", "slim"),
+                requirePassword = false,
+                onUpload = { path, model, _ -> vm.uploadMicrosoftSkin(path, model) },
+                onReset = { vm.resetMicrosoftSkin() }
+            )
+            Spacer(Modifier.height(16.dp))
+        }
+
+        // 皮肤上传与管理（皮肤站账号）
+        if (account?.getType() == Account.AccountType.YGGDRASIL) {
+            SkinUploadCard(
+                title = I18n.t("accounts.skin_upload"),
+                hint = I18n.t("accounts.skin_upload_ygg_hint"),
+                modelOptions = listOf("Steve", "Slim"),
+                modelValues = listOf("steve", "slim"),
+                requirePassword = true,
+                onUpload = { path, model, pwd -> vm.uploadYggdrasilSkin(path, model, pwd) },
+                onReset = { vm.resetYggdrasilSkin(it) }
+            )
+            Spacer(Modifier.height(16.dp))
+        }
+
         // 离线登录卡片
         Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
             Column(Modifier.padding(16.dp)) {
@@ -692,6 +720,116 @@ private fun SkinImage(url: String, sizePx: Int) {
         ) {
             Icon(Icons.Filled.Person, I18n.t("common.loading"),
                  modifier = Modifier.padding(sizePx.dp / 4))
+        }
+    }
+}
+
+// ============ 皮肤上传与管理卡片 ============
+/**
+ * 皮肤上传与管理卡片。
+ * - requirePassword = false：微软账号（无需密码，使用 accessToken）
+ * - requirePassword = true：皮肤站账号（需输入密码重新登录以获取 session）
+ *
+ * onUpload 统一签名为 (path, model, password) -> Unit，微软模式忽略 password。
+ * onReset 统一签名为 (password) -> Unit，微软模式忽略 password。
+ */
+@Composable
+private fun SkinUploadCard(
+    title: String,
+    hint: String,
+    modelOptions: List<String>,
+    modelValues: List<String>,
+    requirePassword: Boolean,
+    onUpload: (java.nio.file.Path, String, String) -> Unit,
+    onReset: (String) -> Unit
+) {
+    var selectedPath by remember { mutableStateOf<java.nio.file.Path?>(null) }
+    var selectedModel by remember { mutableStateOf(modelValues.firstOrNull() ?: "classic") }
+    var password by remember { mutableStateOf("") }
+    var passwordVisible by remember { mutableStateOf(false) }
+
+    Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
+        Column(Modifier.padding(16.dp)) {
+            Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(4.dp))
+            Text(hint, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+            Spacer(Modifier.height(12.dp))
+
+            // 文件选择
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = {
+                    val fd = java.awt.FileDialog(java.awt.Frame(), I18n.t("accounts.select_skin_file"), java.awt.FileDialog.LOAD)
+                    fd.setFilenameFilter { _, name -> name.lowercase().endsWith(".png") }
+                    fd.isVisible = true
+                    val file = fd.file
+                    val dir = fd.directory
+                    if (file != null && dir != null) {
+                        selectedPath = java.nio.file.Paths.get(dir, file)
+                    }
+                }) {
+                    Icon(Icons.Filled.Palette, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(I18n.t("accounts.select_skin_file"))
+                }
+                selectedPath?.let { p ->
+                    Text(p.fileName.toString(), style = MaterialTheme.typography.labelSmall,
+                         color = MaterialTheme.colorScheme.outline, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            // 模型选择
+            Text(I18n.t("accounts.skin_model"), style = MaterialTheme.typography.labelMedium,
+                 color = MaterialTheme.colorScheme.outline)
+            Spacer(Modifier.height(4.dp))
+            com.pmcl.ui.animation.AnimatedSegmentedSelector(
+                items = modelOptions,
+                selectedIndex = modelValues.indexOf(selectedModel).coerceAtLeast(0),
+                onSelect = { selectedModel = modelValues[it] }
+            )
+
+            // 密码输入（仅皮肤站模式）
+            if (requirePassword) {
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = { Text(I18n.t("accounts.skin_server_password")) },
+                    singleLine = true,
+                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                            Icon(
+                                if (passwordVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                                contentDescription = I18n.t("accounts.toggle_password")
+                            )
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            // 操作按钮
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = {
+                        val p = selectedPath
+                        if (p != null) onUpload(p, selectedModel, password)
+                    },
+                    enabled = selectedPath != null && (!requirePassword || password.isNotBlank())
+                ) {
+                    Text(I18n.t("accounts.upload_skin"))
+                }
+                OutlinedButton(
+                    onClick = { onReset(password) },
+                    enabled = !requirePassword || password.isNotBlank()
+                ) {
+                    Text(I18n.t("accounts.reset_skin"))
+                }
+            }
         }
     }
 }

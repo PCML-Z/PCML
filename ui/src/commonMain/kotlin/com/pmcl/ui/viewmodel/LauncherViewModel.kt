@@ -1292,6 +1292,115 @@ class LauncherViewModel {
         _status.value = if (skinUrl.isEmpty()) I18n.t("status.skin_cleared") else I18n.t("status.skin_set")
     }
 
+    /** 皮肤管理器实例（懒加载） */
+    private val skinManager: com.pmcl.core.auth.SkinManager by lazy { com.pmcl.core.auth.SkinManager() }
+
+    /** 上传皮肤到微软账号 */
+    fun uploadMicrosoftSkin(skinFile: java.nio.file.Path, model: String) {
+        val current = _account.value ?: run {
+            _status.value = I18n.t("status.login_first")
+            return
+        }
+        if (current.getType() != Account.AccountType.MICROSOFT) {
+            _status.value = I18n.t("status.skin_upload_microsoft_only")
+            return
+        }
+        scope.launch {
+            _status.value = I18n.t("status.skin_uploading")
+            try {
+                withContext(Dispatchers.IO) {
+                    skinManager.uploadMicrosoftSkin(current.getAccessToken(), skinFile, model)
+                }
+                _status.value = I18n.t("status.skin_uploaded")
+            } catch (e: Throwable) {
+                _status.value = I18n.t("status.skin_upload_failed", e.message ?: I18n.t("common.unknown"))
+            }
+        }
+    }
+
+    /** 重置微软账号皮肤 */
+    fun resetMicrosoftSkin() {
+        val current = _account.value ?: run {
+            _status.value = I18n.t("status.login_first")
+            return
+        }
+        if (current.getType() != Account.AccountType.MICROSOFT) {
+            _status.value = I18n.t("status.skin_upload_microsoft_only")
+            return
+        }
+        scope.launch {
+            _status.value = I18n.t("status.skin_resetting")
+            try {
+                withContext(Dispatchers.IO) {
+                    skinManager.resetMicrosoftSkin(current.getAccessToken())
+                }
+                _status.value = I18n.t("status.skin_reset")
+            } catch (e: Throwable) {
+                _status.value = I18n.t("status.skin_reset_failed", e.message ?: I18n.t("common.unknown"))
+            }
+        }
+    }
+
+    /** 上传皮肤到皮肤站账号 */
+    fun uploadYggdrasilSkin(skinFile: java.nio.file.Path, model: String, password: String) {
+        val current = _account.value ?: run {
+            _status.value = I18n.t("status.login_first")
+            return
+        }
+        if (current.getType() != Account.AccountType.YGGDRASIL) {
+            _status.value = I18n.t("status.skin_upload_yggdrasil_only")
+            return
+        }
+        val apiUrl = current.getAuthServerUrl()
+        if (apiUrl.isEmpty()) {
+            _status.value = I18n.t("status.skin_upload_no_api_url")
+            return
+        }
+        scope.launch {
+            _status.value = I18n.t("status.skin_uploading")
+            try {
+                val playerId = current.getUuid().replace("-", "")
+                withContext(Dispatchers.IO) {
+                    skinManager.uploadYggdrasilSkin(
+                        apiUrl, current.getUsername(), password, playerId, skinFile, model
+                    )
+                }
+                _status.value = I18n.t("status.skin_uploaded")
+            } catch (e: Throwable) {
+                _status.value = I18n.t("status.skin_upload_failed", e.message ?: I18n.t("common.unknown"))
+            }
+        }
+    }
+
+    /** 重置皮肤站账号皮肤 */
+    fun resetYggdrasilSkin(password: String) {
+        val current = _account.value ?: run {
+            _status.value = I18n.t("status.login_first")
+            return
+        }
+        if (current.getType() != Account.AccountType.YGGDRASIL) {
+            _status.value = I18n.t("status.skin_upload_yggdrasil_only")
+            return
+        }
+        val apiUrl = current.getAuthServerUrl()
+        if (apiUrl.isEmpty()) {
+            _status.value = I18n.t("status.skin_upload_no_api_url")
+            return
+        }
+        scope.launch {
+            _status.value = I18n.t("status.skin_resetting")
+            try {
+                val playerId = current.getUuid().replace("-", "")
+                withContext(Dispatchers.IO) {
+                    skinManager.resetYggdrasilSkin(apiUrl, current.getUsername(), password, playerId)
+                }
+                _status.value = I18n.t("status.skin_reset")
+            } catch (e: Throwable) {
+                _status.value = I18n.t("status.skin_reset_failed", e.message ?: I18n.t("common.unknown"))
+            }
+        }
+    }
+
     /**
      * 刷新壁纸取色：从桌面壁纸提取种子色，生成动态 ColorScheme。
      * @param targetThemeState 可选的 ThemeState 引用，若提供则直接更新（避免字段赋值时序问题）
