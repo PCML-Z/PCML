@@ -7,7 +7,7 @@ import java.util.Map;
 /**
  * 启动器国际化。
  * <p>
- * 当前支持：zh_CN（默认）、en_US、ja_JP、ud_EN（颠倒英语，趣味彩蛋，复用 en_US 翻译 + 字符翻转）。
+ * 当前支持：zh_CN（默认）、zh_TW、en_US、ja_JP、ud_EN（颠倒英语，趣味彩蛋，复用 en_US 翻译 + 字符翻转）。
  * 翻译以代码内 Map 形式存储，避免外部资源加载复杂度。
  * <p>
  * 用法：{@code I18n.setLocale(Locale.JAPANESE); I18n.t("launch.start")}
@@ -15,6 +15,7 @@ import java.util.Map;
 public final class I18n {
 
     public static final Locale ZH_CN = Locale.SIMPLIFIED_CHINESE;
+    public static final Locale ZH_TW = Locale.TRADITIONAL_CHINESE;
     public static final Locale EN_US = Locale.US;
     public static final Locale JA_JP = Locale.JAPANESE;
     /** 颠倒英语：基于 en_US 翻译做字符级翻转，保留阅读顺序避免布局错乱 */
@@ -23,6 +24,7 @@ public final class I18n {
     private static volatile Locale current = ZH_CN;
 
     private static final Map<String, String> ZH = new LinkedHashMap<>();
+    private static final Map<String, String> ZH_TW_MAP = new LinkedHashMap<>();
     private static final Map<String, String> EN = new LinkedHashMap<>();
     private static final Map<String, String> JA = new LinkedHashMap<>();
 
@@ -30,6 +32,7 @@ public final class I18n {
         initZh();
         initEn();
         initJa();
+        initZhTw();
     }
 
     private static void initZh() {
@@ -5215,6 +5218,40 @@ public final class I18n {
         JA.put("mp.progress.parsing_code", "ルームコードを解析中…");
     }
 
+    /**
+     * 繁體中文：基於簡體中文（ZH）翻譯做簡繁字符級轉換。
+     * 覆蓋啟動器 UI 中常見的簡繁差異字，未覆蓋字符保持原樣（多數簡繁同形）。
+     */
+    private static void initZhTw() {
+        java.util.Map<Character, Character> s2t = buildSimpToTradMap();
+        for (Map.Entry<String, String> e : ZH.entrySet()) {
+            ZH_TW_MAP.put(e.getKey(), toTraditional(e.getValue(), s2t));
+        }
+    }
+
+    /** 常用簡繁字符對照表（覆蓋啟動器 UI 中常見的簡繁差異字） */
+    private static java.util.Map<Character, Character> buildSimpToTradMap() {
+        java.util.Map<Character, Character> m = new java.util.HashMap<>(1024);
+        String simp = "万与丑专业丛东丝丢两严丧个丰临为丽举么义乌乐乔习乡书买乱争于亏云亘亚产亩亲亵亿仅从仑仓仪们价众优会伙伛伧伟伪伫俦俨俩俪倾偬偻偾傥儇克兑兖党兰关兴养兽冁冯冲况冻净准凉减凑凛几凤凫凭凯击凼凿刍删划刘则刚创刬刭刹刽刿剀剂剐剑剥剧劝办务劢动励劲势勋勚匀匦匮区医华协单卖卢卤卫却厂厅历厉压厌厍厕厢厣厦厨厮县叁参叆叇双变叙叠叶号叽吓吕吗吣吨听启吴呐呒呓呕咪哟唛唠唡呜唢唣唤啬啮啷啧啾喀喁喂啰善喙喛嗳嘱嗵噜嚣团园囵围国图圆圣坡块坚坛坜坝坞坟坠垄垅垆垒垩垭垲垴埘埚埙埸堑堙塬壮声壳壶壸处备复够头夸夹夺奁奂奋奖奥妆妇妈妩妪妫姗娆娇娈娱娲娴婳婴婵婶媪嫒嫔嫱嬷孙学孪宝实宠审宪宫宽宾寝对导寻寿尤尧尧屑展屿岙岗岘岚岿嶴巉巅岛巯币帅师帐帜帧帱帻幡干并广庄庆庐庑库应庙庞废庼廪开弃张弥弪弯彝弹归当录彻径徕忆忧怀应态怂怃怄怅怆怜总怼怿怨恋恸恹恺恻恽恿悫悭悯悰悱悲悸惊惋惨惯惩惫惬惭惮愠愦愕愧愫愿慑慇慷态慌慎慑慕憔憩憨懒戋戏戎戗戟扃扣扦执扩扪扫扬扭扮扯扳批扼找技抓抔抖抃抟抠抡抢护报担拐拒拓拔拗拭拥拦拧挂挢挣挤挥挨挪挫挹振挺挽挚挛挼捅捆捉捋捍捏捐捞捡捣捥捧捩捬捭捯捱捲捳捴捵捶捷捸捹捺捻捼捽捾捿掀掁掂掅掆掇授掉掊掋掎掏掐掑排掓掔掕掖掗掘掙掚掛掞掟掠探掣掤接掦控推掩措掫掬掭掮掰掱掲掳掴掵掶掸掺掻掼掽掾掿揀揁揂揃揄揅揆揇揈揉揊揋揌揍揎描提揑插揓揔揕揖揗揘揙扬换揜揝揞揟揠握揢揣揤揥揦揧揨揩揪揫揬揭挥揰揱揲揳援揵揶揷揸揹揺揻揼揽揾揿撌摀搁搂搅摑摓摕摖摗撘撙撚撛撜撝撞撟撠撡撢撣撤挠撑撧撨撩撪抚撸播撮撯拎撱撲撳撴撵撶撷撹撺撻撼撽撾撿擁擃擄擆择擈擉击挡擌擏擐擑擓担擕擖擗擘擙据擛擜擝擞擟挤擡擢擣擤擥擦擧擨擩擪擫拟擭擮擯擰搁掷擳扩擵擶擷擸擹摆擻擼擽扰擿攀攁攂攃攄攅攆攇攈攉攊攋攌攍攎攏攐攑攒攓拦攕攖攗攙攒攚攛携摄攞攟攠攡攒攣摊攥攦攧攨攩攪攒攬攭";
+        String trad = "萬與醜專業叢東絲丟兩嚴喪個豐臨為麗舉麼義烏樂喬習鄉書買亂爭於虧雲亙亞產畝親褻億僅從侖倉儀們價眾優會夥傴傖偉偽佇儔儼倆儷傾傯僂僨儻儇克兌兗黨蘭關興養獸囅馮沖況凍淨準涼減湊凜幾鳳鳧憑凱擊氹鑿芻刪劃劉則剛創剗剄剎劊劌剴劑剮劍剝劇勸辦務勱動勵勁勢勳勩勻匭匱區醫華協單賣盧滷衛卻廠廳歷厲壓厭庫廁廂屜廈廚廝縣參參靆靉雙變敘疊葉號嘰嚇呂嗎唚噸聽啟吳吶呒囈嘔咪喲嘜嘮唎嗚嗩嗾喚嗇嚙啷嘖啾喀喁餵囉善喙喛噯囑噥嚕囂團園圇圍國圖圓聖坡塊堅壇壙壩塢墳墜壟壠壚壘堊垭塏堖塒堝塤塹堙塬壯聲殼壺壼處備復夠頭誇夾奪奩奐奮獎奧妝婦媽媼嫗媯姍嬈嬌孌娛媧嫻嫿嬰嬋嬸媼嬡嬪嬙嬤孫學孿寶實寵審憲宮寬賓寢對導尋尤堯堯屑展嶼嶴崗嶴嵐嶢嶴巉巔島巰幣帥師帳幟幀幬幘幡乾並廣莊慶廬廡庫應廟龐廢廎廩開棄張彌弳彎彝彈歸當錄徹徑徠憶憂懷應態慫憮憖悵愴憐總懟懌怨戀慟懨愷惻惲慍慍慍慍慍憫悰悱悲悸驚惋慘慣懲憊愜慚憚愠憒愕愧愫願懾慇慷態慌慎懾慕憔憩憨懶戔戲戎戧戟扃扣扦執擴捫掃揚扭扮扯扳批扼找技抓抔抖抃摶摳掄搶護報擔拐拒拓拔拗拭擁攔擰掛撟掙擠揮挨挪挫挹振挺挽摯攣挼捅捆捉捋捍捏捐撈撿搗捥捧捩捬捭捯捱捲捳捴捵捶捷捸捹捺捻捼捽捾捿掀掁掂掅掆掇授掉掊掋掎掏掐掑排掓掔掕掖掗掘掙掚掛掞掟掠探掣掤接掦控推掩措掫掬掭掮掰掱掲摑掵掶掸摻掻摜掽掾掿揀揁揂揃揄揅揆揇揈揉揊揋揌揍揎描提揑插揓揔揕揖揗揘揙揚換揜揝揞揟揠握揢揣揤揥揦揧揨揩揪揫揬揭揮揰揱揲揳援揵揶揷揸揹揺揻揼攬揾揿撌摀擱摟攪摑摓摕摖摗撘撙撚撛撜撝撞撟撠撡撢撣撤撓撐撧撨撩撪撫擼播撮撯拎撱撲撳撴撵撶擷撹撺撻撼撽撾撿擁擃擄擆擇擈擉擊擋擌擏擐擑擓擔擕擖擗擘擙據擛擜擝擞擟擠擡擢擣擤擥擦擧擨擩擪擫擬擭擮擯擰擱擲擳擴擵擶擷擸擹擺擻擼擽擾擿攀攁攂攃攄攅攆攇攈攉攊攋攌攍攎攏攐攑攢攓攔攕攖攗攙攢攚攛攜攝攞攟攠攡攢攣攤攥攦攧攨攩攪攢攬攭";
+        for (int i = 0; i < simp.length() && i < trad.length(); i++) {
+            m.put(simp.charAt(i), trad.charAt(i));
+        }
+        return m;
+    }
+
+    /** 將簡體中文字符串轉為繁體中文（字符級替換，不改變標點和佔位符 {0} 等） */
+    private static String toTraditional(String input, java.util.Map<Character, Character> map) {
+        if (input == null || input.isEmpty()) return input;
+        StringBuilder sb = new StringBuilder(input.length());
+        for (int i = 0; i < input.length(); i++) {
+            char c = input.charAt(i);
+            Character t = map.get(c);
+            sb.append(t != null ? t : c);
+        }
+        return sb.toString();
+    }
+
     public static Locale getCurrentLocale() { return current; }
 
     public static void setLocale(Locale locale) {
@@ -5226,6 +5263,7 @@ public final class I18n {
         Map<String, String> map;
         if (current == EN_US || current == UD_EN) map = EN;
         else if (current == JA_JP) map = JA;
+        else if (current == ZH_TW) map = ZH_TW_MAP;
         else map = ZH;
         String val = map.getOrDefault(key, key);
         if (args != null && args.length > 0) {

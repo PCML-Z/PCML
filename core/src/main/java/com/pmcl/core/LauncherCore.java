@@ -199,11 +199,12 @@ public final class LauncherCore {
         }
     }
 
-    /** 应用语言（zh_CN / en_US / ja_JP / ud_EN 颠倒英语） */
+    /** 应用语言（zh_CN / zh_TW / en_US / ja_JP / ud_EN 颠倒英语） */
     public void applyLanguage(String lang) {
         if ("en_US".equals(lang)) I18n.setLocale(I18n.EN_US);
         else if ("ja_JP".equals(lang)) I18n.setLocale(I18n.JA_JP);
         else if ("ud_EN".equals(lang)) I18n.setLocale(I18n.UD_EN);
+        else if ("zh_TW".equals(lang)) I18n.setLocale(I18n.ZH_TW);
         else I18n.setLocale(I18n.ZH_CN);
     }
 

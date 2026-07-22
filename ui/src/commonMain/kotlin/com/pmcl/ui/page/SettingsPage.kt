@@ -273,6 +273,7 @@ fun SettingsPage(vm: LauncherViewModel) {
                 Spacer(Modifier.height(4.dp))
                 val langItems = listOf(
                     "zh_CN" to "简体中文",
+                    "zh_TW" to "繁體中文",
                     "en_US" to "English",
                     "ja_JP" to "日本語",
                     "ud_EN" to "uʍop-ǝpᴉsdn"
