@@ -514,6 +514,14 @@ public final class I18n {
         ZH.put("instance.delete", "删除");
         ZH.put("instance.launch", "启动");
         ZH.put("instance.open_dir", "打开目录");
+        ZH.put("instance.export", "导出实例");
+        ZH.put("instance.export_save_as", "导出实例为…");
+        ZH.put("instance.import", "导入实例");
+        ZH.put("instance.import_select_file", "选择 .pmcl-instance 文件");
+        ZH.put("instance.import_success_title", "导入成功");
+        ZH.put("instance.import_success_desc", "实例「{0}」已导入。");
+        ZH.put("instance.import_mod_list", "模组清单（{0} 个）");
+        ZH.put("instance.import_mod_hint", "模组文件未包含在导出包中，请根据清单前往模组市场重新下载。");
         ZH.put("instance.bind_account", "绑定账户");
         ZH.put("instance.bind_account_title", "绑定账户 — {0}");
         ZH.put("instance.bind_account_hint", "为实例绑定账户后，启动该实例时自动切换到绑定账户");
@@ -1458,6 +1466,12 @@ public final class I18n {
         ZH.put("status.logged_in_yggdrasil", "已登录皮肤站：{0}");
         ZH.put("status.yggdrasil_login_failed", "皮肤站登录失败：{0}");
         ZH.put("status.yggdrasil_fields_required", "请填写皮肤站地址、用户名和密码");
+        ZH.put("status.exporting_instance", "正在导出实例…");
+        ZH.put("status.instance_exported", "实例已导出（含 {0} 个模组清单）");
+        ZH.put("status.instance_export_failed", "导出失败：{0}");
+        ZH.put("status.instance_imported", "实例「{0}」已导入，含 {1} 个模组待重新下载");
+        ZH.put("status.instance_imported_no_mods", "实例「{0}」已导入（无模组清单）");
+        ZH.put("status.instance_import_failed", "导入失败：{0}");
 
         // ===== 状态消息 - 游戏安装 =====
         ZH.put("status.install_starting", "开始安装 {0}…");
@@ -2227,6 +2241,14 @@ public final class I18n {
         EN.put("instance.delete", "Delete");
         EN.put("instance.launch", "Launch");
         EN.put("instance.open_dir", "Open Folder");
+        EN.put("instance.export", "Export Instance");
+        EN.put("instance.export_save_as", "Export instance as…");
+        EN.put("instance.import", "Import Instance");
+        EN.put("instance.import_select_file", "Select .pmcl-instance file");
+        EN.put("instance.import_success_title", "Import Successful");
+        EN.put("instance.import_success_desc", "Instance \"{0}\" has been imported.");
+        EN.put("instance.import_mod_list", "Mod list ({0})");
+        EN.put("instance.import_mod_hint", "Mod files are not included in the export package. Please re-download them from the mod market according to the list.");
         EN.put("instance.bind_account", "Bind Account");
         EN.put("instance.bind_account_title", "Bind Account — {0}");
         EN.put("instance.bind_account_hint", "Bind an account to auto-switch when launching this instance");
@@ -3148,6 +3170,12 @@ public final class I18n {
         EN.put("status.logged_in_yggdrasil", "Logged in to skin station: {0}");
         EN.put("status.yggdrasil_login_failed", "Skin station login failed: {0}");
         EN.put("status.yggdrasil_fields_required", "Please fill in skin station URL, username and password");
+        EN.put("status.exporting_instance", "Exporting instance…");
+        EN.put("status.instance_exported", "Instance exported (with {0} mod entries)");
+        EN.put("status.instance_export_failed", "Export failed: {0}");
+        EN.put("status.instance_imported", "Instance \"{0}\" imported, {1} mods need re-download");
+        EN.put("status.instance_imported_no_mods", "Instance \"{0}\" imported (no mod list)");
+        EN.put("status.instance_import_failed", "Import failed: {0}");
         EN.put("status.install_starting", "Installing {0}…");
         EN.put("status.install_progress", "{0}: {1}");
         EN.put("status.install_complete", "{0} installed");
@@ -3867,6 +3895,14 @@ public final class I18n {
         JA.put("instance.delete", "削除");
         JA.put("instance.launch", "起動");
         JA.put("instance.open_dir", "フォルダを開く");
+        JA.put("instance.export", "インスタンス書き出し");
+        JA.put("instance.export_save_as", "インスタンスを書き出し…");
+        JA.put("instance.import", "インスタンス読み込み");
+        JA.put("instance.import_select_file", ".pmcl-instance ファイルを選択");
+        JA.put("instance.import_success_title", "読み込み成功");
+        JA.put("instance.import_success_desc", "インスタンス「{0}」を読み込みました。");
+        JA.put("instance.import_mod_list", "Modリスト（{0} 件）");
+        JA.put("instance.import_mod_hint", "Modファイルは書き出しパッケージに含まれていません。リストに従ってMod市場から再ダウンロードしてください。");
         JA.put("instance.bind_account", "アカウントバインド");
         JA.put("instance.bind_account_title", "アカウントバインド — {0}");
         JA.put("instance.bind_account_hint", "インスタンスにアカウントをバインドすると、起動時に自動的に切り替わります");
@@ -4798,6 +4834,12 @@ public final class I18n {
         JA.put("status.logged_in_yggdrasil", "スキンサイトにログイン：{0}");
         JA.put("status.yggdrasil_login_failed", "スキンサイトログイン失敗：{0}");
         JA.put("status.yggdrasil_fields_required", "スキンサイトアドレス、ユーザー名、パスワードを入力してください");
+        JA.put("status.exporting_instance", "インスタンスを書き出し中…");
+        JA.put("status.instance_exported", "インスタンスを書き出しました（{0} 件のModリスト）");
+        JA.put("status.instance_export_failed", "書き出し失敗：{0}");
+        JA.put("status.instance_imported", "インスタンス「{0}」を読み込みました。{1} 件のModの再ダウンロードが必要です");
+        JA.put("status.instance_imported_no_mods", "インスタンス「{0}」を読み込みました（Modリストなし）");
+        JA.put("status.instance_import_failed", "読み込み失敗：{0}");
 
         // ===== ステータスメッセージ - ゲームインストール =====
         JA.put("status.install_starting", "{0} のインストールを開始…");

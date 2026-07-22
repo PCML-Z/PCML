@@ -5374,6 +5374,40 @@ class LauncherViewModel {
         return if (java.nio.file.Files.exists(iconFile)) iconFile else null
     }
 
+    /** 导出实例为 .pmcl-instance 文件 */
+    fun exportInstance(instanceId: String, outputPath: java.nio.file.Path) {
+        scope.launch {
+            _status.value = I18n.t("status.exporting_instance")
+            try {
+                val modCount = withContext(Dispatchers.IO) {
+                    core.instances().exportInstance(instanceId, outputPath)
+                }
+                _status.value = I18n.t("status.instance_exported", modCount)
+            } catch (e: Throwable) {
+                _status.value = I18n.t("status.instance_export_failed", e.message ?: I18n.t("common.unknown"))
+            }
+        }
+    }
+
+    /** 从 .pmcl-instance 文件导入实例，返回导入结果（null 表示失败） */
+    suspend fun importInstance(zipPath: java.nio.file.Path): com.pmcl.core.instance.InstanceImporter.ImportResult? {
+        return try {
+            val result = withContext(Dispatchers.IO) {
+                core.instances().importInstance(zipPath)
+            }
+            loadInstances()
+            _status.value = if (result.mods.isEmpty()) {
+                I18n.t("status.instance_imported_no_mods", result.info.getName())
+            } else {
+                I18n.t("status.instance_imported", result.info.getName(), result.mods.size)
+            }
+            result
+        } catch (e: Throwable) {
+            _status.value = I18n.t("status.instance_import_failed", e.message ?: I18n.t("common.unknown"))
+            null
+        }
+    }
+
     // ============ 首次启动 / 迁移 ============
 
     /** 扫描本机其他启动器的数据目录（HMCL / PCL / 系统 .minecraft） */

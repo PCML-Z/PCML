@@ -267,6 +267,33 @@ public final class InstanceManager {
         }
     }
 
+    /**
+     * 导出实例为 .pmcl-instance（ZIP）文件。
+     *
+     * @param instanceId 要导出的实例 ID
+     * @param outputPath 输出文件路径
+     * @return 导出的模组数量
+     * @throws IOException 导出失败
+     */
+    public int exportInstance(String instanceId, Path outputPath) throws IOException {
+        Path dir = getInstanceDir(instanceId);
+        if (!Files.isDirectory(dir)) throw new IOException("实例不存在: " + instanceId);
+        InstanceInfo info = loadInstanceInfo(dir);
+        if (info == null) throw new IOException("无法读取实例元数据");
+        return InstanceExporter.export(info, outputPath);
+    }
+
+    /**
+     * 从 .pmcl-instance（ZIP）文件导入实例。
+     *
+     * @param zipPath 导入文件路径
+     * @return 导入结果（含新实例信息和模组清单）
+     * @throws IOException 导入失败
+     */
+    public InstanceImporter.ImportResult importInstance(Path zipPath) throws IOException {
+        return InstanceImporter.import_(zipPath, this);
+    }
+
     // ===== 内部工具方法 =====
 
     private static long getDirMtime(Path p) {

@@ -44,6 +44,7 @@ fun InstancesPage(vm: LauncherViewModel) {
     var copyTarget by remember { mutableStateOf<InstanceInfo?>(null) }
     var deleteTarget by remember { mutableStateOf<InstanceInfo?>(null) }
     var accountTarget by remember { mutableStateOf<InstanceInfo?>(null) }
+    var importResult by remember { mutableStateOf<com.pmcl.core.instance.InstanceImporter.ImportResult?>(null) }
     val accounts by vm.accounts.collectAsState()
 
     // 首次进入加载实例列表
@@ -60,6 +61,25 @@ fun InstancesPage(vm: LauncherViewModel) {
             )
             IconButton(onClick = { vm.loadInstances() }) {
                 Icon(Icons.Filled.Refresh, contentDescription = I18n.t("common.refresh"))
+            }
+            // 导入实例
+            OutlinedButton(
+                onClick = {
+                    val fd = FileDialog(java.awt.Frame(), I18n.t("instance.import_select_file"), FileDialog.LOAD)
+                    fd.setFilenameFilter { _, name -> name.lowercase().endsWith(".pmcl-instance") || name.lowercase().endsWith(".zip") }
+                    fd.isVisible = true
+                    val selectedFile = fd.file
+                    val selectedDir = fd.directory
+                    if (selectedFile != null && selectedDir != null) {
+                        val path = java.nio.file.Paths.get(selectedDir, selectedFile)
+                        importResult = kotlinx.coroutines.runBlocking { vm.importInstance(path) }
+                    }
+                },
+                modifier = Modifier.padding(start = 8.dp)
+            ) {
+                Icon(Icons.Filled.FileDownload, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(I18n.t("instance.import"))
             }
             Button(
                 onClick = { showCreateDialog = true },
@@ -136,6 +156,17 @@ fun InstancesPage(vm: LauncherViewModel) {
                                     Desktop.getDesktop().open(dir.toFile())
                                 }
                             } catch (_: Throwable) {}
+                        },
+                        onExport = {
+                            val fd = FileDialog(java.awt.Frame(), I18n.t("instance.export_save_as"), FileDialog.SAVE)
+                            fd.file = info.getName().replace(Regex("[^a-zA-Z0-9._-]"), "_") + ".pmcl-instance"
+                            fd.isVisible = true
+                            val selectedFile = fd.file
+                            val selectedDir = fd.directory
+                            if (selectedFile != null && selectedDir != null) {
+                                val path = java.nio.file.Paths.get(selectedDir, selectedFile)
+                                vm.exportInstance(info.getInstanceId(), path)
+                            }
                         }
                     )
                 }
@@ -210,6 +241,63 @@ fun InstancesPage(vm: LauncherViewModel) {
         )
     }
 
+    // 导入结果显示对话框（展示模组清单，提示用户重新下载模组）
+    importResult?.let { result ->
+        AlertDialog(
+            onDismissRequest = { importResult = null },
+            title = { Text(I18n.t("instance.import_success_title")) },
+            text = {
+                Column {
+                    Text(I18n.t("instance.import_success_desc", arrayOf(result.info.getName())))
+                    if (result.mods.isNotEmpty()) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            I18n.t("instance.import_mod_list", arrayOf(result.mods.size)),
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            I18n.t("instance.import_mod_hint"),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        // 模组清单列表（限制高度，避免过长）
+                        LazyColumn(
+                            modifier = Modifier.heightIn(max = 200.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            items(result.mods) { mod ->
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        if (mod.disabled) Icons.Filled.Block else Icons.Filled.CheckCircle,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp),
+                                        tint = if (mod.disabled) MaterialTheme.colorScheme.outline
+                                               else MaterialTheme.colorScheme.primary
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        "${mod.name.ifEmpty { mod.modId }} ${mod.version}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { importResult = null }) {
+                    Text(I18n.t("common.ok"))
+                }
+            }
+        )
+    }
+
     // 绑定账户对话框
     accountTarget?.let { target ->
         BindAccountDialog(
@@ -239,7 +327,8 @@ private fun InstanceCard(
     onRename: () -> Unit,
     onDelete: () -> Unit,
     onBindAccount: () -> Unit,
-    onOpenDir: () -> Unit
+    onOpenDir: () -> Unit,
+    onExport: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -419,6 +508,11 @@ private fun InstanceCard(
                 // 复制
                 IconButton(onClick = onCopy, modifier = Modifier.size(36.dp)) {
                     Icon(Icons.Filled.ContentCopy, contentDescription = I18n.t("instance.copy"),
+                        modifier = Modifier.size(18.dp))
+                }
+                // 导出
+                IconButton(onClick = onExport, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Filled.IosShare, contentDescription = I18n.t("instance.export"),
                         modifier = Modifier.size(18.dp))
                 }
                 // 重命名
