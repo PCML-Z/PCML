@@ -58,3 +58,6 @@ ui/build/compose/binaries/main/main/runtime/
 
 # Screenshot
 截屏*.png
+
+# AI memory
+.workbuddy/
