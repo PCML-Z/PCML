@@ -11,23 +11,22 @@ import javafx.application.Platform
 import javafx.concurrent.Worker
 import javafx.embed.swing.JFXPanel
 import javafx.scene.Scene
+import javafx.scene.layout.BorderPane
 import javafx.scene.web.WebView
+import java.awt.BorderLayout
+import java.awt.Dimension
 import java.util.concurrent.atomic.AtomicReference
 
 /**
  * desktop 目标的 WikiWebView 实现：JavaFX WebView 通过 JFXPanel 嵌入 Compose SwingPanel。
  *
- * 前置条件：JavaFX toolkit 必须在 AWT 事件循环启动前由 Main.kt 预初始化
- * （Platform.startup + javafx.macosx.embed=true），否则 macOS 上 Glass 与 AWT
- * 争抢 NSApplication 主线程会导致整个窗口卡死。
+ * 前置条件：Main.kt 启动前设置 `javafx.macosx.embed=true`，让 Glass 以嵌入模式运行。
  *
- * 线程模型：
- * - SwingPanel.factory / update 在 EDT 调用。
- * - JavaFX WebView 必须在 JavaFX Application Thread 操作（Platform.runLater）。
- * - WebView 的回调（location/title/worker）在 JavaFX 线程触发，更新 Compose state 时
- *   Compose snapshot 系统线程安全，可直接 set。
- *
- * 防回环：地址栏 → load → location 回调 → 地址栏 的循环用 [lastLoaded] 原子引用阻断。
+ * 网页空白修复：
+ * - JFXPanel 必须设 preferredSize（否则 SwingPanel 首次布局可能给 0 尺寸）
+ * - JFXPanel 用 BorderLayout 容器包裹（强制填满）
+ * - Scene 用 BorderPane 包裹 WebView（强制填满 Scene）
+ * - 工厂里立即触发首次 load，不依赖 update 回调
  */
 @Composable
 actual fun WikiWebView(
@@ -40,27 +39,32 @@ actual fun WikiWebView(
     modifier: Modifier
 ) {
     val webViewRef = remember { mutableStateOf<WebView?>(null) }
-    // 记录最近一次主动 load 的 url，避免 location 回调 → 地址栏更新 → 再 load 的回环
     val lastLoaded = remember { AtomicReference("") }
 
     SwingPanel(
         background = Color.White,
         modifier = modifier,
         factory = {
-            val jfxPanel = JFXPanel()
-            // JFXPanel 构造可在 EDT 完成；Scene 必须在 FX 线程设置
+            // JFXPanel 必须设 preferredSize，否则在 SwingPanel 首次布局时可能拿到 0 尺寸
+            val jfxPanel = object : JFXPanel() {
+                override fun getPreferredSize(): Dimension {
+                    val p = super.getPreferredSize()
+                    // 父容器未布局时给一个兜底尺寸，避免 0x0 导致 Scene 渲染空白
+                    return if (p.width <= 0 || p.height <= 0) Dimension(800, 600) else p
+                }
+            }
+            jfxPanel.layout = BorderLayout()
+
             Platform.runLater {
                 val webView = WebView()
                 webView.isContextMenuEnabled = true
                 webView.zoom = 1.0
                 val engine = webView.engine
                 engine.isJavaScriptEnabled = true
-                // 伪装成现代 Safari，避免部分站点（Google/CF）对老 WebView 的 UA 拦截
                 engine.userAgent =
                     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 " +
                     "(KHTML, like Gecko) Version/17.0 Safari/605.1.15"
 
-                // location 变化 = WebView 内导航（点击链接/重定向）
                 engine.locationProperty().addListener { _, _, new ->
                     if (new != null && new != lastLoaded.get()) {
                         lastLoaded.set(new)
@@ -79,16 +83,17 @@ actual fun WikiWebView(
                         onNavigationStateChanged(idx > 0, idx < h.entries.size - 1)
                     }
                 }
-                // history 变化时也刷新按钮状态（go/back 后 entries 已变）
                 engine.history.currentIndexProperty().addListener { _, _, _ ->
                     val h = engine.history
                     val idx = h.currentIndex
                     onNavigationStateChanged(idx > 0, idx < h.entries.size - 1)
                 }
 
-                jfxPanel.scene = Scene(webView)
+                // BorderPane 强制 WebView 填满整个 Scene 区域
+                jfxPanel.scene = Scene(BorderPane(webView))
                 webViewRef.value = webView
 
+                // 工厂里立即加载首个 URL（不等 update 回调）
                 if (url.isNotBlank()) {
                     lastLoaded.set(url)
                     engine.load(url)
@@ -97,7 +102,6 @@ actual fun WikiWebView(
             jfxPanel
         },
         update = {
-            // url 变化时加载；lastLoaded 阻断 WebView 内导航产生的回环
             if (url.isNotBlank() && url != lastLoaded.get()) {
                 lastLoaded.set(url)
                 Platform.runLater {
@@ -108,7 +112,6 @@ actual fun WikiWebView(
         }
     )
 
-    // 注入 controller 命令
     LaunchedEffect(controller) {
         controller.goBack = {
             Platform.runLater {

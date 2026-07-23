@@ -212,10 +212,8 @@ fun main() {
                     }
                     updateShape()
                     val restoreIfTooSmall = {
-                        // 窗口可能被 macOS Dock 吸附（ICONIFIED）或异常缩小：
-                        // 1. 先 deiconify（清除 ICONIFIED 状态），setSize 对 Dock 窗口无效
-                        // 2. 再恢复到目标尺寸
-                        // 3. setVisible + toFront 确保窗口前台可见
+                        // 仅恢复异常缩小的尺寸，不调用 toFront/setVisible
+                        // （会强制主窗口置顶，盖住 AI 窗口/对话框等弹窗）
                         val state = window.extendedState
                         if (state and Frame.ICONIFIED != 0) {
                             window.extendedState = state and Frame.ICONIFIED.inv()
@@ -224,10 +222,6 @@ fun main() {
                             window.setSize(targetW, targetH)
                             updateShape()
                         }
-                        if (!window.isVisible) {
-                            window.isVisible = true
-                        }
-                        window.toFront()
                     }
                     val listener = object : ComponentAdapter() {
                         override fun componentResized(e: ComponentEvent?) {
