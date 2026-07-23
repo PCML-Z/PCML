@@ -692,8 +692,19 @@ class LauncherViewModel {
     val loggingIn: StateFlow<Boolean> = _loggingIn.asStateFlow()
 
     // ===== 启动日志 =====
-    private val _gameLogs = MutableStateFlow<List<String>>(emptyList())
-    val gameLogs: StateFlow<List<String>> = _gameLogs.asStateFlow()
+    /** 游戏日志条目（携带单调递增 seq 作为 Compose 列表稳定 key） */
+    data class GameLogEntry(val seq: Long, val text: String)
+    private val gameLogSeq = java.util.concurrent.atomic.AtomicLong(0)
+    private val _gameLogs = MutableStateFlow<List<GameLogEntry>>(emptyList())
+    val gameLogs: StateFlow<List<GameLogEntry>> = _gameLogs.asStateFlow()
+    /** 追加一条游戏日志（线程安全，自动裁剪到 2000 条） */
+    private fun appendGameLog(text: String) {
+        _gameLogs.update { old -> (old + GameLogEntry(gameLogSeq.incrementAndGet(), text)).takeLast(2000) }
+    }
+    /** 替换全部游戏日志（切换实例/版本时使用） */
+    private fun setGameLogs(texts: List<String>) {
+        _gameLogs.value = texts.map { GameLogEntry(gameLogSeq.incrementAndGet(), it) }
+    }
 
     // ===== 日志导出/分享 =====
     private val _logSharing = MutableStateFlow(false)
@@ -3156,12 +3167,12 @@ class LauncherViewModel {
         //   静态扫描无法检测这些，误报率高；真正的冲突游戏自己会崩并生成崩溃报告）
         val conflicts = _modConflicts.value
         if (conflicts != null && conflicts.hasIssues()) {
-            _gameLogs.update { old -> (old + "[警告] mod 冲突检测（仅供参考，不阻断启动）：").takeLast(2000) }
+            appendGameLog("[警告] mod 冲突检测（仅供参考，不阻断启动）：")
             conflicts.getErrors().take(5).forEach {
-                _gameLogs.update { old -> (old + "  - $it").takeLast(2000) }
+                appendGameLog("  - $it")
             }
             if (conflicts.getErrors().size > 5) {
-                _gameLogs.update { old -> (old + "  …还有 ${conflicts.getErrors().size - 5} 条，见模组页").takeLast(2000) }
+                appendGameLog("  …还有 ${conflicts.getErrors().size - 5} 条，见模组页")
             }
         }
 
@@ -3188,11 +3199,11 @@ class LauncherViewModel {
                 }
                 if (javaExe.isEmpty()) {
                     _status.value = I18n.t("status.launch_failed_no_java")
-                    _gameLogs.value = listOf(
+                    setGameLogs(listOf(
                         "启动失败：未找到任何 Java 运行时",
                         "请安装 Java（推荐 Java 8 用于旧版本，Java 21 用于新版本）",
                         "下载地址：https://adoptium.net/temurin/releases/"
-                    )
+                    ))
                     return@launch
                 }
                 // 获取实际 Java 主版本号，用于条件注入 Java 16+ 专属参数（避免 Java 8 报错）
@@ -3396,7 +3407,7 @@ class LauncherViewModel {
                     )
                 } else mutableListOf()
                 instanceLogs[instanceId] = initLogs
-                _gameLogs.value = initLogs.toList()
+                setGameLogs(initLogs.toList())
 
                 // 添加到运行中实例列表，设为活跃
                 _runningInstances.update { list ->
@@ -3443,9 +3454,9 @@ class LauncherViewModel {
                         }
                         // 仅当此实例为活跃时更新 UI
                         if (_runningInstances.value.any { it.id == instanceId && it.active }) {
-                            _gameLogs.value = instanceLogs[instanceId]?.let { logs ->
+                            setGameLogs(instanceLogs[instanceId]?.let { logs ->
                                 synchronized(logs) { logs.toList() }
-                            } ?: emptyList()
+                            } ?: emptyList())
                         }
                         // 解析游戏日志，更新会话上下文（服务器地址 / 世界名）用于细分统计
                         try {
@@ -3477,7 +3488,7 @@ class LauncherViewModel {
 
                 // 异常退出检测：非 0 退出码视为崩溃
                 if (exitCode != 0) {
-                    val recentLogs = _gameLogs.value.takeLast(80)
+                    val recentLogs = _gameLogs.value.takeLast(80).map { it.text }
                     val report = withContext(Dispatchers.IO) {
                         try {
                             val after = core.crashAnalyzer().scanReports(config.getWorkDir())
@@ -3500,7 +3511,7 @@ class LauncherViewModel {
                 }
             } catch (e: Throwable) {
                 _status.value = I18n.t("status.launch_failed", e.message ?: I18n.t("common.unknown"))
-                _gameLogs.update { old -> (old + "[错误] ${e.message}").takeLast(2000) }
+                appendGameLog("[错误] ${e.message}")
                 instanceId?.let { id ->
                     instanceLogs[id]?.let { logs ->
                         synchronized(logs) { logs.add("[错误] ${e.message}") }
@@ -3529,9 +3540,9 @@ class LauncherViewModel {
                     // 更新 UI 日志为新的活跃实例
                     val activeInst = _runningInstances.value.firstOrNull { it.active }
                     if (activeInst != null) {
-                        _gameLogs.value = instanceLogs[activeInst.id]?.let { logs ->
+                        setGameLogs(instanceLogs[activeInst.id]?.let { logs ->
                             synchronized(logs) { logs.toList() }
-                        } ?: emptyList()
+                        } ?: emptyList())
                     }
                     _gameRunning.value = _runningInstances.value.isNotEmpty()
                     // 清理此实例的日志资源
@@ -3550,9 +3561,9 @@ class LauncherViewModel {
         _runningInstances.update { list ->
             list.map { it.copy(active = it.id == instanceId) }
         }
-        _gameLogs.value = instanceLogs[instanceId]?.let { logs ->
+        setGameLogs(instanceLogs[instanceId]?.let { logs ->
             synchronized(logs) { logs.toList() }
-        } ?: emptyList()
+        } ?: emptyList())
     }
 
     // ============ Java 运行时管理 ============
@@ -3603,11 +3614,11 @@ class LauncherViewModel {
                 gameLogger = withContext(Dispatchers.IO) {
                     try { GameLogger(logFile) } catch (e: Throwable) { null }
                 }
-                _gameLogs.value = listOf(
+                setGameLogs(listOf(
                     "[PMCL] 使用外部 Java 启动: $javaPath",
                     "[PMCL] Java 版本: $javaMajorVer 架构: $javaArch",
                     ""
-                )
+                ))
                 _gameRunning.value = true
                 _status.value = I18n.t("status.launching", javaPath, javaMajorVer, javaArch, versionId)
                 // 记录游玩时长（携带已安装模组列表用于细分统计）
@@ -3621,7 +3632,7 @@ class LauncherViewModel {
                 val future = core.launch().launchAsync(
                     profile, javaPath,
                     { line ->
-                        _gameLogs.update { old -> (old + line).takeLast(2000) }
+                        appendGameLog(line)
                         // 解析游戏日志，更新会话上下文（服务器地址 / 世界名）用于细分统计
                         try {
                             if (line.contains("Connecting to")) {
@@ -3649,7 +3660,7 @@ class LauncherViewModel {
                 _gameRunning.value = false
             } catch (e: Throwable) {
                 _status.value = I18n.t("status.launch_failed", e.message ?: I18n.t("common.unknown"))
-                _gameLogs.update { old -> (old + "启动失败: ${e.message}").takeLast(2000) }
+                appendGameLog("启动失败: ${e.message}")
             } finally {
                 if (timeTracked) {
                     core.playTimeTracker().recordEnd(versionId)
@@ -3672,11 +3683,11 @@ class LauncherViewModel {
                 val cmd = withContext(Dispatchers.IO) {
                     ExternalLauncherDetector.buildExternalLaunchCommand(launcher, versionId)
                 }
-                _gameLogs.value = listOf(
+                setGameLogs(listOf(
                     "[PMCL] 正在用 ${launcher.name} 启动版本 $versionId",
                     "[PMCL] 命令: ${cmd.joinToString(" ")}",
                     ""
-                )
+                ))
                 withContext(Dispatchers.IO) {
                     val workDir = java.io.File(launcher.gameDir).let {
                         if (it.isDirectory) it else java.io.File(System.getProperty("user.home"))
@@ -3691,7 +3702,7 @@ class LauncherViewModel {
                 _status.value = I18n.t("status.external_launcher_opened", launcher.name, versionId)
             } catch (e: Throwable) {
                 _status.value = I18n.t("status.external_launcher_failed", launcher.name, e.message ?: I18n.t("common.unknown"))
-                _gameLogs.value = listOf("打开 ${launcher.name} 失败: ${e.message}")
+                setGameLogs(listOf("打开 ${launcher.name} 失败: ${e.message}"))
             }
         }
     }
@@ -4824,7 +4835,7 @@ class LauncherViewModel {
                 append("PMCL 游戏日志\n")
                 append("导出时间: ").append(java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(java.util.Date())).append("\n")
                 append("=").append("=".repeat(60)).append("\n\n")
-                append(logs.joinToString("\n"))
+                append(logs.map { it.text }.joinToString("\n"))
             }
             java.nio.file.Files.write(path, content.toByteArray(java.nio.charset.StandardCharsets.UTF_8))
             _status.value = I18n.t("status.logs_exported", targetPath)
@@ -4849,7 +4860,7 @@ class LauncherViewModel {
         _shareUrl.value = null
         scope.launch {
             try {
-                val content = logs.joinToString("\n")
+                val content = logs.map { it.text }.joinToString("\n")
                 val name = "PMCL-Log-${java.text.SimpleDateFormat("yyyyMMdd-HHmmss").format(java.util.Date())}"
                 val url = core.pastebin().upload(content, name)
                 _shareUrl.value = url

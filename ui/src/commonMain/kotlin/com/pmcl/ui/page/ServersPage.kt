@@ -35,6 +35,7 @@ import com.pmcl.ui.viewmodel.LauncherViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.skia.Image as SkiaImage
+import com.pmcl.ui.util.decodeSampledBitmap
 import java.util.Base64
 
 @Composable
@@ -339,7 +340,7 @@ private fun ServerIcon(iconBase64: String?, sizeDp: Int) {
                     iconBase64
                 }
                 val bytes = Base64.getDecoder().decode(b64)
-                imageBitmap = SkiaImage.makeFromEncoded(bytes).toComposeImageBitmap()
+                imageBitmap = decodeSampledBitmap(bytes, 64)
             } catch (_: Throwable) {
                 imageBitmap = null
             }

@@ -43,6 +43,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jetbrains.skia.Image as SkiaImage
+import com.pmcl.ui.util.decodeSampledBitmap
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
@@ -105,7 +106,7 @@ fun FriendPage(vm: LauncherViewModel) {
                     val file = File(bgImagePath)
                     if (file.exists()) {
                         val bytes = file.readBytes()
-                        SkiaImage.makeFromEncoded(bytes).toComposeImageBitmap()
+                        decodeSampledBitmap(bytes, 512)
                     } else null
                 } catch (_: Exception) { null }
             }

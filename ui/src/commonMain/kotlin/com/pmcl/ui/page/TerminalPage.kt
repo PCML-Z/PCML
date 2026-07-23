@@ -38,6 +38,9 @@ import java.io.PrintStream
 @Composable
 fun TerminalPage(vm: LauncherViewModel) {
     val lines = remember { mutableStateListOf<TerminalLine>() }
+    // 全局递增序号，作为 LazyColumn 稳定 key，避免裁剪头部时整列重组
+    val seqCounter = remember { java.util.concurrent.atomic.AtomicLong(0) }
+    fun nextSeq() = seqCounter.incrementAndGet()
     var input by remember { mutableStateOf("") }
     val history = remember { mutableStateListOf<String>() }
     var historyIndex by remember { mutableStateOf(-1) }
@@ -58,15 +61,15 @@ fun TerminalPage(vm: LauncherViewModel) {
     val outline = MaterialTheme.colorScheme.outline
 
     LaunchedEffect(Unit) {
-        lines.add(TerminalLine("", LineType.EMPTY))
-        lines.add(TerminalLine("+===========================================+", LineType.BANNER))
-        lines.add(TerminalLine("|          PMCL Terminal  v3.0.0            |", LineType.BANNER))
-        lines.add(TerminalLine("|   Minecraft Launcher - Shell Mode         |", LineType.BANNER))
-        lines.add(TerminalLine("|   Access all launcher core features       |", LineType.BANNER))
-        lines.add(TerminalLine("+===========================================+", LineType.BANNER))
-        lines.add(TerminalLine("", LineType.EMPTY))
-        lines.add(TerminalLine("Type 'help' for available commands. Type 'clear' to clear screen.", LineType.HINT))
-        lines.add(TerminalLine("", LineType.EMPTY))
+        lines.add(TerminalLine(nextSeq(), "", LineType.EMPTY))
+        lines.add(TerminalLine(nextSeq(), "+===========================================+", LineType.BANNER))
+        lines.add(TerminalLine(nextSeq(), "|          PMCL Terminal  v3.0.0            |", LineType.BANNER))
+        lines.add(TerminalLine(nextSeq(), "|   Minecraft Launcher - Shell Mode         |", LineType.BANNER))
+        lines.add(TerminalLine(nextSeq(), "|   Access all launcher core features       |", LineType.BANNER))
+        lines.add(TerminalLine(nextSeq(), "+===========================================+", LineType.BANNER))
+        lines.add(TerminalLine(nextSeq(), "", LineType.EMPTY))
+        lines.add(TerminalLine(nextSeq(), "Type 'help' for available commands. Type 'clear' to clear screen.", LineType.HINT))
+        lines.add(TerminalLine(nextSeq(), "", LineType.EMPTY))
     }
 
     LaunchedEffect(lines.size) {
@@ -137,7 +140,7 @@ fun TerminalPage(vm: LauncherViewModel) {
                 .padding(12.dp),
             state = scrollState
         ) {
-            itemsIndexed(lines, key = { index, _ -> index }) { _, line ->
+            itemsIndexed(lines, key = { _, line -> line.seq }) { _, line ->
                 when (line.type) {
                     LineType.EMPTY -> Spacer(Modifier.height(2.dp))
                     LineType.BANNER -> Text(
@@ -217,7 +220,7 @@ fun TerminalPage(vm: LauncherViewModel) {
                                         if (history.size > 1000) history.removeAt(0)
                                     }
                                     scope.launch {
-                                        executeCommand(cli, cmd, lines) { executing = it }
+                                        executeCommand(cli, cmd, lines, ::nextSeq) { executing = it }
                                     }
                                 }
                                 true
@@ -263,9 +266,10 @@ private suspend fun executeCommand(
     cli: PmclCli,
     command: String,
     lines: MutableList<TerminalLine>,
+    nextSeq: () -> Long,
     setExecuting: (Boolean) -> Unit
 ) {
-    lines.add(TerminalLine("pmcl> $command", LineType.COMMAND))
+    lines.add(TerminalLine(nextSeq(), "pmcl> $command", LineType.COMMAND))
     setExecuting(true)
 
     try {
@@ -275,7 +279,7 @@ private suspend fun executeCommand(
         }
         val lowerCmd = command.trim().split("\\s+".toRegex()).firstOrNull()?.lowercase()
         if (lowerCmd == "exit" || lowerCmd == "quit") {
-            lines.add(TerminalLine("Exit is not supported in GUI terminal. Use 'clear' to clear screen.", LineType.HINT))
+            lines.add(TerminalLine(nextSeq(), "Exit is not supported in GUI terminal. Use 'clear' to clear screen.", LineType.HINT))
             return
         }
 
@@ -306,7 +310,7 @@ private suspend fun executeCommand(
                         line.contains("Exception") || line.contains("Error:") ||
                         line.contains("not found") || line.contains("Unknown"))
                         LineType.ERROR else LineType.OUTPUT
-                    lines.add(TerminalLine(line, type))
+                    lines.add(TerminalLine(nextSeq(), line, type))
                     if (lines.size > 5000) {
                         lines.removeAt(0)
                     }
@@ -314,7 +318,7 @@ private suspend fun executeCommand(
             }
         }
     } catch (e: Throwable) {
-        lines.add(TerminalLine("Error: ${e.message}", LineType.ERROR))
+        lines.add(TerminalLine(nextSeq(), "Error: ${e.message}", LineType.ERROR))
     } finally {
         setExecuting(false)
     }
@@ -326,4 +330,4 @@ private enum class LineType {
 }
 
 /** 终端行数据 */
-private data class TerminalLine(val text: String, val type: LineType)
+private data class TerminalLine(val seq: Long, val text: String, val type: LineType)

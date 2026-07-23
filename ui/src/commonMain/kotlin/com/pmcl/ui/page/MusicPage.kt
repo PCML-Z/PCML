@@ -36,6 +36,7 @@ import com.pmcl.ui.viewmodel.setMusicVolume
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.skia.Image as SkiaImage
+import com.pmcl.ui.util.decodeSampledBitmap
 import java.net.URL
 
 /**
@@ -588,7 +589,7 @@ private fun formatMusicDuration(ms: Long): String {
 }
 
 // M32 修复：复用全局 LruImageCache，避免每个页面各自实现缓存导致内存浪费与不一致策略
-private val musicImageCache = com.pmcl.ui.util.LruImageCache(64)
+private val musicImageCache = com.pmcl.ui.util.LruImageCache()
 
 /** 异步从 URL 加载图片，返回 Skia 解码的 ImageBitmap。失败返回 null。 */
 @Composable
@@ -606,7 +607,7 @@ private fun rememberUrlImage(url: String): ImageBitmap? {
         withContext(Dispatchers.IO) {
             try {
                 val bytes = URL(url).readBytes()
-                val bmp = SkiaImage.makeFromEncoded(bytes).toComposeImageBitmap()
+                val bmp = decodeSampledBitmap(bytes, 256) ?: throw IllegalStateException("decode failed")
                 musicImageCache.put(url, bmp)
                 image = bmp
             } catch (_: Throwable) {

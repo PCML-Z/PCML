@@ -41,6 +41,7 @@ import com.pmcl.ui.viewmodel.LauncherViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.skia.Image as SkiaImage
+import com.pmcl.ui.util.decodeSampledBitmap
 import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
 
@@ -680,7 +681,7 @@ private fun AccountRow(
 
 // ============ 皮肤图片加载（带内存缓存） ============
 // M32 修复：复用全局 LruImageCache
-private val skinImageCache = com.pmcl.ui.util.LruImageCache(64)
+private val skinImageCache = com.pmcl.ui.util.LruImageCache()
 
 /** 异步加载皮肤图片，带内存缓存 */
 @Composable
@@ -695,7 +696,7 @@ private fun SkinImage(url: String, sizePx: Int) {
             try {
                 if (url.isNullOrBlank()) return@withContext
                 val bytes = URL(url).readBytes()
-                val bmp = SkiaImage.makeFromEncoded(bytes).toComposeImageBitmap()
+                val bmp = decodeSampledBitmap(bytes, 128) ?: throw IllegalStateException("decode failed")
                 skinImageCache.put(url, bmp)
                 image = bmp
             } catch (_: Throwable) {

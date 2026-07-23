@@ -48,6 +48,7 @@ import com.pmcl.ui.viewmodel.LauncherViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.skia.Image as SkiaImage
+import com.pmcl.ui.util.decodeSampledBitmap
 import java.awt.Desktop
 import java.net.URI
 import java.net.URL
@@ -1049,7 +1050,7 @@ private fun CategoryBar(
  * 图片内存缓存：URL → ImageBitmap。避免滚动时重复下载与解码。
  */
 // M32 修复：复用全局 LruImageCache
-private val modImageCache = com.pmcl.ui.util.LruImageCache(64)
+private val modImageCache = com.pmcl.ui.util.LruImageCache()
 
 /**
  * 异步加载网络图片为 ImageBitmap（基于 Skia）。
@@ -1069,7 +1070,7 @@ private fun rememberUrlImage(url: String): ImageBitmap? {
         withContext(Dispatchers.IO) {
             try {
                 val bytes = URL(url).readBytes()
-                val bmp = SkiaImage.makeFromEncoded(bytes).toComposeImageBitmap()
+                val bmp = decodeSampledBitmap(bytes, 128) ?: throw IllegalStateException("decode failed")
                 modImageCache.put(url, bmp)
                 image = bmp
             } catch (_: Throwable) {

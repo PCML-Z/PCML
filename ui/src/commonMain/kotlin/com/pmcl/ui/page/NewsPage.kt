@@ -29,6 +29,7 @@ import com.pmcl.ui.viewmodel.LauncherViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.skia.Image as SkiaImage
+import com.pmcl.ui.util.decodeSampledBitmap
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import java.net.URL
@@ -675,7 +676,7 @@ private fun NewsCard(
  * 图片内存缓存：URL → ImageBitmap。避免滚动时重复下载与解码。
  */
 // M32 修复：复用全局 LruImageCache
-private val newsImageCache = com.pmcl.ui.util.LruImageCache(64)
+private val newsImageCache = com.pmcl.ui.util.LruImageCache()
 
 /**
  * 异步从 URL 加载图片，返回 Skia 解码的 ImageBitmap。
@@ -700,7 +701,7 @@ private fun rememberUrlImage(url: String): ImageBitmap? {
             try {
                 if (url.isNullOrBlank()) return@withContext
                 val bytes = URL(url).readBytes()
-                val bmp = SkiaImage.makeFromEncoded(bytes).toComposeImageBitmap()
+                val bmp = decodeSampledBitmap(bytes, 256) ?: throw IllegalStateException("decode failed")
                 newsImageCache.put(url, bmp)
                 image = bmp
             } catch (_: Throwable) {
