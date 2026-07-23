@@ -1,16 +1,20 @@
 package com.pmcl.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
 import com.pmcl.core.plugin.PluginManager
@@ -18,7 +22,10 @@ import com.pmcl.ui.animation.AnimatedPageSwitch
 import com.pmcl.ui.animation.EntranceAnimation
 import com.pmcl.ui.animation.SlideInFromStart
 import com.pmcl.ui.navigation.NavDestination
+import com.pmcl.ui.navigation.NavGroup
 import com.pmcl.ui.navigation.allDestinations
+import com.pmcl.ui.navigation.allGroups
+import com.pmcl.ui.navigation.destinationsByGroup
 import com.pmcl.ui.page.AccountsPage
 import com.pmcl.ui.page.AgreementGatePage
 import com.pmcl.ui.page.ContentHubPage
@@ -239,9 +246,28 @@ private fun MainWindowContent(vm: LauncherViewModel) {
         }
     }
 
-    // Build full nav list: built-in destinations + plugin pages
-    val navItems = remember(pluginPages) {
-        val builtIn = allDestinations.map { NavTarget.BuiltIn(it) }
+    // 导航自定义状态（提升到此处，侧边栏与设置页共享）
+    // 核心区不可隐藏；隐藏项 route 集合 + 折叠分区集合均持久化到 Preferences
+    var hiddenNavRoutes by remember {
+        mutableStateOf(vm.preferences.getHiddenNavRoutes().toSet())
+    }
+    var collapsedNavGroups by remember {
+        mutableStateOf(vm.preferences.getCollapsedNavGroups().toSet())
+    }
+    val toggleHiddenRoute: (String) -> Unit = { route ->
+        val next = if (hiddenNavRoutes.contains(route)) hiddenNavRoutes - route else hiddenNavRoutes + route
+        hiddenNavRoutes = next
+        vm.preferences.setHiddenNavRoutes(next.toList())
+    }
+    val toggleCollapsedGroup: (String) -> Unit = { group ->
+        val next = if (collapsedNavGroups.contains(group)) collapsedNavGroups - group else collapsedNavGroups + group
+        collapsedNavGroups = next
+        vm.preferences.setCollapsedNavGroups(next.toList())
+    }
+
+    // 可见导航项：内置项过滤隐藏 route 后 + 插件页（插件页始终显示，由用户主动安装）
+    val visibleItems = remember(pluginPages, hiddenNavRoutes) {
+        val builtIn = allDestinations.filter { it.route !in hiddenNavRoutes }.map { NavTarget.BuiltIn(it) }
         val plugins = pluginPages.map { NavTarget.PluginPage(it) }
         builtIn + plugins
     }
@@ -281,32 +307,84 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                         modifier = Modifier
                             .fillMaxHeight()
                             .verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.Top),
+                        verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.Top),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        navItems.forEach { target ->
-                            val selected = current == target
-                            NavigationRailItem(
-                                selected = selected,
-                                onClick = {
-                                val oldIndex = navItems.indexOf(current)
-                                val newIndex = navItems.indexOf(target)
-                                navDirection = if (newIndex > oldIndex) 1 else if (newIndex < oldIndex) -1 else 0
-                                current = target
-                            },
-                                icon = {
-                                    when (target) {
-                                        is NavTarget.BuiltIn -> Icon(target.dest.icon, contentDescription = I18n.t(target.dest.labelKey))
-                                        is NavTarget.PluginPage -> Icon(Icons.Filled.Extension, contentDescription = target.page.title)
-                                    }
-                                },
-                                label = {
-                                    Text(when (target) {
-                                        is NavTarget.BuiltIn -> I18n.t(target.dest.labelKey)
-                                        is NavTarget.PluginPage -> target.page.title
-                                    })
+                        // 按分区渲染：核心区常驻展开，其他区可折叠
+                        allGroups.forEach { group ->
+                            val groupItems = destinationsByGroup(group)
+                                .filter { it.route !in hiddenNavRoutes }
+                            if (groupItems.isEmpty()) return@forEach
+
+                            // 折叠头：可折叠分区显示带箭头的小标签；核心区不显示头
+                            if (group.collapsible) {
+                                val collapsed = group.name in collapsedNavGroups
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { toggleCollapsedGroup(group.name) }
+                                        .padding(vertical = 4.dp, horizontal = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    Text(
+                                        I18n.t(group.labelKey),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Medium,
+                                        color = MaterialTheme.colorScheme.outline
+                                    )
+                                    Spacer(Modifier.width(2.dp))
+                                    Icon(
+                                        Icons.Filled.KeyboardArrowDown,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp).rotate(if (collapsed) -90f else 0f),
+                                        tint = MaterialTheme.colorScheme.outline
+                                    )
                                 }
+                            }
+
+                            // 展开时渲染分区内的导航项
+                            if (!group.collapsible || group.name !in collapsedNavGroups) {
+                                groupItems.forEach { dest ->
+                                    val target = NavTarget.BuiltIn(dest)
+                                    val selected = current == target
+                                    NavigationRailItem(
+                                        selected = selected,
+                                        onClick = {
+                                            val oldIndex = visibleItems.indexOf(current)
+                                            val newIndex = visibleItems.indexOf(target)
+                                            navDirection = if (newIndex > oldIndex) 1 else if (newIndex < oldIndex) -1 else 0
+                                            current = target
+                                        },
+                                        icon = { Icon(dest.icon, contentDescription = I18n.t(dest.labelKey)) },
+                                        label = { Text(I18n.t(dest.labelKey)) }
+                                    )
+                                }
+                            }
+                        }
+
+                        // 插件页：始终显示（用户主动安装），用分隔线与内置项区分
+                        if (pluginPages.isNotEmpty()) {
+                            HorizontalDivider(
+                                modifier = Modifier.fillMaxWidth(0.6f).padding(vertical = 4.dp),
+                                thickness = 0.5.dp,
+                                color = MaterialTheme.colorScheme.outlineVariant
                             )
+                            pluginPages.forEach { page ->
+                                val target = NavTarget.PluginPage(page)
+                                val selected = current == target
+                                NavigationRailItem(
+                                    selected = selected,
+                                    onClick = {
+                                        val oldIndex = visibleItems.indexOf(current)
+                                        val newIndex = visibleItems.indexOf(target)
+                                        navDirection = if (newIndex > oldIndex) 1 else if (newIndex < oldIndex) -1 else 0
+                                        current = target
+                                    },
+                                    icon = { Icon(Icons.Filled.Extension, contentDescription = page.title) },
+                                    label = { Text(page.title) }
+                                )
+                            }
                         }
                     }
                 }
@@ -329,7 +407,11 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                                 NavDestination.Saves       -> SavesHubPage(vm)
                                 NavDestination.Statistics  -> StatisticsPage(vm)
                                 NavDestination.Accounts    -> AccountsPage(vm)
-                                NavDestination.Settings    -> SettingsPage(vm)
+                                NavDestination.Settings    -> SettingsPage(
+                                        vm = vm,
+                                        hiddenNavRoutes = hiddenNavRoutes,
+                                        onToggleHiddenRoute = toggleHiddenRoute
+                                    )
                                 NavDestination.Terminal    -> TerminalPage(vm)
                                 NavDestination.Plugins     -> PluginPage(vm)
                                 NavDestination.Instances   -> InstancesPage(vm)
@@ -379,8 +461,8 @@ private fun MainWindowContent(vm: LauncherViewModel) {
         val target = allDestinations.firstOrNull { it.route == req }
         if (target != null) {
             val newTarget = NavTarget.BuiltIn(target)
-            val oldIndex = navItems.indexOf(current)
-            val newIndex = navItems.indexOf(newTarget)
+            val oldIndex = visibleItems.indexOf(current)
+            val newIndex = visibleItems.indexOf(newTarget)
             navDirection = if (newIndex > oldIndex) 1 else if (newIndex < oldIndex) -1 else 0
             current = newTarget
         }
