@@ -2,8 +2,10 @@ package com.pmcl.ui.page
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.awt.SwingPanel
 import androidx.compose.ui.graphics.Color
@@ -12,13 +14,17 @@ import javafx.concurrent.Worker
 import javafx.embed.swing.JFXPanel
 import javafx.scene.Scene
 import javafx.scene.web.WebView
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicReference
 
 /**
  * desktop 目标的 WikiWebView 实现：JavaFX WebView 通过 JFXPanel 嵌入 Compose SwingPanel。
  *
  * 线程模型：
- * - SwingPanel.factory / update 在 EDT 调用。
+ * - JavaFX toolkit 必须先在非 EDT/非 FX 线程通过 Platform.startup 初始化，
+ *   否则 JFXPanel 构造时报 "No toolkit found"。
+ * - SwingPanel.factory / update 在 EDT 调用（toolkit 就绪后）。
  * - JavaFX WebView 必须在 JavaFX Application Thread 操作（Platform.runLater）。
  * - WebView 的回调（location/title/worker）在 JavaFX 线程触发，更新 Compose state 时
  *   Compose snapshot 系统线程安全，可直接 set。
@@ -38,6 +44,25 @@ actual fun WikiWebView(
     val webViewRef = remember { mutableStateOf<WebView?>(null) }
     // 记录最近一次主动 load 的 url，避免 location 回调 → 地址栏更新 → 再 load 的回环
     val lastLoaded = remember { AtomicReference("") }
+
+    // 预初始化 JavaFX toolkit：Platform.startup 必须在非 EDT/非 FX 线程调用，
+    // 且只允许调用一次（重复调用抛 IllegalStateException，安全捕获）。
+    // toolkit 未就绪时 JFXPanel 构造会失败并报 "No toolkit found"。
+    var fxReady by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            try {
+                Platform.startup { /* toolkit 初始化，无需 UI 逻辑 */ }
+            } catch (_: IllegalStateException) {
+                // 已启动（多次进入 Wiki 页时）
+            } catch (_: RuntimeException) {
+                // 部分环境下重复启动抛 RuntimeException，同样视为已就绪
+            }
+        }
+        fxReady = true
+    }
+
+    if (!fxReady) return
 
     SwingPanel(
         background = Color.White,
