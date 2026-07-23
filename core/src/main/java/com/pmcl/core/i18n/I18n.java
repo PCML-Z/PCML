@@ -600,9 +600,10 @@ public final class I18n {
         ZH.put("news.view_full", "查看全文 →");
 
         // ===== Wiki 页 =====
-        ZH.put("wiki.title", "在系统浏览器中打开 Mod Wiki / 项目主页。");
-        ZH.put("wiki.search_placeholder", "搜索关键词（如 mod 名称）");
+        ZH.put("wiki.title", "内嵌浏览器浏览 Mod Wiki / 项目主页，支持地址栏导航与书签。");
+        ZH.put("wiki.search_placeholder", "输入网址或搜索关键词，回车前往");
         ZH.put("wiki.shortcuts", "快捷入口");
+        ZH.put("wiki.loading", "加载中…");
         ZH.put("wiki.modrinth", "Modrinth 项目主页");
         ZH.put("wiki.curseforge", "CurseForge 模组搜索");
         ZH.put("wiki.mc_wiki", "Minecraft Wiki 搜索");
@@ -2388,9 +2389,10 @@ public final class I18n {
         EN.put("news.source_link", "Source: {0}");
         EN.put("news.view_full", "Read full →");
 
-        EN.put("wiki.title", "Open Mod Wiki / project page in browser.");
-        EN.put("wiki.search_placeholder", "Search keyword (e.g. mod name)");
+        EN.put("wiki.title", "Browse Mod Wiki / project pages in the embedded browser with address bar and bookmarks.");
+        EN.put("wiki.search_placeholder", "Enter URL or keyword, press Go");
         EN.put("wiki.shortcuts", "Shortcuts");
+        EN.put("wiki.loading", "Loading…");
         EN.put("wiki.modrinth", "Modrinth project page");
         EN.put("wiki.curseforge", "CurseForge mod search");
         EN.put("wiki.mc_wiki", "Minecraft Wiki search");
@@ -4108,9 +4110,10 @@ public final class I18n {
         JA.put("news.source_link", "原文リンク: {0}");
         JA.put("news.view_full", "全文を読む →");
 
-        JA.put("wiki.title", "ブラウザでMod Wiki / プロジェクトページを開く。");
-        JA.put("wiki.search_placeholder", "検索キーワード（Mod名など）");
+        JA.put("wiki.title", "組み込みブラウザでMod Wiki / プロジェクトページを閲覧。");
+        JA.put("wiki.search_placeholder", "URLまたはキーワードを入力、Enterで移動");
         JA.put("wiki.shortcuts", "ショートカット");
+        JA.put("wiki.loading", "読み込み中…");
         JA.put("wiki.modrinth", "Modrinthプロジェクトページ");
         JA.put("wiki.curseforge", "CurseForge Mod検索");
         JA.put("wiki.mc_wiki", "Minecraft Wiki検索");

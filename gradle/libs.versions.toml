@@ -14,6 +14,7 @@ javacv = "1.5.11"
 ffmpeg = "7.1-1.5.11"
 ktor = "3.0.3"
 pty4j = "0.13.12"
+javafx = "21.0.7"
 
 [libraries]
 # Kotlin 协程

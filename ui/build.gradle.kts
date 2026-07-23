@@ -48,6 +48,21 @@ kotlin {
 
                 // 内嵌 PTY 终端（运行 OpenCode TUI）
                 implementation(libs.pty4j)
+
+                // JavaFX WebView（Wiki 内嵌浏览器：JFXPanel 嵌入 SwingPanel）
+                // openjfx 必须显式指定 OS classifier，否则只拉到空壳 pom，编译报 unresolved javafx.*
+                // 且每个模块的 classifier jar 独立，传递依赖不会自动带 classifier，需全部显式声明
+                val fxVer = libs.versions.javafx.get()
+                val osName = System.getProperty("os.name").lowercase()
+                val fxClassifier = when {
+                    osName.contains("mac") -> "mac"
+                    osName.contains("windows") -> "win"
+                    osName.contains("linux") -> "linux"
+                    else -> "linux"
+                }
+                listOf("javafx-base", "javafx-graphics", "javafx-controls", "javafx-web", "javafx-swing").forEach {
+                    implementation("org.openjfx:$it:$fxVer:$fxClassifier")
+                }
             }
         }
     }
