@@ -68,12 +68,7 @@ public final class Preferences {
     private String gameRenderer = "AUTO";    // 渲染器：AUTO/OPENGL/VULKAN（--renderer）
     private String windowIconPath = "";      // 自定义游戏窗口图标 PNG 路径（注入到 <gameDir>/icons/）
     private String customMenuBackgroundVideo = "";  // 自定义主菜单背景视频路径（启动前提取 6 帧生成 panorama 资源包）
-    private String customNativesPath = "";   // 自定义原生库目录路径（为空则从版本 libraries 提取 natives)
-
-    // 导航自定义：隐藏的导航项 route 列表（核心区不可隐藏）
-    private java.util.List<String> hiddenNavRoutes = new java.util.ArrayList<>();
-    // 导航折叠状态：已折叠的分区名（NavGroup.name）
-    private java.util.List<String> collapsedNavGroups = new java.util.ArrayList<>();
+    private String customNativesPath = "";   // 自定义原生库目录路径（为空则从版本 libraries 提取 natives）
 
     // 网络配置
     private String mirrorType = "OFFICIAL";        // OFFICIAL / BMCLAPI / CUSTOM
@@ -423,26 +418,6 @@ public final class Preferences {
     public synchronized String getCustomNativesPath() { return customNativesPath; }
     public synchronized void setCustomNativesPath(String v) {
         customNativesPath = v == null ? "" : v.trim(); scheduleSave();
-    }
-
-    // ===== 导航自定义 =====
-    /** 返回被隐藏的导航项 route 列表（不可变副本） */
-    public synchronized java.util.List<String> getHiddenNavRoutes() {
-        return new java.util.ArrayList<>(hiddenNavRoutes);
-    }
-    /** 设置隐藏的导航项 route 列表（核心区项会被自动过滤掉，由 UI 层保证） */
-    public synchronized void setHiddenNavRoutes(java.util.List<String> v) {
-        hiddenNavRoutes = (v == null) ? new java.util.ArrayList<>() : new java.util.ArrayList<>(v);
-        scheduleSave();
-    }
-    /** 返回已折叠的分区名列表（NavGroup.name，不可变副本） */
-    public synchronized java.util.List<String> getCollapsedNavGroups() {
-        return new java.util.ArrayList<>(collapsedNavGroups);
-    }
-    /** 设置已折叠的分区名列表 */
-    public synchronized void setCollapsedNavGroups(java.util.List<String> v) {
-        collapsedNavGroups = (v == null) ? new java.util.ArrayList<>() : new java.util.ArrayList<>(v);
-        scheduleSave();
     }
 
     // ===== 网络配置 =====
@@ -894,27 +869,6 @@ public final class Preferences {
         } catch (Exception e) {
             System.err.println("[Preferences] favoriteServers 字段损坏，已跳过: " + e.getMessage());
         }
-        // 导航自定义：隐藏的导航项 + 折叠的分区
-        try {
-            if (o.has("hiddenNavRoutes") && o.get("hiddenNavRoutes").isJsonArray()) {
-                hiddenNavRoutes = new java.util.ArrayList<>();
-                for (var elem : o.getAsJsonArray("hiddenNavRoutes")) {
-                    if (!elem.isJsonNull()) hiddenNavRoutes.add(elem.getAsString());
-                }
-            }
-        } catch (Exception e) {
-            System.err.println("[Preferences] hiddenNavRoutes 字段损坏，已跳过: " + e.getMessage());
-        }
-        try {
-            if (o.has("collapsedNavGroups") && o.get("collapsedNavGroups").isJsonArray()) {
-                collapsedNavGroups = new java.util.ArrayList<>();
-                for (var elem : o.getAsJsonArray("collapsedNavGroups")) {
-                    if (!elem.isJsonNull()) collapsedNavGroups.add(elem.getAsString());
-                }
-            }
-        } catch (Exception e) {
-            System.err.println("[Preferences] collapsedNavGroups 字段损坏，已跳过: " + e.getMessage());
-        }
         try {
             if (o.has("launchPresets") && o.get("launchPresets").isJsonObject()) {
                 launchPresets.clear();
@@ -1045,13 +999,6 @@ public final class Preferences {
             favArr.add(item);
         }
         o.add("favoriteServers", favArr);
-        // 导航自定义
-        var hiddenArr = new com.google.gson.JsonArray();
-        for (String r : hiddenNavRoutes) hiddenArr.add(r);
-        o.add("hiddenNavRoutes", hiddenArr);
-        var collapsedArr = new com.google.gson.JsonArray();
-        for (String g : collapsedNavGroups) collapsedArr.add(g);
-        o.add("collapsedNavGroups", collapsedArr);
         o.addProperty("gameRenderer", gameRenderer);
         o.addProperty("windowIconPath", windowIconPath);
         o.addProperty("customMenuBackgroundVideo", customMenuBackgroundVideo);

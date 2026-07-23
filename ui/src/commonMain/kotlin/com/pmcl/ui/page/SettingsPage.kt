@@ -43,11 +43,7 @@ import com.pmcl.ui.theme.glassCardElevation
 import com.pmcl.ui.viewmodel.LauncherViewModel
 
 @Composable
-fun SettingsPage(
-    vm: LauncherViewModel,
-    hiddenNavRoutes: Set<String> = emptySet(),
-    onToggleHiddenRoute: (String) -> Unit = {}
-) {
+fun SettingsPage(vm: LauncherViewModel) {
     val pref = remember { vm.preferences }
     val themeState = LocalThemeState.current
 
@@ -526,95 +522,8 @@ fun SettingsPage(
 
         Spacer(Modifier.height(16.dp))
 
-        // 导航自定义：选择侧边栏显示哪些项（核心区常驻不可隐藏）
-        NavCustomizeCard(hiddenNavRoutes, onToggleHiddenRoute)
-
-        Spacer(Modifier.height(16.dp))
-
         // 关于
         AboutCard(vm)
-    }
-}
-
-@Composable
-private fun NavCustomizeCard(
-    hiddenNavRoutes: Set<String>,
-    onToggleHiddenRoute: (String) -> Unit
-) {
-    Card(
-        Modifier.fillMaxWidth().glassCardBorder(),
-        colors = glassCardColors(),
-        elevation = glassCardElevation()
-    ) {
-        Column(Modifier.padding(16.dp)) {
-            Text(I18n.t("nav.customize"), style = MaterialTheme.typography.titleSmall,
-                 fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(4.dp))
-            Text(I18n.t("nav.customize.hint"),
-                 style = MaterialTheme.typography.labelSmall,
-                 color = MaterialTheme.colorScheme.outline)
-            Spacer(Modifier.height(12.dp))
-
-            com.pmcl.ui.navigation.allGroups.forEach { group ->
-                val items = com.pmcl.ui.navigation.destinationsByGroup(group)
-                if (items.isEmpty()) return@forEach
-
-                Text(
-                    I18n.t(group.labelKey),
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
-                )
-                items.forEach { dest ->
-                    val hidden = dest.route in hiddenNavRoutes
-                    val canToggle = group.collapsible
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .then(
-                                if (canToggle) Modifier.clickable { onToggleHiddenRoute(dest.route) }
-                                else Modifier
-                            )
-                            .padding(vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Checkbox(
-                            checked = !hidden || !canToggle,
-                            onCheckedChange = if (canToggle) { { onToggleHiddenRoute(dest.route) } } else null,
-                            enabled = canToggle,
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Icon(
-                            dest.icon,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                            tint = if (canToggle) MaterialTheme.colorScheme.onSurface
-                                   else MaterialTheme.colorScheme.outline
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            I18n.t(dest.labelKey),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = if (canToggle) MaterialTheme.colorScheme.onSurface
-                                    else MaterialTheme.colorScheme.outline
-                        )
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(8.dp))
-            // 恢复默认：清除所有隐藏项
-            if (hiddenNavRoutes.isNotEmpty()) {
-                TextButton(onClick = {
-                    // 逐项取消隐藏（核心区本就不在隐藏集合中，无需过滤）
-                    hiddenNavRoutes.toList().forEach(onToggleHiddenRoute)
-                }) {
-                    Text(I18n.t("nav.customize.reset"))
-                }
-            }
-        }
     }
 }
 
