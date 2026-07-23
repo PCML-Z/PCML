@@ -53,7 +53,11 @@ import java.nio.file.Paths
  *
  * 运行方式：./gradlew :ui:run
  */
-fun main() = application {
+fun main() {
+    // macOS 嵌入模式：让 JavaFX Glass 不抢占 NSApplication 主线程，
+    // 由 AWT 担任主事件循环。必须在 application{} 启动前设置。
+    System.setProperty("javafx.macosx.embed", "true")
+    application {
     // 启动时仅轻量读取窗口/主题偏好（不构造完整 Preferences，避免与 LauncherCore 重复加载）
     val prefPath = Paths.get(System.getProperty("user.home"), ".pmcl", "preferences.json")
     val borderless = remember { readBorderlessPref(prefPath.toString()) }
@@ -365,6 +369,7 @@ fun main() = application {
             metrics = perfHudMetrics,
             onClose = { vm.setPerfHudVisible(false) }
         )
+    }
     }
 }
 

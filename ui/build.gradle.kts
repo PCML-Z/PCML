@@ -50,13 +50,20 @@ kotlin {
                 implementation(libs.pty4j)
 
                 // JavaFX WebView（Wiki 内嵌浏览器：JFXPanel 嵌入 SwingPanel）
-                // openjfx 必须显式指定 OS classifier，否则只拉到空壳 pom，编译报 unresolved javafx.*
-                // 且每个模块的 classifier jar 独立，传递依赖不会自动带 classifier，需全部显式声明
+                // openjfx 必须显式指定 OS+架构 classifier，否则：
+                // 1. 无 classifier 只拉到空壳 pom，编译报 unresolved javafx.*
+                // 2. mac classifier 默认 x86_64，Apple Silicon 会加载失败
+                //    (libprism_es2.dylib: incompatible architecture have x86_64 need arm64)
+                //    导致 QuantumRenderer 初始化失败 → 整个窗口卡死
+                // 3. 每个模块的 classifier jar 独立，传递依赖不带 classifier，需全部显式声明
                 val fxVer = libs.versions.javafx.get()
                 val osName = System.getProperty("os.name").lowercase()
+                val osArch = System.getProperty("os.arch").lowercase()
                 val fxClassifier = when {
+                    osName.contains("mac") && osArch.contains("aarch64") -> "mac-aarch64"
                     osName.contains("mac") -> "mac"
                     osName.contains("windows") -> "win"
+                    osName.contains("linux") && osArch.contains("aarch64") -> "linux-aarch64"
                     osName.contains("linux") -> "linux"
                     else -> "linux"
                 }
