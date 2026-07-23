@@ -178,6 +178,13 @@ fun main() = application {
                 val isDragging = remember { mutableStateOf(false) }
 
                 DisposableEffect(Unit) {
+                    // M49 修复：透明窗口（transparent=true）在 macOS 上会跟随 contentPane
+                    // preferredSize 自动缩小。当 AnimatedVisibility(visible=false)（入场动画期间）
+                    // 内容不占空间时，preferredSize 仅剩 NavigationRail 宽度，窗口缩到 ~121px。
+                    // 设置 minimumSize 阻止 AWT 缩小；componentResized 兜底恢复异常缩小。
+                    val minW = 900
+                    val minH = 600
+                    window.minimumSize = java.awt.Dimension(minW, minH)
                     val updateShape = {
                         val maximized = window.extendedState == Frame.MAXIMIZED_BOTH
                         isMaximized = maximized
@@ -193,7 +200,16 @@ fun main() = application {
                     }
                     updateShape()
                     val listener = object : ComponentAdapter() {
-                        override fun componentResized(e: ComponentEvent?) { updateShape() }
+                        override fun componentResized(e: ComponentEvent?) {
+                            // 兜底：minimumSize 未及时生效时主动恢复
+                            if (window.width < minW || window.height < minH) {
+                                window.setSize(
+                                    maxOf(window.width, minW),
+                                    maxOf(window.height, minH)
+                                )
+                            }
+                            updateShape()
+                        }
                         override fun componentMoved(e: ComponentEvent?) { updateShape() }
                     }
                     window.addComponentListener(listener)
