@@ -181,10 +181,18 @@ fun main() = application {
                     // M49 修复：透明窗口（transparent=true）在 macOS 上会跟随 contentPane
                     // preferredSize 自动缩小。当 AnimatedVisibility(visible=false)（入场动画期间）
                     // 内容不占空间时，preferredSize 仅剩 NavigationRail 宽度，窗口缩到 ~121px。
-                    // 设置 minimumSize 阻止 AWT 缩小；componentResized 兜底恢复异常缩小。
+                    //
+                    // 三重兜底：
+                    // 1. minimumSize 阻止 AWT pack 主动缩小
+                    // 2. componentResized 监听异常缩小并恢复
+                    // 3. Timer 周期检查（componentResized 在透明窗口首次 pack 时可能不触发）
                     val minW = 900
                     val minH = 600
+                    val targetW = 1100
+                    val targetH = 700
                     window.minimumSize = java.awt.Dimension(minW, minH)
+                    // 首次强制设置目标尺寸，避免 pack 用过小的 preferredSize
+                    window.setSize(targetW, targetH)
                     val updateShape = {
                         val maximized = window.extendedState == Frame.MAXIMIZED_BOTH
                         isMaximized = maximized
@@ -199,21 +207,53 @@ fun main() = application {
                         window.background = java.awt.Color(0, 0, 0, 0)
                     }
                     updateShape()
+                    val restoreIfTooSmall = {
+                        // 异常缩小（< 最小尺寸）时恢复到目标尺寸，而非仅最小尺寸
+                        // 否则用户会看到 900x600 的偏小窗口
+                        if (window.width < minW || window.height < minH) {
+                            window.setSize(targetW, targetH)
+                            updateShape()
+                        }
+                    }
                     val listener = object : ComponentAdapter() {
                         override fun componentResized(e: ComponentEvent?) {
-                            // 兜底：minimumSize 未及时生效时主动恢复
-                            if (window.width < minW || window.height < minH) {
-                                window.setSize(
-                                    maxOf(window.width, minW),
-                                    maxOf(window.height, minH)
-                                )
-                            }
+                            restoreIfTooSmall()
                             updateShape()
                         }
                         override fun componentMoved(e: ComponentEvent?) { updateShape() }
                     }
                     window.addComponentListener(listener)
-                    onDispose { window.removeComponentListener(listener) }
+                    // Timer 兜底：前 3 秒每 100ms 检查（覆盖入场动画期），之后每 1s 检查
+                    // 解决 componentResized 在透明窗口首次 pack 时可能不触发的问题
+                    val timer = java.util.Timer("PmclWindowSizeGuard", true)
+                    var slowTimer: java.util.Timer? = null
+                    var tick = 0
+                    timer.scheduleAtFixedRate(object : java.util.TimerTask() {
+                        override fun run() {
+                            javax.swing.SwingUtilities.invokeLater {
+                                restoreIfTooSmall()
+                            }
+                            tick++
+                            // 30 次后（约 3 秒）切到低频 1s 检查
+                            if (tick == 30) {
+                                timer.cancel()
+                                val st = java.util.Timer("PmclWindowSizeGuardSlow", true)
+                                slowTimer = st
+                                st.scheduleAtFixedRate(object : java.util.TimerTask() {
+                                    override fun run() {
+                                        javax.swing.SwingUtilities.invokeLater {
+                                            restoreIfTooSmall()
+                                        }
+                                    }
+                                }, 0, 1000)
+                            }
+                        }
+                    }, 0, 100)
+                    onDispose {
+                        timer.cancel()
+                        slowTimer?.cancel()
+                        window.removeComponentListener(listener)
+                    }
                 }
                 MaterialTheme(colorScheme = scheme) {
                     Surface(
