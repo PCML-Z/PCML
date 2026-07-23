@@ -174,9 +174,11 @@ public final class ModDependencyResolver {
 
                 if (onStatus != null) onStatus.accept("检测到 " + deps.size() + " 个依赖，开始解析...");
 
-                // 3. 递归处理依赖
+                // 3. 递归处理依赖（仅在此处调用一次 getInstalledModIds，递归内增量更新集合）
+                Set<String> installedModIds = getInstalledModIds(versionId, gameVersion);
                 resolveDependencies(deps, gameVersion, versionId, processing,
-                        installed, skippedInstalled, skippedSystem, failed, notFound, onStatus, 0);
+                        installed, skippedInstalled, skippedSystem, failed, notFound,
+                        onStatus, 0, installedModIds);
 
             } catch (Throwable e) {
                 failed.add(modFile.getFileName() + ": " + e.getMessage());
@@ -200,17 +202,15 @@ public final class ModDependencyResolver {
      * @param notFound         未找到列表（输出）
      * @param onStatus         状态回调
      * @param depth            递归深度（限制最大深度 10）
+     * @param installedModIds  已安装 mod 的 modId 集合（可变，递归过程中增量更新）
      */
     private void resolveDependencies(List<String> deps, String gameVersion, String versionId,
                                      Set<String> processing,
                                      List<String> installed, List<String> skippedInstalled,
                                      List<String> skippedSystem, List<String> failed,
                                      List<String> notFound, Consumer<String> onStatus,
-                                     int depth) {
+                                     int depth, Set<String> installedModIds) {
         if (depth > 10) return; // 防止无限递归
-
-        // 获取已安装 mod 的 modId 集合
-        Set<String> installedModIds = getInstalledModIds(versionId, gameVersion);
 
         for (String dep : deps) {
             // 解析依赖名：可能是 "modId" 或 "modId@version" 或 {"modId": "versionRange"} 形式
@@ -268,7 +268,7 @@ public final class ModDependencyResolver {
                     if (depMeta != null && depMeta.getDepends() != null && !depMeta.getDepends().isEmpty()) {
                         resolveDependencies(depMeta.getDepends(), gameVersion, versionId,
                                 processing, installed, skippedInstalled, skippedSystem,
-                                failed, notFound, onStatus, depth + 1);
+                                failed, notFound, onStatus, depth + 1, installedModIds);
                     }
                 }
             } catch (Throwable e) {
@@ -290,12 +290,7 @@ public final class ModDependencyResolver {
     private ModFile findCompatibleMod(String modId, String gameVersion) {
         // 通过 ModMarketManager 的客户端列表查询
         try {
-            // 用反射获取 clients
-            java.lang.reflect.Field f = ModMarketManager.class.getDeclaredField("clients");
-            f.setAccessible(true);
-            @SuppressWarnings("unchecked")
-            List<com.pmcl.core.market.ModMarketClient> clients =
-                    (List<com.pmcl.core.market.ModMarketClient>) f.get(marketManager);
+            List<com.pmcl.core.market.ModMarketClient> clients = marketManager.getClients();
 
             for (com.pmcl.core.market.ModMarketClient client : clients) {
                 try {

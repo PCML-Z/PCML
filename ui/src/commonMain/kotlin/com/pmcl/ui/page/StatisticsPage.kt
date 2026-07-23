@@ -53,6 +53,7 @@ import com.pmcl.core.stats.PlayTimeTracker
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.time.LocalDate
@@ -1016,6 +1017,7 @@ private fun SessionListCard(vm: LauncherViewModel, entranceDelay: Int = 0) {
     var expanded by remember { mutableStateOf(false) }
     val pageSize = 10
     var currentPage by remember { mutableIntStateOf(0) }
+    val ioScope = rememberCoroutineScope()
 
     LaunchedEffect(expanded) {
         if (expanded && sessions.isEmpty()) {
@@ -1063,9 +1065,12 @@ private fun SessionListCard(vm: LauncherViewModel, entranceDelay: Int = 0) {
                         OutlinedButton(
                             onClick = {
                                 currentPage++
-                                val tracker = vm.core.playTimeTracker()
-                                sessions = tracker.getSessions(currentPage * pageSize, pageSize) +
-                                    sessions.take(currentPage * pageSize)
+                                ioScope.launch {
+                                    val more = withContext(Dispatchers.IO) {
+                                        vm.core.playTimeTracker().getSessions(currentPage * pageSize, pageSize)
+                                    }
+                                    sessions = sessions + more
+                                }
                             },
                             modifier = Modifier.fillMaxWidth()
                         ) { Text(I18n.t("stats.load_more"), style = MaterialTheme.typography.labelMedium) }

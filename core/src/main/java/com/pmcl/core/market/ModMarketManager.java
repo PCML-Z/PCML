@@ -7,6 +7,7 @@ import okhttp3.OkHttpClient;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
@@ -49,6 +50,11 @@ public final class ModMarketManager {
                 .filter(c -> "modrinth".equals(c.source()))
                 .findFirst()
                 .orElse(null);
+    }
+
+    /** 获取所有已注册的市场客户端列表（不可变视图） */
+    public List<ModMarketClient> getClients() {
+        return Collections.unmodifiableList(clients);
     }
 
     /**

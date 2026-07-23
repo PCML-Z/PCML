@@ -162,20 +162,7 @@ public final class ModUpdateChecker {
 
     /** 获取市场客户端列表 */
     private List<ModMarketClient> getMarketClients() {
-        // ModMarketManager 没有直接暴露 clients，用 source 判断
-        // 这里通过调用 search 间接验证可用性
-        List<ModMarketClient> clients = new ArrayList<>();
-        // 通过反射获取 clients（ModMarketManager.clients 是 CopyOnWriteArrayList）
-        try {
-            java.lang.reflect.Field f = ModMarketManager.class.getDeclaredField("clients");
-            f.setAccessible(true);
-            @SuppressWarnings("unchecked")
-            List<ModMarketClient> list = (List<ModMarketClient>) f.get(marketManager);
-            if (list != null) clients.addAll(list);
-        } catch (Throwable ignored) {
-            // 反射失败，返回空列表
-        }
-        return clients;
+        return marketManager.getClients();
     }
 
     /**

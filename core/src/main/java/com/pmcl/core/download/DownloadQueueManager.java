@@ -611,10 +611,10 @@ public final class DownloadQueueManager {
         storeResumeWork(task.id, () -> runFileDownload(task, url, target));
         try {
             // 先 HEAD 请求获取文件大小（可选，失败不影响下载）
-            try {
-                long size = downloadManager.httpClient().newCall(
-                        new okhttp3.Request.Builder().url(downloadManager.mirror().rewrite(url)).head().build()
-                ).execute().body().contentLength();
+            try (okhttp3.Response resp = downloadManager.httpClient().newCall(
+                    new okhttp3.Request.Builder().url(downloadManager.mirror().rewrite(url)).head().build()
+            ).execute()) {
+                long size = resp.body() != null ? resp.body().contentLength() : -1;
                 if (size > 0) task.totalBytes = size;
             } catch (Throwable ignored) {}
 

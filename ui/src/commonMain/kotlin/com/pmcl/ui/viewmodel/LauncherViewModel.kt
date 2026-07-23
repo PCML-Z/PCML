@@ -413,6 +413,8 @@ class LauncherViewModel {
 
     @PublishedApi internal val _musicCurrentMs = MutableStateFlow(0L)
     val musicCurrentMs: StateFlow<Long> = _musicCurrentMs.asStateFlow()
+    // 音乐进度节流：记录上次发射的整秒值，仅在整秒变化时才更新 _musicCurrentMs
+    @Volatile private var lastMusicProgressSec = -1L
 
     @PublishedApi internal val _musicDurationMs = MutableStateFlow(0L)
     val musicDurationMs: StateFlow<Long> = _musicDurationMs.asStateFlow()
@@ -946,7 +948,12 @@ class LauncherViewModel {
                 }
             }
             override fun onProgress(currentMs: Long, durationMs: Long) {
-                _musicCurrentMs.value = currentMs
+                // 节流：仅当整秒变化时才发射，避免每秒 4-10 次高频更新导致全局重组
+                val sec = currentMs / 1000
+                if (sec != lastMusicProgressSec) {
+                    lastMusicProgressSec = sec
+                    _musicCurrentMs.value = currentMs
+                }
                 if (durationMs > 0) _musicDurationMs.value = durationMs
             }
             override fun onError(message: String) {

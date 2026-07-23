@@ -18,7 +18,12 @@ import java.io.InputStream;
 import java.nio.file.*;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
@@ -252,26 +257,37 @@ public final class ModpackManager {
                 InstallProgress.Stage.DOWNLOAD_ASSETS, 0, manifest.files.size(),
                 "正在下载模组 (0/" + manifest.files.size() + ")..."));
 
-        int[] completed = {0};
-        for (ModpackFile mf : manifest.files) {
-            if (mf.downloadUrl != null && !mf.downloadUrl.isEmpty()) {
-                Path target = instanceDir.resolve(mf.path).normalize();
-                if (!target.startsWith(instanceDir)) {
-                    System.err.println("[ModpackManager] 跳过非法路径: " + mf.path);
-                    continue;
-                }
-                Files.createDirectories(target.getParent());
-                try {
-                    downloads.downloadTo(mf.downloadUrl, target);
-                } catch (Exception e) {
-                    // 单个 mod 下载失败不中断整体导入
-                    System.err.println("[ModpackManager] 模组下载失败: " + mf.path + " - " + e.getMessage());
-                }
+        AtomicInteger completed = new AtomicInteger(0);
+        ExecutorService pool = Executors.newFixedThreadPool(
+                Math.min(16, Math.max(2, manifest.files.size())));
+        final Path instanceDirFinal = instanceDir;
+        try {
+            List<CompletableFuture<Void>> futures = new ArrayList<>();
+            for (ModpackFile mf : manifest.files) {
+                futures.add(CompletableFuture.runAsync(() -> {
+                    if (mf.downloadUrl != null && !mf.downloadUrl.isEmpty()) {
+                        Path target = instanceDirFinal.resolve(mf.path).normalize();
+                        if (!target.startsWith(instanceDirFinal)) {
+                            System.err.println("[ModpackManager] 跳过非法路径: " + mf.path);
+                            return;
+                        }
+                        try {
+                            Files.createDirectories(target.getParent());
+                            downloads.downloadTo(mf.downloadUrl, target);
+                        } catch (Exception e) {
+                            // 单个 mod 下载失败不中断整体导入
+                            System.err.println("[ModpackManager] 模组下载失败: " + mf.path + " - " + e.getMessage());
+                        }
+                    }
+                    int done = completed.incrementAndGet();
+                    if (progress != null) progress.accept(new InstallProgress(
+                            InstallProgress.Stage.DOWNLOAD_ASSETS, done, manifest.files.size(),
+                            "正在下载模组 (" + done + "/" + manifest.files.size() + ")..."));
+                }, pool));
             }
-            completed[0]++;
-            if (progress != null) progress.accept(new InstallProgress(
-                    InstallProgress.Stage.DOWNLOAD_ASSETS, completed[0], manifest.files.size(),
-                    "正在下载模组 (" + completed[0] + "/" + manifest.files.size() + ")..."));
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+        } finally {
+            pool.shutdown();
         }
 
         // 5. 解压 overrides
@@ -780,52 +796,68 @@ public final class ModpackManager {
                     }
                 }
 
-                // 查询每个 project 的最新版本
+                // 查询每个 project 的最新版本（并行化，避免 100-200 个 mod 串行 HTTP 请求）
                 List<ModUpdate> updates = new ArrayList<>();
                 int checkedCount = hashToProjectId.size();
 
-                for (String hash : hashToProjectId.keySet()) {
-                    String pid = hashToProjectId.get(hash);
-                    String currentVid = hashToCurrentVersionId.get(hash);
-                    String currentVnum = hashToCurrentVersionNumber.get(hash);
-                    String fileName = hashToFile.get(hash);
-                    if (fileName.startsWith("mods/")) {
-                        fileName = fileName.substring("mods/".length());
-                    }
-
-                    try {
-                        JsonObject latest = modrinth.getLatestVersion(pid, gameVersion, loader);
-                        if (latest == null) continue;
-
-                        String latestVid = safeStr(latest, "id", "");
-                        String latestVnum = safeStr(latest, "version_number", "");
-
-                        // 对比 version_id，不同则有更新
-                        if (!latestVid.isEmpty() && !latestVid.equals(currentVid)) {
-                            // 提取下载 URL
-                            String downloadUrl = "";
-                            if (latest.has("files") && latest.get("files").isJsonArray()) {
-                                for (JsonElement fe : latest.getAsJsonArray("files")) {
-                                    JsonObject fobj = fe.getAsJsonObject();
-                                    boolean primary = !fobj.has("primary") || fobj.get("primary").getAsBoolean();
-                                    if (primary) {
-                                        downloadUrl = safeStr(fobj, "url", "");
-                                        break;
-                                    }
-                                }
-                                // 如果没有 primary 文件，取第一个
-                                if (downloadUrl.isEmpty() && latest.getAsJsonArray("files").size() > 0) {
-                                    downloadUrl = safeStr(latest.getAsJsonArray("files").get(0).getAsJsonObject(), "url", "");
-                                }
-                            }
-
-                            updates.add(new ModUpdate(fileName, currentVnum, latestVnum,
-                                    pid, downloadUrl, loader));
+                ExecutorService pool = Executors.newFixedThreadPool(
+                        Math.min(8, Math.max(2, hashToProjectId.size())));
+                try {
+                    ConcurrentHashMap<String, ModUpdate> resultMap = new ConcurrentHashMap<>();
+                    List<CompletableFuture<Void>> futures = new ArrayList<>();
+                    for (String hash : hashToProjectId.keySet()) {
+                        final String pid = hashToProjectId.get(hash);
+                        final String currentVid = hashToCurrentVersionId.get(hash);
+                        final String currentVnum = hashToCurrentVersionNumber.get(hash);
+                        String fileName = hashToFile.get(hash);
+                        if (fileName.startsWith("mods/")) {
+                            fileName = fileName.substring("mods/".length());
                         }
-                    } catch (Exception e) {
-                        // 单个 mod 查询失败不中断整体检查
-                        System.err.println("[ModpackManager] 查询 " + pid + " 最新版本失败: " + e.getMessage());
+                        final String fn = fileName;
+                        futures.add(CompletableFuture.runAsync(() -> {
+                            try {
+                                JsonObject latest = modrinth.getLatestVersion(pid, gameVersion, loader);
+                                if (latest == null) return;
+
+                                String latestVid = safeStr(latest, "id", "");
+                                String latestVnum = safeStr(latest, "version_number", "");
+
+                                // 对比 version_id，不同则有更新
+                                if (!latestVid.isEmpty() && !latestVid.equals(currentVid)) {
+                                    // 提取下载 URL
+                                    String downloadUrl = "";
+                                    if (latest.has("files") && latest.get("files").isJsonArray()) {
+                                        for (JsonElement fe : latest.getAsJsonArray("files")) {
+                                            JsonObject fobj = fe.getAsJsonObject();
+                                            boolean primary = !fobj.has("primary") || fobj.get("primary").getAsBoolean();
+                                            if (primary) {
+                                                downloadUrl = safeStr(fobj, "url", "");
+                                                break;
+                                            }
+                                        }
+                                        // 如果没有 primary 文件，取第一个
+                                        if (downloadUrl.isEmpty() && latest.getAsJsonArray("files").size() > 0) {
+                                            downloadUrl = safeStr(latest.getAsJsonArray("files").get(0).getAsJsonObject(), "url", "");
+                                        }
+                                    }
+
+                                    resultMap.put(hash, new ModUpdate(fn, currentVnum, latestVnum,
+                                            pid, downloadUrl, loader));
+                                }
+                            } catch (Exception e) {
+                                // 单个 mod 查询失败不中断整体检查
+                                System.err.println("[ModpackManager] 查询 " + pid + " 最新版本失败: " + e.getMessage());
+                            }
+                        }, pool));
                     }
+                    CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+                    // 按原 hashToProjectId.keySet() 顺序收集结果，保持顺序稳定
+                    for (String hash : hashToProjectId.keySet()) {
+                        ModUpdate mu = resultMap.get(hash);
+                        if (mu != null) updates.add(mu);
+                    }
+                } finally {
+                    pool.shutdown();
                 }
 
                 return new ModpackUpdateResult(instanceName, updates, checkedCount, null);

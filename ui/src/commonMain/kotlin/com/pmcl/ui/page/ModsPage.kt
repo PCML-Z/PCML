@@ -425,7 +425,7 @@ fun ModsPage(vm: LauncherViewModel) {
                 verticalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier.weight(1f)
             ) {
-                itemsIndexed(processedMods, key = { _, m -> System.identityHashCode(m) }) { index, m ->
+                itemsIndexed(processedMods, key = { _, m -> m.getModId() ?: m.getJarFile() ?: m.toString() }) { index, m ->
                     Box(Modifier.animateItemPlacement()) {
                         StaggeredAppear(index) {
                             val updateInfo = updateInfoMap[m.getModId() ?: ""]
