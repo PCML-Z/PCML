@@ -3835,7 +3835,12 @@ class LauncherViewModel {
         title: String,
         onDone: () -> Unit
     ) {
-        val target = downloadQueueRect ?: return // 目标未就绪则直接执行回调
+        val target = downloadQueueRect
+        if (target == null) {
+            // 队列卡片未显示（队列为空），跳过动画直接执行下载
+            onDone()
+            return
+        }
         val id = flyIdCounter.incrementAndGet()
         val anim = com.pmcl.ui.animation.DownloadFlyState(
             id = id,
