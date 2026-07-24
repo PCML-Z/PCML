@@ -33,6 +33,7 @@ import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -927,10 +928,19 @@ private fun FileRow(
     vm: LauncherViewModel
 ) {
     val installingDeps by vm.installingDeps.collectAsState()
+    // 追踪卡片在窗口中的位置（供飞入动画使用）
+    var cardRect by remember { mutableStateOf<com.pmcl.ui.animation.Rect?>(null) }
     Surface(
         color = MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(6.dp),
         modifier = Modifier.fillMaxWidth()
+            .onGloballyPositioned { coords ->
+                val pos = coords.positionInWindow()
+                cardRect = com.pmcl.ui.animation.Rect(
+                    pos.x.toInt(), pos.y.toInt(),
+                    coords.size.width, coords.size.height
+                )
+            }
     ) {
         Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -945,9 +955,18 @@ private fun FileRow(
                 )
             }
             Button(onClick = {
-                vm.enqueueModDownload(f, targetGameVersion.ifBlank {
+                val rect = cardRect
+                val gv = targetGameVersion.ifBlank {
                     (f.getGameVersions() ?: emptyList()).firstOrNull() ?: ""
-                })
+                }
+                val title = f.getFileName() ?: I18n.t("market.download")
+                if (rect != null) {
+                    vm.triggerFlyAnimation(rect, title) {
+                        vm.enqueueModDownload(f, gv)
+                    }
+                } else {
+                    vm.enqueueModDownload(f, gv)
+                }
             }) { Text(I18n.t("market.download")) }
             Spacer(Modifier.width(4.dp))
             OutlinedButton(

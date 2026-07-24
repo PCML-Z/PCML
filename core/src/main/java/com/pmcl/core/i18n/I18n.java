@@ -288,6 +288,8 @@ public final class I18n {
         ZH.put("download.install", "安装");
         ZH.put("download.installing", "安装中…");
         ZH.put("download.install_done", "安装完成");
+        ZH.put("download.queue_title", "下载队列");
+        ZH.put("status.download_failed", "下载失败：{0}");
         ZH.put("download.install_failed", "安装失败");
         ZH.put("download.local_versions", "已安装版本");
 
@@ -2101,7 +2103,9 @@ public final class I18n {
         EN.put("download.refresh", "Refresh versions");
         EN.put("download.install", "Install");
         EN.put("download.installing", "Installing…");
-        EN.put("download.install_done", "Install complete");
+        EN.put("download.install_done", "Installation complete");
+        EN.put("download.queue_title", "Download Queue");
+        EN.put("status.download_failed", "Download failed: {0}");
         EN.put("download.install_failed", "Install failed");
         EN.put("download.local_versions", "Installed versions");
 
@@ -3840,6 +3844,8 @@ public final class I18n {
         JA.put("download.install", "インストール");
         JA.put("download.installing", "インストール中…");
         JA.put("download.install_done", "インストール完了");
+        JA.put("download.queue_title", "ダウンロードキュー");
+        JA.put("status.download_failed", "ダウンロード失敗：{0}");
         JA.put("download.install_failed", "インストール失敗");
         JA.put("download.local_versions", "インストール済みバージョン");
 

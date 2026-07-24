@@ -357,6 +357,19 @@ class LauncherViewModel {
     /** 队列监听器初始化标志，避免重复注册 */
     @Volatile private var queueListenerRegistered = false
 
+    // ===== 下载飞入动画 =====
+    private val _flyAnimations = MutableStateFlow<List<com.pmcl.ui.animation.DownloadFlyState>>(emptyList())
+    val flyAnimations: StateFlow<List<com.pmcl.ui.animation.DownloadFlyState>> = _flyAnimations.asStateFlow()
+
+    /** 悬浮下载队列卡片在窗口中的位置（由 FloatingDownloadQueue 上报） */
+    @Volatile private var downloadQueueRect: com.pmcl.ui.animation.Rect? = null
+
+    /** 脉冲触发计数（每次飞入完成 +1，驱动目标卡片缩放反馈） */
+    private val _pulseTrigger = MutableStateFlow(0)
+    val pulseTrigger: StateFlow<Int> = _pulseTrigger.asStateFlow()
+
+    private val flyIdCounter = java.util.concurrent.atomic.AtomicLong(0)
+
     // ===== 配置文件编辑器 =====
     private val _configFiles = MutableStateFlow<List<ConfigFileManager.ConfigFileEntry>>(emptyList())
     val configFiles: StateFlow<List<ConfigFileManager.ConfigFileEntry>> = _configFiles.asStateFlow()
@@ -3806,6 +3819,48 @@ class LauncherViewModel {
     fun setJavaPath(path: String) {
         preferences.setJavaPath(path)
         _status.value = if (path.isEmpty()) I18n.t("status.java_path_reset") else I18n.t("status.java_path_set", path)
+    }
+
+    // ============ 下载飞入动画 ============
+
+    /**
+     * 触发下载飞入动画。
+     *
+     * @param sourceRect 源卡片在窗口中的位置
+     * @param title      飞行卡片上显示的标题
+     * @param onDone     动画完成后的回调（实际入队下载）
+     */
+    fun triggerFlyAnimation(
+        sourceRect: com.pmcl.ui.animation.Rect,
+        title: String,
+        onDone: () -> Unit
+    ) {
+        val target = downloadQueueRect ?: return // 目标未就绪则直接执行回调
+        val id = flyIdCounter.incrementAndGet()
+        val anim = com.pmcl.ui.animation.DownloadFlyState(
+            id = id,
+            source = sourceRect,
+            target = target,
+            title = title,
+            onDone = onDone
+        )
+        _flyAnimations.value = _flyAnimations.value + anim
+    }
+
+    /**
+     * 飞入动画完成回调：移除动画、触发脉冲反馈、执行实际下载入队。
+     */
+    fun completeFlyAnimation(anim: com.pmcl.ui.animation.DownloadFlyState) {
+        _flyAnimations.value = _flyAnimations.value.filter { it.id != anim.id }
+        _pulseTrigger.value = _pulseTrigger.value + 1
+        try { anim.onDone() } catch (e: Throwable) {
+            _status.value = I18n.t("status.download_failed", e.message ?: I18n.t("common.unknown"))
+        }
+    }
+
+    /** 上报悬浮下载队列卡片的窗口坐标 */
+    fun updateDownloadQueueRect(rect: com.pmcl.ui.animation.Rect) {
+        downloadQueueRect = rect
     }
 
     // ============ Metal 渲染（Apple Silicon Mac 专用）============

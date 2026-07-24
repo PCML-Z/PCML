@@ -348,6 +348,30 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                     hostState = snackbarHostState,
                     modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp)
                 )
+
+                // 悬浮下载队列入口卡片（右下角，作为飞入动画目标）
+                val queueSummary by vm.queueSummary.collectAsState()
+                val pulseTrigger by vm.pulseTrigger.collectAsState()
+                if (queueSummary.total() > 0) {
+                    com.pmcl.ui.widget.FloatingDownloadQueue(
+                        summary = queueSummary,
+                        pulseTrigger = pulseTrigger,
+                        onClick = {
+                            current = NavTarget.BuiltIn(NavDestination.Download)
+                            navDirection = 1
+                        },
+                        onPositioned = { rect, _ -> vm.updateDownloadQueueRect(rect) },
+                        modifier = Modifier.align(Alignment.BottomEnd)
+                            .padding(end = 16.dp, bottom = 16.dp)
+                    )
+                }
+
+                // 下载飞入动画浮层（覆盖整个内容区）
+                val flyAnimations by vm.flyAnimations.collectAsState()
+                com.pmcl.ui.animation.DownloadFlyLayer(
+                    animations = flyAnimations,
+                    onComplete = { anim -> vm.completeFlyAnimation(anim) }
+                )
             }
 
             // 底部音乐迷你条（仅当有当前曲目时显示）

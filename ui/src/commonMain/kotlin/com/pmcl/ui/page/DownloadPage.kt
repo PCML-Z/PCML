@@ -11,6 +11,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
@@ -179,7 +181,9 @@ fun DownloadPage(vm: LauncherViewModel) {
                         subtitle = "${typeLabel(v.getType())} · ${(v.getReleaseTime() ?: "").take(10)}",
                         buttonText = I18n.t("download.install"),
                         installing = installing,
-                        onAction = { vm.enqueueVersionInstall(v.getId()) }
+                        onAction = { vm.enqueueVersionInstall(v.getId()) },
+                        vm = vm,
+                        flyTitle = v.getId()
                     )
                     }
                     }
@@ -206,7 +210,9 @@ fun DownloadPage(vm: LauncherViewModel) {
                                 else -> ModLoader.NEOFORGE
                             }
                             vm.enqueueModLoaderInstall(loader.name, lv.getGameVersion(), lv.getLoaderVersion())
-                        }
+                        },
+                        vm = vm,
+                        flyTitle = lv.getLoaderVersion()
                     )
                     }
                     }
@@ -234,19 +240,39 @@ private fun DownloadRow(
     installing: Boolean,
     selected: Boolean = false,
     onSelect: () -> Unit = {},
-    onAction: () -> Unit
+    onAction: () -> Unit,
+    vm: LauncherViewModel? = null,
+    flyTitle: String? = null
 ) {
     val colors = if (selected) MaterialTheme.colorScheme.primaryContainer
                  else MaterialTheme.colorScheme.surfaceVariant
+    // 追踪卡片位置（供飞入动画使用）
+    var cardRect by remember { mutableStateOf<com.pmcl.ui.animation.Rect?>(null) }
     Surface(onClick = onSelect, color = colors, shape = RoundedCornerShape(8.dp),
-            modifier = Modifier.fillMaxWidth()) {
+            modifier = Modifier.fillMaxWidth()
+                .onGloballyPositioned { coords ->
+                    if (vm != null && flyTitle != null) {
+                        val pos = coords.positionInWindow()
+                        cardRect = com.pmcl.ui.animation.Rect(
+                            pos.x.toInt(), pos.y.toInt(),
+                            coords.size.width, coords.size.height
+                        )
+                    }
+                }) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
                 Text(subtitle, style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Button(onClick = onAction, enabled = !installing) {
+            Button(onClick = {
+                val rect = cardRect
+                if (vm != null && flyTitle != null && rect != null) {
+                    vm.triggerFlyAnimation(rect, flyTitle, onAction)
+                } else {
+                    onAction()
+                }
+            }, enabled = !installing) {
                 Text(buttonText)
             }
         }
