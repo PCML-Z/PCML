@@ -67,7 +67,7 @@ kotlin {
                     osName.contains("linux") -> "linux"
                     else -> "linux"
                 }
-                listOf("javafx-base", "javafx-graphics", "javafx-controls", "javafx-web", "javafx-swing").forEach {
+                listOf("javafx-base", "javafx-graphics", "javafx-controls", "javafx-web", "javafx-swing", "javafx-media").forEach {
                     implementation("org.openjfx:$it:$fxVer:$fxClassifier")
                 }
             }

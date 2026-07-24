@@ -53,11 +53,18 @@ import java.nio.file.Paths
  *
  * 运行方式：./gradlew :ui:run
  */
-fun main() {
-    // macOS 嵌入模式：让 JavaFX Glass 不抢占 NSApplication 主线程，
-    // 由 AWT 担任主事件循环。必须在 application{} 启动前设置。
-    System.setProperty("javafx.macosx.embed", "true")
-    application {
+fun main() = application {
+    // JavaFX WebView 渲染管线优化（必须在 JavaFX toolkit 初始化前设置）：
+    // - prism.order=es2：强制 OpenGL ES2 硬件加速管线（默认在 JFXPanel 嵌入场景可能回退到 sw 软件渲染，
+    //   导致 WebView 滚动/重绘 FPS 极低，CPU 占用高）
+    // - prism.native=true：优先使用 native GL 实现
+    // - prism.verbose=true：启动时输出实际渲染管线到 stderr，便于诊断
+    // - javafx.animation.fullspeed=false：保持 vsync 同步，避免撕裂但保证流畅
+    System.setProperty("prism.order", "es2")
+    System.setProperty("prism.native", "true")
+    System.setProperty("prism.verbose", "true")
+    System.setProperty("prism.vsync", "true")
+
     // 启动时仅轻量读取窗口/主题偏好（不构造完整 Preferences，避免与 LauncherCore 重复加载）
     val prefPath = Paths.get(System.getProperty("user.home"), ".pmcl", "preferences.json")
     val borderless = remember { readBorderlessPref(prefPath.toString()) }
@@ -363,7 +370,6 @@ fun main() {
             metrics = perfHudMetrics,
             onClose = { vm.setPerfHudVisible(false) }
         )
-    }
     }
 }
 

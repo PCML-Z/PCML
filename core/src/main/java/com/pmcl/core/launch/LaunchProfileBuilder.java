@@ -726,6 +726,25 @@ public final class LaunchProfileBuilder {
     }
 
     /**
+     * 取 Maven 坐标的 group:artifact:classifier 部分（去掉版本号），用于同库不同版本去重。
+     * <p>
+     * Maven 坐标格式：
+     * <ul>
+     *   <li>{@code group:artifact:version}</li>
+     *   <li>{@code group:artifact:version:classifier}</li>
+     * </ul>
+     * 返回 {@code group:artifact:classifier}（无 classifier 时 classifier 为空字符串），
+     * 确保 asm 9.6 与 asm 9.8 产生相同 key 从而触发去重，
+     * 同时区分 {@code lwjgl}（主 artifact）与 {@code lwjgl:natives-macos}（native 条目）。
+     */
+    private static String libGaKey(String name) {
+        String[] parts = name.split(":");
+        if (parts.length < 2) return name;
+        String classifier = parts.length >= 4 ? parts[3] : "";
+        return parts[0] + ":" + parts[1] + ":" + classifier;
+    }
+
+    /**
      * 自动检测 mods 目录中是否有使用 Kotlin 的 mod，若有则下载 kotlin-stdlib 并加入 classpath。
      * <p>
      * 检测方式：扫描 mods/ 下所有 .jar，检查是否含 {@code kotlin/} 包前缀的 class 文件
@@ -1303,13 +1322,19 @@ public final class LaunchProfileBuilder {
                 childObj.add("javaVersion", parent.getRawJson().get("javaVersion"));
             }
             com.google.gson.JsonArray merged = new com.google.gson.JsonArray();
-            java.util.Set<String> childNames = new java.util.HashSet<>();
+            // 去重 key 用 group:artifact:classifier（不含版本号）。
+            // 修复：之前用完整 group:artifact:version 作 key，导致同库不同版本同时进入
+            // classpath（如 Fabric 的 asm 9.6 与原版 1.21.8 的 asm 9.8），Fabric Loader
+            // 的 LoaderUtil.verifyClasspath 检测到重复的 ClassReader.class 抛
+            // IllegalStateException，游戏崩溃。同 group:artifact+classifier 只保留 child 版本。
+            // 保留 classifier 区分主 artifact 与 native 条目，避免误删 LWJGL natives。
+            java.util.Set<String> childKeys = new java.util.HashSet<>();
             if (childObj.has("libraries")) {
                 for (var e : childObj.getAsJsonArray("libraries")) {
                     merged.add(e);
                     JsonObject libObj = e.getAsJsonObject();
                     if (libObj.has("name") && !libObj.get("name").isJsonNull()) {
-                        childNames.add(libObj.get("name").getAsString());
+                        childKeys.add(libGaKey(libObj.get("name").getAsString()));
                     }
                 }
             }
@@ -1318,7 +1343,7 @@ public final class LaunchProfileBuilder {
                     JsonObject libObj = e.getAsJsonObject();
                     if (!libObj.has("name") || libObj.get("name").isJsonNull()) continue;
                     String name = libObj.get("name").getAsString();
-                    if (!childNames.contains(name)) merged.add(e);
+                    if (!childKeys.contains(libGaKey(name))) merged.add(e);
                 }
             }
             childObj.add("libraries", merged);
