@@ -335,19 +335,13 @@ public final class LaunchProfileBuilder {
             nativesDir = versionsDir.resolve(versionId).resolve("natives");
         }
 
-        if (!useCustomNatives) {
-            try {
-                java.nio.file.Files.createDirectories(nativesDir);
-                // 清空 natives 目录（避免旧库残留）
-                try (var stream = java.nio.file.Files.list(nativesDir)) {
-                    stream.forEach(p -> {
-                        try { java.nio.file.Files.deleteIfExists(p); } catch (IOException ignored) {}
-                    });
-                }
-            } catch (IOException e) {
-                throw new IOException("无法创建 natives 目录: " + nativesDir, e);
-            }
-        }
+        // natives 提取指纹缓存：用 .natives_fingerprint 记录上次提取时各 native jar 的 mtime+size，
+        // 文件未变更则跳过全量解压。1.21.8 有 ~10 个 LWJGL native jar，每次启动全量解压耗时显著，
+        // 而绝大多数情况下 native jar 在版本安装后不会变化。
+        // 注意：指纹文件放在 nativesDir 外层（versions/{id}/ 下），避免被清空操作删除。
+        Path nativesFpFile = versionsDir.resolve(versionId).resolve(".natives_fingerprint");
+        java.util.List<Path> nativeJarsToExtract = new java.util.ArrayList<>();
+        java.util.Map<String, String> currFp = new java.util.LinkedHashMap<>();
 
         for (Library lib : vj.getLibraries()) {
             if (!lib.appliesToCurrentOs()) continue;
@@ -359,7 +353,8 @@ public final class LaunchProfileBuilder {
                 if (!useCustomNatives) {
                     Path nativeJar = librariesDir.resolve(lib.getPath());
                     if (java.nio.file.Files.exists(nativeJar)) {
-                        extractNatives(nativeJar, nativesDir);
+                        nativeJarsToExtract.add(nativeJar);
+                        currFp.put(nativeJar.toString(), nativeFingerprint(nativeJar));
                     }
                 }
                 continue;
@@ -380,9 +375,30 @@ public final class LaunchProfileBuilder {
                 String classifier = lib.getNativeClassifier();
                 Path nativeJar = librariesDir.resolve(lib.getPathForClassifier(classifier));
                 if (java.nio.file.Files.exists(nativeJar)) {
-                    extractNatives(nativeJar, nativesDir);
+                    nativeJarsToExtract.add(nativeJar);
+                    currFp.put(nativeJar.toString(), nativeFingerprint(nativeJar));
                 }
             }
+        }
+
+        // 比对指纹：与上次提取一致则跳过清空+解压，直接复用已提取的 natives 目录
+        boolean nativesChanged = !currFp.equals(readNativesFingerprint(nativesFpFile));
+        if (!useCustomNatives && nativesChanged) {
+            try {
+                java.nio.file.Files.createDirectories(nativesDir);
+                // 清空 natives 目录（避免旧库残留）
+                try (var stream = java.nio.file.Files.list(nativesDir)) {
+                    stream.forEach(p -> {
+                        try { java.nio.file.Files.deleteIfExists(p); } catch (IOException ignored) {}
+                    });
+                }
+                for (Path nativeJar : nativeJarsToExtract) {
+                    extractNatives(nativeJar, nativesDir);
+                }
+            } catch (IOException e) {
+                throw new IOException("无法提取 native 库到: " + nativesDir, e);
+            }
+            writeNativesFingerprint(nativesFpFile, currFp);
         }
 
         // === 自动检测并注入 Kotlin stdlib ===
@@ -997,6 +1013,51 @@ public final class LaunchProfileBuilder {
      * 跳过 META-INF 和目录，只提取本地库。
      * 本地库会被扁平化放到 targetDir 根目录（LWJGL 期望 java.library.path 直接包含 .dylib/.so/.dll）。
      */
+    /**
+     * native jar 指纹：mtime + size，用于判断 jar 是否变更。
+     * 比 hash 快（无读文件开销），对"安装后不变"的 native jar 足够可靠。
+     */
+    private static String nativeFingerprint(Path jar) {
+        try {
+            var attrs = java.nio.file.Files.readAttributes(jar, "size,lastModifiedTime");
+            return attrs.get("size") + "|" + attrs.get("lastModifiedTime");
+        } catch (Exception e) {
+            return "0|0";
+        }
+    }
+
+    /**
+     * 读取上次提取的 natives 指纹。格式：每行一个 "path<TAB>fingerprint"。
+     * 文件不存在或格式异常时返回空 Map（触发全量提取，安全回退）。
+     */
+    private static java.util.Map<String, String> readNativesFingerprint(Path fpFile) {
+        java.util.Map<String, String> map = new java.util.HashMap<>();
+        if (!java.nio.file.Files.exists(fpFile)) return map;
+        try (var lines = java.nio.file.Files.lines(fpFile, java.nio.charset.StandardCharsets.UTF_8)) {
+            lines.forEach(line -> {
+                int tab = line.indexOf('\t');
+                if (tab > 0) map.put(line.substring(0, tab), line.substring(tab + 1));
+            });
+        } catch (IOException ignored) {
+            // 读取失败：返回空 Map，触发全量提取
+        }
+        return map;
+    }
+
+    /**
+     * 写入本次提取的 natives 指纹，供下次启动比对。
+     */
+    private static void writeNativesFingerprint(Path fpFile, java.util.Map<String, String> fp) {
+        try {
+            java.nio.file.Files.createDirectories(fpFile.getParent());
+            StringBuilder sb = new StringBuilder();
+            fp.forEach((k, v) -> sb.append(k).append('\t').append(v).append('\n'));
+            java.nio.file.Files.writeString(fpFile, sb.toString(), java.nio.charset.StandardCharsets.UTF_8);
+        } catch (IOException ignored) {
+            // 写入失败不影响启动，下次会全量提取
+        }
+    }
+
     private void extractNatives(Path nativeJar, Path targetDir) throws IOException {
         try (java.util.jar.JarFile jar = new java.util.jar.JarFile(nativeJar.toFile())) {
             java.util.Enumeration<java.util.jar.JarEntry> entries = jar.entries();

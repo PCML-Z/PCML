@@ -39,7 +39,7 @@ public final class Preferences {
     private String language = "zh_CN";             // zh_CN / en_US
     private boolean firstLaunchCompleted = false;  // 是否完成首次启动欢迎流程
     private boolean agreementAccepted = false;     // 用户是否已同意用户协议、免责协议与许可证
-    private boolean predictiveLaunch = false;      // 预判启动开关：进入启动页时后台预启动最可能的版本，用户点启动时秒开
+    private boolean predictiveLaunch = true;       // 预判启动开关：进入启动页时后台预启动最可能的版本，用户点启动时秒开
     private java.util.List<String> pinnedVersions = new java.util.ArrayList<>();
     private java.util.List<String> recentVersions = new java.util.ArrayList<>();  // 最近使用（LRU，最多 5 个）
     private String lastSelectedVersion = "";       // 上次选中的版本（启动时恢复）
@@ -713,7 +713,7 @@ public final class Preferences {
             // 布尔字段
             useDarkTheme = loadBool(o, "useDarkTheme", false);
             dynamicColor = loadBool(o, "dynamicColor", false);
-            predictiveLaunch = loadBool(o, "predictiveLaunch", false);
+            predictiveLaunch = loadBool(o, "predictiveLaunch", true);
             borderlessWindow = loadBool(o, "borderlessWindow", false);
             showPerfHud = loadBool(o, "showPerfHud", false);
             parallaxBackground = loadBool(o, "parallaxBackground", false);
