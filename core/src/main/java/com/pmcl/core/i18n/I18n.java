@@ -1679,6 +1679,7 @@ public final class I18n {
         // ===== 状态消息 - 世界 =====
         ZH.put("status.worlds_scanned", "已扫描 {0} 个世界");
         ZH.put("status.scan_worlds_failed", "扫描世界失败：{0}");
+        ZH.put("status.backing_up", "正在备份 {0}…");
         ZH.put("status.world_backed_up", "世界已备份");
         ZH.put("status.backup_failed", "备份失败：{0}");
         ZH.put("status.world_deleted", "世界已删除");
@@ -3424,6 +3425,7 @@ public final class I18n {
         EN.put("status.java_path_set", "Java path set");
         EN.put("status.worlds_scanned", "Scanned {0} worlds");
         EN.put("status.scan_worlds_failed", "Failed to scan worlds: {0}");
+        EN.put("status.backing_up", "Backing up {0}…");
         EN.put("status.world_backed_up", "World backed up");
         EN.put("status.backup_failed", "Backup failed: {0}");
         EN.put("status.world_deleted", "World deleted");
@@ -5181,6 +5183,7 @@ public final class I18n {
         // ===== ステータスメッセージ - ワールド =====
         JA.put("status.worlds_scanned", "ワールド {0} 件をスキャン");
         JA.put("status.scan_worlds_failed", "ワールドスキャン失敗：{0}");
+        JA.put("status.backing_up", "{0} をバックアップ中…");
         JA.put("status.world_backed_up", "ワールドをバックアップ");
         JA.put("status.backup_failed", "バックアップ失敗：{0}");
         JA.put("status.world_deleted", "ワールドを削除");

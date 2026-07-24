@@ -104,10 +104,19 @@ public final class WorldManager {
             Files.walkFileTree(world.getDir(), new SimpleFileVisitor<>() {
                 @Override
                 public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                    // 跳过 Minecraft 运行时锁文件，避免读取正在运行的世界时失败
+                    String fileName = file.getFileName().toString();
+                    if ("session.lock".equals(fileName)) return FileVisitResult.CONTINUE;
                     String rel = world.getDir().relativize(file).toString().replace(File.separatorChar, '/');
                     zos.putNextEntry(new ZipEntry(rel));
                     Files.copy(file, zos);
                     zos.closeEntry();
+                    return FileVisitResult.CONTINUE;
+                }
+                @Override
+                public FileVisitResult visitFileFailed(Path file, IOException exc) {
+                    // 单个文件访问失败（权限/符号链接/占用）不应中断整个备份
+                    System.err.println("[WorldManager] 备份时跳过无法访问的文件: " + file + " - " + exc.getMessage());
                     return FileVisitResult.CONTINUE;
                 }
             });

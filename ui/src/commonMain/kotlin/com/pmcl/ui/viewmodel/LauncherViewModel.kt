@@ -52,6 +52,7 @@ import com.pmcl.ui.page.MusicTrack
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
@@ -3873,9 +3874,10 @@ class LauncherViewModel {
         }
     }
 
-    fun backupWorld(world: WorldManager.WorldInfo) {
-        scope.launch {
+    fun backupWorld(world: WorldManager.WorldInfo): Job {
+        return scope.launch {
             try {
+                _status.value = I18n.t("status.backing_up", world.name)
                 val zip = withContext(Dispatchers.IO) { core.worlds().backup(world) }
                 _status.value = I18n.t("status.world_backed_up", zip.fileName.toString())
             } catch (e: Throwable) {

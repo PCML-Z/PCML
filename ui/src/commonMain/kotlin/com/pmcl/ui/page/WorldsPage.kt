@@ -210,6 +210,7 @@ private fun WorldRow(
     var showRestoreDialog by remember { mutableStateOf(false) }
     var backups by remember { mutableStateOf<List<Path>>(emptyList()) }
     var loadingBackups by remember { mutableStateOf(false) }
+    var backing by remember { mutableStateOf(false) }
 
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant,
@@ -239,10 +240,21 @@ private fun WorldRow(
 
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = {
-                    scope.launch { vm.backupWorld(world) }
-                }) {
-                    Icon(Icons.Filled.Archive, null, Modifier.size(16.dp))
+                Button(
+                    onClick = {
+                        backing = true
+                        scope.launch {
+                            vm.backupWorld(world).join()
+                            backing = false
+                        }
+                    },
+                    enabled = !backing
+                ) {
+                    if (backing) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                    } else {
+                        Icon(Icons.Filled.Archive, null, Modifier.size(16.dp))
+                    }
                     Spacer(Modifier.width(4.dp))
                     Text(I18n.t("common.backup"))
                 }
