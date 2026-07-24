@@ -3180,6 +3180,9 @@ class LauncherViewModel {
             _status.value = I18n.t("status.building_launch_profile")
             var instanceId: String? = null
             var timeTracked = false
+            // 启动流程计时：记录从点击启动到 MC 主菜单就绪的完整时间线，输出到 latest.log
+            val tracer = com.pmcl.core.launch.LaunchTracer()
+            tracer.mark("launch_start")
             try {
                 // 先读取版本要求的 Java 版本，用于选择合适的 Java 运行时
                 // alpha/beta/1.7- 无 javaVersion 字段返回 0，按旧版本处理（需 Java 8）
@@ -3218,6 +3221,7 @@ class LauncherViewModel {
                 val javaArch = withContext(Dispatchers.IO) {
                     JavaRuntimeFinder.getArchitecture(javaExe)
                 }
+                tracer.mark("java_resolved")
                 // 龙芯平台兼容性检测：native 库可能不完整，提示用户
                 if (JavaRuntimeFinder.isLoongson()) {
                     val isLoongArch = JavaRuntimeFinder.isLoongArch64()
@@ -3386,6 +3390,7 @@ class LauncherViewModel {
                         core.profileBuilder().build(versionId, account, javaMajorVer, javaArch)
                     }
                 }
+                tracer.mark("profile_built")
 
                 // 创建/复用 GameLogger 持久化日志（多实例：每个实例独立日志文件）
                 instanceId = "${versionId}_${System.currentTimeMillis()}"
@@ -3481,7 +3486,8 @@ class LauncherViewModel {
                             }
                         } catch (_: Throwable) { }
                     },
-                    instLogger
+                    instLogger,
+                    tracer
                 )
                 val exitCode = withContext(Dispatchers.IO) { future.join() }
                 _status.value = I18n.t("status.game_exited_with_version", exitCode, versionId)

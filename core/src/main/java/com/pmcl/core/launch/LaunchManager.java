@@ -122,6 +122,19 @@ public final class LaunchManager {
                                                   String javaExecutable,
                                                   Consumer<String> onLog,
                                                   GameLogger logger) {
+        return launchAsync(profile, javaExecutable, onLog, logger, null);
+    }
+
+    /**
+     * 异步启动 MC（带 GameLogger 持久化 + 启动流程计时）。
+     * LaunchTracer 在进程启动/退出时记录里程碑，并从 MC 日志识别内部阶段。
+     * 进程退出时自动输出完整时间线到 GameLogger。
+     */
+    public CompletableFuture<Integer> launchAsync(LaunchProfile profile,
+                                                  String javaExecutable,
+                                                  Consumer<String> onLog,
+                                                  GameLogger logger,
+                                                  LaunchTracer tracer) {
         String versionId = profile.getVersionId();
         return CompletableFuture.supplyAsync(() -> {
             Process process = null;
@@ -146,7 +159,13 @@ public final class LaunchManager {
                 }
 
                 Thread[] readerHolder = new Thread[1];
-                process = launch(profile, javaExecutable, onLog, logger, readerHolder);
+                // 包装 onLog：在原有回调基础上注入 LaunchTracer 的 MC 阶段识别
+                // 这样无论日志走到 UI 还是 GameLogger，都会被检测里程碑
+                Consumer<String> tracedOnLog = tracer != null
+                        ? line -> { tracer.detectMcMilestone(line); if (onLog != null) onLog.accept(line); }
+                        : onLog;
+                process = launch(profile, javaExecutable, tracedOnLog, logger, readerHolder);
+                if (tracer != null) tracer.mark("process_started");
 
                 // 澪模式 L2：进程级调优（启动后，无需 sudo）
                 if (preferences != null && preferences.isMioModeEnabled() && preferences.isMioModeProcess()) {
@@ -176,6 +195,8 @@ public final class LaunchManager {
                 String exitMsg = "[PMCL] 进程退出 code=" + code;
                 if (logger != null) logger.append(exitMsg);
                 if (onLog != null) onLog.accept(exitMsg);
+                // 输出启动时间线（进程退出后，所有 MC 阶段已识别完毕）
+                if (tracer != null) tracer.outputTo(logger);
 
                 // Plugin afterLaunch hooks + GameExitedEvent
                 if (pluginManager != null) {
