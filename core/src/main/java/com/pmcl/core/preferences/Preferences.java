@@ -106,6 +106,11 @@ public final class Preferences {
     private boolean mioModeNetworkOpt = true;      // L1+：网络栈优化（IPv4优先+快速路径+DNS缓存，默认开）
     private boolean mioModeMetaspace = true;       // L1+：元空间管控（限制上限+类数据共享，默认开，防 OOM）
 
+    // ===== Metal 渲染（macOS Apple Silicon 专用）=====
+    // 开启时自动下载 MetalRender mod + Sodium + Fabric API + ModMenu 到 mods 目录，
+    // 使 Minecraft 通过 Apple Metal API 渲染，提升 macOS 上的帧率。
+    private boolean metalRenderEnabled = false;
+
     // ===== 多人联机 =====
     private String mpBackend = "TERRACOTTA";       // TERRACOTTA / EASYTIER / CONNECTX（默认 Terracotta，HMCL 同款官方陶瓦联机）
     private String connectxServerAddress = "";     // ConnectX 服务器地址
@@ -525,6 +530,10 @@ public final class Preferences {
     public synchronized boolean isMioModeMetaspace() { return mioModeMetaspace; }
     public synchronized void setMioModeMetaspace(boolean v) { mioModeMetaspace = v; scheduleSave(); }
 
+    // ===== Metal 渲染 =====
+    public synchronized boolean isMetalRenderEnabled() { return metalRenderEnabled; }
+    public synchronized void setMetalRenderEnabled(boolean v) { metalRenderEnabled = v; scheduleSave(); }
+
     // ===== 多人联机 =====
     public synchronized String getMpBackend() {
         // 默认使用 Terracotta（HMCL 同款官方陶瓦联机实现）
@@ -748,6 +757,7 @@ public final class Preferences {
             mioModeJitAggressive = loadBool(o, "mioModeJitAggressive", true);
             mioModeNetworkOpt = loadBool(o, "mioModeNetworkOpt", true);
             mioModeMetaspace = loadBool(o, "mioModeMetaspace", true);
+            metalRenderEnabled = loadBool(o, "metalRenderEnabled", false);
             // 整数字段（带范围校验）
             customAccentColor = loadInt(o, "customAccentColor", -1, Integer.MIN_VALUE, Integer.MAX_VALUE);
             monetSeedColor = loadInt(o, "monetSeedColor", -1, Integer.MIN_VALUE, Integer.MAX_VALUE);
@@ -1033,6 +1043,7 @@ public final class Preferences {
         o.addProperty("mioModeJitAggressive", mioModeJitAggressive);
         o.addProperty("mioModeNetworkOpt", mioModeNetworkOpt);
         o.addProperty("mioModeMetaspace", mioModeMetaspace);
+        o.addProperty("metalRenderEnabled", metalRenderEnabled);
         o.addProperty("mpBackend", mpBackend);
         o.addProperty("connectxServerAddress", connectxServerAddress);
         o.addProperty("connectxServerPort", connectxServerPort);

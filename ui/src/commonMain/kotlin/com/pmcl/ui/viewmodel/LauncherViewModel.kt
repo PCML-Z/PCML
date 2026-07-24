@@ -3808,6 +3808,57 @@ class LauncherViewModel {
         _status.value = if (path.isEmpty()) I18n.t("status.java_path_reset") else I18n.t("status.java_path_set", path)
     }
 
+    // ============ Metal 渲染（Apple Silicon Mac 专用）============
+
+    /** 检测当前是否为 Apple Silicon Mac */
+    fun isMetalRenderSupported(): Boolean {
+        return com.pmcl.core.metal.MetalRenderInstaller.isAppleSiliconMac()
+    }
+
+    /** 检查 MetalRender mod 是否已安装 */
+    fun isMetalRenderInstalled(): Boolean {
+        return try { core.metalRender().isInstalled } catch (e: Throwable) { false }
+    }
+
+    /**
+     * 切换 Metal 渲染开关。
+     * - 开启：从 Modrinth 下载 MetalRender + Sodium + Fabric API + ModMenu 到 mods 目录
+     * - 关闭：从 mods 目录删除上述 mod
+     *
+     * @param gameVersion 目标 MC 版本（从当前选中版本取）
+     * @param loader      加载器（默认 fabric）
+     */
+    fun toggleMetalRender(gameVersion: String?, loader: String = "fabric") {
+        val enable = !preferences.isMetalRenderEnabled()
+        preferences.setMetalRenderEnabled(enable)
+        scope.launch {
+            try {
+                if (enable) {
+                    val gv = gameVersion ?: _selectedVersion.value
+                    if (gv.isNullOrEmpty()) {
+                        _status.value = I18n.t("metal.no_version_selected")
+                        return@launch
+                    }
+                    _status.value = I18n.t("metal.installing")
+                    withContext(Dispatchers.IO) {
+                        core.metalRender().install(gv, loader) { progress ->
+                            _status.value = I18n.t("metal.downloading", progress)
+                        }
+                    }
+                    _status.value = I18n.t("metal.install_success")
+                } else {
+                    _status.value = I18n.t("metal.uninstalling")
+                    val deleted = withContext(Dispatchers.IO) { core.metalRender().uninstall() }
+                    _status.value = I18n.t("metal.uninstall_success", deleted.size)
+                }
+            } catch (e: Throwable) {
+                // 安装失败时回滚开关状态
+                preferences.setMetalRenderEnabled(!enable)
+                _status.value = I18n.t("metal.install_failed", e.message ?: I18n.t("common.unknown"))
+            }
+        }
+    }
+
     // ============ 世界管理 ============
 
     fun refreshWorlds() {

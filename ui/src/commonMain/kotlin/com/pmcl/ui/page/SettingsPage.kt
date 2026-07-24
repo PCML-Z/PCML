@@ -178,6 +178,12 @@ fun SettingsPage(vm: LauncherViewModel) {
 
         Spacer(Modifier.height(16.dp))
 
+        // Metal 渲染（仅 Apple Silicon Mac 显示）
+        if (vm.isMetalRenderSupported()) {
+            MetalRenderCard(vm, pref)
+            Spacer(Modifier.height(16.dp))
+        }
+
         // Java 运行时管理
         JavaRuntimeCard(vm, pref)
 
@@ -2125,4 +2131,44 @@ private fun DocumentViewerDialog(
             TextButton(onClick = onDismiss) { Text(I18n.t("common.close")) }
         }
     )
+}
+
+@Composable
+private fun MetalRenderCard(vm: LauncherViewModel, pref: com.pmcl.core.preferences.Preferences) {
+    var enabled by remember { mutableStateOf(pref.isMetalRenderEnabled()) }
+    val status by vm.status.collectAsState()
+    val selectedVersion by vm.selectedVersion.collectAsState()
+
+    Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(I18n.t("metal.title"), style = MaterialTheme.typography.titleSmall,
+                     fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.weight(1f))
+                Switch(
+                    checked = enabled,
+                    onCheckedChange = { v ->
+                        enabled = v
+                        vm.toggleMetalRender(selectedVersion)
+                    }
+                )
+            }
+            Spacer(Modifier.height(4.dp))
+            Text(I18n.t("metal.description"),
+                 style = MaterialTheme.typography.labelSmall,
+                 color = MaterialTheme.colorScheme.outline)
+            Spacer(Modifier.height(6.dp))
+            Text(I18n.t("metal.warning"),
+                 style = MaterialTheme.typography.labelSmall,
+                 color = MaterialTheme.colorScheme.error)
+            if (enabled) {
+                Spacer(Modifier.height(8.dp))
+                Text(status,
+                     style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.primary,
+                     maxLines = 2,
+                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            }
+        }
+    }
 }

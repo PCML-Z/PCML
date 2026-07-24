@@ -1677,6 +1677,20 @@ public final class I18n {
         ZH.put("status.java_path_reset", "Java 路径已重置");
         ZH.put("status.java_path_set", "Java 路径已设置");
 
+        // ===== Metal 渲染（Apple Silicon Mac 专用）=====
+        ZH.put("metal.title", "Metal 渲染加速");
+        ZH.put("metal.description", "使用 Apple Metal API 替换 OpenGL 渲染后端，提升 macOS 上的游戏帧率。仅支持 Apple Silicon (M1+) + Fabric + Sodium。");
+        ZH.put("metal.enable", "启用 Metal 渲染");
+        ZH.put("metal.installing", "正在安装 MetalRender 及依赖…");
+        ZH.put("metal.downloading", "正在下载: {0}");
+        ZH.put("metal.install_success", "MetalRender 安装完成，重启游戏生效");
+        ZH.put("metal.uninstalling", "正在卸载 MetalRender…");
+        ZH.put("metal.uninstall_success", "已卸载 {0} 个 mod 文件");
+        ZH.put("metal.install_failed", "MetalRender 安装失败：{0}");
+        ZH.put("metal.no_version_selected", "请先选择一个游戏版本");
+        ZH.put("metal.not_supported", "仅 Apple Silicon Mac 支持此功能");
+        ZH.put("metal.warning", "MetalRender 为第三方实验性 mod，可能存在兼容性问题。如遇崩溃请在设置中关闭。");
+
         // ===== 状态消息 - 世界 =====
         ZH.put("status.worlds_scanned", "已扫描 {0} 个世界");
         ZH.put("status.scan_worlds_failed", "扫描世界失败：{0}");
@@ -3425,6 +3439,21 @@ public final class I18n {
         EN.put("status.java_download_failed", "Java {0} download failed: {1}");
         EN.put("status.java_path_reset", "Java path reset");
         EN.put("status.java_path_set", "Java path set");
+
+        // ===== Metal rendering (Apple Silicon Mac only) =====
+        EN.put("metal.title", "Metal Rendering");
+        EN.put("metal.description", "Replaces OpenGL with Apple Metal API for better FPS on macOS. Requires Apple Silicon (M1+) + Fabric + Sodium.");
+        EN.put("metal.enable", "Enable Metal Rendering");
+        EN.put("metal.installing", "Installing MetalRender and dependencies…");
+        EN.put("metal.downloading", "Downloading: {0}");
+        EN.put("metal.install_success", "MetalRender installed. Restart the game to take effect.");
+        EN.put("metal.uninstalling", "Uninstalling MetalRender…");
+        EN.put("metal.uninstall_success", "Removed {0} mod file(s)");
+        EN.put("metal.install_failed", "MetalRender installation failed: {0}");
+        EN.put("metal.no_version_selected", "Please select a game version first");
+        EN.put("metal.not_supported", "Only available on Apple Silicon Mac");
+        EN.put("metal.warning", "MetalRender is a third-party experimental mod. May cause compatibility issues. Disable in settings if crashing.");
+
         EN.put("status.worlds_scanned", "Scanned {0} worlds");
         EN.put("status.scan_worlds_failed", "Failed to scan worlds: {0}");
         EN.put("status.backing_up", "Backing up {0}…");
@@ -5182,6 +5211,20 @@ public final class I18n {
         JA.put("status.java_download_failed", "Java {0} のダウンロード失敗：{1}");
         JA.put("status.java_path_reset", "Java パスをリセット");
         JA.put("status.java_path_set", "Java パスを設定");
+
+        // ===== Metal レンダリング（Apple Silicon Mac 専用）=====
+        JA.put("metal.title", "Metal レンダリング");
+        JA.put("metal.description", "OpenGL を Apple Metal API に置き換え、macOS でより高い FPS を実現します。Apple Silicon (M1+) + Fabric + Sodium が必要です。");
+        JA.put("metal.enable", "Metal レンダリングを有効化");
+        JA.put("metal.installing", "MetalRender と依存関係をインストール中…");
+        JA.put("metal.downloading", "ダウンロード中: {0}");
+        JA.put("metal.install_success", "MetalRender のインストール完了。ゲームを再起動してください。");
+        JA.put("metal.uninstalling", "MetalRender をアンインストール中…");
+        JA.put("metal.uninstall_success", "{0} 個の mod ファイルを削除しました");
+        JA.put("metal.install_failed", "MetalRender のインストール失敗：{0}");
+        JA.put("metal.no_version_selected", "ゲームバージョンを選択してください");
+        JA.put("metal.not_supported", "Apple Silicon Mac でのみ利用可能です");
+        JA.put("metal.warning", "MetalRender はサードパーティの実験的 mod です。互換性の問題が発生する可能性があります。クラッシュする場合は設定で無効化してください。");
 
         // ===== ステータスメッセージ - ワールド =====
         JA.put("status.worlds_scanned", "ワールド {0} 件をスキャン");

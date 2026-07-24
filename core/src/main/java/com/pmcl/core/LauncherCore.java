@@ -34,6 +34,7 @@ import com.pmcl.core.gamecontent.ResourcePackManager;
 import com.pmcl.core.gamecontent.ShaderPackManager;
 import com.pmcl.core.gamecontent.DatapackManager;
 import com.pmcl.core.i18n.I18n;
+import com.pmcl.core.metal.MetalRenderInstaller;
 import com.pmcl.core.install.IntegrityChecker;
 import com.pmcl.core.launch.CrashAnalyzer;
 import com.pmcl.core.launch.ProcessMonitor;
@@ -67,6 +68,7 @@ public final class LauncherCore {
     private final ModUpdateChecker modUpdateChecker;
     private final ModDependencyResolver modDependencyResolver;
     private final ModTagStore modTagStore;
+    private final MetalRenderInstaller metalRenderInstaller;
     private final PlayTimeTracker playTimeTracker;
     private final PastebinClient pastebinClient;
     private final LaunchProfileBuilder profileBuilder;
@@ -129,6 +131,8 @@ public final class LauncherCore {
                 modMarketManager, modLoaderManager, preferences);
         this.modUpdateChecker = new ModUpdateChecker(config, modMarketManager, preferences);
         this.modDependencyResolver = new ModDependencyResolver(config, modMarketManager, preferences);
+        this.metalRenderInstaller = new MetalRenderInstaller(
+                config, modMarketManager.getModrinthClient(), downloadManager);
         this.modTagStore = new com.pmcl.core.mods.ModTagStore(
                 Paths.get(System.getProperty("user.home"), ".pmcl", "mod_tags.json"));
         this.playTimeTracker = new PlayTimeTracker(
@@ -352,6 +356,9 @@ public final class LauncherCore {
     public ModLoaderManager modLoaders() { return modLoaderManager; }
 
     public ModMarketManager modMarket() { return modMarketManager; }
+
+    /** Metal 渲染安装器（Apple Silicon Mac 专用） */
+    public MetalRenderInstaller metalRender() { return metalRenderInstaller; }
 
     public ModManager modManager() { return modManager; }
     public ModTagStore modTagStore() { return modTagStore; }
