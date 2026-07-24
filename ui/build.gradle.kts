@@ -89,6 +89,24 @@ compose.desktop {
             packageName = "pmcl"
             packageVersion = "1.0.0"
 
+            // jlink 默认仅按显式 module 依赖打包，反射/运行时加载的模块需手动声明
+            // 缺失会导致 NoClassDefFoundError: java/lang/management/ManagementFactory 等
+            modules(
+                "java.management",      // ManagementFactory（Ktor/JavaFX 运行时检测）
+                "java.net.http",        // Ktor CIO engine / HTTP 客户端
+                "java.naming",          // JNDI（部分库初始化引用）
+                "java.sql",             // JDBC（如未来扩展）
+                "java.transaction.xa",  // 事务（部分库引用）
+                "java.scripting",       // Nashorn/ScriptEngine
+                "java.desktop",         // AWT/Swing（FileDialog、JFXPanel 宿主）
+                "java.instrument",      // agent 支持（部分启动器场景）
+                "jdk.crypto.cryptoki",  // 加密 provider（HTTPS 握手需要）
+                "jdk.crypto.ec",        // EC 曲线（TLS 1.3 / Xbox 认证）
+                "jdk.management",       // jdk.management.* 子包
+                "jdk.unsupported",      // sun.misc.Unsafe（pty4j / Netty 直接使用）
+                "jdk.security.auth"     // JAAS（部分认证流程）
+            )
+
             windows {
                 menuGroup = "PMCL"
                 upgradeUuid = "7f5e9c8a-3b2d-4e1f-9a8c-1b6d5e4f7a2c"
