@@ -4621,6 +4621,11 @@ class LauncherViewModel {
         openDir(core.resourcePacks().resourcePacksDir.toFile())
     }
 
+    /** 在系统文件管理中打开 screenshots 目录 */
+    fun openScreenshotsDir() {
+        openDir(core.screenshots().screenshotsDir.toFile())
+    }
+
     // ============ 数据包 ============
 
     fun refreshDatapacks(worldDir: java.nio.file.Path) {

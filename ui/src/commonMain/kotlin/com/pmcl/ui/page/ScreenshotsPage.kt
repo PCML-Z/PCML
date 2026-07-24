@@ -17,6 +17,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -116,6 +117,13 @@ fun ScreenshotsPage(vm: LauncherViewModel) {
                      modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(4.dp))
                 Text(I18n.t("screenshot.export_zip"))
+            }
+            Spacer(Modifier.width(8.dp))
+            OutlinedButton(onClick = { vm.openScreenshotsDir() }) {
+                Icon(Icons.Filled.Folder, contentDescription = null,
+                     modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(I18n.t("screenshot.open_folder"))
             }
             Spacer(Modifier.width(8.dp))
             OutlinedButton(onClick = { vm.refreshScreenshots() }) { Text(I18n.t("common.refresh")) }

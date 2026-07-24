@@ -1379,6 +1379,7 @@ public final class I18n {
         ZH.put("screenshot.export_zip", "导出 ZIP");
         ZH.put("screenshot.scan_hint", "已合并扫描：PMCL / 外部启动器 / 整合包版本目录下的 screenshots · 选中后按空格预览");
         ZH.put("screenshot.empty", "暂无截图。游戏内按 F2 截图后会自动保存到 screenshots 目录。");
+        ZH.put("screenshot.open_folder", "打开文件夹");
         ZH.put("screenshot.source", "来源: {0}");
         ZH.put("screenshot.copy", "复制");
         ZH.put("screenshot.preview", "预览");
@@ -3161,6 +3162,7 @@ public final class I18n {
         EN.put("screenshot.export_zip", "Export ZIP");
         EN.put("screenshot.scan_hint", "Merged scan: PMCL / external launcher / modpack version screenshots folders · Select then press Space to preview");
         EN.put("screenshot.empty", "No screenshots. Press F2 in-game to capture; they are saved to the screenshots folder.");
+        EN.put("screenshot.open_folder", "Open Folder");
         EN.put("screenshot.source", "Source: {0}");
         EN.put("screenshot.copy", "Copy");
         EN.put("screenshot.preview", "Preview");
@@ -4883,6 +4885,7 @@ public final class I18n {
         JA.put("screenshot.export_zip", "ZIP をエクスポート");
         JA.put("screenshot.scan_hint", "統合スキャン：PMCL / 外部ランチャー / Modpack バージョンの screenshots · 選択後 Space でプレビュー");
         JA.put("screenshot.empty", "スクリーンショットがありません。ゲーム内で F2 を押すと screenshots に保存されます。");
+        JA.put("screenshot.open_folder", "フォルダを開く");
         JA.put("screenshot.source", "ソース：{0}");
         JA.put("screenshot.copy", "コピー");
         JA.put("screenshot.preview", "プレビュー");
