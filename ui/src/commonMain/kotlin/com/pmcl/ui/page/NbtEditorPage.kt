@@ -38,6 +38,9 @@ fun NbtEditorPage(vm: LauncherViewModel) {
     var searchQuery by remember { mutableStateOf("") }
     var showUnsavedDialog by remember { mutableStateOf(false) }
     var pendingAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    // S18: 全局 expandAllState 移入 Composable 内部，避免跨页面状态污染
+    // 用 Boolean? 类型：null=未触发（保留节点默认展开状态），true=全部展开，false=全部折叠
+    var expandAll by remember { mutableStateOf<Boolean?>(null) }
 
     // 对话框状态
     var showAddChildDialog by remember { mutableStateOf<Pair<NbtTag.CompoundTag, Boolean>?>(null) }
@@ -95,13 +98,11 @@ fun NbtEditorPage(vm: LauncherViewModel) {
             // 全部展开/折叠（仅在有根节点时显示）
             if (root != null) {
                 TextButton(onClick = {
-                    // 通过 revision 触发重组，展开状态由 expandAll 控制
-                    expandAllState.value = true
-                    vm.updateNbtValue()
+                    // S18: 修改 expandAll 触发 NbtTreeNode 的 LaunchedEffect 同步展开状态
+                    expandAll = true
                 }) { Text(I18n.t("nbt.expand_all")) }
                 TextButton(onClick = {
-                    expandAllState.value = false
-                    vm.updateNbtValue()
+                    expandAll = false
                 }) { Text(I18n.t("nbt.collapse_all")) }
             }
 
@@ -164,9 +165,7 @@ fun NbtEditorPage(vm: LauncherViewModel) {
 
         // ===== 主内容区 =====
         if (root != null) {
-            // 引用 revision 强制重组
-            @Suppress("UNUSED_EXPRESSION") revision
-            val expandAll = expandAllState.value
+            // S18: expandAll 作为参数传入，由 NbtTreeNode 内部 LaunchedEffect 响应
             Column(modifier = Modifier.fillMaxSize().verticalScroll(scrollState)) {
                 NbtTreeNode(
                     tag = root!!,
@@ -282,9 +281,6 @@ fun NbtEditorPage(vm: LauncherViewModel) {
     }
 }
 
-/** 全局展开/折叠状态 */
-val expandAllState = mutableStateOf(false)
-
 // ===== 递归树节点 =====
 
 @Composable
@@ -293,7 +289,8 @@ private fun NbtTreeNode(
     name: String,
     depth: Int,
     searchQuery: String,
-    expandAll: Boolean,
+    // S18: Boolean? 类型，null=未触发（保留默认展开），true=全部展开，false=全部折叠
+    expandAll: Boolean?,
     isRoot: Boolean,
     vm: LauncherViewModel,
     onAddChild: (NbtTag.CompoundTag) -> Unit,
@@ -304,7 +301,13 @@ private fun NbtTreeNode(
     // 搜索匹配判断
     val matchesSearch = searchQuery.isEmpty() || name.contains(searchQuery, ignoreCase = true)
     var expanded by remember(name, depth) { mutableStateOf(depth < 2) }
-    if (expandAll) expanded = true
+    // S18: 用 LaunchedEffect 响应 expandAll 变化，避免组合期间写状态（原 if (expandAll) expanded = true 是反模式）
+    // null 时不修改 expanded（保留默认 depth < 2 行为），非 null 时同步展开/折叠
+    LaunchedEffect(expandAll) {
+        if (expandAll != null) {
+            expanded = expandAll
+        }
+    }
 
     val isContainer = tag is NbtTag.CompoundTag || tag is NbtTag.ListTag
     val isArray = tag is NbtTag.ByteArrayTag || tag is NbtTag.IntArrayTag || tag is NbtTag.LongArrayTag

@@ -104,6 +104,8 @@ public final class GitHubAuthFlow {
 
     private void pollOnce(DeviceCode dc, Consumer<String> onPending,
                           CompletableFuture<String> future) {
+        // S6: 取消/完成/异常后停止调度，避免无效请求触发限流
+        if (future.isDone()) return;
         String body = "client_id=" + URLEncoder.encode(CLIENT_ID, StandardCharsets.UTF_8) +
                 "&device_code=" + URLEncoder.encode(dc.getDeviceCode(), StandardCharsets.UTF_8) +
                 "&grant_type=" + URLEncoder.encode("urn:ietf:params:oauth:grant-type:device_code", StandardCharsets.UTF_8);
@@ -142,6 +144,8 @@ public final class GitHubAuthFlow {
             future.completeExceptionally(new RuntimeException("网络错误", e));
             return;
         }
+        // S6: 调度前再次检查，避免取消后仍发请求
+        if (future.isDone()) return;
         scheduler.schedule(() -> pollOnce(dc, onPending, future),
                 dc.getInterval(), TimeUnit.SECONDS);
     }

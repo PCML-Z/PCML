@@ -131,7 +131,8 @@ public final class ChunkedDownloader {
         // 分片下载到 .part 文件
         Path partFile = target.resolveSibling(target.getFileName() + ".part");
         // 加载已完成的分片进度（断点续传）
-        long[] chunkCompleted = loadChunkProgress(target, actualChunks);
+        // S15: 传入 url 校验，切换镜像后 hash 不匹配则丢弃旧进度，避免拼接不同文件数据
+        long[] chunkCompleted = loadChunkProgress(target, actualChunks, url);
         // 预分配文件
         try (RandomAccessFile raf = new RandomAccessFile(partFile.toFile(), "rw")) {
             raf.setLength(size);
@@ -187,7 +188,7 @@ public final class ChunkedDownloader {
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
         } catch (RuntimeException ex) {
             // 分片失败：保留 .part 文件和进度，尝试降级为单连接续传剩余分片
-            saveChunkProgress(target, chunkCompleted);
+            saveChunkProgress(target, chunkCompleted, url);
             try {
                 fallbackSingleConnection(url, partFile, target, size, chunkCompleted,
                         chunkSize, actualChunks, onProgress);
@@ -210,17 +211,27 @@ public final class ChunkedDownloader {
 
     /**
      * 加载分片进度（断点续传）。
-     * 返回每个分片已下载的字节数，无进度文件则返回全 0 数组。
+     * 返回每个分片已下载的字节数，无进度文件或 URL 不匹配则返回全 0 数组。
+     * <p>
+     * S15: 进度文件首行存储 URL hash，切换镜像后续传会因 hash 不匹配而丢弃旧进度，
+     * 避免拼接不同文件数据导致文件损坏。
      */
-    private long[] loadChunkProgress(Path target, int chunkCount) {
+    private long[] loadChunkProgress(Path target, int chunkCount, String url) {
         Path progressFile = target.resolveSibling(target.getFileName() + PROGRESS_SUFFIX);
         if (!Files.exists(progressFile)) return new long[chunkCount];
         try {
             List<String> lines = Files.readAllLines(progressFile, java.nio.charset.StandardCharsets.UTF_8);
+            if (lines.isEmpty()) return new long[chunkCount];
+            // 首行是 URL hash，校验不匹配则丢弃旧进度
+            String expectedHash = calculateUrlHash(url);
+            if (!expectedHash.equals(lines.get(0).trim())) {
+                return new long[chunkCount];
+            }
             long[] result = new long[chunkCount];
-            for (int i = 0; i < Math.min(lines.size(), chunkCount); i++) {
+            // 从第 2 行开始解析分片进度
+            for (int i = 0; i < Math.min(lines.size() - 1, chunkCount); i++) {
                 try {
-                    result[i] = Long.parseLong(lines.get(i).trim());
+                    result[i] = Long.parseLong(lines.get(i + 1).trim());
                 } catch (NumberFormatException ignored) {
                     result[i] = 0;
                 }
@@ -231,17 +242,34 @@ public final class ChunkedDownloader {
         }
     }
 
-    /** 保存分片进度到 .chunks 文件 */
-    private void saveChunkProgress(Path target, long[] chunkCompleted) {
+    /** 保存分片进度到 .chunks 文件（首行为 URL hash） */
+    private void saveChunkProgress(Path target, long[] chunkCompleted, String url) {
         Path progressFile = target.resolveSibling(target.getFileName() + PROGRESS_SUFFIX);
         try {
             StringBuilder sb = new StringBuilder();
+            sb.append(calculateUrlHash(url)).append('\n');
             for (long c : chunkCompleted) {
                 sb.append(c).append('\n');
             }
             Files.writeString(progressFile, sb.toString(), java.nio.charset.StandardCharsets.UTF_8);
         } catch (Exception ignored) {
             // 保存失败不影响下载流程
+        }
+    }
+
+    /** 计算 URL 的短 hash（SHA-256 前 16 字符），用于断点续传校验 */
+    private static String calculateUrlHash(String url) {
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] digest = md.digest(url.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder();
+            for (int i = 0; i < Math.min(8, digest.length); i++) {
+                hex.append(String.format("%02x", digest[i] & 0xff));
+            }
+            return hex.toString();
+        } catch (Exception e) {
+            // fallback: 用 url 长度 + hashCode
+            return "fallback_" + url.length() + "_" + url.hashCode();
         }
     }
 

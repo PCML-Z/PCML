@@ -84,7 +84,7 @@ public final class MultiplayerManager {
      * 创建新房间：根据后端分发。
      * EasyTier / Terracotta 直接调用；ConnectX 需使用 createRoomConnectX。
      */
-    public CompletableFuture<Void> createRoom(Consumer<String> onProgress) {
+    public synchronized CompletableFuture<Void> createRoom(Consumer<String> onProgress) {
         if (backend == Backend.TERRACOTTA) {
             return createRoomTerracotta(onProgress, "PMCL-Player");
         }
@@ -92,6 +92,7 @@ public final class MultiplayerManager {
             return CompletableFuture.failedFuture(new IllegalStateException(
                 "ConnectX 后端请使用 createRoomConnectX 方法（需要 binaryPath / serverAddr / serverPort）"));
         }
+        // S7: synchronized 保证 isInRoom() 检查与 state 赋值原子，避免双击启动两个进程
         if (isInRoom()) {
             return CompletableFuture.failedFuture(new IllegalStateException("已在房间中，请先离开"));
         }
@@ -104,7 +105,7 @@ public final class MultiplayerManager {
     /**
      * 通过邀请码/房间码加入已有房间（自动识别 Terracotta / EasyTier / ConnectX 格式）。
      */
-    public CompletableFuture<Void> joinRoom(String invitationCode, Consumer<String> onProgress) {
+    public synchronized CompletableFuture<Void> joinRoom(String invitationCode, Consumer<String> onProgress) {
         if (isInRoom()) {
             return CompletableFuture.failedFuture(new IllegalStateException("已在房间中，请先离开"));
         }
@@ -133,7 +134,7 @@ public final class MultiplayerManager {
     }
 
     /** 离开当前房间 */
-    public void leaveRoom() {
+    public synchronized void leaveRoom() {
         if (backend == Backend.TERRACOTTA) {
             try { terracotta.toIdle(); } catch (Throwable ignored) {}
             try { terracotta.stop(); } catch (Throwable ignored) {}
@@ -176,7 +177,7 @@ public final class MultiplayerManager {
      * 创建房间（Terracotta）：调用 Terracotta 二进制的 HTTP API。
      * @param playerName 玩家名（用于房间内显示）
      */
-    public CompletableFuture<Void> createRoomTerracotta(Consumer<String> onProgress, String playerName) {
+    public synchronized CompletableFuture<Void> createRoomTerracotta(Consumer<String> onProgress, String playerName) {
         if (isInRoom()) {
             return CompletableFuture.failedFuture(new IllegalStateException("已在房间中，请先离开"));
         }
@@ -206,7 +207,7 @@ public final class MultiplayerManager {
      * 加入房间（Terracotta）。
      * @param roomCode 房间码 U/XXXX-XXXX-XXXX-XXXX
      */
-    public CompletableFuture<Void> joinRoomTerracotta(String roomCode, Consumer<String> onProgress, String playerName) {
+    public synchronized CompletableFuture<Void> joinRoomTerracotta(String roomCode, Consumer<String> onProgress, String playerName) {
         if (isInRoom()) {
             return CompletableFuture.failedFuture(new IllegalStateException("已在房间中，请先离开"));
         }
@@ -254,7 +255,7 @@ public final class MultiplayerManager {
      * @param password    密码（可空）
      * @param useRelay    是否使用中继
      */
-    public CompletableFuture<Void> createRoomConnectX(Consumer<String> onProgress,
+    public synchronized CompletableFuture<Void> createRoomConnectX(Consumer<String> onProgress,
             String binaryPath, String serverAddr, int serverPort,
             String roomName, int maxUsers, String password, boolean useRelay) {
         if (isInRoom()) {
@@ -292,7 +293,7 @@ public final class MultiplayerManager {
     }
 
     /** 通过邀请码加入 ConnectX 房间 */
-    public CompletableFuture<Void> joinRoomConnectX(String invitationCode, Consumer<String> onProgress,
+    public synchronized CompletableFuture<Void> joinRoomConnectX(String invitationCode, Consumer<String> onProgress,
             String binaryPath, String serverAddr, int serverPort) {
         if (isInRoom()) {
             return CompletableFuture.failedFuture(new IllegalStateException("已在房间中，请先离开"));

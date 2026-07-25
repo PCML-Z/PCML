@@ -74,17 +74,16 @@ public final class ModMarketManager {
                                                      String loader, int limit) {
         List<CompletableFuture<List<ModProject>>> futures = new ArrayList<>();
         for (ModMarketClient c : clients) {
-            futures.add(c.search(query, gameVersion, loader, limit));
+            // S14: exceptionally 将异常转为空列表，避免 allOf 因单源失败而整体失败
+            // 原 try-catch in thenApply 是死代码：allOf 异常完成时 thenApply 不执行
+            futures.add(c.search(query, gameVersion, loader, limit)
+                    .exceptionally(ex -> Collections.emptyList()));
         }
         return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
                 .thenApply(v -> {
                     List<ModProject> merged = new ArrayList<>();
                     for (CompletableFuture<List<ModProject>> f : futures) {
-                        try {
-                            merged.addAll(f.join());
-                        } catch (RuntimeException ignored) {
-                            // 某个源失败不影响其他源
-                        }
+                        merged.addAll(f.join());
                     }
                     return merged;
                 });
@@ -101,17 +100,15 @@ public final class ModMarketManager {
         }
         List<CompletableFuture<List<ModProject>>> futures = new ArrayList<>();
         for (ModMarketClient c : clients) {
-            futures.add(c.search(query, gameVersion, loader, category, limit));
+            // S14: exceptionally 将异常转为空列表，避免 allOf 因单源失败而整体失败
+            futures.add(c.search(query, gameVersion, loader, category, limit)
+                    .exceptionally(ex -> Collections.emptyList()));
         }
         return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
                 .thenApply(v -> {
                     List<ModProject> merged = new ArrayList<>();
                     for (CompletableFuture<List<ModProject>> f : futures) {
-                        try {
-                            merged.addAll(f.join());
-                        } catch (RuntimeException ignored) {
-                            // 某个源失败不影响其他源
-                        }
+                        merged.addAll(f.join());
                     }
                     return merged;
                 });
@@ -124,17 +121,15 @@ public final class ModMarketManager {
     public CompletableFuture<List<ModProject>> popular(String gameVersion, String loader, int limit) {
         List<CompletableFuture<List<ModProject>>> futures = new ArrayList<>();
         for (ModMarketClient c : clients) {
-            futures.add(c.popular(gameVersion, loader, limit));
+            // S14: exceptionally 将异常转为空列表，避免 allOf 因单源失败而整体失败
+            futures.add(c.popular(gameVersion, loader, limit)
+                    .exceptionally(ex -> Collections.emptyList()));
         }
         return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
                 .thenApply(v -> {
                     List<ModProject> merged = new ArrayList<>();
                     for (CompletableFuture<List<ModProject>> f : futures) {
-                        try {
-                            merged.addAll(f.join());
-                        } catch (RuntimeException ignored) {
-                            // 某个源失败不影响其他源
-                        }
+                        merged.addAll(f.join());
                     }
                     return merged;
                 });
@@ -152,17 +147,15 @@ public final class ModMarketManager {
         }
         List<CompletableFuture<List<ModProject>>> futures = new ArrayList<>();
         for (ModMarketClient c : clients) {
-            futures.add(c.searchByCategory(category, gameVersion, loader, limit));
+            // S14: exceptionally 将异常转为空列表，避免 allOf 因单源失败而整体失败
+            futures.add(c.searchByCategory(category, gameVersion, loader, limit)
+                    .exceptionally(ex -> Collections.emptyList()));
         }
         return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
                 .thenApply(v -> {
                     List<ModProject> merged = new ArrayList<>();
                     for (CompletableFuture<List<ModProject>> f : futures) {
-                        try {
-                            merged.addAll(f.join());
-                        } catch (RuntimeException ignored) {
-                            // 某个源失败不影响其他源
-                        }
+                        merged.addAll(f.join());
                     }
                     return merged;
                 });

@@ -1442,6 +1442,13 @@ public final class LaunchProfileBuilder {
         // assetsIndex 为空（旧版本 JSON 无 assets 字段）时回退到 versionId
         String effectiveAssetsIndex = (assetsIndex == null || assetsIndex.isEmpty())
                 ? versionId : assetsIndex;
+        // S9: account 或其 getter 返回 null 时 String.replace 抛 NPE，离线/未登录账号启动崩溃
+        String username = account != null ? account.getUsername() : "";
+        String uuid = account != null ? account.getUuid() : "";
+        String accessToken = account != null ? account.getAccessToken() : "";
+        if (username == null) username = "";
+        if (uuid == null) uuid = "";
+        if (accessToken == null) accessToken = "";
         return arg
                 .replace("${natives_directory}",
                         versionsDir.resolve(versionId).resolve("natives").toString())
@@ -1458,13 +1465,13 @@ public final class LaunchProfileBuilder {
                         assetsDir.toString())
                 .replace("${assets_index_name}", effectiveAssetsIndex)
                 .replace("${user_type}", "msa")
-                .replace("${auth_player_name}", account.getUsername())
-                .replace("${auth_uuid}", account.getUuid())
-                .replace("${auth_access_token}", account.getAccessToken())
-                .replace("${auth_session}", account.getAccessToken())
+                .replace("${auth_player_name}", username)
+                .replace("${auth_uuid}", uuid)
+                .replace("${auth_access_token}", accessToken)
+                .replace("${auth_session}", accessToken)
                 // alpha/beta 的 minecraftArguments 使用 ${session_id}（而非 ${auth_session}）
                 // 不替换会传入字面量占位符导致会话参数无效，游戏启动后立即崩溃
-                .replace("${session_id}", account.getAccessToken())
+                .replace("${session_id}", accessToken)
                 // 1.7.10 及更早版本可能引用 ${user_properties}，传空 JSON 数组
                 .replace("${user_properties}", "{}")
                 // 极旧版本可能引用 ${game_assets}，指向 assets 目录
@@ -1472,7 +1479,7 @@ public final class LaunchProfileBuilder {
                 .replace("${clientid}", "")
                 // auth_xuid：微软账号的 Xbox Live userHash（uhs），连接 Realms 或需
                 // Xbox Live 验证的服务器时必需；离线/GitHub 账号为空字符串。
-                .replace("${auth_xuid}", account.getXuid())
+                .replace("${auth_xuid}", account != null && account.getXuid() != null ? account.getXuid() : "")
                 .replace("${version_type}", "PMCL");
     }
 

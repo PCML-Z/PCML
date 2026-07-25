@@ -191,6 +191,8 @@ public final class MicrosoftAuthFlow {
 
     private void pollOnce(DeviceCode dc, Consumer<String> onPending,
                           CompletableFuture<String> future) {
+        // S6: 取消/完成/异常后停止调度，避免 ~180 次无效请求触发限流
+        if (future.isDone()) return;
         // login.live.com 旧端点：与 requestDeviceCode 配套。
         // 不带 scope（scope 已在 devicecode 请求时指定，token 端点会自动继承）。
         String body = "client_id=" + clientId +
@@ -263,7 +265,8 @@ public final class MicrosoftAuthFlow {
             future.completeExceptionally(new RuntimeException("解析 token 响应失败: " + t.getMessage() + " body=" + json, t));
             return;
         }
-        // 间隔后重试
+        // 间隔后重试（调度前再次检查，避免取消后仍发请求）
+        if (future.isDone()) return;
         scheduler.schedule(() -> pollOnce(dc, onPending, future),
                 dc.getInterval(), TimeUnit.SECONDS);
     }

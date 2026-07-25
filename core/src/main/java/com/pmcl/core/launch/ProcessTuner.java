@@ -262,15 +262,24 @@ public final class ProcessTuner {
     }
 
     private void runCommand(String... cmd) throws IOException {
+        // S8: transferTo 必须在 waitFor 之后，否则进程挂起时输入流永不 EOF，启动器永久卡死
         // M78: try-finally 确保 Process 被销毁
         Process p = null;
         try {
             p = new ProcessBuilder(cmd).redirectErrorStream(true).start();
-            p.getInputStream().transferTo(java.io.OutputStream.nullOutputStream());
-            if (!p.waitFor(5, TimeUnit.SECONDS)) {
+            // 先等待进程退出（超时 5s），超时则强制销毁
+            boolean exited = p.waitFor(5, TimeUnit.SECONDS);
+            if (!exited) {
                 // 超时不抛异常：调用方依赖 runCommand 静默降级语义
-                // finally 中 destroyForcibly 兜底销毁
+                // destroyForcibly 后输入流会 EOF，transferTo 才能返回
+                p.destroyForcibly();
+                // 给被杀进程一点时间让管道关闭
+                try { p.waitFor(500, TimeUnit.MILLISECONDS); } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                }
             }
+            // 进程已退出（或被销毁），此时 transferTo 不会阻塞
+            p.getInputStream().transferTo(java.io.OutputStream.nullOutputStream());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         } finally {

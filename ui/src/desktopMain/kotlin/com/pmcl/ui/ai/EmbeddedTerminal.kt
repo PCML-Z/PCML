@@ -93,8 +93,9 @@ fun EmbeddedTerminal(
         }
     }
 
-    // 进程退出时标记
-    DisposableEffect(Unit) {
+    // S17: DisposableEffect 键改为 process，key 变化时销毁旧 PTY 进程
+    // 原 DisposableEffect(Unit) 键为 Unit，LaunchedEffect 重新执行启动新进程时旧进程永不销毁
+    DisposableEffect(process) {
         onDispose {
             try { process?.destroyForcibly() } catch (_: Throwable) {}
         }
@@ -177,9 +178,13 @@ fun EmbeddedTerminal(
  *
  * 简化实现：每行用一个 ColoredLine 表示，整行统一颜色。
  * OpenCode TUI 的复杂颜色（同一行多色）暂按行级近似渲染。
+ *
+ * S16: lines 使用 mutableStateListOf（SnapshotStateList）替代普通 ArrayDeque，
+ * 使 Compose 能观察行变化并触发重组。原 ArrayDeque 不触发重组，导致
+ * 进程运行期间画面冻结，退出才显示。
  */
 internal class TerminalBuffer(val cols: Int, val rows: Int) {
-    private val lines = ArrayDeque<ColoredLine>()
+    private val lines = mutableStateListOf<ColoredLine>()
     private var cursorRow = 0
     private var cursorCol = 0
     private var currentFg: Color = Color(0xFFCDD6F4)
@@ -187,8 +192,8 @@ internal class TerminalBuffer(val cols: Int, val rows: Int) {
 
     init { repeat(rows) { lines.add(ColoredLine("", defaultFg)) } }
 
-    /** 返回当前可见行的快照 */
-    fun snapshot(): List<ColoredLine> = lines.toList()
+    /** 返回当前可见行的快照（SnapshotStateList 本身即 List，直接返回） */
+    fun snapshot(): List<ColoredLine> = lines
 
     /** 处理 PTY 输出 */
     fun processOutput(text: String) {
@@ -231,7 +236,7 @@ internal class TerminalBuffer(val cols: Int, val rows: Int) {
 
     private fun ensureRows() {
         while (cursorRow >= lines.size) lines.add(ColoredLine("", currentFg))
-        while (cursorRow < 0) { cursorRow = 0; lines.addFirst(ColoredLine("", defaultFg)) }
+        while (cursorRow < 0) { cursorRow = 0; lines.add(0, ColoredLine("", defaultFg)) }
     }
 
     private fun applyCsi(params: String, final: Char) {

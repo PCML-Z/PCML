@@ -265,7 +265,19 @@ public final class ModpackManager {
             List<CompletableFuture<Void>> futures = new ArrayList<>();
             for (ModpackFile mf : manifest.files) {
                 futures.add(CompletableFuture.runAsync(() -> {
-                    if (mf.downloadUrl != null && !mf.downloadUrl.isEmpty()) {
+                    String url = mf.downloadUrl;
+                    // S12: CF 整合包 manifest 不含 downloadUrl，需通过 API 查询
+                    // 否则所有模组被静默跳过，导入零模组
+                    if ((url == null || url.isEmpty()) && mf.projectId != null
+                            && !mf.projectId.isEmpty() && mf.fileId != null && !mf.fileId.isEmpty()) {
+                        try {
+                            url = resolveCurseForgeDownloadUrl(mf.projectId, mf.fileId);
+                        } catch (Exception e) {
+                            System.err.println("[ModpackManager] CF 模组 URL 查询失败: "
+                                    + mf.projectId + "/" + mf.fileId + " - " + e.getMessage());
+                        }
+                    }
+                    if (url != null && !url.isEmpty()) {
                         Path target = instanceDirFinal.resolve(mf.path).normalize();
                         if (!target.startsWith(instanceDirFinal)) {
                             System.err.println("[ModpackManager] 跳过非法路径: " + mf.path);
@@ -273,11 +285,13 @@ public final class ModpackManager {
                         }
                         try {
                             Files.createDirectories(target.getParent());
-                            downloads.downloadTo(mf.downloadUrl, target);
+                            downloads.downloadTo(url, target);
                         } catch (Exception e) {
                             // 单个 mod 下载失败不中断整体导入
                             System.err.println("[ModpackManager] 模组下载失败: " + mf.path + " - " + e.getMessage());
                         }
+                    } else {
+                        System.err.println("[ModpackManager] 模组无下载 URL，跳过: " + mf.path);
                     }
                     int done = completed.incrementAndGet();
                     if (progress != null) progress.accept(new InstallProgress(
@@ -303,6 +317,28 @@ public final class ModpackManager {
         if (progress != null) progress.accept(new InstallProgress(
                 InstallProgress.Stage.DONE, 0, 0,
                 "整合包 '" + manifest.name + "' 导入完成"));
+    }
+
+    /**
+     * S12: 通过 CurseForge API 查询模组文件的下载 URL。
+     * CF 整合包 manifest 只含 projectID/fileID，不含 downloadUrl，
+     * 必须调用 API 获取，否则模组被静默跳过。
+     * 无 CF API key 或查询失败时返回空字符串（调用方跳过下载）。
+     */
+    private String resolveCurseForgeDownloadUrl(String projectId, String fileId) {
+        try {
+            for (com.pmcl.core.market.ModMarketClient c : modMarketManager.getClients()) {
+                if (!"curseforge".equals(c.source())) continue;
+                var files = c.listFiles(projectId).join();
+                for (var f : files) {
+                    if (fileId.equals(f.getFileId())) {
+                        return f.getDownloadUrl() != null ? f.getDownloadUrl() : "";
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return "";
     }
 
     // ===== 导出 =====
@@ -360,6 +396,20 @@ public final class ModpackManager {
                     .forEach(modFiles::add);
         }
 
+        // S11: 从 modpack.json 读取真实游戏版本（versionId 是实例目录名，不是 MC 版本）
+        // 否则导出的整合包导入时无法匹配 Mojang 版本，导入必然失败
+        String gameVersion = versionId;
+        Path modpackJson = gameDir.resolve("modpack.json");
+        if (Files.isRegularFile(modpackJson)) {
+            try {
+                JsonObject info = JsonParser.parseString(Files.readString(modpackJson,
+                        java.nio.charset.StandardCharsets.UTF_8)).getAsJsonObject();
+                String gv = safeStr(info, "gameVersion", "");
+                if (!gv.isEmpty()) gameVersion = gv;
+            } catch (Exception ignored) {
+            }
+        }
+
         // 生成 modrinth.index.json
         JsonObject index = new JsonObject();
         index.addProperty("formatVersion", 1);
@@ -368,7 +418,7 @@ public final class ModpackManager {
         index.addProperty("name", versionId);
 
         JsonObject dependencies = new JsonObject();
-        dependencies.addProperty("minecraft", versionId);
+        dependencies.addProperty("minecraft", gameVersion);
         index.add("dependencies", dependencies);
 
         var filesArray = new com.google.gson.JsonArray();
@@ -472,6 +522,8 @@ public final class ModpackManager {
         String loader = "";
         String loaderVersion = "";
         String author = "PMCL";
+        // S11: gameVersion 必须从 modpack.json 读取，versionId 是实例目录名而非 MC 版本
+        String gameVersion = versionId;
         Path modpackJson = gameDir.resolve("modpack.json");
         if (Files.isRegularFile(modpackJson)) {
             try {
@@ -479,6 +531,8 @@ public final class ModpackManager {
                 if (info.has("loader")) loader = safeStr(info, "loader", "");
                 if (info.has("loaderVersion")) loaderVersion = safeStr(info, "loaderVersion", "");
                 if (info.has("author")) author = safeStr(info, "author", "PMCL");
+                String gv = safeStr(info, "gameVersion", "");
+                if (!gv.isEmpty()) gameVersion = gv;
             } catch (Exception ignored) {
             }
         }
@@ -501,7 +555,8 @@ public final class ModpackManager {
 
         // minecraft.version + modLoaders
         JsonObject minecraft = new JsonObject();
-        minecraft.addProperty("version", versionId);
+        // S11: 使用真实 MC 版本而非实例目录名
+        minecraft.addProperty("version", gameVersion);
         var modLoaders = new com.google.gson.JsonArray();
         if (!loader.isEmpty()) {
             // CF 格式: "fabric-<ver>" / "forge-<ver>" / "quilt-<ver>" / "neoforge-<ver>"

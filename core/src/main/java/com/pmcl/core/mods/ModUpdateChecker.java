@@ -9,6 +9,7 @@ import com.pmcl.core.preferences.Preferences;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -273,20 +274,40 @@ public final class ModUpdateChecker {
 
         return CompletableFuture.runAsync(() -> {
             try {
-                // 1. 删除旧 jar 文件
+                // S13: 先备份旧 jar，下载成功后才删除，失败时恢复
+                // 原实现先删后下，下载失败时旧 jar 已丢失，无法回滚
                 ModMeta mod = info.getInstalled();
                 Path modsDir = resolveModsDir(versionId, gameVersion);
                 Path oldJar = modsDir.resolve(mod.getJarFile());
+
+                Path backup = null;
                 if (Files.exists(oldJar)) {
-                    Files.delete(oldJar);
-                    if (onStatus != null) onStatus.accept("已删除旧版本: " + mod.getJarFile());
+                    backup = oldJar.resolveSibling(oldJar.getFileName() + ".pmcl-bak");
+                    Files.move(oldJar, backup, StandardCopyOption.REPLACE_EXISTING);
+                    if (onStatus != null) onStatus.accept("已备份旧版本: " + mod.getJarFile());
                 }
 
-                // 2. 下载新 jar
-                if (onStatus != null) onStatus.accept("正在下载: " + info.getLatestFile().getFileName());
-                marketManager.installMod(info.getLatestFile(), gameVersion, versionId,
-                        preferences, onStatus).join();
-                if (onStatus != null) onStatus.accept("更新完成: " + info.displayName());
+                try {
+                    // 下载新 jar
+                    if (onStatus != null) onStatus.accept("正在下载: " + info.getLatestFile().getFileName());
+                    marketManager.installMod(info.getLatestFile(), gameVersion, versionId,
+                            preferences, onStatus).join();
+                    // 下载成功，删除备份
+                    if (backup != null) {
+                        Files.deleteIfExists(backup);
+                    }
+                    if (onStatus != null) onStatus.accept("更新完成: " + info.displayName());
+                } catch (Exception e) {
+                    // 下载失败，恢复备份
+                    if (backup != null && Files.exists(backup)) {
+                        try {
+                            Files.move(backup, oldJar, StandardCopyOption.REPLACE_EXISTING);
+                        } catch (Exception restoreErr) {
+                            System.err.println("[ModUpdateChecker] 恢复备份失败: " + restoreErr.getMessage());
+                        }
+                    }
+                    throw e;
+                }
             } catch (Exception e) {
                 throw new RuntimeException("更新失败: " + info.displayName(), e);
             }
