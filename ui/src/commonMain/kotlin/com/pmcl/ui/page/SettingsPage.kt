@@ -2186,12 +2186,9 @@ private fun DeviceBindingCard(vm: LauncherViewModel, pref: com.pmcl.core.prefere
     // 配置状态：未配置 / 已开启 / 已关闭（配置过但 enabled=false）
     var configured by remember { mutableStateOf(pref.isDeviceProtectionConfigured()) }
     var protectionEnabled by remember { mutableStateOf(pref.isDeviceProtectionEnabled()) }
-    var deviceHash by remember { mutableStateOf(pref.getDeviceProtectionDeviceHash()) }
-    // 当前设备码（用于显示，仅在卡片内首次加载时计算一次，避免重复 oshi 调用）
-    var currentDeviceCode by remember { mutableStateOf("") }
-    var computingCode by remember { mutableStateOf(false) }
 
     // 对话框状态
+    var showNoticeDialog by remember { mutableStateOf(false) }
     var showEnableDialog by remember { mutableStateOf(false) }
     var showDisableDialog by remember { mutableStateOf(false) }
     var showExportDialog by remember { mutableStateOf(false) }
@@ -2199,22 +2196,6 @@ private fun DeviceBindingCard(vm: LauncherViewModel, pref: com.pmcl.core.prefere
     var showExportedDialog by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var statusMsg by remember { mutableStateOf("") }
-
-    // 后台计算当前设备码（oshi 调用较慢，避免阻塞 UI）
-    LaunchedEffect(Unit) {
-        if (currentDeviceCode.isEmpty() && !computingCode) {
-            computingCode = true
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                try {
-                    currentDeviceCode = com.pmcl.core.auth.DeviceBinder.getDeviceCode()
-                } catch (t: Throwable) {
-                    currentDeviceCode = "计算失败: ${t.message}"
-                } finally {
-                    computingCode = false
-                }
-            }
-        }
-    }
 
     Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
         Column(Modifier.padding(16.dp)) {
@@ -2248,50 +2229,13 @@ private fun DeviceBindingCard(vm: LauncherViewModel, pref: com.pmcl.core.prefere
             }
 
             Spacer(Modifier.height(8.dp))
-            Text("使用 11498 位设备加密码将启动器和游戏绑定到当前设备。开启后，启动器和游戏文件复制到其他设备将无法启动。私钥用于保护开关状态，请妥善保管。",
+            Text("使用唯一设备加密码将启动器和游戏绑定到当前设备。开启后，启动器和游戏文件复制到其他设备将无法启动。",
                  style = MaterialTheme.typography.labelSmall,
                  color = MaterialTheme.colorScheme.outline)
 
-            Spacer(Modifier.height(12.dp))
-            // 当前设备码显示（截断前 64 字符 + 后 8 字符）
-            Text("当前设备加密码（11498 位）：", style = MaterialTheme.typography.labelMedium,
-                 fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(4.dp))
-            val codeDisplay = when {
-                computingCode -> "计算中…"
-                currentDeviceCode.isEmpty() -> "-"
-                currentDeviceCode.length <= 80 -> currentDeviceCode
-                else -> currentDeviceCode.take(64) + "…" + currentCodeSuffix(currentDeviceCode)
-            }
-            Text(codeDisplay,
-                 style = MaterialTheme.typography.bodySmall,
-                 fontFamily = FontFamily.Monospace,
-                 maxLines = 2,
-                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-            Row {
-                TextButton(onClick = {
-                    if (currentDeviceCode.isNotEmpty()) {
-                        clipboard.setText(AnnotatedString(currentDeviceCode))
-                        statusMsg = "设备码已复制到剪贴板"
-                    }
-                }, enabled = currentDeviceCode.isNotEmpty() && !computingCode) {
-                    Icon(Icons.Filled.ContentCopy, null, Modifier.size(14.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("复制完整设备码")
-                }
-            }
-
-            if (deviceHash.isNotEmpty()) {
-                Spacer(Modifier.height(4.dp))
-                Text("已绑定设备哈希: ${deviceHash.take(16)}…",
-                     style = MaterialTheme.typography.labelSmall,
-                     fontFamily = FontFamily.Monospace,
-                     color = MaterialTheme.colorScheme.outline)
-            }
-
             Spacer(Modifier.height(8.dp))
             // 操作按钮区
-            Row {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 when {
                     !configured -> {
                         Button(onClick = { showEnableDialog = true }, enabled = !busy) {
@@ -2314,6 +2258,10 @@ private fun DeviceBindingCard(vm: LauncherViewModel, pref: com.pmcl.core.prefere
                         }
                     }
                 }
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = { showNoticeDialog = true }) {
+                    Text("注意事项", style = MaterialTheme.typography.labelSmall)
+                }
             }
 
             if (statusMsg.isNotEmpty()) {
@@ -2325,6 +2273,35 @@ private fun DeviceBindingCard(vm: LauncherViewModel, pref: com.pmcl.core.prefere
                              else MaterialTheme.colorScheme.primary)
             }
         }
+    }
+
+    // ===== 注意事项弹窗 =====
+    if (showNoticeDialog) {
+        AlertDialog(
+            onDismissRequest = { showNoticeDialog = false },
+            title = { Text("设备绑定保护 - 注意事项") },
+            text = {
+                Column {
+                    val notices = listOf(
+                        "1. 开启保护后，启动器将生成唯一设备加密码（11498 位）和 RSA-2048 密钥对，将启动器和游戏绑定到当前设备。",
+                        "2. 绑定后，启动器和游戏文件被复制到其他设备时将无法启动，防止未授权使用。",
+                        "3. 私钥是关闭或迁移保护的唯一凭证，开启时务必设置强密码并妥善保存导出的私钥文件。",
+                        "4. 私钥丢失后将无法关闭保护，也无法在其他设备恢复，请务必备份。",
+                        "5. 设备加密码基于硬件指纹（CPU、主板、网卡等）实时派生，不存盘，无法从文件中提取。",
+                        "6. 本地私钥副本使用设备码加密，复制到其他设备后因设备码不同无法解密。",
+                        "7. 更换硬件（如主板、网卡）可能导致设备码变化，此时需用私钥重新绑定到新设备。",
+                        "8. 关闭保护需导入私钥并验证密码，确保仅授权用户可解除绑定。"
+                    )
+                    notices.forEach { notice ->
+                        Text(notice, style = MaterialTheme.typography.bodySmall)
+                        Spacer(Modifier.height(6.dp))
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = { showNoticeDialog = false }) { Text("我已了解") }
+            }
+        )
     }
 
     // ===== 开启保护对话框（设置导出密码） =====
@@ -2372,7 +2349,6 @@ private fun DeviceBindingCard(vm: LauncherViewModel, pref: com.pmcl.core.prefere
                                     exportedKeyForDisplay = result.exportedKey
                                     configured = true
                                     protectionEnabled = true
-                                    deviceHash = result.deviceCodeHash
                                     showEnableDialog = false
                                     showExportedDialog = true
                                     statusMsg = "保护已开启"
@@ -2455,7 +2431,6 @@ private fun DeviceBindingCard(vm: LauncherViewModel, pref: com.pmcl.core.prefere
                                             pref.setDeviceProtectionLocalKey(result.localKeyEnc)
                                             pref.setDeviceProtectionDeviceHash(result.deviceCodeHash)
                                             protectionEnabled = true
-                                            deviceHash = result.deviceCodeHash
                                             showDisableDialog = false
                                             statusMsg = "保护已重新开启，已绑定到当前设备"
                                         }
@@ -2563,9 +2538,4 @@ private fun DeviceBindingCard(vm: LauncherViewModel, pref: com.pmcl.core.prefere
             }
         )
     }
-}
-
-/** 截取设备码末尾 8 字符用于 UI 显示 */
-private fun currentCodeSuffix(code: String): String {
-    return if (code.length >= 8) code.takeLast(8) else code
 }
