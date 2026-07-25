@@ -110,6 +110,9 @@ public final class EasyTierManager {
                 Path zip = binaryDir.resolve(assetName);
                 if (progress != null) progress.accept("正在下载 " + assetName);
                 downloadFile(githubPath, zip, progress);
+                // 完整性校验：easytier-core 二进制会访问虚拟网卡所有流量，
+                // 若被镜像投毒可窃取凭据/横向移动，必须校验 size（强制）和 digest（若可用）。
+                verifyDownloadIntegrity(zip, assetName, info, progress);
                 if (progress != null) progress.accept("正在解压…");
                 extractEasyTierCore(zip, binaryPath);
                 if (!isWindows()) {
@@ -148,6 +151,10 @@ public final class EasyTierManager {
     private static final class ReleaseInfo {
         String version;                       // "v2.6.4"
         java.util.List<String> assets = new java.util.ArrayList<>();
+        /** asset 名称 -> SHA-256 摘要（小写十六进制，无 "sha256:" 前缀）。GitHub API 的 digest 字段。 */
+        java.util.Map<String, String> assetDigests = new java.util.HashMap<>();
+        /** asset 名称 -> 文件大小（字节）。用于下载后强制校验，防止镜像返回错误页被当作有效二进制。 */
+        java.util.Map<String, Long> assetSizes = new java.util.HashMap<>();
     }
 
     /**
@@ -157,6 +164,9 @@ public final class EasyTierManager {
      * 该路径走 github.com 主站，无 API 速率限制，国内可直连。
      * <p>
      * 仅当 HTML 抓取失败时回退到 {@code api.github.com}（注意 60/小时限流）。
+     * <p>
+     * 为获取下载完整性校验所需的 digest 和 size，若 HTML 路径成功但未拿到 digest，
+     * 会尝试调用 API 补充这些字段（best-effort，失败不影响下载流程，仅降级为不校验 digest）。
      */
     private ReleaseInfo fetchLatestRelease() throws IOException {
         // 步骤 1：通过 /releases/latest 的 302 重定向拿到 tag 名
@@ -179,6 +189,19 @@ public final class EasyTierManager {
             ReleaseInfo api = fetchLatestReleaseFromApi();
             if (api.version != null && !api.version.isEmpty()) info.version = api.version;
             if (!api.assets.isEmpty()) info.assets = api.assets;
+            // API 路径已带 digest/size，直接合并
+            info.assetDigests.putAll(api.assetDigests);
+            info.assetSizes.putAll(api.assetSizes);
+        } else if (info.assetDigests.isEmpty()) {
+            // HTML 路径成功但无 digest：best-effort 调用 API 补充 digest/size 用于完整性校验
+            // 失败不阻塞下载流程（仅降级为不校验 digest + 打印实际摘要）
+            try {
+                ReleaseInfo api = fetchLatestReleaseFromApi();
+                info.assetDigests.putAll(api.assetDigests);
+                info.assetSizes.putAll(api.assetSizes);
+            } catch (IOException e) {
+                System.err.println("[EasyTierManager] 无法从 API 获取 digest，将跳过 SHA-256 校验: " + e.getMessage());
+            }
         }
         if (info.version == null) info.version = "latest";
         return info;
@@ -259,22 +282,74 @@ public final class EasyTierManager {
                 (last != null ? last.getMessage() : "未知"), last);
     }
 
-    /** 简单 JSON 解析：提取 tag_name 和所有 asset name */
+    /**
+     * 简单 JSON 解析：提取 tag_name、asset name、digest、size。
+     * <p>
+     * GitHub API 的 asset 对象包含：
+     * <ul>
+     *   <li>{@code "name": "easytier-macos-x86_64-v2.6.4.zip"}</li>
+     *   <li>{@code "size": 1234567}</li>
+     *   <li>{@code "digest": "sha256:abcdef..."}（2024 年起新增字段，旧 release 可能缺失）</li>
+     * </ul>
+     * digest 用于校验下载完整性，防止镜像投毒；size 用于强制校验，防止错误页被当作有效 zip。
+     */
     private ReleaseInfo parseReleaseJson(String json) {
         ReleaseInfo info = new ReleaseInfo();
         java.util.regex.Matcher tagM = java.util.regex.Pattern
                 .compile("\"tag_name\"\\s*:\\s*\"([^\"]+)\"")
                 .matcher(json);
         if (tagM.find()) info.version = tagM.group(1);
-        java.util.regex.Matcher nameM = java.util.regex.Pattern
-                .compile("\"name\"\\s*:\\s*\"([^\"]+)\"")
-                .matcher(json);
-        while (nameM.find()) {
-            String n = nameM.group(1);
+        // 匹配每个 asset 的 name + size + digest（同一对象内字段）
+        // asset 对象形如: { "name": "xxx.zip", "size": 12345, "digest": "sha256:abc...", ... }
+        java.util.regex.Pattern assetP = java.util.regex.Pattern.compile(
+                "\\{[^{}]*\"name\"\\s*:\\s*\"([^\"]+)\"[^{}]*\"size\"\\s*:\\s*(\\d+)" +
+                "(?:[^{}]*\"digest\"\\s*:\\s*\"sha256:([0-9a-fA-F]+)\")?[^{}]*\\}");
+        java.util.regex.Matcher assetM = assetP.matcher(json);
+        while (assetM.find()) {
+            String n = assetM.group(1);
             if (n.equals("github-actions[bot]") || n.startsWith("v") && n.matches("v\\d+\\.\\d+\\.\\d+")) {
                 continue;
             }
             info.assets.add(n);
+            try {
+                info.assetSizes.put(n, Long.parseLong(assetM.group(2)));
+            } catch (NumberFormatException ignored) {}
+            if (assetM.group(3) != null) {
+                info.assetDigests.put(n, assetM.group(3).toLowerCase(Locale.ROOT));
+            }
+        }
+        // 兼容：某些 release 的 asset 字段顺序不同（digest 在 size 之前）
+        if (info.assetDigests.isEmpty()) {
+            java.util.regex.Pattern digestFirstP = java.util.regex.Pattern.compile(
+                    "\\{[^{}]*\"name\"\\s*:\\s*\"([^\"]+)\"[^{}]*\"digest\"\\s*:\\s*\"sha256:([0-9a-fA-F]+)\"" +
+                    "[^{}]*\"size\"\\s*:\\s*(\\d+)[^{}]*\\}");
+            java.util.regex.Matcher dfM = digestFirstP.matcher(json);
+            while (dfM.find()) {
+                String n = dfM.group(1);
+                if (!info.assets.contains(n)) {
+                    if (n.equals("github-actions[bot]") || n.startsWith("v") && n.matches("v\\d+\\.\\d+\\.\\d+")) {
+                        continue;
+                    }
+                    info.assets.add(n);
+                }
+                info.assetDigests.put(n, dfM.group(2).toLowerCase(Locale.ROOT));
+                try {
+                    info.assetSizes.put(n, Long.parseLong(dfM.group(3)));
+                } catch (NumberFormatException ignored) {}
+            }
+        }
+        // Fallback：仅提取 name（原逻辑，确保即使 digest/size 解析失败也能拿到 asset 列表）
+        if (info.assets.isEmpty()) {
+            java.util.regex.Matcher nameM = java.util.regex.Pattern
+                    .compile("\"name\"\\s*:\\s*\"([^\"]+)\"")
+                    .matcher(json);
+            while (nameM.find()) {
+                String n = nameM.group(1);
+                if (n.equals("github-actions[bot]") || n.startsWith("v") && n.matches("v\\d+\\.\\d+\\.\\d+")) {
+                    continue;
+                }
+                info.assets.add(n);
+            }
         }
         if (info.version == null) info.version = "latest";
         return info;
@@ -602,6 +677,75 @@ public final class EasyTierManager {
                 }
             }
             throw new IOException("压缩包中未找到 easytier-core 二进制");
+        }
+    }
+
+    /**
+     * 校验下载文件的完整性。
+     * <p>
+     * 强制校验文件大小（若 ReleaseInfo 提供）：防止镜像返回 200 但内容是 HTML 错误页
+     * 或截断的文件。若 GitHub API 提供 digest 字段，额外校验 SHA-256 摘要，
+     * 防止镜像投毒或 MITM 篡改二进制。
+     * <p>
+     * 校验失败时删除文件并抛 IOException，避免恶意二进制被执行。
+     *
+     * @param file      已下载的文件
+     * @param assetName asset 名称（用于查 ReleaseInfo 中的预期 size/digest）
+     * @param info      Release 元数据
+     * @param progress  进度回调（可空）
+     */
+    private void verifyDownloadIntegrity(Path file, String assetName, ReleaseInfo info,
+                                          Consumer<String> progress) throws IOException {
+        // 1. 强制校验文件大小
+        Long expectedSize = info.assetSizes.get(assetName);
+        if (expectedSize != null && expectedSize > 0) {
+            long actualSize = Files.size(file);
+            if (actualSize != expectedSize) {
+                Files.deleteIfExists(file);
+                throw new IOException("下载文件大小不匹配：预期 " + expectedSize
+                        + " 字节，实际 " + actualSize + " 字节（文件可能被截断或镜像返回错误内容）");
+            }
+        }
+        // 2. 若有 digest 则校验 SHA-256
+        String expectedDigest = info.assetDigests.get(assetName);
+        if (expectedDigest != null && !expectedDigest.isEmpty()) {
+            String actualDigest = sha256Hex(file);
+            if (!actualDigest.equalsIgnoreCase(expectedDigest)) {
+                Files.deleteIfExists(file);
+                if (progress != null) progress.accept("SHA256 校验失败，文件可能被篡改");
+                throw new IOException("下载文件 SHA-256 校验失败：预期 " + expectedDigest
+                        + "，实际 " + actualDigest + "（文件可能被篡改或镜像投毒）");
+            }
+            if (progress != null) progress.accept("SHA256 校验通过");
+        } else {
+            // 无 digest 时打印实际摘要供用户核对（至少有记录）
+            String actualDigest = sha256Hex(file);
+            System.err.println("[EasyTierManager] " + assetName + " SHA-256: " + actualDigest
+                    + "（GitHub 未提供 digest，无法自动校验）");
+        }
+    }
+
+    /** 计算文件 SHA-256 摘要，返回小写十六进制字符串。 */
+    private static String sha256Hex(Path file) throws IOException {
+        try (InputStream is = Files.newInputStream(file)) {
+            java.security.MessageDigest md;
+            try {
+                md = java.security.MessageDigest.getInstance("SHA-256");
+            } catch (java.security.NoSuchAlgorithmException e) {
+                throw new IOException("SHA-256 算法不可用", e);
+            }
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = is.read(buf)) != -1) {
+                md.update(buf, 0, n);
+            }
+            byte[] digest = md.digest();
+            StringBuilder sb = new StringBuilder(digest.length * 2);
+            for (byte b : digest) {
+                sb.append(Character.forDigit((b >> 4) & 0xF, 16));
+                sb.append(Character.forDigit(b & 0xF, 16));
+            }
+            return sb.toString();
         }
     }
 }

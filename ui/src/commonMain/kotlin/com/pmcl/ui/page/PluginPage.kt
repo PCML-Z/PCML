@@ -17,6 +17,7 @@ import com.pmcl.ui.viewmodel.LauncherViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.IOException
 import java.nio.file.Paths
 
 /**
@@ -194,14 +195,43 @@ fun PluginPage(vm: LauncherViewModel) {
     if (showInstallDialog) {
         InstallPluginDialog(
             onDismiss = { showInstallDialog = false },
-            onInstall = { source ->
+            onInstall = { sourceWithHash ->
                 scope.launch {
                     try {
                         withContext(Dispatchers.IO) {
+                            // 解析 "source||sha256:hash" 格式（由 InstallPluginDialog 拼接）
+                            val parts = sourceWithHash.split("||sha256:", limit = 2)
+                            val source = parts[0]
+                            val expectedSha256 = if (parts.size > 1) parts[1] else null
+
                             if (source.startsWith("http://") || source.startsWith("https://")) {
-                                pm.installFromUrl(source)
+                                if (expectedSha256 != null) {
+                                    // 有 SHA256：下载到临时文件，校验后再安装
+                                    val tmpFile = java.io.File.createTempFile("pmcl-plugin-", ".jar")
+                                    tmpFile.deleteOnExit()
+                                    try {
+                                        downloadTo(source, tmpFile.toPath())
+                                        val actual = sha256Hex(tmpFile.toPath())
+                                        if (!actual.equals(expectedSha256, ignoreCase = true)) {
+                                            throw IOException("SHA-256 mismatch: expected $expectedSha256, got $actual")
+                                        }
+                                        pm.installFromPath(tmpFile.toPath())
+                                    } finally {
+                                        tmpFile.delete()
+                                    }
+                                } else {
+                                    pm.installFromUrl(source)
+                                }
                             } else {
-                                pm.installFromPath(Paths.get(source))
+                                // 本地文件：若提供 SHA256 则校验
+                                val path = Paths.get(source)
+                                if (expectedSha256 != null) {
+                                    val actual = sha256Hex(path)
+                                    if (!actual.equals(expectedSha256, ignoreCase = true)) {
+                                        throw IOException("SHA-256 mismatch: expected $expectedSha256, got $actual")
+                                    }
+                                }
+                                pm.installFromPath(path)
                             }
                         }
                         plugins = pm.getLoadedPlugins()
@@ -386,7 +416,10 @@ private fun InstallPluginDialog(
     onInstall: (String) -> Unit
 ) {
     var source by remember { mutableStateOf("") }
+    var expectedSha256 by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
+    var showUrlConfirm by remember { mutableStateOf(false) }
+    var pendingSource by remember { mutableStateOf("") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -408,6 +441,46 @@ private fun InstallPluginDialog(
                     supportingText = error?.let { { Text(it) } }
                 )
                 Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = expectedSha256,
+                    onValueChange = { expectedSha256 = it; error = null },
+                    label = { Text("SHA-256 (recommended for URL)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    supportingText = {
+                        Text(
+                            "Verify download integrity to prevent tampered plugins",
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
+                )
+                Spacer(Modifier.height(8.dp))
+                // 安全警告：插件 JAR 加载后获得启动器全部权限
+                Surface(
+                    color = MaterialTheme.colorScheme.errorContainer,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Filled.Warning,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "Plugins run with full launcher permissions. " +
+                            "Only install from trusted sources.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
                 Text(
                     "Examples:\n" +
                     "  /path/to/my-plugin.jar\n" +
@@ -422,9 +495,26 @@ private fun InstallPluginDialog(
                 onClick = {
                     if (source.isBlank()) {
                         error = "Please enter a file path or URL"
-                    } else {
-                        onInstall(source.trim())
+                        return@Button
                     }
+                    val trimmed = source.trim()
+                    // URL 来源：若未提供 SHA256，要求二次确认
+                    if ((trimmed.startsWith("http://") || trimmed.startsWith("https://"))
+                        && expectedSha256.isBlank() && !showUrlConfirm) {
+                        pendingSource = trimmed
+                        showUrlConfirm = true
+                        return@Button
+                    }
+                    // SHA256 格式校验（若提供）
+                    if (expectedSha256.isNotBlank()) {
+                        val hash = expectedSha256.trim().lowercase()
+                        if (!hash.matches(Regex("^[0-9a-f]{64}$"))) {
+                            error = "Invalid SHA-256 format (expected 64 hex characters)"
+                            return@Button
+                        }
+                    }
+                    onInstall(if (expectedSha256.isBlank()) trimmed
+                              else "$trimmed||sha256:${expectedSha256.trim().lowercase()}")
                 }
             ) {
                 Text("Install")
@@ -436,4 +526,96 @@ private fun InstallPluginDialog(
             }
         }
     )
+
+    // URL 二次确认对话框（无 SHA256 时）
+    if (showUrlConfirm) {
+        AlertDialog(
+            onDismissRequest = { showUrlConfirm = false },
+            title = { Text("Security Warning") },
+            text = {
+                Column {
+                    Text(
+                        "You are about to install a plugin from a URL without SHA-256 verification.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Source: $pendingSource",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "If the URL is compromised, a malicious plugin could steal your credentials, " +
+                        "execute arbitrary commands, or access your files.\n\n" +
+                        "It is strongly recommended to provide a SHA-256 hash from a trusted source.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showUrlConfirm = false
+                        onInstall(pendingSource)
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text("Install anyway")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showUrlConfirm = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+}
+
+/**
+ * 下载 URL 到本地文件（带超时，用于插件安装前的 SHA256 校验下载）。
+ * 仅支持 HTTP(S)，设置连接/读取超时避免无限阻塞。
+ */
+private fun downloadTo(url: String, target: java.nio.file.Path) {
+    val conn = (java.net.URL(url).openConnection() as java.net.HttpURLConnection).apply {
+        connectTimeout = 15_000
+        readTimeout = 60_000
+        requestMethod = "GET"
+        setRequestProperty("User-Agent", "PMCL/1.0")
+    }
+    try {
+        if (conn.responseCode !in 200..299) {
+            throw IOException("HTTP ${conn.responseCode}: $url")
+        }
+        conn.inputStream.use { input ->
+            java.nio.file.Files.copy(input, target,
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+        }
+    } finally {
+        conn.disconnect()
+    }
+}
+
+/** 计算文件 SHA-256 摘要，返回小写十六进制字符串。 */
+private fun sha256Hex(file: java.nio.file.Path): String {
+    java.nio.file.Files.newInputStream(file).use { input ->
+        val md = java.security.MessageDigest.getInstance("SHA-256")
+        val buf = ByteArray(8192)
+        var n = input.read(buf)
+        while (n != -1) {
+            md.update(buf, 0, n)
+            n = input.read(buf)
+        }
+        val digest = md.digest()
+        val sb = StringBuilder(digest.size * 2)
+        for (b in digest) {
+            sb.append(Character.forDigit((b.toInt() shr 4) and 0xF, 16))
+            sb.append(Character.forDigit(b.toInt() and 0xF, 16))
+        }
+        return sb.toString()
+    }
 }

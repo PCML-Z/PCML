@@ -1059,6 +1059,7 @@ public final class LaunchProfileBuilder {
     }
 
     private void extractNatives(Path nativeJar, Path targetDir) throws IOException {
+        Path absTargetDir = targetDir.toAbsolutePath().normalize();
         try (java.util.jar.JarFile jar = new java.util.jar.JarFile(nativeJar.toFile())) {
             java.util.Enumeration<java.util.jar.JarEntry> entries = jar.entries();
             while (entries.hasMoreElements()) {
@@ -1074,10 +1075,21 @@ public final class LaunchProfileBuilder {
                     continue;
                 }
                 // 扁平化：只取文件名，去掉目录前缀（如 macos/arm64/org/lwjgl/liblwjgl.dylib → liblwjgl.dylib）
-                String fileName = name;
-                int lastSlash = name.lastIndexOf('/');
-                if (lastSlash >= 0) fileName = name.substring(lastSlash + 1);
-                Path target = targetDir.resolve(fileName);
+                // 同时处理反斜杠分隔符（Windows 上恶意 jar 可用 ..\evil.dll 绕过仅检查正斜杠的 ZipSlip 防护）
+                String normalized = name.replace('\\', '/');
+                String fileName = normalized;
+                int lastSlash = normalized.lastIndexOf('/');
+                if (lastSlash >= 0) fileName = normalized.substring(lastSlash + 1);
+                // ZipSlip 防护：文件名不得含路径分隔符或 ".."（扁平化后应仅为纯文件名）
+                if (fileName.contains("/") || fileName.contains("\\") || fileName.contains("..")) {
+                    throw new IOException("非法 native entry 名称（疑似 ZipSlip）: " + name);
+                }
+                Path target = targetDir.resolve(fileName).toAbsolutePath().normalize();
+                // 二次校验：解析后的目标路径必须在 targetDir 内
+                if (!target.startsWith(absTargetDir)) {
+                    throw new IOException("native 解压目标越界（ZipSlip 防护）: " + name
+                            + " -> " + target);
+                }
                 try (java.io.InputStream is = jar.getInputStream(entry);
                      java.io.OutputStream os = java.nio.file.Files.newOutputStream(target)) {
                     is.transferTo(os);
@@ -1088,7 +1100,11 @@ public final class LaunchProfileBuilder {
                 // 自动创建 .dylib 副本（硬链接或复制），让 Java 9+ 能加载。
                 if (lower.endsWith(".jnilib")) {
                     String dylibName = fileName.substring(0, fileName.length() - ".jnilib".length()) + ".dylib";
-                    Path dylibTarget = targetDir.resolve(dylibName);
+                    Path dylibTarget = targetDir.resolve(dylibName).toAbsolutePath().normalize();
+                    // 二次校验 dylib 目标
+                    if (!dylibTarget.startsWith(absTargetDir)) {
+                        throw new IOException("dylib 副本目标越界: " + dylibName);
+                    }
                     // 仅在 .dylib 不存在时创建（避免覆盖已有的 arm64 版本）
                     if (!java.nio.file.Files.exists(dylibTarget)) {
                         try {

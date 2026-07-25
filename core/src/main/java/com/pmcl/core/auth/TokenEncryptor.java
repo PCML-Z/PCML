@@ -54,6 +54,10 @@ public final class TokenEncryptor {
     /**
      * 加密明文 token。返回 {@code "enc:v1:<base64(salt|iv|ciphertext)>"}。
      * 输入为 null 或空字符串时原样返回（避免破坏空字段语义）。
+     * <p>
+     * 安全保证：加密失败时返回空字符串 {@code ""}，绝不降级为明文存储。
+     * 调用方（如 AuthService）应感知返回空串意味着该 token 无法持久化，
+     * 用户需在下次启动时重新登录。这比明文落盘泄漏凭据安全得多。
      */
     public static String encrypt(String plaintext) {
         if (plaintext == null || plaintext.isEmpty()) return plaintext;
@@ -73,9 +77,10 @@ public final class TokenEncryptor {
             buf.put(salt).put(iv).put(ciphertext);
             return ENCRYPTED_PREFIX + Base64.getEncoder().encodeToString(buf.array());
         } catch (Exception e) {
-            // 加密失败不应影响登录流程，降级为明文存储并打印警告
-            System.err.println("[TokenEncryptor] 加密失败，降级为明文存储: " + e.getMessage());
-            return plaintext;
+            // 安全原则：加密失败绝不降级为明文存储，返回空串让上层感知持久化失败。
+            // 明文落盘会导致 accounts.json 中 accessToken 持续可读，被其他用户/取证工具读取。
+            System.err.println("[TokenEncryptor] 加密失败，拒绝持久化该 token（返回空串）: " + e.getMessage());
+            return "";
         }
     }
 

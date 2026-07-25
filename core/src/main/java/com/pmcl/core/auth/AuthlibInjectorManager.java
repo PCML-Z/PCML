@@ -81,9 +81,50 @@ public final class AuthlibInjectorManager {
         // 下载 jar
         System.err.println("[AuthlibInjectorManager] 下载 authlib-injector " + info.version + " from " + info.downloadUrl);
         downloadFile(info.downloadUrl, jarPath);
+        // 完整性校验：authlib-injector.jar 会通过 -javaagent 注入 Minecraft 进程，
+        // 若被篡改可执行任意代码，必须校验 SHA256（官方版本信息 JSON 提供）。
+        if (!info.sha256.isEmpty()) {
+            String actual = sha256Hex(jarPath);
+            if (!actual.equalsIgnoreCase(info.sha256)) {
+                Files.deleteIfExists(jarPath);
+                Files.deleteIfExists(versionFile);
+                throw new IOException("authlib-injector.jar SHA256 校验失败：预期 " + info.sha256
+                        + "，实际 " + actual + "（文件可能被篡改或下载损坏）");
+            }
+            System.err.println("[AuthlibInjectorManager] SHA256 校验通过");
+        } else {
+            System.err.println("[AuthlibInjectorManager] 警告：版本信息未提供 sha256，跳过完整性校验");
+        }
         Files.writeString(versionFile, info.version, StandardCharsets.UTF_8);
         System.err.println("[AuthlibInjectorManager] authlib-injector.jar 下载完成: " + jarPath);
         return jarPath;
+    }
+
+    /**
+     * 计算文件 SHA-256 摘要，返回小写十六进制字符串。
+     * 用于校验下载的 authlib-injector.jar 完整性，防止供应链攻击。
+     */
+    private static String sha256Hex(Path file) throws IOException {
+        try (InputStream is = Files.newInputStream(file)) {
+            java.security.MessageDigest md;
+            try {
+                md = java.security.MessageDigest.getInstance("SHA-256");
+            } catch (java.security.NoSuchAlgorithmException e) {
+                throw new IOException("SHA-256 算法不可用", e);
+            }
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = is.read(buf)) != -1) {
+                md.update(buf, 0, n);
+            }
+            byte[] digest = md.digest();
+            StringBuilder sb = new StringBuilder(digest.length * 2);
+            for (byte b : digest) {
+                sb.append(Character.forDigit((b >> 4) & 0xF, 16));
+                sb.append(Character.forDigit(b & 0xF, 16));
+            }
+            return sb.toString();
+        }
     }
 
     /**
