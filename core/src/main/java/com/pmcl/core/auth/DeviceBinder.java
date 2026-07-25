@@ -20,741 +20,740 @@ import java.security.spec.X509EncodedKeySpec;
 import java.util.Base64;
 
 /**
- * 设备绑定保护：使用 11498 位 Base62 设备加密码 + RSA-2048 签名许可证实现"一机一码"绑定。
- * <p>
- * 设计目标：
- * <ul>
- *   <li><b>唯一设备加密码</b>：从硬件指纹（CPU 序列号 / 主板序列号 / MAC / 系统）派生
- *       11498 位 [0-9a-zA-Z] 字符串。同一设备稳定，跨设备不同。</li>
- *   <li><b>许可证签发</b>：启动器生成 RSA-2048 密钥对，私钥签名许可证
- *       {@code {deviceCodeHash, enabled, timestamp, nonce}}。许可证存储在 preferences.json，
- *       任何篡改都会导致签名校验失败。</li>
- *   <li><b>私钥保护开关</b>：开启/关闭保护都需要私钥签名新许可证。私钥由用户保管
- *       （首次开启时导出，密码加密的 PEM 格式）。本地也保留一份用设备码加密的副本
- *       （仅在原设备可解密，复制到其他设备无法解密）。</li>
- *   <li><b>启动校验</b>：保护开启时，启动器/游戏启动前校验许可证签名 + 设备码匹配，
- *       不匹配则拒绝启动，防止启动器和游戏被复制到其他设备使用。</li>
- * </ul>
- * <p>
- * 安全说明：
- * <ul>
- *   <li>设备码本身不存盘，每次从硬件指纹实时派生，避免被复制。</li>
- *   <li>私钥导出文件使用 AES-256-GCM 加密（用户密码 + PBKDF2 派生密钥），
- *       即使私钥文件泄露，无密码也无法使用。</li>
- *   <li>本地私钥副本使用设备码作为密码加密，复制到其他设备后设备码不同，无法解密。</li>
- *   <li>许可证含时间戳和 nonce，防止重放攻击。</li>
- * </ul>
+ * 设备绑定保护：11498 位设备加密码 + RSA-2048 签名许可证。
+ * 加密实现部分经过超级强混淆处理。
  */
 public final class DeviceBinder {
 
-    // ===== 常量 =====
-
-    /** 设备码长度：11498 字符（[0-9a-zA-Z]） */
     public static final int DEVICE_CODE_LENGTH = 11498;
+    public static final String LICENSE_PREFIX;
+    public static final String EXPORTED_KEY_PREFIX;
+    public static final String LOCAL_KEY_PREFIX;
 
-    /** Base62 字符表：0-9 + a-z + A-Z */
-    private static final String BASE62 =
-            "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    private static final int _G = 1 << 7;
+    private static final int _V = (1 << 4) - 4;
+    private static final int _S = 1 << 4;
+    private static final int _I = (0x3 << 16) | (0xD << 8) | 0x40;
+    private static final int _K = 1 << 8;
+    private static final int _R = 1 << 11;
 
-    /** RSA 密钥长度 */
-    private static final int RSA_KEY_SIZE = 2048;
+    private static final SecureRandom _RNG = new SecureRandom();
 
-    /** 签名算法 */
-    private static final String SIGN_ALGORITHM = "SHA256withRSA";
+    // ===== 字符串解密器（FNV-1a 流式加密，每串独立 seed） =====
+    private static String _x(int _s, int... _e) {
+        char[] _c = new char[_e.length];
+        int _k = _s ^ 0x5A5A5A5A;
+        for (int _i = 0; _i < _e.length; _i++) {
+            int _ci = _e[_i];
+            _c[_i] = (char) (_ci ^ (_k & 0xFF));
+            _k = (_k * 0x01000193) ^ _ci;
+            _k ^= (_k >>> 13);
+            _k = (_k << 7) | (_k >>> 25);
+            _k ^= 0x5A;
+        }
+        return new String(_c);
+    }
 
-    /** 许可证前缀 */
-    public static final String LICENSE_PREFIX = "pmcl-license:v1:";
+    // ===== 不透明谓词（永真/永假，用于迷惑分析者） =====
+    private static boolean _q1(int _v) { return (_v * _v + 2 * _v + 1) - ((_v + 1) * (_v + 1)) == 0; }
+    private static boolean _q2(int _v) { return (_v | 1) != 0; }
+    private static boolean _q3(long _v) { return _v * _v >= 0; }
+    private static boolean _q4(int _v) { return (_v * 7 + 1) % 2 != 2; }
+    private static boolean _q5(int _v) { return ((_v & 0) ^ 0) == 0; }
+    private static int _q6(int _v) { return _q1(_v) ? (_v ^ _v) : (_v | _v); }
 
-    /** 私钥导出前缀（密码加密） */
-    public static final String EXPORTED_KEY_PREFIX = "pmcl-key:v1:";
+    // ===== 加密字符串池 =====
+    private static final String _ALG_GCM;
+    private static final String _KDF;
+    private static final String _SHA;
+    private static final String _RSA;
+    private static final String _SIG;
+    private static final String _AES;
+    private static final String _B62;
+    private static final char _CH_H;
+    private static final char _CH_E;
+    private static final char _CH_T;
+    private static final char _CH_N;
+    private static final String _STR_TRUE;
 
-    /** 本地私钥前缀（设备码加密） */
-    public static final String LOCAL_KEY_PREFIX = "pmcl-localkey:v1:";
-
-    // AES-GCM 参数
-    private static final int GCM_TAG_BITS = 128;
-    private static final int IV_BYTES = 12;
-    private static final int SALT_BYTES = 16;
-    private static final int PBKDF2_ITERATIONS = 200_000;
-    private static final int AES_KEY_BITS = 256;
-
-    private static final SecureRandom RNG = new SecureRandom();
+    static {
+        _ALG_GCM = _x(-1582119983, 0xCA, 0x12, 0x7C, 0xDA, 0xDB, 0x6A, 0x76, 0xF4, 0x45, 0xC2, 0x81, 0xD4, 0xAC, 0x22, 0xD6, 0xEC, 0x05);
+        _KDF = _x(0x4E5D6C72, 0x78, 0x4F, 0x51, 0xE3, 0xB7, 0x2A, 0xE3, 0xE0, 0x5B, 0xD7, 0x67, 0x06, 0xAB, 0x3A, 0xCC, 0xFA, 0x87, 0x17, 0xCB, 0x67);
+        _SHA = _x(0x12345678, 0x71, 0x81, 0x55, 0xFD, 0x2B, 0x13, 0xC1);
+        _RSA = _x(-559038737, 0xE7, 0x0A, 0x9A);
+        _SIG = _x(-889275714, 0xB7, 0xD9, 0xBA, 0x40, 0x62, 0x4F, 0x68, 0x53, 0x9F, 0x94, 0x60, 0x59, 0xB1);
+        _AES = _x(0x0BADC0DE, 0xC5, 0x59, 0xF3);
+        LICENSE_PREFIX = _x(-17958194, 0xE4, 0x47, 0xF0, 0xBB, 0x6E, 0x51, 0xC5, 0x5E, 0x6A, 0xEC, 0xF3, 0x80, 0xEF, 0x6B, 0x40, 0x93);
+        EXPORTED_KEY_PREFIX = _x(-1379860498, 0xC4, 0x09, 0x78, 0xB0, 0xC4, 0x77, 0xF9, 0x08, 0xC6, 0xD2, 0x86, 0x2F);
+        LOCAL_KEY_PREFIX = _x(0x1234ABCD, 0xE7, 0x79, 0x6F, 0x22, 0x6A, 0x5B, 0x4A, 0x44, 0x90, 0x14, 0x6D, 0x21, 0xDF, 0xCE, 0xDE, 0x71, 0xBC);
+        _B62 = _x(0x5A5A5A5A, 0x30, 0x6B, 0xC5, 0xB3, 0x88, 0xBA, 0xD2, 0x69, 0x93, 0xFB, 0xF5, 0x76, 0x77, 0xE7, 0x30, 0x4B, 0xA3, 0x41, 0x54, 0x52, 0xD5, 0x6D, 0xB6, 0x2A, 0x39, 0x10, 0x5A, 0x7C, 0xD4, 0x86, 0x13, 0x3C, 0x32, 0xB9, 0x4D, 0x4E, 0x89, 0x45, 0xA4, 0xC0, 0x92, 0x50, 0x6E, 0xDC, 0x0A, 0x08, 0x57, 0xDD, 0x41, 0x8E, 0xED, 0xAC, 0x7F, 0x41, 0x72, 0x54, 0x72, 0x0D, 0xF5, 0x4C, 0x3D, 0xCA);
+        _STR_TRUE = _x(0x11111111, 0x3F, 0x41, 0xCA, 0xEB);
+        _CH_H = _x(0x44444444, 0x76).charAt(0);
+        _CH_E = _x(0x55555555, 0x6A).charAt(0);
+        _CH_T = _x(0x66666666, 0x48).charAt(0);
+        _CH_N = _x(0x77777777, 0x43).charAt(0);
+    }
 
     private DeviceBinder() {}
 
     // ===== 设备指纹采集 =====
 
-    /**
-     * 采集设备硬件指纹。组合多个硬件标识符，单一来源缺失不影响整体稳定性。
-     * <p>
-     * 采集项：
-     * <ul>
-     *   <li>CPU 处理器标识符（vendor + family + model + stepping）</li>
-     *   <li>CPU 序列号（部分 CPU 提供）</li>
-     *   <li>主板序列号（manufacturer + model + serial + version）</li>
-     *   <li>计算机系统序列号（manufacturer + model + serial + uuid）</li>
-     *   <li>首个物理网卡的 MAC 地址（排除虚拟/loopback）</li>
-     *   <li>OS 名称 + 版本 + 架构</li>
-     *   <li>当前用户名 + user.home（防止同一硬件多用户混淆）</li>
-     * </ul>
-     */
     public static String collectFingerprint() {
-        StringBuilder fp = new StringBuilder(256);
-        try {
-            oshi.SystemInfo si = new oshi.SystemInfo();
-            oshi.hardware.HardwareAbstractionLayer hw = si.getHardware();
-            oshi.software.os.OperatingSystem os = si.getOperatingSystem();
-
-            // CPU 标识
-            try {
-                oshi.hardware.CentralProcessor cpu = hw.getProcessor();
-                oshi.hardware.CentralProcessor.ProcessorIdentifier pid = cpu.getProcessorIdentifier();
-                fp.append("cpu=").append(pid.getVendor())
-                  .append('|').append(pid.getFamily())
-                  .append('|').append(pid.getModel())
-                  .append('|').append(pid.getStepping())
-                  .append('|').append(pid.getMicroarchitecture())
-                  .append('|').append(pid.getProcessorID())
-                  .append('\n');
-            } catch (Throwable t) {
-                fp.append("cpu=unknown\n");
+        StringBuilder _fp = new StringBuilder(256);
+        int _st = 0;
+        while (_st < 5) {
+            switch (_st) {
+                case 0:
+                    try {
+                        oshi.SystemInfo _si = new oshi.SystemInfo();
+                        oshi.hardware.HardwareAbstractionLayer _hw = _si.getHardware();
+                        oshi.software.os.OperatingSystem _os = _si.getOperatingSystem();
+                        _a(_fp, _hw);
+                        _b(_fp, _hw);
+                        _c(_fp, _hw);
+                        _d(_fp, _os);
+                        _st = 5;
+                    } catch (Throwable _t) {
+                        _fp.append("err=").append(_t.getClass().getSimpleName()).append('\n');
+                        _st = 5;
+                    }
+                    break;
+                case 1: _st = _q1(3) ? 5 : 5; break;
+                case 2: _st = _q2(0) ? 5 : 5; break;
+                case 3: _st = 5; break;
+                case 4: _st = 5; break;
+                default: _st = 5;
             }
-
-            // 主板 + 系统序列号
-            try {
-                oshi.hardware.ComputerSystem cs = hw.getComputerSystem();
-                fp.append("board=").append(safe(cs.getBaseboard().getManufacturer()))
-                  .append('|').append(safe(cs.getBaseboard().getModel()))
-                  .append('|').append(safe(cs.getBaseboard().getSerialNumber()))
-                  .append('|').append(safe(cs.getBaseboard().getVersion()))
-                  .append('\n');
-                fp.append("system=").append(safe(cs.getManufacturer()))
-                  .append('|').append(safe(cs.getModel()))
-                  .append('|').append(safe(cs.getSerialNumber()))
-                  .append('\n');
-                // Firmware 信息（厂商/名称/版本/发布日期）
-                try {
-                    oshi.hardware.Firmware fw = cs.getFirmware();
-                    fp.append("firmware=").append(safe(fw.getManufacturer()))
-                      .append('|').append(safe(fw.getName()))
-                      .append('|').append(safe(fw.getVersion()))
-                      .append('|').append(safe(fw.getReleaseDate()))
-                      .append('\n');
-                } catch (Throwable t) {
-                    fp.append("firmware=unknown\n");
-                }
-            } catch (Throwable t) {
-                fp.append("board=unknown\nsystem=unknown\n");
-            }
-
-            // 首个物理网卡 MAC
-            try {
-                String mac = firstPhysicalMac(hw);
-                fp.append("mac=").append(mac).append('\n');
-            } catch (Throwable t) {
-                fp.append("mac=unknown\n");
-            }
-
-            // OS 信息
-            try {
-                fp.append("os=").append(os.getManufacturer())
-                  .append('|').append(os.getFamily())
-                  .append('|').append(os.getVersionInfo().getVersion())
-                  .append('|').append(os.getBitness())
-                  .append('\n');
-            } catch (Throwable t) {
-                fp.append("os=unknown\n");
-            }
-        } catch (Throwable t) {
-            // oshi 整体初始化失败（罕见），降级到 JVM 属性
-            fp.append("oshi_failed=").append(t.getClass().getSimpleName()).append('\n');
         }
-
-        // JVM 属性作为兜底（始终可用）
-        fp.append("user=").append(System.getProperty("user.name", "unknown"))
-          .append('|').append(System.getProperty("user.home", "/tmp"))
-          .append('|').append(System.getProperty("os.name", "unknown"))
-          .append('|').append(System.getProperty("os.arch", "unknown"))
-          .append('\n');
-
-        return fp.toString();
+        _e(_fp);
+        return _fp.toString();
     }
 
-    private static String safe(String s) {
-        return s == null ? "?" : s;
+    private static void _a(StringBuilder _fp, oshi.hardware.HardwareAbstractionLayer _hw) {
+        int _st = 0;
+        while (_st != 9) {
+            switch (_st) {
+                case 0:
+                    try {
+                        oshi.hardware.CentralProcessor _cpu = _hw.getProcessor();
+                        oshi.hardware.CentralProcessor.ProcessorIdentifier _pid = _cpu.getProcessorIdentifier();
+                        _fp.append("cpu=").append(_pid.getVendor())
+                           .append('|').append(_pid.getFamily())
+                           .append('|').append(_pid.getModel())
+                           .append('|').append(_pid.getStepping())
+                           .append('|').append(_pid.getMicroarchitecture())
+                           .append('|').append(_pid.getProcessorID())
+                           .append('\n');
+                        _st = 9;
+                    } catch (Throwable _t) {
+                        _fp.append("cpu=?\n");
+                        _st = 9;
+                    }
+                    break;
+                case 1: _st = _q1(7) ? 9 : 9; break;
+                case 2: _st = _q5(99) ? 9 : 9; break;
+                default: _st = 9;
+            }
+        }
     }
 
-    /**
-     * 获取首个物理网卡的 MAC 地址（排除虚拟接口和 loopback）。
-     */
-    private static String firstPhysicalMac(oshi.hardware.HardwareAbstractionLayer hw) {
+    private static void _b(StringBuilder _fp, oshi.hardware.HardwareAbstractionLayer _hw) {
+        int _st = 0;
+        loop:
+        while (true) {
+            switch (_st) {
+                case 0:
+                    try {
+                        oshi.hardware.ComputerSystem _cs = _hw.getComputerSystem();
+                        _fp.append("board=").append(_s(_cs.getBaseboard().getManufacturer()))
+                           .append('|').append(_s(_cs.getBaseboard().getModel()))
+                           .append('|').append(_s(_cs.getBaseboard().getSerialNumber()))
+                           .append('|').append(_s(_cs.getBaseboard().getVersion()))
+                           .append('\n');
+                        _fp.append("system=").append(_s(_cs.getManufacturer()))
+                           .append('|').append(_s(_cs.getModel()))
+                           .append('|').append(_s(_cs.getSerialNumber()))
+                           .append('\n');
+                        _st = 1;
+                    } catch (Throwable _t) {
+                        _fp.append("board=?\nsystem=?\n");
+                        _st = 3;
+                    }
+                    break;
+                case 1:
+                    try {
+                        oshi.hardware.Firmware _fw = _hw.getComputerSystem().getFirmware();
+                        _fp.append("fw=").append(_s(_fw.getManufacturer()))
+                           .append('|').append(_s(_fw.getName()))
+                           .append('|').append(_s(_fw.getVersion()))
+                           .append('|').append(_s(_fw.getReleaseDate()))
+                           .append('\n');
+                        _st = _q2(1) ? 3 : 3;
+                    } catch (Throwable _t) {
+                        _fp.append("fw=?\n");
+                        _st = 3;
+                    }
+                    break;
+                case 2: _st = 3; break;
+                case 3: break loop;
+                default: _st = 3;
+            }
+        }
+    }
+
+    private static void _c(StringBuilder _fp, oshi.hardware.HardwareAbstractionLayer _hw) {
+        int _st = 0;
+        while (_st != 7) {
+            switch (_st) {
+                case 0:
+                    try {
+                        _fp.append("mac=").append(_mac(_hw)).append('\n');
+                        _st = 7;
+                    } catch (Throwable _t) {
+                        _fp.append("mac=?\n");
+                        _st = 7;
+                    }
+                    break;
+                case 1: _st = _q3(42L) ? 7 : 7; break;
+                case 2: _st = 7; break;
+                default: _st = 7;
+            }
+        }
+    }
+
+    private static void _d(StringBuilder _fp, oshi.software.os.OperatingSystem _os) {
+        int _st = 0;
+        while (_st != 5) {
+            switch (_st) {
+                case 0:
+                    try {
+                        _fp.append("os=").append(_os.getManufacturer())
+                           .append('|').append(_os.getFamily())
+                           .append('|').append(_os.getVersionInfo().getVersion())
+                           .append('|').append(_os.getBitness())
+                           .append('\n');
+                        _st = 5;
+                    } catch (Throwable _t) {
+                        _fp.append("os=?\n");
+                        _st = 5;
+                    }
+                    break;
+                case 1: _st = _q4(13) ? 5 : 5; break;
+                default: _st = 5;
+            }
+        }
+    }
+
+    private static void _e(StringBuilder _fp) {
+        int _st = 0;
+        while (_st != 3) {
+            switch (_st) {
+                case 0:
+                    _fp.append("user=").append(System.getProperty("user.name", "unknown"))
+                       .append('|').append(System.getProperty("user.home", "/tmp"))
+                       .append('|').append(System.getProperty("os.name", "unknown"))
+                       .append('|').append(System.getProperty("os.arch", "unknown"))
+                       .append('\n');
+                    _st = _q1(0) ? 3 : 3;
+                    break;
+                default: _st = 3;
+            }
+        }
+    }
+
+    private static String _s(String _v) {
+        return _v == null ? "?" : _v;
+    }
+
+    private static String _mac(oshi.hardware.HardwareAbstractionLayer _hw) {
         try {
-            java.util.List<oshi.hardware.NetworkIF> nics = hw.getNetworkIFs();
-            // 优先级：有 MAC 且非虚拟
-            for (oshi.hardware.NetworkIF nic : nics) {
-                String mac = nic.getMacaddr();
-                if (mac == null || mac.isEmpty() || mac.equals("00:00:00:00:00:00")) continue;
-                String name = nic.getName() == null ? "" : nic.getName().toLowerCase();
-                String desc = nic.getDisplayName() == null ? "" : nic.getDisplayName().toLowerCase();
-                // 排除常见虚拟接口
-                if (name.contains("virtual") || name.contains("tap") || name.contains("tun")
-                    || name.contains("vmnet") || name.contains("docker")
-                    || desc.contains("virtual") || desc.contains("tap")) {
-                    continue;
+            java.util.List<oshi.hardware.NetworkIF> _nics = _hw.getNetworkIFs();
+            int _ph1 = 0;
+            while (_ph1 < 2) {
+                switch (_ph1) {
+                    case 0:
+                        for (oshi.hardware.NetworkIF _nic : _nics) {
+                            String _m = _nic.getMacaddr();
+                            if (_m == null || _m.isEmpty() || _m.equals("00:00:00:00:00:00")) continue;
+                            String _n = _nic.getName() == null ? "" : _nic.getName().toLowerCase();
+                            String _dd = _nic.getDisplayName() == null ? "" : _nic.getDisplayName().toLowerCase();
+                            if (_n.contains("virtual") || _n.contains("tap") || _n.contains("tun")
+                                || _n.contains("vmnet") || _n.contains("docker")
+                                || _dd.contains("virtual") || _dd.contains("tap")) continue;
+                            return _m;
+                        }
+                        _ph1 = 1;
+                        break;
+                    case 1:
+                        for (oshi.hardware.NetworkIF _nic : _nics) {
+                            String _m = _nic.getMacaddr();
+                            if (_m != null && !_m.isEmpty() && !_m.equals("00:00:00:00:00:00")) return _m;
+                        }
+                        _ph1 = 2;
+                        break;
+                    default: _ph1 = 2;
                 }
-                return mac;
             }
-            // 兜底：取第一个有 MAC 的
-            for (oshi.hardware.NetworkIF nic : nics) {
-                String mac = nic.getMacaddr();
-                if (mac != null && !mac.isEmpty() && !mac.equals("00:00:00:00:00:00")) {
-                    return mac;
-                }
-            }
-        } catch (Throwable ignored) {}
+        } catch (Throwable _t) {}
         return "unknown";
     }
 
-    // ===== 11498 位设备码生成 =====
+    // ===== 11498 位设备码生成（强混淆核心） =====
 
-    /**
-     * 获取当前设备的 11498 位 Base62 加密码。同一设备稳定，跨设备不同。
-     */
     public static String getDeviceCode() {
-        return generateDeviceCode(collectFingerprint());
+        return _gen(collectFingerprint());
     }
 
-    /**
-     * 从指纹派生 11498 位 Base62 设备码。
-     * <p>
-     * 派生流程：
-     * <ol>
-     *   <li>seed = SHA-256(fingerprint)</li>
-     *   <li>使用 HKDF 风格扩展：block[i] = SHA-256(seed || i)，i 从 0 递增</li>
-     *   <li>拼接所有 block 直到字节足够（11498 字符 ≈ 8560 字节）</li>
-     *   <li>使用 BigInteger 转 Base62，左侧补 '0' 到 11498 字符</li>
-     * </ol>
-     */
-    static String generateDeviceCode(String fingerprint) {
+    static String _gen(String _fp) {
         try {
-            MessageDigest sha256 = MessageDigest.getInstance("SHA-256");
-            byte[] seed = sha256.digest(fingerprint.getBytes(StandardCharsets.UTF_8));
-
-            // 11498 Base62 字符需要的字节数：log(62)/log(256) ≈ 0.7446
-            // 11498 * 0.7446 ≈ 8560，取 8576（256 的倍数，便于分块）
-            int targetBytes = 8576;
-            byte[] material = new byte[targetBytes];
-            int offset = 0;
-            int counter = 0;
-            while (offset < targetBytes) {
-                ByteBuffer block = ByteBuffer.allocate(seed.length + 4);
-                block.put(seed);
-                block.putInt(counter);
-                byte[] hash = sha256.digest(block.array());
-                int copy = Math.min(hash.length, targetBytes - offset);
-                System.arraycopy(hash, 0, material, offset, copy);
-                offset += copy;
-                counter++;
-            }
-
-            // Base62 编码（BigInteger 方式）
-            java.math.BigInteger num = new java.math.BigInteger(1, material);
-            StringBuilder sb = new StringBuilder(DEVICE_CODE_LENGTH);
-            java.math.BigInteger base = java.math.BigInteger.valueOf(62);
-            while (num.compareTo(java.math.BigInteger.ZERO) > 0) {
-                java.math.BigInteger[] dm = num.divideAndRemainder(base);
-                sb.append(BASE62.charAt(dm[1].intValue()));
-                num = dm[0];
-            }
-            // 反转（divideAndRemainder 产生低位在前）
-            sb.reverse();
-            // 左侧补 '0' 到目标长度
-            while (sb.length() < DEVICE_CODE_LENGTH) {
-                sb.insert(0, '0');
-            }
-            // 截断到精确长度（保险）
-            if (sb.length() > DEVICE_CODE_LENGTH) {
-                sb.setLength(DEVICE_CODE_LENGTH);
-            }
-            return sb.toString();
-        } catch (Exception e) {
-            throw new RuntimeException("设备码生成失败: " + e.getMessage(), e);
+            MessageDigest _md = MessageDigest.getInstance(_SHA);
+            byte[] _seed = _md.digest(_fp.getBytes(StandardCharsets.UTF_8));
+            int _tb = 0x43 << 7;
+            byte[] _mat = _gen_mat(_md, _seed, _tb);
+            return _enc(_mat);
+        } catch (Throwable _t) {
+            throw new RuntimeException(_t.getMessage(), _t);
         }
     }
 
-    /** 计算设备码的 SHA-256 哈希（用于许可证比对，避免明文存盘） */
-    public static String hashDeviceCode(String deviceCode) {
+    private static byte[] _gen_mat(MessageDigest _md, byte[] _seed, int _tb) {
+        byte[] _mat = new byte[_tb];
+        int _off = 0;
+        int _cnt = 0;
+        int _state = 0;
+        while (_off < _tb) {
+            switch (_state) {
+                case 0: {
+                    ByteBuffer _bb = ByteBuffer.allocate(_seed.length + 4);
+                    _bb.put(_seed);
+                    _bb.putInt(_cnt);
+                    byte[] _h = _md.digest(_bb.array());
+                    int _cp = Math.min(_h.length, _tb - _off);
+                    System.arraycopy(_h, 0, _mat, _off, _cp);
+                    _off += _cp;
+                    _cnt++;
+                    _state = _q1(_cnt) ? 1 : 1;
+                    break;
+                }
+                case 1: {
+                    int _junk = (_cnt * 31) ^ 0xDEAD;
+                    if (_junk == 0) _state = 2; else _state = 0;
+                    if (!_q2(_cnt)) _state = 0;
+                    break;
+                }
+                case 2: _state = _q5(_off) ? 0 : 0; break;
+                case 3: _state = 0; break;
+                case 4: _state = 0; break;
+                default: _state = 0;
+            }
+        }
+        return _mat;
+    }
+
+    private static String _enc(byte[] _mat) {
+        java.math.BigInteger _num = new java.math.BigInteger(1, _mat);
+        StringBuilder _sb = new StringBuilder(DEVICE_CODE_LENGTH);
+        java.math.BigInteger _b = java.math.BigInteger.valueOf(62);
+        int _state = 0;
+        while (_state != 9) {
+            switch (_state) {
+                case 0:
+                    if (_num.compareTo(java.math.BigInteger.ZERO) > 0) {
+                        java.math.BigInteger[] _dm = _num.divideAndRemainder(_b);
+                        _sb.append(_B62.charAt(_dm[1].intValue()));
+                        _num = _dm[0];
+                        _state = _q1(1) ? 1 : 1;
+                    } else {
+                        _state = 2;
+                    }
+                    break;
+                case 1:
+                    _state = _q3(_sb.length()) ? 0 : 0;
+                    break;
+                case 2:
+                    _sb.reverse();
+                    _state = _q2(3) ? 3 : 3;
+                    break;
+                case 3:
+                    while (_sb.length() < DEVICE_CODE_LENGTH) _sb.insert(0, _B62.charAt(0));
+                    if (_sb.length() > DEVICE_CODE_LENGTH) _sb.setLength(DEVICE_CODE_LENGTH);
+                    _state = 9;
+                    break;
+                case 4: _state = 0; break;
+                case 5: _state = 0; break;
+                default: _state = 0;
+            }
+        }
+        return _sb.toString();
+    }
+
+    public static String hashDeviceCode(String _dc) {
         try {
-            byte[] hash = MessageDigest.getInstance("SHA-256")
-                    .digest(deviceCode.getBytes(StandardCharsets.UTF_8));
-            StringBuilder sb = new StringBuilder(hash.length * 2);
-            for (byte b : hash) sb.append(String.format("%02x", b & 0xff));
-            return sb.toString();
-        } catch (Exception e) {
-            throw new RuntimeException(e);
+            byte[] _h = MessageDigest.getInstance(_SHA)
+                    .digest(_dc.getBytes(StandardCharsets.UTF_8));
+            StringBuilder _sb = new StringBuilder(_h.length * 2);
+            int _st = 0;
+            for (byte _b : _h) {
+                switch (_st) {
+                    case 0:
+                        _sb.append(String.format("%02x", _b & 0xff));
+                        _st = _q1(_b & 0xff) ? 0 : 0;
+                        break;
+                    default: _st = 0;
+                }
+            }
+            return _sb.toString();
+        } catch (Throwable _t) {
+            throw new RuntimeException(_t);
         }
     }
 
     // ===== RSA 密钥对 =====
 
-    /** 生成 RSA-2048 密钥对 */
     public static KeyPair generateKeyPair() {
         try {
-            KeyPairGenerator gen = KeyPairGenerator.getInstance("RSA");
-            gen.initialize(RSA_KEY_SIZE, RNG);
-            return gen.generateKeyPair();
-        } catch (Exception e) {
-            throw new RuntimeException("RSA 密钥对生成失败: " + e.getMessage(), e);
+            KeyPairGenerator _g = KeyPairGenerator.getInstance(_RSA);
+            _g.initialize(_R, _RNG);
+            return _g.generateKeyPair();
+        } catch (Throwable _t) {
+            throw new RuntimeException(_t.getMessage(), _t);
         }
     }
 
-    /** 从 PKCS#8 DER 字节重建私钥 */
-    public static PrivateKey loadPrivateKey(byte[] pkcs8Der) {
+    public static PrivateKey loadPrivateKey(byte[] _der) {
         try {
-            return java.security.KeyFactory.getInstance("RSA")
-                    .generatePrivate(new PKCS8EncodedKeySpec(pkcs8Der));
-        } catch (Exception e) {
-            throw new RuntimeException("私钥解析失败: " + e.getMessage(), e);
+            return java.security.KeyFactory.getInstance(_RSA)
+                    .generatePrivate(new PKCS8EncodedKeySpec(_der));
+        } catch (Throwable _t) {
+            throw new RuntimeException(_t.getMessage(), _t);
         }
     }
 
-    /** 从 X.509 DER 字节重建公钥 */
-    public static PublicKey loadPublicKey(byte[] x509Der) {
+    public static PublicKey loadPublicKey(byte[] _der) {
         try {
-            return java.security.KeyFactory.getInstance("RSA")
-                    .generatePublic(new X509EncodedKeySpec(x509Der));
-        } catch (Exception e) {
-            throw new RuntimeException("公钥解析失败: " + e.getMessage(), e);
+            return java.security.KeyFactory.getInstance(_RSA)
+                    .generatePublic(new X509EncodedKeySpec(_der));
+        } catch (Throwable _t) {
+            throw new RuntimeException(_t.getMessage(), _t);
         }
     }
 
-    /** 私钥转 PKCS#8 DER 字节 */
-    public static byte[] privateKeyToDer(PrivateKey key) {
-        return key.getEncoded();
-    }
-
-    /** 公钥转 X.509 DER 字节 */
-    public static byte[] publicKeyToDer(PublicKey key) {
-        return key.getEncoded();
-    }
-
-    /** 公钥/私钥 DER → Base64 字符串 */
-    public static String toBase64(byte[] der) {
-        return Base64.getEncoder().encodeToString(der);
-    }
-
-    /** Base64 → DER 字节 */
-    public static byte[] fromBase64(String b64) {
-        return Base64.getDecoder().decode(b64);
-    }
+    public static byte[] privateKeyToDer(PrivateKey _k) { return _k.getEncoded(); }
+    public static byte[] publicKeyToDer(PublicKey _k) { return _k.getEncoded(); }
+    public static String toBase64(byte[] _d) { return Base64.getEncoder().encodeToString(_d); }
+    public static byte[] fromBase64(String _s) { return Base64.getDecoder().decode(_s); }
 
     // ===== 许可证签发与验证 =====
 
-    /**
-     * 签发许可证。格式：{@code pmcl-license:v1:<base64(jsonPayload)>.<base64(signature)>}。
-     * <p>
-     * payload 包含：deviceCodeHash、enabled、timestamp、nonce。
-     */
-    public static String signLicense(String deviceCodeHash, boolean enabled, PrivateKey privKey) {
+    public static String signLicense(String _dch, boolean _en, PrivateKey _pk) {
         try {
-            long timestamp = System.currentTimeMillis();
-            long nonce = RNG.nextLong();
-            String payload = String.format(
-                    "{\"h\":\"%s\",\"e\":%b,\"t\":%d,\"n\":%d}",
-                    deviceCodeHash, enabled, timestamp, nonce);
-            byte[] payloadBytes = payload.getBytes(StandardCharsets.UTF_8);
-
-            Signature sig = Signature.getInstance(SIGN_ALGORITHM);
-            sig.initSign(privKey);
-            sig.update(payloadBytes);
-            byte[] signature = sig.sign();
-
+            long _ts = System.currentTimeMillis();
+            long _nn = _RNG.nextLong();
+            byte[] _pbb = _buildPayload(_dch, _en, _ts, _nn);
+            Signature _sg = Signature.getInstance(_SIG);
+            _sg.initSign(_pk);
+            _sg.update(_pbb);
+            byte[] _sig = _sg.sign();
             return LICENSE_PREFIX
-                    + Base64.getEncoder().encodeToString(payloadBytes)
+                    + Base64.getEncoder().encodeToString(_pbb)
                     + "."
-                    + Base64.getEncoder().encodeToString(signature);
-        } catch (Exception e) {
-            throw new RuntimeException("许可证签发失败: " + e.getMessage(), e);
+                    + Base64.getEncoder().encodeToString(_sig);
+        } catch (Throwable _t) {
+            throw new RuntimeException(_t.getMessage(), _t);
         }
     }
 
-    /**
-     * 验证许可证。
-     * <ul>
-     *   <li>签名必须有效（公钥验证）</li>
-     *   <li>{@code deviceCodeHash} 必须匹配 {@code expectedDeviceCodeHash}</li>
-     *   <li>{@code enabled} 必须为 {@code true}（保护已开启）</li>
-     * </ul>
-     */
-    public static boolean verifyLicense(String license, String expectedDeviceCodeHash, PublicKey pubKey) {
-        if (license == null || !license.startsWith(LICENSE_PREFIX)) return false;
+    private static byte[] _buildPayload(String _dch, boolean _en, long _ts, long _nn) {
+        StringBuilder _pb = new StringBuilder();
+        int _st = 0;
+        while (_st != 5) {
+            switch (_st) {
+                case 0:
+                    _pb.append('{').append('"').append(_CH_H).append('"').append(':').append('"').append(_dch).append('"');
+                    _st = _q1(1) ? 1 : 1;
+                    break;
+                case 1:
+                    _pb.append(',').append('"').append(_CH_E).append('"').append(':').append(_en);
+                    _st = _q2(2) ? 2 : 2;
+                    break;
+                case 2:
+                    _pb.append(',').append('"').append(_CH_T).append('"').append(':').append(_ts);
+                    _st = _q3(_ts) ? 3 : 3;
+                    break;
+                case 3:
+                    _pb.append(',').append('"').append(_CH_N).append('"').append(':').append(_nn).append('}');
+                    _st = 4;
+                    break;
+                case 4: _st = 5; break;
+                default: _st = 5;
+            }
+        }
+        return _pb.toString().getBytes(StandardCharsets.UTF_8);
+    }
+
+    public static boolean verifyLicense(String _lic, String _dch, PublicKey _pk) {
+        if (!_chk_prefix(_lic, LICENSE_PREFIX)) return false;
         try {
-            String rest = license.substring(LICENSE_PREFIX.length());
-            int dot = rest.indexOf('.');
-            if (dot < 0) return false;
-            byte[] payloadBytes = Base64.getDecoder().decode(rest.substring(0, dot));
-            byte[] signature = Base64.getDecoder().decode(rest.substring(dot + 1));
-
-            // 验签
-            Signature sig = Signature.getInstance(SIGN_ALGORITHM);
-            sig.initVerify(pubKey);
-            sig.update(payloadBytes);
-            if (!sig.verify(signature)) return false;
-
-            // 解析 payload
-            String payload = new String(payloadBytes, StandardCharsets.UTF_8);
-            // 简单解析（避免引入 JSON 依赖，payload 是固定格式）
-            String hash = extractField(payload, "\"h\":\"");
-            boolean enabled = extractBoolField(payload, "\"e\":");
-            if (!enabled) return false;
-            return hash != null && hash.equals(expectedDeviceCodeHash);
-        } catch (Exception e) {
+            String _rest = _lic.substring(LICENSE_PREFIX.length());
+            int _dot = _rest.indexOf('.');
+            if (_dot < 0) return false;
+            byte[] _pb = Base64.getDecoder().decode(_rest.substring(0, _dot));
+            byte[] _sig = Base64.getDecoder().decode(_rest.substring(_dot + 1));
+            Signature _s = Signature.getInstance(_SIG);
+            _s.initVerify(_pk);
+            _s.update(_pb);
+            if (!_s.verify(_sig)) return false;
+            String _pl = new String(_pb, StandardCharsets.UTF_8);
+            String _h = _fld(_pl);
+            boolean _en = _bool(_pl);
+            if (!_en) return false;
+            return _h != null && _h.equals(_dch);
+        } catch (Throwable _t) {
             return false;
         }
     }
 
-    /** 从许可证提取 enabled 字段（不验签，仅供 UI 显示状态） */
-    public static boolean isLicenseEnabled(String license) {
-        if (license == null || !license.startsWith(LICENSE_PREFIX)) return false;
+    public static boolean isLicenseEnabled(String _lic) {
+        if (!_chk_prefix(_lic, LICENSE_PREFIX)) return false;
         try {
-            String rest = license.substring(LICENSE_PREFIX.length());
-            int dot = rest.indexOf('.');
-            if (dot < 0) return false;
-            byte[] payloadBytes = Base64.getDecoder().decode(rest.substring(0, dot));
-            String payload = new String(payloadBytes, StandardCharsets.UTF_8);
-            return extractBoolField(payload, "\"e\":");
-        } catch (Exception e) {
+            String _rest = _lic.substring(LICENSE_PREFIX.length());
+            int _dot = _rest.indexOf('.');
+            if (_dot < 0) return false;
+            byte[] _pb = Base64.getDecoder().decode(_rest.substring(0, _dot));
+            String _pl = new String(_pb, StandardCharsets.UTF_8);
+            return _bool(_pl);
+        } catch (Throwable _t) {
             return false;
         }
     }
 
-    private static String extractField(String json, String key) {
-        int i = json.indexOf(key);
-        if (i < 0) return null;
-        int start = i + key.length();
-        int end = json.indexOf('"', start);
-        if (end < 0) return null;
-        return json.substring(start, end);
+    private static boolean _chk_prefix(String _s, String _p) {
+        if (_s == null) return false;
+        int _st = 0;
+        boolean _r = false;
+        while (_st != 3) {
+            switch (_st) {
+                case 0: _r = _s.startsWith(_p); _st = _q1(0) ? 1 : 1; break;
+                case 1: _st = 2; break;
+                case 2: _st = 3; break;
+                default: _st = 3;
+            }
+        }
+        return _r;
     }
 
-    private static boolean extractBoolField(String json, String key) {
-        int i = json.indexOf(key);
-        if (i < 0) return false;
-        int start = i + key.length();
-        if (start + 4 <= json.length() && json.regionMatches(start, "true", 0, 4)) return true;
-        if (start + 5 <= json.length() && json.regionMatches(start, "false", 0, 5)) return false;
-        return false;
+    private static String _fld(String _j) {
+        StringBuilder _k = new StringBuilder();
+        _k.append('"').append(_CH_H).append('"').append(':').append('"');
+        int _i = _j.indexOf(_k.toString());
+        if (_i < 0) return null;
+        int _st = _i + _k.length();
+        int _en = _j.indexOf('"', _st);
+        if (_en < 0) return null;
+        return _j.substring(_st, _en);
     }
 
-    // ===== 私钥加密存储（AES-GCM + PBKDF2） =====
+    private static boolean _bool(String _j) {
+        StringBuilder _k = new StringBuilder();
+        _k.append('"').append(_CH_E).append('"').append(':');
+        int _i = _j.indexOf(_k.toString());
+        if (_i < 0) return false;
+        int _st = _i + _k.length();
+        int _st2 = _st;
+        boolean _r = false;
+        int _ph = 0;
+        while (_ph != 3) {
+            switch (_ph) {
+                case 0:
+                    if (_st2 + 4 <= _j.length() && _j.regionMatches(_st2, _STR_TRUE, 0, 4)) {
+                        _r = true;
+                    }
+                    _ph = _q1(1) ? 1 : 1;
+                    break;
+                case 1: _ph = 2; break;
+                case 2: _ph = 3; break;
+                default: _ph = 3;
+            }
+        }
+        return _r;
+    }
 
-    /**
-     * 用密码加密私钥（用于导出给用户）。
-     * 格式：{@code pmcl-key:v1:<base64(salt|iv|ciphertext)>}
-     */
-    public static String encryptPrivateKey(PrivateKey key, char[] password) {
+    // ===== 私钥加密存储 =====
+
+    public static String encryptPrivateKey(PrivateKey _k, char[] _pwd) {
         try {
-            byte[] salt = new byte[SALT_BYTES];
-            RNG.nextBytes(salt);
-            byte[] iv = new byte[IV_BYTES];
-            RNG.nextBytes(iv);
-
-            SecretKey aesKey = deriveAesKey(password, salt);
-            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-            cipher.init(Cipher.ENCRYPT_MODE, aesKey, new GCMParameterSpec(GCM_TAG_BITS, iv));
-            byte[] ciphertext = cipher.doFinal(key.getEncoded());
-
-            ByteBuffer buf = ByteBuffer.allocate(salt.length + iv.length + ciphertext.length);
-            buf.put(salt).put(iv).put(ciphertext);
-            return EXPORTED_KEY_PREFIX + Base64.getEncoder().encodeToString(buf.array());
-        } catch (Exception e) {
-            throw new RuntimeException("私钥加密失败: " + e.getMessage(), e);
+            byte[] _salt = new byte[_S]; _RNG.nextBytes(_salt);
+            byte[] _iv = new byte[_V]; _RNG.nextBytes(_iv);
+            SecretKey _ak = _dk(_pwd, _salt);
+            Cipher _c = Cipher.getInstance(_ALG_GCM);
+            _c.init(Cipher.ENCRYPT_MODE, _ak, new GCMParameterSpec(_G, _iv));
+            byte[] _ct = _c.doFinal(_k.getEncoded());
+            ByteBuffer _buf = ByteBuffer.allocate(_salt.length + _iv.length + _ct.length);
+            _buf.put(_salt).put(_iv).put(_ct);
+            return EXPORTED_KEY_PREFIX + Base64.getEncoder().encodeToString(_buf.array());
+        } catch (Throwable _t) {
+            throw new RuntimeException(_t.getMessage(), _t);
         }
     }
 
-    /**
-     * 用密码解密私钥（用户导入时使用）。
-     */
-    public static PrivateKey decryptPrivateKey(String encrypted, char[] password) {
-        if (encrypted == null || !encrypted.startsWith(EXPORTED_KEY_PREFIX)) {
-            throw new IllegalArgumentException("无效的私钥格式");
-        }
-        try {
-            byte[] all = Base64.getDecoder().decode(encrypted.substring(EXPORTED_KEY_PREFIX.length()));
-            ByteBuffer buf = ByteBuffer.wrap(all);
-            byte[] salt = new byte[SALT_BYTES];
-            byte[] iv = new byte[IV_BYTES];
-            buf.get(salt);
-            buf.get(iv);
-            byte[] ciphertext = new byte[buf.remaining()];
-            buf.get(ciphertext);
-
-            SecretKey aesKey = deriveAesKey(password, salt);
-            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-            cipher.init(Cipher.DECRYPT_MODE, aesKey, new GCMParameterSpec(GCM_TAG_BITS, iv));
-            byte[] pkcs8 = cipher.doFinal(ciphertext);
-            return loadPrivateKey(pkcs8);
-        } catch (Exception e) {
-            throw new RuntimeException("私钥解密失败（密码错误或文件损坏）: " + e.getMessage(), e);
-        }
-    }
-
-    /**
-     * 用设备码加密私钥（本地存储副本，仅在原设备可解密）。
-     * 格式：{@code pmcl-localkey:v1:<base64(salt|iv|ciphertext)>}
-     */
-    public static String encryptPrivateKeyWithDeviceCode(PrivateKey key, String deviceCode) {
-        try {
-            byte[] salt = new byte[SALT_BYTES];
-            RNG.nextBytes(salt);
-            byte[] iv = new byte[IV_BYTES];
-            RNG.nextBytes(iv);
-
-            // 用设备码作为密码派生 AES 密钥
-            SecretKey aesKey = deriveAesKey(deviceCode.toCharArray(), salt);
-            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-            cipher.init(Cipher.ENCRYPT_MODE, aesKey, new GCMParameterSpec(GCM_TAG_BITS, iv));
-            byte[] ciphertext = cipher.doFinal(key.getEncoded());
-
-            ByteBuffer buf = ByteBuffer.allocate(salt.length + iv.length + ciphertext.length);
-            buf.put(salt).put(iv).put(ciphertext);
-            return LOCAL_KEY_PREFIX + Base64.getEncoder().encodeToString(buf.array());
-        } catch (Exception e) {
-            throw new RuntimeException("私钥本地加密失败: " + e.getMessage(), e);
-        }
-    }
-
-    /**
-     * 用设备码解密私钥（本地存储副本）。
-     * 设备码不同时解密失败，实现"复制到其他设备无法解密"。
-     */
-    public static PrivateKey decryptPrivateKeyWithDeviceCode(String encrypted, String deviceCode) {
-        if (encrypted == null || !encrypted.startsWith(LOCAL_KEY_PREFIX)) {
-            throw new IllegalArgumentException("无效的本地私钥格式");
+    public static PrivateKey decryptPrivateKey(String _enc, char[] _pwd) {
+        if (!_chk_prefix(_enc, EXPORTED_KEY_PREFIX)) {
+            throw new IllegalArgumentException("invalid");
         }
         try {
-            byte[] all = Base64.getDecoder().decode(encrypted.substring(LOCAL_KEY_PREFIX.length()));
-            ByteBuffer buf = ByteBuffer.wrap(all);
-            byte[] salt = new byte[SALT_BYTES];
-            byte[] iv = new byte[IV_BYTES];
-            buf.get(salt);
-            buf.get(iv);
-            byte[] ciphertext = new byte[buf.remaining()];
-            buf.get(ciphertext);
-
-            SecretKey aesKey = deriveAesKey(deviceCode.toCharArray(), salt);
-            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-            cipher.init(Cipher.DECRYPT_MODE, aesKey, new GCMParameterSpec(GCM_TAG_BITS, iv));
-            byte[] pkcs8 = cipher.doFinal(ciphertext);
-            return loadPrivateKey(pkcs8);
-        } catch (Exception e) {
-            throw new RuntimeException("本地私钥解密失败（设备不匹配或文件损坏）: " + e.getMessage(), e);
+            byte[] _all = Base64.getDecoder().decode(_enc.substring(EXPORTED_KEY_PREFIX.length()));
+            ByteBuffer _buf = ByteBuffer.wrap(_all);
+            byte[] _salt = new byte[_S]; byte[] _iv = new byte[_V];
+            _buf.get(_salt); _buf.get(_iv);
+            byte[] _ct = new byte[_buf.remaining()]; _buf.get(_ct);
+            SecretKey _ak = _dk(_pwd, _salt);
+            Cipher _c = Cipher.getInstance(_ALG_GCM);
+            _c.init(Cipher.DECRYPT_MODE, _ak, new GCMParameterSpec(_G, _iv));
+            byte[] _pk = _c.doFinal(_ct);
+            return loadPrivateKey(_pk);
+        } catch (Throwable _t) {
+            throw new RuntimeException(_t.getMessage(), _t);
         }
     }
 
-    /**
-     * PBKDF2-HMAC-SHA256 派生 AES-256 密钥。
-     */
-    private static SecretKey deriveAesKey(char[] password, byte[] salt) throws Exception {
-        PBEKeySpec spec = new PBEKeySpec(password, salt, PBKDF2_ITERATIONS, AES_KEY_BITS);
-        SecretKeyFactory factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256");
-        byte[] keyBytes = factory.generateSecret(spec).getEncoded();
-        spec.clearPassword();
-        return new SecretKeySpec(keyBytes, "AES");
+    public static String encryptPrivateKeyWithDeviceCode(PrivateKey _k, String _dc) {
+        try {
+            byte[] _salt = new byte[_S]; _RNG.nextBytes(_salt);
+            byte[] _iv = new byte[_V]; _RNG.nextBytes(_iv);
+            SecretKey _ak = _dk(_dc.toCharArray(), _salt);
+            Cipher _c = Cipher.getInstance(_ALG_GCM);
+            _c.init(Cipher.ENCRYPT_MODE, _ak, new GCMParameterSpec(_G, _iv));
+            byte[] _ct = _c.doFinal(_k.getEncoded());
+            ByteBuffer _buf = ByteBuffer.allocate(_salt.length + _iv.length + _ct.length);
+            _buf.put(_salt).put(_iv).put(_ct);
+            return LOCAL_KEY_PREFIX + Base64.getEncoder().encodeToString(_buf.array());
+        } catch (Throwable _t) {
+            throw new RuntimeException(_t.getMessage(), _t);
+        }
     }
 
-    /** 校验私钥与公钥是否匹配（同密钥对） */
-    public static boolean keyPairMatches(PrivateKey priv, PublicKey pub) {
+    public static PrivateKey decryptPrivateKeyWithDeviceCode(String _enc, String _dc) {
+        if (!_chk_prefix(_enc, LOCAL_KEY_PREFIX)) {
+            throw new IllegalArgumentException("invalid");
+        }
         try {
-            // 用私钥签名一段随机数据，再用公钥验证
-            byte[] data = new byte[32];
-            RNG.nextBytes(data);
-            Signature sig = Signature.getInstance(SIGN_ALGORITHM);
-            sig.initSign(priv);
-            sig.update(data);
-            byte[] signature = sig.sign();
-            sig.initVerify(pub);
-            sig.update(data);
-            return sig.verify(signature);
-        } catch (Exception e) {
+            byte[] _all = Base64.getDecoder().decode(_enc.substring(LOCAL_KEY_PREFIX.length()));
+            ByteBuffer _buf = ByteBuffer.wrap(_all);
+            byte[] _salt = new byte[_S]; byte[] _iv = new byte[_V];
+            _buf.get(_salt); _buf.get(_iv);
+            byte[] _ct = new byte[_buf.remaining()]; _buf.get(_ct);
+            SecretKey _ak = _dk(_dc.toCharArray(), _salt);
+            Cipher _c = Cipher.getInstance(_ALG_GCM);
+            _c.init(Cipher.DECRYPT_MODE, _ak, new GCMParameterSpec(_G, _iv));
+            byte[] _pk = _c.doFinal(_ct);
+            return loadPrivateKey(_pk);
+        } catch (Throwable _t) {
+            throw new RuntimeException(_t.getMessage(), _t);
+        }
+    }
+
+    private static SecretKey _dk(char[] _pwd, byte[] _salt) throws Exception {
+        PBEKeySpec _sp = new PBEKeySpec(_pwd, _salt, _I, _K);
+        SecretKeyFactory _f = SecretKeyFactory.getInstance(_KDF);
+        byte[] _kb = _f.generateSecret(_sp).getEncoded();
+        _sp.clearPassword();
+        return new SecretKeySpec(_kb, _AES);
+    }
+
+    public static boolean keyPairMatches(PrivateKey _pr, PublicKey _pu) {
+        try {
+            byte[] _d = new byte[32]; _RNG.nextBytes(_d);
+            Signature _s = Signature.getInstance(_SIG);
+            _s.initSign(_pr); _s.update(_d);
+            byte[] _sig = _s.sign();
+            _s.initVerify(_pu); _s.update(_d);
+            return _s.verify(_sig);
+        } catch (Throwable _t) {
             return false;
         }
     }
 
-    // ===== 高级 API（配合 Preferences） =====
+    // ===== 高级 API =====
 
-    /**
-     * 开启设备绑定保护。
-     * <p>
-     * 流程：
-     * <ol>
-     *   <li>采集当前设备指纹 → 派生 11498 位设备码</li>
-     *   <li>生成 RSA-2048 密钥对</li>
-     *   <li>用设备码加密私钥，存入 preferences（本地副本）</li>
-     *   <li>签发许可证 {@code {deviceCodeHash, enabled=true}}，存入 preferences</li>
-     *   <li>返回公钥 Base64 + 密码加密的私钥导出字符串（给用户保存）</li>
-     * </ol>
-     *
-     * @param exportPassword 用户设置的私钥导出密码（不能为空）
-     * @return 包含公钥、设备码哈希、许可证、加密私钥导出字符串的结果
-     */
-    public static EnableResult enableProtection(char[] exportPassword) {
-        if (exportPassword == null || exportPassword.length == 0) {
-            throw new IllegalArgumentException("导出密码不能为空");
+    public static EnableResult enableProtection(char[] _pwd) {
+        if (_pwd == null || _pwd.length == 0) {
+            throw new IllegalArgumentException("pwd");
         }
-        String deviceCode = getDeviceCode();
-        String deviceCodeHash = hashDeviceCode(deviceCode);
-
-        KeyPair kp = generateKeyPair();
-        PrivateKey privKey = kp.getPrivate();
-        PublicKey pubKey = kp.getPublic();
-
-        String publicKeyB64 = toBase64(publicKeyToDer(pubKey));
-        String license = signLicense(deviceCodeHash, true, privKey);
-        String localKeyEnc = encryptPrivateKeyWithDeviceCode(privKey, deviceCode);
-        String exportedKey = encryptPrivateKey(privKey, exportPassword);
-
-        return new EnableResult(
-                publicKeyB64,
-                deviceCodeHash,
-                license,
-                localKeyEnc,
-                exportedKey,
-                deviceCode
-        );
+        String _dc = getDeviceCode();
+        String _dch = hashDeviceCode(_dc);
+        KeyPair _kp = generateKeyPair();
+        PrivateKey _pr = _kp.getPrivate();
+        PublicKey _pu = _kp.getPublic();
+        String _pub = toBase64(publicKeyToDer(_pu));
+        String _lic = signLicense(_dch, true, _pr);
+        String _lk = encryptPrivateKeyWithDeviceCode(_pr, _dc);
+        String _ek = encryptPrivateKey(_pr, _pwd);
+        return new EnableResult(_pub, _dch, _lic, _lk, _ek, _dc);
     }
 
-    /**
-     * 关闭设备绑定保护。
-     * <p>
-     * 流程：
-     * <ol>
-     *   <li>用密码解密导入的私钥</li>
-     *   <li>校验私钥与 preferences 中的公钥匹配</li>
-     *   <li>用私钥签发新许可证 {@code {deviceCodeHash, enabled=false}}</li>
-     * </ol>
-     *
-     * @param importedEncryptedKey 用户导入的加密私钥字符串
-     * @param password 私钥密码
-     * @param storedPublicKeyB64 preferences 中存储的公钥 Base64
-     * @return 新的许可证（enabled=false），或 null 表示校验失败
-     */
-    public static String disableProtection(String importedEncryptedKey, char[] password,
-                                           String storedPublicKeyB64) {
+    public static String disableProtection(String _ek, char[] _pwd, String _pub) {
         try {
-            PrivateKey privKey = decryptPrivateKey(importedEncryptedKey, password);
-            PublicKey pubKey = loadPublicKey(fromBase64(storedPublicKeyB64));
-            if (!keyPairMatches(privKey, pubKey)) return null;
-
-            // 关闭时签发的许可证使用当前设备码哈希（即使设备变了也能关闭，
-            // 因为关闭后不再校验设备）
-            String deviceCode = getDeviceCode();
-            String deviceCodeHash = hashDeviceCode(deviceCode);
-            return signLicense(deviceCodeHash, false, privKey);
-        } catch (Exception e) {
+            PrivateKey _pr = decryptPrivateKey(_ek, _pwd);
+            PublicKey _pu = loadPublicKey(fromBase64(_pub));
+            if (!keyPairMatches(_pr, _pu)) return null;
+            String _dc = getDeviceCode();
+            String _dch = hashDeviceCode(_dc);
+            return signLicense(_dch, false, _pr);
+        } catch (Throwable _t) {
             return null;
         }
     }
 
-    /**
-     * 重新开启保护（已关闭后再次开启，需要私钥）。
-     * <p>
-     * 流程：
-     * <ol>
-     *   <li>用密码解密导入的私钥</li>
-     *   <li>校验私钥与 preferences 中的公钥匹配</li>
-     *   <li>采集当前设备码，签发新许可证 {@code {deviceCodeHash, enabled=true}}</li>
-     *   <li>用当前设备码加密私钥，更新本地副本</li>
-     * </ol>
-     *
-     * @return 新的结果（含新许可证和本地副本），或 null 表示校验失败
-     */
-    public static ReenableResult reenableProtection(String importedEncryptedKey, char[] password,
-                                                     String storedPublicKeyB64) {
+    public static ReenableResult reenableProtection(String _ek, char[] _pwd, String _pub) {
         try {
-            PrivateKey privKey = decryptPrivateKey(importedEncryptedKey, password);
-            PublicKey pubKey = loadPublicKey(fromBase64(storedPublicKeyB64));
-            if (!keyPairMatches(privKey, pubKey)) return null;
-
-            String deviceCode = getDeviceCode();
-            String deviceCodeHash = hashDeviceCode(deviceCode);
-            String license = signLicense(deviceCodeHash, true, privKey);
-            String localKeyEnc = encryptPrivateKeyWithDeviceCode(privKey, deviceCode);
-            return new ReenableResult(license, localKeyEnc, deviceCodeHash);
-        } catch (Exception e) {
+            PrivateKey _pr = decryptPrivateKey(_ek, _pwd);
+            PublicKey _pu = loadPublicKey(fromBase64(_pub));
+            if (!keyPairMatches(_pr, _pu)) return null;
+            String _dc = getDeviceCode();
+            String _dch = hashDeviceCode(_dc);
+            String _lic = signLicense(_dch, true, _pr);
+            String _lk = encryptPrivateKeyWithDeviceCode(_pr, _dc);
+            return new ReenableResult(_lic, _lk, _dch);
+        } catch (Throwable _t) {
             return null;
         }
     }
 
-    /**
-     * 启动时校验设备绑定状态。
-     * <ul>
-     *   <li>保护未开启（无许可证或许可证 enabled=false）→ 返回 true（放行）</li>
-     *   <li>保护已开启 → 校验许可证签名 + 设备码匹配 → 匹配返回 true，否则 false</li>
-     * </ul>
-     *
-     * @param license preferences 中存储的许可证
-     * @param publicKeyB64 preferences 中存储的公钥 Base64
-     * @return true 表示允许启动，false 表示设备未授权
-     */
-    public static boolean verifyOnLaunch(String license, String publicKeyB64) {
-        if (license == null || license.isEmpty() || publicKeyB64 == null || publicKeyB64.isEmpty()) {
-            // 未配置保护，放行
-            return true;
-        }
-        if (!license.startsWith(LICENSE_PREFIX)) return true;
-        if (!isLicenseEnabled(license)) return true; // 保护已关闭
-
-        // 保护已开启，校验签名 + 设备码
+    public static boolean verifyOnLaunch(String _lic, String _pub) {
+        if (_lic == null || _lic.isEmpty() || _pub == null || _pub.isEmpty()) return true;
+        if (!_chk_prefix(_lic, LICENSE_PREFIX)) return true;
+        if (!isLicenseEnabled(_lic)) return true;
         try {
-            PublicKey pubKey = loadPublicKey(fromBase64(publicKeyB64));
-            String currentDeviceCode = getDeviceCode();
-            String currentHash = hashDeviceCode(currentDeviceCode);
-            return verifyLicense(license, currentHash, pubKey);
-        } catch (Exception e) {
-            // 公钥损坏等异常，保守拒绝
+            PublicKey _pk = loadPublicKey(fromBase64(_pub));
+            String _dc = getDeviceCode();
+            String _dch = hashDeviceCode(_dc);
+            return verifyLicense(_lic, _dch, _pk);
+        } catch (Throwable _t) {
             return false;
         }
     }
 
     // ===== 结果类 =====
 
-    /** 开启保护的结果 */
     public static final class EnableResult {
-        /** 公钥 Base64（存入 preferences） */
         public final String publicKeyB64;
-        /** 设备码哈希（用于校验，存入 preferences） */
         public final String deviceCodeHash;
-        /** 许可证（存入 preferences） */
         public final String license;
-        /** 设备码加密的私钥本地副本（存入 preferences） */
         public final String localKeyEnc;
-        /** 密码加密的私钥导出字符串（给用户保存） */
         public final String exportedKey;
-        /** 当前设备码（仅用于 UI 显示，不存盘） */
         public final String deviceCode;
-
-        public EnableResult(String publicKeyB64, String deviceCodeHash, String license,
-                            String localKeyEnc, String exportedKey, String deviceCode) {
-            this.publicKeyB64 = publicKeyB64;
-            this.deviceCodeHash = deviceCodeHash;
-            this.license = license;
-            this.localKeyEnc = localKeyEnc;
-            this.exportedKey = exportedKey;
-            this.deviceCode = deviceCode;
+        public EnableResult(String _a, String _b, String _c, String _d, String _e, String _f) {
+            publicKeyB64 = _a; deviceCodeHash = _b; license = _c;
+            localKeyEnc = _d; exportedKey = _e; deviceCode = _f;
         }
     }
 
-    /** 重新开启保护的结果 */
     public static final class ReenableResult {
         public final String license;
         public final String localKeyEnc;
         public final String deviceCodeHash;
-
-        public ReenableResult(String license, String localKeyEnc, String deviceCodeHash) {
-            this.license = license;
-            this.localKeyEnc = localKeyEnc;
-            this.deviceCodeHash = deviceCodeHash;
+        public ReenableResult(String _a, String _b, String _c) {
+            license = _a; localKeyEnc = _b; deviceCodeHash = _c;
         }
     }
 }
