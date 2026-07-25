@@ -77,6 +77,8 @@ public final class DownloadQueueManager {
         private volatile boolean pauseRequested;
         /** 取消标志：运行线程检测到后主动退出 */
         private volatile boolean cancelRequested;
+        /** 运行代次：每次 schedule 递增，lambda 执行前校验是否为当前代次，防止 resume 后旧 lambda 双重执行 */
+        private volatile long runGeneration;
         /** 任务创建时间戳 */
         private final long createdAt;
         /** 任务完成时间戳（DONE/FAILED/CANCELLED） */
@@ -458,8 +460,14 @@ public final class DownloadQueueManager {
 
     /**
      * 调度任务到执行器。如果当前并发已满，任务会在 executor 队列中等待（QUEUED 状态）。
+     * <p>
+     * 使用 runGeneration 代次计数器防止 resume/cancel 竞态：
+     * 每次 schedule 递增代次，lambda 执行前校验自身代次是否仍为最新。
+     * 若 resume() 已重新调度（代次递增），旧的 lambda 会检测到代次不匹配并退出，
+     * 避免双重执行。
      */
     private void schedule(QueueTask task, Runnable work) {
+        final long gen = ++task.runGeneration;
         Future<?> future = executor.submit(() -> {
             // 检查是否已被取消或暂停
             if (task.cancelRequested) {
@@ -470,11 +478,21 @@ public final class DownloadQueueManager {
                 notifyListeners();
                 return;
             }
+            // 代次校验：若 resume() 已重新调度，本 lambda 为过期副本，直接退出避免双重执行
+            if (gen != task.runGeneration) {
+                runningFutures.remove(task.id);
+                return;
+            }
             if (task.pauseRequested) {
                 task.status = TaskStatus.PAUSED;
                 task.message = "已暂停";
                 runningFutures.remove(task.id);
                 notifyListeners();
+                return;
+            }
+            // 二次代次校验：防止 pause/resume 在此窗口内发生
+            if (gen != task.runGeneration) {
+                runningFutures.remove(task.id);
                 return;
             }
             task.status = TaskStatus.RUNNING;

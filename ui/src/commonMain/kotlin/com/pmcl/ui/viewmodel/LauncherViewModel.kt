@@ -629,25 +629,56 @@ class LauncherViewModel {
      * - 模组加载器版本（含 inheritsFrom）：用 inheritsFrom（即原版 MC 版本号）
      * - 原版版本：直接用 id
      */
-    private fun deriveGameVersion(lvi: com.pmcl.core.version.VersionManager.LocalVersionInfo?): String {
+    fun deriveGameVersion(lvi: com.pmcl.core.version.VersionManager.LocalVersionInfo?): String {
         if (lvi == null) return ""
         val inherits = lvi.getInheritsFrom()
         return if (!inherits.isNullOrEmpty()) inherits else lvi.getId()
     }
 
     /**
-     * 推导本地版本对应的 mod 加载器（基于 mainClass 关键字匹配）。
+     * 推导本地版本对应的 mod 加载器（inheritsFrom + mainClass 关键字）。
      */
-    private fun deriveLoader(lvi: com.pmcl.core.version.VersionManager.LocalVersionInfo?): String {
-        val mc = lvi?.getMainClass() ?: return ""
+    fun deriveLoader(lvi: com.pmcl.core.version.VersionManager.LocalVersionInfo?): String {
+        if (lvi == null) return ""
+        val inherits = lvi.getInheritsFrom() ?: ""
+        val mc = lvi.getMainClass() ?: ""
         return when {
-            mc.contains("fabric", ignoreCase = true) -> "fabric"
-            mc.contains("quilt", ignoreCase = true) -> "quilt"
-            mc.contains("neoforge", ignoreCase = true) -> "neoforge"
-            mc.contains("forge", ignoreCase = true) -> "forge"
+            inherits.contains("neoforge", ignoreCase = true) ||
+                mc.contains("neoforge", ignoreCase = true) -> "neoforge"
+            inherits.contains("forge", ignoreCase = true) ||
+                mc.contains("launchwrapper", ignoreCase = true) ||
+                mc.contains("minecraftforge", ignoreCase = true) -> "forge"
+            inherits.contains("quilt", ignoreCase = true) ||
+                mc.contains("quilt", ignoreCase = true) -> "quilt"
+            inherits.contains("fabric", ignoreCase = true) ||
+                mc.contains("fabric", ignoreCase = true) -> "fabric"
             else -> ""
         }
     }
+
+    /** 模组市场筛选条件：游戏版本 + 加载器 */
+    data class MarketFilters(val gameVersion: String, val loader: String)
+
+    /**
+     * 根据当前选中的本地实例推导市场筛选条件。
+     * 无选中或原版时 loader 为空（不限加载器）。
+     */
+    fun resolveMarketFilters(): MarketFilters {
+        val selected = _selectedVersion.value ?: return MarketFilters("", "")
+        val lvi = _localVersionInfos.value.firstOrNull { it.getId() == selected }
+        return MarketFilters(
+            gameVersion = deriveGameVersion(lvi),
+            loader = deriveLoader(lvi)
+        )
+    }
+
+    /** 本地已安装实例推导出的可用 MC 版本列表（降序） */
+    fun knownMarketGameVersions(): List<String> =
+        _localVersionInfos.value
+            .map { deriveGameVersion(it) }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .sortedWith(compareByDescending { it })
 
     /**
      * 找出与拖入 mod 兼容的本地版本列表。
@@ -959,6 +990,8 @@ class LauncherViewModel {
         core.multiplayer().setBackend(mpBackend)
         // 启动时应用网络偏好（含 Java 全局代理系统属性，让头像/皮肤图片下载能走代理）
         core.applyNetworkPreferences()
+        // 全局注册下载队列监听：悬浮队列卡片不依赖进入下载页也能刷新进度
+        initDownloadQueue()
         // 注：refreshInstalledMods 和 warmupConnections 已延迟到首次需要时执行，
         // 避免冷启动时阻塞首屏渲染（ModsPage LaunchedEffect 会触发 mod 扫描，
         // warmupConnections 延迟到首次下载时由 DownloadManager 内部触发）
@@ -1765,9 +1798,13 @@ class LauncherViewModel {
      */
     fun loadPopularMods(gameVersion: String? = null, loader: String? = null) {
         scope.launch {
+            val gv = gameVersion?.trim().orEmpty()
+            val ld = loader?.trim().orEmpty()
+            // 缓存按筛选条件分键，避免「全部」缓存污染带版本/加载器的结果
+            val cacheKey = "popular_mods_${gv}_${ld}"
             // 先读缓存秒开
             val cached = withContext(Dispatchers.IO) {
-                DataCache.loadWithTimestamp("popular_mods", object : TypeToken<List<ModProject>>() {})
+                DataCache.loadWithTimestamp(cacheKey, object : TypeToken<List<ModProject>>() {})
             }
             if (cached != null) {
                 @Suppress("UNCHECKED_CAST")
@@ -1782,10 +1819,14 @@ class LauncherViewModel {
                     scope.launch {
                         try {
                             val list = withContext(Dispatchers.IO) {
-                                core.modMarket().popular(gameVersion, loader, 24).join()
+                                core.modMarket().popular(
+                                    gv.ifBlank { null },
+                                    ld.ifBlank { null },
+                                    24
+                                ).join()
                             }
                             _popularMods.value = list
-                            DataCache.save("popular_mods", list)
+                            DataCache.save(cacheKey, list)
                             _status.value = I18n.t("status.popular_mods_loaded", list.size)
                         } catch (_: Throwable) {
                             // 静默失败，保留缓存数据
@@ -1800,11 +1841,15 @@ class LauncherViewModel {
             _status.value = I18n.t("status.loading_popular_mods")
             try {
                 val list = withContext(Dispatchers.IO) {
-                    core.modMarket().popular(gameVersion, loader, 24).join()
+                    core.modMarket().popular(
+                        gv.ifBlank { null },
+                        ld.ifBlank { null },
+                        24
+                    ).join()
                 }
                 _popularMods.value = list
                 _status.value = I18n.t("status.popular_mods_loaded", list.size)
-                DataCache.save("popular_mods", list)
+                DataCache.save(cacheKey, list)
             } catch (e: Throwable) {
                 _status.value = I18n.t("status.popular_mods_load_failed", e.message ?: I18n.t("common.unknown"))
             } finally {
@@ -2664,7 +2709,7 @@ class LauncherViewModel {
 
     // ============ 下载队列管理 ============
 
-    /** 注册队列监听器并刷新任务列表（页面首次进入时调用） */
+    /** 注册队列监听器并刷新任务列表（全局悬浮卡片与下载页共用，幂等） */
     fun initDownloadQueue() {
         if (queueListenerRegistered) {
             refreshQueue()
@@ -3194,6 +3239,8 @@ class LauncherViewModel {
             _status.value = I18n.t("status.building_launch_profile")
             var instanceId: String? = null
             var timeTracked = false
+            // 本次启动关联的实例（非实例启动时为 null），用于退出后回写实例游玩统计
+            var launchedInstance: InstanceInfo? = null
             // 启动流程计时：记录从点击启动到 MC 主菜单就绪的完整时间线，输出到 latest.log
             val tracer = com.pmcl.core.launch.LaunchTracer()
             tracer.mark("launch_start")
@@ -3397,6 +3444,7 @@ class LauncherViewModel {
                     val instInfo = _pendingInstanceInfo
                     if (instDir != null && instInfo != null) {
                         // 实例启动：用基础版本的 JSON/jar/库，但 gameDir 指向实例目录
+                        launchedInstance = instInfo
                         core.profileBuilder().buildInstance(
                             versionId, instDir, account, javaMajorVer, javaArch
                         )
@@ -3541,6 +3589,25 @@ class LauncherViewModel {
                 // 确保 recordEnd 被调用：即使 launchAsync 抛异常也要记录时长
                 if (timeTracked) {
                     core.playTimeTracker().recordEnd(versionId)
+                }
+                // 回写实例级游玩统计：上次游玩时间 + 累计时长，持久化后刷新实例列表 UI
+                // （必须在清除 _pendingInstanceInfo 与移除运行实例之前执行，才能读到启动时间）
+                val finishedInstance = launchedInstance
+                if (finishedInstance != null && timeTracked) {
+                    try {
+                        val startedAt = instanceId?.let { id ->
+                            _runningInstances.value.firstOrNull { it.id == id }?.startTime
+                        }
+                        val now = System.currentTimeMillis()
+                        val sessionSeconds = if (startedAt != null)
+                            ((now - startedAt) / 1000).coerceAtLeast(0) else 0L
+                        finishedInstance.setLastPlayedAt(now)
+                        finishedInstance.setTotalPlayTimeSeconds(
+                            finishedInstance.getTotalPlayTimeSeconds() + sessionSeconds
+                        )
+                        withContext(Dispatchers.IO) { core.instances().updateInstance(finishedInstance) }
+                        loadInstances()
+                    } catch (_: Throwable) { }
                 }
                 // 清除实例启动上下文
                 _pendingInstanceDir = null
@@ -3826,41 +3893,40 @@ class LauncherViewModel {
     /**
      * 触发下载飞入动画。
      *
+     * **下载入队在此处立即执行**，动画仅作视觉反馈。
+     * 这样即使动画被中断（页面切换、窗口关闭），下载也不会丢失。
+     *
      * @param sourceRect 源卡片在窗口中的位置
      * @param title      飞行卡片上显示的标题
-     * @param onDone     动画完成后的回调（实际入队下载）
+     * @param onDone     实际入队下载的回调（立即执行）
      */
     fun triggerFlyAnimation(
         sourceRect: com.pmcl.ui.animation.Rect,
         title: String,
         onDone: () -> Unit
     ) {
-        val target = downloadQueueRect
-        if (target == null) {
-            // 队列卡片未显示（队列为空），跳过动画直接执行下载
-            onDone()
-            return
+        // 立即执行下载入队，不依赖动画完成
+        try { onDone() } catch (e: Throwable) {
+            _status.value = I18n.t("status.download_failed", e.message ?: I18n.t("common.unknown"))
         }
+        // 启动纯视觉飞入动画
+        val target = downloadQueueRect ?: return
         val id = flyIdCounter.incrementAndGet()
         val anim = com.pmcl.ui.animation.DownloadFlyState(
             id = id,
             source = sourceRect,
             target = target,
-            title = title,
-            onDone = onDone
+            title = title
         )
-        _flyAnimations.value = _flyAnimations.value + anim
+        _flyAnimations.update { it + anim }
     }
 
     /**
-     * 飞入动画完成回调：移除动画、触发脉冲反馈、执行实际下载入队。
+     * 飞入动画完成回调：移除动画、触发脉冲反馈（纯视觉，不执行下载）。
      */
     fun completeFlyAnimation(anim: com.pmcl.ui.animation.DownloadFlyState) {
-        _flyAnimations.value = _flyAnimations.value.filter { it.id != anim.id }
-        _pulseTrigger.value = _pulseTrigger.value + 1
-        try { anim.onDone() } catch (e: Throwable) {
-            _status.value = I18n.t("status.download_failed", e.message ?: I18n.t("common.unknown"))
-        }
+        _flyAnimations.update { list -> list.filter { it.id != anim.id } }
+        _pulseTrigger.update { it + 1 }
     }
 
     /** 上报悬浮下载队列卡片的窗口坐标 */
@@ -3868,7 +3934,16 @@ class LauncherViewModel {
         downloadQueueRect = rect
     }
 
+    /** 清除目标坐标（悬浮卡片卸载时调用，避免飞向幽灵位置） */
+    fun clearDownloadQueueRect() {
+        downloadQueueRect = null
+    }
+
     // ============ Metal 渲染（Apple Silicon Mac 专用）============
+
+    /** MetalRender 开关状态（UI 观察），乐观更新 + 失败回滚 */
+    private val _metalRenderEnabled = MutableStateFlow(preferences.isMetalRenderEnabled())
+    val metalRenderEnabled: StateFlow<Boolean> = _metalRenderEnabled.asStateFlow()
 
     /** 检测当前是否为 Apple Silicon Mac */
     fun isMetalRenderSupported(): Boolean {
@@ -3885,18 +3960,24 @@ class LauncherViewModel {
      * - 开启：从 Modrinth 下载 MetalRender + Sodium + Fabric API + ModMenu 到 mods 目录
      * - 关闭：从 mods 目录删除上述 mod
      *
+     * 使用乐观更新：先更新 UI 状态，安装/卸载成功后持久化到 preferences；
+     * 失败时回滚 UI 状态，不修改 preferences，避免 UI 与持久化状态不一致。
+     *
      * @param gameVersion 目标 MC 版本（从当前选中版本取）
      * @param loader      加载器（默认 fabric）
      */
     fun toggleMetalRender(gameVersion: String?, loader: String = "fabric") {
         val enable = !preferences.isMetalRenderEnabled()
-        preferences.setMetalRenderEnabled(enable)
+        // 乐观更新 UI 状态
+        _metalRenderEnabled.value = enable
         scope.launch {
             try {
                 if (enable) {
                     val gv = gameVersion ?: _selectedVersion.value
                     if (gv.isNullOrEmpty()) {
                         _status.value = I18n.t("metal.no_version_selected")
+                        // 无版本选择也算失败，回滚
+                        _metalRenderEnabled.value = !enable
                         return@launch
                     }
                     _status.value = I18n.t("metal.installing")
@@ -3905,15 +3986,17 @@ class LauncherViewModel {
                             _status.value = I18n.t("metal.downloading", progress)
                         }
                     }
+                    preferences.setMetalRenderEnabled(true)
                     _status.value = I18n.t("metal.install_success")
                 } else {
                     _status.value = I18n.t("metal.uninstalling")
                     val deleted = withContext(Dispatchers.IO) { core.metalRender().uninstall() }
+                    preferences.setMetalRenderEnabled(false)
                     _status.value = I18n.t("metal.uninstall_success", deleted.size)
                 }
             } catch (e: Throwable) {
-                // 安装失败时回滚开关状态
-                preferences.setMetalRenderEnabled(!enable)
+                // 失败时回滚 UI 状态，preferences 保持不变
+                _metalRenderEnabled.value = !enable
                 _status.value = I18n.t("metal.install_failed", e.message ?: I18n.t("common.unknown"))
             }
         }

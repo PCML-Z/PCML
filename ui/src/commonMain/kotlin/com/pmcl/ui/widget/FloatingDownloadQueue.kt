@@ -11,7 +11,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.text.font.FontWeight
@@ -32,6 +33,7 @@ import com.pmcl.ui.animation.Rect
  * @param pulseTrigger 脉冲触发计数（每次+1 触发一次缩放反馈）
  * @param onClick    点击回调（跳转到下载页）
  * @param onPositioned 位置回调（向 ViewModel 上报窗口坐标，供飞入动画使用）
+ * @param forceVisible 队列为空时是否仍显示（飞入动画进行中需要可见目标）
  */
 @Composable
 fun FloatingDownloadQueue(
@@ -39,21 +41,22 @@ fun FloatingDownloadQueue(
     pulseTrigger: Int,
     onClick: () -> Unit,
     onPositioned: (Rect, IntSize) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    forceVisible: Boolean = false
 ) {
-    if (summary.total() == 0) return
+    if (summary.total() == 0 && !forceVisible) return
 
-    // 脉冲缩放反馈：pulseTrigger 变化时触发
-    var lastTrigger by remember { mutableIntStateOf(0) }
-    val targetScale = if (pulseTrigger > lastTrigger) 1.2f else 1f
+    // 脉冲缩放：轻微放大；从右下角原点缩放，避免放大后超出窗口
+    var targetScale by remember { mutableFloatStateOf(1f) }
     val pulseScale by animateFloatAsState(
         targetValue = targetScale,
-        animationSpec = spring(dampingRatio = 0.4f, stiffness = 400f),
+        animationSpec = spring(dampingRatio = 0.85f, stiffness = 500f),
+        finishedListener = { if (targetScale > 1f) targetScale = 1f },
         label = "pulse"
     )
     LaunchedEffect(pulseTrigger) {
-        if (pulseTrigger > lastTrigger) {
-            lastTrigger = pulseTrigger
+        if (pulseTrigger > 0) {
+            targetScale = 1.06f
         }
     }
 
@@ -76,7 +79,12 @@ fun FloatingDownloadQueue(
                     coords.size
                 )
             }
-            .scale(if (targetScale > 1f) pulseScale else 1f)
+            .graphicsLayer {
+                scaleX = pulseScale
+                scaleY = pulseScale
+                // 右下角锚定：放大向左上扩展，不顶出窗口边缘
+                transformOrigin = TransformOrigin(1f, 1f)
+            }
     ) {
         Row(
             modifier = Modifier

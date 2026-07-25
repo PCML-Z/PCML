@@ -114,9 +114,13 @@ public final class ModrinthClient implements ModMarketClient {
                     .header("User-Agent", "PMCL/1.0").get().build();
             Exception last = null;
             for (int attempt = 0; attempt <= RETRY; attempt++) {
+                long retryAfterMs = -1;
                 try (Response resp = http.newCall(req).execute()) {
                     String body = resp.body() != null ? resp.body().string() : "";
                     if (!resp.isSuccessful()) {
+                        if (resp.code() == 429) {
+                            retryAfterMs = parseRetryAfterMs(resp.header("Retry-After"));
+                        }
                         throw new IOException("HTTP " + resp.code() + ": " + body);
                     }
                     return parseSearchResult(body);
@@ -132,8 +136,9 @@ public final class ModrinthClient implements ModMarketClient {
                         }
                     }
                     if (attempt < RETRY) {
+                        long sleepMs = retryAfterMs > 0 ? retryAfterMs : RETRY_BASE_MS * (1L << attempt);
                         try {
-                            Thread.sleep(RETRY_BASE_MS * (1L << attempt));
+                            Thread.sleep(sleepMs);
                         } catch (InterruptedException ie) {
                             Thread.currentThread().interrupt();
                             break;
@@ -198,6 +203,34 @@ public final class ModrinthClient implements ModMarketClient {
     }
 
     /**
+     * 解析 HTTP Retry-After 头为休眠毫秒数。
+     * <p>
+     * 支持两种格式：
+     * <ul>
+     *   <li>数字（秒）：如 "120" 表示 120 秒后重试</li>
+     *   <li>HTTP-date：如 "Wed, 21 Oct 2025 07:28:00 GMT"</li>
+     * </ul>
+     * 返回值上限 60 秒，避免单次重试等待过久导致 UI 卡死。
+     * 解析失败或 header 缺失时返回 -1，由调用方使用默认退避。
+     */
+    private static long parseRetryAfterMs(String header) {
+        if (header == null || header.isEmpty()) return -1;
+        try {
+            long seconds = Long.parseLong(header.trim());
+            return Math.min(seconds * 1000, 60_000);
+        } catch (NumberFormatException e) {
+            try {
+                java.util.Date date = new java.text.SimpleDateFormat(
+                        "EEE, dd MMM yyyy HH:mm:ss z", java.util.Locale.ENGLISH).parse(header.trim());
+                long diff = date.getTime() - System.currentTimeMillis();
+                return Math.max(1000, Math.min(diff, 60_000));
+            } catch (Exception ignored) {
+                return -1;
+            }
+        }
+    }
+
+    /**
      * Modrinth facets 数组字符串：[["project_type:mod"],["versions:1.20.4"],["categories:fabric"],["categories:performance"]]
      * 每个条件是一个独立的子数组，子数组之间是 AND 关系。
      * loader 与 category 都通过 categories 字段过滤（Modrinth 把加载器和功能分类统一归类为 category）。
@@ -226,9 +259,13 @@ public final class ModrinthClient implements ModMarketClient {
                     .header("User-Agent", "PMCL/1.0").get().build();
             Exception last = null;
             for (int attempt = 0; attempt <= RETRY; attempt++) {
+                long retryAfterMs = -1;
                 try (Response resp = http.newCall(req).execute()) {
                     String body = resp.body() != null ? resp.body().string() : "[]";
                     if (!resp.isSuccessful()) {
+                        if (resp.code() == 429) {
+                            retryAfterMs = parseRetryAfterMs(resp.header("Retry-After"));
+                        }
                         throw new IOException("HTTP " + resp.code() + ": " + body);
                     }
                     JsonArray versions = JsonParser.parseString(body).getAsJsonArray();
@@ -261,8 +298,9 @@ public final class ModrinthClient implements ModMarketClient {
                 } catch (Exception e) {
                     last = e;
                     if (attempt < RETRY) {
+                        long sleepMs = retryAfterMs > 0 ? retryAfterMs : RETRY_BASE_MS * (1L << attempt);
                         try {
-                            Thread.sleep(RETRY_BASE_MS * (1L << attempt));
+                            Thread.sleep(sleepMs);
                         } catch (InterruptedException ie) {
                             Thread.currentThread().interrupt();
                             break;
@@ -300,9 +338,13 @@ public final class ModrinthClient implements ModMarketClient {
 
         Exception last = null;
         for (int attempt = 0; attempt <= RETRY; attempt++) {
+            long retryAfterMs = -1;
             try (Response resp = http.newCall(req).execute()) {
                 String respBody = resp.body() != null ? resp.body().string() : "{}";
                 if (!resp.isSuccessful()) {
+                    if (resp.code() == 429) {
+                        retryAfterMs = parseRetryAfterMs(resp.header("Retry-After"));
+                    }
                     throw new IOException("HTTP " + resp.code() + ": " + respBody);
                 }
                 JsonObject result = JsonParser.parseString(respBody).getAsJsonObject();
@@ -316,7 +358,8 @@ public final class ModrinthClient implements ModMarketClient {
             } catch (Exception e) {
                 last = e;
                 if (attempt < RETRY) {
-                    try { Thread.sleep(RETRY_BASE_MS * (1L << attempt)); }
+                    long sleepMs = retryAfterMs > 0 ? retryAfterMs : RETRY_BASE_MS * (1L << attempt);
+                    try { Thread.sleep(sleepMs); }
                     catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }
                 }
             }
@@ -355,9 +398,13 @@ public final class ModrinthClient implements ModMarketClient {
                 .header("User-Agent", "PMCL/1.0").get().build();
         Exception last = null;
         for (int attempt = 0; attempt <= RETRY; attempt++) {
+            long retryAfterMs = -1;
             try (Response resp = http.newCall(req).execute()) {
                 String body = resp.body() != null ? resp.body().string() : "[]";
                 if (!resp.isSuccessful()) {
+                    if (resp.code() == 429) {
+                        retryAfterMs = parseRetryAfterMs(resp.header("Retry-After"));
+                    }
                     throw new IOException("HTTP " + resp.code() + ": " + body);
                 }
                 JsonArray versions = JsonParser.parseString(body).getAsJsonArray();
@@ -374,7 +421,8 @@ public final class ModrinthClient implements ModMarketClient {
             } catch (Exception e) {
                 last = e;
                 if (attempt < RETRY) {
-                    try { Thread.sleep(RETRY_BASE_MS * (1L << attempt)); }
+                    long sleepMs = retryAfterMs > 0 ? retryAfterMs : RETRY_BASE_MS * (1L << attempt);
+                    try { Thread.sleep(sleepMs); }
                     catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }
                 }
             }

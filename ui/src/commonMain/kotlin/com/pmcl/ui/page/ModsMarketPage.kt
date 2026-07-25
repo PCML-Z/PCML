@@ -11,9 +11,11 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.outlined.Translate
@@ -72,16 +74,38 @@ fun ModsMarketPage(vm: LauncherViewModel) {
     val translationCache by vm.translationCache.collectAsState()
     val translating by vm.translating.collectAsState()
     val depResult by vm.depInstallResult.collectAsState()
+    val selectedVersion by vm.selectedVersion.collectAsState()
+    val localVersionInfos by vm.localVersionInfos.collectAsState()
     var translateEnabled by remember { mutableStateOf(false) }
 
+    // 默认按当前选中实例的游戏版本 + 加载器筛选
+    val initialFilters = remember { vm.resolveMarketFilters() }
     var query by remember { mutableStateOf("") }
-    var gameVersion by remember { mutableStateOf("1.20.4") }
-    var loader by remember { mutableStateOf("fabric") }
+    var gameVersion by remember { mutableStateOf(initialFilters.gameVersion) }
+    var loader by remember { mutableStateOf(initialFilters.loader) }
+    val knownVersions = remember(localVersionInfos) { vm.knownMarketGameVersions() }
 
-    // 首次进入自动加载热门推荐
-    LaunchedEffect(Unit) {
-        if (popularMods.isEmpty() && !popularLoading) {
-            vm.loadPopularMods()
+    // 本地版本列表异步加载完成后，若筛选仍为空则补全当前实例条件
+    LaunchedEffect(selectedVersion, localVersionInfos) {
+        if (gameVersion.isBlank() && loader.isBlank()) {
+            val f = vm.resolveMarketFilters()
+            if (f.gameVersion.isNotBlank() || f.loader.isNotBlank()) {
+                gameVersion = f.gameVersion
+                loader = f.loader
+            }
+        }
+    }
+
+    // 筛选变化时自动刷新当前视图（防抖，避免版本输入框逐字请求）
+    LaunchedEffect(gameVersion, loader, selectedCategory) {
+        kotlinx.coroutines.delay(350)
+        when {
+            query.isNotBlank() && results.isNotEmpty() ->
+                vm.searchMods(query, gameVersion.ifBlank { null }, loader.ifBlank { null }, selectedCategory)
+            selectedCategory.isNotEmpty() ->
+                vm.loadCategoryMods(selectedCategory, gameVersion.ifBlank { null }, loader.ifBlank { null })
+            else ->
+                vm.loadPopularMods(gameVersion.ifBlank { null }, loader.ifBlank { null })
         }
     }
 
@@ -226,22 +250,33 @@ fun ModsMarketPage(vm: LauncherViewModel) {
                         keyboardActions = KeyboardActions(
                             onSearch = {
                                 if (query.isNotBlank() && !loading) {
-                                    vm.searchMods(query, gameVersion, loader, selectedCategory)
+                                    vm.searchMods(query, gameVersion.ifBlank { null }, loader.ifBlank { null }, selectedCategory)
                                 }
                             }
                         )
                     )
                     Spacer(Modifier.width(12.dp))
-                    OutlinedTextField(
-                        value = gameVersion, onValueChange = { gameVersion = it },
-                        label = { Text(I18n.t("market.target_version")) }, singleLine = true,
-                        modifier = Modifier.width(120.dp)
+                    GameVersionFilterField(
+                        value = gameVersion,
+                        knownVersions = knownVersions,
+                        onValueChange = { gameVersion = it }
                     )
                     Spacer(Modifier.width(12.dp))
                     LoaderDropdown(loader) { loader = it }
-                    Spacer(Modifier.width(12.dp))
+                    Spacer(Modifier.width(8.dp))
+                    OutlinedButton(
+                        onClick = {
+                            val f = vm.resolveMarketFilters()
+                            gameVersion = f.gameVersion
+                            loader = f.loader
+                        },
+                        enabled = !selectedVersion.isNullOrBlank()
+                    ) {
+                        Text(I18n.t("market.use_current_instance"))
+                    }
+                    Spacer(Modifier.width(8.dp))
                     Button(onClick = {
-                        vm.searchMods(query, gameVersion, loader, selectedCategory)
+                        vm.searchMods(query, gameVersion.ifBlank { null }, loader.ifBlank { null }, selectedCategory)
                     }, enabled = !loading && query.isNotBlank()) {
                         Text(if (loading) I18n.t("market.searching") else I18n.t("market.search"))
                     }
@@ -256,7 +291,7 @@ fun ModsMarketPage(vm: LauncherViewModel) {
                         if (cat.isEmpty()) {
                             vm.clearCategory()
                         } else {
-                            vm.loadCategoryMods(cat, gameVersion, loader)
+                            vm.loadCategoryMods(cat, gameVersion.ifBlank { null }, loader.ifBlank { null })
                         }
                     }
                 )
@@ -284,9 +319,15 @@ fun ModsMarketPage(vm: LauncherViewModel) {
                                 project = dp,
                                 vm = vm,
                                 searchGameVersion = gameVersion,
+                                searchLoader = loader,
+                                knownVersions = knownVersions,
                                 translateEnabled = translateEnabled,
                                 translationCache = translationCache,
-                                onBack = onBack
+                                onBack = onBack,
+                                onFiltersChanged = { gv, ld ->
+                                    gameVersion = gv
+                                    loader = ld
+                                }
                             )
                         }
                     }
@@ -326,7 +367,7 @@ fun ModsMarketPage(vm: LauncherViewModel) {
                             CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                         } else {
                             TextButton(onClick = {
-                                vm.loadCategoryMods(selectedCategory, gameVersion, loader)
+                                vm.loadCategoryMods(selectedCategory, gameVersion.ifBlank { null }, loader.ifBlank { null })
                             }) { Text(I18n.t("common.refresh")) }
                         }
                     }
@@ -374,7 +415,9 @@ fun ModsMarketPage(vm: LauncherViewModel) {
                         if (popularLoading) {
                             CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                         } else {
-                            TextButton(onClick = { vm.loadPopularMods(gameVersion, loader) }) {
+                            TextButton(onClick = {
+                                vm.loadPopularMods(gameVersion.ifBlank { null }, loader.ifBlank { null })
+                            }) {
                                 Text(I18n.t("common.refresh"))
                             }
                         }
@@ -577,7 +620,11 @@ private fun PopularCard(
                 } else if (!project.getIconUrl().isNullOrEmpty()) {
                     CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
                 } else {
-                    Text("🎮", style = MaterialTheme.typography.headlineMedium)
+                    Text(
+                        displayName.take(1).ifBlank { "?" },
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = MaterialTheme.colorScheme.outline
+                    )
                 }
             }
             Spacer(Modifier.height(6.dp))
@@ -593,7 +640,7 @@ private fun PopularCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 AssistChip(onClick = {}, label = { Text(project.getSource()) })
                 Spacer(Modifier.width(6.dp))
-                Text("↓ ${formatCount(project.getDownloadCount())}",
+                Text(formatCount(project.getDownloadCount()),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
             }
@@ -602,150 +649,301 @@ private fun PopularCard(
 }
 
 /**
- * Mod 详情界面：顶部信息卡 + 下载到指定游戏版本 + 版本文件列表。
- * 作为 ColumnScope 扩展以使用 weight 修饰符。
+ * Mod 详情界面：左右布局。
+ * 左侧：返回、项目信息、筛选与下载目标；右侧：版本文件列表与下载。
  */
 @Composable
 private fun ColumnScope.ModDetailView(
     project: ModProject,
     vm: LauncherViewModel,
     searchGameVersion: String,
+    searchLoader: String = "",
+    knownVersions: List<String> = emptyList(),
     translateEnabled: Boolean = false,
     translationCache: Map<String, String> = emptyMap(),
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onFiltersChanged: (gameVersion: String, loader: String) -> Unit = { _, _ -> }
 ) {
-    var targetGameVersion by remember { mutableStateOf(searchGameVersion) }
-    var showAllFiles by remember { mutableStateOf(false) }
+    val selectedVersion by vm.selectedVersion.collectAsState()
+    var filterGameVersion by remember(project.getId()) { mutableStateOf(searchGameVersion) }
+    var filterLoader by remember(project.getId()) { mutableStateOf(searchLoader) }
+    var targetGameVersion by remember(project.getId()) { mutableStateOf(searchGameVersion) }
+    var showAllFiles by remember(project.getId()) { mutableStateOf(false) }
+    var filterCompatible by remember(project.getId()) { mutableStateOf(true) }
     val files by vm.currentModFiles.collectAsState()
+
+    LaunchedEffect(searchGameVersion, searchLoader) {
+        filterGameVersion = searchGameVersion
+        filterLoader = searchLoader
+        if (searchGameVersion.isNotBlank()) {
+            targetGameVersion = searchGameVersion
+        }
+    }
+
+    LaunchedEffect(filterGameVersion) {
+        if (filterGameVersion.isNotBlank()) {
+            targetGameVersion = filterGameVersion
+        }
+    }
+
+    val compatibleFiles = remember(files, filterGameVersion, filterLoader, filterCompatible) {
+        if (!filterCompatible) files
+        else files.filter { fileMatchesMarketFilter(it, filterGameVersion, filterLoader) }
+    }
+    val displayFiles = if (showAllFiles) compatibleFiles else compatibleFiles.take(15)
 
     val displayName = if (translateEnabled) translationCache[project.getName()] ?: project.getName() else project.getName()
     val displaySummary = if (translateEnabled) translationCache[project.getSummary()] ?: project.getSummary() else project.getSummary()
 
-    LazyColumn(
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.fillMaxWidth().weight(1f)
+    Row(
+        modifier = Modifier.fillMaxWidth().weight(1f),
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // 顶部：返回按钮 + 项目信息
-        item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = onBack) { Text(I18n.t("market.back_to_popular")) }
-            }
-        }
-        item {
+        // ===== 左侧：信息 + 筛选 =====
+        Column(
+            modifier = Modifier
+                .weight(0.42f)
+                .fillMaxHeight()
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            TextButton(onClick = onBack) { Text(I18n.t("market.back_to_popular")) }
+
             Surface(
                 color = MaterialTheme.colorScheme.surfaceVariant,
                 shape = RoundedCornerShape(10.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Row(Modifier.padding(12.dp)) {
-                    // 图标
+                Column(Modifier.padding(12.dp)) {
                     val image = rememberUrlImage(project.getIconUrl())
                     Box(
-                        modifier = Modifier.size(80.dp)
-                            .clip(RoundedCornerShape(6.dp))
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(140.dp)
+                            .clip(RoundedCornerShape(8.dp))
                             .background(MaterialTheme.colorScheme.surface),
                         contentAlignment = Alignment.Center
                     ) {
                         if (image != null) {
-                            Image(image, project.getName(),
-                                  contentScale = ContentScale.Fit,
-                                  modifier = Modifier.fillMaxSize())
+                            Image(
+                                image,
+                                project.getName(),
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier.fillMaxSize()
+                            )
                         } else {
-                            Text("🎮")
+                            Text(
+                                displayName.take(1).ifBlank { "?" },
+                                style = MaterialTheme.typography.headlineMedium,
+                                color = MaterialTheme.colorScheme.outline
+                            )
                         }
                     }
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(displayName,
-                             style = MaterialTheme.typography.titleMedium,
-                             fontWeight = FontWeight.SemiBold)
-                        Text(displaySummary,
-                             style = MaterialTheme.typography.bodySmall,
-                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                             maxLines = 3)
-                        Spacer(Modifier.height(4.dp))
-                        Text("${project.getAuthor()}  ·  ↓${formatCount(project.getDownloadCount())}  ·  ${project.getSource()}",
-                             style = MaterialTheme.typography.labelSmall,
-                             color = MaterialTheme.colorScheme.outline)
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        displayName,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        displaySummary,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "${project.getAuthor()}  ·  ${formatCount(project.getDownloadCount())}  ·  ${project.getSource()}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(onClick = {
+                            try {
+                                val url = project.getWebsiteUrl()
+                                if (!url.isNullOrBlank() && Desktop.isDesktopSupported()) {
+                                    Desktop.getDesktop().browse(URI(url))
+                                }
+                            } catch (_: Throwable) {
+                            }
+                        }) { Text(I18n.t("market.open_web")) }
+                        TextButton(onClick = { vm.listProjectFiles(project) }) {
+                            Text(I18n.t("market.refresh_versions"))
+                        }
                     }
                 }
             }
-        }
-        // 操作按钮：网页 + 刷新版本
-        item {
-            Row {
-                TextButton(onClick = {
-                    try {
-                        val url = project.getWebsiteUrl()
-                        if (!url.isNullOrBlank() && Desktop.isDesktopSupported()) {
-                            Desktop.getDesktop().browse(URI(url))
-                        }
-                    } catch (_: Throwable) {
-                        // 浏览器打开失败，忽略
+
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        I18n.t("market.detail_filter_title"),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    GameVersionFilterField(
+                        value = filterGameVersion,
+                        knownVersions = knownVersions,
+                        onValueChange = {
+                            filterGameVersion = it
+                            filterCompatible = true
+                            showAllFiles = false
+                            onFiltersChanged(it, filterLoader)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    LoaderDropdown(
+                        selected = filterLoader,
+                        onSelect = {
+                            filterLoader = it
+                            filterCompatible = true
+                            showAllFiles = false
+                            onFiltersChanged(filterGameVersion, it)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedButton(
+                        onClick = {
+                            val f = vm.resolveMarketFilters()
+                            filterGameVersion = f.gameVersion
+                            filterLoader = f.loader
+                            filterCompatible = true
+                            showAllFiles = false
+                            onFiltersChanged(f.gameVersion, f.loader)
+                        },
+                        enabled = !selectedVersion.isNullOrBlank(),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(I18n.t("market.use_current_instance"))
                     }
-                }) { Text(I18n.t("market.open_web")) }
-                Spacer(Modifier.width(8.dp))
-                TextButton(onClick = { vm.listProjectFiles(project) }) {
-                    Text(I18n.t("market.refresh_versions"))
+                    if (filterGameVersion.isNotBlank() || filterLoader.isNotBlank()) {
+                        Text(
+                            buildString {
+                                append(I18n.t("market.detail_filter_hint"))
+                                if (filterGameVersion.isNotBlank()) append(" · MC $filterGameVersion")
+                                if (filterLoader.isNotBlank()) append(" · $filterLoader")
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                    }
                 }
             }
-        }
-        // 下载目标游戏版本选择
-        item {
+
             Surface(
                 color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
                 shape = RoundedCornerShape(8.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(Modifier.padding(10.dp)) {
-                    Text(I18n.t("market.download_to_version"),
-                         style = MaterialTheme.typography.titleSmall,
-                         fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.height(6.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        OutlinedTextField(
-                            value = targetGameVersion,
-                            onValueChange = { targetGameVersion = it },
-                            label = { Text(I18n.t("market.target_mc_version")) },
-                            singleLine = true,
-                            modifier = Modifier.weight(1f)
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        I18n.t("market.download_to_version"),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    OutlinedTextField(
+                        value = targetGameVersion,
+                        onValueChange = { targetGameVersion = it },
+                        label = { Text(I18n.t("market.target_mc_version")) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Text(
+                        I18n.t("market.download_dir_hint", targetGameVersion),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                }
+            }
+        }
+
+        // ===== 右侧：版本下载列表 =====
+        Column(
+            modifier = Modifier
+                .weight(0.58f)
+                .fillMaxHeight()
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    if (filterCompatible && (filterGameVersion.isNotBlank() || filterLoader.isNotBlank()))
+                        I18n.t("market.compatible_files", compatibleFiles.size, files.size)
+                    else
+                        I18n.t("market.version_files", files.size),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f)
+                )
+                if (filterGameVersion.isNotBlank() || filterLoader.isNotBlank()) {
+                    TextButton(onClick = {
+                        filterCompatible = !filterCompatible
+                        showAllFiles = false
+                    }) {
+                        Text(
+                            if (filterCompatible) I18n.t("market.show_all_versions")
+                            else I18n.t("market.filter_compatible")
                         )
                     }
-                    Spacer(Modifier.height(4.dp))
-                    Text(I18n.t("market.download_dir_hint", targetGameVersion),
-                         style = MaterialTheme.typography.labelSmall,
-                         color = MaterialTheme.colorScheme.outline)
                 }
             }
-        }
-        // 版本文件列表
-        item {
-            Text(I18n.t("market.version_files", files.size),
-                 style = MaterialTheme.typography.titleSmall,
-                 fontWeight = FontWeight.SemiBold)
-        }
-        if (files.isEmpty()) {
-            item {
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    shape = RoundedCornerShape(6.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                        Text(I18n.t("common.loading"), color = MaterialTheme.colorScheme.outline)
+            Spacer(Modifier.height(8.dp))
+
+            when {
+                files.isEmpty() -> {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text(I18n.t("common.loading"), color = MaterialTheme.colorScheme.outline)
+                        }
                     }
                 }
-            }
-        } else {
-            val displayFiles = if (showAllFiles) files else files.take(15)
-            items(displayFiles, key = { f -> f.getSource() + "/" + f.getFileId() }) { f ->
-                FileRow(f, targetGameVersion, vm)
-            }
-            if (files.size > 15) {
-                item {
-                    TextButton(onClick = { showAllFiles = !showAllFiles }) {
-                        Text(if (showAllFiles) I18n.t("market.collapse_files", files.size)
-                             else I18n.t("market.show_all_files", files.size))
+                compatibleFiles.isEmpty() -> {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        Column(
+                            Modifier.fillMaxSize().padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Text(I18n.t("market.no_compatible_files"), color = MaterialTheme.colorScheme.outline)
+                            Spacer(Modifier.height(8.dp))
+                            TextButton(onClick = { filterCompatible = false }) {
+                                Text(I18n.t("market.show_all_versions"))
+                            }
+                        }
+                    }
+                }
+                else -> {
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        items(displayFiles, key = { f -> f.getSource() + "/" + f.getFileId() }) { f ->
+                            FileRow(f, targetGameVersion, vm)
+                        }
+                        if (compatibleFiles.size > 15) {
+                            item {
+                                TextButton(onClick = { showAllFiles = !showAllFiles }) {
+                                    Text(
+                                        if (showAllFiles) I18n.t("market.collapse_files", compatibleFiles.size)
+                                        else I18n.t("market.show_all_files", compatibleFiles.size)
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -796,7 +994,11 @@ private fun SearchResultCard(
                           contentScale = ContentScale.Fit,
                           modifier = Modifier.fillMaxSize())
                 } else {
-                    Text("🎮", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        displayName.take(1).ifBlank { "?" },
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.outline
+                    )
                 }
             }
             Spacer(Modifier.width(10.dp))
@@ -814,7 +1016,7 @@ private fun SearchResultCard(
                      style = MaterialTheme.typography.bodySmall,
                      color = MaterialTheme.colorScheme.onSurfaceVariant,
                      maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text("${project.getAuthor()}  ·  ↓${formatCount(project.getDownloadCount())}  ·  ${project.getSource()}",
+                Text("${project.getAuthor()}  ·  ${formatCount(project.getDownloadCount())}  ·  ${project.getSource()}",
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
             }
@@ -914,7 +1116,11 @@ private fun CardExpandOverlay(
                         modifier = Modifier.fillMaxSize()
                     )
                 } else {
-                    Text("🎮", style = MaterialTheme.typography.displayLarge)
+                    Text(
+                        project.getName().take(1).ifBlank { "?" },
+                        style = MaterialTheme.typography.displayLarge,
+                        color = MaterialTheme.colorScheme.outline
+                    )
                 }
             }
         }
@@ -991,17 +1197,88 @@ private fun FileRow(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun LoaderDropdown(selected: String, onSelect: (String) -> Unit) {
+private fun GameVersionFilterField(
+    value: String,
+    knownVersions: List<String>,
+    modifier: Modifier = Modifier.width(130.dp),
+    onValueChange: (String) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = it },
+        modifier = modifier
+    ) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            label = { Text(I18n.t("market.target_version")) },
+            singleLine = true,
+            trailingIcon = {
+                if (knownVersions.isNotEmpty()) {
+                    ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
+                }
+            },
+            modifier = Modifier.menuAnchor().fillMaxWidth(),
+            placeholder = { Text(I18n.t("market.all")) }
+        )
+        if (knownVersions.isNotEmpty()) {
+            ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                DropdownMenuItem(
+                    text = { Text(I18n.t("market.all")) },
+                    onClick = { onValueChange(""); expanded = false }
+                )
+                knownVersions.forEach { ver ->
+                    DropdownMenuItem(
+                        text = { Text(ver) },
+                        onClick = { onValueChange(ver); expanded = false }
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** 文件是否匹配市场页的游戏版本 + 加载器筛选 */
+private fun fileMatchesMarketFilter(
+    file: com.pmcl.core.market.ModFile,
+    gameVersion: String,
+    loader: String
+): Boolean {
+    val gv = gameVersion.trim()
+    val ld = loader.trim()
+    if (gv.isNotEmpty()) {
+        val versions = file.getGameVersions() ?: emptyList()
+        if (versions.none { it.equals(gv, ignoreCase = true) }) return false
+    }
+    if (ld.isNotEmpty()) {
+        val loaders = file.getLoaders() ?: emptyList()
+        if (loaders.none { it.equals(ld, ignoreCase = true) }) return false
+    }
+    return true
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LoaderDropdown(
+    selected: String,
+    modifier: Modifier = Modifier.width(120.dp),
+    onSelect: (String) -> Unit
+) {
     var expanded by remember { mutableStateOf(false) }
     val options = listOf("fabric", "forge", "quilt", "neoforge", "")
-    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = it },
+        modifier = modifier
+    ) {
         OutlinedTextField(
             value = if (selected.isEmpty()) I18n.t("market.all") else selected,
             onValueChange = {},
             readOnly = true,
             label = { Text(I18n.t("market.loader")) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-            modifier = Modifier.menuAnchor().width(120.dp)
+            modifier = Modifier.menuAnchor().fillMaxWidth()
         )
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             options.forEach { opt ->

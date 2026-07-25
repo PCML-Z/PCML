@@ -25,10 +25,17 @@ public final class WorldManager {
     private final Path backupsDir;
     /** 世界大小缓存：key=世界目录路径, value=[mtime, size] */
     private final Map<Path, long[]> sizeCache = new ConcurrentHashMap<>();
+    /** 按世界名串行化备份/恢复操作，防止并发导致数据损坏 */
+    private final Map<String, Object> worldLocks = new ConcurrentHashMap<>();
 
     public WorldManager(Path workDir) {
         this.savesDir = workDir.resolve("saves");
         this.backupsDir = workDir.resolve("backups").resolve("worlds");
+    }
+
+    /** 获取（或创建）指定世界的操作锁 */
+    private Object lockFor(String worldName) {
+        return worldLocks.computeIfAbsent(worldName, k -> new Object());
     }
 
     public Path getSavesDir() { return savesDir; }
@@ -94,46 +101,65 @@ public final class WorldManager {
         return result;
     }
 
-    /** 备份世界为 zip */
+    /** 备份世界为 zip（按世界名串行化，防止并发备份产生损坏的 zip） */
     public Path backup(WorldInfo world) throws IOException {
-        Files.createDirectories(backupsDir);
-        String stamp = java.time.LocalDateTime.now()
-                .format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
-        Path zip = backupsDir.resolve(world.getName() + "-" + stamp + ".zip");
-        try (ZipOutputStream zos = new ZipOutputStream(Files.newOutputStream(zip))) {
-            Files.walkFileTree(world.getDir(), new SimpleFileVisitor<>() {
-                @Override
-                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                    // 跳过 Minecraft 运行时锁文件，避免读取正在运行的世界时失败
-                    String fileName = file.getFileName().toString();
-                    if ("session.lock".equals(fileName)) return FileVisitResult.CONTINUE;
-                    String rel = world.getDir().relativize(file).toString().replace(File.separatorChar, '/');
-                    zos.putNextEntry(new ZipEntry(rel));
-                    Files.copy(file, zos);
-                    zos.closeEntry();
-                    return FileVisitResult.CONTINUE;
-                }
-                @Override
-                public FileVisitResult visitFileFailed(Path file, IOException exc) {
-                    // 单个文件访问失败（权限/符号链接/占用）不应中断整个备份
-                    System.err.println("[WorldManager] 备份时跳过无法访问的文件: " + file + " - " + exc.getMessage());
-                    return FileVisitResult.CONTINUE;
-                }
-            });
+        synchronized (lockFor(world.getName())) {
+            Files.createDirectories(backupsDir);
+            String stamp = java.time.LocalDateTime.now()
+                    .format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
+            Path zip = backupsDir.resolve(world.getName() + "-" + stamp + ".zip");
+            try (ZipOutputStream zos = new ZipOutputStream(Files.newOutputStream(zip))) {
+                Files.walkFileTree(world.getDir(), new SimpleFileVisitor<>() {
+                    @Override
+                    public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                        // 跳过 Minecraft 运行时锁文件，避免读取正在运行的世界时失败
+                        String fileName = file.getFileName().toString();
+                        if ("session.lock".equals(fileName)) return FileVisitResult.CONTINUE;
+                        String rel = world.getDir().relativize(file).toString().replace(File.separatorChar, '/');
+                        zos.putNextEntry(new ZipEntry(rel));
+                        Files.copy(file, zos);
+                        zos.closeEntry();
+                        return FileVisitResult.CONTINUE;
+                    }
+                    @Override
+                    public FileVisitResult visitFileFailed(Path file, IOException exc) {
+                        // 单个文件访问失败（权限/符号链接/占用）不应中断整个备份
+                        System.err.println("[WorldManager] 备份时跳过无法访问的文件: " + file + " - " + exc.getMessage());
+                        return FileVisitResult.CONTINUE;
+                    }
+                });
+            }
+            return zip;
         }
-        return zip;
     }
 
-    /** 从 zip 恢复世界（覆盖现有世界） */
+    /** 从 zip 恢复世界（覆盖现有世界，按世界名串行化，防止与并发备份/恢复竞争导致数据丢失） */
     public void restore(Path zipFile, String worldName) throws IOException {
-        Path target = savesDir.resolve(worldName).normalize();
-        if (!target.startsWith(savesDir)) throw new IOException("非法世界名: " + worldName);
-        Files.createDirectories(savesDir);
-        if (Files.exists(target)) deleteRecursive(target);
-        Files.createDirectories(target);
-        // S22 安全修复：使用 SafeZipExtractor 统一防护 ZipSlip 与 ZipBomb
-        try (ZipInputStream zis = new ZipInputStream(Files.newInputStream(zipFile))) {
-            com.pmcl.core.util.SafeZipExtractor.extractStreamSafely(zis, target, null);
+        synchronized (lockFor(worldName)) {
+            Path target = savesDir.resolve(worldName).normalize();
+            if (!target.startsWith(savesDir)) throw new IOException("非法世界名: " + worldName);
+            Files.createDirectories(savesDir);
+            // 先解压到临时暂存目录，成功后再替换原世界，避免解压中途失败导致原存档丢失
+            Path staging = target.resolveSibling(worldName + ".restoring");
+            // 清理上次失败残留的暂存目录
+            if (Files.exists(staging)) deleteRecursive(staging);
+            try {
+                Files.createDirectories(staging);
+                try (ZipInputStream zis = new ZipInputStream(Files.newInputStream(zipFile))) {
+                    com.pmcl.core.util.SafeZipExtractor.extractStreamSafely(zis, staging, null);
+                }
+                // 解压成功，删除原世界并原子替换
+                if (Files.exists(target)) deleteRecursive(target);
+                try {
+                    Files.move(staging, target, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+                } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                    Files.move(staging, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                }
+            } catch (IOException e) {
+                // 解压失败：清理暂存目录，保留原存档不受影响
+                try { deleteRecursive(staging); } catch (IOException ignored) {}
+                throw e;
+            }
         }
     }
 

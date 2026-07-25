@@ -2135,7 +2135,8 @@ private fun DocumentViewerDialog(
 
 @Composable
 private fun MetalRenderCard(vm: LauncherViewModel, pref: com.pmcl.core.preferences.Preferences) {
-    var enabled by remember { mutableStateOf(pref.isMetalRenderEnabled()) }
+    // 从 vm 的 StateFlow 读取开关状态，确保安装/卸载失败回滚后 UI 同步更新
+    val enabled by vm.metalRenderEnabled.collectAsState()
     val status by vm.status.collectAsState()
     val selectedVersion by vm.selectedVersion.collectAsState()
 
@@ -2147,10 +2148,7 @@ private fun MetalRenderCard(vm: LauncherViewModel, pref: com.pmcl.core.preferenc
                 Spacer(Modifier.weight(1f))
                 Switch(
                     checked = enabled,
-                    onCheckedChange = { v ->
-                        enabled = v
-                        vm.toggleMetalRender(selectedVersion)
-                    }
+                    onCheckedChange = { vm.toggleMetalRender(selectedVersion) }
                 )
             }
             Spacer(Modifier.height(4.dp))

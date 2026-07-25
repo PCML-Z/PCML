@@ -11,6 +11,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
 import com.pmcl.core.plugin.PluginManager
@@ -314,7 +316,34 @@ private fun MainWindowContent(vm: LauncherViewModel) {
         }
 
         Column(Modifier.weight(1f).fillMaxHeight()) {
-            Box(Modifier.weight(1f).fillMaxWidth()) {
+            val queueSummary by vm.queueSummary.collectAsState()
+            val pulseTrigger by vm.pulseTrigger.collectAsState()
+            val flyAnimations by vm.flyAnimations.collectAsState()
+            val showQueue = queueSummary.total() > 0 || flyAnimations.isNotEmpty()
+            val density = androidx.compose.ui.platform.LocalDensity.current
+
+            Box(
+                Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .onGloballyPositioned { coords ->
+                        // 队列卡片未显示时，用内容区右下角推算飞入目标，保证首次下载也有动画
+                        if (!showQueue) {
+                            val pos = coords.positionInWindow()
+                            val padPx = with(density) { 16.dp.toPx() }
+                            val cardW = with(density) { 160.dp.toPx() }.toInt()
+                            val cardH = with(density) { 48.dp.toPx() }.toInt()
+                            vm.updateDownloadQueueRect(
+                                com.pmcl.ui.animation.Rect(
+                                    x = (pos.x + coords.size.width - padPx - cardW).toInt(),
+                                    y = (pos.y + coords.size.height - padPx - cardH).toInt(),
+                                    width = cardW,
+                                    height = cardH
+                                )
+                            )
+                        }
+                    }
+            ) {
                 EntranceAnimation(delayMs = 120, durationMs = 400, offsetDp = 32) {
                     AnimatedPageSwitch(targetState = current, direction = navDirection) { target ->
                         when (target) {
@@ -350,12 +379,11 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                 )
 
                 // 悬浮下载队列入口卡片（右下角，作为飞入动画目标）
-                val queueSummary by vm.queueSummary.collectAsState()
-                val pulseTrigger by vm.pulseTrigger.collectAsState()
-                if (queueSummary.total() > 0) {
+                if (showQueue) {
                     com.pmcl.ui.widget.FloatingDownloadQueue(
                         summary = queueSummary,
                         pulseTrigger = pulseTrigger,
+                        forceVisible = flyAnimations.isNotEmpty(),
                         onClick = {
                             current = NavTarget.BuiltIn(NavDestination.Download)
                             navDirection = 1
@@ -365,9 +393,11 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                             .padding(end = 16.dp, bottom = 16.dp)
                     )
                 }
+                DisposableEffect(Unit) {
+                    onDispose { vm.clearDownloadQueueRect() }
+                }
 
                 // 下载飞入动画浮层（覆盖整个内容区）
-                val flyAnimations by vm.flyAnimations.collectAsState()
                 com.pmcl.ui.animation.DownloadFlyLayer(
                     animations = flyAnimations,
                     onComplete = { anim -> vm.completeFlyAnimation(anim) }

@@ -165,7 +165,10 @@ public final class DownloadManager {
 
     /**
      * 根据偏好重新构建 HTTP 客户端与镜像配置。
-     * 清理旧客户端的连接池，避免资源泄漏。
+     * <p>
+     * 延迟清理旧客户端：新请求立即使用新客户端，旧客户端的连接池和 dispatcher
+     * 延迟 30 秒后清理，给在途请求（尤其是 ChunkedDownloader 的大文件分片下载）
+     * 足够的完成时间，避免因连接池被 evict 或 dispatcher 被关闭导致在途请求失败。
      */
     public void reconfigure(Preferences pref) {
         // 镜像
@@ -186,12 +189,18 @@ public final class DownloadManager {
                 pref.isUseProxy() && pref.isUseHttpAuth(),
                 pref.getProxyUsername(), pref.getProxyPassword());
 
-        // 清理旧客户端连接池，避免多次 reconfigure 导致连接/线程泄漏
-        if (old != null) {
-            try {
-                old.connectionPool().evictAll();
-                old.dispatcher().executorService().shutdown();
-            } catch (Throwable ignored) {}
+        // 延迟清理旧客户端：不立即关闭连接池和 dispatcher，避免打断在途请求
+        // 新请求已使用新 http 客户端，旧客户端在 30s grace period 后清理
+        if (old != null && old != http) {
+            Thread cleaner = new Thread(() -> {
+                try { Thread.sleep(30_000); } catch (InterruptedException e) { return; }
+                try {
+                    old.connectionPool().evictAll();
+                    old.dispatcher().executorService().shutdown();
+                } catch (Throwable ignored) {}
+            }, "pmcl-http-cleanup");
+            cleaner.setDaemon(true);
+            cleaner.start();
         }
 
         speedLimitBytesPerSec = pref.getDownloadSpeedLimitKb() * 1024;

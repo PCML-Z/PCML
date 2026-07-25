@@ -244,8 +244,11 @@ private fun WorldRow(
                     onClick = {
                         backing = true
                         scope.launch {
-                            vm.backupWorld(world).join()
-                            backing = false
+                            try {
+                                vm.backupWorld(world).join()
+                            } finally {
+                                backing = false
+                            }
                         }
                     },
                     enabled = !backing
@@ -262,8 +265,11 @@ private fun WorldRow(
                     loadingBackups = true
                     showRestoreDialog = true
                     scope.launch {
-                        backups = vm.listBackups(world.name)
-                        loadingBackups = false
+                        try {
+                            backups = vm.listBackups(world.name)
+                        } finally {
+                            loadingBackups = false
+                        }
                     }
                 }) {
                     Icon(Icons.Filled.Restore, null, Modifier.size(16.dp))
