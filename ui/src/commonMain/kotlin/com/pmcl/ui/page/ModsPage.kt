@@ -425,7 +425,11 @@ fun ModsPage(vm: LauncherViewModel) {
                 verticalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier.weight(1f)
             ) {
-                itemsIndexed(processedMods, key = { _, m -> m.getModId() ?: m.getJarFile() ?: m.toString() }) { index, m ->
+                itemsIndexed(processedMods, key = { idx, m ->
+                    // 修复：modId 不唯一（同一 mod 的多版本或内嵌依赖会重复，如 architectury），
+                    // 改用 jar 文件路径作为首选 key（文件系统保证唯一），回退到 modId+索引避免冲突。
+                    m.getJarFile() ?: (m.getModId() ?: m.toString()) + "#" + idx
+                }) { index, m ->
                     Box(Modifier.animateItemPlacement()) {
                         StaggeredAppear(index) {
                             val updateInfo = updateInfoMap[m.getModId() ?: ""]
