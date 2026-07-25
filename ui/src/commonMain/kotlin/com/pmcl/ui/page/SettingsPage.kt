@@ -41,6 +41,7 @@ import com.pmcl.ui.theme.glassCardBorder
 import com.pmcl.ui.theme.glassCardColors
 import com.pmcl.ui.theme.glassCardElevation
 import com.pmcl.ui.viewmodel.LauncherViewModel
+import kotlinx.coroutines.launch
 
 @Composable
 fun SettingsPage(vm: LauncherViewModel) {
@@ -525,6 +526,11 @@ fun SettingsPage(vm: LauncherViewModel) {
 
         // GitHub Release 同步更新
         GithubSyncCard(vm, pref)
+
+        Spacer(Modifier.height(16.dp))
+
+        // 设备绑定保护
+        DeviceBindingCard(vm, pref)
 
         Spacer(Modifier.height(16.dp))
 
@@ -2169,4 +2175,397 @@ private fun MetalRenderCard(vm: LauncherViewModel, pref: com.pmcl.core.preferenc
             }
         }
     }
+}
+
+// ===== 设备绑定保护卡片 =====
+@Composable
+private fun DeviceBindingCard(vm: LauncherViewModel, pref: com.pmcl.core.preferences.Preferences) {
+    val scope = rememberCoroutineScope()
+    val clipboard = LocalClipboardManager.current
+
+    // 配置状态：未配置 / 已开启 / 已关闭（配置过但 enabled=false）
+    var configured by remember { mutableStateOf(pref.isDeviceProtectionConfigured()) }
+    var protectionEnabled by remember { mutableStateOf(pref.isDeviceProtectionEnabled()) }
+    var deviceHash by remember { mutableStateOf(pref.getDeviceProtectionDeviceHash()) }
+    // 当前设备码（用于显示，仅在卡片内首次加载时计算一次，避免重复 oshi 调用）
+    var currentDeviceCode by remember { mutableStateOf("") }
+    var computingCode by remember { mutableStateOf(false) }
+
+    // 对话框状态
+    var showEnableDialog by remember { mutableStateOf(false) }
+    var showDisableDialog by remember { mutableStateOf(false) }
+    var showExportDialog by remember { mutableStateOf(false) }
+    var exportedKeyForDisplay by remember { mutableStateOf("") }
+    var showExportedDialog by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    var statusMsg by remember { mutableStateOf("") }
+
+    // 后台计算当前设备码（oshi 调用较慢，避免阻塞 UI）
+    LaunchedEffect(Unit) {
+        if (currentDeviceCode.isEmpty() && !computingCode) {
+            computingCode = true
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    currentDeviceCode = com.pmcl.core.auth.DeviceBinder.getDeviceCode()
+                } catch (t: Throwable) {
+                    currentDeviceCode = "计算失败: ${t.message}"
+                } finally {
+                    computingCode = false
+                }
+            }
+        }
+    }
+
+    Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.Shield, null, Modifier.size(20.dp),
+                     tint = if (protectionEnabled) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.outline)
+                Spacer(Modifier.width(8.dp))
+                Text("设备绑定保护", style = MaterialTheme.typography.titleSmall,
+                     fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                // 状态标签
+                val statusText = when {
+                    !configured -> "未配置"
+                    protectionEnabled -> "已开启"
+                    else -> "已关闭"
+                }
+                val statusColor = when {
+                    !configured -> MaterialTheme.colorScheme.outline
+                    protectionEnabled -> MaterialTheme.colorScheme.primary
+                    else -> MaterialTheme.colorScheme.outline
+                }
+                Box(
+                    Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                        .background(statusColor.copy(alpha = 0.12f),
+                            androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
+                ) {
+                    Text(statusText, color = statusColor,
+                         style = MaterialTheme.typography.labelSmall,
+                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+            Text("使用 11498 位设备加密码将启动器和游戏绑定到当前设备。开启后，启动器和游戏文件复制到其他设备将无法启动。私钥用于保护开关状态，请妥善保管。",
+                 style = MaterialTheme.typography.labelSmall,
+                 color = MaterialTheme.colorScheme.outline)
+
+            Spacer(Modifier.height(12.dp))
+            // 当前设备码显示（截断前 64 字符 + 后 8 字符）
+            Text("当前设备加密码（11498 位）：", style = MaterialTheme.typography.labelMedium,
+                 fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(4.dp))
+            val codeDisplay = when {
+                computingCode -> "计算中…"
+                currentDeviceCode.isEmpty() -> "-"
+                currentDeviceCode.length <= 80 -> currentDeviceCode
+                else -> currentDeviceCode.take(64) + "…" + currentCodeSuffix(currentDeviceCode)
+            }
+            Text(codeDisplay,
+                 style = MaterialTheme.typography.bodySmall,
+                 fontFamily = FontFamily.Monospace,
+                 maxLines = 2,
+                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            Row {
+                TextButton(onClick = {
+                    if (currentDeviceCode.isNotEmpty()) {
+                        clipboard.setText(AnnotatedString(currentDeviceCode))
+                        statusMsg = "设备码已复制到剪贴板"
+                    }
+                }, enabled = currentDeviceCode.isNotEmpty() && !computingCode) {
+                    Icon(Icons.Filled.ContentCopy, null, Modifier.size(14.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("复制完整设备码")
+                }
+            }
+
+            if (deviceHash.isNotEmpty()) {
+                Spacer(Modifier.height(4.dp))
+                Text("已绑定设备哈希: ${deviceHash.take(16)}…",
+                     style = MaterialTheme.typography.labelSmall,
+                     fontFamily = FontFamily.Monospace,
+                     color = MaterialTheme.colorScheme.outline)
+            }
+
+            Spacer(Modifier.height(8.dp))
+            // 操作按钮区
+            Row {
+                when {
+                    !configured -> {
+                        Button(onClick = { showEnableDialog = true }, enabled = !busy) {
+                            Text("开启保护")
+                        }
+                    }
+                    protectionEnabled -> {
+                        OutlinedButton(onClick = { showDisableDialog = true }, enabled = !busy) {
+                            Text("关闭保护")
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        OutlinedButton(onClick = { showExportDialog = true }, enabled = !busy) {
+                            Text("导出私钥")
+                        }
+                    }
+                    else -> {
+                        // 已配置但关闭：可重新开启（需要私钥）
+                        OutlinedButton(onClick = { showDisableDialog = true }, enabled = !busy) {
+                            Text("重新开启保护")
+                        }
+                    }
+                }
+            }
+
+            if (statusMsg.isNotEmpty()) {
+                Spacer(Modifier.height(4.dp))
+                Text(statusMsg,
+                     style = MaterialTheme.typography.labelSmall,
+                     color = if (statusMsg.startsWith("失败") || statusMsg.startsWith("错误"))
+                                MaterialTheme.colorScheme.error
+                             else MaterialTheme.colorScheme.primary)
+            }
+        }
+    }
+
+    // ===== 开启保护对话框（设置导出密码） =====
+    if (showEnableDialog) {
+        var pwd by remember { mutableStateOf("") }
+        var pwdConfirm by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { if (!busy) showEnableDialog = false },
+            title = { Text("开启设备绑定保护") },
+            text = {
+                Column {
+                    Text("将生成 RSA-2048 密钥对并签发设备绑定许可证。请设置私钥导出密码（用于加密私钥备份文件，丢失后无法关闭保护）。",
+                         style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(value = pwd, onValueChange = { pwd = it },
+                        label = { Text("导出密码") },
+                        singleLine = true,
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation())
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(value = pwdConfirm, onValueChange = { pwdConfirm = it },
+                        label = { Text("确认密码") },
+                        singleLine = true,
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation())
+                    if (pwd.isNotEmpty() && pwd != pwdConfirm) {
+                        Spacer(Modifier.height(4.dp))
+                        Text("两次输入不一致", color = MaterialTheme.colorScheme.error,
+                             style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    enabled = !busy && pwd.length >= 6 && pwd == pwdConfirm,
+                    onClick = {
+                        busy = true
+                        statusMsg = "正在生成密钥…"
+                        scope.launch {
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                try {
+                                    val result = com.pmcl.core.auth.DeviceBinder.enableProtection(pwd.toCharArray())
+                                    pref.setDeviceProtectionPublicKey(result.publicKeyB64)
+                                    pref.setDeviceProtectionLicense(result.license)
+                                    pref.setDeviceProtectionLocalKey(result.localKeyEnc)
+                                    pref.setDeviceProtectionDeviceHash(result.deviceCodeHash)
+                                    exportedKeyForDisplay = result.exportedKey
+                                    configured = true
+                                    protectionEnabled = true
+                                    deviceHash = result.deviceCodeHash
+                                    showEnableDialog = false
+                                    showExportedDialog = true
+                                    statusMsg = "保护已开启"
+                                } catch (t: Throwable) {
+                                    statusMsg = "失败: ${t.message}"
+                                } finally {
+                                    busy = false
+                                }
+                            }
+                        }
+                    }
+                ) { Text("开启") }
+            },
+            dismissButton = {
+                TextButton(onClick = { if (!busy) showEnableDialog = false }) { Text("取消") }
+            }
+        )
+    }
+
+    // ===== 关闭/重新开启保护对话框（导入私钥 + 密码） =====
+    if (showDisableDialog) {
+        var importedKey by remember { mutableStateOf("") }
+        var keyPwd by remember { mutableStateOf("") }
+        val dialogTitle = if (protectionEnabled) "关闭设备绑定保护" else "重新开启设备绑定保护"
+        val dialogDesc = if (protectionEnabled)
+            "关闭后启动器和游戏可在任意设备启动。请输入导出时保存的私钥和密码。"
+        else
+            "重新开启保护需要导入私钥并绑定到当前设备。请输入导出时保存的私钥和密码。"
+        AlertDialog(
+            onDismissRequest = { if (!busy) showDisableDialog = false },
+            title = { Text(dialogTitle) },
+            text = {
+                Column {
+                    Text(dialogDesc, style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(value = importedKey, onValueChange = { importedKey = it },
+                        label = { Text("私钥（pmcl-key:v1:…）") },
+                        singleLine = false,
+                        minLines = 3,
+                        maxLines = 5,
+                        modifier = Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(value = keyPwd, onValueChange = { keyPwd = it },
+                        label = { Text("私钥密码") },
+                        singleLine = true,
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation())
+                }
+            },
+            confirmButton = {
+                Button(
+                    enabled = !busy && importedKey.isNotBlank() && keyPwd.isNotBlank(),
+                    onClick = {
+                        busy = true
+                        statusMsg = "正在校验…"
+                        scope.launch {
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                try {
+                                    if (protectionEnabled) {
+                                        // 关闭保护
+                                        val newLicense = com.pmcl.core.auth.DeviceBinder.disableProtection(
+                                            importedKey.trim(), keyPwd.toCharArray(),
+                                            pref.getDeviceProtectionPublicKey())
+                                        if (newLicense == null) {
+                                            statusMsg = "失败：私钥不匹配或密码错误"
+                                        } else {
+                                            pref.setDeviceProtectionLicense(newLicense)
+                                            protectionEnabled = false
+                                            showDisableDialog = false
+                                            statusMsg = "保护已关闭"
+                                        }
+                                    } else {
+                                        // 重新开启保护
+                                        val result = com.pmcl.core.auth.DeviceBinder.reenableProtection(
+                                            importedKey.trim(), keyPwd.toCharArray(),
+                                            pref.getDeviceProtectionPublicKey())
+                                        if (result == null) {
+                                            statusMsg = "失败：私钥不匹配或密码错误"
+                                        } else {
+                                            pref.setDeviceProtectionLicense(result.license)
+                                            pref.setDeviceProtectionLocalKey(result.localKeyEnc)
+                                            pref.setDeviceProtectionDeviceHash(result.deviceCodeHash)
+                                            protectionEnabled = true
+                                            deviceHash = result.deviceCodeHash
+                                            showDisableDialog = false
+                                            statusMsg = "保护已重新开启，已绑定到当前设备"
+                                        }
+                                    }
+                                } catch (t: Throwable) {
+                                    statusMsg = "失败: ${t.message}"
+                                } finally {
+                                    busy = false
+                                }
+                            }
+                        }
+                    }
+                ) { Text(if (protectionEnabled) "关闭" else "重新开启") }
+            },
+            dismissButton = {
+                TextButton(onClick = { if (!busy) showDisableDialog = false }) { Text("取消") }
+            }
+        )
+    }
+
+    // ===== 导出私钥对话框（输入密码后导出） =====
+    if (showExportDialog) {
+        var exportPwd by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { if (!busy) showExportDialog = false },
+            title = { Text("导出私钥") },
+            text = {
+                Column {
+                    Text("使用设备码解密本地私钥副本，再用密码重新加密导出。导出后的私钥可在其他设备用于关闭或迁移保护。",
+                         style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(value = exportPwd, onValueChange = { exportPwd = it },
+                        label = { Text("导出密码（≥6 位）") },
+                        singleLine = true,
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation())
+                }
+            },
+            confirmButton = {
+                Button(
+                    enabled = !busy && exportPwd.length >= 6,
+                    onClick = {
+                        busy = true
+                        statusMsg = "正在导出…"
+                        scope.launch {
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                try {
+                                    val localKey = pref.getDeviceProtectionLocalKey()
+                                    val code = com.pmcl.core.auth.DeviceBinder.getDeviceCode()
+                                    val priv = com.pmcl.core.auth.DeviceBinder
+                                        .decryptPrivateKeyWithDeviceCode(localKey, code)
+                                    exportedKeyForDisplay = com.pmcl.core.auth.DeviceBinder
+                                        .encryptPrivateKey(priv, exportPwd.toCharArray())
+                                    showExportDialog = false
+                                    showExportedDialog = true
+                                    statusMsg = "私钥已导出"
+                                } catch (t: Throwable) {
+                                    statusMsg = "导出失败（设备不匹配或文件损坏）: ${t.message}"
+                                } finally {
+                                    busy = false
+                                }
+                            }
+                        }
+                    }
+                ) { Text("导出") }
+            },
+            dismissButton = {
+                TextButton(onClick = { if (!busy) showExportDialog = false }) { Text("取消") }
+            }
+        )
+    }
+
+    // ===== 显示导出的私钥（首次开启/手动导出后） =====
+    if (showExportedDialog) {
+        AlertDialog(
+            onDismissRequest = { showExportedDialog = false; exportedKeyForDisplay = "" },
+            title = { Text("私钥已生成") },
+            text = {
+                Column {
+                    Text("请立即复制并妥善保管此私钥。丢失后无法关闭保护，无法在其他设备恢复。",
+                         style = MaterialTheme.typography.bodySmall,
+                         color = MaterialTheme.colorScheme.error)
+                    Spacer(Modifier.height(8.dp))
+                    Text(exportedKeyForDisplay.take(200) +
+                         if (exportedKeyForDisplay.length > 200) "…(已截断)" else "",
+                         style = MaterialTheme.typography.bodySmall,
+                         fontFamily = FontFamily.Monospace,
+                         maxLines = 6,
+                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                }
+            },
+            confirmButton = {
+                Row {
+                    TextButton(onClick = {
+                        clipboard.setText(AnnotatedString(exportedKeyForDisplay))
+                        statusMsg = "私钥已复制到剪贴板"
+                        showExportedDialog = false
+                        exportedKeyForDisplay = ""
+                    }) { Text("复制全部") }
+                    Spacer(Modifier.width(8.dp))
+                    Button(onClick = {
+                        showExportedDialog = false
+                        exportedKeyForDisplay = ""
+                    }) { Text("已保存") }
+                }
+            }
+        )
+    }
+}
+
+/** 截取设备码末尾 8 字符用于 UI 显示 */
+private fun currentCodeSuffix(code: String): String {
+    return if (code.length >= 8) code.takeLast(8) else code
 }

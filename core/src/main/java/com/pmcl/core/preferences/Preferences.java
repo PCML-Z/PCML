@@ -106,6 +106,14 @@ public final class Preferences {
     private boolean mioModeNetworkOpt = true;      // L1+：网络栈优化（IPv4优先+快速路径+DNS缓存，默认开）
     private boolean mioModeMetaspace = true;       // L1+：元空间管控（限制上限+类数据共享，默认开，防 OOM）
 
+    // ===== 设备绑定保护（DeviceBinder：11498 位设备加密码 + RSA 签名许可证）=====
+    // 开启后启动器和游戏绑定到当前设备，复制到其他设备无法启动/使用。
+    // 私钥由用户保管，保护开关状态变更需私钥签名新许可证。
+    private String deviceProtectionLicense = "";   // 签名许可证（含 enabled 标志）
+    private String deviceProtectionPublicKey = ""; // RSA 公钥 Base64（用于验签）
+    private String deviceProtectionLocalKey = "";  // 私钥本地副本（设备码加密）
+    private String deviceProtectionDeviceHash = ""; // 绑定的设备码哈希（用于 UI 显示绑定设备）
+
     // ===== Metal 渲染（macOS Apple Silicon 专用）=====
     // 开启时自动下载 MetalRender mod + Sodium + Fabric API + ModMenu 到 mods 目录，
     // 使 Minecraft 通过 Apple Metal API 渲染，提升 macOS 上的帧率。
@@ -534,6 +542,34 @@ public final class Preferences {
     public synchronized boolean isMetalRenderEnabled() { return metalRenderEnabled; }
     public synchronized void setMetalRenderEnabled(boolean v) { metalRenderEnabled = v; scheduleSave(); }
 
+    // ===== 设备绑定保护 =====
+    /** 设备保护是否已配置（有许可证+公钥） */
+    public synchronized boolean isDeviceProtectionConfigured() {
+        return deviceProtectionLicense != null && !deviceProtectionLicense.isEmpty()
+                && deviceProtectionPublicKey != null && !deviceProtectionPublicKey.isEmpty();
+    }
+    /** 设备保护是否处于开启状态（许可证存在且 enabled=true） */
+    public synchronized boolean isDeviceProtectionEnabled() {
+        if (!isDeviceProtectionConfigured()) return false;
+        return com.pmcl.core.auth.DeviceBinder.isLicenseEnabled(deviceProtectionLicense);
+    }
+    public synchronized String getDeviceProtectionLicense() { return deviceProtectionLicense; }
+    public synchronized void setDeviceProtectionLicense(String v) {
+        deviceProtectionLicense = v == null ? "" : v; scheduleSave();
+    }
+    public synchronized String getDeviceProtectionPublicKey() { return deviceProtectionPublicKey; }
+    public synchronized void setDeviceProtectionPublicKey(String v) {
+        deviceProtectionPublicKey = v == null ? "" : v; scheduleSave();
+    }
+    public synchronized String getDeviceProtectionLocalKey() { return deviceProtectionLocalKey; }
+    public synchronized void setDeviceProtectionLocalKey(String v) {
+        deviceProtectionLocalKey = v == null ? "" : v; scheduleSave();
+    }
+    public synchronized String getDeviceProtectionDeviceHash() { return deviceProtectionDeviceHash; }
+    public synchronized void setDeviceProtectionDeviceHash(String v) {
+        deviceProtectionDeviceHash = v == null ? "" : v; scheduleSave();
+    }
+
     // ===== 多人联机 =====
     public synchronized String getMpBackend() {
         // 默认使用 Terracotta（HMCL 同款官方陶瓦联机实现）
@@ -797,6 +833,10 @@ public final class Preferences {
             mpBackend = loadString(o, "mpBackend", "TERRACOTTA");
             connectxServerAddress = loadString(o, "connectxServerAddress", "");
             connectxBinaryPath = loadString(o, "connectxBinaryPath", "");
+            deviceProtectionLicense = loadString(o, "deviceProtectionLicense", "");
+            deviceProtectionPublicKey = loadString(o, "deviceProtectionPublicKey", "");
+            deviceProtectionLocalKey = loadString(o, "deviceProtectionLocalKey", "");
+            deviceProtectionDeviceHash = loadString(o, "deviceProtectionDeviceHash", "");
         } catch (Exception e) {
             // 标量字段加载异常（理论上 loadInt/loadBool 等已有内部 try-catch，此处为兜底）
             System.err.println("[Preferences] 标量字段加载异常（已跳过后续标量字段）: " + e.getMessage());
@@ -1048,6 +1088,10 @@ public final class Preferences {
         o.addProperty("connectxServerAddress", connectxServerAddress);
         o.addProperty("connectxServerPort", connectxServerPort);
         o.addProperty("connectxBinaryPath", connectxBinaryPath);
+        o.addProperty("deviceProtectionLicense", deviceProtectionLicense);
+        o.addProperty("deviceProtectionPublicKey", deviceProtectionPublicKey);
+        o.addProperty("deviceProtectionLocalKey", deviceProtectionLocalKey);
+        o.addProperty("deviceProtectionDeviceHash", deviceProtectionDeviceHash);
         JsonObject presetsObj = new JsonObject();
         for (var entry : launchPresets.entrySet()) {
             LaunchPreset p = entry.getValue();

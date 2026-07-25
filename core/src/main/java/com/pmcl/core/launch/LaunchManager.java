@@ -180,6 +180,20 @@ public final class LaunchManager {
                     if (ok && logger != null) logger.append("[PMCL] 澪模式 L3：已关闭系统低电量模式");
                 }
 
+                // 设备绑定保护校验：保护开启时，设备不匹配则拒绝启动
+                // 防止启动器和游戏被复制到其他设备使用
+                if (preferences != null && preferences.isDeviceProtectionEnabled()) {
+                    boolean allowed = com.pmcl.core.auth.DeviceBinder.verifyOnLaunch(
+                            preferences.getDeviceProtectionLicense(),
+                            preferences.getDeviceProtectionPublicKey());
+                    if (!allowed) {
+                        String denyMsg = "[PMCL] 设备未授权：当前设备与绑定设备不匹配，启动已取消";
+                        if (logger != null) logger.append(denyMsg);
+                        if (onLog != null) onLog.accept(denyMsg);
+                        return -1;
+                    }
+                }
+
                 // Plugin beforeLaunch hooks (can cancel launch)
                 if (pluginManager != null) {
                     String accountName = profile.getPlayerName() != null ? profile.getPlayerName() : "Player";
