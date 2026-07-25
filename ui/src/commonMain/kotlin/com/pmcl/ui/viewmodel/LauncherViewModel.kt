@@ -1552,6 +1552,31 @@ class LauncherViewModel {
     }
 
     /**
+     * 应用主题色彩预设。
+     * 切换预设时清除莫奈取色和自定义强调色，由 Theme.kt 根据预设生成配色。
+     */
+    fun applyThemePreset(preset: String, targetThemeState: com.pmcl.ui.theme.ThemeState? = null) {
+        val ts = targetThemeState ?: themeState ?: return
+        // 清除动态配色与自定义色，让 Theme.kt 回退到预设方案
+        ts.enableDynamicColor(false)
+        ts.clearCustomAccentColor()
+        ts.updateDynamicColorScheme(null)
+        preferences.setDynamicColor(false)
+        preferences.setCustomAccentColor(-1)
+        ts.applyThemePreset(preset)
+        preferences.setThemePreset(preset)
+        _status.value = I18n.t("status.theme_preset_applied")
+    }
+
+    /** 应用特殊色彩模式（normal/amoled/high_contrast/soft） */
+    fun applyColorMode(mode: String, targetThemeState: com.pmcl.ui.theme.ThemeState? = null) {
+        val ts = targetThemeState ?: themeState ?: return
+        ts.applyColorMode(mode)
+        preferences.setColorMode(mode)
+        _status.value = I18n.t("status.color_mode_applied")
+    }
+
+    /**
      * 切换深色/浅色模式时重新生成配色（修复莫奈/自定义色与深浅模式不同步的 bug）。
      * 在 SettingsPage 深色 Switch 的 onCheckedChange 中调用。
      */

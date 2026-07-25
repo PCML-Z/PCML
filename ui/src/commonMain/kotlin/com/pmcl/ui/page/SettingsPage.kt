@@ -216,6 +216,25 @@ fun SettingsPage(vm: LauncherViewModel) {
                 HorizontalDivider()
                 Spacer(Modifier.height(12.dp))
 
+                // 主题色彩预设
+                Text(I18n.t("settings.theme_preset"), style = MaterialTheme.typography.labelMedium,
+                     fontWeight = FontWeight.Medium)
+                Spacer(Modifier.height(8.dp))
+                ThemePresetPicker(
+                    selectedPreset = themeState.themePreset,
+                    // 莫奈取色或自定义色开启时禁用预设选择（dynamicColorScheme 会覆盖预设）
+                    enabled = !themeState.dynamicColor && themeState.customAccentColor == -1,
+                    onSelect = { preset -> vm.applyThemePreset(preset, themeState) }
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(I18n.t("settings.theme_preset_desc"),
+                     style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.outline)
+
+                Spacer(Modifier.height(12.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(12.dp))
+
                 // 莫奈取色（主题颜色跟随桌面壁纸）
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Switch(
@@ -269,6 +288,27 @@ fun SettingsPage(vm: LauncherViewModel) {
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(I18n.t("settings.custom_accent_desc"),
+                     style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.outline)
+
+                Spacer(Modifier.height(12.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(12.dp))
+
+                // 色彩模式（AMOLED/高对比/柔护眼）
+                Text(I18n.t("settings.color_mode"), style = MaterialTheme.typography.labelMedium,
+                     fontWeight = FontWeight.Medium)
+                Spacer(Modifier.height(4.dp))
+                val modeItems = listOf("normal", "amoled", "high_contrast", "soft")
+                val modeLabels = modeItems.map { I18n.t("settings.color_mode.$it") }
+                com.pmcl.ui.animation.AnimatedSegmentedSelector(
+                    items = modeLabels,
+                    selectedIndex = modeItems.indexOf(themeState.colorMode).coerceAtLeast(0),
+                    onSelect = { idx -> vm.applyColorMode(modeItems[idx], themeState) },
+                    fillWidth = true
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(I18n.t("settings.color_mode_desc"),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
 
@@ -1844,6 +1884,78 @@ private fun JavaRuntimeCard(vm: LauncherViewModel, pref: com.pmcl.core.preferenc
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
+        }
+    }
+}
+
+/**
+ * 主题色彩预设选择器：预设主题方案（种子色 + 名称），点击切换。
+ * 每个预设展示一个圆形色块（带名称），选中态高亮。
+ */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun ThemePresetPicker(
+    selectedPreset: String,
+    enabled: Boolean,
+    onSelect: (String) -> Unit
+) {
+    // 预设主题列表：id → 种子色（RGB）
+    val presets = remember {
+        listOf(
+            "default"  to 0x3D8BFF,
+            "ocean"    to 0x0277BD,
+            "forest"   to 0x2E7D32,
+            "sunset"   to 0xE65100,
+            "lavender" to 0x6A1B9A,
+            "sakura"   to 0xD81B60,
+            "midnight" to 0x263238
+        )
+    }
+
+    Column(Modifier.fillMaxWidth()) {
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            presets.forEach { (id, seedRgb) ->
+                val isSelected = selectedPreset == id
+                val name = I18n.t("settings.theme_preset.$id")
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.width(64.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(Color(seedRgb or 0xFF000000.toInt()))
+                            .then(
+                                if (isSelected) Modifier.border(3.dp, MaterialTheme.colorScheme.primary, CircleShape)
+                                else Modifier.border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), CircleShape)
+                            )
+                            .clickable(enabled = enabled) { onSelect(id) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (isSelected) {
+                            Icon(
+                                Icons.Filled.Check,
+                                contentDescription = name,
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        name,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (isSelected) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1
+                    )
+                }
+            }
         }
     }
 }

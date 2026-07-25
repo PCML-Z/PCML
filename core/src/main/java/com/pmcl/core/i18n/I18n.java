@@ -1017,6 +1017,21 @@ public final class I18n {
         ZH.put("settings.custom_hex", "自定义 HEX");
         ZH.put("settings.color_default", "默认");
         ZH.put("settings.disable_monet_first", "请先关闭莫奈取色以使用自定义强调色");
+        ZH.put("settings.theme_preset", "主题色彩预设");
+        ZH.put("settings.theme_preset_desc", "一键切换预设主题方案，每个方案包含协调的完整配色。开启莫奈取色或自定义强调色时此选项禁用");
+        ZH.put("settings.theme_preset.default", "天空蓝");
+        ZH.put("settings.theme_preset.ocean", "深海蓝");
+        ZH.put("settings.theme_preset.forest", "森林绿");
+        ZH.put("settings.theme_preset.sunset", "夕阳橙");
+        ZH.put("settings.theme_preset.lavender", "薰衣草");
+        ZH.put("settings.theme_preset.sakura", "樱花粉");
+        ZH.put("settings.theme_preset.midnight", "极夜灰");
+        ZH.put("settings.color_mode", "色彩模式");
+        ZH.put("settings.color_mode_desc", "特殊显示模式：AMOLED 纯黑省电、高对比度增强可读性、柔护眼降低蓝光");
+        ZH.put("settings.color_mode.normal", "标准");
+        ZH.put("settings.color_mode.amoled", "AMOLED 纯黑");
+        ZH.put("settings.color_mode.high_contrast", "高对比度");
+        ZH.put("settings.color_mode.soft", "柔护眼");
         ZH.put("settings.license_not_found", "许可证文件未找到。");
         ZH.put("settings.license_load_failed", "加载许可证失败：{0}");
         ZH.put("settings.license_title", "PMCL 软件技术许可证 v1.1");
@@ -1527,6 +1542,8 @@ public final class I18n {
         ZH.put("status.monet_refreshed", "已刷新莫奈配色：#{0}");
         ZH.put("status.custom_accent_applied", "已应用自定义强调色：#{0}");
         ZH.put("status.default_color_restored", "已恢复默认配色");
+        ZH.put("status.theme_preset_applied", "已应用主题色彩预设");
+        ZH.put("status.color_mode_applied", "已切换色彩模式");
 
         // ===== 状态消息 - 微软/GitHub 登录 =====
         ZH.put("status.opening_browser_login", "正在打开浏览器登录…");
@@ -2823,6 +2840,21 @@ public final class I18n {
         EN.put("settings.custom_hex", "Custom HEX");
         EN.put("settings.color_default", "Default");
         EN.put("settings.disable_monet_first", "Please disable Monet color first to use custom accent color");
+        EN.put("settings.theme_preset", "Theme preset");
+        EN.put("settings.theme_preset_desc", "One-click switch between preset theme schemes, each with harmonious full color palette. Disabled when Monet or custom accent is active");
+        EN.put("settings.theme_preset.default", "Sky Blue");
+        EN.put("settings.theme_preset.ocean", "Ocean");
+        EN.put("settings.theme_preset.forest", "Forest");
+        EN.put("settings.theme_preset.sunset", "Sunset");
+        EN.put("settings.theme_preset.lavender", "Lavender");
+        EN.put("settings.theme_preset.sakura", "Sakura");
+        EN.put("settings.theme_preset.midnight", "Midnight");
+        EN.put("settings.color_mode", "Color mode");
+        EN.put("settings.color_mode_desc", "Special display modes: AMOLED pure black for battery saving, high contrast for readability, soft eye-care reduces blue light");
+        EN.put("settings.color_mode.normal", "Standard");
+        EN.put("settings.color_mode.amoled", "AMOLED Black");
+        EN.put("settings.color_mode.high_contrast", "High Contrast");
+        EN.put("settings.color_mode.soft", "Eye-care");
         EN.put("settings.license_not_found", "License file not found.");
         EN.put("settings.license_load_failed", "Failed to load license: {0}");
         EN.put("settings.license_title", "PMCL Software Technical License v1.1");
@@ -3325,6 +3357,8 @@ public final class I18n {
         EN.put("status.monet_refreshed", "Monet colors refreshed: #{0}");
         EN.put("status.custom_accent_applied", "Custom accent applied: #{0}");
         EN.put("status.default_color_restored", "Default colors restored");
+        EN.put("status.theme_preset_applied", "Theme preset applied");
+        EN.put("status.color_mode_applied", "Color mode switched");
         EN.put("status.opening_browser_login", "Opening browser for login…");
         EN.put("status.requesting_device_code", "Requesting device code…");
         EN.put("status.open_verification_url", "Visit {0} and enter code: {1}");
@@ -4570,6 +4604,21 @@ public final class I18n {
         JA.put("settings.custom_hex", "カスタム HEX");
         JA.put("settings.color_default", "デフォルト");
         JA.put("settings.disable_monet_first", "カスタムアクセントカラーを使用するにはモネカラーを無効にしてください");
+        JA.put("settings.theme_preset", "テーマプリセット");
+        JA.put("settings.theme_preset_desc", "プリセットテーマをワンクリックで切り替え。各プリセットは調和の取れた完全な配色を含む。モネカラーまたはカスタムアクセント有効時は無効");
+        JA.put("settings.theme_preset.default", "スカイブルー");
+        JA.put("settings.theme_preset.ocean", "オーシャン");
+        JA.put("settings.theme_preset.forest", "フォレスト");
+        JA.put("settings.theme_preset.sunset", "サンセット");
+        JA.put("settings.theme_preset.lavender", "ラベンダー");
+        JA.put("settings.theme_preset.sakura", "サクラ");
+        JA.put("settings.theme_preset.midnight", "ミッドナイト");
+        JA.put("settings.color_mode", "カラーモード");
+        JA.put("settings.color_mode_desc", "特殊表示モード：AMOLED純黒で省電力、ハイコントラストで視認性向上、アイケアでブルーライト軽減");
+        JA.put("settings.color_mode.normal", "標準");
+        JA.put("settings.color_mode.amoled", "AMOLED ブラック");
+        JA.put("settings.color_mode.high_contrast", "ハイコントラスト");
+        JA.put("settings.color_mode.soft", "アイケア");
         JA.put("settings.license_not_found", "ライセンスファイルが見つかりません。");
         JA.put("settings.license_load_failed", "ライセンスの読み込みに失敗: {0}");
         JA.put("settings.license_title", "PMCL ソフトウェア技術ライセンス v1.1");
@@ -5080,6 +5129,8 @@ public final class I18n {
         JA.put("status.monet_refreshed", "Monet 配色を更新：#{0}");
         JA.put("status.custom_accent_applied", "カスタムアクセント色を適用：#{0}");
         JA.put("status.default_color_restored", "デフォルト配色を復元");
+        JA.put("status.theme_preset_applied", "テーマプリセットを適用しました");
+        JA.put("status.color_mode_applied", "カラーモードを切り替えました");
 
         // ===== ステータスメッセージ - Microsoft/GitHub ログイン =====
         JA.put("status.opening_browser_login", "ブラウザでログインを開いています…");

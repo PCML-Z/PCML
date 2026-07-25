@@ -83,6 +83,9 @@ fun App(vm: LauncherViewModel) {
         themeState.applyParallaxBackground(vm.preferences.isParallaxBackground())
         themeState.applyGlassTheme(vm.preferences.isGlassTheme())
         themeState.applyLockscreenLaunchTheme(vm.preferences.isLockscreenLaunchTheme())
+        // 应用主题色彩预设与色彩模式
+        themeState.applyThemePreset(vm.preferences.getThemePreset())
+        themeState.applyColorMode(vm.preferences.getColorMode())
     }
 
     // 直接读取 themeState 的属性，Compose 会自动观察 mutableStateOf 的变化
@@ -93,7 +96,9 @@ fun App(vm: LauncherViewModel) {
     LauncherTheme(
         useDarkTheme = themeState.useDark,
         dynamicColorScheme = effectiveScheme,
-        uiScale = themeState.uiScale
+        uiScale = themeState.uiScale,
+        themePreset = themeState.themePreset,
+        colorMode = themeState.colorMode
     ) {
         CompositionLocalProvider(LocalThemeState provides themeState) {
             // 视差背景开启时 Surface 透明，让 Main.kt 的 ParallaxBackground 透出

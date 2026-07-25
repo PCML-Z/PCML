@@ -48,6 +48,14 @@ class ThemeState(initialDark: Boolean = false) {
     var lockscreenLaunchTheme by mutableStateOf(false)
         private set
 
+    /** 主题色彩预设 ID：default/ocean/forest/sunset/lavender/sakura/midnight */
+    var themePreset by mutableStateOf("default")
+        private set
+
+    /** 色彩模式 ID：normal/amoled/high_contrast/soft */
+    var colorMode by mutableStateOf("normal")
+        private set
+
     fun toggle() = set(!useDark)
 
     fun set(value: Boolean) {
@@ -86,6 +94,14 @@ class ThemeState(initialDark: Boolean = false) {
 
     fun applyLockscreenLaunchTheme(enabled: Boolean) {
         lockscreenLaunchTheme = enabled
+    }
+
+    fun applyThemePreset(preset: String) {
+        themePreset = preset
+    }
+
+    fun applyColorMode(mode: String) {
+        colorMode = mode
     }
 
     fun applySeedColor(seedRgb: Int, dark: Boolean) {
