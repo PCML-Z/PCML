@@ -731,24 +731,40 @@ public final class FriendManager implements AutoCloseable {
         if (ip == null || ip.isEmpty() || port <= 0) {
             return null;
         }
-        return activeClients.compute(identity, (k, existing) -> {
+        // H2: 不能在 ConcurrentHashMap.compute 内关闭旧 client
+        // 旧 client.close() 会触发 callback.onDisconnected，回调里调用 activeClients.remove，
+        // 而 compute 持有段锁期间修改 map 会死锁
+        FriendChatClient toClose = null;
+        FriendChatClient result = null;
+        synchronized (activeClients) {
+            FriendChatClient existing = activeClients.get(identity);
             if (existing != null) {
                 // 地址未变且连接活跃，复用
                 if (existing.getRemoteHost().equals(ip) && existing.getRemotePort() == port
                         && existing.isConnected()) {
                     return existing;
                 }
-                // 地址已变或连接已断开，关闭旧连接重建
-                try { existing.close(); } catch (Exception ignored) {}
+                // 地址已变或连接已断开：先从 map 移除，close 操作放到锁外执行
+                toClose = existing;
+                activeClients.remove(identity, existing);
             }
             FriendChatClient client = new FriendChatClient(ip, port,
                     identityManager.getIdentity().toString(),
                     identityManager.getDisplayName());
             client.setMyChatPort(chatServer.getPort());
             setupClient(identity, client);
-            client.connectAsync();
-            return client;
-        });
+            activeClients.put(identity, client);
+            result = client;
+        }
+        // 锁外关闭旧 client，避免回调死锁
+        if (toClose != null) {
+            try { toClose.close(); } catch (Exception ignored) {}
+        }
+        // 锁外启动异步连接，避免持锁时间过长
+        if (result != null) {
+            result.connectAsync();
+        }
+        return result;
     }
 
     private void setupClient(String identity, FriendChatClient client) {

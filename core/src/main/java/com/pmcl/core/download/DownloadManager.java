@@ -208,8 +208,10 @@ public final class DownloadManager {
         enableResume = pref.isEnableResume();
         chunkedDownloadThreads = Math.max(1, pref.getChunkedDownloadThreads());
 
-        // 同步更新 chunked downloader 的客户端引用和限速
-        chunked = new ChunkedDownloader(http, chunkedDownloadThreads, chunkedPool);
+        // H6: 不直接替换 chunked 实例，而是更新其 http 引用和限速
+        // 原实现 chunked = new ChunkedDownloader(...) 会丢弃在途分片状态，
+        // 新旧实例同时写同一 .part 文件导致数据竞争
+        chunked.updateHttpClient(http);
         chunked.setSpeedLimit(speedLimitBytesPerSec);
     }
 
@@ -681,23 +683,45 @@ public final class DownloadManager {
      * 使用系统 DNS（命中本地缓存时最快），并发解析 IPv4 + IPv6，
      * 对 localhost 和 IP 字面量直接返回，跳过 DNS 查询。
      * OkHttp 默认 Dns.SYSTEM 已足够，这里仅做一层缓存防重复解析。
+     * <p>
+     * H8: 缓存项带 TTL（默认 60 秒），过期后重新解析。
+     * 原实现永久缓存，域名 IP 变更后（如镜像 CDN 切换、DNS 故障转移）
+     * 持续连接旧 IP 导致下载失败。
      */
     private static final class FastDns implements okhttp3.Dns {
-        private final java.util.concurrent.ConcurrentMap<String, java.util.List<java.net.InetAddress>> cache =
+        /** DNS 缓存 TTL（毫秒） */
+        private static final long CACHE_TTL_MS = 60_000L;
+
+        private static final class CacheEntry {
+            final java.util.List<java.net.InetAddress> addresses;
+            final long expiresAt;
+            CacheEntry(java.util.List<java.net.InetAddress> addresses, long expiresAt) {
+                this.addresses = addresses;
+                this.expiresAt = expiresAt;
+            }
+        }
+
+        private final java.util.concurrent.ConcurrentMap<String, CacheEntry> cache =
                 new java.util.concurrent.ConcurrentHashMap<>();
 
         @Override
         public java.util.List<java.net.InetAddress> lookup(String hostname) throws java.net.UnknownHostException {
-            // IP 字面量直接解析，不走缓存
             if (hostname == null || hostname.isEmpty()) {
                 throw new java.net.UnknownHostException("hostname is null or empty");
             }
-            // 命中缓存
-            java.util.List<java.net.InetAddress> cached = cache.get(hostname);
-            if (cached != null) return cached;
+            // 命中缓存且未过期
+            CacheEntry cached = cache.get(hostname);
+            if (cached != null) {
+                if (System.currentTimeMillis() < cached.expiresAt) {
+                    return cached.addresses;
+                }
+                // 过期：移除旧条目
+                cache.remove(hostname, cached);
+            }
             // 系统 DNS 解析
             java.util.List<java.net.InetAddress> result = okhttp3.Dns.SYSTEM.lookup(hostname);
-            cache.putIfAbsent(hostname, result);
+            // 写入缓存（带 TTL）
+            cache.put(hostname, new CacheEntry(result, System.currentTimeMillis() + CACHE_TTL_MS));
             return result;
         }
     }

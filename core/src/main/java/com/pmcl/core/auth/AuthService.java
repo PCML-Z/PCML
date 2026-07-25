@@ -32,7 +32,9 @@ import java.nio.charset.StandardCharsets;
  */
 public final class AuthService {
 
-    private MicrosoftAuthFlow flow = new MicrosoftAuthFlow();
+    // H1: flow 字段加 volatile，保证 setAzureClientId 替换后其他线程立即可见
+    // 否则旧 flow 的 scheduler/连接池永不 shutdown，造成线程与连接泄漏
+    private volatile MicrosoftAuthFlow flow = new MicrosoftAuthFlow();
     private final GitHubAuthFlow githubFlow = new GitHubAuthFlow();
     private final YggdrasilAuthFlow yggdrasilFlow = new YggdrasilAuthFlow();
     private final AuthlibInjectorManager authlibInjectorManager = new AuthlibInjectorManager();
@@ -59,7 +61,12 @@ public final class AuthService {
      * 传入 null 或空字符串则回退到 legacy client_id（仅支持 device code flow）。
      */
     public void setAzureClientId(String clientId) {
+        // H1: 关闭旧 flow 的 scheduler/连接池，避免泄漏
+        MicrosoftAuthFlow old = this.flow;
         this.flow = new MicrosoftAuthFlow(clientId);
+        if (old != null) {
+            try { old.shutdown(); } catch (Throwable ignored) {}
+        }
     }
 
     /** 判断当前是否使用自定义 client_id（即支持浏览器授权码流程）。 */

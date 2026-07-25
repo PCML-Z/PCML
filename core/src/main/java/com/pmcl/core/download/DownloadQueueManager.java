@@ -576,8 +576,15 @@ public final class DownloadQueueManager {
             }
             throw e;
         } finally {
-            // M52 修复：所有终态（DONE/FAILED/CANCELLED）都清理 resumeWork，避免内存泄漏
-            if (isTerminalStatus(task.status)) clearResumeWork(task.id);
+            // H7: 原实现在 status 仍为 RUNNING 时（work.run 正常返回但 pauseRequested/cancelRequested 为 true）
+            // 不清理 resumeWork 导致内存泄漏。修复：非 RUNNING 终态清理，RUNNING 但有中断请求时也清理
+            if (task.status != TaskStatus.RUNNING) {
+                if (isTerminalStatus(task.status)) clearResumeWork(task.id);
+                // PAUSED 状态保留 resumeWork 供 resume 使用，不清理
+            } else {
+                // status 仍为 RUNNING 但 work 已退出：任务异常终止，清理避免泄漏
+                clearResumeWork(task.id);
+            }
         }
     }
 
@@ -604,7 +611,12 @@ public final class DownloadQueueManager {
                 task.completedBytes = 1;
             }
         } finally {
-            if (isTerminalStatus(task.status)) clearResumeWork(task.id);
+            // H7: status 仍为 RUNNING 时也清理，避免内存泄漏
+            if (task.status != TaskStatus.RUNNING) {
+                if (isTerminalStatus(task.status)) clearResumeWork(task.id);
+            } else {
+                clearResumeWork(task.id);
+            }
         }
     }
 
@@ -621,7 +633,12 @@ public final class DownloadQueueManager {
             }).join();
             task.completedBytes = task.totalBytes;
         } finally {
-            if (isTerminalStatus(task.status)) clearResumeWork(task.id);
+            // H7: status 仍为 RUNNING 时也清理，避免内存泄漏
+            if (task.status != TaskStatus.RUNNING) {
+                if (isTerminalStatus(task.status)) clearResumeWork(task.id);
+            } else {
+                clearResumeWork(task.id);
+            }
         }
     }
 
@@ -653,7 +670,12 @@ public final class DownloadQueueManager {
             if (e instanceof RuntimeException) throw (RuntimeException) e;
             throw new RuntimeException(e);
         } finally {
-            if (isTerminalStatus(task.status)) clearResumeWork(task.id);
+            // H7: status 仍为 RUNNING 时也清理，避免内存泄漏
+            if (task.status != TaskStatus.RUNNING) {
+                if (isTerminalStatus(task.status)) clearResumeWork(task.id);
+            } else {
+                clearResumeWork(task.id);
+            }
         }
     }
 

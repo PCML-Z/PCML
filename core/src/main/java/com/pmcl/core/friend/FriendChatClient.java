@@ -87,17 +87,22 @@ public final class FriendChatClient implements AutoCloseable {
             return;
         }
 
-        new Thread(() -> {
+        // H4: connect 线程必须 setDaemon(true)，否则会阻止 JVM 退出
+        Thread t = new Thread(() -> {
             try {
                 connect();
                 connecting.set(false);
             } catch (Exception e) {
                 connecting.set(false);
+                // H5: connect 异常时 running 必须重置为 false，否则对象卡死无法重连
+                running.set(false);
                 if (callback != null) {
                     callback.onConnectFailed(e.getMessage());
                 }
             }
-        }, "FriendChat-Connect-" + host + ":" + port).start();
+        }, "FriendChat-Connect-" + host + ":" + port);
+        t.setDaemon(true);
+        t.start();
     }
 
     /** 同步连接（阻塞） */
@@ -124,6 +129,8 @@ public final class FriendChatClient implements AutoCloseable {
 
             if (callback != null) callback.onConnected();
         } catch (IOException e) {
+            // H5: 异常时清理已建立的 socket，并重置 running 状态
+            running.set(false);
             try { s.close(); } catch (IOException ignored) {}
             throw e;
         }
@@ -280,6 +287,15 @@ public final class FriendChatClient implements AutoCloseable {
 
     private void handleDisconnect(String reason) {
         if (running.compareAndSet(true, false)) {
+            // H3: 关闭 socket 以解除 readThread 的 readLine 阻塞，避免 readThread 永久泄漏
+            // 原实现不关 socket，readLine 持续阻塞在 socket.getInputStream() 上
+            Socket s = socket;
+            if (s != null && !s.isClosed()) {
+                try { s.close(); } catch (IOException ignored) {}
+            }
+            // 中断读写线程，确保它们退出
+            if (readThread != null) readThread.interrupt();
+            if (writeThread != null) writeThread.interrupt();
             if (callback != null) {
                 callback.onDisconnected(reason);
             }

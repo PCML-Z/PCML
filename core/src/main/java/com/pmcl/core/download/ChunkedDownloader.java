@@ -58,7 +58,10 @@ public final class ChunkedDownloader {
     /** 分片进度记录文件后缀（用于断点续传） */
     private static final String PROGRESS_SUFFIX = ".chunks";
 
-    private final OkHttpClient http;
+    // H6: http 改为 volatile，使 reconfigure 时可切换 http 引用而不丢弃在途分片状态
+    // 原实现直接 new ChunkedDownloader 替换实例，在途分片下载使用旧 http 完成，
+    // 但进度状态丢失，.part 文件数据竞争（新旧实例同时写同一文件）
+    private volatile OkHttpClient http;
     private final int chunkCount;
     private final ExecutorService pool;
     private volatile int speedLimitBytesPerSec = 0;
@@ -72,6 +75,14 @@ public final class ChunkedDownloader {
         this.http = http;
         this.chunkCount = Math.max(1, chunkCount);
         this.pool = pool;
+    }
+
+    /**
+     * H6: 更新 HttpClient 引用（reconfigure 时调用）。
+     * 不替换 ChunkedDownloader 实例，保留在途分片状态和 .part 文件写入。
+     */
+    public void updateHttpClient(OkHttpClient newHttp) {
+        this.http = newHttp;
     }
 
     /** 设置限速（bytes/sec，0=不限） */
