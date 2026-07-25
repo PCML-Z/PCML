@@ -19,6 +19,7 @@ import com.pmcl.plugin.PluginDisabledEvent;
 import com.pmcl.plugin.PluginErrorEvent;
 import com.pmcl.plugin.PluginPackageParser;
 import com.pmcl.plugin.PluginPackageParser.PluginPackage;
+import com.pmcl.plugin.ThemePack;
 
 import java.io.File;
 import java.io.IOException;
@@ -87,6 +88,8 @@ public final class PluginManager {
     private final Map<String, List<RegisteredCommand>> customCommands = new HashMap<>();
     // Registered pages (pluginId -> list of pages)
     private final Map<String, List<RegisteredPage>> customPages = new HashMap<>();
+    // Registered theme packs (pluginId -> list of packs)
+    private final Map<String, List<com.pmcl.plugin.ThemePack>> customThemePacks = new HashMap<>();
     // Event listeners
     private final List<EventListener> eventListeners = new CopyOnWriteArrayList<>();
     // Launch hooks
@@ -322,6 +325,7 @@ public final class PluginManager {
         // Unregister extensions
         customCommands.remove(pluginId);
         customPages.remove(pluginId);
+        customThemePacks.remove(pluginId);
         eventListeners.removeIf(l -> l instanceof TrackedEventListener &&
                 ((TrackedEventListener) l).pluginId.equals(pluginId));
         launchHooks.removeIf(h -> h instanceof TrackedLaunchHook &&
@@ -350,6 +354,7 @@ public final class PluginManager {
         }
         customCommands.remove(pluginId);
         customPages.remove(pluginId);
+        customThemePacks.remove(pluginId);
         System.out.println("[PluginManager] Unloaded plugin: " + pluginId);
         bumpRevision();
     }
@@ -640,6 +645,44 @@ public final class PluginManager {
             all.addAll(pages);
         }
         return all;
+    }
+
+    /**
+     * Get all theme packs registered by enabled plugins.
+     * Used by Settings UI to populate the theme picker.
+     */
+    public synchronized List<com.pmcl.plugin.ThemePack> getCustomThemePacks() {
+        List<com.pmcl.plugin.ThemePack> all = new ArrayList<>();
+        for (List<com.pmcl.plugin.ThemePack> packs : customThemePacks.values()) {
+            all.addAll(packs);
+        }
+        return all;
+    }
+
+    /**
+     * Find a registered theme pack by ID.
+     * Returns null if not found or the owning plugin is disabled.
+     */
+    public synchronized com.pmcl.plugin.ThemePack findThemePack(String packId) {
+        for (List<com.pmcl.plugin.ThemePack> packs : customThemePacks.values()) {
+            for (com.pmcl.plugin.ThemePack pack : packs) {
+                if (pack.getId().equals(packId)) return pack;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Get the plugin ID that owns a theme pack.
+     * Returns null if the pack is not found.
+     */
+    public synchronized String getThemePackOwner(String packId) {
+        for (Map.Entry<String, List<com.pmcl.plugin.ThemePack>> entry : customThemePacks.entrySet()) {
+            for (com.pmcl.plugin.ThemePack pack : entry.getValue()) {
+                if (pack.getId().equals(packId)) return entry.getKey();
+            }
+        }
+        return null;
     }
 
     public List<LaunchHook> getLaunchHooks() {
@@ -1119,6 +1162,24 @@ public final class PluginManager {
                 }
                 RegisteredPage page = new RegisteredPage(pluginId, id, title, content);
                 manager.customPages.computeIfAbsent(pluginId, k -> new ArrayList<>()).add(page);
+            }
+        }
+
+        @Override
+        public void registerThemePack(ThemePack pack) {
+            if (pack == null) {
+                throw new NullPointerException("ThemePack must not be null (plugin: " + pluginId + ")");
+            }
+            // pack.id / pack.name 已在 ThemePack 构造时由 init{} 校验
+            synchronized (manager) {
+                // Check for duplicate theme pack id globally (across all plugins)
+                String existingOwner = manager.getThemePackOwner(pack.getId());
+                if (existingOwner != null) {
+                    throw new IllegalStateException(
+                            "Duplicate theme pack id '" + pack.getId() + "' from plugin '" + pluginId +
+                            "': already registered by plugin '" + existingOwner + "'");
+                }
+                manager.customThemePacks.computeIfAbsent(pluginId, k -> new ArrayList<>()).add(pack);
             }
         }
 

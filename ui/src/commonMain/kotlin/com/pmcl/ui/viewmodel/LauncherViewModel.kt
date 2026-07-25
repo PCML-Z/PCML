@@ -1577,6 +1577,58 @@ class LauncherViewModel {
     }
 
     /**
+     * 应用插件主题包。
+     * - packId 为空：清除插件主题，回退到预设/默认
+     * - packId 非空但找不到对应插件主题包：清除并提示
+     * - packId 非空且找到：应用插件主题，覆盖莫奈/自定义色/预设
+     */
+    fun applyCustomThemePack(packId: String, targetThemeState: com.pmcl.ui.theme.ThemeState? = null) {
+        val ts = targetThemeState ?: themeState ?: return
+        if (packId.isEmpty()) {
+            ts.applyCustomThemePack(null)
+            preferences.setCustomThemePackId("")
+            _status.value = I18n.t("status.theme_pack_cleared")
+            return
+        }
+        val pack = core.plugins().findThemePack(packId)
+        if (pack == null) {
+            // 插件未加载或已禁用，清除主题包设置并提示
+            ts.applyCustomThemePack(null)
+            preferences.setCustomThemePackId("")
+            _status.value = I18n.t("status.theme_pack_not_found")
+            return
+        }
+        // 清除莫奈/自定义色/预设（插件主题优先级最高）
+        ts.enableDynamicColor(false)
+        ts.clearCustomAccentColor()
+        ts.updateDynamicColorScheme(null)
+        preferences.setDynamicColor(false)
+        preferences.setCustomAccentColor(-1)
+        ts.applyCustomThemePack(pack)
+        preferences.setCustomThemePackId(packId)
+        _status.value = I18n.t("status.theme_pack_applied")
+    }
+
+    /**
+     * 检查持久化的 customThemePackId 是否仍可用，若不可用则清除。
+     * 在插件加载完成后调用。
+     */
+    fun reconcileCustomThemePack(targetThemeState: com.pmcl.ui.theme.ThemeState? = null) {
+        val ts = targetThemeState ?: themeState ?: return
+        val packId = preferences.getCustomThemePackId()
+        if (packId.isNotEmpty()) {
+            val pack = core.plugins().findThemePack(packId)
+            if (pack != null) {
+                ts.applyCustomThemePack(pack)
+            } else {
+                // 插件已卸载或禁用，清除持久化记录
+                ts.applyCustomThemePack(null)
+                preferences.setCustomThemePackId("")
+            }
+        }
+    }
+
+    /**
      * 切换深色/浅色模式时重新生成配色（修复莫奈/自定义色与深浅模式不同步的 bug）。
      * 在 SettingsPage 深色 Switch 的 onCheckedChange 中调用。
      */

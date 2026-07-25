@@ -83,6 +83,21 @@ interface PluginContext {
      * Fire a custom event that other plugins can listen to.
      */
     fun fireEvent(event: PmclEvent)
+
+    /**
+     * Register a custom theme pack that users can select in Settings > Appearance.
+     *
+     * The theme pack provides a complete light/dark Material3 color palette.
+     * When the user selects this theme pack, PMCL applies its colors globally
+     * (overriding built-in presets, but still subject to colorMode post-processing).
+     *
+     * Theme packs registered by a plugin are automatically unregistered when
+     * the plugin is disabled or unloaded. If the user was using a theme pack
+     * from this plugin, PMCL falls back to the default theme.
+     *
+     * @param pack The theme pack to register
+     */
+    fun registerThemePack(pack: ThemePack)
 }
 
 /**

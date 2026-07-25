@@ -56,6 +56,14 @@ class ThemeState(initialDark: Boolean = false) {
     var colorMode by mutableStateOf("normal")
         private set
 
+    /** 插件主题包 ID（空字符串表示未使用插件主题） */
+    var customThemePackId by mutableStateOf("")
+        private set
+
+    /** 当前应用的插件主题包（null 表示未使用） */
+    var customThemePack by mutableStateOf<com.pmcl.plugin.ThemePack?>(null)
+        private set
+
     fun toggle() = set(!useDark)
 
     fun set(value: Boolean) {
@@ -102,6 +110,22 @@ class ThemeState(initialDark: Boolean = false) {
 
     fun applyColorMode(mode: String) {
         colorMode = mode
+    }
+
+    /**
+     * 应用插件主题包。
+     * - pack 为 null 且 packId 为空：清除插件主题，回退到预设/默认
+     * - pack 非空：设置 customThemePack，颜色由 Theme.kt 转换应用
+     */
+    fun applyCustomThemePack(pack: com.pmcl.plugin.ThemePack?) {
+        customThemePack = pack
+        customThemePackId = pack?.id ?: ""
+    }
+
+    /** 仅设置 packId（用于启动时占位，等待插件加载后填充 pack） */
+    fun applyCustomThemePackId(packId: String) {
+        customThemePackId = packId
+        if (packId.isEmpty()) customThemePack = null
     }
 
     fun applySeedColor(seedRgb: Int, dark: Boolean) {

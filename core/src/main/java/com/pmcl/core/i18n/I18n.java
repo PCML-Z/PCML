@@ -1032,6 +1032,9 @@ public final class I18n {
         ZH.put("settings.color_mode.amoled", "AMOLED 纯黑");
         ZH.put("settings.color_mode.high_contrast", "高对比度");
         ZH.put("settings.color_mode.soft", "柔护眼");
+        ZH.put("settings.plugin_themes", "插件主题包");
+        ZH.put("settings.plugin_themes_desc", "由已安装插件提供的主题方案。禁用或卸载对应插件时自动回退到默认主题");
+        ZH.put("settings.clear_plugin_theme", "清除插件主题");
         ZH.put("settings.license_not_found", "许可证文件未找到。");
         ZH.put("settings.license_load_failed", "加载许可证失败：{0}");
         ZH.put("settings.license_title", "PMCL 软件技术许可证 v1.1");
@@ -1544,6 +1547,9 @@ public final class I18n {
         ZH.put("status.default_color_restored", "已恢复默认配色");
         ZH.put("status.theme_preset_applied", "已应用主题色彩预设");
         ZH.put("status.color_mode_applied", "已切换色彩模式");
+        ZH.put("status.theme_pack_applied", "已应用插件主题包");
+        ZH.put("status.theme_pack_cleared", "已清除插件主题包");
+        ZH.put("status.theme_pack_not_found", "插件主题包未找到（插件可能已禁用或卸载）");
 
         // ===== 状态消息 - 微软/GitHub 登录 =====
         ZH.put("status.opening_browser_login", "正在打开浏览器登录…");
@@ -2855,6 +2861,9 @@ public final class I18n {
         EN.put("settings.color_mode.amoled", "AMOLED Black");
         EN.put("settings.color_mode.high_contrast", "High Contrast");
         EN.put("settings.color_mode.soft", "Eye-care");
+        EN.put("settings.plugin_themes", "Plugin theme packs");
+        EN.put("settings.plugin_themes_desc", "Theme schemes provided by installed plugins. Automatically falls back to default when the owning plugin is disabled or uninstalled");
+        EN.put("settings.clear_plugin_theme", "Clear plugin theme");
         EN.put("settings.license_not_found", "License file not found.");
         EN.put("settings.license_load_failed", "Failed to load license: {0}");
         EN.put("settings.license_title", "PMCL Software Technical License v1.1");
@@ -3359,6 +3368,9 @@ public final class I18n {
         EN.put("status.default_color_restored", "Default colors restored");
         EN.put("status.theme_preset_applied", "Theme preset applied");
         EN.put("status.color_mode_applied", "Color mode switched");
+        EN.put("status.theme_pack_applied", "Plugin theme pack applied");
+        EN.put("status.theme_pack_cleared", "Plugin theme pack cleared");
+        EN.put("status.theme_pack_not_found", "Plugin theme pack not found (plugin may be disabled or uninstalled)");
         EN.put("status.opening_browser_login", "Opening browser for login…");
         EN.put("status.requesting_device_code", "Requesting device code…");
         EN.put("status.open_verification_url", "Visit {0} and enter code: {1}");
@@ -4619,6 +4631,9 @@ public final class I18n {
         JA.put("settings.color_mode.amoled", "AMOLED ブラック");
         JA.put("settings.color_mode.high_contrast", "ハイコントラスト");
         JA.put("settings.color_mode.soft", "アイケア");
+        JA.put("settings.plugin_themes", "プラグインテーマパック");
+        JA.put("settings.plugin_themes_desc", "インストール済みプラグインが提供するテーマ。プラグインの無効化またはアンインストール時に自動的にデフォルトへ戻ります");
+        JA.put("settings.clear_plugin_theme", "プラグインテーマをクリア");
         JA.put("settings.license_not_found", "ライセンスファイルが見つかりません。");
         JA.put("settings.license_load_failed", "ライセンスの読み込みに失敗: {0}");
         JA.put("settings.license_title", "PMCL ソフトウェア技術ライセンス v1.1");
@@ -5131,6 +5146,9 @@ public final class I18n {
         JA.put("status.default_color_restored", "デフォルト配色を復元");
         JA.put("status.theme_preset_applied", "テーマプリセットを適用しました");
         JA.put("status.color_mode_applied", "カラーモードを切り替えました");
+        JA.put("status.theme_pack_applied", "プラグインテーマパックを適用しました");
+        JA.put("status.theme_pack_cleared", "プラグインテーマパックをクリアしました");
+        JA.put("status.theme_pack_not_found", "プラグインテーマパックが見つかりません（プラグインが無効化またはアンインストールされた可能性があります）");
 
         // ===== ステータスメッセージ - Microsoft/GitHub ログイン =====
         JA.put("status.opening_browser_login", "ブラウザでログインを開いています…");

@@ -56,6 +56,20 @@ fun SettingsPage(vm: LauncherViewModel) {
     var language by remember { mutableStateOf(pref.getLanguage()) }
     var borderless by remember { mutableStateOf(pref.isBorderlessWindow()) }
 
+    // 插件主题包列表（轮询 PluginManager.revision 变化时刷新）
+    var pluginThemePacks by remember { mutableStateOf<List<com.pmcl.plugin.ThemePack>>(emptyList()) }
+    LaunchedEffect("poll-plugin-theme-packs") {
+        var lastRev = -1L
+        while (true) {
+            val rev = vm.core.plugins().getRevision()
+            if (rev != lastRev) {
+                lastRev = rev
+                pluginThemePacks = vm.core.plugins().getCustomThemePacks()
+            }
+            kotlinx.coroutines.delay(1000)
+        }
+    }
+
     Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
         Text(I18n.t("settings.title"), style = MaterialTheme.typography.headlineSmall,
              fontWeight = FontWeight.Bold)
@@ -222,14 +236,43 @@ fun SettingsPage(vm: LauncherViewModel) {
                 Spacer(Modifier.height(8.dp))
                 ThemePresetPicker(
                     selectedPreset = themeState.themePreset,
-                    // 莫奈取色或自定义色开启时禁用预设选择（dynamicColorScheme 会覆盖预设）
-                    enabled = !themeState.dynamicColor && themeState.customAccentColor == -1,
-                    onSelect = { preset -> vm.applyThemePreset(preset, themeState) }
+                    // 莫奈/自定义色/插件主题开启时禁用预设选择
+                    enabled = !themeState.dynamicColor && themeState.customAccentColor == -1 && themeState.customThemePackId.isEmpty(),
+                    onSelect = { preset ->
+                        // 切换预设时清除插件主题
+                        if (themeState.customThemePackId.isNotEmpty()) {
+                            vm.applyCustomThemePack("", themeState)
+                        }
+                        vm.applyThemePreset(preset, themeState)
+                    }
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(I18n.t("settings.theme_preset_desc"),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
+
+                // 插件主题包（仅当存在已注册的插件主题时显示）
+                if (pluginThemePacks.isNotEmpty()) {
+                    Spacer(Modifier.height(12.dp))
+                    HorizontalDivider()
+                    Spacer(Modifier.height(12.dp))
+
+                    Text(I18n.t("settings.plugin_themes"), style = MaterialTheme.typography.labelMedium,
+                         fontWeight = FontWeight.Medium)
+                    Spacer(Modifier.height(8.dp))
+                    PluginThemePackPicker(
+                        packs = pluginThemePacks,
+                        selectedPackId = themeState.customThemePackId,
+                        // 莫奈/自定义色开启时禁用（插件主题优先级高于预设但低于动态色）
+                        // 实际上 applyCustomThemePack 会清除动态色，但 UI 上仍允许直接选择
+                        enabled = !themeState.dynamicColor && themeState.customAccentColor == -1,
+                        onSelect = { packId -> vm.applyCustomThemePack(packId, themeState) }
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(I18n.t("settings.plugin_themes_desc"),
+                         style = MaterialTheme.typography.labelSmall,
+                         color = MaterialTheme.colorScheme.outline)
+                }
 
                 Spacer(Modifier.height(12.dp))
                 HorizontalDivider()
@@ -1899,7 +1942,6 @@ private fun ThemePresetPicker(
     enabled: Boolean,
     onSelect: (String) -> Unit
 ) {
-    // 预设主题列表：id → 种子色（RGB）
     val presets = remember {
         listOf(
             "default"  to 0x3D8BFF,
@@ -1955,6 +1997,76 @@ private fun ThemePresetPicker(
                         maxLines = 1
                     )
                 }
+            }
+        }
+    }
+}
+
+/**
+ * 插件主题包选择器：展示插件注册的主题包，点击切换。
+ * 与 ThemePresetPicker 类似，但色块来自 ThemePack.previewColor，
+ * 名称来自 ThemePack.name（插件本地化名称）。
+ */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun PluginThemePackPicker(
+    packs: List<com.pmcl.plugin.ThemePack>,
+    selectedPackId: String,
+    enabled: Boolean,
+    onSelect: (String) -> Unit
+) {
+    Column(Modifier.fillMaxWidth()) {
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            packs.forEach { pack ->
+                val isSelected = selectedPackId == pack.id
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.width(64.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(Color(pack.previewColor or 0xFF000000.toInt()))
+                            .then(
+                                if (isSelected) Modifier.border(3.dp, MaterialTheme.colorScheme.primary, CircleShape)
+                                else Modifier.border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), CircleShape)
+                            )
+                            .clickable(enabled = enabled) { onSelect(pack.id) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (isSelected) {
+                            Icon(
+                                Icons.Filled.Check,
+                                contentDescription = pack.name,
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        pack.name,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (isSelected) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1
+                    )
+                }
+            }
+        }
+        // 选中插件主题时显示"清除"按钮
+        if (selectedPackId.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            TextButton(
+                onClick = { onSelect("") },
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+            ) {
+                Text(I18n.t("settings.clear_plugin_theme"), style = MaterialTheme.typography.labelSmall)
             }
         }
     }

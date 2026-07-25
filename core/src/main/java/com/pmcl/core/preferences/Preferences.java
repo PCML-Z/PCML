@@ -38,6 +38,7 @@ public final class Preferences {
     private boolean lockscreenLaunchTheme = false; // 锁屏启动页主题：Origin OS2 风格方形卡片启动页
     private String themePreset = "default";        // 主题色彩预设：default/ocean/forest/sunset/lavender/sakura/midnight
     private String colorMode = "normal";           // 色彩模式：normal/amoled/high_contrast/soft
+    private String customThemePackId = "";         // 插件主题包 ID（空表示未使用插件主题）
     private String language = "zh_CN";             // zh_CN / en_US
     private boolean firstLaunchCompleted = false;  // 是否完成首次启动欢迎流程
     private boolean agreementAccepted = false;     // 用户是否已同意用户协议、免责协议与许可证
@@ -180,6 +181,8 @@ public final class Preferences {
     public synchronized void setThemePreset(String v) { themePreset = v; scheduleSave(); }
     public synchronized String getColorMode() { return colorMode; }
     public synchronized void setColorMode(String v) { colorMode = v; scheduleSave(); }
+    public synchronized String getCustomThemePackId() { return customThemePackId; }
+    public synchronized void setCustomThemePackId(String v) { customThemePackId = v == null ? "" : v; scheduleSave(); }
     public synchronized void setUiScale(float v) {
         // M18 修复：范围与注释一致（0.8~1.5），过滤 NaN/Infinity
         if (Float.isNaN(v) || Float.isInfinite(v)) return;
@@ -772,6 +775,7 @@ public final class Preferences {
             lockscreenLaunchTheme = loadBool(o, "lockscreenLaunchTheme", false);
             themePreset = loadString(o, "themePreset", "default");
             colorMode = loadString(o, "colorMode", "normal");
+            customThemePackId = loadString(o, "customThemePackId", "");
             firstLaunchCompleted = loadBool(o, "firstLaunchCompleted", false);
             agreementAccepted = loadBool(o, "agreementAccepted", false);
             useAikarFlags = loadBool(o, "useAikarFlags", true);
@@ -1012,6 +1016,7 @@ public final class Preferences {
         o.addProperty("lockscreenLaunchTheme", lockscreenLaunchTheme);
         o.addProperty("themePreset", themePreset);
         o.addProperty("colorMode", colorMode);
+        o.addProperty("customThemePackId", customThemePackId);
         o.addProperty("language", language);
         o.addProperty("firstLaunchCompleted", firstLaunchCompleted);
         o.addProperty("agreementAccepted", agreementAccepted);

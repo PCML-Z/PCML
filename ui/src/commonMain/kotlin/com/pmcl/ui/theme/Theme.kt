@@ -38,7 +38,6 @@ private val DarkColors = darkColorScheme(
  * 复用 WallpaperColorProvider 生成完整协调配色，保证与莫奈/自定义色一致性。
  */
 private fun presetSchemes(preset: String): Pair<ColorScheme, ColorScheme> {
-    // 预设种子色（RGB，不含 alpha）
     val seedRgb = when (preset) {
         "ocean"    -> 0x0277BD
         "forest"   -> 0x2E7D32
@@ -75,6 +74,34 @@ private fun presetSchemes(preset: String): Pair<ColorScheme, ColorScheme> {
         )
     }
     return build(paletteLight, false) to build(paletteDark, true)
+}
+
+/**
+ * 将插件主题包的 ThemePalette 转换为 Compose ColorScheme。
+ */
+private fun themePackToScheme(palette: com.pmcl.plugin.ThemePalette, dark: Boolean): ColorScheme {
+    val toColor = { rgb: Int -> Color(rgb or 0xFF000000.toInt()) }
+    return if (dark) darkColorScheme(
+        primary = toColor(palette.primary), onPrimary = toColor(palette.onPrimary),
+        primaryContainer = toColor(palette.primaryContainer), onPrimaryContainer = toColor(palette.onPrimaryContainer),
+        secondary = toColor(palette.secondary), onSecondary = toColor(palette.onSecondary),
+        tertiary = toColor(palette.tertiary),
+        background = toColor(palette.background), onBackground = toColor(palette.onBackground),
+        surface = toColor(palette.surface), onSurface = toColor(palette.onSurface),
+        surfaceVariant = toColor(palette.surfaceVariant), onSurfaceVariant = toColor(palette.onSurfaceVariant),
+        outline = toColor(palette.outline),
+        error = toColor(palette.error), onError = toColor(palette.onError)
+    ) else lightColorScheme(
+        primary = toColor(palette.primary), onPrimary = toColor(palette.onPrimary),
+        primaryContainer = toColor(palette.primaryContainer), onPrimaryContainer = toColor(palette.onPrimaryContainer),
+        secondary = toColor(palette.secondary), onSecondary = toColor(palette.onSecondary),
+        tertiary = toColor(palette.tertiary),
+        background = toColor(palette.background), onBackground = toColor(palette.onBackground),
+        surface = toColor(palette.surface), onSurface = toColor(palette.onSurface),
+        surfaceVariant = toColor(palette.surfaceVariant), onSurfaceVariant = toColor(palette.onSurfaceVariant),
+        outline = toColor(palette.outline),
+        error = toColor(palette.error), onError = toColor(palette.onError)
+    )
 }
 
 /**
@@ -136,12 +163,21 @@ fun LauncherTheme(
     uiScale: Float = 1.0f,
     themePreset: String = "default",
     colorMode: String = "normal",
+    customThemePack: com.pmcl.plugin.ThemePack? = null,
     content: @Composable () -> Unit
 ) {
-    // 主题颜色平滑过渡（约 400ms）
-    // 莫奈取色或自定义强调色时使用动态 ColorScheme
-    // 否则使用预设主题方案（若 themePreset != "default"）或默认固定配色
+    // 主题颜色优先级（高 → 低）：
+    // 1. 插件主题包（customThemePack）— 用户显式选择的插件主题，最高优先级
+    // 2. 动态 ColorScheme（莫奈取色 / 自定义强调色）
+    // 3. 预设主题方案（themePreset != "default"）
+    // 4. 默认固定配色（LightColors / DarkColors）
     val baseColors: ColorScheme = when {
+        customThemePack != null -> remember(customThemePack, useDarkTheme) {
+            themePackToScheme(
+                if (useDarkTheme) customThemePack.darkPalette else customThemePack.lightPalette,
+                useDarkTheme
+            )
+        }
         dynamicColorScheme != null -> dynamicColorScheme
         themePreset != "default" -> {
             val (light, dark) = remember(themePreset) { presetSchemes(themePreset) }
@@ -149,7 +185,7 @@ fun LauncherTheme(
         }
         else -> if (useDarkTheme) DarkColors else LightColors
     }
-    // 应用特殊色彩模式变换
+    // 应用特殊色彩模式变换（插件主题也受 colorMode 影响）
     val targetColors = remember(baseColors, colorMode, useDarkTheme) {
         applyColorMode(baseColors, colorMode, useDarkTheme)
     }

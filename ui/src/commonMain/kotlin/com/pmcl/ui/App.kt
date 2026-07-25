@@ -86,6 +86,8 @@ fun App(vm: LauncherViewModel) {
         // 应用主题色彩预设与色彩模式
         themeState.applyThemePreset(vm.preferences.getThemePreset())
         themeState.applyColorMode(vm.preferences.getColorMode())
+        // 应用持久化的插件主题包 ID（占位，待插件加载后 reconcile 填充实际 pack）
+        themeState.applyCustomThemePackId(vm.preferences.getCustomThemePackId())
     }
 
     // 直接读取 themeState 的属性，Compose 会自动观察 mutableStateOf 的变化
@@ -98,7 +100,8 @@ fun App(vm: LauncherViewModel) {
         dynamicColorScheme = effectiveScheme,
         uiScale = themeState.uiScale,
         themePreset = themeState.themePreset,
-        colorMode = themeState.colorMode
+        colorMode = themeState.colorMode,
+        customThemePack = themeState.customThemePack
     ) {
         CompositionLocalProvider(LocalThemeState provides themeState) {
             // 视差背景开启时 Surface 透明，让 Main.kt 的 ParallaxBackground 透出
@@ -233,6 +236,9 @@ private fun MainWindowContent(vm: LauncherViewModel) {
         }
         pluginPages = vm.core.plugins().getCustomPages()
         lastRevision = vm.core.plugins().getRevision()
+        // 插件加载完成后，检查持久化的 customThemePackId 是否仍可用
+        // 若可用则填充实际 ThemePack 对象（启动时仅设置了占位 ID）
+        vm.reconcileCustomThemePack(themeState)
     }
     // Poll for plugin changes (install/uninstall/enable/disable via terminal)
     LaunchedEffect("poll-plugin-revision") {
@@ -242,6 +248,8 @@ private fun MainWindowContent(vm: LauncherViewModel) {
             if (rev != lastRevision) {
                 lastRevision = rev
                 pluginPages = vm.core.plugins().getCustomPages()
+                // 插件结构变化（启用/禁用/卸载）可能影响主题包可用性
+                vm.reconcileCustomThemePack(themeState)
             }
         }
     }
