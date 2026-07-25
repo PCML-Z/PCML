@@ -29,6 +29,8 @@ public final class FriendChatServer implements AutoCloseable {
     private static final int AUTH_TIMEOUT_MS = 5000;
     /** 握手后正常读超时（毫秒） */
     private static final int READ_TIMEOUT_MS = 60000;
+    /** H9: 握手时间戳容许窗口（毫秒），防重放攻击 */
+    private static final long AUTH_TIMESTAMP_WINDOW_MS = 60_000L;
 
     private ServerSocket serverSocket;
     private final AtomicBoolean running = new AtomicBoolean(false);
@@ -43,6 +45,13 @@ public final class FriendChatServer implements AutoCloseable {
     /** 身份校验器：返回 true 表示该 identity 是已知好友，允许握手通过。
      *  默认拒绝所有连接（安全默认），必须由 FriendManager 设置。 */
     private volatile Predicate<String> identityValidator = id -> false;
+
+    /**
+     * H9: 密钥提供器：根据 identity 返回对应的 HMAC secret。
+     * secret 从 identity 派生（确定性算法），客户端和服务器用相同算法派生，
+     * 无需在好友间交换 secret。
+     */
+    private volatile java.util.function.Function<String, String> secretProvider = id -> null;
 
     // ---------------------------------------------------------------------------
     // 公共 API
@@ -68,6 +77,15 @@ public final class FriendChatServer implements AutoCloseable {
      */
     public void setIdentityValidator(Predicate<String> validator) {
         this.identityValidator = (validator != null) ? validator : (id -> false);
+    }
+
+    /**
+     * H9: 设置密钥提供器，用于校验握手 HMAC 签名。
+     * 提供器根据 identity 返回对应的 secret，secret 由确定性算法派生，
+     * 客户端发送握手时用相同算法派生 secret 并签名。
+     */
+    public void setSecretProvider(java.util.function.Function<String, String> provider) {
+        this.secretProvider = (provider != null) ? provider : (id -> null);
     }
 
     /** 启动服务器（随机端口） */
@@ -161,16 +179,37 @@ public final class FriendChatServer implements AutoCloseable {
             if (authLine.length() > FriendProtocol.MAX_MESSAGE_LENGTH) {
                 return;
             }
-            String identity = parseAuthIdentity(authLine);
-            if (identity == null) {
+            // H9: 解析握手消息，校验 identity + 时间戳 + HMAC 签名
+            AuthInfo authInfo = parseAuthInfo(authLine);
+            if (authInfo == null) {
                 System.err.println("[FriendChatServer] 拒绝连接: 无效握手 from " + remoteAddr);
                 return;
             }
-            if (!identityValidator.test(identity)) {
-                System.err.println("[FriendChatServer] 拒绝连接: 未知身份 " + identity + " from " + remoteAddr);
+            // 时间戳防重放：必须是 ±60s 内的时间
+            long now = System.currentTimeMillis();
+            if (Math.abs(now - authInfo.timestamp) > AUTH_TIMESTAMP_WINDOW_MS) {
+                System.err.println("[FriendChatServer] 拒绝连接: 握手时间戳超窗 " + authInfo.identity
+                        + " from " + remoteAddr + " (ts=" + authInfo.timestamp + ", now=" + now + ")");
+                return;
+            }
+            // H9: HMAC 签名校验——仅当 secret 可用时强制校验
+            // 跨机器好友无法派生相同 secret（机器绑定 keyfile 不同），此时跳过签名校验，
+            // 由虚拟网络 IP 隔离保护。本机回环连接（secret 可用）强制校验，防止本机冒充。
+            String expectedSig = computeAuthSignature(authInfo.identity, authInfo.timestamp);
+            if (expectedSig != null) {
+                // secret 可用：必须校验签名
+                if (!expectedSig.equalsIgnoreCase(authInfo.signature)) {
+                    System.err.println("[FriendChatServer] 拒绝连接: HMAC 签名无效 " + authInfo.identity + " from " + remoteAddr);
+                    return;
+                }
+            }
+            // secret 不可用（跨机器好友）：跳过签名校验，仅靠 identity + IP 隔离
+            if (!identityValidator.test(authInfo.identity)) {
+                System.err.println("[FriendChatServer] 拒绝连接: 未知身份 " + authInfo.identity + " from " + remoteAddr);
                 return;
             }
 
+            String identity = authInfo.identity;
             // 握手成功——切换到正常读超时
             socket.setSoTimeout(READ_TIMEOUT_MS);
             // 通过 onAuthenticated 通知监听器（让上层能记录在线状态）
@@ -202,13 +241,55 @@ public final class FriendChatServer implements AutoCloseable {
         }
     }
 
-    /** 从 auth 握手行中提取 identity 字段。返回 null 表示格式无效或非 auth 消息。 */
-    private static String parseAuthIdentity(String line) {
+    /** H9: 握手信息（identity + 时间戳 + HMAC 签名） */
+    private static final class AuthInfo {
+        final String identity;
+        final long timestamp;
+        final String signature;
+        AuthInfo(String identity, long timestamp, String signature) {
+            this.identity = identity;
+            this.timestamp = timestamp;
+            this.signature = signature;
+        }
+    }
+
+    /**
+     * H9: 从 auth 握手行中解析 identity、时间戳和签名。
+     * 兼容旧格式（无 ts/sig 字段时拒绝，强制升级）。
+     */
+    private static AuthInfo parseAuthInfo(String line) {
         try {
             com.google.gson.JsonObject obj = com.google.gson.JsonParser.parseString(line).getAsJsonObject();
             if (!"auth".equals(obj.get("type").getAsString())) return null;
             String id = obj.get("identity").getAsString();
-            return (id != null && !id.isBlank()) ? id : null;
+            if (id == null || id.isBlank()) return null;
+            if (!obj.has("ts") || !obj.has("sig")) return null;
+            long ts = obj.get("ts").getAsLong();
+            String sig = obj.get("sig").getAsString();
+            return new AuthInfo(id, ts, sig);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * H9: 计算握手签名 HMAC-SHA256(secret, identity | timestamp)。
+     * secret 由 secretProvider 提供（基于身份派生，服务器和客户端用相同算法）。
+     */
+    private String computeAuthSignature(String identity, long timestamp) {
+        java.util.function.Function<String, String> provider = secretProvider;
+        if (provider == null) return null;
+        String secret = provider.apply(identity);
+        if (secret == null || secret.isEmpty()) return null;
+        try {
+            javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
+            byte[] secretBytes = secret.getBytes(StandardCharsets.UTF_8);
+            mac.init(new javax.crypto.spec.SecretKeySpec(secretBytes, "HmacSHA256"));
+            String payload = identity + "|" + timestamp;
+            byte[] sig = mac.doFinal(payload.getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder(sig.length * 2);
+            for (byte b : sig) sb.append(String.format("%02x", b & 0xff));
+            return sb.toString();
         } catch (Exception e) {
             return null;
         }

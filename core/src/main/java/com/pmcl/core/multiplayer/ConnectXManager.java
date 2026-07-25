@@ -168,10 +168,12 @@ public final class ConnectXManager {
         if (!isRunning() || !serverConnected.get()) {
             return CompletableFuture.failedFuture(new IllegalStateException("未连接到 ConnectX 服务器"));
         }
+        // H10: roomName/password 未转义双引号会导致命令注入
+        // 例如 roomName 含 " 会提前结束引号，后续内容被解释为命令参数
         StringBuilder cmd = new StringBuilder("room create --name \"");
-        cmd.append(roomName).append("\" --max-user ").append(maxUsers);
+        cmd.append(shellEscape(roomName)).append("\" --max-user ").append(maxUsers);
         if (password != null && !password.isEmpty()) {
-            cmd.append(" --password \"").append(password).append("\"");
+            cmd.append(" --password \"").append(shellEscape(password)).append("\"");
         }
         if (useRelay) {
             cmd.append(" --relay");
@@ -186,12 +188,36 @@ public final class ConnectXManager {
         if (!isRunning() || !serverConnected.get()) {
             return CompletableFuture.failedFuture(new IllegalStateException("未连接到 ConnectX 服务器"));
         }
+        // H10: shortId/password 转义，防止命令注入
         StringBuilder cmd = new StringBuilder("room join --room_short_id ");
-        cmd.append(shortId);
+        cmd.append(shellEscape(shortId));
         if (password != null && !password.isEmpty()) {
-            cmd.append(" --password \"").append(password).append("\"");
+            cmd.append(" --password \"").append(shellEscape(password)).append("\"");
         }
         return sendCommand(cmd.toString());
+    }
+
+    /**
+     * H10: Shell 双引号转义。
+     * 在双引号字符串内，需要转义的字符：$ ` " \ 和换行。
+     * 转义方式：在字符前加反斜杠。
+     */
+    private static String shellEscape(String s) {
+        if (s == null) return "";
+        StringBuilder sb = new StringBuilder(s.length());
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            switch (c) {
+                case '"':  sb.append("\\\""); break;
+                case '\\': sb.append("\\\\"); break;
+                case '$':  sb.append("\\$");  break;
+                case '`':  sb.append("\\`");  break;
+                case '\n': sb.append("\\n");  break;
+                case '\r': sb.append("\\r");  break;
+                default:   sb.append(c);
+            }
+        }
+        return sb.toString();
     }
 
     /** 离开房间 */

@@ -139,7 +139,8 @@ public final class IntegrityChecker {
             }
             byte[] digest = md.digest();
             StringBuilder sb = new StringBuilder();
-            for (byte b : digest) sb.append(String.format("%02x", b));
+            // H13: b & 0xff 防止 byte 符号扩展为 int 时产生 ffffffff 而非 ff
+            for (byte b : digest) sb.append(String.format("%02x", b & 0xff));
             return sb.toString();
         } catch (Exception e) {
             throw new IOException("SHA1 计算失败", e);

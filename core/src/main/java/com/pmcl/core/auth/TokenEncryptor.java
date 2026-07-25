@@ -139,6 +139,14 @@ public final class TokenEncryptor {
     }
 
     /**
+     * H9: 获取辅助密钥（机器绑定），用于好友身份密钥派生。
+     * 仅供 FriendIdentityManager.deriveSecret() 调用。
+     */
+    public static String getSecondarySecret() {
+        return loadOrCreateSecondarySecret();
+    }
+
+    /**
      * 加载或创建本地辅助密钥文件（~/.pmcl/.keyfile）。
      * <p>
      * 首次运行时生成 32 字节随机数并写入文件（权限 0600），后续读取复用。
@@ -158,15 +166,26 @@ public final class TokenEncryptor {
             Files.createDirectories(keyFile.getParent());
             byte[] newKey = new byte[32];
             RNG.nextBytes(newKey);
-            Files.write(keyFile, newKey);
-            // 设置文件权限为 0600（仅所有者可读写）
+            // H11: 原子写入——先写临时文件再 rename，防止写入中途崩溃导致密钥文件损坏
+            // 原实现 Files.write 直接覆盖目标文件，写入中途崩溃会留下截断/空文件，
+            // 下次加载时密钥不一致，所有已加密 token 无法解密
+            Path tmpFile = keyFile.resolveSibling(keyFile.getFileName() + ".tmp");
+            Files.write(tmpFile, newKey);
+            // 临时文件也设置 0600 权限（在 rename 之前，避免权限窗口）
             try {
-                Files.setPosixFilePermissions(keyFile,
+                Files.setPosixFilePermissions(tmpFile,
                         java.util.Set.of(
                                 java.nio.file.attribute.PosixFilePermission.OWNER_READ,
                                 java.nio.file.attribute.PosixFilePermission.OWNER_WRITE));
             } catch (UnsupportedOperationException ignored) {
                 // Windows 不支持 POSIX 权限，跳过
+            }
+            try {
+                Files.move(tmpFile, keyFile,
+                        java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                Files.move(tmpFile, keyFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
             }
             return Base64.getEncoder().encodeToString(newKey);
         } catch (Exception e) {

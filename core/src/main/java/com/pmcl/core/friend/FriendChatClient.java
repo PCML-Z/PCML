@@ -21,6 +21,8 @@ public final class FriendChatClient implements AutoCloseable {
     private final String myIdentity;
     private final String myName;
     private int myChatPort;
+    /** H9: 身份密钥，用于计算握手 HMAC 签名 */
+    private String authSecret;
 
     private volatile Socket socket;
     private volatile PrintWriter writer;
@@ -31,7 +33,8 @@ public final class FriendChatClient implements AutoCloseable {
 
     private final BlockingQueue<String> sendQueue = new LinkedBlockingQueue<>(1000);
 
-    private MessageCallback callback;
+    // H12: callback 加 volatile，使 setCallback(null) 后异步线程立即可见，避免回调污染新 store
+    private volatile MessageCallback callback;
 
     // ---------------------------------------------------------------------------
     // 公共 API
@@ -58,6 +61,11 @@ public final class FriendChatClient implements AutoCloseable {
     /** 设置我的聊天服务器端口（用于在好友请求/应答中携带） */
     public void setMyChatPort(int port) {
         this.myChatPort = port;
+    }
+
+    /** H9: 设置身份密钥，用于计算握手 HMAC 签名 */
+    public void setAuthSecret(String secret) {
+        this.authSecret = secret;
     }
 
     public boolean isConnected() {
@@ -137,17 +145,42 @@ public final class FriendChatClient implements AutoCloseable {
     }
 
     /**
-     * 发送 auth 握手：第一条消息必须是 {"type":"auth","identity":"XXX-...-XXX"}。
-     * 服务器据此校验本客户端是否为已知好友。
+     * 发送 auth 握手：第一条消息必须是
+     * {"type":"auth","identity":"XXX-...-XXX","ts":<timestamp>,"sig":"<HMAC>"}。
+     * 服务器据此校验本客户端是否为已知好友，且签名防冒充。
+     * H9: 加入时间戳和 HMAC-SHA256 签名，防止 identity 被冒充。
      */
     private void sendAuthHandshake() {
         if (myIdentity == null || myIdentity.isBlank()) return;
+        long ts = System.currentTimeMillis();
         com.google.gson.JsonObject auth = new com.google.gson.JsonObject();
         auth.addProperty("type", "auth");
         auth.addProperty("identity", myIdentity);
+        auth.addProperty("ts", ts);
+        // H9: 计算 HMAC 签名（如果有 secret）
+        String sig = computeAuthSignature(myIdentity, ts);
+        auth.addProperty("sig", sig != null ? sig : "");
         // 直接写入，不进队列：握手必须在所有其他消息之前发送
         writer.write(auth.toString() + "\n");
         writer.flush();
+    }
+
+    /** H9: 计算 HMAC-SHA256(secret, identity | timestamp) */
+    private String computeAuthSignature(String identity, long timestamp) {
+        String secret = authSecret;
+        if (secret == null || secret.isEmpty()) return null;
+        try {
+            javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
+            byte[] secretBytes = secret.getBytes(StandardCharsets.UTF_8);
+            mac.init(new javax.crypto.spec.SecretKeySpec(secretBytes, "HmacSHA256"));
+            String payload = identity + "|" + timestamp;
+            byte[] sig = mac.doFinal(payload.getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder(sig.length * 2);
+            for (byte b : sig) sb.append(String.format("%02x", b & 0xff));
+            return sb.toString();
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /** 发送消息（非阻塞，入队） */

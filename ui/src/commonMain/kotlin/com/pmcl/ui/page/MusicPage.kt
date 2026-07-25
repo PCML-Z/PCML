@@ -141,7 +141,12 @@ fun MusicPage(vm: LauncherViewModel) {
                 verticalArrangement = Arrangement.spacedBy(4.dp),
                 modifier = Modifier.weight(1f)
             ) {
-                itemsIndexed(playlist, key = { i, t -> "$i-${t.sourceUrl}" }) { index, track ->
+                // H15: key 不能包含索引 i，删除项时会导致身份错乱
+                // 原实现 "$i-${t.sourceUrl}" 使每项的 key 随位置变化，
+                // 删除中间项时后续项的 key 全部改变，Compose 误认为身份变更，
+                // 导致动画错乱、播放状态错位。
+                // 修复：仅用 sourceUrl 作为 key（唯一标识）
+                itemsIndexed(playlist, key = { _, t -> t.sourceUrl }) { index, track ->
                     PlaylistRow(
                         index = index,
                         track = track,

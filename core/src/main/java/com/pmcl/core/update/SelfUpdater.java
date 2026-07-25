@@ -145,7 +145,8 @@ public final class SelfUpdater {
             }
             byte[] digest = md.digest();
             StringBuilder sb = new StringBuilder(digest.length * 2);
-            for (byte b : digest) sb.append(String.format("%02x", b));
+            // H13: b & 0xff 防止 byte 符号扩展为 int 时产生 ffffffff 而非 ff
+            for (byte b : digest) sb.append(String.format("%02x", b & 0xff));
             return sb.toString();
         } catch (Exception e) {
             throw new IOException(algorithm + " 计算失败", e);

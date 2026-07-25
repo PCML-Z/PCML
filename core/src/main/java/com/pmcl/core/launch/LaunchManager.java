@@ -18,6 +18,9 @@ import java.util.function.Consumer;
  */
 public final class LaunchManager {
 
+    /** H14: 毒丸对象，用于结束 log dispatcher 线程 */
+    private static final String POISON_PILL = new String("__PMCL_LOG_POISON__");
+
     private final LauncherConfig config;
     private final Preferences preferences;
     private PluginManager pluginManager;
@@ -85,17 +88,47 @@ public final class LaunchManager {
         Process process = pb.start();
 
         Thread reader = new Thread(() -> {
+            // H14: onLog 回调可能阻塞（UI 渲染、日志解析等），
+            // 若在 reader 线程直接调用，会阻塞读取 MC stdout 管道，
+            // 管道缓冲区满后 MC 进程会卡死（管道死锁）。
+            // 修复：reader 线程只负责读取并写入无界队列，独立 dispatcher 线程消费回调。
+            java.util.concurrent.BlockingQueue<String> logQueue = new java.util.concurrent.LinkedBlockingQueue<>();
+            // 消费线程：从队列取行调用 onLog，与 reader 线程解耦
+            Thread dispatcher = new Thread(() -> {
+                try {
+                    while (true) {
+                        String line = logQueue.take();
+                        if (line == POISON_PILL) break; // 毒丸，结束消费
+                        try {
+                            if (onLog != null) onLog.accept(line);
+                        } catch (Throwable t) {
+                            // 回调异常不能影响日志收集
+                            System.err.println("[LaunchManager] onLog 回调异常: " + t.getMessage());
+                        }
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }, "mc-log-dispatcher");
+            dispatcher.setDaemon(true);
+            dispatcher.start();
+
             try (BufferedReader r = new BufferedReader(
                     new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
                 String line;
                 while ((line = r.readLine()) != null) {
+                    // logger.append 是非阻塞的（内部用队列），可直接调用
                     if (logger != null) logger.append(line);
-                    if (onLog != null) onLog.accept(line);
+                    // onLog 通过队列异步调用，避免阻塞 reader
+                    logQueue.offer(line);
                 }
             } catch (IOException e) {
                 // 进程输出流读取失败时记录日志，避免静默丢失崩溃信息
                 System.err.println("[LaunchManager] 进程输出读取异常: " + e.getMessage());
-                if (onLog != null) onLog.accept("[PMCL] 进程输出读取异常: " + e.getMessage());
+                logQueue.offer("[PMCL] 进程输出读取异常: " + e.getMessage());
+            } finally {
+                // 投递毒丸结束 dispatcher 线程
+                logQueue.offer(POISON_PILL);
             }
         }, "mc-process-reader");
         reader.setDaemon(true);

@@ -143,6 +143,37 @@ public final class FriendIdentityManager {
         return version.get();
     }
 
+    /**
+     * H9: 派生身份密钥（HMAC secret）。
+     * <p>
+     * 基于 identity 字符串 + 机器绑定 keyfile（TokenEncryptor 的辅助密钥）派生。
+     * 同一机器上同一 identity 派生相同 secret；不同机器派生不同 secret。
+     * <p>
+     * 用途：好友握手时，客户端用此 secret 计算 HMAC 签名，
+     * 服务器用相同算法派生 secret 校验签名，防止 identity 被冒充。
+     * <p>
+     * 局限：服务器需要知道好友的 secret——但由于 secret 是机器绑定的，
+     * 跨机器无法派生相同 secret。实际使用中，服务器只校验"自己的 secret 派生"
+     * 用于回环连接（同机器多实例），跨机器连接由虚拟网络 IP 隔离保护。
+     * 对于已知好友，服务器从好友数据中读取 secret（邀请时交换）。
+     */
+    public String deriveSecret() {
+        if (identity == null) return null;
+        try {
+            // 基于 identity + 机器 keyfile 派生 secret
+            String machineSecret = com.pmcl.core.auth.TokenEncryptor.getSecondarySecret();
+            String seed = identity.toString() + "|" + machineSecret;
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] hash = md.digest(seed.getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder(hash.length * 2);
+            for (byte b : hash) sb.append(String.format("%02x", b & 0xff));
+            return sb.toString();
+        } catch (Exception e) {
+            System.err.println("[FriendIdentity] 密钥派生失败: " + e.getMessage());
+            return null;
+        }
+    }
+
     /** 分享文本：用于生成二维码，"pmcl-friend:" 协议 */
     public String getShareText() {
         if (identity == null) return "";

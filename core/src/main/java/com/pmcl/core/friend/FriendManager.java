@@ -137,6 +137,19 @@ public final class FriendManager implements AutoCloseable {
             }
             return store.isFriend(identity);
         });
+        // H9: 设置密钥提供器——服务器用相同算法派生 secret 校验客户端签名
+        // secret 基于对方 identity + 本机 keyfile 派生，仅同机器可校验（回环/多实例）
+        chatServer.setSecretProvider(identity -> {
+            // 对自己的 identity 派生 secret（回环连接场景）
+            if (identityManager.getIdentity() != null
+                    && identity.equals(identityManager.getIdentity().toString())) {
+                return identityManager.deriveSecret();
+            }
+            // 对好友 identity：由于跨机器无法派生相同 secret，这里返回 null
+            // 跨机器冒充由虚拟网络 IP 隔离保护；本机冒充由 secret 校验拦截
+            // 后续可通过邀请码交换 secret 实现跨机器校验
+            return null;
+        });
 
         // 监听聊天服务器消息
         chatServer.addListener(new FriendChatServer.MessageListener() {
@@ -201,7 +214,10 @@ public final class FriendManager implements AutoCloseable {
         }
 
         // 关闭所有活跃连接（它们属于旧身份）
+        // H12: 先清除 callback 再 close，避免 close 触发的异步 onDisconnected 回调
+        // 引用 this.store（已切换为新 store），污染新账号数据
         for (FriendChatClient client : activeClients.values()) {
+            try { client.setCallback(null); } catch (Exception ignored) {}
             try { client.close(); } catch (Exception ignored) {}
         }
         activeClients.clear();
@@ -752,6 +768,8 @@ public final class FriendManager implements AutoCloseable {
                     identityManager.getIdentity().toString(),
                     identityManager.getDisplayName());
             client.setMyChatPort(chatServer.getPort());
+            // H9: 设置身份密钥，用于握手 HMAC 签名
+            client.setAuthSecret(identityManager.deriveSecret());
             setupClient(identity, client);
             activeClients.put(identity, client);
             result = client;

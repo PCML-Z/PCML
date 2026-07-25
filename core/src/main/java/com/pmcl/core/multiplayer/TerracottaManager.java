@@ -691,7 +691,8 @@ public final class TerracottaManager {
             }
             byte[] hash = md.digest();
             StringBuilder sb = new StringBuilder();
-            for (byte b : hash) sb.append(String.format("%02x", b));
+            // H13: b & 0xff 防止 byte 符号扩展为 int 时产生 ffffffff 而非 ff
+            for (byte b : hash) sb.append(String.format("%02x", b & 0xff));
             return sb.toString();
         } catch (java.security.NoSuchAlgorithmException e) {
             throw new IOException(e);
