@@ -2,6 +2,7 @@ package com.pmcl.core.nbt;
 
 import java.io.BufferedInputStream;
 import java.io.DataInputStream;
+import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.zip.GZIPInputStream;
@@ -43,11 +44,26 @@ public final class NbtReader {
 
     private NbtReader() {}
 
+    /** 读取结果：根标签 + 是否 gzip（保存时保持原压缩方式） */
+    public static final class ReadResult {
+        public final NbtTag root;
+        public final boolean gzipped;
+        public ReadResult(NbtTag root, boolean gzipped) {
+            this.root = root;
+            this.gzipped = gzipped;
+        }
+    }
+
     /**
      * 读取 NBT 文件，自动检测 gzip 压缩（魔数 0x1f 0x8b）。
      * 兼容 gzip 压缩和未压缩的 NBT 文件。
      */
     public static NbtTag read(java.nio.file.Path file) throws IOException {
+        return readWithMeta(file).root;
+    }
+
+    /** 读取 NBT 并返回是否 gzip，供保存时保持压缩方式。 */
+    public static ReadResult readWithMeta(java.nio.file.Path file) throws IOException {
         try (InputStream fis = java.nio.file.Files.newInputStream(file);
              BufferedInputStream bis = new BufferedInputStream(fis)) {
             bis.mark(2);
@@ -56,8 +72,9 @@ public final class NbtReader {
             bis.reset();
             boolean gzipped = (b1 == 0x1f && b2 == 0x8b);
             InputStream stream = gzipped ? new GZIPInputStream(bis) : bis;
-            try (DataInputStream dis = new DataInputStream(stream)) {
-                return readRoot(dis);
+            // 在解压后计数，防止 gzip 炸弹撑爆内存
+            try (DataInputStream dis = new DataInputStream(new CountingInputStream(stream, MAX_TOTAL_BYTES))) {
+                return new ReadResult(readRoot(dis), gzipped);
             }
         }
     }
@@ -69,8 +86,46 @@ public final class NbtReader {
      */
     public static NbtTag read(InputStream in, boolean gzipped) throws IOException {
         InputStream stream = gzipped ? new GZIPInputStream(in) : in;
-        try (DataInputStream dis = new DataInputStream(stream)) {
+        try (DataInputStream dis = new DataInputStream(new CountingInputStream(stream, MAX_TOTAL_BYTES))) {
             return readRoot(dis);
+        }
+    }
+
+    /** 统计已读字节并在超过上限时抛出，防御 gzip 炸弹。 */
+    private static final class CountingInputStream extends FilterInputStream {
+        private final long maxBytes;
+        private long readBytes;
+
+        CountingInputStream(InputStream in, long maxBytes) {
+            super(in);
+            this.maxBytes = maxBytes;
+        }
+
+        private void account(long n) throws IOException {
+            if (n <= 0) return;
+            readBytes += n;
+            if (readBytes > maxBytes) {
+                throw new IOException("NBT decompressed size exceeds limit " + maxBytes
+                        + " bytes (possible gzip bomb)");
+            }
+        }
+
+        @Override public int read() throws IOException {
+            int b = in.read();
+            if (b >= 0) account(1);
+            return b;
+        }
+
+        @Override public int read(byte[] b, int off, int len) throws IOException {
+            int n = in.read(b, off, len);
+            if (n > 0) account(n);
+            return n;
+        }
+
+        @Override public long skip(long n) throws IOException {
+            long skipped = in.skip(n);
+            account(skipped);
+            return skipped;
         }
     }
 

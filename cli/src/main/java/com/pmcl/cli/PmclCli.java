@@ -109,6 +109,24 @@ public final class PmclCli {
         "|   Access all launcher core features       |\n" +
         "+===========================================+\n";
 
+    /** 主命令名（含常用别名），供 GUI 终端 Tab 补全 */
+    private static final String[] COMMAND_NAMES = {
+        "help", "?", "versions", "vs", "remote", "rm", "install", "i",
+        "launch", "play", "integrity", "check", "mods", "mod", "search", "s",
+        "install-mod", "im", "modloaders", "ml", "worlds", "w", "datapacks", "dp",
+        "screenshots", "shots", "resourcepacks", "rp", "shaders", "news", "crash",
+        "migrate", "account", "whoami", "login", "logout", "java", "config",
+        "pin", "unpin", "recent", "playtime", "mp", "multiplayer", "update",
+        "sysinfo", "download", "wiki", "plugin", "plugins", "status", "cache",
+        "log", "skin", "version", "ver", "open", "url", "theme", "clear", "cls"
+    };
+
+    /** 串行化 System.out/err 重定向，避免 GUI 终端与其它输出交叉污染 */
+    private static final Object CAPTURE_LOCK = new Object();
+
+    /** GUI 捕获模式：禁止长时间阻塞的 wait（如 launch 等到游戏退出） */
+    private volatile boolean captureMode;
+
     private final LauncherCore core;
     private final Path accountFile;
     private Account currentAccount;
@@ -184,8 +202,39 @@ public final class PmclCli {
         scanner.close();
     }
 
+    /** 命令名列表（只读副本），用于 Tab 补全 */
+    public static List<String> listCommandNames() {
+        return Collections.unmodifiableList(Arrays.asList(COMMAND_NAMES));
+    }
+
+    /**
+     * 执行命令并捕获 stdout/stderr 文本（供 GUI 终端使用）。
+     * 全局锁保证同一时刻只有一处重定向 System.out/err。
+     */
+    public String executeCaptured(String[] args) {
+        synchronized (CAPTURE_LOCK) {
+            java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+            java.io.PrintStream ps = new java.io.PrintStream(baos, true, java.nio.charset.StandardCharsets.UTF_8);
+            java.io.PrintStream oldOut = System.out;
+            java.io.PrintStream oldErr = System.err;
+            captureMode = true;
+            try {
+                System.setOut(ps);
+                System.setErr(ps);
+                execute(args);
+                ps.flush();
+                return baos.toString(java.nio.charset.StandardCharsets.UTF_8);
+            } finally {
+                captureMode = false;
+                System.setOut(oldOut);
+                System.setErr(oldErr);
+            }
+        }
+    }
+
     /** Execute a single command (public for GUI terminal to call) */
     public void execute(String[] args) {
+        if (args == null || args.length == 0) return;
         String cmd = args[0].toLowerCase();
         String[] rest = args.length > 1 ? Arrays.copyOfRange(args, 1, args.length) : new String[0];
         switch (cmd) {
@@ -473,8 +522,17 @@ public final class PmclCli {
 
             CompletableFuture<Integer> future = core.launch().launchAsync(
                 profile, javaPath,
-                line -> System.out.println("[game] " + line)
+                line -> {
+                    // GUI 捕获模式勿长时间打印到被重定向的 System.out（会撑爆缓冲区）
+                    if (!captureMode) System.out.println("[game] " + line);
+                }
             );
+            if (captureMode) {
+                // GUI 终端：异步启动后立即返回，避免持有 System.out 重定向直到游戏退出
+                System.out.println("Game process started (async). Use the Launch page for live logs.");
+                System.out.println("Tip: in standalone CLI, 'launch' waits until the game exits.");
+                return;
+            }
             int exitCode = future.get();
             System.out.println(SEP);
             System.out.println("Game exited (code=" + exitCode + ")");
@@ -2117,9 +2175,10 @@ public final class PmclCli {
                 return;
             }
         }
-        java.nio.file.Path logFile = core.getConfig().getWorkDir().resolve("logs").resolve("latest.log");
-        if (!java.nio.file.Files.exists(logFile)) {
-            System.out.println("No game log found at: " + logFile);
+        java.nio.file.Path logsDir = core.getConfig().getWorkDir().resolve("logs");
+        java.nio.file.Path logFile = resolveNewestLogFile(logsDir);
+        if (logFile == null || !java.nio.file.Files.exists(logFile)) {
+            System.out.println("No game log found under: " + logsDir);
             System.out.println("Log file is created when a game is launched.");
             return;
         }
@@ -2129,13 +2188,40 @@ public final class PmclCli {
             int start = Math.max(0, total - lines);
             List<String> tail = allLines.subList(start, total);
             System.out.println(SEP);
-            System.out.printf("Game Log (last %d of %d lines):%n", tail.size(), total);
+            System.out.printf("Game Log [%s] (last %d of %d lines):%n",
+                    logFile.getFileName(), tail.size(), total);
             System.out.println(SEP);
             for (String l : tail) {
                 System.out.println(l);
             }
         } catch (Exception e) {
             System.err.println("Failed to read log: " + e.getMessage());
+        }
+    }
+
+    /** 优先 latest.log，否则取 logs 目录中最近修改的 .log */
+    private static java.nio.file.Path resolveNewestLogFile(java.nio.file.Path logsDir) {
+        java.nio.file.Path latest = logsDir.resolve("latest.log");
+        if (java.nio.file.Files.isRegularFile(latest)) return latest;
+        if (!java.nio.file.Files.isDirectory(logsDir)) return null;
+        try (var stream = java.nio.file.Files.list(logsDir)) {
+            return stream
+                    .filter(p -> {
+                        String n = p.getFileName().toString().toLowerCase();
+                        return n.endsWith(".log") && java.nio.file.Files.isRegularFile(p);
+                    })
+                    .max((a, b) -> {
+                        try {
+                            return Long.compare(
+                                    java.nio.file.Files.getLastModifiedTime(a).toMillis(),
+                                    java.nio.file.Files.getLastModifiedTime(b).toMillis());
+                        } catch (Exception e) {
+                            return 0;
+                        }
+                    })
+                    .orElse(null);
+        } catch (Exception e) {
+            return null;
         }
     }
 

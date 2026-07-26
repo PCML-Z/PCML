@@ -46,8 +46,8 @@ kotlin {
                 implementation(libs.zxing.core)
                 implementation(libs.zxing.javase)
 
-                // 内嵌 PTY 终端（运行 OpenCode TUI）
-                implementation(libs.pty4j)
+                // 自定义背景视频解码（FFmpeg 原生库由 :video 模块的 runtime 依赖提供）
+                implementation(libs.javacv)
 
                 // JavaFX WebView（Wiki 内嵌浏览器：JFXPanel 嵌入 SwingPanel）
                 // openjfx 必须显式指定 OS+架构 classifier，否则：
@@ -103,7 +103,7 @@ compose.desktop {
                 "jdk.crypto.cryptoki",  // 加密 provider（HTTPS 握手需要）
                 "jdk.crypto.ec",        // EC 曲线（TLS 1.3 / Xbox 认证）
                 "jdk.management",       // jdk.management.* 子包
-                "jdk.unsupported",      // sun.misc.Unsafe（pty4j / Netty 直接使用）
+                "jdk.unsupported",      // sun.misc.Unsafe（部分 native / Netty 直接使用）
                 "jdk.security.auth"     // JAAS（部分认证流程）
             )
 

@@ -24,6 +24,9 @@ public final class LaunchManager {
     private final LauncherConfig config;
     private final Preferences preferences;
     private PluginManager pluginManager;
+    /** 活跃 MC 进程（应用退出时强制清理） */
+    private final java.util.Set<Process> activeProcesses =
+            java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<>());
 
     public LaunchManager(LauncherConfig config) {
         this(config, null);
@@ -86,6 +89,7 @@ public final class LaunchManager {
         pb.directory(profile.getGameDir().toFile());
         pb.redirectErrorStream(true);
         Process process = pb.start();
+        activeProcesses.add(process);
 
         Thread reader = new Thread(() -> {
             // H14: onLog 回调可能阻塞（UI 渲染、日志解析等），
@@ -235,6 +239,7 @@ public final class LaunchManager {
                 }
 
                 int code = process.waitFor();
+                activeProcesses.remove(process);
                 // 等待读取线程读完剩余输出，避免丢失进程退出前的最后几行日志
                 if (readerHolder[0] != null) {
                     try { readerHolder[0].join(2000); } catch (InterruptedException ignored) {}
@@ -255,8 +260,11 @@ public final class LaunchManager {
             } catch (IOException | InterruptedException e) {
                 if (e instanceof InterruptedException) Thread.currentThread().interrupt();
                 // 异常路径：销毁可能已启动的进程，防止僵尸进程残留
-                if (process != null && process.isAlive()) {
-                    try { process.destroyForcibly(); } catch (Exception ignored) {}
+                if (process != null) {
+                    activeProcesses.remove(process);
+                    if (process.isAlive()) {
+                        try { process.destroyForcibly(); } catch (Exception ignored) {}
+                    }
                 }
                 // 提取根因消息，避免 UI 显示 "启动失败：启动失败"
                 Throwable root = e;
@@ -407,5 +415,15 @@ public final class LaunchManager {
         if (value == null || value.isEmpty()) return value;
         if (value.length() < 12) return "***";
         return value.substring(0, 4) + "***" + value.substring(value.length() - 4);
+    }
+
+    /** 强制结束所有由本启动器拉起且仍存活的 MC 进程（应用退出时调用） */
+    public void killAllProcesses() {
+        for (Process p : activeProcesses) {
+            if (p != null && p.isAlive()) {
+                try { p.destroyForcibly(); } catch (Exception ignored) {}
+            }
+        }
+        activeProcesses.clear();
     }
 }

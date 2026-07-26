@@ -41,9 +41,16 @@ public final class ModManager {
      * @return true 删除成功
      */
     public boolean deleteMod(String jarFileName) throws IOException {
-        Path target = modsDir.resolve(jarFileName);
-        if (!Files.exists(target)) return false;
-        Files.delete(target);
+        return deleteModAt(resolveJar(jarFileName));
+    }
+
+    /**
+     * 按绝对路径删除 jar（支持版本目录 / 实例目录下的 mod）。
+     */
+    public boolean deleteModAt(Path jarPath) throws IOException {
+        if (jarPath == null || !Files.exists(jarPath)) return false;
+        Files.delete(jarPath);
+        invalidateCache();
         return true;
     }
 
@@ -53,12 +60,20 @@ public final class ModManager {
      * @return 新文件名（禁用后）
      */
     public String disableMod(String jarFileName) throws IOException {
-        // 已禁用的文件直接返回
-        if (jarFileName.toLowerCase().endsWith(".disabled")) return jarFileName;
-        Path src = modsDir.resolve(jarFileName);
-        Path dst = modsDir.resolve(jarFileName + ".disabled");
-        if (!Files.exists(src)) throw new IOException("文件不存在: " + jarFileName);
-        Files.move(src, dst);
+        return disableModAt(resolveJar(jarFileName));
+    }
+
+    /**
+     * 按绝对路径禁用 mod（支持版本目录 / 实例目录）。
+     */
+    public String disableModAt(Path jarPath) throws IOException {
+        if (jarPath == null) throw new IOException("文件路径为空");
+        String name = jarPath.getFileName().toString();
+        if (name.toLowerCase().endsWith(".disabled")) return name;
+        Path dst = jarPath.resolveSibling(name + ".disabled");
+        if (!Files.exists(jarPath)) throw new IOException("文件不存在: " + jarPath);
+        Files.move(jarPath, dst);
+        invalidateCache();
         return dst.getFileName().toString();
     }
 
@@ -68,18 +83,38 @@ public final class ModManager {
      * @return 新文件名（启用后）
      */
     public String enableMod(String jarFileName) throws IOException {
-        if (!jarFileName.toLowerCase().endsWith(".disabled")) return jarFileName;
-        Path src = modsDir.resolve(jarFileName);
-        String enabledName = jarFileName.substring(0, jarFileName.length() - ".disabled".length());
-        Path dst = modsDir.resolve(enabledName);
-        if (!Files.exists(src)) throw new IOException("文件不存在: " + jarFileName);
+        return enableModAt(resolveJar(jarFileName));
+    }
+
+    /**
+     * 按绝对路径启用 mod（支持版本目录 / 实例目录）。
+     */
+    public String enableModAt(Path jarPath) throws IOException {
+        if (jarPath == null) throw new IOException("文件路径为空");
+        String name = jarPath.getFileName().toString();
+        if (!name.toLowerCase().endsWith(".disabled")) return name;
+        String enabledName = name.substring(0, name.length() - ".disabled".length());
+        Path dst = jarPath.resolveSibling(enabledName);
+        if (!Files.exists(jarPath)) throw new IOException("文件不存在: " + jarPath);
         // 目标已存在（同名 jar 已启用）→ 删除禁用副本
         if (Files.exists(dst)) {
-            Files.delete(src);
+            Files.delete(jarPath);
+            invalidateCache();
             return enabledName;
         }
-        Files.move(src, dst);
+        Files.move(jarPath, dst);
+        invalidateCache();
         return enabledName;
+    }
+
+    /** 优先按绝对路径；否则回退到全局 mods 目录下的文件名 */
+    private Path resolveJar(String jarFileName) {
+        if (jarFileName == null || jarFileName.isEmpty()) {
+            throw new IllegalArgumentException("jar 文件名为空");
+        }
+        Path asPath = Path.of(jarFileName);
+        if (asPath.isAbsolute()) return asPath;
+        return modsDir.resolve(jarFileName);
     }
 
     /**

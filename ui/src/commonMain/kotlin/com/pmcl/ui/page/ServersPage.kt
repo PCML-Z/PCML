@@ -3,9 +3,9 @@ package com.pmcl.ui.page
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
@@ -49,44 +49,34 @@ fun ServersPage(vm: LauncherViewModel) {
     val servers by vm.favoriteServers.collectAsState()
     val statuses by vm.serverStatuses.collectAsState()
     val pinging by vm.pingingServers.collectAsState()
-    val scroll = rememberScrollState()
-
     var showAddDialog by remember { mutableStateOf(false) }
     var editIndex by remember { mutableStateOf<Int?>(null) }
     var deleteIndex by remember { mutableStateOf<Int?>(null) }
 
-    Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(scroll)) {
-        // 标题栏 + 操作按钮
+    Column(Modifier.fillMaxSize().padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(I18n.t("servers.title"), style = MaterialTheme.typography.headlineSmall,
+            Text(I18n.t("servers.title"), style = MaterialTheme.typography.titleLarge,
                  fontWeight = FontWeight.Bold)
             Spacer(Modifier.weight(1f))
-            // 全部刷新
-            OutlinedButton(
+            IconButton(
                 onClick = { vm.pingAllServersFull() },
                 enabled = servers.isNotEmpty()
             ) {
-                Icon(Icons.Filled.Refresh, null, Modifier.size(16.dp))
-                Spacer(Modifier.width(4.dp))
-                Text(I18n.t("servers.refresh_all"))
+                Icon(Icons.Filled.Refresh, contentDescription = I18n.t("servers.refresh_all"))
             }
-            Spacer(Modifier.width(8.dp))
-            // 添加服务器
             Button(onClick = { showAddDialog = true }) {
                 Icon(Icons.Filled.Add, null, Modifier.size(16.dp))
                 Spacer(Modifier.width(4.dp))
                 Text(I18n.t("servers.add"))
             }
         }
-        Spacer(Modifier.height(4.dp))
         Text(I18n.t("servers.hint"),
              style = MaterialTheme.typography.labelSmall,
              color = MaterialTheme.colorScheme.outline)
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(10.dp))
 
         if (servers.isEmpty()) {
-            // 空状态
-            Box(Modifier.fillMaxWidth().padding(48.dp), contentAlignment = Alignment.Center) {
+            Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(Icons.Filled.Dns, null, Modifier.size(48.dp),
                          tint = MaterialTheme.colorScheme.outline)
@@ -101,23 +91,26 @@ fun ServersPage(vm: LauncherViewModel) {
                 }
             }
         } else {
-            // 服务器卡片列表
-            servers.forEachIndexed { index, server ->
-                val key = "${server.host}:${server.port}"
-                val status = statuses[key]
-                val isPinging = key in pinging
-                ServerCard(
-                    name = server.name,
-                    host = server.host,
-                    port = server.port,
-                    status = status,
-                    isPinging = isPinging,
-                    onPing = { vm.pingServerFull(server.host, server.port) },
-                    onConnect = { vm.setDirectConnectServer(server.host, server.port) },
-                    onEdit = { editIndex = index },
-                    onDelete = { deleteIndex = index }
-                )
-                Spacer(Modifier.height(8.dp))
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                itemsIndexed(servers, key = { _, s -> "${s.host}:${s.port}:${s.name}" }) { index, server ->
+                    val key = "${server.host}:${server.port}"
+                    val status = statuses[key]
+                    val isPinging = key in pinging
+                    ServerCard(
+                        name = server.name,
+                        host = server.host,
+                        port = server.port,
+                        status = status,
+                        isPinging = isPinging,
+                        onPing = { vm.pingServerFull(server.host, server.port) },
+                        onConnect = { vm.setDirectConnectServer(server.host, server.port) },
+                        onEdit = { editIndex = index },
+                        onDelete = { deleteIndex = index }
+                    )
+                }
             }
         }
     }

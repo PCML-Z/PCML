@@ -1,5 +1,8 @@
 package com.pmcl.core.gamecontent;
 
+import com.pmcl.core.nbt.NbtReader;
+import com.pmcl.core.nbt.NbtTag;
+
 import java.io.IOException;
 import java.io.File;
 import java.nio.file.*;
@@ -48,6 +51,16 @@ public final class WorldManager {
         private long lastModified;
         private long sizeBytes;
         private String source;
+        /** level.dat 中的显示名（LevelName），空则 UI 回退用文件夹名 */
+        private String displayName = "";
+        /** 游戏模式：0=生存 1=创造 2=冒险 3=旁观，-1=未知 */
+        private int gameType = -1;
+        /** 难度：0=和平 1=简单 2=普通 3=困难，-1=未知 */
+        private int difficulty = -1;
+        private boolean hardcoreFlag;
+        /** 世界种子；Long.MIN_VALUE 表示未知 */
+        private long seed = Long.MIN_VALUE;
+        private boolean iconPresent;
 
         public WorldInfo(String name, Path dir, long lastModified, long sizeBytes) {
             this(name, dir, lastModified, sizeBytes, "PMCL");
@@ -62,6 +75,21 @@ public final class WorldManager {
         public long getLastModified() { return lastModified; }
         public long getSizeBytes() { return sizeBytes; }
         public String getSource() { return source; }
+        public String getDisplayName() { return displayName; }
+        public int getGameType() { return gameType; }
+        public int getDifficulty() { return difficulty; }
+        public boolean isHardcore() { return hardcoreFlag; }
+        public long getSeed() { return seed; }
+        public boolean hasIcon() { return iconPresent; }
+
+        void applyMeta(String displayName, int gameType, int difficulty, boolean hardcore, long seed, boolean hasIcon) {
+            this.displayName = displayName != null ? displayName : "";
+            this.gameType = gameType;
+            this.difficulty = difficulty;
+            this.hardcoreFlag = hardcore;
+            this.seed = seed;
+            this.iconPresent = hasIcon;
+        }
     }
 
     /** 扫描默认 saves 目录（~/.pmcl/saves） */
@@ -92,13 +120,87 @@ public final class WorldManager {
                         size = dirSize(dir);
                         sizeCache.put(dir, new long[]{mtime, size});
                     }
-                    result.add(new WorldInfo(dir.getFileName().toString(), dir, mtime, size, source));
+                    WorldInfo info = new WorldInfo(dir.getFileName().toString(), dir, mtime, size, source);
+                    fillLevelMeta(info, levelDat);
+                    result.add(info);
                 } catch (Throwable ignored) {
                     // 单个世界扫描失败（权限/符号链接/损坏）不应中断其他世界的加载
                 }
             });
         }
         return result;
+    }
+
+    /**
+     * 从 level.dat 读取显示名 / 模式 / 难度 / 硬核 / 种子，并检测 icon.png。
+     * 解析失败时保留默认未知值，不抛出。
+     */
+    private static void fillLevelMeta(WorldInfo info, Path levelDat) {
+        boolean hasIcon = Files.isRegularFile(info.getDir().resolve("icon.png"));
+        String displayName = "";
+        int gameType = -1;
+        int difficulty = -1;
+        boolean hardcore = false;
+        long seed = Long.MIN_VALUE;
+        try {
+            NbtTag root = NbtReader.read(levelDat);
+            NbtTag.CompoundTag data = findDataCompound(root);
+            if (data != null) {
+                displayName = readString(data, "LevelName");
+                gameType = readInt(data, "GameType", -1);
+                difficulty = readInt(data, "Difficulty", -1);
+                hardcore = readByte(data, "hardcore") != 0
+                        || readByte(data, "Hardcore") != 0;
+                seed = readLong(data, "RandomSeed", Long.MIN_VALUE);
+                if (seed == Long.MIN_VALUE) {
+                    NbtTag wgs = data.get("WorldGenSettings");
+                    if (wgs instanceof NbtTag.CompoundTag) {
+                        seed = readLong((NbtTag.CompoundTag) wgs, "seed", Long.MIN_VALUE);
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+            // level.dat 损坏/版本过新：仍展示基础信息
+        }
+        info.applyMeta(displayName, gameType, difficulty, hardcore, seed, hasIcon);
+    }
+
+    private static NbtTag.CompoundTag findDataCompound(NbtTag root) {
+        if (!(root instanceof NbtTag.CompoundTag)) return null;
+        NbtTag.CompoundTag compound = (NbtTag.CompoundTag) root;
+        NbtTag data = compound.get("Data");
+        if (data instanceof NbtTag.CompoundTag) return (NbtTag.CompoundTag) data;
+        // 少数工具可能直接以 Data 为根
+        if (compound.contains("LevelName") || compound.contains("GameType")) return compound;
+        return null;
+    }
+
+    private static String readString(NbtTag.CompoundTag c, String key) {
+        NbtTag t = c.get(key);
+        return t instanceof NbtTag.StringTag ? ((NbtTag.StringTag) t).getValue() : "";
+    }
+
+    private static int readInt(NbtTag.CompoundTag c, String key, int def) {
+        NbtTag t = c.get(key);
+        if (t instanceof NbtTag.IntTag) return ((NbtTag.IntTag) t).getValue();
+        if (t instanceof NbtTag.ByteTag) return ((NbtTag.ByteTag) t).getValue();
+        if (t instanceof NbtTag.ShortTag) return ((NbtTag.ShortTag) t).getValue();
+        if (t instanceof NbtTag.LongTag) return (int) ((NbtTag.LongTag) t).getValue();
+        return def;
+    }
+
+    private static byte readByte(NbtTag.CompoundTag c, String key) {
+        NbtTag t = c.get(key);
+        if (t instanceof NbtTag.ByteTag) return ((NbtTag.ByteTag) t).getValue();
+        if (t instanceof NbtTag.IntTag) return (byte) ((NbtTag.IntTag) t).getValue();
+        return 0;
+    }
+
+    private static long readLong(NbtTag.CompoundTag c, String key, long def) {
+        NbtTag t = c.get(key);
+        if (t instanceof NbtTag.LongTag) return ((NbtTag.LongTag) t).getValue();
+        if (t instanceof NbtTag.IntTag) return ((NbtTag.IntTag) t).getValue();
+        return def;
     }
 
     /** 备份世界为 zip（按世界名串行化，防止并发备份产生损坏的 zip） */

@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Star
@@ -920,6 +921,27 @@ fun LaunchPage(vm: LauncherViewModel) {
                         Spacer(Modifier.width(4.dp))
                     }
                     Text(I18n.t("log.share"), style = MaterialTheme.typography.labelSmall)
+                }
+                TextButton(
+                    onClick = { vm.clearGameLogs() },
+                    enabled = vm.gameLogs.value.isNotEmpty(),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                        horizontal = 8.dp, vertical = 0.dp
+                    )
+                ) {
+                    Icon(Icons.Filled.Clear, null, Modifier.size(14.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(I18n.t("log.clear"), style = MaterialTheme.typography.labelSmall)
+                }
+                TextButton(
+                    onClick = { vm.openGameLogFolder() },
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                        horizontal = 8.dp, vertical = 0.dp
+                    )
+                ) {
+                    Icon(Icons.Filled.FolderOpen, null, Modifier.size(14.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(I18n.t("log.open_folder"), style = MaterialTheme.typography.labelSmall)
                 }
             }
             // 分享成功后弹出 URL 对话框
@@ -1941,30 +1963,132 @@ private fun AvatarImage(url: String) {
 
 /**
  * 游戏日志面板（独立 Composable，隔离 gameLogs 高频更新，避免触发整个 LaunchPage 重组）
+ * 支持搜索、级别过滤、暂停自动滚动、级别着色。
  */
 @Composable
 private fun GameLogPanel(vm: LauncherViewModel) {
     val gameLogs by vm.gameLogs.collectAsState()
-    if (gameLogs.isEmpty()) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(I18n.t("launch.no_logs"), color = MaterialTheme.colorScheme.outline)
-        }
-    } else {
-        val logListState = rememberLazyListState()
-        val displayedLogs = remember(gameLogs) { gameLogs.takeLast(500) }
-        LaunchedEffect(displayedLogs.size) {
-            if (displayedLogs.isNotEmpty()) {
-                logListState.scrollToItem(displayedLogs.lastIndex)
-            }
-        }
-        LazyColumn(
-            modifier = Modifier.padding(8.dp),
-            state = logListState
+    var searchQuery by remember { mutableStateOf("") }
+    var levelFilter by remember { mutableStateOf(LogLevelFilter.ALL) }
+    var autoScroll by remember { mutableStateOf(true) }
+    val errorColor = MaterialTheme.colorScheme.error
+    val warnColor = MaterialTheme.colorScheme.tertiary
+    val infoColor = MaterialTheme.colorScheme.primary
+    val normalColor = MaterialTheme.colorScheme.onSurface
+
+    Column(modifier = Modifier.fillMaxSize().padding(8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            itemsIndexed(displayedLogs, key = { _, entry -> entry.seq }) { _, line ->
-                Text(line.text, style = MaterialTheme.typography.bodySmall,
-                     fontFamily = FontFamily.Monospace)
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                modifier = Modifier.weight(1f).heightIn(min = 40.dp),
+                placeholder = { Text(I18n.t("log.search_hint"), style = MaterialTheme.typography.labelSmall) },
+                singleLine = true,
+                textStyle = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace)
+            )
+            IconButton(onClick = { autoScroll = !autoScroll }, modifier = Modifier.size(32.dp)) {
+                Icon(
+                    if (autoScroll) Icons.Filled.KeyboardArrowDown else Icons.Filled.Pause,
+                    I18n.t("log.autoscroll"),
+                    modifier = Modifier.size(18.dp),
+                    tint = if (autoScroll) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                )
             }
         }
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            LogLevelFilter.entries.forEach { f ->
+                FilterChip(
+                    selected = levelFilter == f,
+                    onClick = { levelFilter = f },
+                    label = { Text(I18n.t(f.i18nKey), style = MaterialTheme.typography.labelSmall) },
+                    modifier = Modifier.height(28.dp)
+                )
+            }
+        }
+        if (gameLogs.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(I18n.t("launch.no_logs"), color = MaterialTheme.colorScheme.outline)
+            }
+        } else {
+            val logListState = rememberLazyListState()
+            val displayedLogs = remember(gameLogs, searchQuery, levelFilter) {
+                gameLogs.asReversed()
+                    .asSequence()
+                    .filter { entry ->
+                        (searchQuery.isBlank() || entry.text.contains(searchQuery, ignoreCase = true)) &&
+                            levelFilter.matches(entry.text)
+                    }
+                    .take(500)
+                    .toList()
+                    .asReversed()
+            }
+            LaunchedEffect(displayedLogs.size, autoScroll) {
+                if (autoScroll && displayedLogs.isNotEmpty()) {
+                    logListState.scrollToItem(displayedLogs.lastIndex)
+                }
+            }
+            LaunchedEffect(logListState.isScrollInProgress) {
+                if (!logListState.isScrollInProgress && displayedLogs.isNotEmpty()) {
+                    val lastVisible = logListState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+                    autoScroll = lastVisible >= displayedLogs.lastIndex - 2
+                }
+            }
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                state = logListState
+            ) {
+                itemsIndexed(displayedLogs, key = { _, entry -> entry.seq }) { _, line ->
+                    Text(
+                        line.text,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = FontFamily.Monospace,
+                        color = colorForLogLine(line.text, errorColor, warnColor, infoColor, normalColor)
+                    )
+                }
+            }
+        }
+    }
+}
+
+private enum class LogLevelFilter(val i18nKey: String) {
+    ALL("log.filter_all"),
+    ERROR("log.filter_error"),
+    WARN("log.filter_warn"),
+    INFO("log.filter_info");
+
+    fun matches(text: String): Boolean {
+        if (this == ALL) return true
+        val lower = text.lowercase()
+        return when (this) {
+            ERROR -> lower.contains("/error]") || lower.contains("[error") ||
+                lower.contains("exception") || lower.contains("caused by")
+            WARN -> lower.contains("/warn]") || lower.contains("[warn") || lower.contains("warning")
+            INFO -> lower.contains("/info]") || lower.contains("[info")
+            ALL -> true
+        }
+    }
+}
+
+private fun colorForLogLine(
+    text: String,
+    error: Color,
+    warn: Color,
+    info: Color,
+    normal: Color
+): Color {
+    val lower = text.lowercase()
+    return when {
+        lower.contains("/error]") || lower.contains("[error") ||
+            lower.contains("exception") || lower.contains("caused by") -> error
+        lower.contains("/warn]") || lower.contains("[warn") || lower.contains("warning") -> warn
+        lower.contains("/info]") || lower.contains("[info") -> info.copy(alpha = 0.85f)
+        else -> normal
     }
 }

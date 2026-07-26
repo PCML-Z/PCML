@@ -73,8 +73,10 @@ fun LockscreenLaunchPage(
     val buttonEnabled = selectedVersion != null && !gameRunning && !installing
 
     Box(Modifier.fillMaxSize()) {
-        // ===== 全屏背景层：优先使用视差背景，否则用渐变 =====
-        if (themeState.parallaxBackground) {
+        // ===== 全屏背景层：自定义背景（窗口级已渲染，此处保持透明透出）> 视差背景 > 渐变 =====
+        if (themeState.customBackground) {
+            // 自定义背景由 Main.kt 窗口层渲染，本页透明即可
+        } else if (themeState.parallaxBackground) {
             ParallaxBackground(modifier = Modifier.fillMaxSize(), useDark = themeState.useDark)
         } else {
             Box(

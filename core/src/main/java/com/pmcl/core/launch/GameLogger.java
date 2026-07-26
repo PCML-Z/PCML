@@ -131,10 +131,29 @@ public final class GameLogger {
 
     public void close() {
         closed = true;
+        // 排空队列后再关流，避免尾部日志丢失
+        long deadline = System.currentTimeMillis() + 2000;
+        while (!writeQueue.isEmpty() && System.currentTimeMillis() < deadline) {
+            try { Thread.sleep(20); } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
         writeThread.interrupt();
-        try { writeThread.join(1000); } catch (InterruptedException ie) {
+        try { writeThread.join(2000); } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
         }
+        // 同步排空剩余行（写线程已退出）
+        String leftover;
+        while ((leftover = writeQueue.poll()) != null) {
+            try {
+                writer.write(leftover);
+                writer.write("\n");
+            } catch (IOException ignored) {
+                break;
+            }
+        }
+        try { writer.flush(); } catch (IOException ignored) {}
         try { writer.close(); } catch (IOException ignored) {}
     }
 }

@@ -34,6 +34,9 @@ public final class Preferences {
     private String perfHudMetrics = "CPU,MEM,GPU,FPS"; // HUD 显示的指标，逗号分隔
     private float uiScale = 1.0f;             // UI 缩放系数（0.8~1.5），1.0 = 默认大小
     private boolean parallaxBackground = false; // 视差背景主题：多层鼠标视差背景图
+    private String launcherBgType = "none";     // 启动器自定义背景：none/image/video（优先级高于视差背景）
+    private String launcherBgImagePath = "";    // 自定义背景图片路径
+    private String launcherBgVideoPath = "";    // 自定义背景视频路径
     private boolean glassTheme = false;         // 玻璃主题：卡片毛玻璃效果
     private boolean lockscreenLaunchTheme = false; // 锁屏启动页主题：Origin OS2 风格方形卡片启动页
     private String themePreset = "default";        // 主题色彩预设：default/ocean/forest/sunset/lavender/sakura/midnight
@@ -45,6 +48,7 @@ public final class Preferences {
     private boolean predictiveLaunch = true;       // 预判启动开关：进入启动页时后台预启动最可能的版本，用户点启动时秒开
     private java.util.List<String> pinnedVersions = new java.util.ArrayList<>();
     private java.util.List<String> recentVersions = new java.util.ArrayList<>();  // 最近使用（LRU，最多 5 个）
+    private java.util.List<String> recentNbtFiles = new java.util.ArrayList<>(); // 最近打开的 NBT 文件（LRU，最多 8 个）
     private String lastSelectedVersion = "";       // 上次选中的版本（启动时恢复）
     private String lastOfflineUsername = "";      // 上次离线登录用户名（启动时恢复，避免每次重置为 Steve）
     private boolean githubSyncEnabled = false;    // 是否启用 GitHub Release 同步更新
@@ -173,6 +177,17 @@ public final class Preferences {
     public synchronized float getUiScale() { return uiScale; }
     public synchronized boolean isParallaxBackground() { return parallaxBackground; }
     public synchronized void setParallaxBackground(boolean v) { parallaxBackground = v; scheduleSave(); }
+
+    /** 启动器自定义背景类型：none / image / video */
+    public synchronized String getLauncherBgType() { return launcherBgType; }
+    public synchronized void setLauncherBgType(String v) {
+        launcherBgType = (v == null || v.isEmpty()) ? "none" : v;
+        scheduleSave();
+    }
+    public synchronized String getLauncherBgImagePath() { return launcherBgImagePath; }
+    public synchronized void setLauncherBgImagePath(String v) { launcherBgImagePath = v == null ? "" : v; scheduleSave(); }
+    public synchronized String getLauncherBgVideoPath() { return launcherBgVideoPath; }
+    public synchronized void setLauncherBgVideoPath(String v) { launcherBgVideoPath = v == null ? "" : v; scheduleSave(); }
     public synchronized boolean isGlassTheme() { return glassTheme; }
     public synchronized void setGlassTheme(boolean v) { glassTheme = v; scheduleSave(); }
     public synchronized boolean isLockscreenLaunchTheme() { return lockscreenLaunchTheme; }
@@ -269,6 +284,25 @@ public final class Preferences {
     /** 从最近使用列表移除某版本（版本被删除时清理用） */
     public synchronized void removeRecentVersion(String versionId) {
         if (recentVersions.remove(versionId)) scheduleSave();
+    }
+
+    // ===== 最近打开的 NBT 文件（LRU，最多 8 个） =====
+    public synchronized java.util.List<String> getRecentNbtFiles() {
+        return new java.util.ArrayList<>(recentNbtFiles);
+    }
+
+    public synchronized void recordRecentNbtFile(String path) {
+        if (path == null || path.isBlank()) return;
+        recentNbtFiles.remove(path);
+        recentNbtFiles.add(0, path);
+        while (recentNbtFiles.size() > 8) {
+            recentNbtFiles.remove(recentNbtFiles.size() - 1);
+        }
+        scheduleSave();
+    }
+
+    public synchronized void removeRecentNbtFile(String path) {
+        if (recentNbtFiles.remove(path)) scheduleSave();
     }
 
     // ===== 最后选中版本（启动时恢复） =====
@@ -771,6 +805,9 @@ public final class Preferences {
             borderlessWindow = loadBool(o, "borderlessWindow", false);
             showPerfHud = loadBool(o, "showPerfHud", false);
             parallaxBackground = loadBool(o, "parallaxBackground", false);
+            launcherBgType = loadString(o, "launcherBgType", "none");
+            launcherBgImagePath = loadString(o, "launcherBgImagePath", "");
+            launcherBgVideoPath = loadString(o, "launcherBgVideoPath", "");
             glassTheme = loadBool(o, "glassTheme", false);
             lockscreenLaunchTheme = loadBool(o, "lockscreenLaunchTheme", false);
             themePreset = loadString(o, "themePreset", "default");
@@ -874,6 +911,16 @@ public final class Preferences {
             }
         } catch (Exception e) {
             System.err.println("[Preferences] recentVersions 字段损坏，已跳过: " + e.getMessage());
+        }
+        try {
+            if (o.has("recentNbtFiles")) {
+                recentNbtFiles = new java.util.ArrayList<>();
+                for (var e : o.getAsJsonArray("recentNbtFiles")) {
+                    if (!e.isJsonNull()) recentNbtFiles.add(e.getAsString());
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("[Preferences] recentNbtFiles 字段损坏，已跳过: " + e.getMessage());
         }
         try {
             if (o.has("lastPlayedTimes") && o.get("lastPlayedTimes").isJsonObject()) {
@@ -990,9 +1037,10 @@ public final class Preferences {
             dirty = false;
             snapshot = buildJson();
         }
-        writeSnapshot(snapshot);
-        // 修复漏调度：doSave 执行期间若有新的 setter 标记 dirty，需重新调度一次写盘
+        boolean ok = writeSnapshot(snapshot);
+        // 写盘失败：重新标记 dirty 并稍后重试，避免静默丢设置
         synchronized (this) {
+            if (!ok) dirty = true;
             if (dirty && (pendingSave == null || pendingSave.isDone())) {
                 pendingSave = saveExecutor.schedule(this::doSave, SAVE_DEBOUNCE_MS, java.util.concurrent.TimeUnit.MILLISECONDS);
             }
@@ -1012,6 +1060,9 @@ public final class Preferences {
         o.addProperty("perfHudMetrics", perfHudMetrics);
         o.addProperty("uiScale", uiScale);
         o.addProperty("parallaxBackground", parallaxBackground);
+        o.addProperty("launcherBgType", launcherBgType);
+        o.addProperty("launcherBgImagePath", launcherBgImagePath);
+        o.addProperty("launcherBgVideoPath", launcherBgVideoPath);
         o.addProperty("glassTheme", glassTheme);
         o.addProperty("lockscreenLaunchTheme", lockscreenLaunchTheme);
         o.addProperty("themePreset", themePreset);
@@ -1026,6 +1077,9 @@ public final class Preferences {
         com.google.gson.JsonArray recentArr = new com.google.gson.JsonArray();
         for (String v : recentVersions) recentArr.add(v);
         o.add("recentVersions", recentArr);
+        com.google.gson.JsonArray recentNbtArr = new com.google.gson.JsonArray();
+        for (String v : recentNbtFiles) recentNbtArr.add(v);
+        o.add("recentNbtFiles", recentNbtArr);
         o.addProperty("lastSelectedVersion", lastSelectedVersion);
         o.addProperty("lastOfflineUsername", lastOfflineUsername);
         o.addProperty("githubSyncEnabled", githubSyncEnabled);
@@ -1133,7 +1187,8 @@ public final class Preferences {
      * 将 JSON 快照写入磁盘（tmp + ATOMIC_MOVE 原子写入）。
      * M13 修复：提取为独立方法，在锁外执行磁盘 IO，不阻塞 getter/setter。
      */
-    private void writeSnapshot(JsonObject snapshot) {
+    /** @return true 写入成功；失败时调用方应重新标记 dirty 并重试 */
+    private boolean writeSnapshot(JsonObject snapshot) {
         java.nio.file.Path tmp = null;
         try {
             java.nio.file.Path parent = file.getParent();
@@ -1151,11 +1206,13 @@ public final class Preferences {
                         java.nio.file.StandardCopyOption.REPLACE_EXISTING);
             }
             tmp = null;
+            return true;
         } catch (Exception e) {
             System.err.println("[Preferences] 配置写入磁盘失败: " + e.getMessage());
             if (tmp != null) {
                 try { Files.deleteIfExists(tmp); } catch (Exception ignored) {}
             }
+            return false;
         }
     }
 
@@ -1171,7 +1228,12 @@ public final class Preferences {
             dirty = false;
             snapshot = buildJson();
         }
-        writeSnapshot(snapshot);
+        if (!writeSnapshot(snapshot)) {
+            synchronized (this) {
+                dirty = true;
+            }
+            scheduleSave();
+        }
     }
 
     /**

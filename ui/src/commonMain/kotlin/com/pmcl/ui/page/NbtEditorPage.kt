@@ -25,6 +25,12 @@ import java.awt.Frame
 import java.awt.Toolkit
 import java.awt.datatransfer.StringSelection
 
+private data class ConvertTarget(
+    val tag: NbtTag,
+    val parent: NbtTag?,
+    val key: String?
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NbtEditorPage(vm: LauncherViewModel) {
@@ -34,90 +40,98 @@ fun NbtEditorPage(vm: LauncherViewModel) {
     val error by vm.nbtError.collectAsState()
     val revision by vm.nbtRevision.collectAsState()
     val worlds by vm.worlds.collectAsState()
+    val canUndo by vm.nbtCanUndo.collectAsState()
+    val canRedo by vm.nbtCanRedo.collectAsState()
+    val hasClipboard by vm.nbtHasClipboard.collectAsState()
+    val recentFiles by vm.recentNbtFiles.collectAsState()
+    val gzipped by vm.nbtGzipped.collectAsState()
 
     var searchQuery by remember { mutableStateOf("") }
     var showUnsavedDialog by remember { mutableStateOf(false) }
     var pendingAction by remember { mutableStateOf<(() -> Unit)?>(null) }
-    // S18: 全局 expandAllState 移入 Composable 内部，避免跨页面状态污染
-    // 用 Boolean? 类型：null=未触发（保留节点默认展开状态），true=全部展开，false=全部折叠
     var expandAll by remember { mutableStateOf<Boolean?>(null) }
 
-    // 对话框状态
     var showAddChildDialog by remember { mutableStateOf<Pair<NbtTag.CompoundTag, Boolean>?>(null) }
     var showArrayEditor by remember { mutableStateOf<NbtTag?>(null) }
     var showSaveAsDialog by remember { mutableStateOf(false) }
     var snbtExport by remember { mutableStateOf<String?>(null) }
+    var convertTarget by remember { mutableStateOf<ConvertTarget?>(null) }
 
     val scrollState = rememberScrollState()
+    // 强制树在修订后重组
+    @Suppress("UNUSED_VARIABLE")
+    val _rev = revision
+
+    fun requestOpen(path: String? = null) {
+        val doOpen = {
+            if (path != null) {
+                vm.openNbtFile(path)
+            } else {
+                val fd = FileDialog(Frame(), I18n.t("nbt.open"), FileDialog.LOAD)
+                fd.setFile("*.dat;*.nbt")
+                fd.isVisible = true
+                val f = fd.file
+                val d = fd.directory
+                if (f != null && d != null) vm.openNbtFile(java.io.File(d, f).absolutePath)
+            }
+        }
+        if (dirty) {
+            pendingAction = doOpen
+            showUnsavedDialog = true
+        } else {
+            doOpen()
+        }
+    }
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
-        // ===== 工具栏 =====
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 打开文件
-            OutlinedButton(onClick = {
-                val doOpen = {
-                    val fd = FileDialog(Frame(), I18n.t("nbt.open"), FileDialog.LOAD)
-                    fd.setFile("*.dat;*.nbt")
-                    fd.isVisible = true
-                    val f = fd.file
-                    val d = fd.directory
-                    if (f != null && d != null) vm.openNbtFile(java.io.File(d, f).absolutePath)
-                }
-                if (dirty) { pendingAction = doOpen; showUnsavedDialog = true } else doOpen()
-            }) { Icon(Icons.Default.FolderOpen, null); Spacer(Modifier.width(4.dp)); Text(I18n.t("nbt.open")) }
-
-            // 保存
+            OutlinedButton(onClick = { requestOpen() }) {
+                Icon(Icons.Default.FolderOpen, null); Spacer(Modifier.width(4.dp)); Text(I18n.t("nbt.open"))
+            }
             OutlinedButton(
                 onClick = { vm.saveNbtFile() },
                 enabled = root != null && filePath != null
             ) { Icon(Icons.Default.Save, null); Spacer(Modifier.width(4.dp)); Text(I18n.t("nbt.save")) }
-
-            // 另存为
             OutlinedButton(
                 onClick = { showSaveAsDialog = true },
                 enabled = root != null
             ) { Icon(Icons.Default.SaveAs, null); Spacer(Modifier.width(4.dp)); Text(I18n.t("nbt.save_as")) }
-
-            // 导出 SNBT
             OutlinedButton(
                 onClick = {
                     val snbt = vm.exportNbtSnbt()
                     snbtExport = snbt
-                    val clipboard = Toolkit.getDefaultToolkit().systemClipboard
-                    clipboard.setContents(StringSelection(snbt), null)
+                    Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(snbt), null)
                 },
                 enabled = root != null
             ) { Icon(Icons.Default.Code, null); Spacer(Modifier.width(4.dp)); Text(I18n.t("nbt.export_snbt")) }
 
-            Spacer(Modifier.weight(1f))
-
-            // 全部展开/折叠（仅在有根节点时显示）
-            if (root != null) {
-                TextButton(onClick = {
-                    // S18: 修改 expandAll 触发 NbtTreeNode 的 LaunchedEffect 同步展开状态
-                    expandAll = true
-                }) { Text(I18n.t("nbt.expand_all")) }
-                TextButton(onClick = {
-                    expandAll = false
-                }) { Text(I18n.t("nbt.collapse_all")) }
+            IconButton(onClick = { vm.undoNbt() }, enabled = canUndo) {
+                Icon(Icons.Default.Undo, I18n.t("nbt.undo"))
+            }
+            IconButton(onClick = { vm.redoNbt() }, enabled = canRedo) {
+                Icon(Icons.Default.Redo, I18n.t("nbt.redo"))
             }
 
-            // 关闭
+            Spacer(Modifier.weight(1f))
+
             if (root != null) {
+                TextButton(onClick = { expandAll = true }) { Text(I18n.t("nbt.expand_all")) }
+                TextButton(onClick = { expandAll = false }) { Text(I18n.t("nbt.collapse_all")) }
                 OutlinedButton(onClick = {
-                    if (dirty) { pendingAction = { vm.closeNbtFile() }; showUnsavedDialog = true }
-                    else vm.closeNbtFile()
+                    if (dirty) {
+                        pendingAction = { vm.closeNbtFile() }
+                        showUnsavedDialog = true
+                    } else vm.closeNbtFile()
                 }) { Icon(Icons.Default.Close, null); Spacer(Modifier.width(4.dp)); Text(I18n.t("nbt.close")) }
             }
         }
 
         Spacer(Modifier.height(8.dp))
 
-        // ===== 搜索框 =====
         if (root != null) {
             OutlinedTextField(
                 value = searchQuery,
@@ -135,7 +149,6 @@ fun NbtEditorPage(vm: LauncherViewModel) {
             Spacer(Modifier.height(8.dp))
         }
 
-        // ===== 文件路径 + dirty 标记 =====
         if (filePath != null) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -150,12 +163,21 @@ fun NbtEditorPage(vm: LauncherViewModel) {
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
                 )
+                AssistChip(
+                    onClick = {},
+                    label = {
+                        Text(
+                            if (gzipped) I18n.t("nbt.gzip") else I18n.t("nbt.raw"),
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    },
+                    modifier = Modifier.height(24.dp)
+                )
                 if (dirty) Text(" *", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             }
             Spacer(Modifier.height(4.dp))
         }
 
-        // ===== 错误显示 =====
         error?.let { e ->
             Surface(color = MaterialTheme.colorScheme.errorContainer, shape = RoundedCornerShape(8.dp)) {
                 Text(e, modifier = Modifier.padding(8.dp), color = MaterialTheme.colorScheme.onErrorContainer, style = MaterialTheme.typography.bodySmall)
@@ -163,9 +185,7 @@ fun NbtEditorPage(vm: LauncherViewModel) {
             Spacer(Modifier.height(8.dp))
         }
 
-        // ===== 主内容区 =====
         if (root != null) {
-            // S18: expandAll 作为参数传入，由 NbtTreeNode 内部 LaunchedEffect 响应
             Column(modifier = Modifier.fillMaxSize().verticalScroll(scrollState)) {
                 NbtTreeNode(
                     tag = root!!,
@@ -175,41 +195,65 @@ fun NbtEditorPage(vm: LauncherViewModel) {
                     expandAll = expandAll,
                     isRoot = true,
                     vm = vm,
+                    hasClipboard = hasClipboard,
                     onAddChild = { parent -> showAddChildDialog = parent to true },
-                    onEditArray = { array -> showArrayEditor = array }
+                    onEditArray = { array -> showArrayEditor = array },
+                    onConvert = { tag, parent, key -> convertTarget = ConvertTarget(tag, parent, key) }
                 )
             }
-        } else if (worlds.isNotEmpty()) {
-            // 快速打开世界 level.dat
-            Text(I18n.t("nbt.quick_open"), style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(8.dp))
-            worlds.forEach { w ->
-                val levelDat = java.io.File(w.dir.toString(), "level.dat")
-                if (levelDat.exists()) {
-                    OutlinedButton(
-                        onClick = { vm.openNbtFile(levelDat.absolutePath) },
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
-                    ) {
-                        Icon(Icons.Default.Public, null)
-                        Spacer(Modifier.width(8.dp))
-                        Text(w.name, modifier = Modifier.weight(1f))
-                        Text("${levelDat.length() / 1024}KB", style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-            }
         } else {
-            // 空状态
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Default.AccountTree, null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.outline)
+            Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                if (recentFiles.isNotEmpty()) {
+                    Text(I18n.t("nbt.recent"), style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(8.dp))
+                    recentFiles.forEach { path ->
+                        val f = java.io.File(path)
+                        if (f.exists()) {
+                            OutlinedButton(
+                                onClick = { requestOpen(path) },
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
+                            ) {
+                                Icon(Icons.Default.History, null)
+                                Spacer(Modifier.width(8.dp))
+                                Text(f.name, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(f.parent ?: "", style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
                     Spacer(Modifier.height(16.dp))
-                    Text(I18n.t("nbt.empty"), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.outline)
+                }
+                if (worlds.isNotEmpty()) {
+                    Text(I18n.t("nbt.quick_open"), style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(8.dp))
+                    worlds.forEach { w ->
+                        val levelDat = java.io.File(w.dir.toString(), "level.dat")
+                        if (levelDat.exists()) {
+                            OutlinedButton(
+                                onClick = { requestOpen(levelDat.absolutePath) },
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
+                            ) {
+                                Icon(Icons.Default.Public, null)
+                                Spacer(Modifier.width(8.dp))
+                                Text(w.name, modifier = Modifier.weight(1f))
+                                Text("${levelDat.length() / 1024}KB", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                } else if (recentFiles.isEmpty()) {
+                    Box(Modifier.fillMaxWidth().padding(48.dp), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(Icons.Default.AccountTree, null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.outline)
+                            Spacer(Modifier.height(16.dp))
+                            Text(I18n.t("nbt.empty"), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.outline)
+                            Spacer(Modifier.height(8.dp))
+                            Text(I18n.t("nbt.empty_hint"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                        }
+                    }
                 }
             }
         }
     }
 
-    // ===== 未保存确认对话框 =====
     if (showUnsavedDialog) {
         AlertDialog(
             onDismissRequest = { showUnsavedDialog = false; pendingAction = null },
@@ -239,7 +283,6 @@ fun NbtEditorPage(vm: LauncherViewModel) {
         )
     }
 
-    // ===== 添加子标签对话框 =====
     showAddChildDialog?.let { (parent, _) ->
         AddChildDialog(
             parent = parent,
@@ -251,16 +294,10 @@ fun NbtEditorPage(vm: LauncherViewModel) {
         )
     }
 
-    // ===== 数组编辑器对话框 =====
     showArrayEditor?.let { array ->
-        ArrayEditorDialog(
-            array = array,
-            onDismiss = { showArrayEditor = null },
-            vm = vm
-        )
+        ArrayEditorDialog(array = array, onDismiss = { showArrayEditor = null }, vm = vm)
     }
 
-    // ===== 另存为对话框 =====
     if (showSaveAsDialog) {
         SaveAsDialog(
             defaultName = filePath?.let { java.io.File(it).name } ?: "export.dat",
@@ -272,16 +309,23 @@ fun NbtEditorPage(vm: LauncherViewModel) {
         )
     }
 
-    // ===== SNBT 导出预览 =====
     snbtExport?.let { snbt ->
-        SnbtPreviewDialog(
-            snbt = snbt,
-            onDismiss = { snbtExport = null }
+        SnbtPreviewDialog(snbt = snbt, onDismiss = { snbtExport = null })
+    }
+
+    convertTarget?.let { target ->
+        ConvertTypeDialog(
+            tag = target.tag,
+            onDismiss = { convertTarget = null },
+            onConfirm = { type ->
+                if (!vm.convertNbtTag(target.parent, target.key, target.tag, type)) {
+                    // 失败时保持对话框，错误由 vm 状态/静默处理；用 snackbar 替代：写 status
+                }
+                convertTarget = null
+            }
         )
     }
 }
-
-// ===== 递归树节点 =====
 
 @Composable
 private fun NbtTreeNode(
@@ -289,49 +333,41 @@ private fun NbtTreeNode(
     name: String,
     depth: Int,
     searchQuery: String,
-    // S18: Boolean? 类型，null=未触发（保留默认展开），true=全部展开，false=全部折叠
     expandAll: Boolean?,
     isRoot: Boolean,
     vm: LauncherViewModel,
+    hasClipboard: Boolean,
     onAddChild: (NbtTag.CompoundTag) -> Unit,
     onEditArray: (NbtTag) -> Unit,
+    onConvert: (NbtTag, NbtTag?, String?) -> Unit,
     parent: NbtTag? = null,
     parentKey: String? = null
 ) {
-    // 搜索匹配判断
-    val matchesSearch = searchQuery.isEmpty() || name.contains(searchQuery, ignoreCase = true)
+    val valueMatch = searchQuery.isNotEmpty() && tagMatchesValue(tag, searchQuery)
+    val matchesSearch = searchQuery.isEmpty() ||
+            name.contains(searchQuery, ignoreCase = true) ||
+            valueMatch
     var expanded by remember(name, depth) { mutableStateOf(depth < 2) }
-    // S18: 用 LaunchedEffect 响应 expandAll 变化，避免组合期间写状态（原 if (expandAll) expanded = true 是反模式）
-    // null 时不修改 expanded（保留默认 depth < 2 行为），非 null 时同步展开/折叠
     LaunchedEffect(expandAll) {
-        if (expandAll != null) {
-            expanded = expandAll
-        }
+        if (expandAll != null) expanded = expandAll
     }
 
     val isContainer = tag is NbtTag.CompoundTag || tag is NbtTag.ListTag
     val isArray = tag is NbtTag.ByteArrayTag || tag is NbtTag.IntArrayTag || tag is NbtTag.LongArrayTag
 
-    // 内联编辑状态
     var editing by remember { mutableStateOf(false) }
     var editValue by remember { mutableStateOf("") }
     var renameMode by remember { mutableStateOf(false) }
     var renameValue by remember { mutableStateOf(name) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
-    // 父引用直接通过参数传递（O(1)，原 findParent 递归搜索为 O(n²)）
-
     Column(modifier = Modifier.padding(start = (depth * 20).dp)) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 展开/折叠按钮
             if (isContainer) {
-                IconButton(
-                    onClick = { expanded = !expanded },
-                    modifier = Modifier.size(24.dp)
-                ) {
+                IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(24.dp)) {
                     Icon(
                         if (expanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowRight,
                         null,
@@ -342,7 +378,6 @@ private fun NbtTreeNode(
                 Spacer(Modifier.size(24.dp))
             }
 
-            // 标签名（可重命名）
             if (renameMode && !isRoot) {
                 OutlinedTextField(
                     value = renameValue,
@@ -367,7 +402,9 @@ private fun NbtTreeNode(
                     name,
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (matchesSearch) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = if (searchQuery.isNotEmpty() && matchesSearch) Modifier.background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f), RoundedCornerShape(4.dp)).padding(horizontal = 2.dp) else Modifier
+                    modifier = if (searchQuery.isNotEmpty() && matchesSearch) {
+                        Modifier.background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f), RoundedCornerShape(4.dp)).padding(horizontal = 2.dp)
+                    } else Modifier
                 )
                 if (!isRoot) {
                     IconButton(onClick = { renameMode = true; renameValue = name }, modifier = Modifier.size(20.dp)) {
@@ -378,16 +415,14 @@ private fun NbtTreeNode(
 
             Spacer(Modifier.width(4.dp))
 
-            // 类型标签
             AssistChip(
-                onClick = {},
+                onClick = { onConvert(tag, parent, parentKey) },
                 label = { Text(tag.getTypeName(), style = MaterialTheme.typography.labelSmall) },
                 modifier = Modifier.height(24.dp)
             )
 
             Spacer(Modifier.weight(1f))
 
-            // 值显示 / 编辑（叶节点）
             if (!isContainer && !isArray) {
                 if (editing) {
                     OutlinedTextField(
@@ -398,18 +433,7 @@ private fun NbtTreeNode(
                         textStyle = MaterialTheme.typography.bodySmall
                     )
                     IconButton(onClick = {
-                        try {
-                            when (tag) {
-                                is NbtTag.ByteTag -> tag.setValue(editValue.toByte())
-                                is NbtTag.ShortTag -> tag.setValue(editValue.toShort())
-                                is NbtTag.IntTag -> tag.setValue(editValue.toInt())
-                                is NbtTag.LongTag -> tag.setValue(editValue.toLong().also {} as Long)
-                                is NbtTag.FloatTag -> tag.setValue(editValue.toFloat())
-                                is NbtTag.DoubleTag -> tag.setValue(editValue.toDouble())
-                                is NbtTag.StringTag -> tag.setValue(editValue)
-                            }
-                            vm.updateNbtValue()
-                        } catch (_: NumberFormatException) {}
+                        vm.setNbtLeafValue(tag, editValue)
                         editing = false
                     }) { Icon(Icons.Default.Check, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp)) }
                     IconButton(onClick = { editing = false }) {
@@ -429,7 +453,6 @@ private fun NbtTreeNode(
                     }
                 }
             } else if (isArray) {
-                // 数组类型：显示摘要 + 点击编辑
                 Text(
                     tag.getValueString(),
                     style = MaterialTheme.typography.bodySmall,
@@ -441,35 +464,55 @@ private fun NbtTreeNode(
                 }
             }
 
-            // 删除按钮（非根节点）
             if (!isRoot) {
+                IconButton(onClick = { vm.copyNbtNode(name, tag) }, modifier = Modifier.size(20.dp)) {
+                    Icon(Icons.Default.ContentCopy, I18n.t("nbt.copy"), modifier = Modifier.size(14.dp))
+                }
+                IconButton(onClick = { vm.cutNbtNode(parent, parentKey, tag) }, modifier = Modifier.size(20.dp)) {
+                    Icon(Icons.Default.ContentCut, I18n.t("nbt.cut"), modifier = Modifier.size(14.dp))
+                }
+                if (parent is NbtTag.CompoundTag && parentKey != null) {
+                    IconButton(onClick = { vm.duplicateNbtChild(parent, parentKey) }, modifier = Modifier.size(20.dp)) {
+                        Icon(Icons.Default.ControlPointDuplicate, I18n.t("nbt.duplicate"), modifier = Modifier.size(14.dp))
+                    }
+                }
                 IconButton(onClick = { showDeleteConfirm = true }, modifier = Modifier.size(20.dp)) {
                     Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(14.dp))
                 }
             }
 
-            // Compound: 添加子标签
             if (tag is NbtTag.CompoundTag) {
+                IconButton(
+                    onClick = { vm.pasteNbtNode(tag) },
+                    enabled = hasClipboard,
+                    modifier = Modifier.size(20.dp)
+                ) { Icon(Icons.Default.ContentPaste, I18n.t("nbt.paste"), modifier = Modifier.size(14.dp)) }
                 IconButton(onClick = { onAddChild(tag) }, modifier = Modifier.size(20.dp)) {
                     Icon(Icons.Default.Add, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
                 }
             }
 
-            // List: 添加元素
             if (tag is NbtTag.ListTag) {
+                IconButton(
+                    onClick = { vm.pasteNbtNode(tag) },
+                    enabled = hasClipboard,
+                    modifier = Modifier.size(20.dp)
+                ) { Icon(Icons.Default.ContentPaste, I18n.t("nbt.paste"), modifier = Modifier.size(14.dp)) }
                 IconButton(onClick = { vm.addNbtListItem(tag) }, modifier = Modifier.size(20.dp)) {
                     Icon(Icons.Default.Add, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
                 }
             }
         }
 
-        // 子节点
         if (isContainer && expanded) {
             when (tag) {
                 is NbtTag.CompoundTag -> {
                     tag.getChildren().forEach { (key, child) ->
-                        // 搜索过滤：子节点匹配或自身匹配时显示
-                        if (searchQuery.isEmpty() || key.contains(searchQuery, ignoreCase = true) || hasMatchingDescendant(child, searchQuery)) {
+                        if (searchQuery.isEmpty() ||
+                            key.contains(searchQuery, ignoreCase = true) ||
+                            tagMatchesValue(child, searchQuery) ||
+                            hasMatchingDescendant(child, searchQuery)
+                        ) {
                             NbtTreeNode(
                                 tag = child,
                                 name = key,
@@ -478,8 +521,10 @@ private fun NbtTreeNode(
                                 expandAll = expandAll,
                                 isRoot = false,
                                 vm = vm,
+                                hasClipboard = hasClipboard,
                                 onAddChild = onAddChild,
                                 onEditArray = onEditArray,
+                                onConvert = onConvert,
                                 parent = tag,
                                 parentKey = key
                             )
@@ -488,13 +533,14 @@ private fun NbtTreeNode(
                 }
                 is NbtTag.ListTag -> {
                     tag.getItems().forEachIndexed { index, item ->
-                        // 搜索过滤
-                        if (searchQuery.isEmpty() || hasMatchingDescendant(item, searchQuery)) {
+                        if (searchQuery.isEmpty() ||
+                            tagMatchesValue(item, searchQuery) ||
+                            hasMatchingDescendant(item, searchQuery)
+                        ) {
                             Row(
                                 modifier = Modifier.padding(start = ((depth + 1) * 20).dp).fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                // List 元素的移动/删除按钮
                                 IconButton(
                                     onClick = { vm.moveNbtListItem(tag, index, up = true) },
                                     modifier = Modifier.size(20.dp),
@@ -515,8 +561,10 @@ private fun NbtTreeNode(
                                     expandAll = expandAll,
                                     isRoot = false,
                                     vm = vm,
+                                    hasClipboard = hasClipboard,
                                     onAddChild = onAddChild,
                                     onEditArray = onEditArray,
+                                    onConvert = onConvert,
                                     parent = tag,
                                     parentKey = "[$index]"
                                 )
@@ -528,7 +576,6 @@ private fun NbtTreeNode(
         }
     }
 
-    // 删除确认
     if (showDeleteConfirm) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
@@ -552,7 +599,51 @@ private fun NbtTreeNode(
     }
 }
 
-// ===== 添加子标签对话框 =====
+@Composable
+private fun ConvertTypeDialog(
+    tag: NbtTag,
+    onDismiss: () -> Unit,
+    onConfirm: (Int) -> Unit
+) {
+    val candidates = convertibleTypes(tag)
+    var selected by remember { mutableStateOf(candidates.firstOrNull() ?: tag.getType()) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(I18n.t("nbt.convert_type")) },
+        text = {
+            if (candidates.isEmpty()) {
+                Text(I18n.t("nbt.convert_fail"))
+            } else {
+                Column {
+                    Text("${tag.getTypeName()} →", style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        candidates.forEach { type ->
+                            FilterChip(
+                                selected = selected == type,
+                                onClick = { selected = type },
+                                label = { Text(NbtTag.getTypeName(type), style = MaterialTheme.typography.labelSmall) }
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(selected) },
+                enabled = candidates.isNotEmpty()
+            ) { Text(I18n.t("nbt.done")) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(I18n.t("nbt.cancel")) }
+        }
+    )
+}
 
 @Composable
 private fun AddChildDialog(
@@ -574,14 +665,13 @@ private fun AddChildDialog(
                     onValueChange = { name = it; nameError = parent.contains(it) },
                     label = { Text(I18n.t("nbt.tag_name")) },
                     isError = nameError || name.isBlank(),
-                    supportingText = if (nameError) { { Text(I18n.t("nbt.name_exists")) } } else null,
+                    supportingText = if (nameError) {{ Text(I18n.t("nbt.name_exists")) }} else null,
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(Modifier.height(12.dp))
                 Text(I18n.t("nbt.tag_type"), style = MaterialTheme.typography.labelLarge)
                 Spacer(Modifier.height(4.dp))
-                // 类型选择器
                 Row(
                     modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -608,8 +698,6 @@ private fun AddChildDialog(
     )
 }
 
-// ===== 数组编辑器对话框 =====
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ArrayEditorDialog(
@@ -617,6 +705,9 @@ private fun ArrayEditorDialog(
     onDismiss: () -> Unit,
     vm: LauncherViewModel
 ) {
+    val revision by vm.nbtRevision.collectAsState()
+    @Suppress("UNUSED_VARIABLE")
+    val _rev = revision
     val elements: List<String> = when (array) {
         is NbtTag.ByteArrayTag -> array.getValue().map { it.toString() }
         is NbtTag.IntArrayTag -> array.getValue().map { it.toString() }
@@ -638,7 +729,6 @@ private fun ArrayEditorDialog(
         title = { Text("${I18n.t("nbt.edit_array")} ($elementTypeName[${elements.size}])") },
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
-                // 元素列表
                 Column(
                     modifier = Modifier.fillMaxWidth().heightIn(max = 300.dp).verticalScroll(rememberScrollState())
                 ) {
@@ -662,12 +752,8 @@ private fun ArrayEditorDialog(
                                     textStyle = MaterialTheme.typography.bodySmall
                                 )
                                 IconButton(onClick = {
-                                    val v = if (array is NbtTag.LongArrayTag)
-                                        editingValue.removeSuffix("L")
-                                    else editingValue
-                                    if (vm.setNbtArrayElement(array, index, v)) {
-                                        editingIndex = -1
-                                    }
+                                    val v = if (array is NbtTag.LongArrayTag) editingValue.removeSuffix("L") else editingValue
+                                    if (vm.setNbtArrayElement(array, index, v)) editingIndex = -1
                                 }) { Icon(Icons.Default.Check, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp)) }
                                 IconButton(onClick = { editingIndex = -1 }) {
                                     Icon(Icons.Default.Close, null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
@@ -695,7 +781,6 @@ private fun ArrayEditorDialog(
                     }
                 }
                 Spacer(Modifier.height(8.dp))
-                // 添加新元素
                 HorizontalDivider()
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -721,8 +806,6 @@ private fun ArrayEditorDialog(
         }
     )
 }
-
-// ===== 另存为对话框 =====
 
 @Composable
 private fun SaveAsDialog(
@@ -766,8 +849,6 @@ private fun SaveAsDialog(
     )
 }
 
-// ===== SNBT 预览对话框 =====
-
 @Composable
 private fun SnbtPreviewDialog(
     snbt: String,
@@ -799,9 +880,6 @@ private fun SnbtPreviewDialog(
     )
 }
 
-// ===== 辅助函数 =====
-
-/** 去除 StringTag 的引号以显示原始值 */
 private fun stripQuotes(tag: NbtTag): String {
     return when (tag) {
         is NbtTag.StringTag -> tag.getValue()
@@ -812,17 +890,47 @@ private fun stripQuotes(tag: NbtTag): String {
     }
 }
 
-/** 递归检查子树是否有匹配搜索的节点 */
+private fun tagMatchesValue(tag: NbtTag, query: String): Boolean {
+    if (query.isEmpty()) return false
+    return when (tag) {
+        is NbtTag.CompoundTag, is NbtTag.ListTag -> false
+        else -> tag.getValueString().contains(query, ignoreCase = true) ||
+                stripQuotes(tag).contains(query, ignoreCase = true)
+    }
+}
+
 private fun hasMatchingDescendant(tag: NbtTag, query: String): Boolean {
     if (query.isEmpty()) return true
     return when (tag) {
         is NbtTag.CompoundTag -> {
-            tag.getChildren().keys.any { it.contains(query, ignoreCase = true) } ||
-                    tag.getChildren().values.any { hasMatchingDescendant(it, query) }
+            tag.getChildren().any { (key, child) ->
+                key.contains(query, ignoreCase = true) ||
+                        tagMatchesValue(child, query) ||
+                        hasMatchingDescendant(child, query)
+            }
         }
-        is NbtTag.ListTag -> tag.getItems().any { hasMatchingDescendant(it, query) }
-        else -> false
+        is NbtTag.ListTag -> tag.getItems().any {
+            tagMatchesValue(it, query) || hasMatchingDescendant(it, query)
+        }
+        else -> tagMatchesValue(tag, query)
     }
 }
 
-// findParent/findParentRecursive 已删除：parent 和 parentKey 现在通过参数传递（O(1)）
+/** 可转换的目标类型（不含自身；Compound/List 不可转） */
+private fun convertibleTypes(tag: NbtTag): List<Int> {
+    return when (tag) {
+        is NbtTag.ByteTag, is NbtTag.ShortTag, is NbtTag.IntTag,
+        is NbtTag.LongTag, is NbtTag.FloatTag, is NbtTag.DoubleTag -> listOf(
+            NbtTag.TYPE_BYTE, NbtTag.TYPE_SHORT, NbtTag.TYPE_INT,
+            NbtTag.TYPE_LONG, NbtTag.TYPE_FLOAT, NbtTag.TYPE_DOUBLE, NbtTag.TYPE_STRING
+        ).filter { it != tag.getType() }
+        is NbtTag.StringTag -> listOf(
+            NbtTag.TYPE_BYTE, NbtTag.TYPE_SHORT, NbtTag.TYPE_INT,
+            NbtTag.TYPE_LONG, NbtTag.TYPE_FLOAT, NbtTag.TYPE_DOUBLE
+        )
+        is NbtTag.ByteArrayTag -> listOf(NbtTag.TYPE_INT_ARRAY)
+        is NbtTag.IntArrayTag -> listOf(NbtTag.TYPE_BYTE_ARRAY, NbtTag.TYPE_LONG_ARRAY)
+        is NbtTag.LongArrayTag -> listOf(NbtTag.TYPE_INT_ARRAY)
+        else -> emptyList()
+    }
+}

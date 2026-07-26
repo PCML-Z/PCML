@@ -20,6 +20,8 @@ public final class ModMeta {
     private boolean disabled;       // 是否被禁用（.jar.disabled 后缀）
     private String source;          // 来源标签（版本目录名 / "全局" / "系统"），由 VM 设置
     private List<String> tags;      // 用户自定义标签（如「性能」「科技」「魔法」），由 ModTagStore 加载
+    private String jarPath;         // jar 绝对路径（用于打开所在文件夹 / 读图标）
+    private String iconEntry;       // jar 内图标条目路径（fabric icon / forge logoFile）
 
     public ModMeta(String modId, String version, String name, String description,
                    String authors, String loader, List<String> depends,
@@ -59,6 +61,10 @@ public final class ModMeta {
     /** 返回用户自定义标签列表（如「性能」「科技」「魔法」），无标签时返回空列表 */
     public List<String> getTags() { return tags != null ? tags : Collections.emptyList(); }
     public void setTags(List<String> tags) { this.tags = tags != null ? Collections.unmodifiableList(new java.util.ArrayList<>(tags)) : Collections.emptyList(); }
+    public String getJarPath() { return jarPath; }
+    public void setJarPath(String jarPath) { this.jarPath = jarPath; }
+    public String getIconEntry() { return iconEntry; }
+    public void setIconEntry(String iconEntry) { this.iconEntry = iconEntry; }
 
     @Override
     public String toString() {

@@ -1,17 +1,9 @@
 package com.pmcl.ui
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandHorizontally
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CropSquare
 import androidx.compose.material.icons.filled.Minimize
@@ -36,7 +28,6 @@ import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.WindowScope
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
-import com.pmcl.ui.page.AiAgentPage
 import com.pmcl.ui.page.PerfHudWindow
 import com.pmcl.ui.page.TopBarSearchField
 import com.pmcl.ui.viewmodel.LauncherViewModel
@@ -47,6 +38,42 @@ import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
 import java.awt.geom.RoundRectangle2D
 import java.nio.file.Paths
+
+/**
+ * 预加载协程异常处理机制相关类（top-level val 在 main() 前的 MainKt.<clinit> 执行）。
+ *
+ * 这些类由 kotlinx.coroutines 惰性加载——只有第一次协程异常发生时才会从 classpath 读取。
+ * 如果运行期间 fat jar 被 gradle 重新构建覆盖（开着启动器执行 ./gradlew :ui:fatJar），
+ * 此时再加载会失败，表现为：
+ *   "Could not initialize class kotlinx.coroutines.internal.CoroutineExceptionHandlerImplKt"
+ *   "Fatal exception in coroutines machinery ..." 弹窗风暴（Recomposer 崩溃，UI 全挂）。
+ * 启动时趁 jar 完好提前加载，可保证协程异常处理路径始终可用。
+ */
+private val coroutinesErrorMachineryPreloaded: Boolean = run {
+    listOf(
+        "kotlinx.coroutines.internal.CoroutineExceptionHandlerImplKt",
+        "kotlinx.coroutines.CoroutineExceptionHandlerKt",
+        "kotlinx.coroutines.internal.StackTraceRecoveryKt",
+        "kotlinx.coroutines.CompletionHandlerException",
+        // 统计页用到的嵌套类：启动时趁 jar 完好预加载，避免运行中覆盖 fat jar 后进统计页炸 NoClassDefFoundError
+        "com.pmcl.core.stats.PlayTimeTracker",
+        "com.pmcl.core.stats.PlayTimeTracker\$OverallStat",
+        "com.pmcl.core.stats.PlayTimeTracker\$DailyStat",
+        "com.pmcl.core.stats.PlayTimeTracker\$HeatmapStat",
+        "com.pmcl.core.stats.PlayTimeTracker\$WeekdayStat",
+        "com.pmcl.core.stats.PlayTimeTracker\$RecordsStat",
+        "com.pmcl.core.stats.PlayTimeTracker\$VersionStat",
+        "com.pmcl.core.stats.PlayTimeTracker\$BreakdownStat",
+        "com.pmcl.core.stats.PlayTimeTracker\$Session",
+    ).forEach { name ->
+        try {
+            Class.forName(name)
+        } catch (e: Throwable) {
+            System.err.println("[Main] 预加载 $name 失败: $e")
+        }
+    }
+    true
+}
 
 /**
  * 桌面端入口。
@@ -72,7 +99,7 @@ fun main() = application {
     val vm = remember { LauncherViewModel() }
     val searchFocusRequester = remember { FocusRequester() }
 
-    // 应用退出时优雅关闭 VM 协程，避免 JVM 强杀导致正在进行的文件写入损坏
+    // 应用退出时优雅关闭（进程/联机/偏好落盘）；onDispose 作兜底
     DisposableEffect(Unit) {
         onDispose { vm.shutdown() }
     }
@@ -94,23 +121,27 @@ fun main() = application {
         position = WindowPosition.Aligned(Alignment.Center)
     )
 
-    // AI 智能体独立窗口开关
-    val showAiWindow = remember { mutableStateOf(false) }
     // iOS 伴随 App 配对对话框开关
     val showCompanionDialog = remember { mutableStateOf(false) }
-    val aiWindowState = rememberWindowState(
-        width = 860.dp,
-        height = 640.dp,
-        position = WindowPosition.Aligned(Alignment.Center)
-    )
 
     // 视差背景主题开关（响应式，可在设置中实时切换）
     val parallaxBg by vm.parallaxBackground.collectAsState()
+    // 自定义背景（图片/视频，优先级高于视差背景）
+    val customBgType by vm.launcherBgType.collectAsState()
+    val customBgImage by vm.launcherBgImagePath.collectAsState()
+    val customBgVideo by vm.launcherBgVideoPath.collectAsState()
+    val customBgOn = (customBgType == "image" && customBgImage.isNotBlank()) ||
+            (customBgType == "video" && customBgVideo.isNotBlank())
+    // 任一背景层激活时内容 Surface 透明
+    val bgLayerOn = parallaxBg || customBgOn
     // 玻璃主题开关（响应式，标题栏/侧边栏分层毛玻璃）
     val glassOn by vm.glassTheme.collectAsState()
 
     Window(
-        onCloseRequest = ::exitApplication,
+        onCloseRequest = {
+            try { vm.shutdown() } catch (_: Throwable) {}
+            exitApplication()
+        },
         title = "PMCL — Minecraft Launcher",
         state = state,
         undecorated = borderless,
@@ -171,13 +202,23 @@ fun main() = application {
             // 最大化时移除圆角裁剪，让内容填满屏幕直角
             var isMaximized by remember { mutableStateOf(false) }
 
-            // 视差背景层：放在最底层，所有内容悬浮其上
+            // 背景层：放在最底层，所有内容悬浮其上
             // 无边框模式下 clip 圆角，避免方形边缘盖住窗口 shape
             // 最大化时不裁剪，让背景填满屏幕直角
-            if (parallaxBg) {
+            // 优先级：自定义背景（图片/视频）> 视差背景
+            val bgModifier = if (borderless && !isMaximized) Modifier.clip(RoundedCornerShape(14.dp))
+                             else Modifier
+            if (customBgOn) {
+                com.pmcl.ui.theme.CustomBackground(
+                    type = customBgType,
+                    imagePath = customBgImage,
+                    videoPath = customBgVideo,
+                    useDark = useDark,
+                    modifier = bgModifier
+                )
+            } else if (parallaxBg) {
                 com.pmcl.ui.theme.ParallaxBackground(
-                    modifier = if (borderless && !isMaximized) Modifier.clip(RoundedCornerShape(14.dp))
-                               else Modifier,
+                    modifier = bgModifier,
                     useDark = useDark
                 )
             }
@@ -277,8 +318,8 @@ fun main() = application {
                             if (isMaximized) Modifier
                             else Modifier.clip(RoundedCornerShape(14.dp))
                         ),
-                        color = if (parallaxBg) Color.Transparent else MaterialTheme.colorScheme.surface,
-                        tonalElevation = if (parallaxBg) 0.dp else 1.dp
+                        color = if (bgLayerOn) Color.Transparent else MaterialTheme.colorScheme.surface,
+                        tonalElevation = if (bgLayerOn) 0.dp else 1.dp
                     ) {
                         Column(Modifier.fillMaxSize()) {
                             BorderlessTitleBar(
@@ -286,7 +327,6 @@ fun main() = application {
                                 isDragging = isDragging,
                                 vm = vm,
                                 searchFocusRequester = searchFocusRequester,
-                                onOpenAi = { showAiWindow.value = true },
                                 onOpenCompanion = { showCompanionDialog.value = true },
                                 glassOn = glassOn
                             )
@@ -302,7 +342,6 @@ fun main() = application {
                     SlimSearchBar(
                         vm = vm,
                         searchFocusRequester = searchFocusRequester,
-                        onOpenAi = { showAiWindow.value = true },
                         onOpenCompanion = { showCompanionDialog.value = true },
                         glassOn = glassOn
                     )
@@ -319,7 +358,7 @@ fun main() = application {
                         pairing = pairingManager,
                         hostServer = hostServer,
                         onDismiss = { showCompanionDialog.value = false },
-                        parallaxBg = parallaxBg,
+                        parallaxBg = bgLayerOn,
                         glassOn = glassOn,
                         useDark = useDark
                     )
@@ -335,28 +374,6 @@ fun main() = application {
                         vm = vm,
                         useDark = useDark
                     )
-                }
-            }
-        }
-    }
-
-    // AI 智能体独立窗口
-    if (showAiWindow.value) {
-        Window(
-            onCloseRequest = { showAiWindow.value = false },
-            title = "PCML智能体",
-            state = aiWindowState,
-            undecorated = false,
-            focusable = true
-        ) {
-            val isDark = useDark
-            val scheme = if (isDark) darkColorScheme() else lightColorScheme()
-            MaterialTheme(colorScheme = scheme) {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
-                ) {
-                    AiAgentPage(vm)
                 }
             }
         }
@@ -403,6 +420,8 @@ private fun readDarkThemePref(path: String): Boolean {
 /**
  * 窗口拖拽修饰符：按住左键拖拽移动窗口（Compose 1.7 无 WindowDragArea，手动实现）。
  * 拖动开始/结束 时更新 isDragging 状态，用于切换透明/不透明渲染避免闪烁。
+ *
+ * 使用 Final pass 并跳过已被子组件消费的事件，避免标题栏搜索框/按钮点击时整窗被拖走。
  */
 private fun WindowScope.windowDragModifier(isDragging: MutableState<Boolean>): Modifier =
     Modifier.pointerInput(Unit) {
@@ -411,7 +430,16 @@ private fun WindowScope.windowDragModifier(isDragging: MutableState<Boolean>): M
 
         awaitPointerEventScope {
             while (true) {
-                val event = awaitPointerEvent()
+                val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Final)
+                // 搜索框、IconButton 等已消费时不启动/不继续拖拽
+                if (event.changes.any { it.isConsumed }) {
+                    if (!event.buttons.isPrimaryPressed && initialMouse != null) {
+                        isDragging.value = false
+                        initialMouse = null
+                        initialWindowLoc = null
+                    }
+                    continue
+                }
                 val mouseLocation = MouseInfo.getPointerInfo()?.location
 
                 if (event.buttons.isPrimaryPressed) {
@@ -448,7 +476,6 @@ private fun FrameWindowScope.BorderlessTitleBar(
     isDragging: MutableState<Boolean>,
     vm: LauncherViewModel,
     searchFocusRequester: FocusRequester,
-    onOpenAi: () -> Unit,
     onOpenCompanion: () -> Unit,
     glassOn: Boolean = false
 ) {
@@ -468,35 +495,33 @@ private fun FrameWindowScope.BorderlessTitleBar(
             modifier = Modifier.fillMaxSize()
         ) {
             Row(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .then(windowDragModifier(isDragging)),
+                modifier = Modifier.fillMaxSize(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-            // 标题
+            // 标题（可拖拽区域）
             Text(
                 "PMCL — Minecraft Launcher",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
-                modifier = Modifier.padding(start = 12.dp)
+                modifier = Modifier
+                    .padding(start = 12.dp)
+                    .then(windowDragModifier(isDragging))
             )
-            Spacer(Modifier.width(12.dp))
-            // 搜索框（自身消耗指针事件，不会触发拖动）
+            Spacer(Modifier.width(12.dp).then(windowDragModifier(isDragging)))
+            // 搜索框：独立布局，不挂窗口拖拽，避免抢焦点/无法输入
             TopBarSearchField(
                 modifier = Modifier.width(280.dp),
                 vm = vm,
                 focusRequester = searchFocusRequester,
                 compact = true
             )
-            Spacer(Modifier.weight(1f))
+            Spacer(Modifier.weight(1f).then(windowDragModifier(isDragging)))
             // iOS 伴随 App 配对按钮
             IconButton(onClick = onOpenCompanion, modifier = Modifier.size(32.dp)) {
                 Icon(Icons.Filled.PhoneIphone, "iOS 伴随 App 配对", modifier = Modifier.size(16.dp))
             }
-            // AI 智能体按钮（鼠标悬停展开标签）
-            AiHoverButton(onClick = onOpenAi)
             // 最小化
             IconButton(
                 onClick = { window.extendedState = Frame.ICONIFIED },
@@ -530,62 +555,6 @@ private fun FrameWindowScope.BorderlessTitleBar(
 }
 
 /**
- * 标题栏 AI 悬浮按钮：默认仅显示图标，鼠标悬停时水平展开显示「以智能体模式打开」标签。
- */
-@Composable
-private fun AiHoverButton(onClick: () -> Unit) {
-    var hovered by remember { mutableStateOf(false) }
-    Surface(
-        color = if (hovered) MaterialTheme.colorScheme.primaryContainer
-                else Color.Transparent,
-        shape = RoundedCornerShape(8.dp),
-        modifier = Modifier
-            .height(28.dp)
-            .pointerInput(Unit) {
-                awaitPointerEventScope {
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        when (event.type) {
-                            PointerEventType.Enter -> hovered = true
-                            PointerEventType.Exit -> hovered = false
-                            else -> {}
-                        }
-                    }
-                }
-            }
-            .clip(RoundedCornerShape(8.dp))
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick
-            )
-            .padding(horizontal = 6.dp),
-        tonalElevation = 0.dp
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            Icon(Icons.Filled.Bolt, "以智能体模式打开",
-                tint = if (hovered) MaterialTheme.colorScheme.onPrimaryContainer
-                       else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(15.dp))
-            AnimatedVisibility(
-                visible = hovered,
-                enter = expandHorizontally() + fadeIn(),
-                exit = shrinkHorizontally() + fadeOut()
-            ) {
-                Text("以智能体模式打开",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1)
-            }
-        }
-    }
-}
-
-/**
  * 非无边框模式下的搜索条（OS 标题栏下方）。
  * 玻璃主题开启时分层渲染：底层模糊背景 + 上层透明 Surface 清晰内容。
  */
@@ -593,7 +562,6 @@ private fun AiHoverButton(onClick: () -> Unit) {
 private fun SlimSearchBar(
     vm: LauncherViewModel,
     searchFocusRequester: FocusRequester,
-    onOpenAi: () -> Unit,
     onOpenCompanion: () -> Unit,
     glassOn: Boolean = false
 ) {
@@ -625,7 +593,6 @@ private fun SlimSearchBar(
                 IconButton(onClick = onOpenCompanion, modifier = Modifier.size(32.dp)) {
                     Icon(Icons.Filled.PhoneIphone, "iOS 伴随 App 配对", modifier = Modifier.size(16.dp))
                 }
-                AiHoverButton(onClick = onOpenAi)
             }
         }
     }

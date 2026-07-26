@@ -42,6 +42,10 @@ public final class I18n {
         ZH.put("common.delete", "删除");
         ZH.put("common.backup", "备份");
         ZH.put("common.cancel", "取消");
+        ZH.put("common.expand_menu", "展开菜单");
+        ZH.put("common.collapse_menu", "收起菜单");
+        ZH.put("common.switch_tab", "切换分类");
+        ZH.put("mods.tools_menu", "筛选工具");
         ZH.put("common.confirm", "确认");
         ZH.put("common.ok", "确定");
         ZH.put("common.status", "状态");
@@ -100,7 +104,7 @@ public final class I18n {
         ZH.put("nbt.snbt_exported", "SNBT已复制到剪贴板");
         ZH.put("nbt.expand_all", "全部展开");
         ZH.put("nbt.collapse_all", "全部折叠");
-        ZH.put("nbt.search_hint", "搜索标签名...");
+        ZH.put("nbt.search_hint", "搜索标签名或值...");
         ZH.put("nbt.add_child", "添加子标签");
         ZH.put("nbt.add", "添加");
         ZH.put("nbt.delete", "删除");
@@ -123,6 +127,18 @@ public final class I18n {
         ZH.put("nbt.done", "完成");
         ZH.put("nbt.file_path", "文件路径");
         ZH.put("nbt.browse", "浏览...");
+        ZH.put("nbt.undo", "撤销");
+        ZH.put("nbt.redo", "重做");
+        ZH.put("nbt.copy", "复制");
+        ZH.put("nbt.cut", "剪切");
+        ZH.put("nbt.paste", "粘贴");
+        ZH.put("nbt.duplicate", "复制一份");
+        ZH.put("nbt.convert_type", "转换类型");
+        ZH.put("nbt.convert_fail", "无法转换为此类型");
+        ZH.put("nbt.paste_type_mismatch", "剪贴板类型与列表元素类型不匹配");
+        ZH.put("nbt.recent", "最近打开");
+        ZH.put("nbt.gzip", "Gzip");
+        ZH.put("nbt.raw", "未压缩");
         ZH.put("nav.mods", "模组");
         ZH.put("nav.market", "市场");
         ZH.put("nav.worlds", "世界");
@@ -161,7 +177,8 @@ public final class I18n {
         // 页面描述
         ZH.put("search.nav.launch", "启动游戏、版本选择、模组加载器");
         ZH.put("search.nav.news", "查看 Minecraft 最新资讯");
-        ZH.put("search.nav.multiplayer", "联机服务器列表");
+        ZH.put("search.nav.multiplayer", "创建或加入联机房间");
+        ZH.put("search.hub.servers", "收藏服务器、延迟检测");
         ZH.put("search.nav.friends", "好友管理、聊天、添加好友");
         ZH.put("search.nav.download", "版本安装、模组市场、下载队列");
         ZH.put("search.nav.content", "模组、整合包、光影包、资源包、配置文件");
@@ -341,6 +358,12 @@ public final class I18n {
         ZH.put("mods.title", "模组管理");
         ZH.put("mods.import_title", "导入模组");
         ZH.put("mods.import_hint", "选择 .jar 模组文件");
+        ZH.put("mods.drop_hint", "将 .jar 拖入窗口即可安装 · 或点击「导入模组」");
+        ZH.put("mods.filter_all", "全部");
+        ZH.put("mods.filter_enabled", "仅启用");
+        ZH.put("mods.filter_disabled", "仅禁用");
+        ZH.put("mods.filter_updates", "有更新");
+        ZH.put("mods.open_folder", "打开所在文件夹");
         ZH.put("mods.search_placeholder", "搜索模组名 / ID / 加载器…");
         ZH.put("mods.delete_title", "删除模组");
         ZH.put("mods.delete_confirm", "确定要删除 {0} 吗？\n文件：{1}");
@@ -639,6 +662,9 @@ public final class I18n {
         ZH.put("mp.easytier", "陶瓦联机 · EasyTier");
         ZH.put("mp.settings", "联机设置");
         ZH.put("mp.backend", "联机后端");
+        ZH.put("mp.advanced", "联机方式 / 高级");
+        ZH.put("mp.hub.room", "房间联机");
+        ZH.put("mp.idle_hint", "创建房间后把房间码发给好友；或粘贴对方的房间码加入。");
         ZH.put("mp.terracotta_official", "Terracotta（官方）");
         ZH.put("mp.current_room", "当前房间");
         ZH.put("mp.room_code", "房间码（发送给朋友加入）");
@@ -716,7 +742,6 @@ public final class I18n {
         ZH.put("about.tech.gson", "JSON 序列化");
         ZH.put("about.tech.coroutines", "协程");
         ZH.put("about.tech.oshi", "系统信息");
-        ZH.put("about.tech.pty4j", "终端 PTY");
         ZH.put("about.author_github", "作者 GitHub");
         ZH.put("about.view_license", "查看许可证");
         ZH.put("about.user_agreement", "用户协议");
@@ -791,6 +816,15 @@ public final class I18n {
         ZH.put("settings.borderless_window_desc", "开启后使用自定义标题栏，重启启动器后生效");
         ZH.put("settings.parallax_background", "视差背景");
         ZH.put("settings.parallax_background_desc", "多层渐变球随鼠标偏移产生 3D 视差效果，实时生效");
+        ZH.put("settings.custom_bg", "自定义背景");
+        ZH.put("settings.custom_bg_desc", "使用本地图片或视频作为启动器背景，优先级高于视差背景，实时生效");
+        ZH.put("settings.custom_bg_off", "关闭");
+        ZH.put("settings.custom_bg_image", "背景图片");
+        ZH.put("settings.custom_bg_video", "背景视频");
+        ZH.put("settings.custom_bg_image_empty", "未选择图片（支持 png/jpg/webp/bmp）");
+        ZH.put("settings.custom_bg_image_select", "选择背景图片");
+        ZH.put("settings.custom_bg_video_empty", "未选择视频（支持 mp4/webm/mov/mkv/avi，自动循环静音播放）");
+        ZH.put("settings.custom_bg_video_select", "选择背景视频");
         ZH.put("settings.glass_theme", "玻璃主题");
         ZH.put("settings.glass_theme_desc", "卡片毛玻璃效果，搭配视差背景视觉更佳，实时生效");
         ZH.put("settings.lockscreen_launch", "锁屏启动页");
@@ -838,6 +872,18 @@ public final class I18n {
 
         // ===== 终端页 =====
         ZH.put("terminal.title", "终端");
+        ZH.put("terminal.welcome_hint", "输入 help 查看命令；Tab 补全；↑↓ 历史；clear 清屏。");
+        ZH.put("terminal.executing", "执行中…");
+        ZH.put("terminal.cancel", "取消");
+        ZH.put("terminal.cancelled", "（已取消）");
+        ZH.put("terminal.history_count", "历史: {0}");
+        ZH.put("terminal.font_smaller", "缩小字号");
+        ZH.put("terminal.font_larger", "放大字号");
+        ZH.put("terminal.copy", "复制全部输出");
+        ZH.put("terminal.autoscroll", "自动滚动");
+        ZH.put("terminal.clear", "清屏");
+        ZH.put("terminal.search_hint", "搜索输出…");
+        ZH.put("terminal.exit_hint", "GUI 终端不支持 exit，请使用 clear 清屏。");
 
         // ===== 日志导出/分享 =====
         ZH.put("log.export", "导出");
@@ -849,6 +895,15 @@ public final class I18n {
         ZH.put("log.share", "分享");
         ZH.put("log.share_success", "分享成功");
         ZH.put("log.share_url_hint", "日志已上传到 paste.gg，复制下方链接分享给他人：");
+        ZH.put("log.clear", "清空");
+        ZH.put("log.open_folder", "日志目录");
+        ZH.put("log.open_folder_failed", "打开日志目录失败: {0}");
+        ZH.put("log.search_hint", "搜索日志…");
+        ZH.put("log.autoscroll", "自动滚动");
+        ZH.put("log.filter_all", "全部");
+        ZH.put("log.filter_error", "错误");
+        ZH.put("log.filter_warn", "警告");
+        ZH.put("log.filter_info", "信息");
 
         // ===== 启动页新增 =====
         ZH.put("launch.scan", "扫描");
@@ -1317,6 +1372,21 @@ public final class I18n {
         ZH.put("world.no_backups", "暂无备份。请先点击「备份」创建一个。");
         ZH.put("world.delete_title", "删除世界");
         ZH.put("world.delete_confirm", "确定要删除 {0} 吗？\n此操作不可恢复。\n路径：{1}");
+        ZH.put("world.open_folder", "打开文件夹");
+        ZH.put("world.mode.survival", "生存");
+        ZH.put("world.mode.creative", "创造");
+        ZH.put("world.mode.adventure", "冒险");
+        ZH.put("world.mode.spectator", "旁观");
+        ZH.put("world.mode.unknown", "未知模式");
+        ZH.put("world.diff.peaceful", "和平");
+        ZH.put("world.diff.easy", "简单");
+        ZH.put("world.diff.normal", "普通");
+        ZH.put("world.diff.hard", "困难");
+        ZH.put("world.diff.unknown", "未知难度");
+        ZH.put("world.hardcore", "硬核");
+        ZH.put("world.seed", "种子: {0}");
+        ZH.put("world.seed_copy", "复制种子");
+        ZH.put("world.folder_name", "目录: {0}");
 
         // ===== 账号页新增 =====
         ZH.put("accounts.default_avatar", "默认头像");
@@ -1404,7 +1474,7 @@ public final class I18n {
         ZH.put("screenshot.title", "截图");
         ZH.put("screenshot.export_zip_dialog", "导出截图 ZIP");
         ZH.put("screenshot.export_zip", "导出 ZIP");
-        ZH.put("screenshot.scan_hint", "已合并扫描：PMCL / 外部启动器 / 整合包版本目录下的 screenshots · 选中后按空格预览");
+        ZH.put("screenshot.scan_hint", "已合并扫描多来源 screenshots · 点图预览 · 勾选可批量删除/导出");
         ZH.put("screenshot.empty", "暂无截图。游戏内按 F2 截图后会自动保存到 screenshots 目录。");
         ZH.put("screenshot.open_folder", "打开文件夹");
         ZH.put("screenshot.source", "来源: {0}");
@@ -1416,6 +1486,16 @@ public final class I18n {
         ZH.put("screenshot.load_error", "无法加载图片");
         ZH.put("screenshot.prev", "上一张");
         ZH.put("screenshot.next", "下一张");
+        ZH.put("screenshot.search_hint", "搜索文件名…");
+        ZH.put("screenshot.source_all", "全部来源");
+        ZH.put("screenshot.select_all", "全选");
+        ZH.put("screenshot.clear_selection", "取消选择");
+        ZH.put("screenshot.selected_count", "已选 {0} 项");
+        ZH.put("screenshot.batch_delete", "批量删除");
+        ZH.put("screenshot.batch_delete_confirm", "确定删除选中的 {0} 张截图？此操作不可恢复。");
+        ZH.put("screenshot.open_containing", "打开所在文件夹");
+        ZH.put("screenshot.filtered_count", "{0} 张");
+        ZH.put("status.screenshots_deleted", "已删除 {0} 张截图");
 
         // ===== 视频通话新增 =====
         ZH.put("call.waiting_for_answer", "等待对方接听…");
@@ -1896,6 +1976,10 @@ public final class I18n {
         EN.put("common.delete", "Delete");
         EN.put("common.backup", "Backup");
         EN.put("common.cancel", "Cancel");
+        EN.put("common.expand_menu", "Expand menu");
+        EN.put("common.collapse_menu", "Collapse menu");
+        EN.put("common.switch_tab", "Switch category");
+        EN.put("mods.tools_menu", "Filters");
         EN.put("common.confirm", "Confirm");
         EN.put("common.ok", "OK");
         EN.put("common.status", "Status");
@@ -1953,7 +2037,7 @@ public final class I18n {
         EN.put("nbt.snbt_exported", "SNBT copied to clipboard");
         EN.put("nbt.expand_all", "Expand All");
         EN.put("nbt.collapse_all", "Collapse All");
-        EN.put("nbt.search_hint", "Search tag names...");
+        EN.put("nbt.search_hint", "Search tag names or values...");
         EN.put("nbt.add_child", "Add Child");
         EN.put("nbt.add", "Add");
         EN.put("nbt.delete", "Delete");
@@ -1976,6 +2060,18 @@ public final class I18n {
         EN.put("nbt.done", "Done");
         EN.put("nbt.file_path", "File Path");
         EN.put("nbt.browse", "Browse...");
+        EN.put("nbt.undo", "Undo");
+        EN.put("nbt.redo", "Redo");
+        EN.put("nbt.copy", "Copy");
+        EN.put("nbt.cut", "Cut");
+        EN.put("nbt.paste", "Paste");
+        EN.put("nbt.duplicate", "Duplicate");
+        EN.put("nbt.convert_type", "Convert Type");
+        EN.put("nbt.convert_fail", "Cannot convert to this type");
+        EN.put("nbt.paste_type_mismatch", "Clipboard type does not match list element type");
+        EN.put("nbt.recent", "Recent");
+        EN.put("nbt.gzip", "Gzip");
+        EN.put("nbt.raw", "Raw");
         EN.put("nav.mods", "Mods");
         EN.put("nav.market", "Market");
         EN.put("nav.worlds", "Worlds");
@@ -2011,7 +2107,8 @@ public final class I18n {
         EN.put("search.action.settings.desc", "Launcher preferences, mirror, proxy, appearance");
         EN.put("search.nav.launch", "Launch game, version selection, mod loaders");
         EN.put("search.nav.news", "Latest Minecraft news");
-        EN.put("search.nav.multiplayer", "Multiplayer server list");
+        EN.put("search.nav.multiplayer", "Create or join a multiplayer room");
+        EN.put("search.hub.servers", "Favorite servers and latency checks");
         EN.put("search.nav.friends", "Friend management, chat, add friends");
         EN.put("search.nav.download", "Version install, mod market, download queue");
         EN.put("search.nav.content", "Mods, modpacks, shaders, resource packs, configs");
@@ -2185,6 +2282,12 @@ public final class I18n {
         EN.put("mods.title", "Mods");
         EN.put("mods.import_title", "Import Mod");
         EN.put("mods.import_hint", "Select .jar mod file");
+        EN.put("mods.drop_hint", "Drop .jar files onto the window to install · or click Import");
+        EN.put("mods.filter_all", "All");
+        EN.put("mods.filter_enabled", "Enabled");
+        EN.put("mods.filter_disabled", "Disabled");
+        EN.put("mods.filter_updates", "Updates");
+        EN.put("mods.open_folder", "Open containing folder");
         EN.put("mods.search_placeholder", "Search mod name / ID / loader…");
         EN.put("mods.delete_title", "Delete Mod");
         EN.put("mods.delete_confirm", "Delete {0}?\nFile: {1}");
@@ -2474,6 +2577,9 @@ public final class I18n {
         EN.put("mp.easytier", "EasyTier Multiplayer");
         EN.put("mp.settings", "Multiplayer settings");
         EN.put("mp.backend", "Backend");
+        EN.put("mp.advanced", "Connection / Advanced");
+        EN.put("mp.hub.room", "Room");
+        EN.put("mp.idle_hint", "Create a room and share the code, or paste a code to join.");
         EN.put("mp.terracotta_official", "Terracotta (Official)");
         EN.put("mp.current_room", "Current room");
         EN.put("mp.room_code", "Room code (share with friends)");
@@ -2551,7 +2657,6 @@ public final class I18n {
         EN.put("about.tech.gson", "JSON serialization");
         EN.put("about.tech.coroutines", "Coroutines");
         EN.put("about.tech.oshi", "System info");
-        EN.put("about.tech.pty4j", "Terminal PTY");
         EN.put("about.author_github", "Author GitHub");
         EN.put("about.view_license", "View License");
         EN.put("about.user_agreement", "User Agreement");
@@ -2625,6 +2730,15 @@ public final class I18n {
         EN.put("settings.borderless_window_desc", "Use custom title bar after restart");
         EN.put("settings.parallax_background", "Parallax background");
         EN.put("settings.parallax_background_desc", "Multi-layer gradient orbs shift with mouse for 3D parallax");
+        EN.put("settings.custom_bg", "Custom background");
+        EN.put("settings.custom_bg_desc", "Use a local image or video as launcher background, overrides parallax, applies instantly");
+        EN.put("settings.custom_bg_off", "Off");
+        EN.put("settings.custom_bg_image", "Image");
+        EN.put("settings.custom_bg_video", "Video");
+        EN.put("settings.custom_bg_image_empty", "No image selected (png/jpg/webp/bmp)");
+        EN.put("settings.custom_bg_image_select", "Select background image");
+        EN.put("settings.custom_bg_video_empty", "No video selected (mp4/webm/mov/mkv/avi, muted loop)");
+        EN.put("settings.custom_bg_video_select", "Select background video");
         EN.put("settings.glass_theme", "Glass theme");
         EN.put("settings.glass_theme_desc", "Frosted glass cards, best paired with parallax background");
         EN.put("settings.lockscreen_launch", "Lockscreen launch page");
@@ -2667,6 +2781,18 @@ public final class I18n {
         EN.put("plugin.disabled", "Disabled");
 
         EN.put("terminal.title", "Terminal");
+        EN.put("terminal.welcome_hint", "Type help for commands; Tab to complete; ↑↓ for history; clear to reset.");
+        EN.put("terminal.executing", "Running…");
+        EN.put("terminal.cancel", "Cancel");
+        EN.put("terminal.cancelled", "(cancelled)");
+        EN.put("terminal.history_count", "History: {0}");
+        EN.put("terminal.font_smaller", "Smaller font");
+        EN.put("terminal.font_larger", "Larger font");
+        EN.put("terminal.copy", "Copy all output");
+        EN.put("terminal.autoscroll", "Auto-scroll");
+        EN.put("terminal.clear", "Clear");
+        EN.put("terminal.search_hint", "Search output…");
+        EN.put("terminal.exit_hint", "Exit is not supported in the GUI terminal. Use clear instead.");
 
         // ===== 日志导出/分享 =====
         EN.put("log.export", "Export");
@@ -2678,6 +2804,15 @@ public final class I18n {
         EN.put("log.share", "Share");
         EN.put("log.share_success", "Share Success");
         EN.put("log.share_url_hint", "Log uploaded to paste.gg. Copy the link below to share:");
+        EN.put("log.clear", "Clear");
+        EN.put("log.open_folder", "Log folder");
+        EN.put("log.open_folder_failed", "Failed to open log folder: {0}");
+        EN.put("log.search_hint", "Search logs…");
+        EN.put("log.autoscroll", "Auto-scroll");
+        EN.put("log.filter_all", "All");
+        EN.put("log.filter_error", "Error");
+        EN.put("log.filter_warn", "Warn");
+        EN.put("log.filter_info", "Info");
 
         // ===== 启动页新增 =====
         EN.put("launch.scan", "Scan");
@@ -3146,6 +3281,21 @@ public final class I18n {
         EN.put("world.no_backups", "No backups yet. Click \"Backup\" to create one.");
         EN.put("world.delete_title", "Delete World");
         EN.put("world.delete_confirm", "Are you sure you want to delete {0}?\nThis action cannot be undone.\nPath: {1}");
+        EN.put("world.open_folder", "Open Folder");
+        EN.put("world.mode.survival", "Survival");
+        EN.put("world.mode.creative", "Creative");
+        EN.put("world.mode.adventure", "Adventure");
+        EN.put("world.mode.spectator", "Spectator");
+        EN.put("world.mode.unknown", "Unknown mode");
+        EN.put("world.diff.peaceful", "Peaceful");
+        EN.put("world.diff.easy", "Easy");
+        EN.put("world.diff.normal", "Normal");
+        EN.put("world.diff.hard", "Hard");
+        EN.put("world.diff.unknown", "Unknown difficulty");
+        EN.put("world.hardcore", "Hardcore");
+        EN.put("world.seed", "Seed: {0}");
+        EN.put("world.seed_copy", "Copy seed");
+        EN.put("world.folder_name", "Folder: {0}");
 
         // ===== Accounts page new =====
         EN.put("accounts.default_avatar", "Default avatar");
@@ -3233,7 +3383,7 @@ public final class I18n {
         EN.put("screenshot.title", "Screenshots");
         EN.put("screenshot.export_zip_dialog", "Export Screenshots ZIP");
         EN.put("screenshot.export_zip", "Export ZIP");
-        EN.put("screenshot.scan_hint", "Merged scan: PMCL / external launcher / modpack version screenshots folders · Select then press Space to preview");
+        EN.put("screenshot.scan_hint", "Merged multi-source screenshots · Click to preview · Select for batch delete/export");
         EN.put("screenshot.empty", "No screenshots. Press F2 in-game to capture; they are saved to the screenshots folder.");
         EN.put("screenshot.open_folder", "Open Folder");
         EN.put("screenshot.source", "Source: {0}");
@@ -3245,6 +3395,16 @@ public final class I18n {
         EN.put("screenshot.load_error", "Failed to load image");
         EN.put("screenshot.prev", "Previous");
         EN.put("screenshot.next", "Next");
+        EN.put("screenshot.search_hint", "Search by filename…");
+        EN.put("screenshot.source_all", "All sources");
+        EN.put("screenshot.select_all", "Select all");
+        EN.put("screenshot.clear_selection", "Clear selection");
+        EN.put("screenshot.selected_count", "{0} selected");
+        EN.put("screenshot.batch_delete", "Delete selected");
+        EN.put("screenshot.batch_delete_confirm", "Delete {0} selected screenshot(s)? This cannot be undone.");
+        EN.put("screenshot.open_containing", "Open containing folder");
+        EN.put("screenshot.filtered_count", "{0} photos");
+        EN.put("status.screenshots_deleted", "Deleted {0} screenshot(s)");
 
         // ===== Video call new =====
         EN.put("call.waiting_for_answer", "Waiting for answer…");
@@ -3666,6 +3826,10 @@ public final class I18n {
         JA.put("common.delete", "削除");
         JA.put("common.backup", "バックアップ");
         JA.put("common.cancel", "キャンセル");
+        JA.put("common.expand_menu", "メニューを展開");
+        JA.put("common.collapse_menu", "メニューを折りたたむ");
+        JA.put("common.switch_tab", "カテゴリ切替");
+        JA.put("mods.tools_menu", "フィルター");
         JA.put("common.confirm", "確認");
         JA.put("common.ok", "OK");
         JA.put("common.status", "ステータス");
@@ -3723,7 +3887,7 @@ public final class I18n {
         JA.put("nbt.snbt_exported", "SNBTをクリップボードにコピーしました");
         JA.put("nbt.expand_all", "すべて展開");
         JA.put("nbt.collapse_all", "すべて折りたたむ");
-        JA.put("nbt.search_hint", "タグ名を検索...");
+        JA.put("nbt.search_hint", "タグ名または値を検索...");
         JA.put("nbt.add_child", "子タグを追加");
         JA.put("nbt.add", "追加");
         JA.put("nbt.delete", "削除");
@@ -3745,6 +3909,18 @@ public final class I18n {
         JA.put("nbt.cancel", "キャンセル");
         JA.put("nbt.done", "完了");
         JA.put("nbt.file_path", "ファイルパス");
+        JA.put("nbt.undo", "元に戻す");
+        JA.put("nbt.redo", "やり直す");
+        JA.put("nbt.copy", "コピー");
+        JA.put("nbt.cut", "切り取り");
+        JA.put("nbt.paste", "貼り付け");
+        JA.put("nbt.duplicate", "複製");
+        JA.put("nbt.convert_type", "型変換");
+        JA.put("nbt.convert_fail", "この型には変換できません");
+        JA.put("nbt.paste_type_mismatch", "クリップボードの型がリスト要素型と一致しません");
+        JA.put("nbt.recent", "最近開いたファイル");
+        JA.put("nbt.gzip", "Gzip");
+        JA.put("nbt.raw", "非圧縮");
         JA.put("nbt.browse", "参照...");
         JA.put("nav.mods", "Mod");
         JA.put("nav.market", "市場");
@@ -3781,7 +3957,8 @@ public final class I18n {
         JA.put("search.action.settings.desc", "ランチャー設定、ミラー、プロキシ、外観");
         JA.put("search.nav.launch", "ゲーム起動、バージョン選択、Modローダー");
         JA.put("search.nav.news", "Minecraft最新ニュース");
-        JA.put("search.nav.multiplayer", "マルチプレイサーバーリスト");
+        JA.put("search.nav.multiplayer", "ルームの作成または参加");
+        JA.put("search.hub.servers", "お気に入りサーバーと遅延");
         JA.put("search.nav.friends", "フレンド管理、チャット、フレンド追加");
         JA.put("search.nav.download", "バージョンインストール、Mod市場、ダウンロードキュー");
         JA.put("search.nav.content", "Mod、Modpack、シェーダー、リソースパック、設定");
@@ -3955,6 +4132,12 @@ public final class I18n {
         JA.put("mods.title", "Mod管理");
         JA.put("mods.import_title", "Modインポート");
         JA.put("mods.import_hint", ".jar Modファイルを選択");
+        JA.put("mods.drop_hint", "ウィンドウに .jar をドロップしてインストール · または「インポート」");
+        JA.put("mods.filter_all", "すべて");
+        JA.put("mods.filter_enabled", "有効のみ");
+        JA.put("mods.filter_disabled", "無効のみ");
+        JA.put("mods.filter_updates", "更新あり");
+        JA.put("mods.open_folder", "保存フォルダを開く");
         JA.put("mods.search_placeholder", "Mod名 / ID / ローダーを検索…");
         JA.put("mods.delete_title", "Mod削除");
         JA.put("mods.delete_confirm", "{0}を削除しますか？\nファイル: {1}");
@@ -4244,6 +4427,9 @@ public final class I18n {
         JA.put("mp.easytier", "テラコッタマルチプレイ · EasyTier");
         JA.put("mp.settings", "マルチプレイ設定");
         JA.put("mp.backend", "バックエンド");
+        JA.put("mp.advanced", "接続方式 / 詳細");
+        JA.put("mp.hub.room", "ルーム");
+        JA.put("mp.idle_hint", "ルームを作成してコードを共有するか、コードを貼り付けて参加します。");
         JA.put("mp.terracotta_official", "Terracotta（公式）");
         JA.put("mp.current_room", "現在のルーム");
         JA.put("mp.room_code", "ルームコード（友達に共有）");
@@ -4321,7 +4507,6 @@ public final class I18n {
         JA.put("about.tech.gson", "JSONシリアライズ");
         JA.put("about.tech.coroutines", "コルーチン");
         JA.put("about.tech.oshi", "システム情報");
-        JA.put("about.tech.pty4j", "ターミナルPTY");
         JA.put("about.author_github", "作者 GitHub");
         JA.put("about.view_license", "ライセンス");
         JA.put("about.user_agreement", "利用規約");
@@ -4395,6 +4580,15 @@ public final class I18n {
         JA.put("settings.borderless_window_desc", "有効化するとカスタムタイトルバーを使用、再起動後に有効");
         JA.put("settings.parallax_background", "視差背景");
         JA.put("settings.parallax_background_desc", "マウス移動で3D視差効果を生む多層グラデーション、即時反映");
+        JA.put("settings.custom_bg", "カスタム背景");
+        JA.put("settings.custom_bg_desc", "ローカルの画像や動画をランチャー背景に使用、視差背景より優先、即時反映");
+        JA.put("settings.custom_bg_off", "オフ");
+        JA.put("settings.custom_bg_image", "背景画像");
+        JA.put("settings.custom_bg_video", "背景動画");
+        JA.put("settings.custom_bg_image_empty", "画像未選択（png/jpg/webp/bmp 対応）");
+        JA.put("settings.custom_bg_image_select", "背景画像を選択");
+        JA.put("settings.custom_bg_video_empty", "動画未選択（mp4/webm/mov/mkv/avi、ミュートでループ再生）");
+        JA.put("settings.custom_bg_video_select", "背景動画を選択");
         JA.put("settings.glass_theme", "ガラステーマ");
         JA.put("settings.glass_theme_desc", "カードのすりガラス効果、視差背景との組み合わせが推奨、即時反映");
         JA.put("settings.lockscreen_launch", "ロック画面起動ページ");
@@ -4437,6 +4631,18 @@ public final class I18n {
         JA.put("plugin.disabled", "無効");
 
         JA.put("terminal.title", "ターミナル");
+        JA.put("terminal.welcome_hint", "help でコマンド一覧；Tab 補完；↑↓ で履歴；clear で画面クリア。");
+        JA.put("terminal.executing", "実行中…");
+        JA.put("terminal.cancel", "キャンセル");
+        JA.put("terminal.cancelled", "（キャンセル済み）");
+        JA.put("terminal.history_count", "履歴: {0}");
+        JA.put("terminal.font_smaller", "文字を小さく");
+        JA.put("terminal.font_larger", "文字を大きく");
+        JA.put("terminal.copy", "出力をすべてコピー");
+        JA.put("terminal.autoscroll", "自動スクロール");
+        JA.put("terminal.clear", "クリア");
+        JA.put("terminal.search_hint", "出力を検索…");
+        JA.put("terminal.exit_hint", "GUI ターミナルでは exit は使えません。clear で画面をクリアしてください。");
 
         // ===== 日志导出/分享 =====
         JA.put("log.export", "書き出し");
@@ -4448,6 +4654,15 @@ public final class I18n {
         JA.put("log.share", "共有");
         JA.put("log.share_success", "共有成功");
         JA.put("log.share_url_hint", "ログは paste.gg にアップロードされました。下記リンクをコピーして共有してください：");
+        JA.put("log.clear", "クリア");
+        JA.put("log.open_folder", "ログフォルダ");
+        JA.put("log.open_folder_failed", "ログフォルダを開けませんでした: {0}");
+        JA.put("log.search_hint", "ログを検索…");
+        JA.put("log.autoscroll", "自動スクロール");
+        JA.put("log.filter_all", "すべて");
+        JA.put("log.filter_error", "エラー");
+        JA.put("log.filter_warn", "警告");
+        JA.put("log.filter_info", "情報");
 
         // ===== 启动页新增 =====
         JA.put("launch.scan", "スキャン");
@@ -4916,6 +5131,21 @@ public final class I18n {
         JA.put("world.no_backups", "バックアップがありません。「バックアップ」をクリックして作成してください。");
         JA.put("world.delete_title", "ワールドを削除");
         JA.put("world.delete_confirm", "{0} を削除しますか？\nこの操作は取り消せません。\nパス：{1}");
+        JA.put("world.open_folder", "フォルダを開く");
+        JA.put("world.mode.survival", "サバイバル");
+        JA.put("world.mode.creative", "クリエイティブ");
+        JA.put("world.mode.adventure", "アドベンチャー");
+        JA.put("world.mode.spectator", "スペクテイター");
+        JA.put("world.mode.unknown", "不明なモード");
+        JA.put("world.diff.peaceful", "ピースフル");
+        JA.put("world.diff.easy", "イージー");
+        JA.put("world.diff.normal", "ノーマル");
+        JA.put("world.diff.hard", "ハード");
+        JA.put("world.diff.unknown", "不明な難易度");
+        JA.put("world.hardcore", "ハードコア");
+        JA.put("world.seed", "シード: {0}");
+        JA.put("world.seed_copy", "シードをコピー");
+        JA.put("world.folder_name", "フォルダ: {0}");
 
         // ===== アカウントページ新規 =====
         JA.put("accounts.default_avatar", "デフォルトアバター");
@@ -5003,7 +5233,7 @@ public final class I18n {
         JA.put("screenshot.title", "スクリーンショット");
         JA.put("screenshot.export_zip_dialog", "スクリーンショット ZIP をエクスポート");
         JA.put("screenshot.export_zip", "ZIP をエクスポート");
-        JA.put("screenshot.scan_hint", "統合スキャン：PMCL / 外部ランチャー / Modpack バージョンの screenshots · 選択後 Space でプレビュー");
+        JA.put("screenshot.scan_hint", "複数ソースの screenshots を統合 · クリックでプレビュー · 選択して一括削除/書き出し");
         JA.put("screenshot.empty", "スクリーンショットがありません。ゲーム内で F2 を押すと screenshots に保存されます。");
         JA.put("screenshot.open_folder", "フォルダを開く");
         JA.put("screenshot.source", "ソース：{0}");
@@ -5015,6 +5245,16 @@ public final class I18n {
         JA.put("screenshot.load_error", "画像を読み込めません");
         JA.put("screenshot.prev", "前へ");
         JA.put("screenshot.next", "次へ");
+        JA.put("screenshot.search_hint", "ファイル名で検索…");
+        JA.put("screenshot.source_all", "すべてのソース");
+        JA.put("screenshot.select_all", "すべて選択");
+        JA.put("screenshot.clear_selection", "選択解除");
+        JA.put("screenshot.selected_count", "{0} 件選択中");
+        JA.put("screenshot.batch_delete", "一括削除");
+        JA.put("screenshot.batch_delete_confirm", "選択した {0} 枚のスクリーンショットを削除しますか？元に戻せません。");
+        JA.put("screenshot.open_containing", "保存フォルダを開く");
+        JA.put("screenshot.filtered_count", "{0} 枚");
+        JA.put("status.screenshots_deleted", "{0} 枚のスクリーンショットを削除しました");
 
         // ===== ビデオ通話新規 =====
         JA.put("call.waiting_for_answer", "相手の応答を待っています…");

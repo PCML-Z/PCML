@@ -200,11 +200,27 @@ class LauncherViewModel {
         }
     }
 
+    @Volatile private var shutDown = false
+
     /**
-     * 优雅关闭：取消所有后台协程，释放资源。
-     * 应在应用退出前调用，避免 JVM 强杀导致正在进行的文件写入损坏。
+     * 优雅关闭：清理联机/游戏进程、落盘偏好、关闭下载与日志，再取消协程。
+     * 幂等；应在应用退出前调用，避免孤儿进程与未落盘配置。
      */
     fun shutdown() {
+        if (shutDown) return
+        shutDown = true
+        try { core.multiplayer().leaveRoom() } catch (_: Throwable) {}
+        try { core.launch().killAllProcesses() } catch (_: Throwable) {}
+        try {
+            instanceLoggers.values.forEach { logger ->
+                try { logger?.close() } catch (_: Throwable) {}
+            }
+            instanceLoggers.clear()
+        } catch (_: Throwable) {}
+        try { core.downloadQueue().shutdown() } catch (_: Throwable) {}
+        try { core.downloads().shutdown() } catch (_: Throwable) {}
+        try { core.preferences.shutdown() } catch (_: Throwable) {}
+        try { stopMusic() } catch (_: Throwable) {}
         scope.cancel()
     }
 
@@ -344,6 +360,21 @@ class LauncherViewModel {
     /** 修订计数器：每次树结构修改时递增，强制 Compose 重组（解决同引用 StateFlow 不刷新问题） */
     private val _nbtRevision = MutableStateFlow(0)
     val nbtRevision: StateFlow<Int> = _nbtRevision.asStateFlow()
+    /** 打开时检测到的压缩方式；保存时保持一致（默认 gzip，与 level.dat 一致） */
+    private val _nbtGzipped = MutableStateFlow(true)
+    val nbtGzipped: StateFlow<Boolean> = _nbtGzipped.asStateFlow()
+    private val nbtUndoStack = ArrayDeque<NbtTag>()
+    private val nbtRedoStack = ArrayDeque<NbtTag>()
+    private val _nbtCanUndo = MutableStateFlow(false)
+    val nbtCanUndo: StateFlow<Boolean> = _nbtCanUndo.asStateFlow()
+    private val _nbtCanRedo = MutableStateFlow(false)
+    val nbtCanRedo: StateFlow<Boolean> = _nbtCanRedo.asStateFlow()
+    private val _nbtHasClipboard = MutableStateFlow(false)
+    val nbtHasClipboard: StateFlow<Boolean> = _nbtHasClipboard.asStateFlow()
+    private var nbtClipboard: Pair<String, NbtTag>? = null
+    private val _recentNbtFiles = MutableStateFlow(core.preferences.recentNbtFiles)
+    val recentNbtFiles: StateFlow<List<String>> = _recentNbtFiles.asStateFlow()
+    private val nbtMaxUndo = 40
 
     // ===== 下载队列 =====
     private val _queueTasks = MutableStateFlow<List<DownloadQueueManager.QueueTask>>(emptyList())
@@ -469,6 +500,42 @@ class LauncherViewModel {
         preferences.setParallaxBackground(v)
         _parallaxBackground.value = v
         themeState?.applyParallaxBackground(v)
+    }
+
+    // ===== 自定义背景（图片/视频，优先级高于视差背景） =====
+    private val _launcherBgType = MutableStateFlow(preferences.getLauncherBgType())
+    /** 自定义背景类型：none / image / video */
+    val launcherBgType: StateFlow<String> = _launcherBgType.asStateFlow()
+    private val _launcherBgImagePath = MutableStateFlow(preferences.getLauncherBgImagePath())
+    val launcherBgImagePath: StateFlow<String> = _launcherBgImagePath.asStateFlow()
+    private val _launcherBgVideoPath = MutableStateFlow(preferences.getLauncherBgVideoPath())
+    val launcherBgVideoPath: StateFlow<String> = _launcherBgVideoPath.asStateFlow()
+
+    /** 自定义背景是否实际激活（类型已选且对应路径非空） */
+    fun isCustomBackgroundActive(): Boolean = when (_launcherBgType.value) {
+        "image" -> _launcherBgImagePath.value.isNotBlank()
+        "video" -> _launcherBgVideoPath.value.isNotBlank()
+        else -> false
+    }
+
+    private fun syncCustomBackgroundToTheme() {
+        themeState?.applyCustomBackground(isCustomBackgroundActive())
+    }
+
+    fun setLauncherBgType(v: String) {
+        preferences.setLauncherBgType(v)
+        _launcherBgType.value = v
+        syncCustomBackgroundToTheme()
+    }
+    fun setLauncherBgImagePath(p: String) {
+        preferences.setLauncherBgImagePath(p)
+        _launcherBgImagePath.value = p
+        syncCustomBackgroundToTheme()
+    }
+    fun setLauncherBgVideoPath(p: String) {
+        preferences.setLauncherBgVideoPath(p)
+        _launcherBgVideoPath.value = p
+        syncCustomBackgroundToTheme()
     }
     fun setGlassTheme(v: Boolean) {
         preferences.setGlassTheme(v)
@@ -986,8 +1053,14 @@ class LauncherViewModel {
         if (saved.isNotEmpty()) {
             _selectedVersion.value = saved
         }
-        // 初始化联机后端
-        core.multiplayer().setBackend(mpBackend)
+        // 初始化联机后端（勿读 mpBackend：_mpBackend 声明在 init 之后，此时尚未赋值）
+        core.multiplayer().setBackend(
+            when (preferences.getMpBackend()) {
+                "CONNECTX" -> com.pmcl.core.multiplayer.MultiplayerManager.Backend.CONNECTX
+                "EASYTIER" -> com.pmcl.core.multiplayer.MultiplayerManager.Backend.EASYTIER
+                else -> com.pmcl.core.multiplayer.MultiplayerManager.Backend.TERRACOTTA
+            }
+        )
         // 启动时应用网络偏好（含 Java 全局代理系统属性，让头像/皮肤图片下载能走代理）
         core.applyNetworkPreferences()
         // 全局注册下载队列监听：悬浮队列卡片不依赖进入下载页也能刷新进度
@@ -2060,13 +2133,20 @@ class LauncherViewModel {
 
     /** 刷新统计数据（进入统计页时调用） */
     fun refreshPlayTimeStats() {
-        val days = _statsDays.value
-        val tracker = core.playTimeTracker()
-        _playTimeStats.value = tracker.getOverallStats(days)
-        _dailyStats.value = tracker.getDailyStatsWithZeros(days)
-        _heatmap.value = tracker.getHeatmap(days)
-        _weekdayDist.value = tracker.getWeekdayDistribution(days)
-        _records.value = tracker.getRecords()
+        try {
+            val days = _statsDays.value
+            val tracker = core.playTimeTracker()
+            _playTimeStats.value = tracker.getOverallStats(days)
+            _dailyStats.value = tracker.getDailyStatsWithZeros(days)
+            _heatmap.value = tracker.getHeatmap(days)
+            _weekdayDist.value = tracker.getWeekdayDistribution(days)
+            _records.value = tracker.getRecords()
+        } catch (e: Throwable) {
+            // 避免 NoClassDefFoundError / 数据损坏时弹出 Compose 致命 Error 对话框
+            System.err.println("[PlayTime] 刷新统计失败: ${e.javaClass.simpleName}: ${e.message}")
+            e.printStackTrace()
+            _status.value = "统计数据加载失败: ${e.message ?: e.javaClass.simpleName}"
+        }
     }
 
     /** 设置统计展示天数（7/14/30）并刷新 */
@@ -2253,14 +2333,50 @@ class LauncherViewModel {
         return "系统"
     }
 
-    /** 删除指定 mod（按 jar 文件名） */
+    /** 解析 mod jar 绝对路径：优先 jarPath，否则按文件名在已扫描列表 / 全局 mods 中定位 */
+    private fun resolveModJarPath(mod: ModMeta): java.nio.file.Path? {
+        val abs = mod.jarPath
+        if (!abs.isNullOrBlank()) return java.nio.file.Path.of(abs)
+        return resolveModJarPath(mod.jarFile)
+    }
+
+    private fun resolveModJarPath(jarFile: String?): java.nio.file.Path? {
+        if (jarFile.isNullOrBlank()) return null
+        val asPath = java.nio.file.Path.of(jarFile)
+        if (asPath.isAbsolute && java.nio.file.Files.exists(asPath)) return asPath
+        _installedMods.value.firstOrNull { it.jarFile == jarFile }?.jarPath
+            ?.takeIf { it.isNotBlank() }
+            ?.let { return java.nio.file.Path.of(it) }
+        val global = config.getWorkDir().resolve("mods").resolve(jarFile)
+        return if (java.nio.file.Files.exists(global)) global else global
+    }
+
+    /** 删除指定 mod（按 jar 文件名或已解析路径） */
     fun deleteMod(jarFile: String) {
         scope.launch {
             try {
                 withContext(Dispatchers.IO) {
-                    core.modManager().deleteMod(jarFile)
+                    val path = resolveModJarPath(jarFile)
+                    if (path != null) core.modManager().deleteModAt(path)
+                    else core.modManager().deleteMod(jarFile)
                 }
+                modScanCache.clear()
                 _status.value = I18n.t("status.mod_deleted", jarFile)
+                refreshInstalledMods()
+            } catch (e: Throwable) {
+                _status.value = I18n.t("status.delete_failed", e.message ?: I18n.t("common.unknown"))
+            }
+        }
+    }
+
+    fun deleteMod(mod: ModMeta) {
+        scope.launch {
+            try {
+                val path = resolveModJarPath(mod)
+                    ?: throw java.io.IOException("文件不存在: ${mod.jarFile}")
+                withContext(Dispatchers.IO) { core.modManager().deleteModAt(path) }
+                modScanCache.clear()
+                _status.value = I18n.t("status.mod_deleted", mod.jarFile ?: path.fileName.toString())
                 refreshInstalledMods()
             } catch (e: Throwable) {
                 _status.value = I18n.t("status.delete_failed", e.message ?: I18n.t("common.unknown"))
@@ -2273,9 +2389,27 @@ class LauncherViewModel {
         scope.launch {
             try {
                 withContext(Dispatchers.IO) {
-                    core.modManager().disableMod(jarFile)
+                    val path = resolveModJarPath(jarFile)
+                        ?: throw java.io.IOException("文件不存在: $jarFile")
+                    core.modManager().disableModAt(path)
                 }
+                modScanCache.clear()
                 _status.value = I18n.t("status.mod_disabled", jarFile)
+                refreshInstalledMods()
+            } catch (e: Throwable) {
+                _status.value = I18n.t("status.disable_failed", e.message ?: I18n.t("common.unknown"))
+            }
+        }
+    }
+
+    fun disableMod(mod: ModMeta) {
+        scope.launch {
+            try {
+                val path = resolveModJarPath(mod)
+                    ?: throw java.io.IOException("文件不存在: ${mod.jarFile}")
+                withContext(Dispatchers.IO) { core.modManager().disableModAt(path) }
+                modScanCache.clear()
+                _status.value = I18n.t("status.mod_disabled", mod.jarFile ?: path.fileName.toString())
                 refreshInstalledMods()
             } catch (e: Throwable) {
                 _status.value = I18n.t("status.disable_failed", e.message ?: I18n.t("common.unknown"))
@@ -2288,9 +2422,27 @@ class LauncherViewModel {
         scope.launch {
             try {
                 withContext(Dispatchers.IO) {
-                    core.modManager().enableMod(jarFile)
+                    val path = resolveModJarPath(jarFile)
+                        ?: throw java.io.IOException("文件不存在: $jarFile")
+                    core.modManager().enableModAt(path)
                 }
+                modScanCache.clear()
                 _status.value = I18n.t("status.mod_enabled", jarFile)
+                refreshInstalledMods()
+            } catch (e: Throwable) {
+                _status.value = I18n.t("status.enable_failed", e.message ?: I18n.t("common.unknown"))
+            }
+        }
+    }
+
+    fun enableMod(mod: ModMeta) {
+        scope.launch {
+            try {
+                val path = resolveModJarPath(mod)
+                    ?: throw java.io.IOException("文件不存在: ${mod.jarFile}")
+                withContext(Dispatchers.IO) { core.modManager().enableModAt(path) }
+                modScanCache.clear()
+                _status.value = I18n.t("status.mod_enabled", mod.jarFile ?: path.fileName.toString())
                 refreshInstalledMods()
             } catch (e: Throwable) {
                 _status.value = I18n.t("status.enable_failed", e.message ?: I18n.t("common.unknown"))
@@ -2325,10 +2477,12 @@ class LauncherViewModel {
                 withContext(Dispatchers.IO) {
                     for (jarFile in jarFiles) {
                         try {
-                            core.modManager().enableMod(jarFile)
+                            val path = resolveModJarPath(jarFile) ?: continue
+                            core.modManager().enableModAt(path)
                         } catch (_: Throwable) {}
                     }
                 }
+                modScanCache.clear()
                 _status.value = I18n.t("status.batch_enabled_mods", jarFiles.size)
                 refreshInstalledMods()
             } catch (e: Throwable) {
@@ -2344,10 +2498,12 @@ class LauncherViewModel {
                 withContext(Dispatchers.IO) {
                     for (jarFile in jarFiles) {
                         try {
-                            core.modManager().disableMod(jarFile)
+                            val path = resolveModJarPath(jarFile) ?: continue
+                            core.modManager().disableModAt(path)
                         } catch (_: Throwable) {}
                     }
                 }
+                modScanCache.clear()
                 _status.value = I18n.t("status.batch_disabled_mods", jarFiles.size)
                 refreshInstalledMods()
             } catch (e: Throwable) {
@@ -2363,10 +2519,12 @@ class LauncherViewModel {
                 withContext(Dispatchers.IO) {
                     for (jarFile in jarFiles) {
                         try {
-                            core.modManager().deleteMod(jarFile)
+                            val path = resolveModJarPath(jarFile) ?: continue
+                            core.modManager().deleteModAt(path)
                         } catch (_: Throwable) {}
                     }
                 }
+                modScanCache.clear()
                 _status.value = I18n.t("status.batch_deleted_mods", jarFiles.size)
                 refreshInstalledMods()
             } catch (e: Throwable) {
@@ -2390,6 +2548,30 @@ class LauncherViewModel {
                 ?: candidates.firstOrNull { it.isDirectory }
                 ?: config.getWorkDir().resolve("mods").toFile().also { it.mkdirs() }
             openDir(modsDir)
+        } catch (e: Throwable) {
+            _status.value = I18n.t("status.open_dir_failed", e.message ?: I18n.t("common.unknown"))
+        }
+    }
+
+    /** 打开某个模组 jar 所在文件夹（macOS 尽量选中该文件） */
+    fun openModFolder(mod: ModMeta) {
+        try {
+            val pathStr = mod.jarPath
+            if (pathStr.isNullOrBlank()) {
+                openModsDir()
+                return
+            }
+            val file = java.io.File(pathStr)
+            if (!file.exists()) {
+                _status.value = I18n.t("status.open_dir_failed", I18n.t("common.unknown"))
+                return
+            }
+            val os = System.getProperty("os.name").lowercase()
+            when {
+                os.contains("mac") -> ProcessBuilder("open", "-R", file.absolutePath).start()
+                os.contains("win") -> ProcessBuilder("explorer", "/select,", file.absolutePath).start()
+                else -> openDir(file.parentFile ?: file)
+            }
         } catch (e: Throwable) {
             _status.value = I18n.t("status.open_dir_failed", e.message ?: I18n.t("common.unknown"))
         }
@@ -2545,19 +2727,68 @@ class LauncherViewModel {
 
     // ===== NBT 编辑器方法 =====
 
+    private fun clearNbtHistory() {
+        nbtUndoStack.clear()
+        nbtRedoStack.clear()
+        _nbtCanUndo.value = false
+        _nbtCanRedo.value = false
+    }
+
+    private fun pushNbtUndo() {
+        val snap = _nbtRoot.value?.copy() ?: return
+        nbtUndoStack.addLast(snap)
+        while (nbtUndoStack.size > nbtMaxUndo) nbtUndoStack.removeFirst()
+        nbtRedoStack.clear()
+        _nbtCanUndo.value = true
+        _nbtCanRedo.value = false
+    }
+
+    private fun refreshNbtHistoryFlags() {
+        _nbtCanUndo.value = nbtUndoStack.isNotEmpty()
+        _nbtCanRedo.value = nbtRedoStack.isNotEmpty()
+    }
+
+    fun undoNbt() {
+        val current = _nbtRoot.value ?: return
+        val prev = nbtUndoStack.removeLastOrNull() ?: return
+        nbtRedoStack.addLast(current.copy())
+        _nbtRoot.value = prev
+        _nbtDirty.value = true
+        _nbtRevision.value++
+        refreshNbtHistoryFlags()
+    }
+
+    fun redoNbt() {
+        val current = _nbtRoot.value ?: return
+        val next = nbtRedoStack.removeLastOrNull() ?: return
+        nbtUndoStack.addLast(current.copy())
+        _nbtRoot.value = next
+        _nbtDirty.value = true
+        _nbtRevision.value++
+        refreshNbtHistoryFlags()
+    }
+
     /** 打开 NBT 文件（自动检测 gzip 压缩，如 level.dat） */
     fun openNbtFile(path: String) {
         scope.launch {
             _nbtError.value = null
             try {
-                val tag = withContext(Dispatchers.IO) {
-                    NbtReader.read(java.nio.file.Paths.get(path))
+                val result = withContext(Dispatchers.IO) {
+                    NbtReader.readWithMeta(java.nio.file.Paths.get(path))
                 }
-                _nbtRoot.value = tag
+                _nbtGzipped.value = result.gzipped
+                _nbtRoot.value = result.root
                 _nbtFilePath.value = path
                 _nbtDirty.value = false
+                clearNbtHistory()
                 _nbtRevision.value++
+                withContext(Dispatchers.IO) {
+                    core.preferences.recordRecentNbtFile(path)
+                }
+                _recentNbtFiles.value = core.preferences.recentNbtFiles
                 _status.value = I18n.t("status.nbt_loaded", path)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Throwable) {
                 _nbtError.value = "读取 NBT 失败: ${e.message}"
                 _status.value = I18n.t("status.nbt_read_failed", e.message ?: I18n.t("common.unknown"))
@@ -2565,24 +2796,27 @@ class LauncherViewModel {
         }
     }
 
-    /** 保存 NBT 到当前文件（保存前自动创建 .bak 备份） */
+    /** 保存 NBT 到当前文件（深拷贝快照 + .bak + 原子写；保持压缩方式） */
     fun saveNbtFile() {
         val root = _nbtRoot.value ?: return
         val path = _nbtFilePath.value ?: return
+        val gzipped = _nbtGzipped.value
+        val snapshot = root.copy()
         scope.launch {
             _nbtError.value = null
             try {
                 withContext(Dispatchers.IO) {
                     val file = java.nio.file.Paths.get(path)
-                    // 保存前备份
                     if (java.nio.file.Files.exists(file)) {
                         val bak = file.resolveSibling(file.fileName.toString() + ".bak")
                         java.nio.file.Files.copy(file, bak, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
                     }
-                    NbtWriter.write(root, file)
+                    NbtWriter.write(snapshot, file, gzipped)
                 }
                 _nbtDirty.value = false
                 _status.value = I18n.t("status.nbt_saved", path)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Throwable) {
                 _nbtError.value = "保存 NBT 失败: ${e.message}"
                 _status.value = I18n.t("status.nbt_save_failed", e.message ?: I18n.t("common.unknown"))
@@ -2590,18 +2824,24 @@ class LauncherViewModel {
         }
     }
 
-    /** 另存为指定路径 */
+    /** 另存为指定路径（深拷贝快照 + 原子写） */
     fun saveNbtFileAs(targetPath: String) {
         val root = _nbtRoot.value ?: return
+        val gzipped = _nbtGzipped.value
+        val snapshot = root.copy()
         scope.launch {
             _nbtError.value = null
             try {
                 withContext(Dispatchers.IO) {
-                    NbtWriter.write(root, java.nio.file.Paths.get(targetPath))
+                    NbtWriter.write(snapshot, java.nio.file.Paths.get(targetPath), gzipped)
+                    core.preferences.recordRecentNbtFile(targetPath)
                 }
                 _nbtFilePath.value = targetPath
                 _nbtDirty.value = false
+                _recentNbtFiles.value = core.preferences.recentNbtFiles
                 _status.value = I18n.t("status.nbt_saved", targetPath)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Throwable) {
                 _nbtError.value = "保存 NBT 失败: ${e.message}"
                 _status.value = I18n.t("status.nbt_save_failed", e.message ?: I18n.t("common.unknown"))
@@ -2609,7 +2849,7 @@ class LauncherViewModel {
         }
     }
 
-    /** 标记 NBT 树已修改，触发 UI 重组 */
+    /** 标记 NBT 树已修改，触发 UI 重组（调用前须已 pushNbtUndo） */
     fun updateNbtValue() {
         _nbtDirty.value = true
         _nbtRevision.value++
@@ -2621,6 +2861,8 @@ class LauncherViewModel {
         _nbtFilePath.value = null
         _nbtDirty.value = false
         _nbtError.value = null
+        _nbtGzipped.value = true
+        clearNbtHistory()
         _nbtRevision.value++
     }
 
@@ -2629,12 +2871,15 @@ class LauncherViewModel {
     /** 向 Compound 添加子标签 */
     fun addNbtChild(parent: NbtTag.CompoundTag, name: String, type: Int) {
         if (parent.contains(name)) return
+        pushNbtUndo()
         parent.put(name, NbtTag.createDefault(type))
         updateNbtValue()
     }
 
     /** 从 Compound 删除子标签 */
     fun removeNbtChild(parent: NbtTag.CompoundTag, name: String) {
+        if (!parent.contains(name)) return
+        pushNbtUndo()
         parent.remove(name)
         updateNbtValue()
     }
@@ -2643,6 +2888,7 @@ class LauncherViewModel {
     fun renameNbtChild(parent: NbtTag.CompoundTag, oldName: String, newName: String) {
         if (oldName == newName || parent.contains(newName)) return
         val tag = parent.get(oldName) ?: return
+        pushNbtUndo()
         parent.remove(oldName)
         parent.put(newName, tag)
         updateNbtValue()
@@ -2650,6 +2896,7 @@ class LauncherViewModel {
 
     /** 向 List 添加元素（使用 listType 创建默认值） */
     fun addNbtListItem(list: NbtTag.ListTag) {
+        pushNbtUndo()
         val type = if (list.getListType() == NbtTag.TYPE_END) NbtTag.TYPE_COMPOUND else list.getListType()
         list.add(NbtTag.createDefault(type))
         updateNbtValue()
@@ -2657,6 +2904,8 @@ class LauncherViewModel {
 
     /** 删除 List 元素 */
     fun removeNbtListItem(list: NbtTag.ListTag, index: Int) {
+        if (index < 0 || index >= list.size()) return
+        pushNbtUndo()
         list.remove(index)
         updateNbtValue()
     }
@@ -2665,9 +2914,142 @@ class LauncherViewModel {
     fun moveNbtListItem(list: NbtTag.ListTag, index: Int, up: Boolean) {
         val target = if (up) index - 1 else index + 1
         if (target < 0 || target >= list.size()) return
+        pushNbtUndo()
         val item = list.getItems()[index]
         list.remove(index)
         list.add(target, item)
+        updateNbtValue()
+    }
+
+    /** 内联编辑叶节点值（带撤销） */
+    fun setNbtLeafValue(tag: NbtTag, text: String): Boolean {
+        return try {
+            pushNbtUndo()
+            when (tag) {
+                is NbtTag.ByteTag -> tag.setValue(text.toByte())
+                is NbtTag.ShortTag -> tag.setValue(text.toShort())
+                is NbtTag.IntTag -> tag.setValue(text.toInt())
+                is NbtTag.LongTag -> tag.setValue(text.toLong())
+                is NbtTag.FloatTag -> tag.setValue(text.toFloat())
+                is NbtTag.DoubleTag -> tag.setValue(text.toDouble())
+                is NbtTag.StringTag -> tag.setValue(text)
+                else -> {
+                    nbtUndoStack.removeLastOrNull()
+                    refreshNbtHistoryFlags()
+                    return false
+                }
+            }
+            updateNbtValue()
+            true
+        } catch (_: NumberFormatException) {
+            nbtUndoStack.removeLastOrNull()
+            refreshNbtHistoryFlags()
+            false
+        }
+    }
+
+    /** 类型转换（数值/字符串/数组族） */
+    fun convertNbtTag(parent: NbtTag?, key: String?, tag: NbtTag, targetType: Int): Boolean {
+        if (tag.getType() == targetType) return true
+        val converted = NbtTag.convert(tag, targetType) ?: return false
+        pushNbtUndo()
+        when {
+            parent is NbtTag.CompoundTag && key != null -> parent.put(key, converted)
+            parent is NbtTag.ListTag && key != null -> {
+                val idx = key.removePrefix("[").removeSuffix("]").toIntOrNull() ?: run {
+                    nbtUndoStack.removeLastOrNull()
+                    refreshNbtHistoryFlags()
+                    return false
+                }
+                if (idx < 0 || idx >= parent.size()) {
+                    nbtUndoStack.removeLastOrNull()
+                    refreshNbtHistoryFlags()
+                    return false
+                }
+                // List 要求同类型：若 listType 不匹配则拒绝
+                if (parent.getListType() != NbtTag.TYPE_END && parent.getListType() != targetType) {
+                    nbtUndoStack.removeLastOrNull()
+                    refreshNbtHistoryFlags()
+                    return false
+                }
+                parent.remove(idx)
+                parent.add(idx, converted)
+            }
+            _nbtRoot.value === tag -> {
+                converted.setName(tag.getName())
+                _nbtRoot.value = converted
+            }
+            else -> {
+                nbtUndoStack.removeLastOrNull()
+                refreshNbtHistoryFlags()
+                return false
+            }
+        }
+        updateNbtValue()
+        return true
+    }
+
+    fun copyNbtNode(name: String, tag: NbtTag) {
+        nbtClipboard = name to tag.copy()
+        _nbtHasClipboard.value = true
+    }
+
+    fun cutNbtNode(parent: NbtTag?, key: String?, tag: NbtTag) {
+        if (parent == null || key == null) return
+        val clipName = if (parent is NbtTag.CompoundTag) key else "item"
+        nbtClipboard = clipName to tag.copy()
+        _nbtHasClipboard.value = true
+        when (parent) {
+            is NbtTag.CompoundTag -> removeNbtChild(parent, key)
+            is NbtTag.ListTag -> {
+                val idx = key.removePrefix("[").removeSuffix("]").toIntOrNull() ?: return
+                removeNbtListItem(parent, idx)
+            }
+        }
+    }
+
+    fun pasteNbtNode(parent: NbtTag) {
+        val clip = nbtClipboard ?: return
+        pushNbtUndo()
+        when (parent) {
+            is NbtTag.CompoundTag -> {
+                var name = clip.first.ifBlank { "tag" }
+                var i = 1
+                while (parent.contains(name)) {
+                    name = "${clip.first}_$i"
+                    i++
+                }
+                parent.put(name, clip.second.copy())
+            }
+            is NbtTag.ListTag -> {
+                val item = clip.second.copy()
+                if (parent.getListType() != NbtTag.TYPE_END && parent.getListType() != item.getType()) {
+                    nbtUndoStack.removeLastOrNull()
+                    refreshNbtHistoryFlags()
+                    _nbtError.value = I18n.t("nbt.paste_type_mismatch")
+                    return
+                }
+                parent.add(item)
+            }
+            else -> {
+                nbtUndoStack.removeLastOrNull()
+                refreshNbtHistoryFlags()
+                return
+            }
+        }
+        updateNbtValue()
+    }
+
+    fun duplicateNbtChild(parent: NbtTag.CompoundTag, key: String) {
+        val tag = parent.get(key) ?: return
+        var name = "${key}_copy"
+        var i = 1
+        while (parent.contains(name)) {
+            name = "${key}_copy$i"
+            i++
+        }
+        pushNbtUndo()
+        parent.put(name, tag.copy())
         updateNbtValue()
     }
 
@@ -2680,17 +3062,26 @@ class LauncherViewModel {
                 is NbtTag.ByteArrayTag -> {
                     val arr = array.getValue()
                     if (index < 0 || index >= arr.size) return false
-                    arr[index] = value.toByte()
+                    pushNbtUndo()
+                    try { arr[index] = value.toByte() } catch (e: NumberFormatException) {
+                        nbtUndoStack.removeLastOrNull(); refreshNbtHistoryFlags(); throw e
+                    }
                 }
                 is NbtTag.IntArrayTag -> {
                     val arr = array.getValue()
                     if (index < 0 || index >= arr.size) return false
-                    arr[index] = value.toInt()
+                    pushNbtUndo()
+                    try { arr[index] = value.toInt() } catch (e: NumberFormatException) {
+                        nbtUndoStack.removeLastOrNull(); refreshNbtHistoryFlags(); throw e
+                    }
                 }
                 is NbtTag.LongArrayTag -> {
                     val arr = array.getValue()
                     if (index < 0 || index >= arr.size) return false
-                    arr[index] = value.toLong()
+                    pushNbtUndo()
+                    try { arr[index] = value.toLong() } catch (e: NumberFormatException) {
+                        nbtUndoStack.removeLastOrNull(); refreshNbtHistoryFlags(); throw e
+                    }
                 }
                 else -> return false
             }
@@ -2704,6 +3095,7 @@ class LauncherViewModel {
     /** 添加数组元素 */
     fun addNbtArrayElement(array: NbtTag, value: String): Boolean {
         try {
+            pushNbtUndo()
             when (array) {
                 is NbtTag.ByteArrayTag -> {
                     val old = array.getValue()
@@ -2723,11 +3115,17 @@ class LauncherViewModel {
                     newArr[old.size] = value.toLong()
                     array.setValue(newArr)
                 }
-                else -> return false
+                else -> {
+                    nbtUndoStack.removeLastOrNull()
+                    refreshNbtHistoryFlags()
+                    return false
+                }
             }
             updateNbtValue()
             return true
         } catch (_: NumberFormatException) {
+            nbtUndoStack.removeLastOrNull()
+            refreshNbtHistoryFlags()
             return false
         }
     }
@@ -2738,6 +3136,7 @@ class LauncherViewModel {
             is NbtTag.ByteArrayTag -> {
                 val old = array.getValue()
                 if (index < 0 || index >= old.size) return
+                pushNbtUndo()
                 val newArr = java.util.Arrays.copyOf(old, old.size - 1)
                 var j = 0
                 for (i in old.indices) { if (i != index) newArr[j++] = old[i] }
@@ -2746,6 +3145,7 @@ class LauncherViewModel {
             is NbtTag.IntArrayTag -> {
                 val old = array.getValue()
                 if (index < 0 || index >= old.size) return
+                pushNbtUndo()
                 val newArr = java.util.Arrays.copyOf(old, old.size - 1)
                 var j = 0
                 for (i in old.indices) { if (i != index) newArr[j++] = old[i] }
@@ -2754,6 +3154,7 @@ class LauncherViewModel {
             is NbtTag.LongArrayTag -> {
                 val old = array.getValue()
                 if (index < 0 || index >= old.size) return
+                pushNbtUndo()
                 val newArr = java.util.Arrays.copyOf(old, old.size - 1)
                 var j = 0
                 for (i in old.indices) { if (i != index) newArr[j++] = old[i] }
@@ -3596,11 +3997,9 @@ class LauncherViewModel {
                                 if (logs.size > 2000) logs.subList(0, logs.size - 2000).clear()
                             }
                         }
-                        // 仅当此实例为活跃时更新 UI
+                        // 仅当此实例为活跃时增量追加 UI（避免每行全量重建）
                         if (_runningInstances.value.any { it.id == instanceId && it.active }) {
-                            setGameLogs(instanceLogs[instanceId]?.let { logs ->
-                                synchronized(logs) { logs.toList() }
-                            } ?: emptyList())
+                            appendGameLog(line)
                         }
                         // 解析游戏日志，更新会话上下文（服务器地址 / 世界名）用于细分统计
                         try {
@@ -3631,15 +4030,17 @@ class LauncherViewModel {
                 val exitCode = withContext(Dispatchers.IO) { future.join() }
                 _status.value = I18n.t("status.game_exited_with_version", exitCode, versionId)
 
-                // 异常退出检测：非 0 退出码视为崩溃
+                // 异常退出检测：非 0 退出码视为崩溃（用退出实例自身日志，勿用当前 UI 活跃缓冲）
                 if (exitCode != 0) {
-                    val recentLogs = _gameLogs.value.takeLast(80).map { it.text }
+                    val recentLogs = instanceId?.let { id ->
+                        instanceLogs[id]?.let { logs ->
+                            synchronized(logs) { logs.takeLast(80).toList() }
+                        }
+                    } ?: _gameLogs.value.takeLast(80).map { it.text }
                     val report = withContext(Dispatchers.IO) {
                         try {
                             val after = core.crashAnalyzer().scanReports(config.getWorkDir())
-                            // 找出本次启动后新增的崩溃报告（按文件路径对比）
                             val newReport = after.firstOrNull { it.getFile().toString() !in crashDirBefore }
-                            // 若无新增 crash-reports 文件，对 latest.log 末尾做分析
                             if (newReport != null) {
                                 newReport
                             } else {
@@ -3647,13 +4048,19 @@ class LauncherViewModel {
                                 if (logText.isNotBlank()) core.crashAnalyzer().analyze(logText, null)
                                 else null
                             }
-                        } catch (t: Throwable) { null }
+                        } catch (t: kotlinx.coroutines.CancellationException) {
+                            throw t
+                        } catch (_: Throwable) { null }
                     }
                     _crashEvent.value = CrashEvent(exitCode, report, recentLogs, versionId)
                     _crashReports.value = withContext(Dispatchers.IO) {
-                        try { core.crashAnalyzer().scanReports(config.getWorkDir()) } catch (t: Throwable) { emptyList() }
+                        try { core.crashAnalyzer().scanReports(config.getWorkDir()) }
+                        catch (t: kotlinx.coroutines.CancellationException) { throw t }
+                        catch (_: Throwable) { emptyList() }
                     }
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Throwable) {
                 _status.value = I18n.t("status.launch_failed", e.message ?: I18n.t("common.unknown"))
                 appendGameLog("[错误] ${e.message}")
@@ -3728,6 +4135,35 @@ class LauncherViewModel {
         setGameLogs(instanceLogs[instanceId]?.let { logs ->
             synchronized(logs) { logs.toList() }
         } ?: emptyList())
+    }
+
+    /** 清空当前 UI 游戏日志（不删除磁盘日志文件） */
+    fun clearGameLogs() {
+        _gameLogs.value = emptyList()
+        val activeId = _runningInstances.value.firstOrNull { it.active }?.id
+        if (activeId != null) {
+            instanceLogs[activeId]?.let { logs ->
+                synchronized(logs) { logs.clear() }
+            }
+        }
+    }
+
+    /** 在系统文件管理器中打开游戏日志目录 */
+    fun openGameLogFolder() {
+        scope.launch {
+            try {
+                val dir = withContext(Dispatchers.IO) {
+                    val p = config.getWorkDir().resolve("logs")
+                    java.nio.file.Files.createDirectories(p)
+                    p.toFile()
+                }
+                withContext(Dispatchers.IO) {
+                    java.awt.Desktop.getDesktop().open(dir)
+                }
+            } catch (e: Throwable) {
+                _status.value = I18n.t("log.open_folder_failed", e.message ?: I18n.t("common.unknown"))
+            }
+        }
     }
 
     // ============ Java 运行时管理 ============
@@ -4157,6 +4593,11 @@ class LauncherViewModel {
         }
     }
 
+    /** 打开某个世界所在文件夹 */
+    fun openWorldFolder(world: WorldManager.WorldInfo) {
+        openDir(world.dir.toFile())
+    }
+
     fun deleteWorld(world: WorldManager.WorldInfo) {
         scope.launch {
             try {
@@ -4279,6 +4720,30 @@ class LauncherViewModel {
             try {
                 withContext(Dispatchers.IO) { core.screenshots().delete(shot) }
                 _status.value = I18n.t("status.screenshot_deleted", shot.name)
+                refreshScreenshots()
+            } catch (e: Throwable) {
+                _status.value = I18n.t("status.delete_failed", e.message ?: I18n.t("common.unknown"))
+            }
+        }
+    }
+
+    /** 批量删除截图 */
+    fun deleteScreenshots(shots: List<ScreenshotManager.Screenshot>) {
+        if (shots.isEmpty()) return
+        scope.launch {
+            try {
+                var ok = 0
+                withContext(Dispatchers.IO) {
+                    for (shot in shots) {
+                        try {
+                            core.screenshots().delete(shot)
+                            ok++
+                        } catch (_: Throwable) {
+                            // 单个失败继续删其余
+                        }
+                    }
+                }
+                _status.value = I18n.t("status.screenshots_deleted", ok)
                 refreshScreenshots()
             } catch (e: Throwable) {
                 _status.value = I18n.t("status.delete_failed", e.message ?: I18n.t("common.unknown"))
@@ -4897,6 +5362,16 @@ class LauncherViewModel {
         openDir(core.screenshots().screenshotsDir.toFile())
     }
 
+    /** 打开单张截图所在文件夹（版本/实例真实目录） */
+    fun openScreenshotFolder(shot: ScreenshotManager.Screenshot) {
+        val parent = shot.path?.parent?.toFile()
+        if (parent == null) {
+            _status.value = I18n.t("status.open_dir_failed", I18n.t("common.unknown"))
+            return
+        }
+        openDir(parent)
+    }
+
     // ============ 数据包 ============
 
     fun refreshDatapacks(worldDir: java.nio.file.Path) {
@@ -5406,14 +5881,21 @@ class LauncherViewModel {
 
     // ============ 多人联机（陶瓦联机） ============
 
-    /** 创建新房间（房主） */
-    /** 当前联机后端 */
-    val mpBackend: com.pmcl.core.multiplayer.MultiplayerManager.Backend
-        get() = when (preferences.getMpBackend()) {
+    private fun resolveMpBackend(name: String?): com.pmcl.core.multiplayer.MultiplayerManager.Backend =
+        when (name) {
             "CONNECTX" -> com.pmcl.core.multiplayer.MultiplayerManager.Backend.CONNECTX
             "EASYTIER" -> com.pmcl.core.multiplayer.MultiplayerManager.Backend.EASYTIER
             else -> com.pmcl.core.multiplayer.MultiplayerManager.Backend.TERRACOTTA
         }
+
+    private val _mpBackend = MutableStateFlow(resolveMpBackend(preferences.getMpBackend()))
+    /** 当前联机后端（可观察，切换后 UI 会重组） */
+    val mpBackendState: StateFlow<com.pmcl.core.multiplayer.MultiplayerManager.Backend> =
+        _mpBackend.asStateFlow()
+
+    /** 当前联机后端（同步读取） */
+    val mpBackend: com.pmcl.core.multiplayer.MultiplayerManager.Backend
+        get() = _mpBackend.value
 
     /** 切换联机后端 */
     fun setMpBackend(b: com.pmcl.core.multiplayer.MultiplayerManager.Backend) {
@@ -5422,6 +5904,7 @@ class LauncherViewModel {
             _status.value = I18n.t("status.leave_room_before_switch_backend")
             return
         }
+        if (_mpBackend.value == b) return
         val name = when (b) {
             com.pmcl.core.multiplayer.MultiplayerManager.Backend.CONNECTX -> "CONNECTX"
             com.pmcl.core.multiplayer.MultiplayerManager.Backend.EASYTIER -> "EASYTIER"
@@ -5429,6 +5912,7 @@ class LauncherViewModel {
         }
         preferences.setMpBackend(name)
         core.multiplayer().setBackend(b)
+        _mpBackend.value = b
         val label = when (b) {
             com.pmcl.core.multiplayer.MultiplayerManager.Backend.CONNECTX -> "ConnectX"
             com.pmcl.core.multiplayer.MultiplayerManager.Backend.EASYTIER -> "EasyTier"

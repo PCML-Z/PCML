@@ -47,6 +47,152 @@ public abstract class NbtTag {
     /** SNBT 字符串表示（用于导出/复制）。默认返回 getValueString()，子类按需覆写。 */
     public String toSnbt() { return getValueString(); }
 
+    /** 深拷贝（用于撤销栈 / 剪贴板） */
+    public abstract NbtTag copy();
+
+    /**
+     * 将标签转换为目标类型（尽量保留数值语义）。
+     * 不支持的转换返回 null。
+     */
+    public static NbtTag convert(NbtTag src, int targetType) {
+        if (src == null) return null;
+        if (src.getType() == targetType) return src.copy();
+        try {
+            switch (targetType) {
+                case TYPE_BYTE: {
+                    Number n = asNumber(src);
+                    if (n == null) return null;
+                    NbtTag t = new ByteTag(n.byteValue());
+                    t.setName(src.getName());
+                    return t;
+                }
+                case TYPE_SHORT: {
+                    Number n = asNumber(src);
+                    if (n == null) return null;
+                    NbtTag t = new ShortTag(n.shortValue());
+                    t.setName(src.getName());
+                    return t;
+                }
+                case TYPE_INT: {
+                    Number n = asNumber(src);
+                    if (n == null) return null;
+                    NbtTag t = new IntTag(n.intValue());
+                    t.setName(src.getName());
+                    return t;
+                }
+                case TYPE_LONG: {
+                    Number n = asNumber(src);
+                    if (n == null) return null;
+                    NbtTag t = new LongTag(n.longValue());
+                    t.setName(src.getName());
+                    return t;
+                }
+                case TYPE_FLOAT: {
+                    Number n = asNumber(src);
+                    if (n == null) return null;
+                    NbtTag t = new FloatTag(n.floatValue());
+                    t.setName(src.getName());
+                    return t;
+                }
+                case TYPE_DOUBLE: {
+                    Number n = asNumber(src);
+                    if (n == null) return null;
+                    NbtTag t = new DoubleTag(n.doubleValue());
+                    t.setName(src.getName());
+                    return t;
+                }
+                case TYPE_STRING: {
+                    String s;
+                    if (src instanceof StringTag) s = ((StringTag) src).getValue();
+                    else if (src instanceof ByteTag || src instanceof ShortTag || src instanceof IntTag
+                            || src instanceof LongTag || src instanceof FloatTag || src instanceof DoubleTag) {
+                        s = stripNumericSuffix(src.getValueString());
+                    } else {
+                        return null;
+                    }
+                    NbtTag t = new StringTag(s);
+                    t.setName(src.getName());
+                    return t;
+                }
+                case TYPE_BYTE_ARRAY:
+                    if (src instanceof IntArrayTag) {
+                        int[] a = ((IntArrayTag) src).getValue();
+                        byte[] b = new byte[a.length];
+                        for (int i = 0; i < a.length; i++) b[i] = (byte) a[i];
+                        NbtTag t = new ByteArrayTag(b);
+                        t.setName(src.getName());
+                        return t;
+                    }
+                    return null;
+                case TYPE_INT_ARRAY:
+                    if (src instanceof ByteArrayTag) {
+                        byte[] a = ((ByteArrayTag) src).getValue();
+                        int[] b = new int[a.length];
+                        for (int i = 0; i < a.length; i++) b[i] = a[i];
+                        NbtTag t = new IntArrayTag(b);
+                        t.setName(src.getName());
+                        return t;
+                    }
+                    if (src instanceof LongArrayTag) {
+                        long[] a = ((LongArrayTag) src).getValue();
+                        int[] b = new int[a.length];
+                        for (int i = 0; i < a.length; i++) b[i] = (int) a[i];
+                        NbtTag t = new IntArrayTag(b);
+                        t.setName(src.getName());
+                        return t;
+                    }
+                    return null;
+                case TYPE_LONG_ARRAY:
+                    if (src instanceof IntArrayTag) {
+                        int[] a = ((IntArrayTag) src).getValue();
+                        long[] b = new long[a.length];
+                        for (int i = 0; i < a.length; i++) b[i] = a[i];
+                        NbtTag t = new LongArrayTag(b);
+                        t.setName(src.getName());
+                        return t;
+                    }
+                    return null;
+                default:
+                    return null;
+            }
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static Number asNumber(NbtTag src) {
+        if (src instanceof ByteTag) return ((ByteTag) src).getValue();
+        if (src instanceof ShortTag) return ((ShortTag) src).getValue();
+        if (src instanceof IntTag) return ((IntTag) src).getValue();
+        if (src instanceof LongTag) return ((LongTag) src).getValue();
+        if (src instanceof FloatTag) return ((FloatTag) src).getValue();
+        if (src instanceof DoubleTag) return ((DoubleTag) src).getValue();
+        if (src instanceof StringTag) {
+            String s = ((StringTag) src).getValue().trim();
+            if (s.isEmpty()) return null;
+            try {
+                if (s.contains(".") || s.endsWith("f") || s.endsWith("F")
+                        || s.endsWith("d") || s.endsWith("D")) {
+                    return Double.parseDouble(s.replaceAll("[fFdD]$", ""));
+                }
+                return Long.parseLong(s.replaceAll("[bBsSlL]$", ""));
+            } catch (NumberFormatException e) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private static String stripNumericSuffix(String s) {
+        if (s == null || s.isEmpty()) return "";
+        char c = s.charAt(s.length() - 1);
+        if (c == 'b' || c == 'B' || c == 's' || c == 'S' || c == 'L'
+                || c == 'f' || c == 'F' || c == 'd' || c == 'D') {
+            return s.substring(0, s.length() - 1);
+        }
+        return s;
+    }
+
     /** 根据类型 ID 获取类型名称（静态方法，用于 UI 类型选择器） */
     public static String getTypeName(int type) {
         switch (type) {
@@ -105,6 +251,11 @@ public abstract class NbtTag {
         @Override public String getTypeName() { return "Byte"; }
         @Override public String getValueString() { return String.valueOf(value); }
         @Override public String toSnbt() { return value + "b"; }
+        @Override public NbtTag copy() {
+            ByteTag t = new ByteTag(value);
+            t.setName(getName());
+            return t;
+        }
     }
 
     /** TAG_Short */
@@ -117,6 +268,11 @@ public abstract class NbtTag {
         @Override public String getTypeName() { return "Short"; }
         @Override public String getValueString() { return String.valueOf(value); }
         @Override public String toSnbt() { return value + "s"; }
+        @Override public NbtTag copy() {
+            ShortTag t = new ShortTag(value);
+            t.setName(getName());
+            return t;
+        }
     }
 
     /** TAG_Int */
@@ -128,6 +284,11 @@ public abstract class NbtTag {
         @Override public int getType() { return TYPE_INT; }
         @Override public String getTypeName() { return "Int"; }
         @Override public String getValueString() { return String.valueOf(value); }
+        @Override public NbtTag copy() {
+            IntTag t = new IntTag(value);
+            t.setName(getName());
+            return t;
+        }
     }
 
     /** TAG_Long */
@@ -139,6 +300,11 @@ public abstract class NbtTag {
         @Override public int getType() { return TYPE_LONG; }
         @Override public String getTypeName() { return "Long"; }
         @Override public String getValueString() { return String.valueOf(value) + "L"; }
+        @Override public NbtTag copy() {
+            LongTag t = new LongTag(value);
+            t.setName(getName());
+            return t;
+        }
     }
 
     /** TAG_Float */
@@ -151,6 +317,11 @@ public abstract class NbtTag {
         @Override public String getTypeName() { return "Float"; }
         @Override public String getValueString() { return String.valueOf(value) + "F"; }
         @Override public String toSnbt() { return value + "f"; }
+        @Override public NbtTag copy() {
+            FloatTag t = new FloatTag(value);
+            t.setName(getName());
+            return t;
+        }
     }
 
     /** TAG_Double */
@@ -163,6 +334,11 @@ public abstract class NbtTag {
         @Override public String getTypeName() { return "Double"; }
         @Override public String getValueString() { return String.valueOf(value) + "D"; }
         @Override public String toSnbt() { return value + "d"; }
+        @Override public NbtTag copy() {
+            DoubleTag t = new DoubleTag(value);
+            t.setName(getName());
+            return t;
+        }
     }
 
     /** TAG_Byte_Array */
@@ -182,6 +358,11 @@ public abstract class NbtTag {
             }
             return sb.append("]").toString();
         }
+        @Override public NbtTag copy() {
+            ByteArrayTag t = new ByteArrayTag(java.util.Arrays.copyOf(value, value.length));
+            t.setName(getName());
+            return t;
+        }
     }
 
     /** TAG_String */
@@ -193,6 +374,11 @@ public abstract class NbtTag {
         @Override public int getType() { return TYPE_STRING; }
         @Override public String getTypeName() { return "String"; }
         @Override public String getValueString() { return "\"" + value + "\""; }
+        @Override public NbtTag copy() {
+            StringTag t = new StringTag(value);
+            t.setName(getName());
+            return t;
+        }
     }
 
     /** TAG_Int_Array */
@@ -212,6 +398,11 @@ public abstract class NbtTag {
             }
             return sb.append("]").toString();
         }
+        @Override public NbtTag copy() {
+            IntArrayTag t = new IntArrayTag(java.util.Arrays.copyOf(value, value.length));
+            t.setName(getName());
+            return t;
+        }
     }
 
     /** TAG_Long_Array */
@@ -230,6 +421,11 @@ public abstract class NbtTag {
                 sb.append(value[i]).append("L");
             }
             return sb.append("]").toString();
+        }
+        @Override public NbtTag copy() {
+            LongArrayTag t = new LongArrayTag(java.util.Arrays.copyOf(value, value.length));
+            t.setName(getName());
+            return t;
         }
     }
 
@@ -274,6 +470,13 @@ public abstract class NbtTag {
             }
             return sb.append("]").toString();
         }
+        @Override public NbtTag copy() {
+            ListTag t = new ListTag();
+            t.setName(getName());
+            t.setListType(listType);
+            for (NbtTag item : items) t.add(item.copy());
+            return t;
+        }
     }
 
     /**
@@ -310,6 +513,14 @@ public abstract class NbtTag {
                 sb.append(e.getKey()).append(":").append(e.getValue().toSnbt());
             }
             return sb.append("}").toString();
+        }
+        @Override public NbtTag copy() {
+            CompoundTag t = new CompoundTag();
+            t.setName(getName());
+            for (Map.Entry<String, NbtTag> e : children.entrySet()) {
+                t.put(e.getKey(), e.getValue().copy());
+            }
+            return t;
         }
     }
 }

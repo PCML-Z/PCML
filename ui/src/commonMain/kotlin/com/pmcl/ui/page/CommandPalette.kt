@@ -73,183 +73,186 @@ private const val GROUP_INSTANCE = "instance"
 /**
  * 构建全部可搜索项索引（包含导航、版本、模组、快捷操作）。
  *
+ * 注意：不能用 `remember { mutableListOf() }` 再反复 add——
+ * collectAsState 触发重组时会把旧项叠加上去，结果越搜越重复、越乱。
+ *
  * @param vm ViewModel，用于读取版本/模组列表并触发操作
  */
 @Composable
 fun buildSearchIndex(vm: LauncherViewModel): List<SearchItem> {
-    val items = remember { mutableListOf<SearchItem>() }
-
-    // ===== 快捷操作 =====
-    items.add(SearchItem(
-        title = I18n.t("search.action.launch"),
-        subtitle = I18n.t("search.action.launch.desc"),
-        icon = Icons.Filled.PlayArrow,
-        group = GROUP_ACTION,
-        keywords = listOf(I18n.t("cmd.kw.launch"), "launch", "play", I18n.t("cmd.kw.start")),
-        onSelect = {
-            vm.requestNavigation("launch")
-            vm.launch()
-        }
-    ))
-    items.add(SearchItem(
-        title = I18n.t("search.action.scan_versions"),
-        subtitle = I18n.t("search.action.scan_versions.desc"),
-        icon = Icons.Filled.Refresh,
-        group = GROUP_ACTION,
-        keywords = listOf(I18n.t("cmd.kw.scan"), "scan", I18n.t("cmd.kw.refresh"), "refresh", I18n.t("cmd.kw.version")),
-        onSelect = { vm.refreshLocalVersions() }
-    ))
-    items.add(SearchItem(
-        title = I18n.t("search.action.scan_mods"),
-        subtitle = I18n.t("search.action.scan_mods.desc"),
-        icon = Icons.Filled.Extension,
-        group = GROUP_ACTION,
-        keywords = listOf(I18n.t("cmd.kw.mod"), "mod", I18n.t("cmd.kw.scan"), "scan"),
-        onSelect = {
-            vm.requestNavigation("content")
-            vm.requestHubTab("content", 0)
-            vm.refreshInstalledMods()
-        }
-    ))
-    items.add(SearchItem(
-        title = I18n.t("search.action.toggle_theme"),
-        subtitle = I18n.t("search.action.toggle_theme.desc"),
-        icon = Icons.Filled.DarkMode,
-        group = GROUP_ACTION,
-        keywords = listOf(I18n.t("cmd.kw.theme"), "theme", I18n.t("cmd.kw.dark"), "dark", I18n.t("cmd.kw.toggle"), "toggle"),
-        onSelect = { vm.themeState?.toggle() }
-    ))
-    items.add(SearchItem(
-        title = I18n.t("search.action.settings"),
-        subtitle = I18n.t("search.action.settings.desc"),
-        icon = Icons.Filled.Settings,
-        group = GROUP_ACTION,
-        keywords = listOf(I18n.t("cmd.kw.settings"), "settings", I18n.t("cmd.kw.preferences"), I18n.t("cmd.kw.config")),
-        onSelect = { vm.requestNavigation("settings") }
-    ))
-
-    // ===== 顶层页面导航 =====
-    for (dest in allDestinations) {
-        val label = I18n.t(dest.labelKey)
-        items.add(SearchItem(
-            title = label,
-            subtitle = describeRoute(dest.route),
-            icon = dest.icon,
-            group = GROUP_NAV,
-            keywords = keywordsForRoute(dest.route, label),
-            onSelect = { vm.requestNavigation(dest.route) }
-        ))
-    }
-
-    // ===== Hub 子页面 =====
-    // Content Hub
-    items.add(SearchItem(I18n.t("nav.mods"), I18n.t("search.hub.mods"), Icons.Filled.Extension, GROUP_NAV, listOf("mod", "mods", I18n.t("cmd.kw.mod"))) {
-        vm.requestNavigation("content"); vm.requestHubTab("content", 0)
-    })
-    items.add(SearchItem(I18n.t("nav.modpacks"), I18n.t("search.hub.modpacks"), Icons.Filled.Inventory2, GROUP_NAV, listOf("modpack", I18n.t("cmd.kw.modpack"))) {
-        vm.requestNavigation("content"); vm.requestHubTab("content", 1)
-    })
-    items.add(SearchItem(I18n.t("nav.shaders"), I18n.t("search.hub.shaders"), Icons.Filled.WbSunny, GROUP_NAV, listOf("shader", I18n.t("cmd.kw.shader"), I18n.t("cmd.kw.shader_alt"))) {
-        vm.requestNavigation("content"); vm.requestHubTab("content", 2)
-    })
-    items.add(SearchItem(I18n.t("nav.resourcepacks"), I18n.t("search.hub.resourcepacks"), Icons.Filled.Palette, GROUP_NAV, listOf("resource", I18n.t("cmd.kw.resource_pack"), I18n.t("cmd.kw.texture"))) {
-        vm.requestNavigation("content"); vm.requestHubTab("content", 3)
-    })
-    items.add(SearchItem(I18n.t("nav.datapacks"), I18n.t("search.hub.datapacks"), Icons.Filled.Dataset, GROUP_NAV, listOf("datapack", I18n.t("cmd.kw.datapack"))) {
-        vm.requestNavigation("content"); vm.requestHubTab("content", 4)
-    })
-    items.add(SearchItem(I18n.t("nav.configs"), I18n.t("search.hub.configs"), Icons.Filled.Edit, GROUP_NAV, listOf("config", I18n.t("cmd.kw.config"), I18n.t("cmd.kw.edit"))) {
-        vm.requestNavigation("content"); vm.requestHubTab("content", 5)
-    })
-    // Download Hub
-    items.add(SearchItem(I18n.t("download.local_versions"), I18n.t("search.hub.local_versions"), Icons.Filled.Build, GROUP_NAV, listOf("version", I18n.t("cmd.kw.version"), I18n.t("cmd.kw.install"))) {
-        vm.requestNavigation("download"); vm.requestHubTab("download", 0)
-    })
-    items.add(SearchItem(I18n.t("nav.market"), I18n.t("search.hub.market"), Icons.Filled.Store, GROUP_NAV, listOf("market", I18n.t("cmd.kw.market"), I18n.t("cmd.kw.store"))) {
-        vm.requestNavigation("download"); vm.requestHubTab("download", 1)
-    })
-    items.add(SearchItem(I18n.t("nav.queue"), I18n.t("search.hub.queue"), Icons.Filled.Download, GROUP_NAV, listOf("queue", I18n.t("cmd.kw.queue"), I18n.t("cmd.kw.download"))) {
-        vm.requestNavigation("download"); vm.requestHubTab("download", 2)
-    })
-    items.add(SearchItem(I18n.t("nav.wiki"), I18n.t("search.hub.wiki"), Icons.AutoMirrored.Filled.MenuBook, GROUP_NAV, listOf("wiki", I18n.t("cmd.kw.wiki"))) {
-        vm.requestNavigation("download"); vm.requestHubTab("download", 3)
-    })
-    // Saves Hub
-    items.add(SearchItem(I18n.t("nav.worlds"), I18n.t("search.hub.worlds"), Icons.Filled.Public, GROUP_NAV, listOf("world", I18n.t("cmd.kw.world"), I18n.t("cmd.kw.save"))) {
-        vm.requestNavigation("saves"); vm.requestHubTab("saves", 0)
-    })
-    items.add(SearchItem(I18n.t("nav.screenshots"), I18n.t("search.hub.screenshots"), Icons.Filled.Image, GROUP_NAV, listOf("screenshot", I18n.t("cmd.kw.screenshot"))) {
-        vm.requestNavigation("saves"); vm.requestHubTab("saves", 1)
-    })
-
-    // ===== 本地已安装版本（可启动） =====
     val localInfos by vm.localVersionInfos.collectAsState()
-    localInfos.forEach { info ->
-        val vid = info.getId()
-        items.add(SearchItem(
-            title = vid,
-            subtitle = if (info.isLaunchable()) I18n.t("search.version.installed")
-                       else I18n.t("search.version.not_installed"),
-            icon = Icons.Filled.Build,
-            group = GROUP_VERSION,
-            keywords = listOf("version", I18n.t("cmd.kw.version"), I18n.t("cmd.kw.launch"), "launch"),
-            onSelect = {
-                vm.selectVersion(vid)
-                vm.requestNavigation("launch")
-            }
-        ))
-    }
-
-    // ===== 已安装模组 =====
     val mods by vm.installedMods.collectAsState()
-    mods.forEach { mod ->
-        val name = mod.getName() ?: mod.getModId() ?: mod.getJarFile() ?: ""
-        if (name.isEmpty()) return@forEach
-        items.add(SearchItem(
-            title = name,
-            subtitle = buildString {
-                mod.getLoader()?.let { append(it).append(" ") }
-                mod.getVersion()?.let { append("v").append(it) }
-                if (mod.isDisabled()) append(" · " + I18n.t("search.mod.disabled"))
-            },
-            icon = Icons.Filled.Extension,
-            group = GROUP_MOD,
-            keywords = listOf("mod", I18n.t("cmd.kw.mod"), mod.getModId() ?: "", name),
-            onSelect = {
-                vm.requestNavigation("content")
-                vm.requestHubTab("content", 0)
-            }
-        ))
-    }
-
-    // ===== 独立实例（可直接启动） =====
     val instances by vm.instances.collectAsState()
-    instances.forEach { inst ->
-        val instName = inst.getName() ?: ""
-        if (instName.isEmpty()) return@forEach
-        items.add(SearchItem(
-            title = instName,
-            subtitle = buildString {
-                append(inst.getBaseVersionId() ?: "")
-                inst.getLoader()?.let { if (it.isNotEmpty()) append(" · $it") }
-            },
-            icon = Icons.Filled.Dashboard,
-            group = GROUP_INSTANCE,
-            keywords = listOf("instance", I18n.t("cmd.kw.instance"), instName, inst.getBaseVersionId() ?: ""),
-            onSelect = {
-                vm.requestNavigation("instances")
-                if (inst.isLaunchable()) vm.launchInstance(inst.getInstanceId())
-            }
-        ))
-    }
+    // 语言切换后重建文案（Settings 改语言会写 Preferences 并触发重组）
+    val language = vm.preferences.getLanguage()
 
-    return items
+    return remember(localInfos, mods, instances, language) {
+        buildList {
+            // ===== 快捷操作 =====
+            add(SearchItem(
+                title = I18n.t("search.action.launch"),
+                subtitle = I18n.t("search.action.launch.desc"),
+                icon = Icons.Filled.PlayArrow,
+                group = GROUP_ACTION,
+                keywords = listOf(I18n.t("cmd.kw.launch"), "launch", "play", I18n.t("cmd.kw.start")),
+                onSelect = {
+                    vm.requestNavigation("launch")
+                    vm.launch()
+                }
+            ))
+            add(SearchItem(
+                title = I18n.t("search.action.scan_versions"),
+                subtitle = I18n.t("search.action.scan_versions.desc"),
+                icon = Icons.Filled.Refresh,
+                group = GROUP_ACTION,
+                keywords = listOf(I18n.t("cmd.kw.scan"), "scan", I18n.t("cmd.kw.refresh"), "refresh", I18n.t("cmd.kw.version")),
+                onSelect = { vm.refreshLocalVersions() }
+            ))
+            add(SearchItem(
+                title = I18n.t("search.action.scan_mods"),
+                subtitle = I18n.t("search.action.scan_mods.desc"),
+                icon = Icons.Filled.Extension,
+                group = GROUP_ACTION,
+                keywords = listOf(I18n.t("cmd.kw.mod"), "mod", I18n.t("cmd.kw.scan"), "scan"),
+                onSelect = {
+                    vm.requestNavigation("content")
+                    vm.requestHubTab("content", 0)
+                    vm.refreshInstalledMods()
+                }
+            ))
+            add(SearchItem(
+                title = I18n.t("search.action.toggle_theme"),
+                subtitle = I18n.t("search.action.toggle_theme.desc"),
+                icon = Icons.Filled.DarkMode,
+                group = GROUP_ACTION,
+                keywords = listOf(I18n.t("cmd.kw.theme"), "theme", I18n.t("cmd.kw.dark"), "dark", I18n.t("cmd.kw.toggle"), "toggle"),
+                onSelect = { vm.themeState?.toggle() }
+            ))
+            add(SearchItem(
+                title = I18n.t("search.action.settings"),
+                subtitle = I18n.t("search.action.settings.desc"),
+                icon = Icons.Filled.Settings,
+                group = GROUP_ACTION,
+                keywords = listOf(I18n.t("cmd.kw.settings"), "settings", I18n.t("cmd.kw.preferences"), I18n.t("cmd.kw.config")),
+                onSelect = { vm.requestNavigation("settings") }
+            ))
+
+            // ===== 顶层页面导航 =====
+            for (dest in allDestinations) {
+                val label = I18n.t(dest.labelKey)
+                add(SearchItem(
+                    title = label,
+                    subtitle = describeRoute(dest.route),
+                    icon = dest.icon,
+                    group = GROUP_NAV,
+                    keywords = keywordsForRoute(dest.route, label),
+                    onSelect = { vm.requestNavigation(dest.route) }
+                ))
+            }
+
+            // ===== Hub 子页面 =====
+            add(SearchItem(I18n.t("nav.mods"), I18n.t("search.hub.mods"), Icons.Filled.Extension, GROUP_NAV, listOf("mod", "mods", I18n.t("cmd.kw.mod"))) {
+                vm.requestNavigation("content"); vm.requestHubTab("content", 0)
+            })
+            add(SearchItem(I18n.t("nav.modpacks"), I18n.t("search.hub.modpacks"), Icons.Filled.Inventory2, GROUP_NAV, listOf("modpack", I18n.t("cmd.kw.modpack"))) {
+                vm.requestNavigation("content"); vm.requestHubTab("content", 1)
+            })
+            add(SearchItem(I18n.t("nav.shaders"), I18n.t("search.hub.shaders"), Icons.Filled.WbSunny, GROUP_NAV, listOf("shader", I18n.t("cmd.kw.shader"), I18n.t("cmd.kw.shader_alt"))) {
+                vm.requestNavigation("content"); vm.requestHubTab("content", 2)
+            })
+            add(SearchItem(I18n.t("nav.resourcepacks"), I18n.t("search.hub.resourcepacks"), Icons.Filled.Palette, GROUP_NAV, listOf("resource", I18n.t("cmd.kw.resource_pack"), I18n.t("cmd.kw.texture"))) {
+                vm.requestNavigation("content"); vm.requestHubTab("content", 3)
+            })
+            add(SearchItem(I18n.t("nav.datapacks"), I18n.t("search.hub.datapacks"), Icons.Filled.Dataset, GROUP_NAV, listOf("datapack", I18n.t("cmd.kw.datapack"))) {
+                vm.requestNavigation("content"); vm.requestHubTab("content", 4)
+            })
+            add(SearchItem(I18n.t("nav.configs"), I18n.t("search.hub.configs"), Icons.Filled.Edit, GROUP_NAV, listOf("config", I18n.t("cmd.kw.config"), I18n.t("cmd.kw.edit"))) {
+                vm.requestNavigation("content"); vm.requestHubTab("content", 5)
+            })
+            add(SearchItem(I18n.t("download.local_versions"), I18n.t("search.hub.local_versions"), Icons.Filled.Build, GROUP_NAV, listOf("version", I18n.t("cmd.kw.version"), I18n.t("cmd.kw.install"))) {
+                vm.requestNavigation("download"); vm.requestHubTab("download", 0)
+            })
+            add(SearchItem(I18n.t("nav.market"), I18n.t("search.hub.market"), Icons.Filled.Store, GROUP_NAV, listOf("market", I18n.t("cmd.kw.market"), I18n.t("cmd.kw.store"))) {
+                vm.requestNavigation("download"); vm.requestHubTab("download", 1)
+            })
+            add(SearchItem(I18n.t("nav.queue"), I18n.t("search.hub.queue"), Icons.Filled.Download, GROUP_NAV, listOf("queue", I18n.t("cmd.kw.queue"), I18n.t("cmd.kw.download"))) {
+                vm.requestNavigation("download"); vm.requestHubTab("download", 2)
+            })
+            add(SearchItem(I18n.t("nav.wiki"), I18n.t("search.hub.wiki"), Icons.AutoMirrored.Filled.MenuBook, GROUP_NAV, listOf("wiki", I18n.t("cmd.kw.wiki"))) {
+                vm.requestNavigation("download"); vm.requestHubTab("download", 3)
+            })
+            add(SearchItem(I18n.t("nav.worlds"), I18n.t("search.hub.worlds"), Icons.Filled.Public, GROUP_NAV, listOf("world", I18n.t("cmd.kw.world"), I18n.t("cmd.kw.save"))) {
+                vm.requestNavigation("saves"); vm.requestHubTab("saves", 0)
+            })
+            add(SearchItem(I18n.t("nav.screenshots"), I18n.t("search.hub.screenshots"), Icons.Filled.Image, GROUP_NAV, listOf("screenshot", I18n.t("cmd.kw.screenshot"))) {
+                vm.requestNavigation("saves"); vm.requestHubTab("saves", 1)
+            })
+            // ===== 本地已安装版本（可启动） =====
+            localInfos.forEach { info ->
+                val vid = info.getId()
+                add(SearchItem(
+                    title = vid,
+                    subtitle = if (info.isLaunchable()) I18n.t("search.version.installed")
+                    else I18n.t("search.version.not_installed"),
+                    icon = Icons.Filled.Build,
+                    group = GROUP_VERSION,
+                    keywords = listOf("version", I18n.t("cmd.kw.version"), I18n.t("cmd.kw.launch"), "launch"),
+                    onSelect = {
+                        vm.selectVersion(vid)
+                        vm.requestNavigation("launch")
+                    }
+                ))
+            }
+
+            // ===== 已安装模组 =====
+            mods.forEach { mod ->
+                val name = mod.getName() ?: mod.getModId() ?: mod.getJarFile() ?: ""
+                if (name.isEmpty()) return@forEach
+                add(SearchItem(
+                    title = name,
+                    subtitle = buildString {
+                        mod.getLoader()?.let { append(it).append(" ") }
+                        mod.getVersion()?.let { append("v").append(it) }
+                        if (mod.isDisabled()) append(" · " + I18n.t("search.mod.disabled"))
+                    },
+                    icon = Icons.Filled.Extension,
+                    group = GROUP_MOD,
+                    keywords = listOf("mod", I18n.t("cmd.kw.mod"), mod.getModId() ?: "", name),
+                    onSelect = {
+                        vm.requestNavigation("content")
+                        vm.requestHubTab("content", 0)
+                    }
+                ))
+            }
+
+            // ===== 独立实例（可直接启动） =====
+            instances.forEach { inst ->
+                val instName = inst.getName() ?: ""
+                if (instName.isEmpty()) return@forEach
+                add(SearchItem(
+                    title = instName,
+                    subtitle = buildString {
+                        append(inst.getBaseVersionId() ?: "")
+                        inst.getLoader()?.let { if (it.isNotEmpty()) append(" · $it") }
+                    },
+                    icon = Icons.Filled.Dashboard,
+                    group = GROUP_INSTANCE,
+                    keywords = listOf("instance", I18n.t("cmd.kw.instance"), instName, inst.getBaseVersionId() ?: ""),
+                    onSelect = {
+                        vm.requestNavigation("instances")
+                        if (inst.isLaunchable()) vm.launchInstance(inst.getInstanceId())
+                    }
+                ))
+            }
+        }
+    }
 }
 
 private fun describeRoute(route: String): String = when (route) {
     "launch" -> I18n.t("search.nav.launch")
     "news" -> I18n.t("search.nav.news")
     "multiplayer" -> I18n.t("search.nav.multiplayer")
+    "servers" -> I18n.t("search.hub.servers")
     "friends" -> I18n.t("search.nav.friends")
     "download" -> I18n.t("search.nav.download")
     "content" -> I18n.t("search.nav.content")
@@ -267,6 +270,7 @@ private fun keywordsForRoute(route: String, label: String): List<String> = when 
     "launch" -> listOf(I18n.t("cmd.kw.launch"), "launcher", "play", I18n.t("cmd.kw.game"))
     "news" -> listOf(I18n.t("cmd.kw.news"), I18n.t("cmd.kw.info"), "news")
     "multiplayer" -> listOf(I18n.t("cmd.kw.multiplayer"), I18n.t("cmd.kw.server"), "multiplayer", "server")
+    "servers" -> listOf(I18n.t("cmd.kw.server"), "server", "servers")
     "friends" -> listOf(I18n.t("cmd.kw.friend"), I18n.t("cmd.kw.chat"), "friend", "chat", I18n.t("cmd.kw.contact"), "contact", "QR", I18n.t("cmd.kw.qrcode"))
     "download" -> listOf(I18n.t("cmd.kw.download"), "download", I18n.t("cmd.kw.install"))
     "content" -> listOf(I18n.t("cmd.kw.content"), "content", I18n.t("cmd.kw.resource"))
@@ -538,10 +542,11 @@ fun TopBarSearchField(
             }
         }
 
-        // 下拉搜索结果（分组显示）
+        // 下拉搜索结果（分组显示）；宽度与搜索框对齐，避免结果列表过窄
         DropdownMenu(
             expanded = expanded,
-            onDismissRequest = { expanded = false }
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.widthIn(min = 280.dp, max = 420.dp)
         ) {
             SearchResultsContent(groups, flatItems, selectedIndex, query) {
                 query = ""; expanded = false

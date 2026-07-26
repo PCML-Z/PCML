@@ -370,23 +370,24 @@ fun FriendPage(vm: LauncherViewModel) {
 
                 // 中间：聊天区（占据主要空间）
                 Column(Modifier.weight(1f).fillMaxHeight()) {
-                    if (selectedFriendId != null) {
-                        val selectedFriend = friends.find { it.identity == selectedFriendId }
+                    val activeFriendId = selectedFriendId
+                    if (activeFriendId != null) {
+                        val selectedFriend = friends.find { it.identity == activeFriendId }
                         ChatView(
-                            friendName = selectedFriend?.displayName ?: selectedFriendId!!,
+                            friendName = selectedFriend?.displayName ?: activeFriendId,
                             friendOnline = selectedFriend?.online ?: false,
                             messages = messages,
                             inputText = inputText,
                             onInputChange = { inputText = it },
                             onSend = {
                                 if (inputText.isNotBlank()) {
-                                    friendManager.sendMessage(selectedFriendId!!, inputText.trim())
+                                    friendManager.sendMessage(activeFriendId, inputText.trim())
                                     inputText = ""
-                                    messages = friendManager.getMessages(selectedFriendId!!)
+                                    messages = friendManager.getMessages(activeFriendId)
                                 }
                             },
                             onDeleteFriend = {
-                                friendManager.removeFriend(selectedFriendId!!)
+                                friendManager.removeFriend(activeFriendId)
                                 selectedFriendId = null
                                 refresh()
                             },
@@ -403,7 +404,7 @@ fun FriendPage(vm: LauncherViewModel) {
                                         val videoPort = videoSocket.localPort
                                         
                                         val session = com.pmcl.video.VideoCallSession(
-                                            callId, selectedFriendId!!, friendEntry?.displayName ?: "",
+                                            callId, activeFriendId, friendEntry?.displayName ?: "",
                                             true, com.pmcl.video.VideoCallSession.MediaType.AUDIO_VIDEO
                                         )
                                         session.addListener(object : com.pmcl.video.VideoCallSession.CallListener {
@@ -414,7 +415,7 @@ fun FriendPage(vm: LauncherViewModel) {
                                             }
                                             override fun onLocalCandidate(candidateSdp: String, ufrag: String, pwd: String) {
                                                 friendManager.sendCallIceCandidate(
-                                                    selectedFriendId!!, callId, candidateSdp, 0, "1", ufrag, pwd)
+                                                    activeFriendId, callId, candidateSdp, 0, "1", ufrag, pwd)
                                             }
                                             override fun onRemoteFrame(frame: java.awt.image.BufferedImage?) {}
                                             override fun onLocalFrame(frame: java.awt.image.BufferedImage?) {}
@@ -434,14 +435,14 @@ fun FriendPage(vm: LauncherViewModel) {
                                             f.set(session, videoSocket)
                                         } catch (_: Exception) {}
                                         
-                                        val inviteResult = friendManager.sendCallInvite(selectedFriendId!!, "video", videoPort)
+                                        val inviteResult = friendManager.sendCallInvite(activeFriendId, "video", videoPort)
                                         if (inviteResult == null) {
                                             System.err.println("[VideoCall] 无法发送通话邀请：好友无网络地址")
                                             videoSocket.close()
                                             session.end()
                                             activeCallSession = null
                                         } else {
-                                            System.out.println("[VideoCall] 通话邀请已发送 callId=$inviteResult -> ${selectedFriendId}")
+                                            System.out.println("[VideoCall] 通话邀请已发送 callId=$inviteResult -> $activeFriendId")
                                         }
                                     }
                                 }

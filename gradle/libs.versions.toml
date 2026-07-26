@@ -13,7 +13,6 @@ ice4j = "3.2-15-g6da2b08"
 javacv = "1.5.11"
 ffmpeg = "7.1-1.5.11"
 ktor = "3.0.3"
-pty4j = "0.13.12"
 javafx = "21.0.7"
 
 [libraries]
@@ -33,9 +32,6 @@ zxing-javase = { module = "com.google.zxing:javase", version.ref = "zxing-core" 
 ice4j = { module = "org.jitsi:ice4j", version.ref = "ice4j" }
 javacv = { module = "org.bytedeco:javacv", version.ref = "javacv" }
 ffmpeg-macosx-arm64 = { module = "org.bytedeco:ffmpeg", version.ref = "ffmpeg" }
-
-# 内嵌 PTY 终端（运行 OpenCode TUI）
-pty4j = { module = "org.jetbrains.pty4j:pty4j", version.ref = "pty4j" }
 
 # WebSocket 服务宿主（伴随模式）
 ktor-server-core = { module = "io.ktor:ktor-server-core", version.ref = "ktor" }

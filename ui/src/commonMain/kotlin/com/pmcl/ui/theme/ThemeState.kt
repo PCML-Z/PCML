@@ -41,6 +41,10 @@ class ThemeState(initialDark: Boolean = false) {
     var parallaxBackground by mutableStateOf(false)
         private set
 
+    /** 自定义背景（图片/视频）是否激活：激活时 App 内容层透明，透出窗口级背景 */
+    var customBackground by mutableStateOf(false)
+        private set
+
     var glassTheme by mutableStateOf(false)
         private set
 
@@ -94,6 +98,10 @@ class ThemeState(initialDark: Boolean = false) {
 
     fun applyParallaxBackground(enabled: Boolean) {
         parallaxBackground = enabled
+    }
+
+    fun applyCustomBackground(active: Boolean) {
+        customBackground = active
     }
 
     fun applyGlassTheme(enabled: Boolean) {

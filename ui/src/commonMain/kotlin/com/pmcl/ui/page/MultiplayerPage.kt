@@ -1,44 +1,31 @@
 package com.pmcl.ui.page
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
-import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
 import com.pmcl.core.multiplayer.MultiplayerManager
-import com.pmcl.ui.theme.LocalThemeState
-import com.pmcl.ui.theme.glassCardBorder
-import com.pmcl.ui.theme.glassCardColors
-import com.pmcl.ui.theme.glassCardElevation
+import com.pmcl.ui.animation.AnimatedSegmentedSelector
 import com.pmcl.ui.viewmodel.LauncherViewModel
 
 /**
- * 多人联机页面：支持 EasyTier（陶瓦联机）和 ConnectX 两种 P2P 后端。
- *
- * 工作流：
- * 1. 选择联机后端（EasyTier / ConnectX）
- * 2. 房主点击「创建房间」→ 生成邀请码
- * 3. 房客粘贴邀请码 → 点击「加入房间」→ 连接到同一虚拟网络
- * 4. 进入游戏后通过「局域网开放」或直连虚拟 IP 即可联机
- *
- * 注意：仅支持 Minecraft Java Edition。
+ * 多人联机页：创建 / 加入房间为主，其余收进设置与说明。
  */
 @Composable
 fun MultiplayerPage(vm: LauncherViewModel) {
@@ -46,351 +33,264 @@ fun MultiplayerPage(vm: LauncherViewModel) {
     val progress by vm.mpProgress.collectAsState()
     val virtualIp by vm.mpVirtualIp.collectAsState()
     val invitation by vm.mpInvitation.collectAsState()
-    val status by vm.status.collectAsState()
     val mcAddr by vm.mpLocalMcAddr.collectAsState()
+    val backend by vm.mpBackendState.collectAsState()
 
     var joinCode by remember { mutableStateOf("") }
+    var showHelp by remember { mutableStateOf(false) }
     var showConnectXSettings by remember { mutableStateOf(false) }
     var connectxBinPath by remember { mutableStateOf(vm.preferences.getConnectxBinaryPath() ?: "") }
     var connectxServer by remember { mutableStateOf(vm.preferences.getConnectxServerAddress() ?: "") }
     var connectxPort by remember { mutableStateOf(vm.preferences.getConnectxServerPort().toString()) }
-    val scroll = rememberScrollState()
 
-    val isConnectX = vm.mpBackend == MultiplayerManager.Backend.CONNECTX
+    val isConnectX = backend == MultiplayerManager.Backend.CONNECTX
+    val isTerracotta = backend == MultiplayerManager.Backend.TERRACOTTA
+    val busy = state == MultiplayerManager.State.DOWNLOADING ||
+        state == MultiplayerManager.State.CONNECTING
+    val inRoom = state == MultiplayerManager.State.CONNECTING ||
+        state == MultiplayerManager.State.CONNECTED
+    val failed = state == MultiplayerManager.State.FAILED
 
-    // 状态 → 文案 / 颜色映射
     val stateText = when (state) {
-        MultiplayerManager.State.IDLE         -> I18n.t("mp.state.idle")
-        MultiplayerManager.State.DOWNLOADING  -> when {
+        MultiplayerManager.State.IDLE -> I18n.t("mp.state.idle")
+        MultiplayerManager.State.DOWNLOADING -> when {
             isConnectX -> I18n.t("mp.state.connecting_server")
-            vm.mpBackend == MultiplayerManager.Backend.TERRACOTTA -> I18n.t("mp.state.downloading_terracotta")
+            isTerracotta -> I18n.t("mp.state.downloading_terracotta")
             else -> I18n.t("mp.state.downloading_easytier")
         }
-        MultiplayerManager.State.CONNECTING   -> I18n.t("mp.state.connecting")
-        MultiplayerManager.State.CONNECTED    -> I18n.t("mp.state.connected")
+        MultiplayerManager.State.CONNECTING -> I18n.t("mp.state.connecting")
+        MultiplayerManager.State.CONNECTED -> I18n.t("mp.state.connected")
         MultiplayerManager.State.DISCONNECTED -> I18n.t("mp.state.disconnected")
-        MultiplayerManager.State.FAILED       -> I18n.t("mp.state.failed")
+        MultiplayerManager.State.FAILED -> I18n.t("mp.state.failed")
     }
     val stateColor = when (state) {
-        MultiplayerManager.State.CONNECTED    -> MaterialTheme.colorScheme.primary
+        MultiplayerManager.State.CONNECTED -> MaterialTheme.colorScheme.primary
         MultiplayerManager.State.CONNECTING,
-        MultiplayerManager.State.DOWNLOADING  -> MaterialTheme.colorScheme.tertiary
-        MultiplayerManager.State.FAILED       -> MaterialTheme.colorScheme.error
-        else                                  -> MaterialTheme.colorScheme.outline
+        MultiplayerManager.State.DOWNLOADING -> MaterialTheme.colorScheme.tertiary
+        MultiplayerManager.State.FAILED -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.outline
     }
-    val busy = state == MultiplayerManager.State.DOWNLOADING ||
-               state == MultiplayerManager.State.CONNECTING
-    val inRoom = state == MultiplayerManager.State.CONNECTING ||
-                 state == MultiplayerManager.State.CONNECTED
+
+    val backends = listOf(
+        I18n.t("mp.terracotta_official") to MultiplayerManager.Backend.TERRACOTTA,
+        "EasyTier" to MultiplayerManager.Backend.EASYTIER,
+        "ConnectX" to MultiplayerManager.Backend.CONNECTX
+    )
 
     Column(
-        Modifier.fillMaxSize().padding(16.dp).verticalScroll(scroll),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        Modifier
+            .fillMaxSize()
+            .padding(horizontal = 20.dp, vertical = 16.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // 标题
+        // 顶栏：标题 + 状态 + 帮助 / 设置
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Filled.Share, null, tint = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.width(8.dp))
-            Text(when (vm.mpBackend) {
-                MultiplayerManager.Backend.CONNECTX -> I18n.t("mp.connectx")
-                MultiplayerManager.Backend.TERRACOTTA -> I18n.t("mp.terracotta")
-                else -> I18n.t("mp.easytier")
-            },
-                 style = MaterialTheme.typography.headlineSmall,
-                 fontWeight = FontWeight.Bold,
-                 modifier = Modifier.weight(1f))
-            // 设置按钮
+            Text(
+                I18n.t("nav.multiplayer"),
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f)
+            )
+            Surface(
+                color = stateColor.copy(alpha = 0.15f),
+                shape = RoundedCornerShape(20.dp)
+            ) {
+                Text(
+                    stateText,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = stateColor,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                )
+            }
+            IconButton(onClick = { showHelp = true }) {
+                Icon(Icons.Filled.Info, I18n.t("mp.usage"))
+            }
             if (!inRoom) {
                 IconButton(onClick = { showConnectXSettings = true }) {
                     Icon(Icons.Filled.Settings, I18n.t("mp.settings"))
                 }
             }
-            // 状态指示
-            Surface(
-                color = stateColor.copy(alpha = 0.15f),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Text(stateText,
-                     style = MaterialTheme.typography.labelMedium,
-                     color = stateColor,
-                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
-            }
         }
-        Text(
-            when (vm.mpBackend) {
-                MultiplayerManager.Backend.CONNECTX -> I18n.t("mp.desc.connectx")
-                MultiplayerManager.Backend.TERRACOTTA -> I18n.t("mp.desc.terracotta")
-                else -> I18n.t("mp.desc.easytier")
-            },
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.outline
-        )
 
-        // 后端切换（仅在未在房间中时显示）
         if (!inRoom) {
-            Card(
-                shape = RoundedCornerShape(10.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                )
-            ) {
-                Column(Modifier.padding(12.dp)) {
-                    Text(I18n.t("mp.backend"), style = MaterialTheme.typography.labelMedium,
-                         color = MaterialTheme.colorScheme.outline)
-                    Spacer(Modifier.height(6.dp))
-                    val backendList = listOf(
-                        Triple(I18n.t("mp.terracotta_official"), MultiplayerManager.Backend.TERRACOTTA, 0),
-                        Triple("EasyTier", MultiplayerManager.Backend.EASYTIER, 1),
-                        Triple("ConnectX", MultiplayerManager.Backend.CONNECTX, 2)
-                    )
-                    com.pmcl.ui.animation.AnimatedSegmentedSelector(
-                        items = backendList.map { it.first },
-                        selectedIndex = backendList.indexOfFirst { it.second == vm.mpBackend }.coerceAtLeast(0),
-                        onSelect = { vm.setMpBackend(backendList[it].second) },
-                        fillWidth = true
-                    )
-                    if (isConnectX) {
-                        Spacer(Modifier.height(8.dp))
-                        Text(I18n.t("mp.connectx_hint"),
-                             style = MaterialTheme.typography.labelSmall,
-                             color = MaterialTheme.colorScheme.tertiary)
-                    } else if (vm.mpBackend == MultiplayerManager.Backend.TERRACOTTA) {
-                        Spacer(Modifier.height(8.dp))
-                        Text(I18n.t("mp.terracotta_hint"),
-                             style = MaterialTheme.typography.labelSmall,
-                             color = MaterialTheme.colorScheme.outline)
-                    }
-                }
-            }
-        }
-
-        if (progress.isNotEmpty()) {
-            if (busy) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-            // 日志区域：显示最近一行，用等宽字体便于阅读
-            Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                shape = RoundedCornerShape(6.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(
-                    progress,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(8.dp).fillMaxWidth()
-                )
-            }
-        }
-
-        HorizontalDivider()
-
-        // === 房间状态卡 ===
-        Card(
-            shape = RoundedCornerShape(10.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant
+            // 联机方式（单行，不占大卡片）
+            Text(
+                I18n.t("mp.backend"),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.outline
             )
-        ) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(I18n.t("mp.current_room"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            AnimatedSegmentedSelector(
+                items = backends.map { it.first },
+                selectedIndex = backends.indexOfFirst { it.second == backend }.coerceAtLeast(0),
+                onSelect = { idx -> vm.setMpBackend(backends[idx].second) },
+                fillWidth = true,
+                height = 34.dp
+            )
 
-                if (inRoom) {
-                    // === Terracotta 后端：显示房间码 ===
-                    val isTerracotta = vm.mpBackend == MultiplayerManager.Backend.TERRACOTTA
-                    if (isTerracotta && invitation.isNotEmpty()) {
-                        Spacer(Modifier.height(4.dp))
-                        // 房间码高亮显示
-                        Surface(
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            shape = RoundedCornerShape(10.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(Modifier.weight(1f)) {
-                                    Text(I18n.t("mp.room_code"),
-                                         style = MaterialTheme.typography.labelSmall,
-                                         color = MaterialTheme.colorScheme.onPrimaryContainer)
-                                    Text(invitation,
-                                         style = MaterialTheme.typography.titleLarge,
-                                         fontWeight = FontWeight.Bold,
-                                         color = MaterialTheme.colorScheme.onPrimaryContainer)
-                                }
-                                IconButton(onClick = { vm.copyInvitation() }) {
-                                    Icon(Icons.AutoMirrored.Filled.Send, I18n.t("mp.copy_room_code"))
-                                }
-                            }
-                        }
-                        Spacer(Modifier.height(4.dp))
-                        Text(I18n.t("mp.share_room_code_hint"),
-                             style = MaterialTheme.typography.labelSmall,
-                             color = MaterialTheme.colorScheme.outline)
-                        // 房客模式下显示本地 MC 连接地址
-                        if (mcAddr.isNotEmpty()) {
-                            Spacer(Modifier.height(8.dp))
-                            Surface(
-                                color = MaterialTheme.colorScheme.tertiaryContainer,
-                                shape = RoundedCornerShape(10.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().padding(12.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(Modifier.weight(1f)) {
-                                        Text(I18n.t("mp.local_mc_addr"),
-                                             style = MaterialTheme.typography.labelSmall,
-                                             color = MaterialTheme.colorScheme.onTertiaryContainer)
-                                        Text(mcAddr,
-                                             style = MaterialTheme.typography.titleMedium,
-                                             fontWeight = FontWeight.Bold,
-                                             color = MaterialTheme.colorScheme.onTertiaryContainer)
-                                    }
-                                    IconButton(onClick = { vm.copyToClipboard(mcAddr) }) {
-                                        Icon(Icons.Filled.Share, I18n.t("mp.copy_addr"))
-                                    }
-                                }
-                            }
-                            Spacer(Modifier.height(4.dp))
-                            Text(I18n.t("mp.direct_connect_hint"),
-                                 style = MaterialTheme.typography.labelSmall,
-                                 color = MaterialTheme.colorScheme.outline)
-                        }
-                    } else if (isConnectX) {
-                        InfoRow(I18n.t("mp.room_id"), invitation.removePrefix("connectx-").take(12))
-                        if (invitation.isNotEmpty()) {
-                            Spacer(Modifier.height(8.dp))
-                            Text(I18n.t("mp.invite_code"),
-                                 style = MaterialTheme.typography.labelMedium,
-                                 color = MaterialTheme.colorScheme.outline)
-                            OutlinedTextField(
-                                value = invitation,
-                                onValueChange = {},
-                                readOnly = true,
-                                modifier = Modifier.fillMaxWidth(),
-                                textStyle = MaterialTheme.typography.bodySmall,
-                                trailingIcon = {
-                                    IconButton(onClick = { vm.copyInvitation() }) {
-                                        Icon(Icons.AutoMirrored.Filled.Send, I18n.t("mp.copy_invite"))
-                                    }
-                                }
-                            )
-                        }
-                    } else {
-                        // EasyTier 后端
-                        InfoRow(I18n.t("mp.network_name"), invitation.take(20) + if (invitation.length > 20) "…" else "")
-                        if (virtualIp.isNotEmpty()) {
-                            Spacer(Modifier.height(8.dp))
-                            Surface(
-                                color = MaterialTheme.colorScheme.primaryContainer,
-                                shape = RoundedCornerShape(10.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().padding(12.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(Modifier.weight(1f)) {
-                                        Text(I18n.t("mp.virtual_ip"),
-                                             style = MaterialTheme.typography.labelSmall,
-                                             color = MaterialTheme.colorScheme.onPrimaryContainer)
-                                        Text(virtualIp,
-                                             style = MaterialTheme.typography.titleLarge,
-                                             fontWeight = FontWeight.Bold,
-                                             color = MaterialTheme.colorScheme.onPrimaryContainer)
-                                    }
-                                    IconButton(onClick = { vm.copyToClipboard(virtualIp) }) {
-                                        Icon(Icons.Filled.Share, I18n.t("mp.copy_ip"))
-                                    }
-                                }
-                            }
-                            Spacer(Modifier.height(4.dp))
-                            Text(I18n.t("mp.virtual_ip_hint"),
-                                 style = MaterialTheme.typography.labelSmall,
-                                 color = MaterialTheme.colorScheme.outline)
-                        } else {
-                            Text(I18n.t("mp.ip_acquiring"),
-                                 style = MaterialTheme.typography.bodySmall,
-                                 color = MaterialTheme.colorScheme.tertiary)
-                        }
-                        if (invitation.isNotEmpty()) {
-                            Spacer(Modifier.height(8.dp))
-                            Text(I18n.t("mp.invite_code"),
-                                 style = MaterialTheme.typography.labelMedium,
-                                 color = MaterialTheme.colorScheme.outline)
-                            OutlinedTextField(
-                                value = invitation,
-                                onValueChange = {},
-                                readOnly = true,
-                                modifier = Modifier.fillMaxWidth(),
-                                textStyle = MaterialTheme.typography.bodySmall,
-                                trailingIcon = {
-                                    IconButton(onClick = { vm.copyInvitation() }) {
-                                        Icon(Icons.AutoMirrored.Filled.Send, I18n.t("mp.copy_invite"))
-                                    }
-                                }
-                            )
-                        }
-                    }
-                } else {
-                    Text(I18n.t("mp.not_joined"),
-                         style = MaterialTheme.typography.bodyMedium,
-                         color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-        }
-
-        // === 操作区 ===
-        if (!inRoom) {
-            Card(
-                shape = RoundedCornerShape(10.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                )
+            // 主操作：创建
+            Button(
+                onClick = { vm.createRoom() },
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth().height(48.dp)
             ) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    // 创建房间
-                    Text(I18n.t("mp.host"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                    Button(
-                        onClick = { vm.createRoom() },
-                        enabled = !busy,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Filled.PlayArrow, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(if (busy) I18n.t("common.processing") else I18n.t("mp.create_room"))
-                    }
+                Icon(Icons.Filled.PlayArrow, null, Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    if (busy) I18n.t("common.processing") else I18n.t("mp.create_room"),
+                    style = MaterialTheme.typography.titleSmall
+                )
+            }
 
-                    HorizontalDivider()
-
-                    // 加入房间
-                    Text(I18n.t("mp.guest"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                    OutlinedTextField(
-                        value = joinCode,
-                        onValueChange = { joinCode = it },
-                        label = { Text(I18n.t("mp.room_code_label")) },
-                        placeholder = { Text(
+            // 加入
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedTextField(
+                    value = joinCode,
+                    onValueChange = { joinCode = it },
+                    modifier = Modifier.weight(1f),
+                    placeholder = {
+                        Text(
                             when {
                                 isConnectX -> I18n.t("mp.placeholder.connectx")
-                                vm.mpBackend == MultiplayerManager.Backend.TERRACOTTA -> I18n.t("mp.placeholder.terracotta")
+                                isTerracotta -> I18n.t("mp.placeholder.terracotta")
                                 else -> I18n.t("mp.placeholder.easytier")
-                            }
-                        ) },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        enabled = !busy
+                            },
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    },
+                    singleLine = true,
+                    enabled = !busy,
+                    shape = RoundedCornerShape(12.dp)
+                )
+                Button(
+                    onClick = { vm.joinRoom(joinCode) },
+                    enabled = !busy && joinCode.isNotBlank(),
+                    modifier = Modifier.height(56.dp)
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowForward, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(I18n.t("mp.join_room"))
+                }
+            }
+
+            Text(
+                I18n.t("mp.idle_hint"),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline
+            )
+        } else {
+            // 已在房间：突出房间码 / IP，其余精简
+            val primaryLabel: String
+            val primaryValue: String
+            val primaryHint: String
+            when {
+                isTerracotta && invitation.isNotEmpty() -> {
+                    primaryLabel = I18n.t("mp.room_code")
+                    primaryValue = invitation
+                    primaryHint = I18n.t("mp.share_room_code_hint")
+                }
+                isConnectX && invitation.isNotEmpty() -> {
+                    primaryLabel = I18n.t("mp.invite_code")
+                    primaryValue = invitation
+                    primaryHint = I18n.t("mp.desc.connectx")
+                }
+                virtualIp.isNotEmpty() -> {
+                    primaryLabel = I18n.t("mp.virtual_ip")
+                    primaryValue = virtualIp
+                    primaryHint = I18n.t("mp.virtual_ip_hint")
+                }
+                invitation.isNotEmpty() -> {
+                    primaryLabel = I18n.t("mp.invite_code")
+                    primaryValue = invitation
+                    primaryHint = I18n.t("mp.desc.easytier")
+                }
+                else -> {
+                    primaryLabel = I18n.t("mp.current_room")
+                    primaryValue = stateText
+                    primaryHint = I18n.t("mp.ip_acquiring")
+                }
+            }
+
+            Surface(
+                color = MaterialTheme.colorScheme.primaryContainer,
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        primaryLabel,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
-                    OutlinedButton(
-                        onClick = { vm.joinRoom(joinCode) },
-                        enabled = !busy && joinCode.isNotBlank(),
-                        modifier = Modifier.fillMaxWidth()
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            primaryValue,
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.weight(1f),
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        IconButton(onClick = {
+                            if (primaryValue == virtualIp) vm.copyToClipboard(virtualIp)
+                            else vm.copyInvitation()
+                        }) {
+                            Icon(
+                                Icons.Filled.ContentCopy,
+                                I18n.t("mp.copy_invite"),
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                    }
+                    Text(
+                        primaryHint,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                    )
+                }
+            }
+
+            if (mcAddr.isNotEmpty()) {
+                Surface(
+                    color = MaterialTheme.colorScheme.tertiaryContainer,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowForward, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(if (busy) I18n.t("common.processing") else I18n.t("mp.join_room"))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                I18n.t("mp.local_mc_addr"),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer
+                            )
+                            Text(
+                                mcAddr,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer
+                            )
+                        }
+                        IconButton(onClick = { vm.copyToClipboard(mcAddr) }) {
+                            Icon(
+                                Icons.Filled.ContentCopy,
+                                I18n.t("mp.copy_addr"),
+                                tint = MaterialTheme.colorScheme.onTertiaryContainer
+                            )
+                        }
                     }
                 }
             }
-        } else {
-            // 已在房间 → 显示离开按钮
+
             Button(
                 onClick = { vm.leaveRoom() },
                 enabled = !busy,
@@ -398,117 +298,50 @@ fun MultiplayerPage(vm: LauncherViewModel) {
                     containerColor = MaterialTheme.colorScheme.errorContainer,
                     contentColor = MaterialTheme.colorScheme.onErrorContainer
                 ),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth().height(48.dp)
             ) {
                 Icon(Icons.AutoMirrored.Filled.ExitToApp, null, Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
+                Spacer(Modifier.width(8.dp))
                 Text(I18n.t("mp.leave_room"))
             }
         }
 
-        // === 使用说明 ===
-        Card(
-            shape = RoundedCornerShape(10.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-            )
-        ) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(I18n.t("mp.usage"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                val isTerracottaBackend = vm.mpBackend == MultiplayerManager.Backend.TERRACOTTA
-                if (isTerracottaBackend) {
-                    Text(I18n.t("mp.host_label"),
-                         style = MaterialTheme.typography.labelMedium,
-                         fontWeight = FontWeight.SemiBold)
-                    Text(I18n.t("mp.usage.terracotta.host.1"),
-                         style = MaterialTheme.typography.bodySmall)
-                    Text(I18n.t("mp.usage.terracotta.host.2"),
-                         style = MaterialTheme.typography.bodySmall)
-                    Text(I18n.t("mp.usage.terracotta.host.3"),
-                         style = MaterialTheme.typography.bodySmall)
-                    Spacer(Modifier.height(6.dp))
-                    Text(I18n.t("mp.guest_label"),
-                         style = MaterialTheme.typography.labelMedium,
-                         fontWeight = FontWeight.SemiBold)
-                    Text(I18n.t("mp.usage.terracotta.guest.1"),
-                         style = MaterialTheme.typography.bodySmall)
-                    Text(I18n.t("mp.usage.terracotta.guest.2"),
-                         style = MaterialTheme.typography.bodySmall)
-                    Text(I18n.t("mp.usage.terracotta.guest.3"),
-                         style = MaterialTheme.typography.bodySmall)
-                    Spacer(Modifier.height(4.dp))
-                    Text(I18n.t("mp.usage.terracotta.note"),
-                         style = MaterialTheme.typography.labelSmall,
-                         color = MaterialTheme.colorScheme.outline)
-                } else if (isConnectX) {
-                    Text(I18n.t("mp.usage.connectx.1"),
-                         style = MaterialTheme.typography.bodySmall)
-                    Text(I18n.t("mp.usage.connectx.2"),
-                         style = MaterialTheme.typography.bodySmall)
-                    Text(I18n.t("mp.usage.connectx.3"),
-                         style = MaterialTheme.typography.bodySmall)
-                    Text(I18n.t("mp.usage.connectx.4"),
-                         style = MaterialTheme.typography.bodySmall)
-                    Text(I18n.t("mp.usage.connectx.5"),
-                         style = MaterialTheme.typography.bodySmall)
-                    Spacer(Modifier.height(4.dp))
-                    Text(I18n.t("mp.usage.connectx.note"),
-                         style = MaterialTheme.typography.labelSmall,
-                         color = MaterialTheme.colorScheme.outline)
-                } else {
-                    Text(I18n.t("mp.usage.easytier.1"),
-                         style = MaterialTheme.typography.bodySmall)
-                    Text(I18n.t("mp.usage.easytier.2"),
-                         style = MaterialTheme.typography.bodySmall)
-                    Text(I18n.t("mp.usage.easytier.3"),
-                         style = MaterialTheme.typography.bodySmall)
-                    Text(I18n.t("mp.usage.easytier.4"),
-                         style = MaterialTheme.typography.bodySmall)
-                    Text(I18n.t("mp.usage.easytier.5"),
-                         style = MaterialTheme.typography.bodySmall)
-                    Spacer(Modifier.height(4.dp))
-                    Text(I18n.t("mp.usage.easytier.warning"),
-                         style = MaterialTheme.typography.labelSmall,
-                         color = MaterialTheme.colorScheme.error)
-                    Spacer(Modifier.height(4.dp))
-                    Text(I18n.t("mp.usage.easytier.note"),
-                         style = MaterialTheme.typography.labelSmall,
-                         color = MaterialTheme.colorScheme.outline)
-                }
-            }
-        }
-
-        // 错误信息（失败时显示）
-        val lastError = vm.mpLastError
-        if (lastError.isNotEmpty() && state == MultiplayerManager.State.FAILED) {
-            Card(
-                shape = RoundedCornerShape(10.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
+        if (busy || progress.isNotEmpty()) {
+            if (busy) {
+                LinearProgressIndicator(
+                    modifier = Modifier.fillMaxWidth().height(4.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant,
                 )
-            ) {
-                Column(Modifier.padding(12.dp)) {
-                    Text(I18n.t("mp.error_detail"),
-                         style = MaterialTheme.typography.labelMedium,
-                         color = MaterialTheme.colorScheme.onErrorContainer)
-                    Text(lastError,
-                         style = MaterialTheme.typography.bodySmall,
-                         color = MaterialTheme.colorScheme.onErrorContainer)
-                }
+            }
+            if (progress.isNotEmpty()) {
+                Text(
+                    progress,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
 
-        if (status.isNotEmpty()) {
-            Text(status,
-                 style = MaterialTheme.typography.labelSmall,
-                 color = MaterialTheme.colorScheme.outline)
+        val lastError = vm.mpLastError
+        if (failed && lastError.isNotEmpty()) {
+            Text(
+                lastError,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error
+            )
         }
-
-        // ===== 收藏服务器列表 =====
-        FavoriteServersCard(vm)
     }
 
-    // ConnectX 设置弹窗
+    if (showHelp) {
+        MpHelpDialog(
+            backend = backend,
+            onDismiss = { showHelp = false }
+        )
+    }
+
     if (showConnectXSettings) {
         ConnectXSettingsDialog(
             binPath = connectxBinPath,
@@ -528,9 +361,66 @@ fun MultiplayerPage(vm: LauncherViewModel) {
     }
 }
 
-/**
- * ConnectX 配置弹窗。
- */
+@Composable
+private fun MpHelpDialog(
+    backend: MultiplayerManager.Backend,
+    onDismiss: () -> Unit
+) {
+    val lines = when (backend) {
+        MultiplayerManager.Backend.TERRACOTTA -> listOf(
+            I18n.t("mp.host_label"),
+            I18n.t("mp.usage.terracotta.host.1"),
+            I18n.t("mp.usage.terracotta.host.2"),
+            I18n.t("mp.usage.terracotta.host.3"),
+            "",
+            I18n.t("mp.guest_label"),
+            I18n.t("mp.usage.terracotta.guest.1"),
+            I18n.t("mp.usage.terracotta.guest.2"),
+            I18n.t("mp.usage.terracotta.guest.3"),
+            "",
+            I18n.t("mp.usage.terracotta.note")
+        )
+        MultiplayerManager.Backend.CONNECTX -> listOf(
+            I18n.t("mp.usage.connectx.1"),
+            I18n.t("mp.usage.connectx.2"),
+            I18n.t("mp.usage.connectx.3"),
+            I18n.t("mp.usage.connectx.4"),
+            I18n.t("mp.usage.connectx.5"),
+            "",
+            I18n.t("mp.usage.connectx.note")
+        )
+        else -> listOf(
+            I18n.t("mp.usage.easytier.1"),
+            I18n.t("mp.usage.easytier.2"),
+            I18n.t("mp.usage.easytier.3"),
+            I18n.t("mp.usage.easytier.4"),
+            I18n.t("mp.usage.easytier.5"),
+            "",
+            I18n.t("mp.usage.easytier.warning"),
+            I18n.t("mp.usage.easytier.note")
+        )
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(I18n.t("mp.usage")) },
+        text = {
+            Column(
+                Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                lines.forEach { line ->
+                    if (line.isEmpty()) Spacer(Modifier.height(4.dp))
+                    else Text(line, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(I18n.t("common.ok")) }
+        }
+    )
+}
+
 @Composable
 private fun ConnectXSettingsDialog(
     binPath: String,
@@ -547,9 +437,11 @@ private fun ConnectXSettingsDialog(
         title = { Text(I18n.t("mp.connectx_settings")) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(I18n.t("mp.connectx_binary"),
-                     style = MaterialTheme.typography.labelMedium,
-                     color = MaterialTheme.colorScheme.outline)
+                Text(
+                    I18n.t("mp.connectx_binary"),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.outline
+                )
                 OutlinedTextField(
                     value = binPath,
                     onValueChange = onBinPathChange,
@@ -557,21 +449,23 @@ private fun ConnectXSettingsDialog(
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
-                Spacer(Modifier.height(4.dp))
-                Text(I18n.t("mp.connectx_server"),
-                     style = MaterialTheme.typography.labelMedium,
-                     color = MaterialTheme.colorScheme.outline)
+                Text(
+                    I18n.t("mp.connectx_server"),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.outline
+                )
                 OutlinedTextField(
                     value = serverAddr,
                     onValueChange = onServerAddrChange,
-                    placeholder = { Text("192.168.1.100 或 connectx.example.com") },
+                    placeholder = { Text("192.168.1.100") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
-                Spacer(Modifier.height(4.dp))
-                Text(I18n.t("mp.connectx_port"),
-                     style = MaterialTheme.typography.labelMedium,
-                     color = MaterialTheme.colorScheme.outline)
+                Text(
+                    I18n.t("mp.connectx_port"),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.outline
+                )
                 OutlinedTextField(
                     value = serverPort,
                     onValueChange = onServerPortChange,
@@ -579,10 +473,11 @@ private fun ConnectXSettingsDialog(
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
-                Spacer(Modifier.height(8.dp))
-                Text(I18n.t("mp.connectx_about"),
-                     style = MaterialTheme.typography.labelSmall,
-                     color = MaterialTheme.colorScheme.outline)
+                Text(
+                    I18n.t("mp.connectx_about"),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
             }
         },
         confirmButton = {
@@ -592,192 +487,4 @@ private fun ConnectXSettingsDialog(
             TextButton(onClick = onDismiss) { Text(I18n.t("common.cancel")) }
         }
     )
-}
-
-@Composable
-private fun InfoRow(label: String, value: String) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(label,
-             style = MaterialTheme.typography.labelMedium,
-             color = MaterialTheme.colorScheme.outline,
-             modifier = Modifier.width(80.dp))
-        Text(value,
-             style = MaterialTheme.typography.bodyMedium,
-             fontWeight = FontWeight.Medium)
-    }
-}
-
-/**
- * 收藏服务器列表卡片：添加/删除/ping 延迟/设为直连。
- */
-@Composable
-private fun FavoriteServersCard(vm: LauncherViewModel) {
-    // 进入页面时加载列表
-    LaunchedEffect(Unit) { vm.loadFavoriteServers() }
-
-    val servers by vm.favoriteServers.collectAsState()
-    val pings by vm.serverPings.collectAsState()
-
-    var showAddDialog by remember { mutableStateOf(false) }
-    var newName by remember { mutableStateOf("") }
-    var newHost by remember { mutableStateOf("") }
-    var newPort by remember { mutableStateOf("25565") }
-
-    Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
-        Column(Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.Speed, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(I18n.t("mp.favorite_servers"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.weight(1f))
-                // 全部 ping
-                TextButton(
-                    onClick = { vm.pingAllServers() },
-                    enabled = servers.isNotEmpty()
-                ) {
-                    Icon(Icons.Filled.Speed, null, Modifier.size(16.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text(I18n.t("mp.ping_all"))
-                }
-                // 添加
-                IconButton(onClick = { showAddDialog = true }) {
-                    Icon(Icons.Filled.Add, I18n.t("mp.add_server"))
-                }
-            }
-            Spacer(Modifier.height(4.dp))
-            Text(I18n.t("mp.favorite_servers_hint"),
-                 style = MaterialTheme.typography.labelSmall,
-                 color = MaterialTheme.colorScheme.outline)
-
-            if (servers.isEmpty()) {
-                Spacer(Modifier.height(12.dp))
-                Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                    Text(I18n.t("mp.no_favorite_servers"),
-                         style = MaterialTheme.typography.bodySmall,
-                         color = MaterialTheme.colorScheme.outline)
-                }
-            } else {
-                Spacer(Modifier.height(8.dp))
-                HorizontalDivider()
-                servers.forEachIndexed { index, server ->
-                    val key = "${server.host}:${server.port}"
-                    val ping = pings[key]
-                    val pingText = when (ping) {
-                        null -> "—"
-                        com.pmcl.core.multiplayer.ServerPinger.UNREACHABLE -> I18n.t("mp.server.offline")
-                        com.pmcl.core.multiplayer.ServerPinger.TIMEOUT -> I18n.t("mp.server.timeout")
-                        else -> "${ping}ms"
-                    }
-                    val pingColor = when (ping) {
-                        null -> MaterialTheme.colorScheme.outline
-                        com.pmcl.core.multiplayer.ServerPinger.UNREACHABLE, com.pmcl.core.multiplayer.ServerPinger.TIMEOUT ->
-                            MaterialTheme.colorScheme.error
-                        else -> if (ping < 100) MaterialTheme.colorScheme.primary
-                                else if (ping < 300) MaterialTheme.colorScheme.tertiary
-                                else MaterialTheme.colorScheme.outline
-                    }
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { vm.setDirectConnectServer(server.host, server.port) }
-                            .padding(vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text(server.name,
-                                 style = MaterialTheme.typography.bodyMedium,
-                                 fontWeight = FontWeight.Medium,
-                                 maxLines = 1)
-                            Text("${server.host}:${server.port}",
-                                 style = MaterialTheme.typography.labelSmall,
-                                 color = MaterialTheme.colorScheme.outline,
-                                 maxLines = 1)
-                        }
-                        // 延迟
-                        Surface(
-                            color = pingColor.copy(alpha = 0.12f),
-                            shape = RoundedCornerShape(4.dp)
-                        ) {
-                            Text(
-                                pingText,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = pingColor,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                            )
-                        }
-                        Spacer(Modifier.width(8.dp))
-                        // 单个 ping
-                        IconButton(
-                            onClick = { vm.pingServer(server.host, server.port) },
-                            modifier = Modifier.size(32.dp)
-                        ) {
-                            Icon(Icons.Filled.Speed, I18n.t("mp.ping"), Modifier.size(16.dp))
-                        }
-                        // 直连
-                        IconButton(
-                            onClick = { vm.setDirectConnectServer(server.host, server.port) },
-                            modifier = Modifier.size(32.dp)
-                        ) {
-                            Icon(Icons.Filled.PlayArrow, I18n.t("mp.set_direct_connect"), Modifier.size(16.dp))
-                        }
-                        // 删除
-                        IconButton(
-                            onClick = { vm.removeFavoriteServer(index) },
-                            modifier = Modifier.size(32.dp)
-                        ) {
-                            Icon(Icons.Filled.Delete, I18n.t("common.delete"), Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error)
-                        }
-                    }
-                    if (index < servers.lastIndex) {
-                        HorizontalDivider()
-                    }
-                }
-            }
-        }
-    }
-
-    // 添加服务器弹窗
-    if (showAddDialog) {
-        AlertDialog(
-            onDismissRequest = { showAddDialog = false },
-            title = { Text(I18n.t("mp.add_favorite_server")) },
-            text = {
-                Column {
-                    OutlinedTextField(
-                        value = newName, onValueChange = { newName = it },
-                        label = { Text(I18n.t("mp.server_name_optional")) }, singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = newHost, onValueChange = { newHost = it },
-                        label = { Text(I18n.t("mp.address")) }, singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = newPort, onValueChange = { newPort = it.filter { c -> c.isDigit() } },
-                        label = { Text(I18n.t("mp.port")) }, singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        val port = newPort.toIntOrNull() ?: 25565
-                        if (newHost.isNotBlank()) {
-                            vm.addFavoriteServer(newName, newHost.trim(), port)
-                            newName = ""; newHost = ""; newPort = "25565"
-                            showAddDialog = false
-                        }
-                    }
-                ) { Text(I18n.t("mp.add")) }
-            },
-            dismissButton = {
-                TextButton(onClick = { showAddDialog = false }) { Text(I18n.t("common.cancel")) }
-            }
-        )
-    }
 }

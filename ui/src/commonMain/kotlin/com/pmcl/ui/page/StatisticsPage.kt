@@ -135,8 +135,14 @@ fun StatisticsPage(vm: LauncherViewModel) {
     val weekdayDist by vm.weekdayDist.collectAsState()
     val records by vm.records.collectAsState()
 
-    // 进入页面时刷新数据
-    LaunchedEffect(Unit) { if (stats == null) vm.refreshPlayTimeStats() }
+    // 进入页面时刷新数据（refresh 内部已吞掉致命类加载/IO 异常，避免 Error 弹窗）
+    LaunchedEffect(Unit) {
+        try {
+            if (stats == null) vm.refreshPlayTimeStats()
+        } catch (e: Throwable) {
+            System.err.println("[StatisticsPage] 初始化失败: $e")
+        }
+    }
 
     Row(
         Modifier.fillMaxSize().padding(16.dp),

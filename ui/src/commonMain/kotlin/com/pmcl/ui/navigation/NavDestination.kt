@@ -22,7 +22,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 /**
  * 顶层导航目标（侧边栏）。
  *
- * 整合后从 10 项精简为 8 项，原细分页面通过 Hub 页面内的 Tab 切换：
+ * 原细分页面通过 Hub 页面内的 Tab 切换：
  * - Download: 版本安装 / 模组市场 / Wiki
  * - Content:  模组 / 光影包 / 资源包
  * - Saves:    世界 / 截图

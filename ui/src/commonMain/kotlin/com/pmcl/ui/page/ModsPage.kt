@@ -2,9 +2,20 @@
 
 package com.pmcl.ui.page
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -17,8 +28,12 @@ import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Label
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -32,16 +47,23 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
 import com.pmcl.core.mods.ModConflictChecker
+import com.pmcl.core.mods.ModIconExtractor
 import com.pmcl.core.mods.ModMeta
 import com.pmcl.core.mods.ModUpdateChecker
 import com.pmcl.ui.animation.AnimatedSegmentedSelector
 import com.pmcl.ui.animation.StaggeredAppear
+import com.pmcl.ui.util.decodeSampledBitmap
 import com.pmcl.ui.viewmodel.LauncherViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.awt.FileDialog
 import java.awt.Frame
 import java.io.FilenameFilter
@@ -71,6 +93,8 @@ fun ModsPage(vm: LauncherViewModel) {
     var selectedMods by remember { mutableStateOf<Set<String>>(emptySet()) }
     var showBatchDeleteConfirm by remember { mutableStateOf(false) }
     var editingTagMod by remember { mutableStateOf<ModMeta?>(null) }
+    var statusFilter by remember { mutableStateOf(ModStatusFilter.ALL) }
+    var toolsExpanded by remember { mutableStateOf(false) }
 
     // 更新信息映射：modId → UpdateInfo
     val updateInfoMap = remember(modUpdates) {
@@ -99,7 +123,7 @@ fun ModsPage(vm: LauncherViewModel) {
         installedMods.map { it.getSource() ?: I18n.t("mods.unknown") }.distinct().sorted()
     }
 
-    val processedMods = remember(installedMods, query, selectedLoader, selectedSource, selectedTag, sortBy) {
+    val processedMods = remember(installedMods, query, selectedLoader, selectedSource, selectedTag, sortBy, statusFilter, updateInfoMap) {
         var list = if (query.isBlank()) installedMods
         else installedMods.filter {
             (it.getName() ?: "").contains(query, ignoreCase = true) ||
@@ -115,6 +139,15 @@ fun ModsPage(vm: LauncherViewModel) {
         if (selectedTag != null) {
             list = list.filter { selectedTag in it.getTags() }
         }
+        list = when (statusFilter) {
+            ModStatusFilter.ALL -> list
+            ModStatusFilter.ENABLED -> list.filter { !it.isDisabled() }
+            ModStatusFilter.DISABLED -> list.filter { it.isDisabled() }
+            ModStatusFilter.UPDATES -> list.filter {
+                val info = updateInfoMap[it.getModId() ?: ""]
+                info != null && info.hasUpdate()
+            }
+        }
         when (sortBy) {
             ModSort.NAME -> list.sortedBy { (it.getName() ?: "").lowercase() }
             ModSort.VERSION -> list.sortedBy { (it.getVersion() ?: "").lowercase() }
@@ -125,12 +158,12 @@ fun ModsPage(vm: LauncherViewModel) {
 
     val enabledCount = remember(installedMods) { installedMods.count { !it.isDisabled() } }
     val disabledCount = remember(installedMods) { installedMods.count { it.isDisabled() } }
-    val hasFilter = query.isNotBlank() || selectedLoader != null || selectedSource != null || selectedTag != null
+    val hasFilter = query.isNotBlank() || selectedLoader != null || selectedSource != null || selectedTag != null || statusFilter != ModStatusFilter.ALL
 
-    Column(Modifier.fillMaxSize().padding(16.dp)) {
-        // === 顶部栏：标题 + 计数 + 操作按钮 ===
+    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 10.dp)) {
+        // === 紧凑顶栏：标题 + 搜索 + 折叠开关 + 常用操作 ===
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(I18n.t("mods.title"), style = MaterialTheme.typography.headlineSmall,
+            Text(I18n.t("mods.title"), style = MaterialTheme.typography.titleLarge,
                  fontWeight = FontWeight.Bold)
             Spacer(Modifier.width(8.dp))
             Surface(
@@ -145,94 +178,293 @@ fun ModsPage(vm: LauncherViewModel) {
                     color = MaterialTheme.colorScheme.onPrimaryContainer
                 )
             }
-            Spacer(Modifier.weight(1f))
-            // 检查更新按钮
-            if (updateCount > 0) {
-                Button(
-                    onClick = { vm.updateAllMods() },
-                    enabled = !updatingMod && !checkingUpdates,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary
+            Spacer(Modifier.width(12.dp))
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                modifier = Modifier.weight(1f),
+                placeholder = {
+                    Text(
+                        I18n.t("mods.search_placeholder"),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
+                },
+                leadingIcon = { Icon(Icons.Filled.Search, null, Modifier.size(18.dp)) },
+                trailingIcon = {
+                    if (query.isNotBlank()) {
+                        IconButton(onClick = { query = "" }, modifier = Modifier.size(32.dp)) {
+                            Icon(Icons.Filled.Close, null, Modifier.size(16.dp))
+                        }
+                    }
+                },
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyMedium,
+                shape = RoundedCornerShape(12.dp)
+            )
+            Spacer(Modifier.width(6.dp))
+            FilterChip(
+                selected = toolsExpanded || hasFilter,
+                onClick = { toolsExpanded = !toolsExpanded },
+                leadingIcon = {
+                    Icon(
+                        if (toolsExpanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.FilterList,
+                        null,
+                        Modifier.size(16.dp)
+                    )
+                },
+                label = {
+                    Text(
+                        if (toolsExpanded) I18n.t("common.collapse_menu")
+                        else I18n.t("mods.tools_menu") + if (hasFilter) " ·" else "",
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                }
+            )
+            Spacer(Modifier.width(4.dp))
+            if (updateCount > 0) {
+                IconButton(
+                    onClick = { vm.updateAllMods() },
+                    enabled = !updatingMod && !checkingUpdates
                 ) {
-                    Icon(Icons.Filled.Update, null, Modifier.size(16.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text(I18n.t("mods.update_all", updateCount))
+                    BadgedBox(badge = { Badge { Text("$updateCount") } }) {
+                        Icon(Icons.Filled.Update, contentDescription = I18n.t("mods.update_all", updateCount),
+                             Modifier.size(20.dp))
+                    }
                 }
-                Spacer(Modifier.width(6.dp))
             }
-            // 导入模组按钮
-            Button(onClick = { showImportDialog = true }) {
-                Icon(Icons.Filled.Download, null, Modifier.size(16.dp))
-                Spacer(Modifier.width(4.dp))
-                Text(I18n.t("mods.import_title"))
+            IconButton(onClick = { showImportDialog = true }) {
+                Icon(Icons.Filled.Download, contentDescription = I18n.t("mods.import_title"),
+                     Modifier.size(20.dp))
             }
-            Spacer(Modifier.width(6.dp))
-            // 批量操作开关
-            FilterChip(
-                selected = selectionMode,
-                onClick = {
-                    selectionMode = !selectionMode
-                    if (!selectionMode) selectedMods = emptySet()
-                },
-                label = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.Sort, null, Modifier.size(14.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text(if (selectionMode) I18n.t("common.selected_count", selectedMods.size)
-                             else I18n.t("common.batch_actions"))
-                    }
-                }
-            )
-            Spacer(Modifier.width(6.dp))
-            // 翻译开关（图标按钮）
-            FilterChip(
-                selected = translateEnabled,
-                onClick = {
-                    translateEnabled = !translateEnabled
-                    if (translateEnabled) {
-                        val texts = installedMods.flatMap {
-                            listOfNotNull(it.getName(), it.getDescription())
-                        }.distinct()
-                        vm.translateBatch(texts)
-                    }
-                },
-                label = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            if (translateEnabled) Icons.Filled.Translate else Icons.Outlined.Translate,
-                            contentDescription = null,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Text(if (translating) I18n.t("mods.translating") else I18n.t("mods.translate"))
-                    }
-                }
-            )
-            Spacer(Modifier.width(6.dp))
-            // 检查更新（图标按钮）
             IconButton(onClick = { vm.checkModUpdates() }, enabled = !checkingUpdates) {
                 if (checkingUpdates) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp
-                    )
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                 } else {
                     Icon(Icons.Filled.Update, contentDescription = I18n.t("mods.check_update"),
-                         modifier = Modifier.size(18.dp))
+                         Modifier.size(20.dp))
                 }
             }
-            // 打开目录（图标按钮）
             IconButton(onClick = { vm.openModsDir() }) {
-                Icon(Icons.Filled.Folder, contentDescription = I18n.t("common.open_dir"), modifier = Modifier.size(18.dp))
+                Icon(Icons.Filled.Folder, contentDescription = I18n.t("common.open_dir"), Modifier.size(20.dp))
             }
-            // 刷新（图标按钮）
             IconButton(onClick = vm::refreshInstalledMods) {
-                Icon(Icons.Filled.Refresh, contentDescription = I18n.t("common.refresh"), modifier = Modifier.size(18.dp))
+                Icon(Icons.Filled.Refresh, contentDescription = I18n.t("common.refresh"), Modifier.size(20.dp))
             }
         }
 
-        // === 批量操作行（仅在 selectionMode 时显示） ===
+        // === 折叠菜单：操作 / 筛选 / 拖入提示 ===
+        AnimatedVisibility(
+            visible = toolsExpanded,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically()
+        ) {
+            Column {
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (updateCount > 0) {
+                        Button(
+                            onClick = { vm.updateAllMods() },
+                            enabled = !updatingMod && !checkingUpdates,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary
+                            )
+                        ) {
+                            Icon(Icons.Filled.Update, null, Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text(I18n.t("mods.update_all", updateCount))
+                        }
+                        Spacer(Modifier.width(6.dp))
+                    }
+                    Button(onClick = { showImportDialog = true }) {
+                        Icon(Icons.Filled.Download, null, Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(I18n.t("mods.import_title"))
+                    }
+                    Spacer(Modifier.width(6.dp))
+                    FilterChip(
+                        selected = selectionMode,
+                        onClick = {
+                            selectionMode = !selectionMode
+                            if (!selectionMode) selectedMods = emptySet()
+                        },
+                        label = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Filled.Sort, null, Modifier.size(14.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text(if (selectionMode) I18n.t("common.selected_count", selectedMods.size)
+                                     else I18n.t("common.batch_actions"))
+                            }
+                        }
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    FilterChip(
+                        selected = translateEnabled,
+                        onClick = {
+                            translateEnabled = !translateEnabled
+                            if (translateEnabled) {
+                                val texts = installedMods.flatMap {
+                                    listOfNotNull(it.getName(), it.getDescription())
+                                }.distinct()
+                                vm.translateBatch(texts)
+                            }
+                        },
+                        label = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    if (translateEnabled) Icons.Filled.Translate else Icons.Outlined.Translate,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Text(if (translating) I18n.t("mods.translating") else I18n.t("mods.translate"))
+                            }
+                        }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Box {
+                        OutlinedButton(onClick = { sortExpanded = true }) {
+                            Icon(Icons.Filled.Sort, null, Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text(sortBy.label())
+                            Icon(Icons.Filled.ArrowDropDown, null, Modifier.size(16.dp))
+                        }
+                        DropdownMenu(expanded = sortExpanded, onDismissRequest = { sortExpanded = false }) {
+                            ModSort.entries.forEach { s ->
+                                DropdownMenuItem(
+                                    text = { Text(s.label()) },
+                                    onClick = { sortBy = s; sortExpanded = false }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    I18n.t("mods.dir_status", vm.config.getWorkDir().resolve("mods"), status),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                Spacer(Modifier.height(8.dp))
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(
+                            1.dp,
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
+                            RoundedCornerShape(10.dp)
+                        )
+                        .clickable { showImportDialog = true }
+                ) {
+                    Row(
+                        Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Filled.Download, null, Modifier.size(18.dp),
+                             tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            I18n.t("mods.drop_hint"),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    ModStatusFilter.entries.forEach { f ->
+                        FilterChip(
+                            selected = statusFilter == f,
+                            onClick = { statusFilter = f },
+                            label = {
+                                Text(
+                                    when (f) {
+                                        ModStatusFilter.ALL -> I18n.t("mods.filter_all")
+                                        ModStatusFilter.ENABLED -> I18n.t("mods.filter_enabled")
+                                        ModStatusFilter.DISABLED -> I18n.t("mods.filter_disabled")
+                                        ModStatusFilter.UPDATES -> I18n.t("mods.filter_updates") +
+                                            if (updateCount > 0) " ($updateCount)" else ""
+                                    },
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
+                        )
+                    }
+                }
+
+                val showSourceFilter = sources.size > 1 || (sources.size == 1 && sources[0] != "全局")
+                if (showSourceFilter || loaders.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        if (showSourceFilter) {
+                            val sourceItems = listOf(I18n.t("mods.source_filter")) + sources
+                            AnimatedSegmentedSelector(
+                                items = sourceItems,
+                                selectedIndex = if (selectedSource == null) 0
+                                    else sourceItems.indexOf(selectedSource).coerceAtLeast(0),
+                                onSelect = { selectedSource = if (it == 0) null else sourceItems[it] },
+                                height = 30.dp
+                            )
+                        }
+                        if (loaders.isNotEmpty()) {
+                            val loaderItems = listOf(I18n.t("mods.loader_filter")) + loaders
+                            AnimatedSegmentedSelector(
+                                items = loaderItems,
+                                selectedIndex = if (selectedLoader == null) 0
+                                    else loaderItems.indexOf(selectedLoader).coerceAtLeast(0),
+                                onSelect = { selectedLoader = if (it == 0) null else loaderItems[it] },
+                                height = 30.dp
+                            )
+                        }
+                    }
+                }
+
+                if (allTags.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(I18n.t("mods.tag_filter"),
+                             style = MaterialTheme.typography.labelSmall,
+                             color = MaterialTheme.colorScheme.outline)
+                        Spacer(Modifier.width(8.dp))
+                        androidx.compose.foundation.layout.FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            allTags.forEach { tag ->
+                                FilterChip(
+                                    selected = selectedTag == tag,
+                                    onClick = { selectedTag = if (selectedTag == tag) null else tag },
+                                    label = { Text(tag, style = MaterialTheme.typography.labelSmall) }
+                                )
+                            }
+                            if (selectedTag != null) {
+                                TextButton(
+                                    onClick = { selectedTag = null },
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                                ) { Text(I18n.t("common.clear"), style = MaterialTheme.typography.labelSmall) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 批量操作行：选中模式时始终可见（不随菜单折叠消失）
         if (selectionMode) {
             Spacer(Modifier.height(6.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -266,16 +498,7 @@ fun ModsPage(vm: LauncherViewModel) {
             }
         }
 
-        // === 元信息行：目录路径 + 状态 ===
-        Text(
-            I18n.t("mods.dir_status", vm.config.getWorkDir().resolve("mods"), status),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.outline,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-
-        // === 更新检测进度条 ===
+        // 进度条始终可见（进行中时）
         if (checkingUpdates || updatingMod) {
             Spacer(Modifier.height(6.dp))
             val (done, total) = updateProgress
@@ -294,116 +517,21 @@ fun ModsPage(vm: LauncherViewModel) {
             }
         }
 
-        // === 搜索 + 排序 ===
-        Spacer(Modifier.height(10.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it },
-                modifier = Modifier.weight(1f),
-                placeholder = { Text(I18n.t("mods.search_placeholder")) },
-                leadingIcon = { Icon(Icons.Filled.Search, null, Modifier.size(18.dp)) },
-                singleLine = true,
-                shape = RoundedCornerShape(12.dp)
-            )
-            Spacer(Modifier.width(8.dp))
-            // 排序下拉
-            Box {
-                OutlinedButton(onClick = { sortExpanded = true }) {
-                    Icon(Icons.Filled.Sort, null, Modifier.size(16.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text(sortBy.label())
-                    Icon(Icons.Filled.ArrowDropDown, null, Modifier.size(16.dp))
-                }
-                DropdownMenu(expanded = sortExpanded, onDismissRequest = { sortExpanded = false }) {
-                    ModSort.entries.forEach { s ->
-                        DropdownMenuItem(
-                            text = { Text(s.label()) },
-                            onClick = { sortBy = s; sortExpanded = false }
-                        )
-                    }
-                }
-            }
-        }
-
-        // === 筛选条：来源 + 加载器（单行横向滚动） ===
-        val showSourceFilter = sources.size > 1 || (sources.size == 1 && sources[0] != "全局")
-        if (showSourceFilter || loaders.isNotEmpty()) {
-            Spacer(Modifier.height(8.dp))
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                if (showSourceFilter) {
-                    val sourceItems = listOf(I18n.t("mods.source_filter")) + sources
-                    AnimatedSegmentedSelector(
-                        items = sourceItems,
-                        selectedIndex = if (selectedSource == null) 0
-                            else sourceItems.indexOf(selectedSource).coerceAtLeast(0),
-                        onSelect = { selectedSource = if (it == 0) null else sourceItems[it] },
-                        height = 30.dp
-                    )
-                }
-                if (loaders.isNotEmpty()) {
-                    val loaderItems = listOf(I18n.t("mods.loader_filter")) + loaders
-                    AnimatedSegmentedSelector(
-                        items = loaderItems,
-                        selectedIndex = if (selectedLoader == null) 0
-                            else loaderItems.indexOf(selectedLoader).coerceAtLeast(0),
-                        onSelect = { selectedLoader = if (it == 0) null else loaderItems[it] },
-                        height = 30.dp
-                    )
-                }
-            }
-        }
-
-        // === 标签筛选栏：用户自定义标签（如「性能」「科技」「魔法」），横向可滚动 ===
-        if (allTags.isNotEmpty()) {
-            Spacer(Modifier.height(8.dp))
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(I18n.t("mods.tag_filter"),
-                     style = MaterialTheme.typography.labelSmall,
-                     color = MaterialTheme.colorScheme.outline)
-                Spacer(Modifier.width(8.dp))
-                androidx.compose.foundation.layout.FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    allTags.forEach { tag ->
-                        FilterChip(
-                            selected = selectedTag == tag,
-                            onClick = { selectedTag = if (selectedTag == tag) null else tag },
-                            label = { Text(tag, style = MaterialTheme.typography.labelSmall) }
-                        )
-                    }
-                    if (selectedTag != null) {
-                        TextButton(
-                            onClick = { selectedTag = null },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
-                        ) { Text(I18n.t("common.clear"), style = MaterialTheme.typography.labelSmall) }
-                    }
-                }
-            }
-        }
-
-        // === 冲突报告 ===
+        // 冲突报告始终可见
         val conflictsData = conflicts
         if (conflictsData != null && conflictsData.hasIssues()) {
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(8.dp))
             ConflictCard(conflictsData)
         }
 
         // === 列表标题 ===
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(8.dp))
         Text(
             if (hasFilter) I18n.t("mods.list_summary_filtered", enabledCount, disabledCount, processedMods.size)
             else I18n.t("mods.list_summary", enabledCount, disabledCount),
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.SemiBold
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(Modifier.height(6.dp))
 
@@ -529,6 +657,8 @@ enum class ModSort {
     }
 }
 
+enum class ModStatusFilter { ALL, ENABLED, DISABLED, UPDATES }
+
 @Composable
 private fun ModRow(
     m: ModMeta,
@@ -544,208 +674,286 @@ private fun ModRow(
     onEditTags: () -> Unit = {}
 ) {
     var showDeleteDialog by remember { mutableStateOf(false) }
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    val showActions = hovered || selectionMode
 
     val rawName = m.getName() ?: m.getJarFile() ?: I18n.t("mods.unknown")
     val displayName = if (translateEnabled) translationCache[rawName] ?: rawName else rawName
     val rawDesc = m.getDescription()
     val displayDesc = if (translateEnabled) translationCache[rawDesc] ?: rawDesc else rawDesc
+    val hasUpdate = updateInfo != null && updateInfo.hasUpdate()
 
+    var iconBmp by remember(m.jarPath, m.iconEntry) { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(m.jarPath, m.iconEntry) {
+        iconBmp = null
+        val jar = m.jarPath ?: return@LaunchedEffect
+        iconBmp = withContext(Dispatchers.IO) {
+            try {
+                val bytes = ModIconExtractor.extract(jar, m.iconEntry)
+                if (bytes != null) decodeSampledBitmap(bytes, 128) else null
+            } catch (_: Throwable) {
+                null
+            }
+        }
+    }
+
+    val shape = RoundedCornerShape(12.dp)
+    val jarKey = m.getJarFile()
     Surface(
-        color = if (m.isDisabled()) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        color = if (m.isDisabled()) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
                 else MaterialTheme.colorScheme.surfaceVariant,
-        shape = RoundedCornerShape(8.dp),
-        modifier = Modifier.fillMaxWidth()
+        shape = shape,
+        modifier = Modifier
+            .fillMaxWidth()
+            .hoverable(interaction)
+            .then(
+                if (isSelected) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, shape)
+                else Modifier
+            )
     ) {
-        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-            // 第一行：名称 + 版本 + 标签 + 操作按钮
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                // 批量选择框
-                if (selectionMode) {
-                    Checkbox(
-                        checked = isSelected,
-                        onCheckedChange = { onToggleSelect() },
-                        modifier = Modifier.size(24.dp)
+        Row(
+            Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (selectionMode) {
+                Checkbox(
+                    checked = isSelected,
+                    onCheckedChange = { onToggleSelect() },
+                    modifier = Modifier.padding(end = 4.dp).size(24.dp)
+                )
+            }
+
+            Box(
+                Modifier
+                    .size(56.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.65f))
+                    .clickable { if (selectionMode) onToggleSelect() else onShowDetail() },
+                contentAlignment = Alignment.Center
+            ) {
+                if (iconBmp != null) {
+                    Image(
+                        bitmap = iconBmp!!,
+                        contentDescription = displayName,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
                     )
-                    Spacer(Modifier.width(4.dp))
+                } else {
+                    Icon(
+                        Icons.Filled.Extension,
+                        null,
+                        Modifier.size(26.dp),
+                        tint = if (m.isDisabled()) MaterialTheme.colorScheme.outline
+                               else MaterialTheme.colorScheme.primary
+                    )
                 }
-                // 状态指示点
-                Icon(
-                    Icons.Filled.Circle,
-                    contentDescription = null,
-                    modifier = Modifier.size(6.dp),
-                    tint = if (m.isDisabled()) MaterialTheme.colorScheme.outline
-                           else MaterialTheme.colorScheme.primary
-                )
-                Spacer(Modifier.width(6.dp))
-                // 模组名（点击打开详情）
-                Text(
-                    displayName + if (m.isDisabled()) I18n.t("mods.disabled_suffix") else "",
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.weight(1f).clickable { onShowDetail() },
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = if (m.isDisabled()) MaterialTheme.colorScheme.outline
-                            else MaterialTheme.colorScheme.onSurface
-                )
-                Text("v${m.getVersion() ?: "?"}",
-                     style = MaterialTheme.typography.labelSmall,
-                     color = MaterialTheme.colorScheme.outline)
-                Spacer(Modifier.width(6.dp))
-                // 更新徽章（有更新时显示）
-                if (updateInfo != null && updateInfo.hasUpdate()) {
+            }
+
+            Spacer(Modifier.width(12.dp))
+
+            Column(
+                Modifier
+                    .weight(1f)
+                    .clickable { if (selectionMode) onToggleSelect() else onShowDetail() }
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        displayName + if (m.isDisabled()) I18n.t("mods.disabled_suffix") else "",
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        color = if (m.isDisabled()) MaterialTheme.colorScheme.outline
+                                else MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        "v${m.getVersion() ?: "?"}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                }
+
+                Spacer(Modifier.height(4.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (hasUpdate) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.error,
+                            shape = RoundedCornerShape(6.dp)
+                        ) {
+                            Text(
+                                I18n.t("mods.has_update"),
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onError,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
                     Surface(
-                        color = MaterialTheme.colorScheme.error,
+                        color = MaterialTheme.colorScheme.secondaryContainer,
                         shape = RoundedCornerShape(6.dp)
                     ) {
                         Text(
-                            I18n.t("mods.has_update"),
+                            m.getLoader() ?: "unknown",
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onError,
-                            fontWeight = FontWeight.SemiBold
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
                         )
                     }
-                    Spacer(Modifier.width(4.dp))
-                }
-                // 加载器标签
-                Surface(
-                    color = MaterialTheme.colorScheme.secondaryContainer,
-                    shape = RoundedCornerShape(6.dp)
-                ) {
-                    Text(
-                        m.getLoader() ?: "unknown",
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer
-                    )
-                }
-                Spacer(Modifier.width(4.dp))
-                // 来源标签
-                Surface(
-                    color = MaterialTheme.colorScheme.tertiaryContainer,
-                    shape = RoundedCornerShape(6.dp)
-                ) {
-                    Text(
-                        m.getSource() ?: I18n.t("mods.unknown"),
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onTertiaryContainer
-                    )
-                }
-                Spacer(Modifier.width(8.dp))
-                // 启用/禁用 + 删除（图标按钮，紧凑内联）—— 批量模式下隐藏
-                if (!selectionMode) {
-                    if (m.isDisabled()) {
-                        IconButton(
-                            onClick = { vm.enableMod(m.getJarFile()) },
-                            modifier = Modifier.size(28.dp)
-                        ) {
-                            Icon(Icons.Filled.PlayArrow, contentDescription = I18n.t("common.enable"),
-                                 modifier = Modifier.size(16.dp),
-                                 tint = MaterialTheme.colorScheme.primary)
-                        }
-                    } else {
-                        IconButton(
-                            onClick = { vm.disableMod(m.getJarFile()) },
-                            modifier = Modifier.size(28.dp)
-                        ) {
-                            Icon(Icons.Filled.Pause, contentDescription = I18n.t("common.disable"),
-                                 modifier = Modifier.size(16.dp))
-                        }
-                    }
-                    // 更新按钮（有更新时显示）
-                    if (updateInfo != null && updateInfo.hasUpdate()) {
-                        IconButton(
-                            onClick = { vm.updateMod(updateInfo) },
-                            modifier = Modifier.size(28.dp),
-                            enabled = !updatingMod
-                        ) {
-                            Icon(Icons.Filled.Update, contentDescription = I18n.t("mods.update"),
-                                 modifier = Modifier.size(16.dp),
-                                 tint = MaterialTheme.colorScheme.primary)
-                        }
-                    }
-                    // 标签编辑按钮
-                    IconButton(
-                        onClick = onEditTags,
-                        modifier = Modifier.size(28.dp)
+                    Surface(
+                        color = MaterialTheme.colorScheme.tertiaryContainer,
+                        shape = RoundedCornerShape(6.dp)
                     ) {
-                        Icon(Icons.Filled.Label, contentDescription = I18n.t("mods.edit_tags"),
-                             modifier = Modifier.size(16.dp),
-                             tint = MaterialTheme.colorScheme.secondary)
-                    }
-                    IconButton(
-                        onClick = { showDeleteDialog = true },
-                        modifier = Modifier.size(28.dp)
-                    ) {
-                        Icon(Icons.Filled.Delete, contentDescription = I18n.t("common.delete"),
-                             modifier = Modifier.size(16.dp),
-                             tint = MaterialTheme.colorScheme.error)
+                        Text(
+                            m.getSource() ?: I18n.t("mods.unknown"),
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
                     }
                 }
-            }
 
-            // 第二行：描述（可选）
-            if (!displayDesc.isNullOrEmpty()) {
+                if (!displayDesc.isNullOrEmpty()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        displayDesc,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                val meta = remember(m) {
+                    val authors = m.getAuthors()
+                    buildString {
+                        append(m.getJarFile() ?: "?")
+                        append("  ·  ").append(m.getModId() ?: "?")
+                        if (!authors.isNullOrEmpty()) append("  ·  ").append(I18n.t("mods.detail_authors", authors))
+                    }
+                }
                 Spacer(Modifier.height(2.dp))
-                Text(displayDesc,
-                     style = MaterialTheme.typography.bodySmall,
-                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                     maxLines = 2,
-                     overflow = TextOverflow.Ellipsis)
-            }
+                Text(
+                    meta,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
 
-            // 第三行：元数据（jar · modId · 作者）合并为一行
-            val meta = remember(m) {
-                val authors = m.getAuthors()
-                buildString {
-                    append(m.getJarFile() ?: "?")
-                    append("  ·  ").append(m.getModId() ?: "?")
-                    if (!authors.isNullOrEmpty()) append("  ·  ").append(I18n.t("mods.detail_authors", authors))
+                val modTags = m.getTags()
+                if (modTags.isNotEmpty()) {
+                    Spacer(Modifier.height(4.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        modTags.forEach { tag ->
+                            Surface(
+                                color = MaterialTheme.colorScheme.primaryContainer,
+                                shape = RoundedCornerShape(4.dp)
+                            ) {
+                                Text(
+                                    tag,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
+                        }
+                    }
                 }
-            }
-            Spacer(Modifier.height(2.dp))
-            Text(meta,
-                 style = MaterialTheme.typography.labelSmall,
-                 color = MaterialTheme.colorScheme.outline,
-                 maxLines = 1,
-                 overflow = TextOverflow.Ellipsis)
 
-            // 第四行：用户自定义标签（如「性能」「科技」「魔法」），无标签时不显示
-            val modTags = m.getTags()
-            if (modTags.isNotEmpty()) {
-                Spacer(Modifier.height(4.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    modTags.forEach { tag ->
-                        Surface(
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            shape = RoundedCornerShape(4.dp)
+                if (hasUpdate && updateInfo?.latestFile != null) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        I18n.t("mods.new_version", updateInfo.latestFile.fileName, updateInfo.source),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
+                // 次要操作：悬停时显示
+                if (showActions && !selectionMode) {
+                    Spacer(Modifier.height(6.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (hasUpdate) {
+                            IconButton(
+                                onClick = { vm.updateMod(updateInfo) },
+                                modifier = Modifier.size(32.dp),
+                                enabled = !updatingMod
+                            ) {
+                                Icon(
+                                    Icons.Filled.Update,
+                                    contentDescription = I18n.t("mods.update"),
+                                    modifier = Modifier.size(18.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                        IconButton(
+                            onClick = { vm.openModFolder(m) },
+                            modifier = Modifier.size(32.dp)
                         ) {
-                            Text(
-                                tag,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            Icon(
+                                Icons.Filled.FolderOpen,
+                                contentDescription = I18n.t("mods.open_folder"),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        IconButton(
+                            onClick = onEditTags,
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                Icons.Filled.Label,
+                                contentDescription = I18n.t("mods.edit_tags"),
+                                modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.secondary
+                            )
+                        }
+                        IconButton(
+                            onClick = { showDeleteDialog = true },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                Icons.Filled.Delete,
+                                contentDescription = I18n.t("common.delete"),
+                                modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.error
                             )
                         }
                     }
                 }
             }
 
-            // 更新信息行（有更新时显示新版本详情）
-            if (updateInfo != null && updateInfo.hasUpdate() && updateInfo.latestFile != null) {
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    I18n.t("mods.new_version", updateInfo.latestFile.fileName, updateInfo.source),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    fontWeight = FontWeight.Medium
-                )
+            // 启用/禁用开关：始终可见，不依赖悬停
+            if (!selectionMode) {
+                Spacer(Modifier.width(8.dp))
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Switch(
+                        checked = !m.isDisabled(),
+                        onCheckedChange = { enabled ->
+                            if (jarKey.isNullOrBlank() && m.jarPath.isNullOrBlank()) return@Switch
+                            if (enabled) vm.enableMod(m) else vm.disableMod(m)
+                        }
+                    )
+                    Text(
+                        if (m.isDisabled()) I18n.t("mods.filter_disabled") else I18n.t("mods.filter_enabled"),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                }
             }
         }
     }
@@ -758,7 +966,7 @@ private fun ModRow(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        vm.deleteMod(m.getJarFile())
+                        vm.deleteMod(m)
                         showDeleteDialog = false
                     },
                     colors = ButtonDefaults.textButtonColors(
@@ -772,6 +980,7 @@ private fun ModRow(
         )
     }
 }
+
 
 /**
  * 模组详情对话框：展示 modId / version / name / description / authors / loader / jar / source / depends / conflicts。

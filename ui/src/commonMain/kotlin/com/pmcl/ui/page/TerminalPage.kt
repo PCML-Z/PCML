@@ -3,53 +3,60 @@ package com.pmcl.ui.page
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pmcl.cli.PmclCli
+import com.pmcl.core.i18n.I18n
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.ByteArrayOutputStream
-import java.io.PrintStream
+import java.awt.Toolkit
+import java.awt.datatransfer.StringSelection
 
 /**
- * 终端页面：在 GUI 中嵌入终端式界面，通过命令操作启动器所有核心功能。
+ * 终端页面：嵌入式 Shell，复用 [PmclCli]。
  *
- * 复用 PmclCli 的命令解析逻辑，通过临时重定向 System.out/System.err 捕获输出。
- * 命令在后台协程中执行，不阻塞 UI。
- *
- * 配色统一使用 MaterialTheme.colorScheme，与启动器主题保持一致。
+ * 能力：搜索过滤、复制、字号、Tab 补全、取消执行、自动滚动暂停、语义着色、i18n。
  */
 @Composable
 fun TerminalPage(vm: LauncherViewModel) {
     val lines = remember { mutableStateListOf<TerminalLine>() }
-    // 全局递增序号，作为 LazyColumn 稳定 key，避免裁剪头部时整列重组
     val seqCounter = remember { java.util.concurrent.atomic.AtomicLong(0) }
     fun nextSeq() = seqCounter.incrementAndGet()
     var input by remember { mutableStateOf("") }
     val history = remember { mutableStateListOf<String>() }
     var historyIndex by remember { mutableStateOf(-1) }
     var executing by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    var fontSp by remember { mutableStateOf(13) }
+    var autoScroll by remember { mutableStateOf(true) }
+    var copiedFlash by remember { mutableStateOf(false) }
+    var suggestions by remember { mutableStateOf<List<String>>(emptyList()) }
+    var execJob by remember { mutableStateOf<Job?>(null) }
     val cli = remember { PmclCli(vm.core) }
+    val commandNames = remember { PmclCli.listCommandNames() }
     val scope = rememberCoroutineScope()
     val scrollState = rememberLazyListState()
 
-    // 主题色（终端专用语义化映射）
     val bg = MaterialTheme.colorScheme.background
     val surface = MaterialTheme.colorScheme.surface
     val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
@@ -59,21 +66,91 @@ fun TerminalPage(vm: LauncherViewModel) {
     val error = MaterialTheme.colorScheme.error
     val onSurface = MaterialTheme.colorScheme.onSurface
     val outline = MaterialTheme.colorScheme.outline
+    val warnColor = MaterialTheme.colorScheme.tertiary
 
     LaunchedEffect(Unit) {
         lines.add(TerminalLine(nextSeq(), "", LineType.EMPTY))
         lines.add(TerminalLine(nextSeq(), "+===========================================+", LineType.BANNER))
         lines.add(TerminalLine(nextSeq(), "|          PMCL Terminal  v3.0.0            |", LineType.BANNER))
         lines.add(TerminalLine(nextSeq(), "|   Minecraft Launcher - Shell Mode         |", LineType.BANNER))
-        lines.add(TerminalLine(nextSeq(), "|   Access all launcher core features       |", LineType.BANNER))
         lines.add(TerminalLine(nextSeq(), "+===========================================+", LineType.BANNER))
         lines.add(TerminalLine(nextSeq(), "", LineType.EMPTY))
-        lines.add(TerminalLine(nextSeq(), "Type 'help' for available commands. Type 'clear' to clear screen.", LineType.HINT))
+        lines.add(TerminalLine(nextSeq(), I18n.t("terminal.welcome_hint"), LineType.HINT))
         lines.add(TerminalLine(nextSeq(), "", LineType.EMPTY))
     }
 
-    LaunchedEffect(lines.size) {
-        if (lines.isNotEmpty()) scrollState.scrollToItem(lines.lastIndex)
+    val filteredLines = remember(lines.size, searchQuery, lines.lastOrNull()?.seq) {
+        if (searchQuery.isBlank()) lines.toList()
+        else lines.filter {
+            it.type == LineType.EMPTY || it.text.contains(searchQuery, ignoreCase = true)
+        }
+    }
+
+    LaunchedEffect(filteredLines.size, autoScroll, executing) {
+        if (autoScroll && filteredLines.isNotEmpty()) {
+            scrollState.scrollToItem(filteredLines.lastIndex)
+        }
+    }
+
+    // 用户上滑时暂停自动滚动；接近底部时恢复
+    LaunchedEffect(scrollState.isScrollInProgress) {
+        if (!scrollState.isScrollInProgress && filteredLines.isNotEmpty()) {
+            val info = scrollState.layoutInfo
+            val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: 0
+            autoScroll = lastVisible >= filteredLines.lastIndex - 2
+        }
+    }
+
+    LaunchedEffect(copiedFlash) {
+        if (copiedFlash) {
+            kotlinx.coroutines.delay(1500)
+            copiedFlash = false
+        }
+    }
+
+    fun runCommand(cmd: String) {
+        if (cmd.isBlank() || executing) return
+        historyIndex = -1
+        if (history.isEmpty() || history.last() != cmd) {
+            history.add(cmd)
+            if (history.size > 1000) history.removeAt(0)
+        }
+        suggestions = emptyList()
+        execJob = scope.launch {
+            executeCommand(
+                cli = cli,
+                command = cmd,
+                lines = lines,
+                nextSeq = ::nextSeq,
+                setExecuting = { executing = it },
+                onCancelled = { lines.add(TerminalLine(nextSeq(), I18n.t("terminal.cancelled"), LineType.HINT)) }
+            )
+        }
+    }
+
+    fun completeTab() {
+        val token = input.trim().substringAfterLast(' ', input.trim())
+        if (token.isEmpty()) {
+            suggestions = commandNames.take(12)
+            return
+        }
+        val matches = commandNames.filter { it.startsWith(token, ignoreCase = true) }.distinct()
+        when {
+            matches.isEmpty() -> suggestions = emptyList()
+            matches.size == 1 -> {
+                val prefix = input.trim().substringBeforeLast(' ', missingDelimiterValue = "")
+                input = if (prefix.isEmpty()) matches[0] + " " else "$prefix ${matches[0]} "
+                suggestions = emptyList()
+            }
+            else -> {
+                val common = longestCommonPrefix(matches)
+                if (common.length > token.length) {
+                    val prefix = input.trim().substringBeforeLast(' ', missingDelimiterValue = "")
+                    input = if (prefix.isEmpty()) common else "$prefix $common"
+                }
+                suggestions = matches.take(16)
+            }
+        }
     }
 
     Column(
@@ -82,13 +159,12 @@ fun TerminalPage(vm: LauncherViewModel) {
             .background(bg)
             .padding(8.dp)
     ) {
-        // 顶部工具栏
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                "PMCL Shell",
+                I18n.t("terminal.title"),
                 color = primary,
                 fontSize = 14.sp,
                 fontFamily = FontFamily.Monospace,
@@ -100,38 +176,98 @@ fun TerminalPage(vm: LauncherViewModel) {
                     strokeWidth = 2.dp,
                     color = tertiary
                 )
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(6.dp))
                 Text(
-                    "Executing...",
+                    I18n.t("terminal.executing"),
                     color = tertiary,
                     fontSize = 12.sp,
                     fontFamily = FontFamily.Monospace
                 )
+                IconButton(
+                    onClick = {
+                        execJob?.cancel()
+                        executing = false
+                    },
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(Icons.Filled.Stop, I18n.t("terminal.cancel"), tint = error, modifier = Modifier.size(16.dp))
+                }
             }
-            Spacer(Modifier.width(12.dp))
             Text(
-                "History: ${history.size}",
+                I18n.t("terminal.history_count", history.size),
                 color = outline,
                 fontSize = 11.sp,
                 fontFamily = FontFamily.Monospace
             )
-            Spacer(Modifier.width(8.dp))
             IconButton(
-                onClick = { lines.clear() },
-                modifier = Modifier.size(24.dp)
+                onClick = { fontSp = (fontSp - 1).coerceAtLeast(10) },
+                modifier = Modifier.size(28.dp)
+            ) { Icon(Icons.Filled.Remove, I18n.t("terminal.font_smaller"), tint = outline, modifier = Modifier.size(16.dp)) }
+            Text(
+                "${fontSp}sp",
+                color = outline,
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace
+            )
+            IconButton(
+                onClick = { fontSp = (fontSp + 1).coerceAtMost(22) },
+                modifier = Modifier.size(28.dp)
+            ) { Icon(Icons.Filled.Add, I18n.t("terminal.font_larger"), tint = outline, modifier = Modifier.size(16.dp)) }
+            IconButton(
+                onClick = {
+                    val text = lines.filter { it.type != LineType.EMPTY }.joinToString("\n") { it.text }
+                    try {
+                        Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(text), null)
+                        copiedFlash = true
+                    } catch (_: Throwable) {}
+                },
+                modifier = Modifier.size(28.dp)
             ) {
                 Icon(
-                    Icons.Filled.Clear,
-                    contentDescription = "Clear",
-                    tint = outline,
+                    if (copiedFlash) Icons.Filled.Check else Icons.Filled.ContentCopy,
+                    I18n.t("terminal.copy"),
+                    tint = if (copiedFlash) primary else outline,
                     modifier = Modifier.size(16.dp)
                 )
+            }
+            IconButton(
+                onClick = { autoScroll = !autoScroll },
+                modifier = Modifier.size(28.dp)
+            ) {
+                Icon(
+                    if (autoScroll) Icons.Filled.KeyboardArrowDown else Icons.Filled.Pause,
+                    I18n.t("terminal.autoscroll"),
+                    tint = if (autoScroll) primary else outline,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+            IconButton(
+                onClick = { lines.clear() },
+                modifier = Modifier.size(28.dp)
+            ) {
+                Icon(Icons.Filled.Clear, I18n.t("terminal.clear"), tint = outline, modifier = Modifier.size(16.dp))
             }
         }
 
         Spacer(Modifier.height(4.dp))
 
-        // 终端输出区
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            placeholder = { Text(I18n.t("terminal.search_hint")) },
+            leadingIcon = { Icon(Icons.Filled.Search, null) },
+            trailingIcon = {
+                if (searchQuery.isNotEmpty()) {
+                    IconButton(onClick = { searchQuery = "" }) { Icon(Icons.Filled.Clear, null) }
+                }
+            },
+            singleLine = true,
+            textStyle = TextStyle(fontSize = 13.sp, fontFamily = FontFamily.Monospace)
+        )
+
+        Spacer(Modifier.height(4.dp))
+
         LazyColumn(
             modifier = Modifier
                 .weight(1f)
@@ -140,56 +276,40 @@ fun TerminalPage(vm: LauncherViewModel) {
                 .padding(12.dp),
             state = scrollState
         ) {
-            itemsIndexed(lines, key = { _, line -> line.seq }) { _, line ->
+            items(filteredLines, key = { it.seq }) { line ->
                 when (line.type) {
                     LineType.EMPTY -> Spacer(Modifier.height(2.dp))
-                    LineType.BANNER -> Text(
+                    else -> Text(
                         line.text,
-                        color = primary,
-                        fontSize = 13.sp,
-                        fontFamily = FontFamily.Monospace
-                    )
-                    LineType.COMMAND -> Text(
-                        line.text,
-                        color = secondary,
-                        fontSize = 13.sp,
-                        fontFamily = FontFamily.Monospace
-                    )
-                    LineType.OUTPUT -> Text(
-                        line.text,
-                        color = onSurface,
-                        fontSize = 13.sp,
-                        fontFamily = FontFamily.Monospace
-                    )
-                    LineType.ERROR -> Text(
-                        line.text,
-                        color = error,
-                        fontSize = 13.sp,
-                        fontFamily = FontFamily.Monospace
-                    )
-                    LineType.HINT -> Text(
-                        line.text,
-                        color = tertiary,
-                        fontSize = 13.sp,
-                        fontFamily = FontFamily.Monospace
+                        color = lineColor(line, primary, secondary, tertiary, error, onSurface, warnColor),
+                        fontSize = fontSp.sp,
+                        fontFamily = FontFamily.Monospace,
+                        maxLines = 8,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
             if (executing) {
-                item {
-                    Text(
-                        "_",
-                        color = tertiary,
-                        fontSize = 13.sp,
-                        fontFamily = FontFamily.Monospace
-                    )
+                item(key = "cursor") {
+                    Text("_", color = tertiary, fontSize = fontSp.sp, fontFamily = FontFamily.Monospace)
                 }
             }
         }
 
+        if (suggestions.isNotEmpty()) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                suggestions.joinToString("  "),
+                color = outline,
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
         Spacer(Modifier.height(8.dp))
 
-        // 输入框
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -200,28 +320,28 @@ fun TerminalPage(vm: LauncherViewModel) {
             Text(
                 "pmcl> ",
                 color = secondary,
-                fontSize = 14.sp,
+                fontSize = (fontSp + 1).sp,
                 fontFamily = FontFamily.Monospace
             )
             BasicTextField(
                 value = input,
-                onValueChange = { input = it },
+                onValueChange = {
+                    input = it
+                    suggestions = emptyList()
+                },
                 modifier = Modifier
                     .weight(1f)
                     .onKeyEvent { event ->
                         when {
+                            event.key == Key.Tab && event.type == KeyEventType.KeyDown -> {
+                                completeTab()
+                                true
+                            }
                             event.key == Key.Enter && event.type == KeyEventType.KeyUp -> {
                                 if (input.isNotBlank() && !executing) {
                                     val cmd = input.trim()
                                     input = ""
-                                    historyIndex = -1
-                                    if (history.isEmpty() || history.last() != cmd) {
-                                        history.add(cmd)
-                                        if (history.size > 1000) history.removeAt(0)
-                                    }
-                                    scope.launch {
-                                        executeCommand(cli, cmd, lines, ::nextSeq) { executing = it }
-                                    }
+                                    runCommand(cmd)
                                 }
                                 true
                             }
@@ -235,14 +355,16 @@ fun TerminalPage(vm: LauncherViewModel) {
                             }
                             event.key == Key.DirectionDown && event.type == KeyEventType.KeyUp -> {
                                 if (history.isNotEmpty() && historyIndex >= 0) {
-                                    historyIndex = (historyIndex + 1)
+                                    historyIndex += 1
                                     input = if (historyIndex >= history.size) {
                                         historyIndex = -1
                                         ""
-                                    } else {
-                                        history[historyIndex]
-                                    }
+                                    } else history[historyIndex]
                                 }
+                                true
+                            }
+                            event.key == Key.Escape && event.type == KeyEventType.KeyUp -> {
+                                suggestions = emptyList()
                                 true
                             }
                             else -> false
@@ -250,7 +372,7 @@ fun TerminalPage(vm: LauncherViewModel) {
                     },
                 textStyle = TextStyle(
                     color = onSurface,
-                    fontSize = 14.sp,
+                    fontSize = (fontSp + 1).sp,
                     fontFamily = FontFamily.Monospace
                 ),
                 cursorBrush = SolidColor(secondary),
@@ -261,62 +383,66 @@ fun TerminalPage(vm: LauncherViewModel) {
     }
 }
 
-/** 执行单条命令，捕获 PmclCli 的 System.out 输出 */
+private fun lineColor(
+    line: TerminalLine,
+    primary: Color,
+    secondary: Color,
+    tertiary: Color,
+    error: Color,
+    onSurface: Color,
+    warn: Color
+): Color = when (line.type) {
+    LineType.BANNER -> primary
+    LineType.COMMAND -> secondary
+    LineType.ERROR -> error
+    LineType.HINT -> tertiary
+    LineType.WARN -> warn
+    LineType.OUTPUT -> onSurface
+    LineType.EMPTY -> onSurface
+}
+
 private suspend fun executeCommand(
     cli: PmclCli,
     command: String,
     lines: MutableList<TerminalLine>,
     nextSeq: () -> Long,
-    setExecuting: (Boolean) -> Unit
+    setExecuting: (Boolean) -> Unit,
+    onCancelled: () -> Unit
 ) {
     lines.add(TerminalLine(nextSeq(), "pmcl> $command", LineType.COMMAND))
     setExecuting(true)
-
     try {
-        if (command.trim().equals("clear", ignoreCase = true) || command.trim().equals("cls", ignoreCase = true)) {
+        val trimmed = command.trim()
+        if (trimmed.equals("clear", ignoreCase = true) || trimmed.equals("cls", ignoreCase = true)) {
             lines.clear()
             return
         }
-        val lowerCmd = command.trim().split("\\s+".toRegex()).firstOrNull()?.lowercase()
+        val lowerCmd = trimmed.split("\\s+".toRegex()).firstOrNull()?.lowercase()
         if (lowerCmd == "exit" || lowerCmd == "quit") {
-            lines.add(TerminalLine(nextSeq(), "Exit is not supported in GUI terminal. Use 'clear' to clear screen.", LineType.HINT))
+            lines.add(TerminalLine(nextSeq(), I18n.t("terminal.exit_hint"), LineType.HINT))
             return
         }
-
-        val parts = command.trim().split("\\s+".toRegex()).toTypedArray()
+        val parts = trimmed.split("\\s+".toRegex()).toTypedArray()
         if (parts.isEmpty() || parts[0].isEmpty()) return
 
         val output = withContext(Dispatchers.IO) {
-            val baos = ByteArrayOutputStream()
-            val originalOut = System.out
-            val originalErr = System.err
-            val ps = PrintStream(baos, true, "UTF-8")
-            try {
-                System.setOut(ps)
-                System.setErr(ps)
-                cli.execute(parts)
-                ps.flush()
-                baos.toString("UTF-8")
-            } finally {
-                System.setOut(originalOut)
-                System.setErr(originalErr)
-            }
+            cli.executeCaptured(parts)
         }
-
+        if (!kotlinx.coroutines.currentCoroutineContext().isActive) {
+            onCancelled()
+            return
+        }
         if (output.isNotEmpty()) {
-            output.split("\n").forEach { line ->
+            output.split('\n').forEach { line ->
                 if (line.isNotEmpty()) {
-                    val type = if (line.startsWith("Error") || line.startsWith("Failed") ||
-                        line.contains("Exception") || line.contains("Error:") ||
-                        line.contains("not found") || line.contains("Unknown"))
-                        LineType.ERROR else LineType.OUTPUT
-                    lines.add(TerminalLine(nextSeq(), line, type))
-                    if (lines.size > 5000) {
-                        lines.removeAt(0)
-                    }
+                    lines.add(TerminalLine(nextSeq(), line, classifyOutputLine(line)))
+                    while (lines.size > 5000) lines.removeAt(0)
                 }
             }
         }
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        onCancelled()
+        throw e
     } catch (e: Throwable) {
         lines.add(TerminalLine(nextSeq(), "Error: ${e.message}", LineType.ERROR))
     } finally {
@@ -324,10 +450,34 @@ private suspend fun executeCommand(
     }
 }
 
-/** 终端行类型 */
-private enum class LineType {
-    EMPTY, BANNER, COMMAND, OUTPUT, ERROR, HINT
+private fun classifyOutputLine(line: String): LineType {
+    val lower = line.lowercase()
+    return when {
+        line.startsWith("Error") || line.startsWith("Failed") ||
+            lower.contains("exception") || lower.contains("error:") ||
+            lower.contains("not found") || lower.contains("unknown") ||
+            lower.contains("/error]") || lower.contains("[error") -> LineType.ERROR
+        lower.contains("/warn]") || lower.contains("[warn") ||
+            lower.contains("warning") -> LineType.WARN
+        else -> LineType.OUTPUT
+    }
 }
 
-/** 终端行数据 */
+private fun longestCommonPrefix(items: List<String>): String {
+    if (items.isEmpty()) return ""
+    var prefix = items[0]
+    for (i in 1 until items.size) {
+        val s = items[i]
+        var j = 0
+        while (j < prefix.length && j < s.length && prefix[j].equals(s[j], ignoreCase = true)) j++
+        prefix = prefix.substring(0, j)
+        if (prefix.isEmpty()) break
+    }
+    return prefix
+}
+
+private enum class LineType {
+    EMPTY, BANNER, COMMAND, OUTPUT, ERROR, HINT, WARN
+}
+
 private data class TerminalLine(val seq: Long, val text: String, val type: LineType)

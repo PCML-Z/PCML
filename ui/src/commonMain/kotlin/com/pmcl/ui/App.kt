@@ -29,8 +29,8 @@ import com.pmcl.ui.page.InstancesPage
 import com.pmcl.ui.page.LaunchPage
 import com.pmcl.ui.page.LockscreenLaunchPage
 import com.pmcl.ui.page.NbtEditorPage
-import com.pmcl.ui.page.MultiplayerPage
 import com.pmcl.ui.page.FriendPage
+import com.pmcl.ui.page.MultiplayerPage
 import com.pmcl.ui.page.MusicPage
 import com.pmcl.ui.page.NewsPage
 import com.pmcl.ui.page.PluginPage
@@ -79,8 +79,9 @@ fun App(vm: LauncherViewModel) {
         }
         // 应用 UI 缩放
         themeState.applyUiScale(vm.preferences.getUiScale())
-        // 应用视差背景 / 玻璃主题 / 锁屏启动页主题初始状态
+        // 应用视差背景 / 自定义背景 / 玻璃主题 / 锁屏启动页主题初始状态
         themeState.applyParallaxBackground(vm.preferences.isParallaxBackground())
+        themeState.applyCustomBackground(vm.isCustomBackgroundActive())
         themeState.applyGlassTheme(vm.preferences.isGlassTheme())
         themeState.applyLockscreenLaunchTheme(vm.preferences.isLockscreenLaunchTheme())
         // 应用主题色彩预设与色彩模式
@@ -104,8 +105,8 @@ fun App(vm: LauncherViewModel) {
         customThemePack = themeState.customThemePack
     ) {
         CompositionLocalProvider(LocalThemeState provides themeState) {
-            // 视差背景开启时 Surface 透明，让 Main.kt 的 ParallaxBackground 透出
-            val bgTransparent = themeState.parallaxBackground
+            // 视差背景或自定义背景开启时 Surface 透明，让 Main.kt 的窗口级背景层透出
+            val bgTransparent = themeState.parallaxBackground || themeState.customBackground
             Surface(
                 modifier = Modifier.fillMaxSize(),
                 color = if (bgTransparent) androidx.compose.ui.graphics.Color.Transparent
@@ -442,7 +443,6 @@ private fun MainWindowContent(vm: LauncherViewModel) {
     val navigationRequest by vm.navigationRequest.collectAsState()
     LaunchedEffect(navigationRequest) {
         val req = navigationRequest ?: return@LaunchedEffect
-        // 匹配目标页面
         val target = allDestinations.firstOrNull { it.route == req }
         if (target != null) {
             val newTarget = NavTarget.BuiltIn(target)

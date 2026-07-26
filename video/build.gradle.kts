@@ -20,14 +20,12 @@ dependencies {
 
     // JavaCV：摄像头采集 + FFmpeg 编解码（自带原生库）
     implementation(libs.javacv)
-    // macOS ARM64 ffmpeg 原生库
+    // 按平台打入 FFmpeg natives（Bytedeco 7.1-1.5.11 无 windows-arm64 制品）
     implementation("org.bytedeco:ffmpeg:7.1-1.5.11:macosx-arm64")
-    // macOS x86_64 ffmpeg 原生库
     implementation("org.bytedeco:ffmpeg:7.1-1.5.11:macosx-x86_64")
-    // Windows ffmpeg 原生库
     implementation("org.bytedeco:ffmpeg:7.1-1.5.11:windows-x86_64")
-    // Linux ffmpeg 原生库
     implementation("org.bytedeco:ffmpeg:7.1-1.5.11:linux-x86_64")
+    implementation("org.bytedeco:ffmpeg:7.1-1.5.11:linux-arm64")
 }
 
 tasks.withType<Test> {

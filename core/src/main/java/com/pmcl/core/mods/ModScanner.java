@@ -45,14 +45,12 @@ public final class ModScanner {
             stream.forEach(p -> {
                 try {
                     String name = p.getFileName().toString().toLowerCase();
-                    if (name.endsWith(".jar")) {
+                    if (name.endsWith(".jar") || name.endsWith(".jar.disabled")) {
                         ModMeta meta = parseJar(p);
-                        if (meta != null) result.add(meta);
-                    }
-                    // .disabled 后缀的文件也扫描，标记为禁用
-                    else if (name.endsWith(".jar.disabled")) {
-                        ModMeta meta = parseJar(p);
-                        if (meta != null) result.add(meta);
+                        if (meta != null) {
+                            meta.setJarPath(p.toAbsolutePath().toString());
+                            result.add(meta);
+                        }
                     }
                 } catch (Throwable t) {
                     // 单个 jar 解析异常不能中断整个目录扫描
@@ -120,9 +118,33 @@ public final class ModScanner {
             String authors = extractAuthors(o);
             List<String> deps = jsonArrToStrings(o, "depends");
             List<String> conflicts = jsonArrToStrings(o, "conflicts");
-            return new ModMeta(id, version, name, desc, authors, "fabric",
+            ModMeta meta = new ModMeta(id, version, name, desc, authors, "fabric",
                     deps, conflicts, fileName);
+            meta.setIconEntry(extractFabricIcon(o));
+            return meta;
         }
+    }
+
+    /** fabric.mod.json 的 icon 可为字符串或 { "64": "path", ... } */
+    private static String extractFabricIcon(JsonObject o) {
+        try {
+            if (o == null || !o.has("icon") || o.get("icon").isJsonNull()) return "";
+            JsonElement el = o.get("icon");
+            if (el.isJsonPrimitive()) return el.getAsString();
+            if (el.isJsonObject()) {
+                JsonObject icons = el.getAsJsonObject();
+                // 优先较大尺寸
+                for (String key : new String[]{"256", "128", "64", "32"}) {
+                    if (icons.has(key) && icons.get(key).isJsonPrimitive()) {
+                        return icons.get(key).getAsString();
+                    }
+                }
+                for (var e : icons.entrySet()) {
+                    if (e.getValue().isJsonPrimitive()) return e.getValue().getAsString();
+                }
+            }
+        } catch (Throwable ignored) {}
+        return "";
     }
 
     /** 安全地从 JsonObject 取字符串字段，字段缺失或类型不符时返回默认值（不抛异常）。 */
@@ -152,6 +174,8 @@ public final class ModScanner {
             String name = safeStr(ql, "name", id);
             String desc = safeStr(ql, "description", "");
             String authors = extractAuthors(ql);
+            String icon = extractFabricIcon(ql);
+            if (icon.isEmpty()) icon = extractFabricIcon(o);
             List<String> deps = new ArrayList<>();
             List<String> conflicts = new ArrayList<>();
             // depends 可以是数组 [{id, optional}] 或对象 {id: {...}}
@@ -183,8 +207,10 @@ public final class ModScanner {
                     conflicts.addAll(b.getAsJsonObject().keySet());
                 }
             }
-            return new ModMeta(id, version, name, desc, authors, "quilt",
+            ModMeta meta = new ModMeta(id, version, name, desc, authors, "quilt",
                     deps, conflicts, fileName);
+            meta.setIconEntry(icon);
+            return meta;
         }
     }
 
@@ -221,12 +247,16 @@ public final class ModScanner {
             deps = dedup(deps);
             conflicts = dedup(conflicts);
 
-            return new ModMeta(modId != null ? modId : fileName,
+            ModMeta meta = new ModMeta(modId != null ? modId : fileName,
                     version != null ? version : "unknown",
                     name != null ? name : modId,
                     desc != null ? desc : "",
                     authors != null ? authors : "",
                     loader, deps, conflicts, fileName);
+            String logo = tomlValueInSection(lines, "logoFile", "mods");
+            if (logo == null || logo.isEmpty()) logo = tomlValueInSection(lines, "logoFile", "");
+            if (logo != null && !logo.isEmpty()) meta.setIconEntry(logo);
+            return meta;
         }
     }
 

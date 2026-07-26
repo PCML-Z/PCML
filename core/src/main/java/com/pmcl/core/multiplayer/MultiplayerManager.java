@@ -135,20 +135,51 @@ public final class MultiplayerManager {
 
     /** 离开当前房间 */
     public synchronized void leaveRoom() {
+        boolean cleanupOk = true;
+        String cleanupError = "";
         if (backend == Backend.TERRACOTTA) {
-            try { terracotta.toIdle(); } catch (Throwable ignored) {}
-            try { terracotta.stop(); } catch (Throwable ignored) {}
+            try { terracotta.toIdle(); } catch (Throwable t) {
+                cleanupOk = false;
+                cleanupError = t.getMessage() != null ? t.getMessage() : t.toString();
+            }
+            try { terracotta.stop(); } catch (Throwable t) {
+                cleanupOk = false;
+                cleanupError = t.getMessage() != null ? t.getMessage() : t.toString();
+            }
         } else if (backend == Backend.CONNECTX) {
-            try { connectX.leaveRoom().get(3, java.util.concurrent.TimeUnit.SECONDS); } catch (Throwable ignored) {}
-            connectX.stop();
+            try {
+                connectX.leaveRoom().get(3, java.util.concurrent.TimeUnit.SECONDS);
+            } catch (Throwable t) {
+                cleanupOk = false;
+                cleanupError = t.getMessage() != null ? t.getMessage() : t.toString();
+            }
+            try { connectX.stop(); } catch (Throwable t) {
+                cleanupOk = false;
+                cleanupError = t.getMessage() != null ? t.getMessage() : t.toString();
+            }
         } else {
-            try { easyTier.stop(); } catch (Throwable ignored) {}
+            try { easyTier.stop(); } catch (Throwable t) {
+                cleanupOk = false;
+                cleanupError = t.getMessage() != null ? t.getMessage() : t.toString();
+            }
         }
         virtualIp = "";
         currentRoomShortId = "";
         currentRoomCode = "";
         localMcAddr = "";
-        state = State.DISCONNECTED;
+        if (cleanupOk) {
+            state = State.DISCONNECTED;
+            lastError = "";
+        } else {
+            // 进程可能仍存活：不伪装成已断开，便于 UI 重试 leave
+            state = State.FAILED;
+            lastError = "离开房间时清理失败: " + cleanupError;
+        }
+    }
+
+    /** 将 exceptionally 中的失败重新抛出，避免 join() 误判成功 */
+    private static Void failFuture(Throwable e) {
+        throw new java.util.concurrent.CompletionException(e);
     }
 
     /**
@@ -199,7 +230,8 @@ public final class MultiplayerManager {
                 .exceptionally(e -> {
                     state = State.FAILED;
                     lastError = e.getCause() != null ? e.getCause().getMessage() : e.getMessage();
-                    return null;
+                    try { terracotta.stop(); } catch (Throwable ignored) {}
+                    return failFuture(e);
                 });
     }
 
@@ -230,7 +262,8 @@ public final class MultiplayerManager {
                 .exceptionally(e -> {
                     state = State.FAILED;
                     lastError = e.getCause() != null ? e.getCause().getMessage() : e.getMessage();
-                    return null;
+                    try { terracotta.stop(); } catch (Throwable ignored) {}
+                    return failFuture(e);
                 });
     }
 
@@ -281,7 +314,8 @@ public final class MultiplayerManager {
                 .exceptionally(e -> {
                     state = State.FAILED;
                     lastError = e.getCause() != null ? e.getCause().getMessage() : e.getMessage();
-                    return null;
+                    try { connectX.stop(); } catch (Throwable ignored) {}
+                    return failFuture(e);
                 });
     }
 
@@ -329,7 +363,8 @@ public final class MultiplayerManager {
                     .exceptionally(e -> {
                         state = State.FAILED;
                         lastError = e.getCause() != null ? e.getCause().getMessage() : e.getMessage();
-                        return null;
+                        try { connectX.stop(); } catch (Throwable ignored) {}
+                        return failFuture(e);
                     });
         } catch (Exception e) {
             return CompletableFuture.failedFuture(new IllegalArgumentException("ConnectX 邀请码无效：" + e.getMessage(), e));
@@ -421,6 +456,9 @@ public final class MultiplayerManager {
                             }
                             if (onProgress != null) onProgress.accept(hint);
                             lastError = hint;
+                            state = State.FAILED;
+                            try { easyTier.stop(); } catch (Throwable ignored) {}
+                            throw new IllegalStateException(hint);
                         }
                         return (Void) null;
                     });
@@ -428,7 +466,8 @@ public final class MultiplayerManager {
                 .exceptionally(e -> {
                     state = State.FAILED;
                     lastError = e.getCause() != null ? e.getCause().getMessage() : e.getMessage();
-                    return null;
+                    try { easyTier.stop(); } catch (Throwable ignored) {}
+                    return failFuture(e);
                 });
     }
 

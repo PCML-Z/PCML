@@ -425,6 +425,116 @@ fun SettingsPage(vm: LauncherViewModel) {
                 HorizontalDivider()
                 Spacer(Modifier.height(12.dp))
 
+                // 自定义背景：本地图片 / 视频（优先级高于视差背景）
+                val customBgType by vm.launcherBgType.collectAsState()
+                val customBgImagePath by vm.launcherBgImagePath.collectAsState()
+                val customBgVideoPath by vm.launcherBgVideoPath.collectAsState()
+                Text(I18n.t("settings.custom_bg"), fontWeight = FontWeight.Medium)
+                Spacer(Modifier.height(4.dp))
+                Text(I18n.t("settings.custom_bg_desc"),
+                     style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.outline)
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = customBgType != "image" && customBgType != "video",
+                        onClick = { vm.setLauncherBgType("none") },
+                        label = { Text(I18n.t("settings.custom_bg_off")) }
+                    )
+                    FilterChip(
+                        selected = customBgType == "image",
+                        onClick = { vm.setLauncherBgType("image") },
+                        label = { Text(I18n.t("settings.custom_bg_image")) }
+                    )
+                    FilterChip(
+                        selected = customBgType == "video",
+                        onClick = { vm.setLauncherBgType("video") },
+                        label = { Text(I18n.t("settings.custom_bg_video")) }
+                    )
+                }
+                if (customBgType == "image") {
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = customBgImagePath,
+                        onValueChange = { vm.setLauncherBgImagePath(it) },
+                        singleLine = true,
+                        placeholder = { Text(I18n.t("settings.custom_bg_image_empty")) },
+                        modifier = Modifier.fillMaxWidth(),
+                        trailingIcon = {
+                            Row {
+                                IconButton(onClick = {
+                                    val fd = java.awt.FileDialog(
+                                        null as java.awt.Frame?,
+                                        I18n.t("settings.custom_bg_image_select"),
+                                        java.awt.FileDialog.LOAD
+                                    )
+                                    fd.filenameFilter = java.io.FilenameFilter { _, name ->
+                                        val lower = name.lowercase()
+                                        lower.endsWith(".png") || lower.endsWith(".jpg")
+                                                || lower.endsWith(".jpeg") || lower.endsWith(".webp")
+                                                || lower.endsWith(".bmp") || lower.endsWith(".gif")
+                                    }
+                                    fd.isVisible = true
+                                    if (fd.file != null) {
+                                        val p = java.io.File(fd.directory, fd.file).absolutePath
+                                        vm.setLauncherBgImagePath(p)
+                                    }
+                                }) {
+                                    Icon(Icons.Filled.FolderOpen, contentDescription = I18n.t("common.browse"))
+                                }
+                                if (customBgImagePath.isNotEmpty()) {
+                                    IconButton(onClick = { vm.setLauncherBgImagePath("") }) {
+                                        Icon(Icons.Filled.Clear, contentDescription = null)
+                                    }
+                                }
+                            }
+                        }
+                    )
+                }
+                if (customBgType == "video") {
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = customBgVideoPath,
+                        onValueChange = { vm.setLauncherBgVideoPath(it) },
+                        singleLine = true,
+                        placeholder = { Text(I18n.t("settings.custom_bg_video_empty")) },
+                        modifier = Modifier.fillMaxWidth(),
+                        trailingIcon = {
+                            Row {
+                                IconButton(onClick = {
+                                    val fd = java.awt.FileDialog(
+                                        null as java.awt.Frame?,
+                                        I18n.t("settings.custom_bg_video_select"),
+                                        java.awt.FileDialog.LOAD
+                                    )
+                                    fd.filenameFilter = java.io.FilenameFilter { _, name ->
+                                        val lower = name.lowercase()
+                                        lower.endsWith(".mp4") || lower.endsWith(".webm")
+                                                || lower.endsWith(".mov") || lower.endsWith(".mkv")
+                                                || lower.endsWith(".avi")
+                                    }
+                                    fd.isVisible = true
+                                    if (fd.file != null) {
+                                        val p = java.io.File(fd.directory, fd.file).absolutePath
+                                        vm.setLauncherBgVideoPath(p)
+                                    }
+                                }) {
+                                    Icon(Icons.Filled.FolderOpen, contentDescription = I18n.t("common.browse"))
+                                }
+                                if (customBgVideoPath.isNotEmpty()) {
+                                    IconButton(onClick = { vm.setLauncherBgVideoPath("") }) {
+                                        Icon(Icons.Filled.Clear, contentDescription = null)
+                                    }
+                                }
+                            }
+                        }
+                    )
+                }
+
+                Spacer(Modifier.height(12.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(12.dp))
+
                 // 玻璃主题
                 val glassOn by vm.glassTheme.collectAsState()
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -870,8 +980,7 @@ private fun TechStackTable() {
         Triple("Gradle", "8.10", I18n.t("about.tech.gradle")),
         Triple("Gson", "2.11.0", I18n.t("about.tech.gson")),
         Triple("kotlinx-coroutines", "1.9.0", I18n.t("about.tech.coroutines")),
-        Triple("oshi", "6.6.5", I18n.t("about.tech.oshi")),
-        Triple("pty4j", "0.13.12", I18n.t("about.tech.pty4j"))
+        Triple("oshi", "6.6.5", I18n.t("about.tech.oshi"))
     )
 
     Surface(

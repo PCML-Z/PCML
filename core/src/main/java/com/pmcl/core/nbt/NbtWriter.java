@@ -3,8 +3,10 @@ package com.pmcl.core.nbt;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.nio.file.Path;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.Map;
 import java.util.zip.GZIPOutputStream;
 
@@ -12,6 +14,7 @@ import java.util.zip.GZIPOutputStream;
  * NBT 二进制写入器。
  * <p>
  * 写入 Notchian NBT 格式（大端字节序），默认 gzip 压缩（与 level.dat 兼容）。
+ * 落盘采用临时文件 + 原子替换，避免写一半断电/崩溃导致存档损坏。
  */
 public final class NbtWriter {
 
@@ -21,10 +24,40 @@ public final class NbtWriter {
      * 写入 gzip 压缩的 NBT 文件（level.dat 标准格式）。
      */
     public static void write(NbtTag root, Path file) throws IOException {
-        try (OutputStream fos = Files.newOutputStream(file);
-             GZIPOutputStream gz = new GZIPOutputStream(fos);
-             DataOutputStream dos = new DataOutputStream(gz)) {
-            writeRoot(dos, root);
+        write(root, file, true);
+    }
+
+    /**
+     * 写入 NBT 文件，可选择是否 gzip。
+     * 先写 {@code file.tmp}，再原子替换到目标路径。
+     */
+    public static void write(NbtTag root, Path file, boolean gzipped) throws IOException {
+        Path parent = file.getParent();
+        if (parent != null) Files.createDirectories(parent);
+        Path tmp = file.resolveSibling(file.getFileName().toString() + ".tmp");
+        try {
+            try (OutputStream fos = Files.newOutputStream(tmp)) {
+                if (gzipped) {
+                    try (GZIPOutputStream gz = new GZIPOutputStream(fos);
+                         DataOutputStream dos = new DataOutputStream(gz)) {
+                        writeRoot(dos, root);
+                    }
+                } else {
+                    try (DataOutputStream dos = new DataOutputStream(fos)) {
+                        writeRoot(dos, root);
+                    }
+                }
+            }
+            try {
+                Files.move(tmp, file,
+                        StandardCopyOption.REPLACE_EXISTING,
+                        StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException e) {
+                Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING);
+            }
+        } catch (IOException e) {
+            try { Files.deleteIfExists(tmp); } catch (IOException ignored) {}
+            throw e;
         }
     }
 
@@ -91,7 +124,7 @@ public final class NbtWriter {
                     writeString(dos, e.getKey());
                     writePayload(dos, e.getValue());
                 }
-                dos.writeByte(NbtTag.TYPE_END); // Compound 结束标记
+                dos.writeByte(NbtTag.TYPE_END);
                 break;
             }
             case NbtTag.TYPE_INT_ARRAY: {

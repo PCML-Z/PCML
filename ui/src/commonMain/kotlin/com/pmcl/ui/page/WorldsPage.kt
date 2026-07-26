@@ -3,6 +3,8 @@
 package com.pmcl.ui.page
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -10,9 +12,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Search
@@ -21,14 +26,22 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.gamecontent.WorldManager
 import com.pmcl.core.i18n.I18n
 import com.pmcl.ui.animation.StaggeredAppear
+import com.pmcl.ui.util.decodeSampledBitmap
 import com.pmcl.ui.viewmodel.LauncherViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.awt.FileDialog
 import java.awt.Frame
 import java.io.FilenameFilter
@@ -56,12 +69,15 @@ fun WorldsPage(vm: LauncherViewModel) {
 
     val processedWorlds = remember(worlds, query, selectedSource, sortBy) {
         var list = if (query.isBlank()) worlds
-        else worlds.filter { it.name.contains(query, ignoreCase = true) }
+        else worlds.filter { w ->
+            w.name.contains(query, ignoreCase = true) ||
+                w.displayName.contains(query, ignoreCase = true)
+        }
         if (selectedSource != null) {
             list = list.filter { (it.source ?: I18n.t("world.unknown_source")) == selectedSource }
         }
         when (sortBy) {
-            WorldSort.NAME -> list.sortedBy { it.name.lowercase() }
+            WorldSort.NAME -> list.sortedBy { (it.displayName.takeIf { n -> n.isNotBlank() } ?: it.name).lowercase() }
             WorldSort.SIZE_DESC -> list.sortedByDescending { it.sizeBytes }
             WorldSort.SIZE_ASC -> list.sortedBy { it.sizeBytes }
             WorldSort.MODIFIED -> list.sortedByDescending { it.lastModified }
@@ -199,6 +215,22 @@ enum class WorldSort(val labelKey: String) {
     NAME("world.sort.name"), SIZE_DESC("world.sort.size_desc"), SIZE_ASC("world.sort.size_asc"), MODIFIED("world.sort.modified")
 }
 
+private fun gameModeLabel(gameType: Int): String = when (gameType) {
+    0 -> I18n.t("world.mode.survival")
+    1 -> I18n.t("world.mode.creative")
+    2 -> I18n.t("world.mode.adventure")
+    3 -> I18n.t("world.mode.spectator")
+    else -> I18n.t("world.mode.unknown")
+}
+
+private fun difficultyLabel(difficulty: Int): String = when (difficulty) {
+    0 -> I18n.t("world.diff.peaceful")
+    1 -> I18n.t("world.diff.easy")
+    2 -> I18n.t("world.diff.normal")
+    3 -> I18n.t("world.diff.hard")
+    else -> I18n.t("world.diff.unknown")
+}
+
 @Composable
 private fun WorldRow(
     world: WorldManager.WorldInfo,
@@ -206,11 +238,27 @@ private fun WorldRow(
     format: SimpleDateFormat
 ) {
     val scope = rememberCoroutineScope()
+    val clipboard = LocalClipboardManager.current
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showRestoreDialog by remember { mutableStateOf(false) }
     var backups by remember { mutableStateOf<List<Path>>(emptyList()) }
     var loadingBackups by remember { mutableStateOf(false) }
     var backing by remember { mutableStateOf(false) }
+
+    val title = world.displayName.takeIf { it.isNotBlank() } ?: world.name
+    var iconBmp by remember(world.dir) { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(world.dir, world.hasIcon()) {
+        iconBmp = null
+        if (!world.hasIcon()) return@LaunchedEffect
+        iconBmp = withContext(Dispatchers.IO) {
+            try {
+                val icon = world.dir.resolve("icon.png").toFile()
+                if (icon.isFile) decodeSampledBitmap(icon.readBytes(), 128) else null
+            } catch (_: Throwable) {
+                null
+            }
+        }
+    }
 
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant,
@@ -219,24 +267,110 @@ private fun WorldRow(
     ) {
         Column(Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(world.name, fontWeight = FontWeight.SemiBold,
-                     modifier = Modifier.weight(1f))
-                AssistChip(
-                    onClick = {},
-                    label = { Text(world.source ?: I18n.t("world.unknown_source")) },
-                    colors = AssistChipDefaults.assistChipColors(
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer
+                Box(
+                    Modifier
+                        .size(64.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.6f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (iconBmp != null) {
+                        Image(
+                            bitmap = iconBmp!!,
+                            contentDescription = title,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        Icon(
+                            Icons.Filled.Public,
+                            null,
+                            Modifier.size(28.dp),
+                            tint = MaterialTheme.colorScheme.outline
+                        )
+                    }
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        title,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(ContentUtils.formatFileSize(world.sizeBytes),
-                     style = MaterialTheme.typography.labelSmall,
-                     color = MaterialTheme.colorScheme.outline)
+                    if (world.displayName.isNotBlank() && world.displayName != world.name) {
+                        Text(
+                            I18n.t("world.folder_name", world.name),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        AssistChip(
+                            onClick = {},
+                            label = { Text(world.source ?: I18n.t("world.unknown_source")) },
+                            colors = AssistChipDefaults.assistChipColors(
+                                containerColor = MaterialTheme.colorScheme.secondaryContainer
+                            )
+                        )
+                        if (world.gameType >= 0) {
+                            SuggestionChip(
+                                onClick = {},
+                                label = { Text(gameModeLabel(world.gameType)) }
+                            )
+                        }
+                        if (world.difficulty >= 0) {
+                            SuggestionChip(
+                                onClick = {},
+                                label = { Text(difficultyLabel(world.difficulty)) }
+                            )
+                        }
+                        if (world.isHardcore) {
+                            SuggestionChip(
+                                onClick = {},
+                                label = { Text(I18n.t("world.hardcore")) },
+                                colors = SuggestionChipDefaults.suggestionChipColors(
+                                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                                    labelColor = MaterialTheme.colorScheme.onErrorContainer
+                                )
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(2.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "${I18n.t("worlds.modified")}: ${format.format(Date(world.lastModified))} · ${ContentUtils.formatFileSize(world.sizeBytes)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline,
+                            modifier = Modifier.weight(1f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (world.seed != Long.MIN_VALUE) {
+                            TextButton(
+                                onClick = {
+                                    clipboard.setText(AnnotatedString(world.seed.toString()))
+                                },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                            ) {
+                                Icon(Icons.Filled.ContentCopy, I18n.t("world.seed_copy"), Modifier.size(12.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    I18n.t("world.seed", world.seed.toString()),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    maxLines = 1
+                                )
+                            }
+                        }
+                    }
+                }
             }
-            Spacer(Modifier.height(4.dp))
-            Text("${I18n.t("worlds.modified")}: ${format.format(Date(world.lastModified))}",
-                 style = MaterialTheme.typography.bodySmall,
-                 color = MaterialTheme.colorScheme.outline)
 
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -276,6 +410,11 @@ private fun WorldRow(
                     Spacer(Modifier.width(4.dp))
                     Text(I18n.t("world.restore"))
                 }
+                OutlinedButton(onClick = { vm.openWorldFolder(world) }) {
+                    Icon(Icons.Filled.FolderOpen, null, Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(I18n.t("world.open_folder"))
+                }
                 OutlinedButton(onClick = {
                     scope.launch { vm.refreshDatapacks(world.dir) }
                 }) {
@@ -283,9 +422,12 @@ private fun WorldRow(
                     Spacer(Modifier.width(4.dp))
                     Text(I18n.t("datapack.title"))
                 }
-                OutlinedButton(onClick = { showDeleteDialog = true },
+                OutlinedButton(
+                    onClick = { showDeleteDialog = true },
                     colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error)) {
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
                     Icon(Icons.Filled.Delete, null, Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
                     Text(I18n.t("common.delete"))
@@ -294,7 +436,6 @@ private fun WorldRow(
         }
     }
 
-    // 恢复对话框：列出该世界的所有备份
     if (showRestoreDialog) {
         AlertDialog(
             onDismissRequest = { showRestoreDialog = false },

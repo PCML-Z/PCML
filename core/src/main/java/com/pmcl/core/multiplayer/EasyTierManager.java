@@ -104,7 +104,11 @@ public final class EasyTierManager {
                 // 2. 按当前平台匹配 asset
                 String assetName = matchAsset(info.assets);
                 if (assetName == null) {
-                    throw new RuntimeException("在最新版本中找不到适配当前平台的 asset，候选：" + info.assets);
+                    String os = System.getProperty("os.name", "?");
+                    String arch = System.getProperty("os.arch", "?");
+                    throw new RuntimeException(
+                            "在最新版本中找不到适配当前平台的 EasyTier（" + os + " / " + arch
+                                    + "），候选：" + info.assets);
                 }
                 String githubPath = "EasyTier/EasyTier/releases/download/" + info.version + "/" + assetName;
                 Path zip = binaryDir.resolve(assetName);
@@ -362,28 +366,32 @@ public final class EasyTierManager {
      * <ul>
      *   <li>macOS x86_64: {@code easytier-macos-x86_64-v2.6.4.zip}</li>
      *   <li>macOS aarch64: {@code easytier-macos-aarch64-v2.6.4.zip}</li>
-     *   <li>Linux x86_64: {@code easytier-linux-x86_64-v2.6.4.zip}</li>
+     *   <li>Linux x86_64 / aarch64: {@code easytier-linux-*-v2.6.4.zip}</li>
      *   <li>Windows x86_64: {@code easytier-windows-x86_64-v2.6.4.zip}</li>
+     *   <li>Windows ARM: {@code easytier-windows-aarch64-*} 或 {@code *-windows-arm64-*}</li>
      * </ul>
-     * 故匹配关键字为 {@code easytier-<platform>[-<arch>]},排除 gui / apk / rpm / deb / AppImage / dmg / Magisk 等。
-     * 同时兼容老版本命名（{@code easytier-core-*} / 含 darwin / apple）。
+     * ARM 平台禁止回退到 x86_64 包（避免 Windows on ARM 静默下错架构）。
      */
     private String matchAsset(java.util.List<String> assets) {
         String os = System.getProperty("os.name").toLowerCase(Locale.ROOT);
         String arch = System.getProperty("os.arch").toLowerCase(Locale.ROOT);
-        // 平台关键字（多种命名变体）
+        // Windows/Linux: aarch64|arm64；macOS 偶发仅报 arm
+        boolean isArm = arch.contains("aarch64") || arch.contains("arm64")
+                || (os.contains("mac") && arch.equals("arm"));
+
         List<String> osKeys;
-        String archKey;
+        List<String> archKeys;
         if (os.contains("win")) {
             osKeys = Arrays.asList("windows");
-            archKey = "x86_64";
+            archKeys = isArm ? Arrays.asList("aarch64", "arm64") : Arrays.asList("x86_64", "amd64");
         } else if (os.contains("mac")) {
             osKeys = Arrays.asList("macos", "darwin", "apple");
-            archKey = (arch.contains("aarch64") || arch.contains("arm")) ? "aarch64" : "x86_64";
+            archKeys = isArm ? Arrays.asList("aarch64", "arm64") : Arrays.asList("x86_64", "amd64");
         } else {
             osKeys = Arrays.asList("linux");
-            archKey = (arch.contains("aarch64") || arch.contains("arm64")) ? "aarch64" : "x86_64";
+            archKeys = isArm ? Arrays.asList("aarch64", "arm64") : Arrays.asList("x86_64", "amd64");
         }
+
         // 排除关键字：GUI 客户端、Android apk、Linux 包格式、Magisk、Web Dashboard 等
         java.util.function.Predicate<String> isCliZip = ln ->
                 !ln.contains("gui") && !ln.endsWith(".apk") && !ln.endsWith(".rpm")
@@ -393,29 +401,40 @@ public final class EasyTierManager {
                 && !ln.contains("riscv") && !ln.contains("armv7") && !ln.contains("armhf")
                 && !ln.contains("-arm-");
 
-        // 第一轮：精确匹配 平台 + 架构
+        java.util.function.Predicate<String> archMatch = ln ->
+                archKeys.stream().anyMatch(ln::contains);
+        java.util.function.Predicate<String> isForeignArm = ln ->
+                ln.contains("aarch64") || ln.contains("arm64");
+
+        // 第一轮：精确匹配 平台 + 架构（Windows ARM 与 x86_64 对称）
         for (String name : assets) {
             String ln = name.toLowerCase(Locale.ROOT);
-            if (!isCliZip.test(ln)) continue;
+            if (!isCliZip.test(ln) || !ln.endsWith(".zip")) continue;
             boolean osMatch = osKeys.stream().anyMatch(ln::contains);
-            if (osMatch && ln.contains(archKey) && ln.endsWith(".zip")) {
+            if (osMatch && archMatch.test(ln)) {
                 return name;
             }
         }
-        // 第二轮：放宽架构（仅匹配平台，取第一个 zip）
-        for (String name : assets) {
-            String ln = name.toLowerCase(Locale.ROOT);
-            if (!isCliZip.test(ln)) continue;
-            boolean osMatch = osKeys.stream().anyMatch(ln::contains);
-            if (osMatch && ln.endsWith(".zip")) {
-                return name;
+        // 第二轮：仅 x86_64 主机放宽（兼容未带架构后缀的旧包）；
+        // ARM 绝不回退到 x86_64，避免 WoA 静默下载错误二进制。
+        if (!isArm) {
+            for (String name : assets) {
+                String ln = name.toLowerCase(Locale.ROOT);
+                if (!isCliZip.test(ln) || !ln.endsWith(".zip")) continue;
+                boolean osMatch = osKeys.stream().anyMatch(ln::contains);
+                if (osMatch && !isForeignArm.test(ln)) {
+                    return name;
+                }
             }
         }
         // 第三轮：兼容老命名 easytier-core-*
         for (String name : assets) {
             String ln = name.toLowerCase(Locale.ROOT);
-            if (ln.contains("easytier-core") && ln.endsWith(".zip")
-                && osKeys.stream().anyMatch(ln::contains)) {
+            if (!ln.contains("easytier-core") || !ln.endsWith(".zip")) continue;
+            if (!osKeys.stream().anyMatch(ln::contains)) continue;
+            if (isArm) {
+                if (archMatch.test(ln)) return name;
+            } else if (!isForeignArm.test(ln)) {
                 return name;
             }
         }
@@ -431,7 +450,7 @@ public final class EasyTierManager {
      * @param onOutput       输出回调（每行一次），可用于状态解析
      * @return 进程已启动的 CompletableFuture
      */
-    public CompletableFuture<Void> start(String networkName,
+    public synchronized CompletableFuture<Void> start(String networkName,
                                           String networkSecret,
                                           String peer,
                                           Consumer<String> onOutput) {
@@ -439,40 +458,46 @@ public final class EasyTierManager {
             return CompletableFuture.failedFuture(new IllegalStateException("EasyTier 已在运行"));
         }
         return ensureBinary(null).thenRun(() -> {
-            try {
-                List<String> cmd = new ArrayList<>();
-                cmd.add(binaryPath.toString());
-                cmd.add("--network-name"); cmd.add(networkName);
-                cmd.add("--network-secret"); cmd.add(networkSecret);
-                cmd.add("-d");                   // DHCP 自动分配虚拟 IP
-                cmd.add("--multi-thread");
-                cmd.add("--instance-name"); cmd.add("pmcl");
-                if (peer != null && !peer.isEmpty()) {
-                    cmd.add("-p"); cmd.add(peer);
+            synchronized (EasyTierManager.this) {
+                if (process != null && process.isAlive()) {
+                    throw new RuntimeException("EasyTier 已在运行");
                 }
-                cmd.add("--console-log-level"); cmd.add("info");
+                try {
+                    List<String> cmd = new ArrayList<>();
+                    cmd.add(binaryPath.toString());
+                    cmd.add("--network-name"); cmd.add(networkName);
+                    cmd.add("--network-secret"); cmd.add(networkSecret);
+                    cmd.add("-d");                   // DHCP 自动分配虚拟 IP
+                    cmd.add("--multi-thread");
+                    cmd.add("--instance-name"); cmd.add("pmcl");
+                    if (peer != null && !peer.isEmpty()) {
+                        cmd.add("-p"); cmd.add(peer);
+                    }
+                    cmd.add("--console-log-level"); cmd.add("info");
 
-                ProcessBuilder pb = new ProcessBuilder(cmd)
-                        .redirectErrorStream(true);
-                process = pb.start();
+                    ProcessBuilder pb = new ProcessBuilder(cmd)
+                            .redirectErrorStream(true);
+                    process = pb.start();
 
-                // 异步读取输出
-                final Process procForThread = process;
-                outputThread = new Thread(() -> {
-                    try (BufferedReader reader = new BufferedReader(
-                            new InputStreamReader(procForThread.getInputStream(), StandardCharsets.UTF_8))) {
-                        String line;
-                        while ((line = reader.readLine()) != null) {
-                            if (onOutput != null) {
-                                try { onOutput.accept(line); } catch (Throwable ignored) {}
+                    // 异步读取输出
+                    final Process procForThread = process;
+                    outputThread = new Thread(() -> {
+                        try (BufferedReader reader = new BufferedReader(
+                                new InputStreamReader(procForThread.getInputStream(), StandardCharsets.UTF_8))) {
+                            String line;
+                            while ((line = reader.readLine()) != null) {
+                                if (onOutput != null) {
+                                    try { onOutput.accept(line); } catch (Throwable ignored) {}
+                                }
                             }
-                        }
-                    } catch (IOException ignored) {}
-                }, "easytier-output");
-                outputThread.setDaemon(true);
-                outputThread.start();
-            } catch (IOException e) {
-                throw new RuntimeException("启动 EasyTier 失败：" + e.getMessage(), e);
+                        } catch (IOException ignored) {}
+                    }, "easytier-output");
+                    outputThread.setDaemon(true);
+                    outputThread.start();
+                } catch (IOException e) {
+                    process = null;
+                    throw new RuntimeException("启动 EasyTier 失败：" + e.getMessage(), e);
+                }
             }
         });
     }
