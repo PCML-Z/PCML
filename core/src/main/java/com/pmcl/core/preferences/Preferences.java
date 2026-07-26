@@ -3,6 +3,7 @@ package com.pmcl.core.preferences;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.pmcl.core.auth.TokenEncryptor;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -878,7 +879,14 @@ public final class Preferences {
             customMirrorBase = loadString(o, "customMirrorBase", "");
             proxyHost = loadString(o, "proxyHost", "");
             proxyUsername = loadString(o, "proxyUsername", "");
-            proxyPassword = loadString(o, "proxyPassword", "");
+            String rawProxyPassword = loadString(o, "proxyPassword", "");
+            boolean proxyPwdWasPlain = !rawProxyPassword.isEmpty()
+                    && !TokenEncryptor.isEncrypted(rawProxyPassword);
+            proxyPassword = decryptStoredSecret(rawProxyPassword);
+            if (proxyPwdWasPlain) {
+                System.err.println("[Preferences] 迁移 proxyPassword 为加密存储");
+                scheduleSave();
+            }
             mpBackend = loadString(o, "mpBackend", "TERRACOTTA");
             connectxServerAddress = loadString(o, "connectxServerAddress", "");
             connectxBinaryPath = loadString(o, "connectxBinaryPath", "");
@@ -888,7 +896,20 @@ public final class Preferences {
             deviceProtectionDeviceHash = loadString(o, "deviceProtectionDeviceHash", "");
         } catch (Exception e) {
             // 标量字段加载异常（理论上 loadInt/loadBool 等已有内部 try-catch，此处为兜底）
-            System.err.println("[Preferences] 标量字段加载异常（已跳过后续标量字段）: " + e.getMessage());
+            System.err.println("[Preferences] 标量字段加载异常（将单独重试关键字段）: " + e.getMessage());
+            // 主 try 中途失败时，关键鉴权/联机字段仍尝试恢复，避免整段跳过
+            try {
+                mpBackend = loadString(o, "mpBackend", mpBackend != null ? mpBackend : "TERRACOTTA");
+                connectxServerAddress = loadString(o, "connectxServerAddress", connectxServerAddress);
+                connectxBinaryPath = loadString(o, "connectxBinaryPath", connectxBinaryPath);
+                connectxServerPort = loadInt(o, "connectxServerPort", connectxServerPort, 1, 65535);
+                deviceProtectionLicense = loadString(o, "deviceProtectionLicense", deviceProtectionLicense);
+                deviceProtectionPublicKey = loadString(o, "deviceProtectionPublicKey", deviceProtectionPublicKey);
+                deviceProtectionLocalKey = loadString(o, "deviceProtectionLocalKey", deviceProtectionLocalKey);
+                deviceProtectionDeviceHash = loadString(o, "deviceProtectionDeviceHash", deviceProtectionDeviceHash);
+            } catch (Exception e2) {
+                System.err.println("[Preferences] 关键字段恢复失败: " + e2.getMessage());
+            }
         }
 
         // 复合字段：每个独立 try-catch，单个损坏不影响其他
@@ -929,7 +950,10 @@ public final class Preferences {
                 for (var entry : times.entrySet()) {
                     try {
                         lastPlayedTimes.put(entry.getKey(), entry.getValue().getAsLong());
-                    } catch (Exception ignored) {}
+                    } catch (Exception e) {
+                        System.err.println("[Preferences] lastPlayedTimes 条目损坏 key="
+                                + entry.getKey() + ": " + e.getMessage());
+                    }
                 }
             }
         } catch (Exception e) {
@@ -942,7 +966,10 @@ public final class Preferences {
                 for (var entry : labels.entrySet()) {
                     try {
                         pinnedTileLabels.put(entry.getKey(), entry.getValue().getAsString());
-                    } catch (Exception ignored) {}
+                    } catch (Exception e) {
+                        System.err.println("[Preferences] pinnedTileLabels 条目损坏 key="
+                                + entry.getKey() + ": " + e.getMessage());
+                    }
                 }
             }
         } catch (Exception e) {
@@ -972,7 +999,9 @@ public final class Preferences {
                                 arr.get(0).getAsString(), arr.get(1).getAsString(), arr.get(2).getAsString()
                             });
                         }
-                    } catch (Exception ignored) {}
+                    } catch (Exception e) {
+                        System.err.println("[Preferences] favoriteServers 条目损坏: " + e.getMessage());
+                    }
                 }
             }
         } catch (Exception e) {
@@ -1000,7 +1029,10 @@ public final class Preferences {
                                 loadString(p, "gameServerHost", ""),
                                 loadInt(p, "gameServerPort", 25565, 1, 65535)
                         ));
-                    } catch (Exception ignored2) {}
+                    } catch (Exception e) {
+                        System.err.println("[Preferences] launchPresets 条目损坏 key="
+                                + entry.getKey() + ": " + e.getMessage());
+                    }
                 }
             }
         } catch (Exception e) {
@@ -1129,7 +1161,7 @@ public final class Preferences {
         o.addProperty("proxyPort", proxyPort);
         o.addProperty("useHttpAuth", useHttpAuth);
         o.addProperty("proxyUsername", proxyUsername);
-        o.addProperty("proxyPassword", proxyPassword);
+        o.addProperty("proxyPassword", encryptSecretForStorage(proxyPassword));
         o.addProperty("downloadSpeedLimitKb", downloadSpeedLimitKb);
         o.addProperty("downloadRetryCount", downloadRetryCount);
         o.addProperty("enableResume", enableResume);
@@ -1263,5 +1295,25 @@ public final class Preferences {
             saveExecutor.shutdownNow();
             Thread.currentThread().interrupt();
         }
+    }
+
+    /** 落盘前加密；失败返回空串（拒绝明文持久化） */
+    private static String encryptSecretForStorage(String plain) {
+        if (plain == null || plain.isEmpty()) return "";
+        String enc = TokenEncryptor.encrypt(plain);
+        if (enc.isEmpty()) {
+            System.err.println("[Preferences] 敏感字段加密失败，拒绝明文落盘");
+        }
+        return enc;
+    }
+
+    /** 加载时解密；兼容旧明文 */
+    private static String decryptStoredSecret(String stored) {
+        if (stored == null || stored.isEmpty()) return "";
+        String plain = TokenEncryptor.decrypt(stored);
+        if (TokenEncryptor.isEncrypted(stored) && plain.isEmpty()) {
+            System.err.println("[Preferences] 敏感字段解密失败（可能是机器标识变化）");
+        }
+        return plain;
     }
 }

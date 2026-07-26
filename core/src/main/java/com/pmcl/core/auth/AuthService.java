@@ -35,7 +35,7 @@ public final class AuthService {
     // H1: flow 字段加 volatile，保证 setAzureClientId 替换后其他线程立即可见
     // 否则旧 flow 的 scheduler/连接池永不 shutdown，造成线程与连接泄漏
     private volatile MicrosoftAuthFlow flow = new MicrosoftAuthFlow();
-    private final GitHubAuthFlow githubFlow = new GitHubAuthFlow();
+    private volatile GitHubAuthFlow githubFlow = new GitHubAuthFlow();
     private final YggdrasilAuthFlow yggdrasilFlow = new YggdrasilAuthFlow();
     private final AuthlibInjectorManager authlibInjectorManager = new AuthlibInjectorManager();
     private final Gson gson = new Gson();
@@ -64,6 +64,18 @@ public final class AuthService {
         // H1: 关闭旧 flow 的 scheduler/连接池，避免泄漏
         MicrosoftAuthFlow old = this.flow;
         this.flow = new MicrosoftAuthFlow(clientId);
+        if (old != null) {
+            try { old.shutdown(); } catch (Throwable ignored) {}
+        }
+    }
+
+    /**
+     * 设置自定义 GitHub OAuth Client ID（设备码流程）。
+     * 通常从 {@code ~/.pmcl/github_client_id.txt} 加载。
+     */
+    public void setGitHubClientId(String clientId) {
+        GitHubAuthFlow old = this.githubFlow;
+        this.githubFlow = new GitHubAuthFlow(clientId);
         if (old != null) {
             try { old.shutdown(); } catch (Throwable ignored) {}
         }
@@ -242,8 +254,15 @@ public final class AuthService {
             JsonObject o = new JsonObject();
             o.addProperty("uuid", a.getUuid());
             o.addProperty("username", a.getUsername());
-            // 加密 accessToken（AES-256-GCM，基于机器标识派生密钥）
-            o.addProperty("accessToken", TokenEncryptor.encrypt(a.getAccessToken()));
+            // 加密 accessToken（AES-256-GCM）；加密失败绝不落盘明文
+            String plainToken = a.getAccessToken();
+            String encToken = TokenEncryptor.encrypt(plainToken);
+            if (plainToken != null && !plainToken.isEmpty()
+                    && (encToken == null || encToken.isEmpty())) {
+                throw new IOException("无法加密账号 accessToken（" + a.getUsername()
+                        + "），账号文件未保存。请检查磁盘权限或 ~/.pmcl/.keyfile");
+            }
+            o.addProperty("accessToken", encToken != null ? encToken : "");
             o.addProperty("type", a.getType().name());
             o.addProperty("skinUrl", a.getSkinUrl());
             o.addProperty("skinModel", a.getSkinModel());

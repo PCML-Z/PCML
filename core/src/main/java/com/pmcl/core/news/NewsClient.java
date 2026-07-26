@@ -170,6 +170,10 @@ public final class NewsClient {
     public CompletableFuture<String> fetchCoverImage(String articleUrl) {
         return CompletableFuture.supplyAsync(() -> {
             try {
+                if (!isAllowedMinecraftHost(articleUrl)) {
+                    System.err.println("[NewsClient] 拒绝非 minecraft.net 封面抓取: " + articleUrl);
+                    return "";
+                }
                 String html;
                 if (CurlFallback.isAvailable()) {
                     html = CurlFallback.getString(articleUrl);
@@ -191,6 +195,24 @@ public final class NewsClient {
                 return "";
             }
         });
+    }
+
+    /** 仅允许 minecraft.net 及其子域，防止封面抓取变成开放 SSRF */
+    private static boolean isAllowedMinecraftHost(String url) {
+        if (url == null || url.isBlank()) return false;
+        try {
+            java.net.URI uri = java.net.URI.create(url.trim());
+            String scheme = uri.getScheme();
+            if (scheme == null) return false;
+            String s = scheme.toLowerCase(java.util.Locale.ROOT);
+            if (!"http".equals(s) && !"https".equals(s)) return false;
+            String host = uri.getHost();
+            if (host == null) return false;
+            String h = host.toLowerCase(java.util.Locale.ROOT);
+            return h.equals("minecraft.net") || h.endsWith(".minecraft.net");
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     /** 从文章 HTML 提取封面图 URL：优先 hero 区，其次首张 article-media 图片 */
@@ -220,6 +242,9 @@ public final class NewsClient {
      */
     public CompletableFuture<ArticleContent> fetchArticle(String articleUrl) {
         return CompletableFuture.supplyAsync(() -> {
+            if (!isAllowedMinecraftHost(articleUrl)) {
+                throw new RuntimeException("拒绝非 minecraft.net 文章抓取: " + articleUrl);
+            }
             Exception last = null;
             // 优先用 curl（与 fetch() 一致：minecraft.net HTTP/2 在 GFW 下有问题）
             if (CurlFallback.isAvailable()) {

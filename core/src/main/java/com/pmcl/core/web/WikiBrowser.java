@@ -21,10 +21,14 @@ public final class WikiBrowser {
         return Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE);
     }
 
-    /** 在系统浏览器打开指定 URL */
+    /** 在系统浏览器打开指定 URL（仅 http/https，拒绝 file/javascript 等） */
     public static void open(String url) throws IOException {
         if (url == null || url.isEmpty()) {
             throw new IOException("URL is null or empty");
+        }
+        String lower = url.toLowerCase(java.util.Locale.ROOT);
+        if (!lower.startsWith("https://") && !lower.startsWith("http://")) {
+            throw new IOException("仅允许打开 http(s) URL，拒绝: " + url);
         }
         System.err.println("[WikiBrowser] Opening URL: " + url);
         String os = System.getProperty("os.name", "").toLowerCase();
@@ -40,10 +44,15 @@ public final class WikiBrowser {
                 last = ioe;
                 System.err.println("[WikiBrowser] /usr/bin/open 失败: " + ioe.getMessage());
             }
-            // 方案 2：osascript + open location（明确语义为打开 URL）
+            // 方案 2：osascript 通过 argv 传 URL，避免字符串插值注入
             try {
-                String script = "open location \"" + url.replace("\"", "\\\"") + "\"";
-                new ProcessBuilder("/usr/bin/osascript", "-e", script).start();
+                new ProcessBuilder(
+                        "/usr/bin/osascript",
+                        "-e", "on run argv",
+                        "-e", "open location (item 1 of argv)",
+                        "-e", "end run",
+                        "--", url
+                ).start();
                 return;
             } catch (IOException ioe) {
                 last = ioe;

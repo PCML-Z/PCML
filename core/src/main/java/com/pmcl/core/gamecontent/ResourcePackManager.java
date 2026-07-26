@@ -133,16 +133,29 @@ public final class ResourcePackManager {
     }
 
     public void delete(Pack pack) throws IOException {
-        if (pack.isZip()) {
-            Files.deleteIfExists(pack.getPath());
+        Path target = assertUnderNamedParent(pack.getPath(), "resourcepacks");
+        if (pack.isZip() || Files.isRegularFile(target)) {
+            Files.deleteIfExists(target);
         } else {
-            try (var s = Files.walk(pack.getPath())) {
+            try (var s = Files.walk(target)) {
                 s.sorted(java.util.Comparator.reverseOrder())
                         .forEach(p -> {
                             try { Files.delete(p); } catch (IOException ignored) {}
                         });
             }
         }
+    }
+
+    /** 删除目标必须直接位于名为 expectedParent 的目录下。 */
+    static Path assertUnderNamedParent(Path path, String expectedParent) throws IOException {
+        if (path == null) throw new IOException("路径为空");
+        Path abs = path.toAbsolutePath().normalize();
+        Path parent = abs.getParent();
+        if (parent == null || parent.getFileName() == null
+                || !expectedParent.equalsIgnoreCase(parent.getFileName().toString())) {
+            throw new IOException("拒绝删除：路径不在 " + expectedParent + " 目录下: " + abs);
+        }
+        return abs;
     }
 
     private Pack parseZipPack(Path zipPath, boolean disabled) {

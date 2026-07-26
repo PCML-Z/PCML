@@ -210,7 +210,8 @@ fun PluginPage(vm: LauncherViewModel) {
                                     val tmpFile = java.io.File.createTempFile("pmcl-plugin-", ".jar")
                                     tmpFile.deleteOnExit()
                                     try {
-                                        downloadTo(source, tmpFile.toPath())
+                                        // 与 PluginManager.installFromUrl 一致：SSRF 校验含重定向
+                                        vm.core.downloads().downloadToSsrfChecked(source, tmpFile.toPath())
                                         val actual = sha256Hex(tmpFile.toPath())
                                         if (!actual.equals(expectedSha256, ignoreCase = true)) {
                                             throw IOException("SHA-256 mismatch: expected $expectedSha256, got $actual")
@@ -573,30 +574,6 @@ private fun InstallPluginDialog(
                 }
             }
         )
-    }
-}
-
-/**
- * 下载 URL 到本地文件（带超时，用于插件安装前的 SHA256 校验下载）。
- * 仅支持 HTTP(S)，设置连接/读取超时避免无限阻塞。
- */
-private fun downloadTo(url: String, target: java.nio.file.Path) {
-    val conn = (java.net.URL(url).openConnection() as java.net.HttpURLConnection).apply {
-        connectTimeout = 15_000
-        readTimeout = 60_000
-        requestMethod = "GET"
-        setRequestProperty("User-Agent", "PMCL/1.0")
-    }
-    try {
-        if (conn.responseCode !in 200..299) {
-            throw IOException("HTTP ${conn.responseCode}: $url")
-        }
-        conn.inputStream.use { input ->
-            java.nio.file.Files.copy(input, target,
-                java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-        }
-    } finally {
-        conn.disconnect()
     }
 }
 

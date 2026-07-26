@@ -614,8 +614,19 @@ public final class PlayTimeTracker {
                     }
                 }
             }
-        } catch (Throwable ignored) {
-            // 加载失败不阻断启动
+        } catch (Throwable t) {
+            // 加载失败不阻断启动，但必须可观测
+            System.err.println("[PlayTimeTracker] 加载 playtime 数据失败: " + t.getMessage());
+            try {
+                if (Files.exists(dataFile)) {
+                    Path bak = dataFile.resolveSibling(dataFile.getFileName() + ".corrupt."
+                            + System.currentTimeMillis() + ".bak");
+                    Files.copy(dataFile, bak, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    System.err.println("[PlayTimeTracker] 已备份损坏文件到 " + bak);
+                }
+            } catch (Exception bakErr) {
+                System.err.println("[PlayTimeTracker] 备份损坏文件失败: " + bakErr.getMessage());
+            }
         }
     }
 

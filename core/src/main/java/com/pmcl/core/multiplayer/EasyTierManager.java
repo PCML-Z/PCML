@@ -115,32 +115,12 @@ public final class EasyTierManager {
                 if (progress != null) progress.accept("正在下载 " + assetName);
                 downloadFile(githubPath, zip, progress);
                 // 完整性校验：easytier-core 二进制会访问虚拟网卡所有流量，
-                // 若被镜像投毒可窃取凭据/横向移动，必须校验 size（强制）和 digest（若可用）。
+                // 若被镜像投毒可窃取凭据/横向移动，必须校验 size 与 SHA-256 digest（缺一不可）。
                 verifyDownloadIntegrity(zip, assetName, info, progress);
                 if (progress != null) progress.accept("正在解压…");
                 extractEasyTierCore(zip, binaryPath);
                 if (!isWindows()) {
-                    try {
-                        Process p = new ProcessBuilder("chmod", "+x", binaryPath.toString())
-                                .redirectErrorStream(true).start();
-                        try {
-                            p.waitFor(10, TimeUnit.SECONDS);
-                        } finally {
-                            p.destroyForcibly();
-                        }
-                    } catch (Exception ignored) {}
-                    // macOS：移除 com.apple.quarantine 隔离属性，避免 Gatekeeper 阻止运行
-                    if (System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("mac")) {
-                        try {
-                            Process p = new ProcessBuilder("xattr", "-d", "com.apple.quarantine", binaryPath.toString())
-                                    .redirectErrorStream(true).start();
-                            try {
-                                p.waitFor(10, TimeUnit.SECONDS);
-                            } finally {
-                                p.destroyForcibly();
-                            }
-                        } catch (Exception ignored) {}
-                    }
+                    com.pmcl.core.util.NativeBinaryPermissions.prepareDownloadedBinary(binaryPath);
                 }
                 Files.deleteIfExists(zip);
                 if (progress != null) progress.accept("EasyTier 就绪");
@@ -170,7 +150,7 @@ public final class EasyTierManager {
      * 仅当 HTML 抓取失败时回退到 {@code api.github.com}（注意 60/小时限流）。
      * <p>
      * 为获取下载完整性校验所需的 digest 和 size，若 HTML 路径成功但未拿到 digest，
-     * 会尝试调用 API 补充这些字段（best-effort，失败不影响下载流程，仅降级为不校验 digest）。
+     * 会调用 API 补充这些字段；补充失败则抛错（与 {@link #verifyDownloadIntegrity} fail-closed 一致）。
      */
     private ReleaseInfo fetchLatestRelease() throws IOException {
         // 步骤 1：通过 /releases/latest 的 302 重定向拿到 tag 名
@@ -185,8 +165,8 @@ public final class EasyTierManager {
         try {
             List<String> assets = fetchAssetList(tag);
             info.assets.addAll(assets);
-        } catch (IOException ignored) {
-            // asset 列表抓取失败时也保留 version，后续走 API 兜底
+        } catch (IOException e) {
+            System.err.println("[EasyTierManager] HTML asset 列表失败，将回退 API: " + e.getMessage());
         }
         if (info.assets.isEmpty()) {
             // 回退：API
@@ -197,17 +177,20 @@ public final class EasyTierManager {
             info.assetDigests.putAll(api.assetDigests);
             info.assetSizes.putAll(api.assetSizes);
         } else if (info.assetDigests.isEmpty()) {
-            // HTML 路径成功但无 digest：best-effort 调用 API 补充 digest/size 用于完整性校验
-            // 失败不阻塞下载流程（仅降级为不校验 digest + 打印实际摘要）
+            // HTML 路径成功但无 digest：必须调用 API 补充（校验强制要求 digest）
             try {
                 ReleaseInfo api = fetchLatestReleaseFromApi();
                 info.assetDigests.putAll(api.assetDigests);
                 info.assetSizes.putAll(api.assetSizes);
             } catch (IOException e) {
-                System.err.println("[EasyTierManager] 无法从 API 获取 digest，将跳过 SHA-256 校验: " + e.getMessage());
+                throw new IOException("无法从 GitHub API 获取 asset digest（完整性校验必需）: "
+                        + e.getMessage(), e);
             }
         }
         if (info.version == null) info.version = "latest";
+        if (info.assetDigests.isEmpty()) {
+            throw new IOException("未获取到 EasyTier Release SHA-256 digest，拒绝继续安装");
+        }
         return info;
     }
 
@@ -689,15 +672,20 @@ public final class EasyTierManager {
                 (lastError != null ? lastError.getMessage() : "未知"), lastError);
     }
 
-    /** 从 zip 中提取 easytier-core 二进制到目标路径 */
+    /** 从 zip 中提取 easytier-core 二进制到目标路径（带大小上限） */
     private void extractEasyTierCore(Path zip, Path outBinary) throws IOException {
+        final long maxBinaryBytes = 256L * 1024 * 1024;
         try (ZipInputStream zis = new ZipInputStream(Files.newInputStream(zip))) {
             ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
-                String name = entry.getName().toLowerCase(Locale.ROOT);
+                String rawName = entry.getName();
+                if (rawName.contains("..") || rawName.startsWith("/") || rawName.startsWith("\\")) {
+                    continue;
+                }
+                String name = rawName.toLowerCase(Locale.ROOT);
                 // 匹配 easytier-core 或 easytier-core.exe
                 if (name.endsWith("easytier-core") || name.endsWith("easytier-core.exe")) {
-                    Files.copy(zis, outBinary, StandardCopyOption.REPLACE_EXISTING);
+                    com.pmcl.core.util.SafeZipExtractor.copyLimited(zis, outBinary, maxBinaryBytes);
                     return;
                 }
             }
@@ -708,11 +696,9 @@ public final class EasyTierManager {
     /**
      * 校验下载文件的完整性。
      * <p>
-     * 强制校验文件大小（若 ReleaseInfo 提供）：防止镜像返回 200 但内容是 HTML 错误页
-     * 或截断的文件。若 GitHub API 提供 digest 字段，额外校验 SHA-256 摘要，
-     * 防止镜像投毒或 MITM 篡改二进制。
-     * <p>
-     * 校验失败时删除文件并抛 IOException，避免恶意二进制被执行。
+     * 强制校验文件大小（若 ReleaseInfo 提供）与 SHA-256 digest（必需）：
+     * 防止镜像返回错误页、截断文件、投毒或 MITM 篡改二进制。
+     * 无 digest 时删除文件并抛错，绝不降级为跳过校验。
      *
      * @param file      已下载的文件
      * @param assetName asset 名称（用于查 ReleaseInfo 中的预期 size/digest）
@@ -731,23 +717,20 @@ public final class EasyTierManager {
                         + " 字节，实际 " + actualSize + " 字节（文件可能被截断或镜像返回错误内容）");
             }
         }
-        // 2. 若有 digest 则校验 SHA-256
+        // 2. 强制 SHA-256：无 digest 则拒绝执行（easytier-core 权限过高）
         String expectedDigest = info.assetDigests.get(assetName);
-        if (expectedDigest != null && !expectedDigest.isEmpty()) {
-            String actualDigest = sha256Hex(file);
-            if (!actualDigest.equalsIgnoreCase(expectedDigest)) {
-                Files.deleteIfExists(file);
-                if (progress != null) progress.accept("SHA256 校验失败，文件可能被篡改");
-                throw new IOException("下载文件 SHA-256 校验失败：预期 " + expectedDigest
-                        + "，实际 " + actualDigest + "（文件可能被篡改或镜像投毒）");
-            }
-            if (progress != null) progress.accept("SHA256 校验通过");
-        } else {
-            // 无 digest 时打印实际摘要供用户核对（至少有记录）
-            String actualDigest = sha256Hex(file);
-            System.err.println("[EasyTierManager] " + assetName + " SHA-256: " + actualDigest
-                    + "（GitHub 未提供 digest，无法自动校验）");
+        if (expectedDigest == null || expectedDigest.isEmpty()) {
+            Files.deleteIfExists(file);
+            throw new IOException("GitHub 未提供 " + assetName + " 的 SHA-256 digest，拒绝安装未校验二进制");
         }
+        String actualDigest = sha256Hex(file);
+        if (!actualDigest.equalsIgnoreCase(expectedDigest)) {
+            Files.deleteIfExists(file);
+            if (progress != null) progress.accept("SHA256 校验失败，文件可能被篡改");
+            throw new IOException("下载文件 SHA-256 校验失败：预期 " + expectedDigest
+                    + "，实际 " + actualDigest + "（文件可能被篡改或镜像投毒）");
+        }
+        if (progress != null) progress.accept("SHA256 校验通过");
     }
 
     /** 计算文件 SHA-256 摘要，返回小写十六进制字符串。 */

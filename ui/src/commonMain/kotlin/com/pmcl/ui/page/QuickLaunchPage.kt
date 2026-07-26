@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pmcl.core.i18n.I18n
 import com.pmcl.ui.viewmodel.LauncherViewModel
+import com.pmcl.ui.viewmodel.launch
 
 /**
  * 快速启动欢迎页：每次启动 PMCL 时首先显示。

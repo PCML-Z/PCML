@@ -96,6 +96,18 @@ public final class GitHubReleaseSyncChecker implements AutoCloseable {
         scheduleCheck(5, TimeUnit.SECONDS);
     }
 
+    /**
+     * 停止定时检查但不销毁调度器，以便之后再次 {@link #start()}。
+     * 与 {@link #close()} 不同：close 会 shutdownNow 线程池，无法重启。
+     */
+    public void stop() {
+        if (!running.compareAndSet(true, false)) return;
+        if (checkTask != null) {
+            checkTask.cancel(false);
+            checkTask = null;
+        }
+    }
+
     /** 立即触发一次检查（不影响定时调度） */
     public void checkNow() {
         scheduler.submit(this::doCheck);
@@ -103,8 +115,7 @@ public final class GitHubReleaseSyncChecker implements AutoCloseable {
 
     @Override
     public void close() {
-        if (!running.compareAndSet(true, false)) return;
-        if (checkTask != null) checkTask.cancel(false);
+        stop();
         scheduler.shutdownNow();
     }
 
@@ -207,23 +218,44 @@ public final class GitHubReleaseSyncChecker implements AutoCloseable {
         if (version.isEmpty()) return null;
         String notes = release.has("body") && !release.get("body").isJsonNull()
                 ? release.get("body").getAsString() : "";
-        // 从 assets 中查找 pmcl jar
+        // 从 assets 中查找 pmcl jar，并解析 SHA-256（GitHub digest 或同名 .sha256 旁路资产）
         if (!release.has("assets") || !release.get("assets").isJsonArray()) return null;
+        JsonObject jarAsset = null;
+        java.util.Map<String, String> sha256ByName = new java.util.HashMap<>();
         for (var assetElem : release.getAsJsonArray("assets")) {
             JsonObject asset = assetElem.getAsJsonObject();
             String name = asset.has("name") && !asset.get("name").isJsonNull()
                     ? asset.get("name").getAsString() : "";
-            if (name.toLowerCase(java.util.Locale.ROOT).endsWith(".jar")
-                    && name.toLowerCase(java.util.Locale.ROOT).contains("pmcl")) {
-                String url = asset.has("browser_download_url")
-                        && !asset.get("browser_download_url").isJsonNull()
-                        ? asset.get("browser_download_url").getAsString() : "";
-                long size = asset.has("size") && !asset.get("size").isJsonNull()
-                        ? asset.get("size").getAsLong() : 0L;
-                return new SelfUpdater.UpdateInfo(version, url, "", "", size, notes);
+            String lower = name.toLowerCase(java.util.Locale.ROOT);
+            if (lower.endsWith(".sha256") || lower.endsWith(".sha256.txt")) {
+                // 旁路摘要文件本身不含 digest 字段；摘要需下载后读取——此处仅记录 URL 供后续
+                // 优先使用 GitHub API digest 字段（见下）
+                continue;
+            }
+            if (asset.has("digest") && !asset.get("digest").isJsonNull()) {
+                String dig = asset.get("digest").getAsString();
+                if (dig.toLowerCase(java.util.Locale.ROOT).startsWith("sha256:")) {
+                    sha256ByName.put(name, dig.substring("sha256:".length()).trim());
+                }
+            }
+            if (lower.endsWith(".jar") && lower.contains("pmcl") && jarAsset == null) {
+                jarAsset = asset;
             }
         }
-        return null;
+        if (jarAsset == null) return null;
+        String name = jarAsset.get("name").getAsString();
+        String url = jarAsset.has("browser_download_url")
+                && !jarAsset.get("browser_download_url").isJsonNull()
+                ? jarAsset.get("browser_download_url").getAsString() : "";
+        long size = jarAsset.has("size") && !jarAsset.get("size").isJsonNull()
+                ? jarAsset.get("size").getAsLong() : 0L;
+        String sha256 = sha256ByName.getOrDefault(name, "");
+        if (sha256.isEmpty()) {
+            System.err.println("[GitHubReleaseSync] Release asset 缺少 SHA-256 digest（"
+                    + name + "），SelfUpdater 将拒绝安装。请在 GitHub Release 启用 asset digests。");
+            return null;
+        }
+        return new SelfUpdater.UpdateInfo(version, url, "", sha256, size, notes);
     }
 
     /**

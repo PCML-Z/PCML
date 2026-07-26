@@ -5,6 +5,7 @@ import com.pmcl.core.download.DownloadManager;
 import com.pmcl.core.preferences.Preferences;
 import okhttp3.OkHttpClient;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -77,7 +78,10 @@ public final class ModMarketManager {
             // S14: exceptionally 将异常转为空列表，避免 allOf 因单源失败而整体失败
             // 原 try-catch in thenApply 是死代码：allOf 异常完成时 thenApply 不执行
             futures.add(c.search(query, gameVersion, loader, limit)
-                    .exceptionally(ex -> Collections.emptyList()));
+                    .exceptionally(ex -> {
+                        logMarketFailure(c, "search", ex);
+                        return Collections.emptyList();
+                    }));
         }
         return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
                 .thenApply(v -> {
@@ -102,7 +106,10 @@ public final class ModMarketManager {
         for (ModMarketClient c : clients) {
             // S14: exceptionally 将异常转为空列表，避免 allOf 因单源失败而整体失败
             futures.add(c.search(query, gameVersion, loader, category, limit)
-                    .exceptionally(ex -> Collections.emptyList()));
+                    .exceptionally(ex -> {
+                        logMarketFailure(c, "search+category", ex);
+                        return Collections.emptyList();
+                    }));
         }
         return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
                 .thenApply(v -> {
@@ -123,7 +130,10 @@ public final class ModMarketManager {
         for (ModMarketClient c : clients) {
             // S14: exceptionally 将异常转为空列表，避免 allOf 因单源失败而整体失败
             futures.add(c.popular(gameVersion, loader, limit)
-                    .exceptionally(ex -> Collections.emptyList()));
+                    .exceptionally(ex -> {
+                        logMarketFailure(c, "popular", ex);
+                        return Collections.emptyList();
+                    }));
         }
         return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
                 .thenApply(v -> {
@@ -149,7 +159,10 @@ public final class ModMarketManager {
         for (ModMarketClient c : clients) {
             // S14: exceptionally 将异常转为空列表，避免 allOf 因单源失败而整体失败
             futures.add(c.searchByCategory(category, gameVersion, loader, limit)
-                    .exceptionally(ex -> Collections.emptyList()));
+                    .exceptionally(ex -> {
+                        logMarketFailure(c, "searchByCategory", ex);
+                        return Collections.emptyList();
+                    }));
         }
         return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
                 .thenApply(v -> {
@@ -233,11 +246,27 @@ public final class ModMarketManager {
                     onStatus.accept("正在下载: " + file.getFileName()
                             + " (" + (file.getFileSize() / 1024) + " KB)");
                 }
-                downloads.downloadTo(file.getDownloadUrl(), target);
+                String sha1 = file.getSha1();
+                String sha512 = file.getSha512();
+                if ((sha1 == null || sha1.isBlank()) && (sha512 == null || sha512.isBlank())) {
+                    throw new IOException("模组缺少 SHA-1/SHA-512，拒绝安装未校验文件: "
+                            + file.getFileName());
+                }
+                downloads.downloadToVerified(
+                        file.getDownloadUrl(), target, sha1, sha512);
                 if (onStatus != null) onStatus.accept("完成: " + file.getFileName());
             } catch (Exception e) {
                 throw new RuntimeException("模组下载失败: " + file.getFileName(), e);
             }
         });
+    }
+
+    /** 单源失败时记录日志，避免 UI 把“源故障”误当成“无结果”却无从排查 */
+    private static void logMarketFailure(ModMarketClient client, String op, Throwable ex) {
+        Throwable root = ex;
+        while (root.getCause() != null && root.getCause() != root) root = root.getCause();
+        String src = client != null ? String.valueOf(client.source()) : "?";
+        System.err.println("[ModMarket] " + src + " " + op + " 失败: "
+                + (root.getMessage() != null ? root.getMessage() : root));
     }
 }

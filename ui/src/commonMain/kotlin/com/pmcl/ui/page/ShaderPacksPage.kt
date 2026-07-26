@@ -33,6 +33,17 @@ import com.pmcl.core.gamecontent.ShaderPackManager
 import com.pmcl.core.i18n.I18n
 import com.pmcl.ui.animation.StaggeredAppear
 import com.pmcl.ui.viewmodel.LauncherViewModel
+import com.pmcl.ui.viewmodel.batchDeleteShaderPacks
+import com.pmcl.ui.viewmodel.batchDisableShaderPacks
+import com.pmcl.ui.viewmodel.batchEnableShaderPacks
+import com.pmcl.ui.viewmodel.clearActiveShaderPack
+import com.pmcl.ui.viewmodel.deleteShaderPack
+import com.pmcl.ui.viewmodel.disableShaderPack
+import com.pmcl.ui.viewmodel.enableShaderPack
+import com.pmcl.ui.viewmodel.importShaderPack
+import com.pmcl.ui.viewmodel.openShaderPacksDir
+import com.pmcl.ui.viewmodel.refreshShaderPacks
+import com.pmcl.ui.viewmodel.setActiveShaderPack
 import java.awt.FileDialog
 import java.awt.Frame
 import java.io.FilenameFilter

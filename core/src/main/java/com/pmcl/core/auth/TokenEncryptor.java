@@ -171,15 +171,7 @@ public final class TokenEncryptor {
             // 下次加载时密钥不一致，所有已加密 token 无法解密
             Path tmpFile = keyFile.resolveSibling(keyFile.getFileName() + ".tmp");
             Files.write(tmpFile, newKey);
-            // 临时文件也设置 0600 权限（在 rename 之前，避免权限窗口）
-            try {
-                Files.setPosixFilePermissions(tmpFile,
-                        java.util.Set.of(
-                                java.nio.file.attribute.PosixFilePermission.OWNER_READ,
-                                java.nio.file.attribute.PosixFilePermission.OWNER_WRITE));
-            } catch (UnsupportedOperationException ignored) {
-                // Windows 不支持 POSIX 权限，跳过
-            }
+            hardenKeyFilePermissions(tmpFile);
             try {
                 Files.move(tmpFile, keyFile,
                         java.nio.file.StandardCopyOption.ATOMIC_MOVE,
@@ -187,11 +179,59 @@ public final class TokenEncryptor {
             } catch (java.nio.file.AtomicMoveNotSupportedException e) {
                 Files.move(tmpFile, keyFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
             }
+            hardenKeyFilePermissions(keyFile);
             return Base64.getEncoder().encodeToString(newKey);
         } catch (Exception e) {
-            // keyfile 创建失败时降级为仅基于机器标识
+            // keyfile 创建失败：用机器派生熵降级，避免所有实例共享同一常量
             System.err.println("[TokenEncryptor] 辅助密钥文件创建失败: " + e.getMessage());
-            return "fallback-no-keyfile";
+            return machineFallbackSecret();
+        }
+    }
+
+    /** POSIX 0600；Windows 用 icacls 去掉继承并仅授予当前用户完全控制 */
+    private static void hardenKeyFilePermissions(Path keyFile) {
+        try {
+            Files.setPosixFilePermissions(keyFile,
+                    java.util.Set.of(
+                            java.nio.file.attribute.PosixFilePermission.OWNER_READ,
+                            java.nio.file.attribute.PosixFilePermission.OWNER_WRITE));
+            return;
+        } catch (UnsupportedOperationException ignored) {
+            // Windows / 非 POSIX
+        } catch (Exception e) {
+            System.err.println("[TokenEncryptor] POSIX 权限设置失败: " + e.getMessage());
+        }
+        String os = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT);
+        if (!os.contains("win")) return;
+        try {
+            String user = System.getProperty("user.name", "");
+            if (user.isEmpty()) return;
+            ProcessBuilder pb = new ProcessBuilder(
+                    "icacls", keyFile.toAbsolutePath().toString(),
+                    "/inheritance:r",
+                    "/grant:r", user + ":F");
+            pb.redirectErrorStream(true);
+            Process p = pb.start();
+            p.waitFor(5, java.util.concurrent.TimeUnit.SECONDS);
+            if (p.isAlive()) p.destroyForcibly();
+        } catch (Exception e) {
+            System.err.println("[TokenEncryptor] Windows ACL 设置失败: " + e.getMessage());
+        }
+    }
+
+    /** 无 keyfile 时的机器绑定降级密钥（非全局常量） */
+    private static String machineFallbackSecret() {
+        try {
+            String material = System.getProperty("user.home", "") + "|"
+                    + System.getProperty("os.name", "") + "|"
+                    + System.getProperty("user.name", "") + "|pmcl-keyfile-fallback";
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+            return Base64.getEncoder().encodeToString(
+                    md.digest(material.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (Exception e) {
+            return Base64.getEncoder().encodeToString(
+                    (System.getProperty("user.home", "pmcl") + "-fallback")
+                            .getBytes(java.nio.charset.StandardCharsets.UTF_8));
         }
     }
 }

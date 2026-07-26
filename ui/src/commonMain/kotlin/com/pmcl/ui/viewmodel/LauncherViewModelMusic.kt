@@ -173,7 +173,11 @@ internal fun LauncherViewModel.persistMusicPlaylist() {
                 file.parentFile.mkdirs()
                 file.writeText(gson.toJson(_musicPlaylist.value))
             }
-        } catch (_: Throwable) {}
+        } catch (t: Throwable) {
+            System.err.println("[VM] 保存音乐播放列表失败: ${t.message}")
+            _status.value = com.pmcl.core.i18n.I18n.t(
+                "music.playlist_save_failed", t.message ?: com.pmcl.core.i18n.I18n.t("common.unknown"))
+        }
     }
 }
 

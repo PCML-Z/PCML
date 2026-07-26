@@ -38,11 +38,23 @@ import com.pmcl.ui.theme.glassCardBorder
 import com.pmcl.ui.theme.glassCardColors
 import com.pmcl.ui.theme.glassCardElevation
 import com.pmcl.ui.viewmodel.LauncherViewModel
+import com.pmcl.ui.viewmodel.lastOfflineUsername
+import com.pmcl.ui.viewmodel.loginOffline
+import com.pmcl.ui.viewmodel.logout
+import com.pmcl.ui.viewmodel.removeAccount
+import com.pmcl.ui.viewmodel.resetMicrosoftSkin
+import com.pmcl.ui.viewmodel.resetYggdrasilSkin
+import com.pmcl.ui.viewmodel.setOfflineSkin
+import com.pmcl.ui.viewmodel.startGitHubLogin
+import com.pmcl.ui.viewmodel.startMicrosoftLogin
+import com.pmcl.ui.viewmodel.startYggdrasilLogin
+import com.pmcl.ui.viewmodel.switchAccount
+import com.pmcl.ui.viewmodel.uploadMicrosoftSkin
+import com.pmcl.ui.viewmodel.uploadYggdrasilSkin
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.skia.Image as SkiaImage
 import com.pmcl.ui.util.decodeSampledBitmap
-import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
 
 @Composable
@@ -695,7 +707,7 @@ private fun SkinImage(url: String, sizePx: Int) {
         withContext(Dispatchers.IO) {
             try {
                 if (url.isNullOrBlank()) return@withContext
-                val bytes = URL(url).readBytes()
+                val bytes = com.pmcl.ui.util.SafeUrlFetcher.fetchBytes(url, allowPrivateLan = true)
                 val bmp = decodeSampledBitmap(bytes, 128) ?: throw IllegalStateException("decode failed")
                 skinImageCache.put(url, bmp)
                 image = bmp

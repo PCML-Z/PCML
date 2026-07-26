@@ -27,15 +27,13 @@ import java.util.function.Consumer;
  *   <li>调用 /user 接口获取用户名、ID、头像</li>
  * </ol>
  * <p>
- * 使用前需在 <a href="https://github.com/settings/applications/new">GitHub OAuth Apps</a>
- * 注册应用（Authorization 类型选 OAuth App），将得到的 Client ID 填入 {@link #CLIENT_ID}。
+ * 默认使用内置 Client ID；可在 {@code ~/.pmcl/github_client_id.txt} 写入自定义
+ * <a href="https://github.com/settings/applications/new">GitHub OAuth App</a> Client ID 覆盖。
  */
 public final class GitHubAuthFlow {
 
-    // TODO: 替换为你自己的 GitHub OAuth App Client ID
-    // 注册地址：https://github.com/settings/applications/new
-    // Authorization 类型选 "OAuth App"，回调 URL 随意填（设备码流程不用回调）
-    public static final String CLIENT_ID = "Ov23liql9Lz1BxIbL1xX";
+    /** 内置默认 Client ID（设备码流程）；生产部署建议用 github_client_id.txt 覆盖 */
+    public static final String DEFAULT_CLIENT_ID = "Ov23liql9Lz1BxIbL1xX";
     public static final String SCOPE = "read:user";
 
     private static final String DEVICE_CODE_URL = "https://github.com/login/device/code";
@@ -46,6 +44,7 @@ public final class GitHubAuthFlow {
 
     private final OkHttpClient http;
     private final Gson gson = new Gson();
+    private final String clientId;
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "github-auth-scheduler");
         t.setDaemon(true);
@@ -53,11 +52,18 @@ public final class GitHubAuthFlow {
     });
 
     public GitHubAuthFlow() {
+        this(null);
+    }
+
+    public GitHubAuthFlow(String clientId) {
+        this.clientId = (clientId == null || clientId.isBlank()) ? DEFAULT_CLIENT_ID : clientId.trim();
         this.http = new OkHttpClient.Builder()
                 .connectTimeout(15, TimeUnit.SECONDS)
                 .readTimeout(30, TimeUnit.SECONDS)
                 .build();
     }
+
+    public String getClientId() { return clientId; }
 
     /** 关闭内部调度线程 */
     public void shutdown() {
@@ -68,7 +74,7 @@ public final class GitHubAuthFlow {
      * 第一步：请求设备码。用户需在浏览器打开 verificationUri 并输入 userCode。
      */
     public DeviceCode requestDeviceCode() throws IOException {
-        String body = "client_id=" + URLEncoder.encode(CLIENT_ID, StandardCharsets.UTF_8) +
+        String body = "client_id=" + URLEncoder.encode(clientId, StandardCharsets.UTF_8) +
                 "&scope=" + URLEncoder.encode(SCOPE, StandardCharsets.UTF_8);
         Request req = new Request.Builder()
                 .url(DEVICE_CODE_URL)
@@ -106,7 +112,7 @@ public final class GitHubAuthFlow {
                           CompletableFuture<String> future) {
         // S6: 取消/完成/异常后停止调度，避免无效请求触发限流
         if (future.isDone()) return;
-        String body = "client_id=" + URLEncoder.encode(CLIENT_ID, StandardCharsets.UTF_8) +
+        String body = "client_id=" + URLEncoder.encode(clientId, StandardCharsets.UTF_8) +
                 "&device_code=" + URLEncoder.encode(dc.getDeviceCode(), StandardCharsets.UTF_8) +
                 "&grant_type=" + URLEncoder.encode("urn:ietf:params:oauth:grant-type:device_code", StandardCharsets.UTF_8);
         Request req = new Request.Builder()

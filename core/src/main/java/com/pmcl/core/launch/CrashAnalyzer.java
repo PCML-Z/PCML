@@ -16,6 +16,11 @@ import java.util.stream.Stream;
  */
 public final class CrashAnalyzer {
 
+    /** 扫描时最多分析的最新报告数，避免海量 crash-reports 拖垮退出分析 */
+    private static final int MAX_SCAN_REPORTS = 20;
+    /** 单份报告最大读取字节数（防超大文件 OOM） */
+    private static final long MAX_REPORT_BYTES = 2L * 1024 * 1024;
+
     /** 恢复操作类型：UI 根据此类型调用对应的 ViewModel 方法 */
     public enum RecoveryType {
         /** 增大最大内存 */
@@ -98,14 +103,38 @@ public final class CrashAnalyzer {
                 if (ma == null || mb == null) return 0;
                 return Long.compare(mb, ma);
             });
-            for (Path p : txtFiles) {
+            int limit = Math.min(MAX_SCAN_REPORTS, txtFiles.size());
+            for (int i = 0; i < limit; i++) {
+                Path p = txtFiles.get(i);
                 try {
-                    String content = Files.readString(p, java.nio.charset.StandardCharsets.UTF_8);
-                    result.add(analyze(content, p));
-                } catch (IOException ignored) {}
+                    String content = readReportLimited(p);
+                    if (content != null) result.add(analyze(content, p));
+                } catch (IOException e) {
+                    System.err.println("[CrashAnalyzer] 无法读取崩溃报告 " + p + ": " + e.getMessage());
+                }
             }
         }
         return result;
+    }
+
+    /** 读取崩溃报告，超过 {@link #MAX_REPORT_BYTES} 则截断（不抛错） */
+    private static String readReportLimited(Path p) throws IOException {
+        long size = Files.size(p);
+        if (size <= MAX_REPORT_BYTES) {
+            return Files.readString(p, java.nio.charset.StandardCharsets.UTF_8);
+        }
+        try (java.io.InputStream in = Files.newInputStream(p);
+             java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream((int) MAX_REPORT_BYTES)) {
+            byte[] chunk = new byte[8192];
+            long total = 0;
+            int n;
+            while (total < MAX_REPORT_BYTES && (n = in.read(chunk)) > 0) {
+                int toWrite = (int) Math.min(n, MAX_REPORT_BYTES - total);
+                bos.write(chunk, 0, toWrite);
+                total += toWrite;
+            }
+            return bos.toString(java.nio.charset.StandardCharsets.UTF_8);
+        }
     }
 
     public CrashReport analyze(String content, Path file) {

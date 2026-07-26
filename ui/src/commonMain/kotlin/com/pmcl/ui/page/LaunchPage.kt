@@ -62,12 +62,20 @@ import com.pmcl.ui.theme.glassCardBorder
 import com.pmcl.ui.theme.glassCardColors
 import com.pmcl.ui.theme.glassCardElevation
 import com.pmcl.ui.viewmodel.LauncherViewModel
+import com.pmcl.ui.viewmodel.cancelPreheat
+import com.pmcl.ui.viewmodel.clearGameLogs
+import com.pmcl.ui.viewmodel.launch
+import com.pmcl.ui.viewmodel.openGameLogFolder
+import com.pmcl.ui.viewmodel.predictAndPreheat
+import com.pmcl.ui.viewmodel.lastOfflineUsername
+import com.pmcl.ui.viewmodel.loginOffline
+import com.pmcl.ui.viewmodel.selectInstance
+import com.pmcl.ui.viewmodel.startMicrosoftLogin
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jetbrains.skia.Image as SkiaImage
 import com.pmcl.ui.util.decodeSampledBitmap
-import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.concurrent.ConcurrentHashMap
@@ -1932,7 +1940,7 @@ private fun AvatarImage(url: String) {
         withContext(Dispatchers.IO) {
             try {
                 if (url.isNullOrBlank()) return@withContext
-                val bytes = URL(url).readBytes()
+                val bytes = com.pmcl.ui.util.SafeUrlFetcher.fetchBytes(url, allowPrivateLan = true)
                 val bmp = decodeSampledBitmap(bytes, 128) ?: throw IllegalStateException("decode failed")
                 launchAvatarCache.put(url, bmp)
                 image = bmp

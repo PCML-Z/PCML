@@ -243,6 +243,8 @@ public final class I18n {
         ZH.put("music.loading_track", "加载中…");
         ZH.put("music.error_load", "加载失败：{0}");
         ZH.put("music.error_play", "播放失败：{0}");
+        ZH.put("music.playlist_load_failed", "加载播放列表失败：{0}");
+        ZH.put("music.playlist_save_failed", "保存播放列表失败：{0}");
         ZH.put("music.add_to_playlist", "添加到播放列表");
         ZH.put("music.no_next", "没有下一曲了");
         ZH.put("music.no_previous", "没有上一曲了");
@@ -1699,6 +1701,7 @@ public final class I18n {
         ZH.put("status.enable_failed", "启用失败：{0}");
         ZH.put("status.mod_imported", "已导入模组：{0}");
         ZH.put("status.import_failed", "导入失败：{0}");
+        ZH.put("status.batch_partial", "完成 {0} 项，失败 {1} 项（共 {2}）");
         ZH.put("status.batch_enabled_mods", "已启用 {0} 个模组");
         ZH.put("status.batch_enable_failed", "批量启用失败：{0}");
         ZH.put("status.batch_disabled_mods", "已禁用 {0} 个模组");
@@ -1760,7 +1763,11 @@ public final class I18n {
 
         // ===== 状态消息 - 启动游戏 =====
         ZH.put("status.building_launch_profile", "正在构建启动配置…");
+        ZH.put("status.launch_busy", "正在准备启动，请稍候");
         ZH.put("status.launch_failed_no_java", "启动失败：未找到 Java 运行时");
+        ZH.put("status.java_version_detect_failed", "无法识别 Java 主版本：{0}");
+        ZH.put("status.game_log_create_failed", "游戏日志文件创建失败：{0}");
+        ZH.put("status.companion_host_error", "Companion 服务异常：{0}");
         ZH.put("status.compat_hint_loongson", "检测到龙芯架构，已自动应用兼容层");
         ZH.put("status.cannot_open_browser", "无法打开浏览器：{0}");
         ZH.put("status.compat_hint_riscv", "检测到 RISC-V 架构，已自动应用兼容层");
@@ -1788,6 +1795,7 @@ public final class I18n {
         ZH.put("status.java_download_failed", "Java {0} 下载失败：{1}");
         ZH.put("status.java_path_reset", "Java 路径已重置");
         ZH.put("status.java_path_set", "Java 路径已设置");
+        ZH.put("status.java_path_invalid", "无效的 Java 可执行文件路径: {0}");
 
         // ===== Metal 渲染（Apple Silicon Mac 专用）=====
         ZH.put("metal.title", "Metal 渲染加速");
@@ -1825,6 +1833,7 @@ public final class I18n {
 
         // ===== 状态消息 - 资源包 =====
         ZH.put("status.resource_packs_scanned", "已扫描 {0} 个资源包");
+        ZH.put("status.resource_packs_scanned_partial", "已扫描 {0} 个资源包（{1} 个目录失败）");
         ZH.put("status.scan_resource_packs_failed", "扫描资源包失败：{0}");
         ZH.put("status.resource_pack_enabled", "已启用资源包：{0}");
         ZH.put("status.resource_pack_disabled", "已禁用资源包：{0}");
@@ -1844,6 +1853,7 @@ public final class I18n {
 
         // ===== 状态消息 - 光影包 =====
         ZH.put("status.shader_packs_scanned", "已扫描 {0} 个光影包");
+        ZH.put("status.shader_packs_scanned_partial", "已扫描 {0} 个光影包（{1} 个目录失败）");
         ZH.put("status.scan_shader_packs_failed", "扫描光影包失败：{0}");
         ZH.put("status.shader_pack_enabled", "已启用光影包：{0}");
         ZH.put("status.shader_pack_disabled", "已禁用光影包：{0}");
@@ -1893,7 +1903,7 @@ public final class I18n {
         // ===== 状态消息 - 多人联机 =====
         ZH.put("status.leave_room_before_switch_backend", "请先离开当前房间再切换后端");
         ZH.put("status.mp_backend_switched", "已切换到 {0} 联机后端");
-        ZH.put("status.already_in_room", "已在房间中，请先离开");
+        ZH.put("status.already_in_room", "已在房间中或正在连接，请先离开");
         ZH.put("status.creating_connectx_room", "正在创建 ConnectX 房间…");
         ZH.put("status.creating_terracotta_room", "正在创建陶瓦联机房间（Terracotta）…");
         ZH.put("status.creating_mp_room", "正在创建陶瓦联机房间…");
@@ -1909,6 +1919,7 @@ public final class I18n {
         ZH.put("status.connecting_room", "正在连接房间…");
         ZH.put("status.join_room_failed", "加入房间失败：{0}");
         ZH.put("status.leave_room_failed", "离开房间失败：{0}");
+        ZH.put("status.friend_start_failed", "好友系统启动失败：{0}");
         ZH.put("status.left_connectx_room", "已离开 ConnectX 房间");
         ZH.put("status.left_terracotta_room", "已离开陶瓦联机房间");
         ZH.put("status.no_invitation_to_share", "当前没有可分享的邀请码");
@@ -1928,6 +1939,7 @@ public final class I18n {
         ZH.put("status.rename_failed", "重命名失败: {0}");
         ZH.put("status.instance_deleted", "实例已删除");
         ZH.put("status.instance_delete_failed", "删除实例失败: {0}");
+        ZH.put("status.instance_playtime_save_failed", "实例游玩时长保存失败：{0}");
         ZH.put("status.instance_missing_base_version", "实例「{0}」缺少基础版本，无法启动");
         ZH.put("status.instance_account_bound", "实例「{0}」已绑定当前账户");
         ZH.put("status.instance_account_unbound", "实例「{0}」已解除账户绑定");
@@ -2171,6 +2183,8 @@ public final class I18n {
         EN.put("music.loading_track", "Loading...");
         EN.put("music.error_load", "Load failed: {0}");
         EN.put("music.error_play", "Play failed: {0}");
+        EN.put("music.playlist_load_failed", "Failed to load playlist: {0}");
+        EN.put("music.playlist_save_failed", "Failed to save playlist: {0}");
         EN.put("music.add_to_playlist", "Add to playlist");
         EN.put("music.no_next", "No next track");
         EN.put("music.no_previous", "No previous track");
@@ -3590,6 +3604,7 @@ public final class I18n {
         EN.put("status.enable_failed", "Enable failed: {0}");
         EN.put("status.mod_imported", "Imported mod: {0}");
         EN.put("status.import_failed", "Import failed: {0}");
+        EN.put("status.batch_partial", "Completed {0}, failed {1} (of {2})");
         EN.put("status.batch_enabled_mods", "Enabled {0} mods");
         EN.put("status.batch_enable_failed", "Batch enable failed: {0}");
         EN.put("status.batch_disabled_mods", "Disabled {0} mods");
@@ -3639,7 +3654,11 @@ public final class I18n {
         EN.put("status.batch_update_complete", "Batch update complete");
         EN.put("status.batch_update_failed", "Batch update failed: {0}");
         EN.put("status.building_launch_profile", "Building launch profile…");
+        EN.put("status.launch_busy", "Preparing launch, please wait…");
         EN.put("status.launch_failed_no_java", "Launch failed: no Java runtime found");
+        EN.put("status.java_version_detect_failed", "Could not detect Java major version: {0}");
+        EN.put("status.game_log_create_failed", "Failed to create game log file: {0}");
+        EN.put("status.companion_host_error", "Companion host error: {0}");
         EN.put("status.compat_hint_loongson", "LoongArch detected, compatibility layer auto-applied");
         EN.put("status.cannot_open_browser", "Cannot open browser: {0}");
         EN.put("status.compat_hint_riscv", "RISC-V detected, compatibility layer auto-applied");
@@ -3663,6 +3682,7 @@ public final class I18n {
         EN.put("status.java_download_failed", "Java {0} download failed: {1}");
         EN.put("status.java_path_reset", "Java path reset");
         EN.put("status.java_path_set", "Java path set");
+        EN.put("status.java_path_invalid", "Invalid Java executable path: {0}");
 
         // ===== Metal rendering (Apple Silicon Mac only) =====
         EN.put("metal.title", "Metal Rendering");
@@ -3695,6 +3715,7 @@ public final class I18n {
         EN.put("status.screenshots_exported", "Exported {0} screenshots");
         EN.put("status.export_failed", "Export failed: {0}");
         EN.put("status.resource_packs_scanned", "Scanned {0} resource packs");
+        EN.put("status.resource_packs_scanned_partial", "Scanned {0} resource packs ({1} directories failed)");
         EN.put("status.scan_resource_packs_failed", "Failed to scan resource packs: {0}");
         EN.put("status.resource_pack_enabled", "Enabled resource pack: {0}");
         EN.put("status.resource_pack_disabled", "Disabled resource pack: {0}");
@@ -3710,6 +3731,7 @@ public final class I18n {
         EN.put("status.crash_reports_scanned", "Scanned {0} crash reports");
         EN.put("status.scan_crash_reports_failed", "Failed to scan crash reports: {0}");
         EN.put("status.shader_packs_scanned", "Scanned {0} shader packs");
+        EN.put("status.shader_packs_scanned_partial", "Scanned {0} shader packs ({1} directories failed)");
         EN.put("status.scan_shader_packs_failed", "Failed to scan shader packs: {0}");
         EN.put("status.shader_pack_enabled", "Enabled shader pack: {0}");
         EN.put("status.shader_pack_disabled", "Disabled shader pack: {0}");
@@ -3749,7 +3771,7 @@ public final class I18n {
         EN.put("status.network_prefs_applied", "Network preferences applied");
         EN.put("status.leave_room_before_switch_backend", "Please leave the current room before switching backend");
         EN.put("status.mp_backend_switched", "Switched to {0} multiplayer backend");
-        EN.put("status.already_in_room", "Already in a room, please leave first");
+        EN.put("status.already_in_room", "Already in a room or connecting, please leave first");
         EN.put("status.creating_connectx_room", "Creating ConnectX room…");
         EN.put("status.creating_terracotta_room", "Creating Terracotta room…");
         EN.put("status.creating_mp_room", "Creating multiplayer room…");
@@ -3765,6 +3787,7 @@ public final class I18n {
         EN.put("status.connecting_room", "Connecting to room…");
         EN.put("status.join_room_failed", "Failed to join room: {0}");
         EN.put("status.leave_room_failed", "Failed to leave room: {0}");
+        EN.put("status.friend_start_failed", "Friend system failed to start: {0}");
         EN.put("status.left_connectx_room", "Left ConnectX room");
         EN.put("status.left_terracotta_room", "Left Terracotta room");
         EN.put("status.no_invitation_to_share", "No invitation to share");
@@ -3780,6 +3803,7 @@ public final class I18n {
         EN.put("status.rename_failed", "Rename failed: {0}");
         EN.put("status.instance_deleted", "Instance deleted");
         EN.put("status.instance_delete_failed", "Failed to delete instance: {0}");
+        EN.put("status.instance_playtime_save_failed", "Failed to save instance playtime: {0}");
         EN.put("status.instance_missing_base_version", "Instance \"{0}\" is missing its base version, cannot launch");
         EN.put("status.instance_account_bound", "Instance \"{0}\" account bound");
         EN.put("status.instance_account_unbound", "Instance \"{0}\" account unbound");
@@ -4021,6 +4045,8 @@ public final class I18n {
         JA.put("music.loading_track", "読み込み中...");
         JA.put("music.error_load", "読み込み失敗：{0}");
         JA.put("music.error_play", "再生失敗：{0}");
+        JA.put("music.playlist_load_failed", "プレイリストの読み込みに失敗：{0}");
+        JA.put("music.playlist_save_failed", "プレイリストの保存に失敗：{0}");
         JA.put("music.add_to_playlist", "再生リストに追加");
         JA.put("music.no_next", "次のトラックはありません");
         JA.put("music.no_previous", "前のトラックはありません");
@@ -5458,6 +5484,7 @@ public final class I18n {
         JA.put("status.enable_failed", "有効化失敗：{0}");
         JA.put("status.mod_imported", "Mod をインポート：{0}");
         JA.put("status.import_failed", "インポート失敗：{0}");
+        JA.put("status.batch_partial", "完了 {0}・失敗 {1}（計 {2}）");
         JA.put("status.batch_enabled_mods", "Mod {0} 件を有効化");
         JA.put("status.batch_enable_failed", "一括有効化失敗：{0}");
         JA.put("status.batch_disabled_mods", "Mod {0} 件を無効化");
@@ -5519,7 +5546,11 @@ public final class I18n {
 
         // ===== ステータスメッセージ - ゲーム起動 =====
         JA.put("status.building_launch_profile", "起動プロファイルを構築中…");
+        JA.put("status.launch_busy", "起動準備中です。しばらくお待ちください");
         JA.put("status.launch_failed_no_java", "起動失敗：Java ランタイムが見つかりません");
+        JA.put("status.java_version_detect_failed", "Java メジャーバージョンを検出できません：{0}");
+        JA.put("status.game_log_create_failed", "ゲームログファイルの作成に失敗：{0}");
+        JA.put("status.companion_host_error", "Companion ホスト異常：{0}");
         JA.put("status.compat_hint_loongson", "LoongArch を検出、互換レイヤーを自動適用");
         JA.put("status.cannot_open_browser", "ブラウザを開けません：{0}");
         JA.put("status.compat_hint_riscv", "RISC-V を検出、互換レイヤーを自動適用");
@@ -5547,6 +5578,7 @@ public final class I18n {
         JA.put("status.java_download_failed", "Java {0} のダウンロード失敗：{1}");
         JA.put("status.java_path_reset", "Java パスをリセット");
         JA.put("status.java_path_set", "Java パスを設定");
+        JA.put("status.java_path_invalid", "無効な Java 実行ファイルパス: {0}");
 
         // ===== Metal レンダリング（Apple Silicon Mac 専用）=====
         JA.put("metal.title", "Metal レンダリング");
@@ -5584,6 +5616,7 @@ public final class I18n {
 
         // ===== ステータスメッセージ - リソースパック =====
         JA.put("status.resource_packs_scanned", "リソースパック {0} 件をスキャン");
+        JA.put("status.resource_packs_scanned_partial", "リソースパック {0} 件をスキャン（{1} ディレクトリ失敗）");
         JA.put("status.scan_resource_packs_failed", "リソースパックスキャン失敗：{0}");
         JA.put("status.resource_pack_enabled", "リソースパックを有効化：{0}");
         JA.put("status.resource_pack_disabled", "リソースパックを無効化：{0}");
@@ -5603,6 +5636,7 @@ public final class I18n {
 
         // ===== ステータスメッセージ - シェーダーパック =====
         JA.put("status.shader_packs_scanned", "シェーダーパック {0} 件をスキャン");
+        JA.put("status.shader_packs_scanned_partial", "シェーダーパック {0} 件をスキャン（{1} ディレクトリ失敗）");
         JA.put("status.scan_shader_packs_failed", "シェーダーパックスキャン失敗：{0}");
         JA.put("status.shader_pack_enabled", "シェーダーパックを有効化：{0}");
         JA.put("status.shader_pack_disabled", "シェーダーパックを無効化：{0}");
@@ -5652,7 +5686,7 @@ public final class I18n {
         // ===== ステータスメッセージ - マルチプレイ =====
         JA.put("status.leave_room_before_switch_backend", "バックエンド切替前に現在のルームを離脱してください");
         JA.put("status.mp_backend_switched", "{0} マルチプレイバックエンドに切替");
-        JA.put("status.already_in_room", "ルームに参加済み、先に離脱してください");
+        JA.put("status.already_in_room", "ルーム参加中または接続中です。先に離脱してください");
         JA.put("status.creating_connectx_room", "ConnectX ルームを作成中…");
         JA.put("status.creating_terracotta_room", "Terracotta ルームを作成中…");
         JA.put("status.creating_mp_room", "マルチプレイルームを作成中…");
@@ -5668,6 +5702,7 @@ public final class I18n {
         JA.put("status.connecting_room", "ルームに接続中…");
         JA.put("status.join_room_failed", "ルーム参加失敗：{0}");
         JA.put("status.leave_room_failed", "ルーム離脱失敗：{0}");
+        JA.put("status.friend_start_failed", "フレンドシステム起動失敗：{0}");
         JA.put("status.left_connectx_room", "ConnectX ルームから離脱");
         JA.put("status.left_terracotta_room", "Terracotta ルームから離脱");
         JA.put("status.no_invitation_to_share", "共有可能な招待コードがありません");
@@ -5687,6 +5722,7 @@ public final class I18n {
         JA.put("status.rename_failed", "リネーム失敗：{0}");
         JA.put("status.instance_deleted", "インスタンスを削除");
         JA.put("status.instance_delete_failed", "インスタンス削除失敗：{0}");
+        JA.put("status.instance_playtime_save_failed", "インスタンスプレイ時間の保存に失敗：{0}");
         JA.put("status.instance_missing_base_version", "インスタンス「{0}」はベースバージョンが欠落、起動できません");
         JA.put("status.instance_account_bound", "インスタンス「{0}」のアカウントをバインドしました");
         JA.put("status.instance_account_unbound", "インスタンス「{0}」のアカウントバインドを解除しました");

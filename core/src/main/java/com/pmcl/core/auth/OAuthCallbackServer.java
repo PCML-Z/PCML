@@ -10,31 +10,29 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * OAuth 2.0 授权码回调服务器。
  * <p>
  * 启动本地 HTTP 服务器监听 {@code http://localhost:<port>/callback}，
- * 等待 Microsoft 授权后重定向到该 URL 并附带 {@code code} 参数。
+ * 等待 Microsoft 授权后重定向到该 URL 并附带 {@code code} + {@code state} 参数。
  * <p>
- * 用法：
- * <pre>{@code
- * try (OAuthCallbackServer server = new OAuthCallbackServer()) {
- *     String redirectUri = server.getRedirectUri();
- *     String authUrl = buildAuthUrl(redirectUri);
- *     WikiBrowser.open(authUrl);  // 打开浏览器
- *     String code = server.getCodeFuture().get(5, TimeUnit.MINUTES);
- *     // 用 code 交换 access_token...
- * }
- * }</pre>
+ * 必须校验 {@code state}，防止本机其它进程伪造回调注入授权码。
  */
 public final class OAuthCallbackServer implements AutoCloseable {
 
     private final HttpServer server;
     private final int port;
+    private final String expectedState;
     private final CompletableFuture<String> codeFuture = new CompletableFuture<>();
+    private final AtomicBoolean completed = new AtomicBoolean(false);
 
-    public OAuthCallbackServer() throws IOException {
+    public OAuthCallbackServer(String expectedState) throws IOException {
+        if (expectedState == null || expectedState.isBlank()) {
+            throw new IllegalArgumentException("OAuth state must not be blank");
+        }
+        this.expectedState = expectedState;
         // 端口 0 = 系统自动分配空闲端口
         this.server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
         this.port = server.getAddress().getPort();
@@ -47,6 +45,7 @@ public final class OAuthCallbackServer implements AutoCloseable {
     private void handleCallback(HttpExchange exchange) throws IOException {
         String query = exchange.getRequestURI().getQuery();
         String code = null;
+        String state = null;
         String error = null;
         String errorDesc = null;
         if (query != null) {
@@ -57,6 +56,7 @@ public final class OAuthCallbackServer implements AutoCloseable {
                 String value = URLDecoder.decode(kv[1], StandardCharsets.UTF_8);
                 switch (key) {
                     case "code": code = value; break;
+                    case "state": state = value; break;
                     case "error": error = value; break;
                     case "error_description": errorDesc = value; break;
                 }
@@ -65,24 +65,29 @@ public final class OAuthCallbackServer implements AutoCloseable {
 
         String responseHtml;
         if (code != null) {
-            responseHtml = "<!DOCTYPE html><html><head><meta charset=\"UTF-8\">"
-                    + "<title>授权成功</title>"
-                    + "<style>body{font-family:-apple-system,sans-serif;text-align:center;padding:60px;}"
-                    + "h1{color:#4CAF50;}</style></head>"
-                    + "<body><h1>授权成功</h1>"
-                    + "<p>请返回 PMCL 启动器，登录即将完成。</p>"
-                    + "<script>window.close();</script></body></html>";
-            codeFuture.complete(code);
+            if (!expectedState.equals(state)) {
+                responseHtml = htmlPage("授权失败", "#F44336",
+                        "OAuth state 校验失败，请返回 PMCL 重试。");
+                if (completed.compareAndSet(false, true)) {
+                    codeFuture.completeExceptionally(
+                            new RuntimeException("OAuth state mismatch（可能的回调伪造）"));
+                }
+            } else if (completed.compareAndSet(false, true)) {
+                responseHtml = htmlPage("授权成功", "#4CAF50",
+                        "请返回 PMCL 启动器，登录即将完成。");
+                codeFuture.complete(code);
+            } else {
+                responseHtml = htmlPage("已处理", "#4CAF50", "授权码已接收，请返回启动器。");
+            }
         } else {
-            responseHtml = "<!DOCTYPE html><html><head><meta charset=\"UTF-8\">"
-                    + "<title>授权失败</title>"
-                    + "<style>body{font-family:-apple-system,sans-serif;text-align:center;padding:60px;}"
-                    + "h1{color:#F44336;}</style></head>"
-                    + "<body><h1>授权失败</h1>"
-                    + "<p>" + (errorDesc != null ? escapeHtml(errorDesc) : (error != null ? escapeHtml(error) : "未知错误")) + "</p>"
-                    + "<p>请返回 PMCL 启动器重试。</p></body></html>";
-            codeFuture.completeExceptionally(
-                    new RuntimeException("授权失败: " + (error != null ? error : "未知") + " " + (errorDesc != null ? errorDesc : "")));
+            responseHtml = htmlPage("授权失败", "#F44336",
+                    errorDesc != null ? escapeHtml(errorDesc)
+                            : (error != null ? escapeHtml(error) : "未知错误"));
+            if (completed.compareAndSet(false, true)) {
+                codeFuture.completeExceptionally(
+                        new RuntimeException("授权失败: " + (error != null ? error : "未知")
+                                + " " + (errorDesc != null ? errorDesc : "")));
+            }
         }
 
         byte[] respBytes = responseHtml.getBytes(StandardCharsets.UTF_8);
@@ -91,6 +96,15 @@ public final class OAuthCallbackServer implements AutoCloseable {
         try (OutputStream os = exchange.getResponseBody()) {
             os.write(respBytes);
         }
+    }
+
+    private static String htmlPage(String title, String color, String body) {
+        return "<!DOCTYPE html><html><head><meta charset=\"UTF-8\">"
+                + "<title>" + title + "</title>"
+                + "<style>body{font-family:-apple-system,sans-serif;text-align:center;padding:60px;}"
+                + "h1{color:" + color + ";}</style></head>"
+                + "<body><h1>" + title + "</h1><p>" + body + "</p>"
+                + "<script>window.close();</script></body></html>";
     }
 
     private static String escapeHtml(String s) {
@@ -118,19 +132,15 @@ public final class OAuthCallbackServer implements AutoCloseable {
         try {
             return codeFuture.get(timeoutSeconds, TimeUnit.SECONDS);
         } catch (java.util.concurrent.TimeoutException e) {
-            throw new IOException("登录超时：" + timeoutSeconds + " 秒内未完成授权");
-        } catch (java.util.concurrent.ExecutionException e) {
-            Throwable cause = e.getCause() != null ? e.getCause() : e;
-            throw new IOException(cause.getMessage(), cause);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IOException("登录被中断", e);
+            throw new IOException("等待授权超时（" + timeoutSeconds + "s）", e);
+        } catch (Exception e) {
+            Throwable c = e.getCause() != null ? e.getCause() : e;
+            throw new IOException("等待授权失败: " + c.getMessage(), e);
         }
     }
 
     @Override
     public void close() {
-        // 立即关闭，延迟 0 秒
         server.stop(0);
     }
 }

@@ -17,6 +17,8 @@ public final class ModFile {
     private List<String> loaders;        // 兼容的加载器，如 ["fabric", "quilt"]
     private String releaseType;          // release / beta / alpha
     private List<String> dependencies;   // 依赖的 project ID 列表（来自 Modrinth API），可为空
+    private String sha1 = "";
+    private String sha512 = "";
 
     public ModFile(String source, String projectId, String fileId, String fileName,
                    long fileSize, String downloadUrl, List<String> gameVersions,
@@ -40,6 +42,13 @@ public final class ModFile {
         this.dependencies = dependencies != null ? dependencies : java.util.Collections.emptyList();
     }
 
+    /** 链式设置完整性哈希（API 解析后调用）。 */
+    public ModFile hashes(String sha1, String sha512) {
+        this.sha1 = sha1 != null ? sha1 : "";
+        this.sha512 = sha512 != null ? sha512 : "";
+        return this;
+    }
+
     public String getSource() { return source; }
     public String getProjectId() { return projectId; }
     public String getFileId() { return fileId; }
@@ -51,4 +60,6 @@ public final class ModFile {
     public String getReleaseType() { return releaseType; }
     /** 返回依赖的 project ID 列表（来自 Modrinth API 的 dependencies 字段），无依赖时返回空列表 */
     public List<String> getDependencies() { return dependencies; }
+    public String getSha1() { return sha1; }
+    public String getSha512() { return sha512; }
 }

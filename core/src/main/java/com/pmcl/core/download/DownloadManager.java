@@ -353,8 +353,12 @@ public final class DownloadManager {
     private CompletableFuture<Void> verifyAndRename(DownloadTask task, Path partFile) {
         Path target = config.getWorkDir().resolve(task.getRelativePath());
         if (task.getSha1() == null || task.getSha1().isEmpty()) {
-            // 无需校验，直接重命名
-            return CompletableFuture.runAsync(() -> movePartFile(partFile, target), pool);
+            // 无哈希：拒绝落盘（防供应链投毒 / 错误页当资源）
+            return CompletableFuture.runAsync(() -> {
+                try { Files.deleteIfExists(partFile); } catch (IOException ignored) {}
+                throw new RuntimeException(new IOException(
+                        "拒绝无 SHA-1 的下载任务: " + task.getRelativePath()));
+            }, pool);
         }
         String expected = task.getSha1();
         return sha1Async(partFile).thenAcceptAsync(actual -> {
@@ -500,11 +504,114 @@ public final class DownloadManager {
     }
 
     /**
+     * 下载文本并按 SHA-1 校验（对响应体原始 UTF-8 字节）。
+     * 无期望哈希或校验失败时抛错，绝不返回未校验内容。
+     */
+    public String downloadStringVerified(String url, String expectedSha1) throws IOException {
+        if (expectedSha1 == null || expectedSha1.isBlank()) {
+            throw new IOException("拒绝无 SHA-1 的文本下载: " + url);
+        }
+        String body = downloadString(url);
+        String actual = sha1OfBytes(body.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        if (!actual.equalsIgnoreCase(expectedSha1.trim())) {
+            throw new IOException("文本 SHA-1 校验失败: " + url
+                    + " 期望=" + expectedSha1 + " 实际=" + actual);
+        }
+        return body;
+    }
+
+    private static String sha1OfBytes(byte[] data) throws IOException {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-1");
+            md.update(data);
+            byte[] digest = md.digest();
+            StringBuilder sb = new StringBuilder(digest.length * 2);
+            for (byte b : digest) sb.append(String.format("%02x", b & 0xff));
+            return sb.toString();
+        } catch (Exception e) {
+            throw new IOException("SHA-1 计算失败", e);
+        }
+    }
+
+    /**
      * 下载到指定绝对路径（不复用工作目录相对路径），应用镜像重写。
      * 无进度回调版本：兼容旧调用方。
      */
     public void downloadTo(String url, Path target) throws IOException {
         downloadTo(url, target, null);
+    }
+
+    /**
+     * 下载后按 SHA-512（优先）或 SHA-1 校验；二者皆无时仅警告（兼容无哈希源）。
+     * 校验失败删除目标文件并抛错。
+     */
+    public void downloadToVerified(String url, Path target, String sha1, String sha512)
+            throws IOException {
+        downloadTo(url, target);
+        verifyHashesOrWarn(target, sha1, sha512);
+    }
+
+    /** 校验已下载文件；有期望哈希则 fail-closed，二者皆无则删除文件并抛错。 */
+    public static void verifyHashesOrWarn(Path file, String sha1, String sha512) throws IOException {
+        if (sha512 != null && !sha512.isBlank()) {
+            String actual = sha512Hex(file);
+            if (!actual.equalsIgnoreCase(sha512.trim())) {
+                Files.deleteIfExists(file);
+                throw new IOException("SHA-512 校验失败: " + file.getFileName()
+                        + " 期望 " + sha512 + " 实际 " + actual);
+            }
+            return;
+        }
+        if (sha1 != null && !sha1.isBlank()) {
+            String actual = sha1(file);
+            if (!actual.equalsIgnoreCase(sha1.trim())) {
+                Files.deleteIfExists(file);
+                throw new IOException("SHA-1 校验失败: " + file.getFileName()
+                        + " 期望 " + sha1 + " 实际 " + actual);
+            }
+            return;
+        }
+        Files.deleteIfExists(file);
+        throw new IOException("拒绝无哈希校验的下载: " + file.getFileName());
+    }
+
+    /**
+     * 带 SSRF 防护的下载：初始 URL 与每一次重定向跳转均校验，拒绝内网/回环目标。
+     * 用于插件等用户可控 URL；普通游戏资源下载请用 {@link #downloadTo}（允许自定义镜像等）。
+     * <p>
+     * 使用独立 OkHttpClient（不改写共享 {@code http}），避免并发下载竞态。
+     */
+    public void downloadToSsrfChecked(String url, Path target) throws IOException {
+        String err = com.pmcl.core.util.SsrfChecker.validate(url);
+        if (err != null) {
+            throw new IOException("SSRF blocked: " + err);
+        }
+        Files.createDirectories(target.getParent());
+        OkHttpClient safe = http.newBuilder()
+                .addNetworkInterceptor(chain -> {
+                    String hop = chain.request().url().toString();
+                    String hopErr = com.pmcl.core.util.SsrfChecker.validate(hop);
+                    if (hopErr != null) {
+                        throw new IOException("SSRF redirect blocked: " + hopErr);
+                    }
+                    return chain.proceed(chain.request());
+                })
+                .build();
+        Request req = new Request.Builder().url(url).get().build();
+        try (Response resp = safe.newCall(req).execute()) {
+            if (!resp.isSuccessful() || resp.body() == null) {
+                throw new IOException("HTTP " + resp.code() + " downloading " + url);
+            }
+            Path tmp = target.resolveSibling(target.getFileName() + ".ssrf-tmp");
+            try (InputStream in = resp.body().byteStream()) {
+                Files.copy(in, tmp, StandardCopyOption.REPLACE_EXISTING);
+            }
+            try {
+                Files.move(tmp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
+            }
+        }
     }
 
     /**
@@ -639,20 +746,28 @@ public final class DownloadManager {
     }
 
     private static String sha1(Path file) throws IOException {
+        return digestHex(file, "SHA-1");
+    }
+
+    private static String sha512Hex(Path file) throws IOException {
+        return digestHex(file, "SHA-512");
+    }
+
+    private static String digestHex(Path file, String algo) throws IOException {
         try {
-            MessageDigest md = MessageDigest.getInstance("SHA-1");
+            MessageDigest md = MessageDigest.getInstance(algo);
             try (InputStream is = Files.newInputStream(file)) {
                 byte[] buf = new byte[BUFFER_SIZE];
                 int n;
                 while ((n = is.read(buf)) != -1) md.update(buf, 0, n);
             }
             byte[] digest = md.digest();
-            StringBuilder sb = new StringBuilder();
+            StringBuilder sb = new StringBuilder(digest.length * 2);
             // H13: b & 0xff 防止 byte 符号扩展为 int 时产生 ffffffff 而非 ff
             for (byte b : digest) sb.append(String.format("%02x", b & 0xff));
             return sb.toString();
         } catch (Exception e) {
-            throw new IOException("SHA1 计算失败", e);
+            throw new IOException(algo + " 计算失败", e);
         }
     }
 

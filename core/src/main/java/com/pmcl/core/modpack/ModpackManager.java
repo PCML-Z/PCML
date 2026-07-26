@@ -285,7 +285,11 @@ public final class ModpackManager {
                         }
                         try {
                             Files.createDirectories(target.getParent());
-                            downloads.downloadTo(url, target);
+                            String sha1 = mf.hash != null ? mf.hash : "";
+                            if (sha1.isBlank()) {
+                                throw new IOException("整合包条目缺少 SHA-1，拒绝下载: " + mf.path);
+                            }
+                            downloads.downloadToVerified(url, target, sha1, null);
                         } catch (Exception e) {
                             // 单个 mod 下载失败不中断整体导入
                             System.err.println("[ModpackManager] 模组下载失败: " + mf.path + " - " + e.getMessage());
@@ -1057,8 +1061,7 @@ public final class ModpackManager {
                         ? fObj.get("projectID").getAsString() : "";
                 String fileId = fObj.has("fileID") && !fObj.get("fileID").isJsonNull()
                         ? fObj.get("fileID").getAsString() : "";
-                // CurseForge manifest 不包含下载 URL，需要通过 API 查询
-                // 这里先占位，实际下载时需要查询 CurseForge API
+                // CurseForge manifest 不含下载 URL；URL 在安装阶段由 resolveCurseForgeUrls() 补全
                 files.add(new ModpackFile(
                         "mods/" + projectId + "_" + fileId + ".jar",
                         "", 0, "", projectId, fileId));

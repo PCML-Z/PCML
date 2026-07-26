@@ -67,6 +67,12 @@ public final class SsrfChecker {
             return "URL host is missing";
         }
 
+        // 拒绝十进制/十六进制/八进制 IP 字面量（如 2130706433、0x7f000001），避免绕过主机名检查
+        String numericIpError = rejectNumericIpLiteral(host);
+        if (numericIpError != null) {
+            return numericIpError;
+        }
+
         // 解析所有 IP 并校验
         InetAddress[] addresses;
         try {
@@ -90,6 +96,50 @@ public final class SsrfChecker {
      */
     public static boolean isSafe(String url) {
         return validate(url) == null;
+    }
+
+    /**
+     * 允许私有局域网与回环（皮肤站 / 本机 authlib 合法场景），
+     * 但仍拒绝链路本地（含云 metadata 169.254.169.254）、组播与任意本地 0.0.0.0。
+     */
+    public static String validateAllowingPrivateLan(String url) {
+        if (url == null || url.isBlank()) {
+            return "URL is null or blank";
+        }
+        if (url.length() > MAX_URL_LENGTH) {
+            return "URL exceeds max length of " + MAX_URL_LENGTH;
+        }
+        URL parsed;
+        try {
+            parsed = new URL(url);
+        } catch (MalformedURLException e) {
+            return "Malformed URL: " + e.getMessage();
+        }
+        String protocol = parsed.getProtocol().toLowerCase();
+        if (!ALLOWED_PROTOCOLS.contains(protocol)) {
+            return "Protocol '" + protocol + "' not allowed (supported: http, https)";
+        }
+        String host = parsed.getHost();
+        if (host == null || host.isBlank()) {
+            return "URL host is missing";
+        }
+        String numericIpError = rejectNumericIpLiteral(host);
+        if (numericIpError != null) {
+            return numericIpError;
+        }
+        InetAddress[] addresses;
+        try {
+            addresses = InetAddress.getAllByName(host);
+        } catch (UnknownHostException e) {
+            return "Cannot resolve host: " + host;
+        }
+        for (InetAddress addr : addresses) {
+            if (addr.isLinkLocalAddress() || addr.isMulticastAddress() || addr.isAnyLocalAddress()) {
+                return "Host '" + host + "' resolves to restricted address " + addr.getHostAddress()
+                        + " (link-local/multicast/any-local blocked)";
+            }
+        }
+        return null;
     }
 
     /**
@@ -122,5 +172,24 @@ public final class SsrfChecker {
             return (bytes[0] & 0xFF) == 100 && (bytes[1] & 0xFF) >= 64 && (bytes[1] & 0xFF) <= 127;
         }
         return false;
+    }
+
+    /**
+     * 拒绝非点分形式的 IPv4 字面量（整型 / 0x… / 0…），这类主机名会被部分解析器映射到回环等内网地址。
+     * 正常点分十进制（1.2.3.4）仍走 DNS/InetAddress 路径校验。
+     */
+    static String rejectNumericIpLiteral(String host) {
+        if (host == null || host.isEmpty()) return null;
+        String h = host;
+        if (h.startsWith("[") && h.endsWith("]")) return null; // IPv6 字面量交给 InetAddress
+        // 纯十进制整数主机（如 2130706433 → 127.0.0.1）
+        if (h.matches("\\d{1,10}")) {
+            return "Numeric IP host '" + host + "' is not allowed";
+        }
+        // 十六进制 / 八进制字面量
+        if (h.matches("0[xX][0-9a-fA-F]+") || h.matches("0[0-7]+")) {
+            return "Hex/octal IP host '" + host + "' is not allowed";
+        }
+        return null;
     }
 }

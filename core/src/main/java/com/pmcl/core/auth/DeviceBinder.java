@@ -294,8 +294,14 @@ public final class DeviceBinder {
                     default: _ph1 = 2;
                 }
             }
-        } catch (Throwable _t) {}
-        return "unknown";
+        } catch (Throwable _t) {
+            System.err.println("[DeviceBinder] MAC 采集失败: " + _t.getMessage());
+        }
+        // 勿用全局常量 "unknown"：多台设备会坍缩为同一指纹
+        return "mac-unavailable|"
+                + System.getProperty("user.name", "?") + "|"
+                + System.getProperty("os.name", "?") + "|"
+                + System.getProperty("os.arch", "?");
     }
 
     // ===== 11498 位设备码生成（强混淆核心） =====

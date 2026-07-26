@@ -73,6 +73,8 @@ public final class FriendProtocol {
         public String name;
         /** 发送方的聊天服务器端口 */
         public int port;
+        /** 双方共享的握手 HMAC 密钥（跨机器校验；旧客户端可为空） */
+        public String authSecret;
 
         public static FriendRequest fromJson(String json) {
             return GSON.fromJson(json, FriendRequest.class);
@@ -91,6 +93,8 @@ public final class FriendProtocol {
         public boolean accepted;
         /** 发送方的聊天服务器端口 */
         public int port;
+        /** 回显/确认共享握手密钥 */
+        public String authSecret;
 
         public static FriendAck fromJson(String json) {
             return GSON.fromJson(json, FriendAck.class);

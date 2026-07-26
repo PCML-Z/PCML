@@ -65,6 +65,7 @@ fun CompanionPairDialog(
     // 本地可观察状态
     var pairingCode by remember { mutableStateOf(pairing.getPairingCode()) }
     var devices by remember { mutableStateOf(pairing.getDevices()) }
+    var exposeLan by remember { mutableStateOf(pairing.isExposeLan()) }
     val clipboard = LocalClipboardManager.current
     val dateFmt = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
 
@@ -315,6 +316,34 @@ fun CompanionPairDialog(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                "允许局域网访问",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Text(
+                                if (exposeLan) "绑定 0.0.0.0（手机可配对）"
+                                else "仅本机 127.0.0.1（更安全）",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = exposeLan,
+                            onCheckedChange = { on ->
+                                exposeLan = on
+                                pairing.setExposeLan(on)
+                                hostServer.stop()
+                                hostServer.start()
+                            }
+                        )
+                    }
 
                     // 配对码（大字展示：数字部分 + 字母部分两行）
                     Text(

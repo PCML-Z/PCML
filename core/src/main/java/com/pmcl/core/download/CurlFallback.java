@@ -30,6 +30,17 @@ public final class CurlFallback {
 
     private CurlFallback() {}
 
+    /** 跟随重定向但限制协议与跳数，降低 -L 造成的 SSRF / 协议降级风险 */
+    private static void addSafeRedirectFlags(List<String> cmd) {
+        cmd.add("-L");
+        cmd.add("--max-redirs");
+        cmd.add("5");
+        cmd.add("--proto");
+        cmd.add("=https,http");
+        cmd.add("--proto-redir");
+        cmd.add("=https,http");
+    }
+
     /**
      * 检测系统是否安装 curl。
      */
@@ -292,7 +303,7 @@ public final class CurlFallback {
         cmd.add("-f");                     // HTTP 4xx/5xx 返回非零退出码
         cmd.add("--max-time"); cmd.add(String.valueOf(timeoutSec));
         cmd.add("--connect-timeout"); cmd.add(String.valueOf(Math.min(5, timeoutSec)));
-        cmd.add("-L");
+        addSafeRedirectFlags(cmd);
         cmd.add("-H"); cmd.add("User-Agent: PMCL/1.0");
         cmd.add("-H"); cmd.add("Accept: */*");
         cmd.add(url);
@@ -346,7 +357,7 @@ public final class CurlFallback {
         cmd.add("-f");                     // HTTP 4xx/5xx 返回非零退出码（避免把错误页当成功响应）
         cmd.add("--max-time"); cmd.add(String.valueOf(TIMEOUT_SEC));
         cmd.add("--connect-timeout"); cmd.add("10");
-        cmd.add("-L");                     // 跟随重定向
+        addSafeRedirectFlags(cmd);
         cmd.add("-X"); cmd.add(method == null ? "GET" : method);
         cmd.add("-H"); cmd.add("User-Agent: PMCL/1.0");
         cmd.add("-H"); cmd.add("Accept: */*");
@@ -407,7 +418,7 @@ public final class CurlFallback {
         cmd.add("-f");                     // HTTP 4xx/5xx 返回非零退出码
         cmd.add("--max-time"); cmd.add(String.valueOf(TIMEOUT_SEC * 3));  // 文件下载给更多时间
         cmd.add("--connect-timeout"); cmd.add("10");
-        cmd.add("-L");
+        addSafeRedirectFlags(cmd);
         cmd.add("-H"); cmd.add("User-Agent: PMCL/1.0");
         cmd.add("-o"); cmd.add(tmp.toString());
         cmd.add(url);
@@ -457,7 +468,7 @@ public final class CurlFallback {
             cmd.add("--max-time"); cmd.add("10");
             cmd.add("--connect-timeout"); cmd.add("5");
             cmd.add("-I");                     // HEAD 请求
-            cmd.add("-L");
+            addSafeRedirectFlags(cmd);
             cmd.add("-H"); cmd.add("User-Agent: PMCL/1.0");
             cmd.add(url);
 

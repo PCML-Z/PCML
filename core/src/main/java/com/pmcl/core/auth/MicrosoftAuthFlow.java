@@ -15,6 +15,7 @@ import okhttp3.Response;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -39,10 +40,8 @@ public final class MicrosoftAuthFlow {
     // 若要使用浏览器授权码流程，需在 Azure 注册独立应用并将 client_id
     // 写入 ~/.pmcl/azure_client_id.txt。
     public static final String LEGACY_CLIENT_ID = "00000000402b5328";
-    // 已废弃：MBI_SSL scope 返回的 compact token (EwDIA+... 1292 字符) 会被
-    // Xbox Live /user/authenticate 以 401 空响应拒绝。保留常量仅供历史参考。
-    public static final String SCOPE = "service::user.auth.xboxlive.com::MBI_SSL";
     // 实际使用的 scope：login.live.com 端点支持此 v2.0 scope 且接受 LEGACY_CLIENT_ID。
+    // 旧 MBI_SSL scope（compact token）已被 Xbox Live 拒绝，不再保留死常量。
     // 返回 JWT token (eyJ... 前缀)，Xbox Live 可正确认证（RpsTicket: d=<token>）。
     // offline_access 用于获取 refresh_token（后续可刷新）。
     public static final String V2_SCOPE = "XboxLive.signin offline_access";
@@ -411,49 +410,69 @@ public final class MicrosoftAuthFlow {
                 .header("Authorization", "Bearer " + mcAccessToken)
                 .get().build();
         try (Response resp = http.newCall(req).execute()) {
-            return resp.isSuccessful();
+            if (!resp.isSuccessful()) {
+                throw new IOException("entitlements/mcstore HTTP " + resp.code());
+            }
+            String json = resp.body() != null ? resp.body().string() : "";
+            return entitlementsContainMinecraft(json);
         }
     }
 
     /**
-     * 检查 license 端点是否包含 game_minecraft 项。
+     * 检查 license 端点是否包含 Minecraft Java / Game Pass 相关项。
      * 比 mcstore 更全面：mcstore 对 Game Pass 用户可能返回空，
      * 而 license 端点会包含订阅状态。
+     * <p>
+     * 网络/HTTP/解析失败抛 IOException（不再误判为「未购买」）。
      */
     public boolean checkLicense(String mcAccessToken) throws IOException {
+        String requestId = UUID.randomUUID().toString();
+        String licenseUrl = MC_LICENSE_URL + "?requestId=" + requestId;
         String json;
         try {
             Request req = new Request.Builder()
-                    .url(MC_LICENSE_URL)
+                    .url(licenseUrl)
                     .header("Authorization", "Bearer " + mcAccessToken)
                     .get().build();
             try (Response resp = http.newCall(req).execute()) {
-                if (!resp.isSuccessful()) return false;
+                if (!resp.isSuccessful()) {
+                    throw new IOException("entitlements/license HTTP " + resp.code());
+                }
                 json = resp.body() != null ? resp.body().string() : "";
             }
         } catch (IOException e) {
             if (CurlFallback.isSslHandshakeFailure(e) && CurlFallback.isAvailable()) {
                 List<String> headers = new ArrayList<>();
                 headers.add("Authorization: Bearer " + mcAccessToken);
-                byte[] bytes = CurlFallback.getBytes(MC_LICENSE_URL, "GET", headers);
+                byte[] bytes = CurlFallback.getBytes(licenseUrl, "GET", headers);
                 json = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
             } else {
                 throw e;
             }
         }
         try {
-            JsonObject o = JsonParser.parseString(json).getAsJsonObject();
-            if (o.has("items") && o.get("items").isJsonArray()) {
-                for (JsonElement item : o.getAsJsonArray("items")) {
-                    JsonObject it = item.getAsJsonObject();
-                    String name = safeStr(it, "name");
-                    if ("game_minecraft".equals(name)) return true;
-                }
-            }
-            return false;
-        } catch (Throwable t) {
-            return false;
+            return entitlementsContainMinecraft(json);
+        } catch (RuntimeException t) {
+            throw new IOException("解析 license 响应失败: " + t.getMessage(), t);
         }
+    }
+
+    /** license / mcstore JSON 中是否含 Minecraft Java 或 Game Pass 产品项 */
+    private static boolean entitlementsContainMinecraft(String json) {
+        JsonObject o = JsonParser.parseString(json).getAsJsonObject();
+        if (!o.has("items") || !o.get("items").isJsonArray()) return false;
+        for (JsonElement item : o.getAsJsonArray("items")) {
+            if (!item.isJsonObject()) continue;
+            String name = safeStr(item.getAsJsonObject(), "name");
+            if (name.isEmpty()) continue;
+            if ("game_minecraft".equals(name)
+                    || "product_minecraft".equals(name)
+                    || "product_minecraft_java".equals(name)
+                    || name.startsWith("product_game_pass")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -494,15 +513,17 @@ public final class MicrosoftAuthFlow {
     public Account loginViaBrowser(Consumer<String> onStatus,
                                     Consumer<String> openBrowser) throws IOException {
         onStatus.accept("准备登录…");
-        try (OAuthCallbackServer server = new OAuthCallbackServer()) {
+        String oauthState = java.util.UUID.randomUUID().toString().replace("-", "");
+        try (OAuthCallbackServer server = new OAuthCallbackServer(oauthState)) {
             String redirectUri = server.getRedirectUri();
 
-            // 构造授权 URL（v2.0 端点）
+            // 构造授权 URL（v2.0 端点）+ state 防 CSRF
             String authUrl = V2_AUTHORIZE_URL + "?" +
                     "client_id=" + clientId +
                     "&response_type=code" +
                     "&redirect_uri=" + java.net.URLEncoder.encode(redirectUri, "UTF-8") +
                     "&scope=" + java.net.URLEncoder.encode(V2_SCOPE, "UTF-8") +
+                    "&state=" + java.net.URLEncoder.encode(oauthState, "UTF-8") +
                     "&prompt=login";  // 强制重新登录，避免缓存的账号干扰
 
             onStatus.accept("打开浏览器登录…");

@@ -29,6 +29,15 @@ import com.pmcl.core.gamecontent.ResourcePackManager
 import com.pmcl.core.i18n.I18n
 import com.pmcl.ui.animation.StaggeredAppear
 import com.pmcl.ui.viewmodel.LauncherViewModel
+import com.pmcl.ui.viewmodel.batchDeleteResourcePacks
+import com.pmcl.ui.viewmodel.batchDisableResourcePacks
+import com.pmcl.ui.viewmodel.batchEnableResourcePacks
+import com.pmcl.ui.viewmodel.deleteResourcePack
+import com.pmcl.ui.viewmodel.disableResourcePack
+import com.pmcl.ui.viewmodel.enableResourcePack
+import com.pmcl.ui.viewmodel.importResourcePack
+import com.pmcl.ui.viewmodel.openResourcePacksDir
+import com.pmcl.ui.viewmodel.refreshResourcePacks
 import java.awt.FileDialog
 import java.awt.Frame
 import java.io.FilenameFilter

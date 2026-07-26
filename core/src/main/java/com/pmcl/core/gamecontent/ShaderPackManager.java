@@ -128,7 +128,8 @@ public final class ShaderPackManager {
     }
 
     public void delete(ShaderPack pack) throws IOException {
-        Files.deleteIfExists(pack.getPath());
+        Path target = ResourcePackManager.assertUnderNamedParent(pack.getPath(), "shaderpacks");
+        Files.deleteIfExists(target);
     }
 
     /**

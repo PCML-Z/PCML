@@ -79,7 +79,7 @@ public final class ConnectXManager {
      * @param onOutput    输出回调（可空）
      * @return 连接成功后完成的 Future
      */
-    public CompletableFuture<Void> start(String binaryPath, String serverAddr, int serverPort,
+    public synchronized CompletableFuture<Void> start(String binaryPath, String serverAddr, int serverPort,
                                           Consumer<String> onOutput) {
         if (isRunning()) {
             return CompletableFuture.failedFuture(new IllegalStateException("ConnectX 已在运行"));
@@ -91,67 +91,84 @@ public final class ConnectXManager {
         if (!Files.exists(bin)) {
             return CompletableFuture.failedFuture(new IllegalStateException("ConnectX 二进制不存在：" + binaryPath));
         }
+        try {
+            com.pmcl.core.util.NativeBinaryPermissions.prepareDownloadedBinary(bin);
+        } catch (IOException e) {
+            return CompletableFuture.failedFuture(
+                    new IllegalStateException("ConnectX 二进制权限加固失败：" + e.getMessage(), e));
+        }
 
         return CompletableFuture.supplyAsync(() -> {
-            try {
-                Files.createDirectories(workDir);
-                // 写入 appsettings.json
-                writeAppSettings(serverAddr, serverPort);
-
-                // 启动进程
-                ProcessBuilder pb = new ProcessBuilder(bin.toString())
-                        .directory(workDir.toFile())
-                        .redirectErrorStream(true);
-                process = pb.start();
-                stdin = new BufferedWriter(new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8));
-
-                // 异步读取输出
-                final CompletableFuture<Void> connectedFuture = new CompletableFuture<>();
-                final Process procForThread = process;
-                outputThread = new Thread(() -> {
-                    try (BufferedReader reader = new BufferedReader(
-                            new InputStreamReader(procForThread.getInputStream(), StandardCharsets.UTF_8))) {
-                        String line;
-                        while ((line = reader.readLine()) != null) {
-                            if (onOutput != null) {
-                                try { onOutput.accept(line); } catch (Throwable ignored) {}
-                            }
-                            parseOutputLine(line, connectedFuture);
-                        }
-                    } catch (IOException e) {
-                        // 进程输出读取线程异常退出，记录但不中断
-                        System.err.println("[ConnectX] Output reader error: " + e.getMessage());
-                    }
-                    // 进程结束
-                    serverConnected.set(false);
-                    if (!connectedFuture.isDone()) {
-                        connectedFuture.completeExceptionally(
-                                new RuntimeException("ConnectX 进程已退出"));
-                    }
-                }, "connectx-output");
-                outputThread.setDaemon(true);
-                outputThread.start();
-
-                // 等待服务器连接（最多 30 秒）
+            synchronized (ConnectXManager.this) {
+                if (process != null && process.isAlive()) {
+                    throw new RuntimeException("ConnectX 已在运行");
+                }
                 try {
-                    connectedFuture.get(30, java.util.concurrent.TimeUnit.SECONDS);
-                } catch (java.util.concurrent.TimeoutException e) {
+                    Files.createDirectories(workDir);
+                    // 写入 appsettings.json
+                    writeAppSettings(serverAddr, serverPort);
+
+                    // 启动进程
+                    ProcessBuilder pb = new ProcessBuilder(bin.toString())
+                            .directory(workDir.toFile())
+                            .redirectErrorStream(true);
+                    process = pb.start();
+                    stdin = new BufferedWriter(new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8));
+
+                    // 异步读取输出
+                    final CompletableFuture<Void> connectedFuture = new CompletableFuture<>();
+                    final Process procForThread = process;
+                    outputThread = new Thread(() -> {
+                        try (BufferedReader reader = new BufferedReader(
+                                new InputStreamReader(procForThread.getInputStream(), StandardCharsets.UTF_8))) {
+                            String line;
+                            while ((line = reader.readLine()) != null) {
+                                if (onOutput != null) {
+                                    try { onOutput.accept(line); } catch (Throwable ignored) {}
+                                }
+                                parseOutputLine(line, connectedFuture);
+                            }
+                        } catch (IOException e) {
+                            // 进程输出读取线程异常退出，记录但不中断
+                            System.err.println("[ConnectX] Output reader error: " + e.getMessage());
+                        }
+                        // 进程结束
+                        serverConnected.set(false);
+                        if (!connectedFuture.isDone()) {
+                            connectedFuture.completeExceptionally(
+                                    new RuntimeException("ConnectX 进程已退出"));
+                        }
+                    }, "connectx-output");
+                    outputThread.setDaemon(true);
+                    outputThread.start();
+
+                    // 等待服务器连接（最多 30 秒）——在锁外等待会阻塞其他 stop/start，故先释放锁再等
+                } catch (Exception e) {
                     stop();
-                    throw new RuntimeException("连接 ConnectX 服务器超时（30秒）");
-                } catch (java.util.concurrent.ExecutionException e) {
+                    throw new RuntimeException("启动 ConnectX 失败：" + e.getMessage(), e);
+                }
+            }
+            // 进程已启动：锁外轮询 serverConnected，避免长时间占锁阻塞 stop()
+            long deadline = System.currentTimeMillis() + 30_000L;
+            while (System.currentTimeMillis() < deadline) {
+                if (serverConnected.get()) {
+                    return (Void) null;
+                }
+                Process p = process;
+                if (p == null || !p.isAlive()) {
                     stop();
-                    throw new RuntimeException("连接 ConnectX 服务器失败：" +
-                            (e.getCause() != null ? e.getCause().getMessage() : e.getMessage()));
+                    throw new RuntimeException("ConnectX 进程已退出");
+                }
+                try {
+                    Thread.sleep(100);
                 } catch (InterruptedException e) {
                     stop();
                     Thread.currentThread().interrupt();
                     throw new RuntimeException("连接 ConnectX 服务器被中断");
                 }
-                return (Void) null;
-            } catch (Exception e) {
-                stop();
-                throw new RuntimeException("启动 ConnectX 失败：" + e.getMessage(), e);
             }
+            stop();
+            throw new RuntimeException("连接 ConnectX 服务器超时（30秒）");
         });
     }
 

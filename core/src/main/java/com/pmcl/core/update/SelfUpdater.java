@@ -94,19 +94,26 @@ public final class SelfUpdater {
             try {
                 tmp = Files.createTempFile("pmcl-update-", ".jar");
                 Files.deleteIfExists(tmp);
+                String ssrf = com.pmcl.core.util.SsrfChecker.validate(info.getUrl());
+                if (ssrf != null) {
+                    throw new IOException("更新下载 URL 被 SSRF 防护拒绝: " + ssrf);
+                }
                 downloadManager.downloadTo(info.getUrl(), tmp);
-                // M54 修复：优先校验 SHA-256（更强），回退 SHA-1（兼容旧清单）
+                // M54：优先 SHA-256，回退 SHA-1；二者皆无则拒绝安装（防供应链投毒）
                 String sha256 = info.getSha256();
+                String sha1 = info.getSha1();
                 if (sha256 != null && !sha256.isEmpty()) {
                     String actual = sha256(tmp);
                     if (!actual.equalsIgnoreCase(sha256)) {
                         throw new IOException("更新文件 SHA-256 校验失败：期望 " + sha256 + " 实际 " + actual);
                     }
-                } else if (info.getSha1() != null && !info.getSha1().isEmpty()) {
+                } else if (sha1 != null && !sha1.isEmpty()) {
                     String actual = sha1(tmp);
-                    if (!actual.equalsIgnoreCase(info.getSha1())) {
+                    if (!actual.equalsIgnoreCase(sha1)) {
                         throw new IOException("更新文件 SHA1 校验失败");
                     }
+                } else {
+                    throw new IOException("更新清单未提供 SHA-256/SHA-1，拒绝安装未校验的更新包");
                 }
                 // 复制到 ~/.pmcl/updates/pmcl-{version}.jar
                 Path updatesDir = Paths.get(System.getProperty("user.home"), ".pmcl", "updates");

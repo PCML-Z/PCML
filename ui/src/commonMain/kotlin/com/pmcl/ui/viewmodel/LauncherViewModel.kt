@@ -24,9 +24,7 @@ import com.pmcl.core.mods.ModDependencyResolver
 import com.pmcl.core.modpack.ModpackManager
 import com.pmcl.core.modpack.ModpackManager.ModpackUpdateResult
 import com.pmcl.core.modpack.ModpackManager.ModUpdate
-import com.pmcl.core.nbt.NbtReader
 import com.pmcl.core.nbt.NbtTag
-import com.pmcl.core.nbt.NbtWriter
 import com.pmcl.core.preferences.Preferences
 import com.pmcl.core.stats.PlayTimeTracker
 import com.pmcl.core.update.GitHubReleaseSyncChecker
@@ -158,10 +156,10 @@ class LauncherViewModel {
                 _pushStatusText.value = "已启用，请填写 GitHub 仓库地址"
             }
         } else {
-            // 关闭：不调用 client.close()（会销毁调度器，后续无法重启）
-            // 用户重启启动器后才会真正停止调度器
+            // stop() 取消定时任务但保留调度器，可再次 start()
+            client.stop()
             _syncActive.value = false
-            _pushStatusText.value = "已禁用（重启后生效）"
+            _pushStatusText.value = "已禁用"
         }
     }
 
@@ -209,8 +207,14 @@ class LauncherViewModel {
     fun shutdown() {
         if (shutDown) return
         shutDown = true
+        try {
+            preheatGeneration.incrementAndGet()
+            preheatJob?.cancel()
+            preheatJob = null
+            preheatedProfile = null
+        } catch (_: Throwable) {}
         try { core.multiplayer().leaveRoom() } catch (_: Throwable) {}
-        try { core.launch().killAllProcesses() } catch (_: Throwable) {}
+        try { core.launch().shutdown() } catch (_: Throwable) {}
         try {
             instanceLoggers.values.forEach { logger ->
                 try { logger?.close() } catch (_: Throwable) {}
@@ -225,7 +229,10 @@ class LauncherViewModel {
     }
 
     /** 账号持久化文件 */
-    private val accountFile = Paths.get(System.getProperty("user.home"), ".pmcl", "accounts.json")
+    @PublishedApi internal val accountFile = Paths.get(System.getProperty("user.home"), ".pmcl", "accounts.json")
+    @PublishedApi internal val accountLock = Any()
+    /** 串行化账号落盘，避免快速切换/删除时乱序覆盖 */
+    @PublishedApi internal val accountSaveMutex = kotlinx.coroutines.sync.Mutex()
 
     // ===== 版本列表 =====
     private val _versions = MutableStateFlow<List<McVersion>>(emptyList())
@@ -235,7 +242,7 @@ class LauncherViewModel {
     val localVersions: StateFlow<List<String>> = _localVersions.asStateFlow()
 
     // 本地版本详细信息（含 jar/json/inheritsFrom）
-    private val _localVersionInfos = MutableStateFlow<List<com.pmcl.core.version.VersionManager.LocalVersionInfo>>(emptyList())
+    @PublishedApi internal val _localVersionInfos = MutableStateFlow<List<com.pmcl.core.version.VersionManager.LocalVersionInfo>>(emptyList())
     val localVersionInfos: StateFlow<List<com.pmcl.core.version.VersionManager.LocalVersionInfo>> = _localVersionInfos.asStateFlow()
 
     // 固定的版本磁贴
@@ -247,11 +254,11 @@ class LauncherViewModel {
     val pinnedTileLabels: StateFlow<Map<String, String>> = _pinnedTileLabels.asStateFlow()
 
     // 最近使用（LRU，最多 5 个）
-    private val _recentVersions = MutableStateFlow<List<String>>(emptyList())
+    @PublishedApi internal val _recentVersions = MutableStateFlow<List<String>>(emptyList())
     val recentVersions: StateFlow<List<String>> = _recentVersions.asStateFlow()
 
     // 最后游玩时间戳（versionId → millis），用于磁贴/列表显示
-    private val _lastPlayedTimes = MutableStateFlow<Map<String, Long>>(emptyMap())
+    @PublishedApi internal val _lastPlayedTimes = MutableStateFlow<Map<String, Long>>(emptyMap())
     val lastPlayedTimes: StateFlow<Map<String, Long>> = _lastPlayedTimes.asStateFlow()
 
     // 扫描进度（null 表示未在扫描）
@@ -264,7 +271,7 @@ class LauncherViewModel {
     private val _loading = MutableStateFlow(false)
     val loading: StateFlow<Boolean> = _loading.asStateFlow()
 
-    private val _selectedVersion = MutableStateFlow<String?>(null)
+    @PublishedApi internal val _selectedVersion = MutableStateFlow<String?>(null)
     val selectedVersion: StateFlow<String?> = _selectedVersion.asStateFlow()
 
     // ===== 状态/账号 =====
@@ -276,11 +283,22 @@ class LauncherViewModel {
         _status.value = msg
     }
 
-    private val _account = MutableStateFlow<Account?>(null)
+    /** Companion 宿主未捕获异常时回写桌面状态栏，避免「假死」无反馈 */
+    fun setCompanionHostError(detail: String) {
+        _status.value = I18n.t("status.companion_host_error", detail)
+    }
+
+    @PublishedApi internal val _account = MutableStateFlow<Account?>(null)
     val account: StateFlow<Account?> = _account.asStateFlow()
 
-    private val _accounts = MutableStateFlow<List<Account>>(emptyList())
+    @PublishedApi internal val _accounts = MutableStateFlow<List<Account>>(emptyList())
     val accounts: StateFlow<List<Account>> = _accounts.asStateFlow()
+
+    /**
+     * 单次启动账户覆盖（实例绑定账户）：不改动全局选中账号，
+     * 在 launch() finally 中清除。
+     */
+    @PublishedApi @Volatile internal var _launchAccountOverride: Account? = null
 
     // ===== 安装进度 =====
     private val _installProgress = MutableStateFlow<InstallProgress?>(null)
@@ -293,44 +311,43 @@ class LauncherViewModel {
     private val _modLoaderVersions = MutableStateFlow<List<ModLoaderVersion>>(emptyList())
     val modLoaderVersions: StateFlow<List<ModLoaderVersion>> = _modLoaderVersions.asStateFlow()
 
-    // ===== 模组市场 =====
-    private val _marketResults = MutableStateFlow<List<ModProject>>(emptyList())
+    // ===== 模组市场 / 已安装 =====
+    // M29：方法见 LauncherViewModelMods.kt
+    @PublishedApi internal val _marketResults = MutableStateFlow<List<ModProject>>(emptyList())
     val marketResults: StateFlow<List<ModProject>> = _marketResults.asStateFlow()
 
-    private val _currentModFiles = MutableStateFlow<List<ModFile>>(emptyList())
+    @PublishedApi internal val _currentModFiles = MutableStateFlow<List<ModFile>>(emptyList())
     val currentModFiles: StateFlow<List<ModFile>> = _currentModFiles.asStateFlow()
 
-    private val _marketLoading = MutableStateFlow(false)
+    @PublishedApi internal val _marketLoading = MutableStateFlow(false)
     val marketLoading: StateFlow<Boolean> = _marketLoading.asStateFlow()
 
-    // 热门推荐（按下载量排序，进入页面时自动加载）
-    private val _popularMods = MutableStateFlow<List<ModProject>>(emptyList())
+    @PublishedApi internal val _popularMods = MutableStateFlow<List<ModProject>>(emptyList())
     val popularMods: StateFlow<List<ModProject>> = _popularMods.asStateFlow()
 
-    private val _popularLoading = MutableStateFlow(false)
+    @PublishedApi internal val _popularLoading = MutableStateFlow(false)
     val popularLoading: StateFlow<Boolean> = _popularLoading.asStateFlow()
 
-    // 分类推荐（用户选择分类标签后加载该分类下的热门项目）
-    private val _categoryResults = MutableStateFlow<List<ModProject>>(emptyList())
+    @PublishedApi internal val _categoryResults = MutableStateFlow<List<ModProject>>(emptyList())
     val categoryResults: StateFlow<List<ModProject>> = _categoryResults.asStateFlow()
 
-    private val _categoryLoading = MutableStateFlow(false)
+    @PublishedApi internal val _categoryLoading = MutableStateFlow(false)
     val categoryLoading: StateFlow<Boolean> = _categoryLoading.asStateFlow()
 
-    // 当前选中的分类 slug（空字符串表示未选择，显示热门推荐）
-    private val _selectedCategory = MutableStateFlow("")
+    @PublishedApi internal val _selectedCategory = MutableStateFlow("")
     val selectedCategory: StateFlow<String> = _selectedCategory.asStateFlow()
 
-    // 点击卡片进入的详情项目（null 表示未选中，显示热门网格）
-    private val _detailProject = MutableStateFlow<ModProject?>(null)
+    @PublishedApi internal val _detailProject = MutableStateFlow<ModProject?>(null)
     val detailProject: StateFlow<ModProject?> = _detailProject.asStateFlow()
 
-    // ===== 已安装 mod 列表 + 冲突检测 =====
-    private val _installedMods = MutableStateFlow<List<ModMeta>>(emptyList())
+    @PublishedApi internal val _installedMods = MutableStateFlow<List<ModMeta>>(emptyList())
     val installedMods: StateFlow<List<ModMeta>> = _installedMods.asStateFlow()
 
-    private val _modConflicts = MutableStateFlow<ModConflictChecker.Result?>(null)
+    @PublishedApi internal val _modConflicts = MutableStateFlow<ModConflictChecker.Result?>(null)
     val modConflicts: StateFlow<ModConflictChecker.Result?> = _modConflicts.asStateFlow()
+
+    @PublishedApi internal val _allModTags = MutableStateFlow<List<String>>(emptyList())
+    val allModTags: StateFlow<List<String>> = _allModTags.asStateFlow()
 
     // ===== 整合包管理 =====
     private val _modpacks = MutableStateFlow<List<ModpackManager.InstalledModpack>>(emptyList())
@@ -349,32 +366,34 @@ class LauncherViewModel {
     val modpackUpdateChecking: StateFlow<Boolean> = _modpackUpdateChecking.asStateFlow()
 
     // ===== NBT 编辑器 =====
-    private val _nbtRoot = MutableStateFlow<NbtTag?>(null)
+    // M29 拆分：NBT 域方法已移至 LauncherViewModelNbt.kt（扩展函数）。
+    // 此处状态标 @PublishedApi internal 以便同模块扩展函数访问，公共只读视图保持不变。
+    @PublishedApi internal val _nbtRoot = MutableStateFlow<NbtTag?>(null)
     val nbtRoot: StateFlow<NbtTag?> = _nbtRoot.asStateFlow()
-    private val _nbtFilePath = MutableStateFlow<String?>(null)
+    @PublishedApi internal val _nbtFilePath = MutableStateFlow<String?>(null)
     val nbtFilePath: StateFlow<String?> = _nbtFilePath.asStateFlow()
-    private val _nbtDirty = MutableStateFlow(false)
+    @PublishedApi internal val _nbtDirty = MutableStateFlow(false)
     val nbtDirty: StateFlow<Boolean> = _nbtDirty.asStateFlow()
-    private val _nbtError = MutableStateFlow<String?>(null)
+    @PublishedApi internal val _nbtError = MutableStateFlow<String?>(null)
     val nbtError: StateFlow<String?> = _nbtError.asStateFlow()
     /** 修订计数器：每次树结构修改时递增，强制 Compose 重组（解决同引用 StateFlow 不刷新问题） */
-    private val _nbtRevision = MutableStateFlow(0)
+    @PublishedApi internal val _nbtRevision = MutableStateFlow(0)
     val nbtRevision: StateFlow<Int> = _nbtRevision.asStateFlow()
     /** 打开时检测到的压缩方式；保存时保持一致（默认 gzip，与 level.dat 一致） */
-    private val _nbtGzipped = MutableStateFlow(true)
+    @PublishedApi internal val _nbtGzipped = MutableStateFlow(true)
     val nbtGzipped: StateFlow<Boolean> = _nbtGzipped.asStateFlow()
-    private val nbtUndoStack = ArrayDeque<NbtTag>()
-    private val nbtRedoStack = ArrayDeque<NbtTag>()
-    private val _nbtCanUndo = MutableStateFlow(false)
+    @PublishedApi internal val nbtUndoStack = ArrayDeque<NbtTag>()
+    @PublishedApi internal val nbtRedoStack = ArrayDeque<NbtTag>()
+    @PublishedApi internal val _nbtCanUndo = MutableStateFlow(false)
     val nbtCanUndo: StateFlow<Boolean> = _nbtCanUndo.asStateFlow()
-    private val _nbtCanRedo = MutableStateFlow(false)
+    @PublishedApi internal val _nbtCanRedo = MutableStateFlow(false)
     val nbtCanRedo: StateFlow<Boolean> = _nbtCanRedo.asStateFlow()
-    private val _nbtHasClipboard = MutableStateFlow(false)
+    @PublishedApi internal val _nbtHasClipboard = MutableStateFlow(false)
     val nbtHasClipboard: StateFlow<Boolean> = _nbtHasClipboard.asStateFlow()
-    private var nbtClipboard: Pair<String, NbtTag>? = null
-    private val _recentNbtFiles = MutableStateFlow(core.preferences.recentNbtFiles)
+    @PublishedApi internal var nbtClipboard: Pair<String, NbtTag>? = null
+    @PublishedApi internal val _recentNbtFiles = MutableStateFlow(core.preferences.recentNbtFiles)
     val recentNbtFiles: StateFlow<List<String>> = _recentNbtFiles.asStateFlow()
-    private val nbtMaxUndo = 40
+    @PublishedApi internal val nbtMaxUndo = 40
 
     // ===== 下载队列 =====
     private val _queueTasks = MutableStateFlow<List<DownloadQueueManager.QueueTask>>(emptyList())
@@ -402,36 +421,38 @@ class LauncherViewModel {
     private val flyIdCounter = java.util.concurrent.atomic.AtomicLong(0)
 
     // ===== 配置文件编辑器 =====
-    private val _configFiles = MutableStateFlow<List<ConfigFileManager.ConfigFileEntry>>(emptyList())
+    // M29：方法见 LauncherViewModelConfig.kt
+    @PublishedApi internal val _configFiles = MutableStateFlow<List<ConfigFileManager.ConfigFileEntry>>(emptyList())
     val configFiles: StateFlow<List<ConfigFileManager.ConfigFileEntry>> = _configFiles.asStateFlow()
 
-    private val _configFileContent = MutableStateFlow<String?>(null)
+    @PublishedApi internal val _configFileContent = MutableStateFlow<String?>(null)
     val configFileContent: StateFlow<String?> = _configFileContent.asStateFlow()
 
-    private val _configFileDirty = MutableStateFlow(false)
+    @PublishedApi internal val _configFileDirty = MutableStateFlow(false)
     val configFileDirty: StateFlow<Boolean> = _configFileDirty.asStateFlow()
 
-    private val _currentConfigPath = MutableStateFlow<String?>(null)
+    @PublishedApi internal val _currentConfigPath = MutableStateFlow<String?>(null)
     val currentConfigPath: StateFlow<String?> = _currentConfigPath.asStateFlow()
 
-    private val _configCurrentDir = MutableStateFlow("")
+    @PublishedApi internal val _configCurrentDir = MutableStateFlow("")
     val configCurrentDir: StateFlow<String> = _configCurrentDir.asStateFlow()
 
     // ===== 模组更新检测 =====
-    private val _modUpdates = MutableStateFlow<List<ModUpdateChecker.UpdateInfo>>(emptyList())
+    // M29：方法见 LauncherViewModelModUpdates.kt
+    @PublishedApi internal val _modUpdates = MutableStateFlow<List<ModUpdateChecker.UpdateInfo>>(emptyList())
     val modUpdates: StateFlow<List<ModUpdateChecker.UpdateInfo>> = _modUpdates.asStateFlow()
 
-    private val _checkingUpdates = MutableStateFlow(false)
+    @PublishedApi internal val _checkingUpdates = MutableStateFlow(false)
     val checkingUpdates: StateFlow<Boolean> = _checkingUpdates.asStateFlow()
 
-    private val _updateCheckProgress = MutableStateFlow<Pair<Int, Int>>(0 to 0)
+    @PublishedApi internal val _updateCheckProgress = MutableStateFlow<Pair<Int, Int>>(0 to 0)
     val updateCheckProgress: StateFlow<Pair<Int, Int>> = _updateCheckProgress.asStateFlow()
 
-    private val _updatingMod = MutableStateFlow(false)
+    @PublishedApi internal val _updatingMod = MutableStateFlow(false)
     val updatingMod: StateFlow<Boolean> = _updatingMod.asStateFlow()
 
     /** 更新检测用的 gameVersion（从当前选中版本推断） */
-    private val _updateGameVersion = MutableStateFlow("")
+    @PublishedApi internal val _updateGameVersion = MutableStateFlow("")
     val updateGameVersion: StateFlow<String> = _updateGameVersion.asStateFlow()
 
     // ===== 性能 HUD 浮窗 =====
@@ -549,10 +570,10 @@ class LauncherViewModel {
     }
 
     // ===== 模组依赖安装 =====
-    private val _installingDeps = MutableStateFlow(false)
+    @PublishedApi internal val _installingDeps = MutableStateFlow(false)
     val installingDeps: StateFlow<Boolean> = _installingDeps.asStateFlow()
 
-    private val _depInstallResult = MutableStateFlow<ModDependencyResolver.DependencyResult?>(null)
+    @PublishedApi internal val _depInstallResult = MutableStateFlow<ModDependencyResolver.DependencyResult?>(null)
     val depInstallResult: StateFlow<ModDependencyResolver.DependencyResult?> = _depInstallResult.asStateFlow()
 
     // ===== 拖放安装 =====
@@ -796,25 +817,60 @@ class LauncherViewModel {
     private val _records = MutableStateFlow<PlayTimeTracker.RecordsStat?>(null)
     val records: StateFlow<PlayTimeTracker.RecordsStat?> = _records.asStateFlow()
 
-    // ===== 微软登录 =====
-    private val _deviceCode = MutableStateFlow<DeviceCode?>(null)
+
+    // ============ 游戏时长统计 ============
+
+    /** 刷新统计数据（进入统计页时调用） */
+    fun refreshPlayTimeStats() {
+        try {
+            val days = _statsDays.value
+            val tracker = core.playTimeTracker()
+            _playTimeStats.value = tracker.getOverallStats(days)
+            _dailyStats.value = tracker.getDailyStatsWithZeros(days)
+            _heatmap.value = tracker.getHeatmap(days)
+            _weekdayDist.value = tracker.getWeekdayDistribution(days)
+            _records.value = tracker.getRecords()
+        } catch (e: Throwable) {
+            // 避免 NoClassDefFoundError / 数据损坏时弹出 Compose 致命 Error 对话框
+            System.err.println("[PlayTime] 刷新统计失败: ${e.javaClass.simpleName}: ${e.message}")
+            e.printStackTrace()
+            _status.value = "统计数据加载失败: ${e.message ?: e.javaClass.simpleName}"
+        }
+    }
+
+    /** 设置统计展示天数（7/14/30）并刷新 */
+    fun setStatsDays(days: Int) {
+        _statsDays.value = days
+        refreshPlayTimeStats()
+    }
+
+
+
+    // ===== 微软登录（M29 Accounts 扩展访问） =====
+    @PublishedApi internal val _deviceCode = MutableStateFlow<DeviceCode?>(null)
     val deviceCode: StateFlow<DeviceCode?> = _deviceCode.asStateFlow()
 
-    private val _loggingIn = MutableStateFlow(false)
+    @PublishedApi internal val _loggingIn = MutableStateFlow(false)
     val loggingIn: StateFlow<Boolean> = _loggingIn.asStateFlow()
 
-    // ===== 启动日志 =====
+    /** 皮肤管理器实例（懒加载，Accounts 扩展使用） */
+    @PublishedApi internal val skinManager: com.pmcl.core.auth.SkinManager by lazy { com.pmcl.core.auth.SkinManager() }
+
+
+    // ===== 启动日志（M29 Launch 扩展访问） =====
     /** 游戏日志条目（携带单调递增 seq 作为 Compose 列表稳定 key） */
     data class GameLogEntry(val seq: Long, val text: String)
-    private val gameLogSeq = java.util.concurrent.atomic.AtomicLong(0)
-    private val _gameLogs = MutableStateFlow<List<GameLogEntry>>(emptyList())
+    @PublishedApi internal val gameLogSeq = java.util.concurrent.atomic.AtomicLong(0)
+    @PublishedApi internal val _gameLogs = MutableStateFlow<List<GameLogEntry>>(emptyList())
     val gameLogs: StateFlow<List<GameLogEntry>> = _gameLogs.asStateFlow()
     /** 追加一条游戏日志（线程安全，自动裁剪到 2000 条） */
-    private fun appendGameLog(text: String) {
+    @PublishedApi
+    internal fun appendGameLog(text: String) {
         _gameLogs.update { old -> (old + GameLogEntry(gameLogSeq.incrementAndGet(), text)).takeLast(2000) }
     }
     /** 替换全部游戏日志（切换实例/版本时使用） */
-    private fun setGameLogs(texts: List<String>) {
+    @PublishedApi
+    internal fun setGameLogs(texts: List<String>) {
         _gameLogs.value = texts.map { GameLogEntry(gameLogSeq.incrementAndGet(), it) }
     }
 
@@ -824,10 +880,13 @@ class LauncherViewModel {
     private val _shareUrl = MutableStateFlow<String?>(null)
     val shareUrl: StateFlow<String?> = _shareUrl.asStateFlow()
 
-    private val _gameRunning = MutableStateFlow(false)
+    @PublishedApi internal val _gameRunning = MutableStateFlow(false)
     val gameRunning: StateFlow<Boolean> = _gameRunning.asStateFlow()
 
-    // ===== 多实例启动 =====
+    /** 启动准备互斥：防双击并行构建两套 profile；进程已启动后释放以允许多开 */
+    @PublishedApi internal val launchPreparing = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    // ===== 多实例启动（M29 Launch 扩展访问） =====
     data class RunningInstance(
         val id: String,
         val versionId: String,
@@ -835,20 +894,24 @@ class LauncherViewModel {
         val startTime: Long,
         val active: Boolean = false
     )
-    private val _runningInstances = MutableStateFlow<List<RunningInstance>>(emptyList())
+    @PublishedApi internal val _runningInstances = MutableStateFlow<List<RunningInstance>>(emptyList())
     val runningInstances: StateFlow<List<RunningInstance>> = _runningInstances.asStateFlow()
     // 使用 ConcurrentHashMap 避免多实例并发启动/退出时 put/remove/迭代 导致 ConcurrentModificationException
     // 内层 MutableList 仍用 synchronized(logs) 保护（见日志回调处）
-    private val instanceLogs = java.util.concurrent.ConcurrentHashMap<String, MutableList<String>>()
-    private val instanceLoggers = java.util.concurrent.ConcurrentHashMap<String, GameLogger?>()
+    @PublishedApi internal val instanceLogs = java.util.concurrent.ConcurrentHashMap<String, MutableList<String>>()
+    @PublishedApi internal val instanceLoggers = java.util.concurrent.ConcurrentHashMap<String, GameLogger?>()
 
-    // ===== 预判启动 =====
+    // ===== 预判启动（M29 Launch 扩展访问） =====
     // 预热策略：不启动 MC 进程（会弹窗口），而是预构建 LaunchProfile + 预热 JVM 页缓存
     // 用户点击启动时，若版本匹配则复用预存的 profile 跳过 build() 阶段
-    @Volatile private var preheatedProfile: com.pmcl.core.launch.LaunchProfile? = null
-    @Volatile private var preheatedJavaExe: String = ""
-    @Volatile private var preheatedVersionId: String = ""
-    private val _predictiveState = MutableStateFlow<PredictiveState>(PredictiveState.Idle)
+    @PublishedApi @Volatile internal var preheatedProfile: com.pmcl.core.launch.LaunchProfile? = null
+    @PublishedApi @Volatile internal var preheatedJavaExe: String = ""
+    @PublishedApi @Volatile internal var preheatedVersionId: String = ""
+    /** 预热协程句柄：离开启动页时取消，避免晚到写入覆盖 */
+    @PublishedApi @Volatile internal var preheatJob: kotlinx.coroutines.Job? = null
+    /** 预热代数：cancel / 新一轮预热时递增，完成写入前校验 */
+    @PublishedApi internal val preheatGeneration = java.util.concurrent.atomic.AtomicInteger(0)
+    @PublishedApi internal val _predictiveState = MutableStateFlow<PredictiveState>(PredictiveState.Idle)
     val predictiveState: StateFlow<PredictiveState> = _predictiveState.asStateFlow()
 
     /** 预判启动 UI 状态 */
@@ -873,9 +936,9 @@ class LauncherViewModel {
         val description: String,
         val action: () -> Unit
     )
-    private val _compatOptions = MutableStateFlow<List<CompatOption>>(emptyList())
+    @PublishedApi internal val _compatOptions = MutableStateFlow<List<CompatOption>>(emptyList())
     val compatOptions: StateFlow<List<CompatOption>> = _compatOptions.asStateFlow()
-    private val _compatTitle = MutableStateFlow("")
+    @PublishedApi internal val _compatTitle = MutableStateFlow("")
     val compatTitle: StateFlow<String> = _compatTitle.asStateFlow()
     fun dismissCompatOptions() { _compatOptions.value = emptyList() }
 
@@ -890,27 +953,30 @@ class LauncherViewModel {
     private val _launchPresets = MutableStateFlow<List<Preferences.LaunchPreset>>(emptyList())
     val launchPresets: StateFlow<List<Preferences.LaunchPreset>> = _launchPresets.asStateFlow()
 
-    // ===== 世界 / 截图 / 资源包 =====
-    private val _worlds = MutableStateFlow<List<WorldManager.WorldInfo>>(emptyList())
+    // ===== 世界 / 截图 / 资源包 / 光影 / 数据包（M29 Content 扩展访问） =====
+    @PublishedApi internal val _worlds = MutableStateFlow<List<WorldManager.WorldInfo>>(emptyList())
     val worlds: StateFlow<List<WorldManager.WorldInfo>> = _worlds.asStateFlow()
 
-    private val _screenshots = MutableStateFlow<List<ScreenshotManager.Screenshot>>(emptyList())
+    @PublishedApi internal val _screenshots = MutableStateFlow<List<ScreenshotManager.Screenshot>>(emptyList())
     val screenshots: StateFlow<List<ScreenshotManager.Screenshot>> = _screenshots.asStateFlow()
 
-    private val _resourcePacks = MutableStateFlow<List<ResourcePackManager.Pack>>(emptyList())
+    @PublishedApi internal val _resourcePacks = MutableStateFlow<List<ResourcePackManager.Pack>>(emptyList())
     val resourcePacks: StateFlow<List<ResourcePackManager.Pack>> = _resourcePacks.asStateFlow()
 
-    private val _shaderPacks = MutableStateFlow<List<ShaderPackManager.ShaderPack>>(emptyList())
+    @PublishedApi internal val _shaderPacks = MutableStateFlow<List<ShaderPackManager.ShaderPack>>(emptyList())
     val shaderPacks: StateFlow<List<ShaderPackManager.ShaderPack>> = _shaderPacks.asStateFlow()
 
-    private val _datapacks = MutableStateFlow<List<DatapackManager.Datapack>>(emptyList())
+    @PublishedApi internal val _datapacks = MutableStateFlow<List<DatapackManager.Datapack>>(emptyList())
     val datapacks: StateFlow<List<DatapackManager.Datapack>> = _datapacks.asStateFlow()
+
+    @PublishedApi internal val _selectedDatapackWorld = MutableStateFlow<WorldManager.WorldInfo?>(null)
+    val selectedDatapackWorld: StateFlow<WorldManager.WorldInfo?> = _selectedDatapackWorld.asStateFlow()
 
     // ===== 完整性校验 / 崩溃分析 =====
     private val _integrityResult = MutableStateFlow<IntegrityChecker.Result?>(null)
     val integrityResult: StateFlow<IntegrityChecker.Result?> = _integrityResult.asStateFlow()
 
-    private val _crashReports = MutableStateFlow<List<CrashAnalyzer.CrashReport>>(emptyList())
+    @PublishedApi internal val _crashReports = MutableStateFlow<List<CrashAnalyzer.CrashReport>>(emptyList())
     val crashReports: StateFlow<List<CrashAnalyzer.CrashReport>> = _crashReports.asStateFlow()
 
     /** 游戏异常退出事件（null 表示无崩溃，UI 监听此流弹出崩溃窗口） */
@@ -920,7 +986,7 @@ class LauncherViewModel {
         val recentLogs: List<String>,              // 最近日志片段
         val versionId: String
     )
-    private val _crashEvent = MutableStateFlow<CrashEvent?>(null)
+    @PublishedApi internal val _crashEvent = MutableStateFlow<CrashEvent?>(null)
     val crashEvent: StateFlow<CrashEvent?> = _crashEvent.asStateFlow()
 
     /** 清除崩溃事件（UI 关闭弹窗时调用） */
@@ -959,21 +1025,25 @@ class LauncherViewModel {
     fun clearPreInstallEvent() { _preInstallEvent.value = null }
 
     // ===== 新闻 =====
-    private val _newsItems = MutableStateFlow<List<com.pmcl.core.news.NewsItem>>(emptyList())
+    // M29：方法见 LauncherViewModelNews.kt
+    @PublishedApi internal val _newsItems = MutableStateFlow<List<com.pmcl.core.news.NewsItem>>(emptyList())
     val newsItems: StateFlow<List<com.pmcl.core.news.NewsItem>> = _newsItems.asStateFlow()
 
-    private val _newsLoading = MutableStateFlow(false)
+    @PublishedApi internal val _newsLoading = MutableStateFlow(false)
     val newsLoading: StateFlow<Boolean> = _newsLoading.asStateFlow()
 
     // 新闻文章详情
-    private val _articleContent = MutableStateFlow<com.pmcl.core.news.ArticleContent?>(null)
+    @PublishedApi internal val _articleContent = MutableStateFlow<com.pmcl.core.news.ArticleContent?>(null)
     val articleContent: StateFlow<com.pmcl.core.news.ArticleContent?> = _articleContent.asStateFlow()
 
-    private val _articleLoading = MutableStateFlow(false)
+    @PublishedApi internal val _articleLoading = MutableStateFlow(false)
     val articleLoading: StateFlow<Boolean> = _articleLoading.asStateFlow()
 
-    private val _articleError = MutableStateFlow("")
+    @PublishedApi internal val _articleError = MutableStateFlow("")
     val articleError: StateFlow<String> = _articleError.asStateFlow()
+
+    /** 封面图抓取任务（刷新新闻时取消旧任务） */
+    @PublishedApi internal var newsImageJob: Job? = null
 
     // ===== 翻译缓存（key = 原文，value = 译文）=====
     private val _translationCache = MutableStateFlow<Map<String, String>>(emptyMap())
@@ -985,26 +1055,66 @@ class LauncherViewModel {
     private val translateCounter = java.util.concurrent.atomic.AtomicInteger(0)
 
     // ===== 多人联机 =====
-    private val _mpState = MutableStateFlow<com.pmcl.core.multiplayer.MultiplayerManager.State>(
+    // M29：方法见 LauncherViewModelMultiplayer.kt
+    @PublishedApi internal val _mpState = MutableStateFlow<com.pmcl.core.multiplayer.MultiplayerManager.State>(
         com.pmcl.core.multiplayer.MultiplayerManager.State.IDLE
     )
     val mpState: StateFlow<com.pmcl.core.multiplayer.MultiplayerManager.State> = _mpState.asStateFlow()
 
-    private val _mpProgress = MutableStateFlow("")
+    @PublishedApi internal val _mpProgress = MutableStateFlow("")
     val mpProgress: StateFlow<String> = _mpProgress.asStateFlow()
 
-    private val _mpVirtualIp = MutableStateFlow("")
+    @PublishedApi internal val _mpVirtualIp = MutableStateFlow("")
     val mpVirtualIp: StateFlow<String> = _mpVirtualIp.asStateFlow()
 
-    private val _mpInvitation = MutableStateFlow("")
+    @PublishedApi internal val _mpInvitation = MutableStateFlow("")
     val mpInvitation: StateFlow<String> = _mpInvitation.asStateFlow()
 
     /** Terracotta 房客模式：本地 MC 连接地址（如 127.0.0.1:25565） */
-    private val _mpLocalMcAddr = MutableStateFlow("")
+    @PublishedApi internal val _mpLocalMcAddr = MutableStateFlow("")
     val mpLocalMcAddr: StateFlow<String> = _mpLocalMcAddr.asStateFlow()
 
     // 陶瓦联机错误信息（供 UI 在失败时展示）
     val mpLastError: String get() = core.multiplayer().lastError
+
+    @PublishedApi internal fun resolveMpBackend(name: String?): com.pmcl.core.multiplayer.MultiplayerManager.Backend =
+        when (name) {
+            "CONNECTX" -> com.pmcl.core.multiplayer.MultiplayerManager.Backend.CONNECTX
+            "EASYTIER" -> com.pmcl.core.multiplayer.MultiplayerManager.Backend.EASYTIER
+            else -> com.pmcl.core.multiplayer.MultiplayerManager.Backend.TERRACOTTA
+        }
+
+    @PublishedApi internal val _mpBackend = MutableStateFlow(resolveMpBackend(preferences.getMpBackend()))
+
+    /** 当前联机后端（可观察，切换后 UI 会重组） */
+    val mpBackendState: StateFlow<com.pmcl.core.multiplayer.MultiplayerManager.Backend> =
+        _mpBackend.asStateFlow()
+
+    /** 当前联机后端（同步读取） */
+    val mpBackend: com.pmcl.core.multiplayer.MultiplayerManager.Backend
+        get() = _mpBackend.value
+
+    /** 服务器列表数据项 */
+    data class FavoriteServer(val name: String, val host: String, val port: Int)
+
+    /** ping 结果：key = "host:port"，value = 延迟毫秒（-1 不可达，-2 超时） */
+    @PublishedApi internal val _serverPings = MutableStateFlow<Map<String, Long>>(emptyMap())
+    val serverPings: StateFlow<Map<String, Long>> = _serverPings.asStateFlow()
+
+    /** 服务器列表（可观察） */
+    @PublishedApi internal val _favoriteServers = MutableStateFlow<List<FavoriteServer>>(emptyList())
+    val favoriteServers: StateFlow<List<FavoriteServer>> = _favoriteServers.asStateFlow()
+
+    /** 服务器完整状态（可观察），key = "host:port" */
+    @PublishedApi internal val _serverStatuses =
+        MutableStateFlow<Map<String, com.pmcl.core.multiplayer.ServerPinger.ServerStatus>>(emptyMap())
+    val serverStatuses: StateFlow<Map<String, com.pmcl.core.multiplayer.ServerPinger.ServerStatus>> =
+        _serverStatuses.asStateFlow()
+
+    /** 正在 ping 中的服务器集合（key = "host:port"） */
+    @PublishedApi internal val _pingingServers = MutableStateFlow<Set<String>>(emptySet())
+    val pingingServers: StateFlow<Set<String>> = _pingingServers.asStateFlow()
+
 
     // ===== 首次启动 / 迁移 =====
     private val _firstLaunchCompleted = MutableStateFlow(preferences.isFirstLaunchCompleted())
@@ -1025,7 +1135,7 @@ class LauncherViewModel {
 
     /** 当前会话的 GameLogger 实例 */
     @Volatile
-    private var gameLogger: GameLogger? = null
+    @PublishedApi internal var gameLogger: GameLogger? = null
 
     val systemInfo: String
         get() = with(core.runtime()) {
@@ -1036,9 +1146,9 @@ class LauncherViewModel {
     val preferences: Preferences get() = core.getPreferences()
 
     /** mods 目录扫描缓存：key=目录路径, value=[mtime, 扫描结果] */
-    // M30 修复：用类型安全的 data class 替代 Array<Any>，避免 unchecked cast 与运行时类型错误
-    private data class ModScanCacheEntry(val dirMtime: Long, val mods: List<ModMeta>)
-    private val modScanCache = java.util.concurrent.ConcurrentHashMap<Path, ModScanCacheEntry>()
+    // M30 / M29：类型安全缓存；扩展函数需访问故 PublishedApi
+    @PublishedApi internal data class ModScanCacheEntry(val dirMtime: Long, val mods: List<ModMeta>)
+    @PublishedApi internal val modScanCache = java.util.concurrent.ConcurrentHashMap<Path, ModScanCacheEntry>()
 
     init {
         loadSavedAccount()
@@ -1061,6 +1171,7 @@ class LauncherViewModel {
                 else -> com.pmcl.core.multiplayer.MultiplayerManager.Backend.TERRACOTTA
             }
         )
+        syncConnectXConfig()
         // 启动时应用网络偏好（含 Java 全局代理系统属性，让头像/皮肤图片下载能走代理）
         core.applyNetworkPreferences()
         // 全局注册下载队列监听：悬浮队列卡片不依赖进入下载页也能刷新进度
@@ -1104,7 +1215,10 @@ class LauncherViewModel {
                     }
                     _musicPlaylist.value = list
                 }
-            } catch (_: Throwable) {}
+            } catch (t: Throwable) {
+                System.err.println("[VM] 加载音乐播放列表失败: ${t.message}")
+                _status.value = I18n.t("music.playlist_load_failed", t.message ?: I18n.t("common.unknown"))
+            }
         }
     }
 
@@ -1253,82 +1367,6 @@ class LauncherViewModel {
         _status.value = I18n.t("status.records_purged", versionId)
     }
 
-    /** 从磁盘加载已保存账号集合（多账号） */
-    private fun loadSavedAccount() {
-        scope.launch {
-            try {
-                val store = withContext(Dispatchers.IO) {
-                    core.auth().loadStore(accountFile)
-                }
-                _accounts.value = store.getAccounts()
-                val sel = store.getSelected().orElse(null)
-                _account.value = sel
-                if (sel != null) {
-                    // 基于账户 UUID 派生好友身份
-                    withContext(Dispatchers.IO) {
-                        core.friend()?.switchAccount(sel.getUuid(), sel.getUsername())
-                    }
-                    _status.value = I18n.t("status.account_loaded", sel.getUsername(), sel.getType())
-                }
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.account_load_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    /** 持久化整个 AccountStore 到磁盘 */
-    private fun saveStore(store: AccountStore) {
-        _accounts.value = store.getAccounts()
-        _account.value = store.getSelected().orElse(null)
-        // 同步当前账户到好友身份系统（基于 UUID 派生身份，切换数据集）
-        store.getSelected().ifPresent { acc ->
-            scope.launch {
-                withContext(Dispatchers.IO) {
-                    core.friend()?.switchAccount(acc.getUuid(), acc.getUsername())
-                }
-            }
-        }
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) {
-                    core.auth().saveStore(store, accountFile)
-                }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.account_save_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    /** 账号操作互斥锁：保护读-改-写操作的原子性，避免并发覆盖 */
-    private val accountLock = Any()
-
-    /** 向账号集合添加新账号（或更新已有），并设为选中 */
-    private fun upsertAccount(acc: Account) = synchronized(accountLock) {
-        val current = AccountStore(_accounts.value, _account.value?.getUuid())
-        saveStore(current.upsert(acc))
-    }
-
-    /** 切换当前选中账号 */
-    fun switchAccount(uuid: String) = synchronized(accountLock) {
-        val current = AccountStore(_accounts.value, _account.value?.getUuid())
-        saveStore(current.select(uuid))
-        _status.value = I18n.t("status.account_switched", _account.value?.getUsername() ?: "")
-    }
-
-    /** 删除指定账号 */
-    fun removeAccount(uuid: String) = synchronized(accountLock) {
-        val current = AccountStore(_accounts.value, _account.value?.getUuid())
-        saveStore(current.remove(uuid))
-        _status.value = I18n.t("status.account_removed")
-    }
-
-    /** 退出当前账号（等同于删除当前选中账号） */
-    fun logout() {
-        val cur = _account.value ?: return
-        removeAccount(cur.getUuid())
-    }
 
     fun refreshVersions() {
         scope.launch {
@@ -1336,7 +1374,7 @@ class LauncherViewModel {
             _status.value = I18n.t("status.fetching_version_manifest")
             // 先读缓存秒开
             val cached = withContext(Dispatchers.IO) {
-                DataCache.loadWithTimestamp("versions_remote", object : TypeToken<List<McVersion>>() {})
+                DataCache.loadWithTimestamp("versions_remote_v2", object : TypeToken<List<McVersion>>() {})
             }
             if (cached != null) {
                 @Suppress("UNCHECKED_CAST")
@@ -1358,7 +1396,7 @@ class LauncherViewModel {
                                 core.versions().fetchRemoteVersions().join()
                             }
                             _versions.value = list
-                            DataCache.save("versions_remote", list)
+                            DataCache.save("versions_remote_v2", list)
                             _status.value = I18n.t("status.versions_loaded", list.size)
                         } catch (_: Throwable) {
                             // 静默失败，保留缓存数据
@@ -1380,7 +1418,7 @@ class LauncherViewModel {
                 if (_selectedVersion.value == null && list.isNotEmpty()) {
                     _selectedVersion.value = list.first().getId()
                 }
-                DataCache.save("versions_remote", list)
+                DataCache.save("versions_remote_v2", list)
             } catch (e: Throwable) {
                 _status.value = I18n.t("status.fetch_failed", e.message ?: I18n.t("common.unknown"))
             } finally {
@@ -1397,147 +1435,6 @@ class LauncherViewModel {
         preferences.setLastSelectedVersion(id)
     }
 
-    fun loginOffline(username: String) {
-        if (username.isBlank()) {
-            _status.value = I18n.t("status.username_required")
-            return
-        }
-        val acc = core.auth().offline(username)
-        upsertAccount(acc)
-        // 持久化用户名，下次启动时恢复，避免每次重置为 Steve
-        preferences.setLastOfflineUsername(username)
-        _status.value = I18n.t("status.logged_in_offline", username)
-    }
-
-    /** 上次离线登录用户名（启动时恢复） */
-    fun lastOfflineUsername(): String = preferences.getLastOfflineUsername()
-
-    /** 为当前离线账号设置自定义皮肤 URL（如 Crafatar 头像 URL 或其他皮肤图） */
-    fun setOfflineSkin(skinUrl: String, skinModel: String = "classic") {
-        val current = _account.value ?: run {
-            _status.value = I18n.t("status.login_first")
-            return
-        }
-        if (current.getType() != Account.AccountType.OFFLINE) {
-            _status.value = I18n.t("status.offline_skin_microsoft_unsupported")
-            return
-        }
-        val updated = Account(
-            current.getUsername(), current.getUuid(), current.getAccessToken(),
-            current.getType(), skinUrl, skinModel
-        )
-        upsertAccount(updated)
-        _status.value = if (skinUrl.isEmpty()) I18n.t("status.skin_cleared") else I18n.t("status.skin_set")
-    }
-
-    /** 皮肤管理器实例（懒加载） */
-    private val skinManager: com.pmcl.core.auth.SkinManager by lazy { com.pmcl.core.auth.SkinManager() }
-
-    /** 上传皮肤到微软账号 */
-    fun uploadMicrosoftSkin(skinFile: java.nio.file.Path, model: String) {
-        val current = _account.value ?: run {
-            _status.value = I18n.t("status.login_first")
-            return
-        }
-        if (current.getType() != Account.AccountType.MICROSOFT) {
-            _status.value = I18n.t("status.skin_upload_microsoft_only")
-            return
-        }
-        scope.launch {
-            _status.value = I18n.t("status.skin_uploading")
-            try {
-                withContext(Dispatchers.IO) {
-                    skinManager.uploadMicrosoftSkin(current.getAccessToken(), skinFile, model)
-                }
-                _status.value = I18n.t("status.skin_uploaded")
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.skin_upload_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    /** 重置微软账号皮肤 */
-    fun resetMicrosoftSkin() {
-        val current = _account.value ?: run {
-            _status.value = I18n.t("status.login_first")
-            return
-        }
-        if (current.getType() != Account.AccountType.MICROSOFT) {
-            _status.value = I18n.t("status.skin_upload_microsoft_only")
-            return
-        }
-        scope.launch {
-            _status.value = I18n.t("status.skin_resetting")
-            try {
-                withContext(Dispatchers.IO) {
-                    skinManager.resetMicrosoftSkin(current.getAccessToken())
-                }
-                _status.value = I18n.t("status.skin_reset")
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.skin_reset_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    /** 上传皮肤到皮肤站账号 */
-    fun uploadYggdrasilSkin(skinFile: java.nio.file.Path, model: String, password: String) {
-        val current = _account.value ?: run {
-            _status.value = I18n.t("status.login_first")
-            return
-        }
-        if (current.getType() != Account.AccountType.YGGDRASIL) {
-            _status.value = I18n.t("status.skin_upload_yggdrasil_only")
-            return
-        }
-        val apiUrl = current.getAuthServerUrl()
-        if (apiUrl.isEmpty()) {
-            _status.value = I18n.t("status.skin_upload_no_api_url")
-            return
-        }
-        scope.launch {
-            _status.value = I18n.t("status.skin_uploading")
-            try {
-                val playerId = current.getUuid().replace("-", "")
-                withContext(Dispatchers.IO) {
-                    skinManager.uploadYggdrasilSkin(
-                        apiUrl, current.getUsername(), password, playerId, skinFile, model
-                    )
-                }
-                _status.value = I18n.t("status.skin_uploaded")
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.skin_upload_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    /** 重置皮肤站账号皮肤 */
-    fun resetYggdrasilSkin(password: String) {
-        val current = _account.value ?: run {
-            _status.value = I18n.t("status.login_first")
-            return
-        }
-        if (current.getType() != Account.AccountType.YGGDRASIL) {
-            _status.value = I18n.t("status.skin_upload_yggdrasil_only")
-            return
-        }
-        val apiUrl = current.getAuthServerUrl()
-        if (apiUrl.isEmpty()) {
-            _status.value = I18n.t("status.skin_upload_no_api_url")
-            return
-        }
-        scope.launch {
-            _status.value = I18n.t("status.skin_resetting")
-            try {
-                val playerId = current.getUuid().replace("-", "")
-                withContext(Dispatchers.IO) {
-                    skinManager.resetYggdrasilSkin(apiUrl, current.getUsername(), password, playerId)
-                }
-                _status.value = I18n.t("status.skin_reset")
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.skin_reset_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
 
     /**
      * 刷新壁纸取色：从桌面壁纸提取种子色，生成动态 ColorScheme。
@@ -1720,97 +1617,6 @@ class LauncherViewModel {
     /** 由 App.kt 注入的 ThemeState 引用 */
     var themeState: com.pmcl.ui.theme.ThemeState? = null
 
-    fun startMicrosoftLogin() {
-        scope.launch {
-            _loggingIn.value = true
-            try {
-                // 统一使用 device code flow：
-                // - 无需用户注册 Azure 应用 / 配置 redirect_uri
-                // - LEGACY_CLIENT_ID 即可工作
-                // - 返回的 MBI_SSL compact token 能被 Xbox Live 正确认证
-                //   （login.live.com 旧端点的授权码流程返回的 token 缺少 audience claim，
-                //    v2.0 端点返回的 JWT 需要 Azure 应用显式添加 XboxLive.signin API 权限，
-                //    对普通用户门槛过高且易出错，故统一用 device code flow）
-                _status.value = I18n.t("status.requesting_device_code")
-                val dc = withContext(Dispatchers.IO) { core.auth().requestDeviceCode() }
-                _deviceCode.value = dc
-                _status.value = I18n.t("status.open_verification_url", dc.getVerificationUri(), dc.getUserCode())
-                val account = withContext(Dispatchers.IO) {
-                    core.auth().loginMicrosoftAsync(dc) { msg -> _status.value = msg }.join()
-                }
-                _account.value = account
-                upsertAccount(account)
-                _status.value = I18n.t("status.logged_in_microsoft", account.getUsername())
-                _deviceCode.value = null
-            } catch (e: Throwable) {
-                _deviceCode.value = null
-                val msg = e.message ?: e.toString()
-                _status.value = if (msg.contains("SSL", ignoreCase = true) ||
-                    msg.contains("TLS", ignoreCase = true) ||
-                    msg.contains("handshake", ignoreCase = true) ||
-                    msg.contains("SYSCALL", ignoreCase = true) ||
-                    msg.contains("reset", ignoreCase = true) ||
-                    msg.contains("网络错误", ignoreCase = true)) {
-                    I18n.t("status.microsoft_login_failed_network", msg)
-                } else {
-                    I18n.t("status.microsoft_login_failed", msg)
-                }
-            } finally {
-                _loggingIn.value = false
-            }
-        }
-    }
-
-    /** GitHub 设备码登录 */
-    fun startGitHubLogin() {
-        scope.launch {
-            _loggingIn.value = true
-            _status.value = I18n.t("status.requesting_github_device_code")
-            try {
-                val dc = withContext(Dispatchers.IO) { core.auth().requestGitHubDeviceCode() }
-                _deviceCode.value = dc
-                _status.value = I18n.t("status.open_verification_url", dc.getVerificationUri(), dc.getUserCode())
-
-                val account = withContext(Dispatchers.IO) {
-                    core.auth().loginGitHubAsync(dc) { msg ->
-                        _status.value = msg
-                    }.join()
-                }
-                _account.value = account
-                upsertAccount(account)
-                _status.value = I18n.t("status.logged_in_github", account.getUsername())
-                _deviceCode.value = null
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.github_login_failed", e.message ?: I18n.t("common.unknown"))
-            } finally {
-                _loggingIn.value = false
-            }
-        }
-    }
-
-    /** 皮肤站（Yggdrasil / authlib-injector）登录 */
-    fun startYggdrasilLogin(apiUrl: String, username: String, password: String) {
-        if (apiUrl.isBlank() || username.isBlank() || password.isBlank()) {
-            _status.value = I18n.t("status.yggdrasil_fields_required")
-            return
-        }
-        scope.launch {
-            _loggingIn.value = true
-            _status.value = I18n.t("status.yggdrasil_logging_in")
-            try {
-                val account = withContext(Dispatchers.IO) {
-                    core.auth().yggdrasilLogin(apiUrl, username, password)
-                }
-                _account.value = account
-                upsertAccount(account)
-                _status.value = I18n.t("status.logged_in_yggdrasil", account.getUsername())
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.yggdrasil_login_failed", e.message ?: I18n.t("common.unknown"))
-            } finally {
-                _loggingIn.value = false
-            }
-        }
-    }
 
     /**
      * 触发游戏安装流程：先弹窗询问是否同时安装模组加载器，用户确认后再执行实际安装。
@@ -1917,668 +1723,10 @@ class LauncherViewModel {
         }
     }
 
-    // ============ 模组市场 ============
 
-    fun searchMods(query: String, gameVersion: String? = null, loader: String? = null,
-                   category: String? = null) {
-        scope.launch {
-            _marketLoading.value = true
-            _status.value = I18n.t("status.searching", query)
-            try {
-                val list = withContext(Dispatchers.IO) {
-                    if (category != null && category.isNotEmpty()) {
-                        core.modMarket().search(query, gameVersion, loader, category, 30).join()
-                    } else {
-                        core.modMarket().search(query, gameVersion, loader, 30).join()
-                    }
-                }
-                _marketResults.value = list
-                _status.value = I18n.t("status.mods_found", list.size, if (core.modMarket().hasCurseForge()) I18n.t("common.enabled") else I18n.t("common.disabled"))
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.search_failed", e.message ?: I18n.t("common.unknown"))
-            } finally {
-                _marketLoading.value = false
-            }
-        }
-    }
-
-    /**
-     * 加载 Modrinth + CurseForge 热门 mod（按下载量排序）。
-     * 进入页面时自动调用一次，作为「热门推荐」展示。
-     */
-    fun loadPopularMods(gameVersion: String? = null, loader: String? = null) {
-        scope.launch {
-            val gv = gameVersion?.trim().orEmpty()
-            val ld = loader?.trim().orEmpty()
-            // 缓存按筛选条件分键，避免「全部」缓存污染带版本/加载器的结果
-            val cacheKey = "popular_mods_${gv}_${ld}"
-            // 先读缓存秒开
-            val cached = withContext(Dispatchers.IO) {
-                DataCache.loadWithTimestamp(cacheKey, object : TypeToken<List<ModProject>>() {})
-            }
-            if (cached != null) {
-                @Suppress("UNCHECKED_CAST")
-                val data = cached[0] as? List<ModProject> ?: return@launch
-                val savedAt = cached[1] as? Long ?: return@launch
-                if (data.isNotEmpty()) {
-                    _popularMods.value = data
-                    _popularLoading.value = false
-                }
-                // 缓存未过期：后台静默刷新（stale-while-revalidate）
-                if (!DataCache.isExpired(savedAt, 12 * 60 * 60 * 1000L)) {
-                    scope.launch {
-                        try {
-                            val list = withContext(Dispatchers.IO) {
-                                core.modMarket().popular(
-                                    gv.ifBlank { null },
-                                    ld.ifBlank { null },
-                                    24
-                                ).join()
-                            }
-                            _popularMods.value = list
-                            DataCache.save(cacheKey, list)
-                            _status.value = I18n.t("status.popular_mods_loaded", list.size)
-                        } catch (_: Throwable) {
-                            // 静默失败，保留缓存数据
-                        }
-                    }
-                    return@launch
-                }
-                // 缓存已过期：继续走正常网络请求
-            }
-            // 缓存不存在/已过期：正常网络请求
-            _popularLoading.value = true
-            _status.value = I18n.t("status.loading_popular_mods")
-            try {
-                val list = withContext(Dispatchers.IO) {
-                    core.modMarket().popular(
-                        gv.ifBlank { null },
-                        ld.ifBlank { null },
-                        24
-                    ).join()
-                }
-                _popularMods.value = list
-                _status.value = I18n.t("status.popular_mods_loaded", list.size)
-                DataCache.save(cacheKey, list)
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.popular_mods_load_failed", e.message ?: I18n.t("common.unknown"))
-            } finally {
-                _popularLoading.value = false
-            }
-        }
-    }
-
-    /**
-     * 按分类加载推荐模组（用户点击分类标签后调用）。
-     * 使用 Modrinth + CurseForge 聚合，按下载量排序。
-     * category 为空字符串时等同于 loadPopularMods。
-     */
-    fun loadCategoryMods(category: String, gameVersion: String? = null, loader: String? = null) {
-        _selectedCategory.value = category
-        if (category.isEmpty()) {
-            // 取消分类选择：清空分类结果，回到热门推荐
-            _categoryResults.value = emptyList()
-            return
-        }
-        // 切换到分类浏览模式：清除关键字搜索结果，使分类网格立即可见
-        _marketResults.value = emptyList()
-        scope.launch {
-            _categoryLoading.value = true
-            _status.value = I18n.t("status.loading_category", category)
-            try {
-                val list = withContext(Dispatchers.IO) {
-                    core.modMarket().searchByCategory(category, gameVersion, loader, 24).join()
-                }
-                _categoryResults.value = list
-                _status.value = I18n.t("status.category_mods_loaded", list.size)
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.category_load_failed", e.message ?: I18n.t("common.unknown"))
-            } finally {
-                _categoryLoading.value = false
-            }
-        }
-    }
-
-    /** 清除分类选择，回到热门推荐视图 */
-    fun clearCategory() {
-        _selectedCategory.value = ""
-        _categoryResults.value = emptyList()
-    }
-
-    /**
-     * 点击热门卡片进入该 mod 的详情界面（展开版本文件列表）。
-     * 在 UI 层会把 _detailProject 设置为该 project，并触发 listProjectFiles。
-     */
-    fun openModDetail(project: ModProject) {
-        _detailProject.value = project
-        listProjectFiles(project)
-    }
-
-    /** 返回热门推荐网格（关闭详情） */
-    fun closeModDetail() {
-        _detailProject.value = null
-        _currentModFiles.value = emptyList()
-    }
-
-    fun listProjectFiles(project: ModProject) {
-        scope.launch {
-            // 立即清空旧的文件列表，避免切换 project 时残留
-            _currentModFiles.value = emptyList()
-            _status.value = I18n.t("status.fetching_project_files", project.getName())
-            try {
-                val files = withContext(Dispatchers.IO) {
-                    core.modMarket().listFiles(project).join()
-                }
-                _currentModFiles.value = files
-                _status.value = I18n.t("status.project_files_loaded", project.getName(), files.size)
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.fetch_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    fun installMod(file: ModFile, gameVersion: String) {
-        scope.launch {
-            _status.value = I18n.t("status.downloading_mod", file.getFileName())
-            try {
-                withContext(Dispatchers.IO) {
-                    core.modMarket().installMod(file, gameVersion,
-                        _selectedVersion.value, preferences) { msg ->
-                        _status.value = msg
-                    }.join()
-                }
-                _status.value = I18n.t("status.mod_installed", file.getFileName())
-                refreshInstalledMods()
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.mod_install_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    /**
-     * 安装模组并自动解析安装其依赖。
-     * 下载主模组后解析 jar 内 depends 列表，自动搜索并安装未安装的依赖。
-     */
-    fun installModWithDeps(file: ModFile, gameVersion: String) {
-        if (_installingDeps.value) return
-        _installingDeps.value = true
-        _depInstallResult.value = null
-        scope.launch {
-            _status.value = I18n.t("status.installing_mod_with_deps", file.getFileName())
-            try {
-                val result = core.modDependencyResolver().installWithDependencies(
-                    file, gameVersion, _selectedVersion.value
-                ) { msg -> _status.value = msg }.join()
-                _depInstallResult.value = result
-                _status.value = if (result.hasInstalled()) {
-                    I18n.t("status.mod_install_complete_with_deps", file.getFileName(), result.summary())
-                } else {
-                    I18n.t("status.mod_install_complete_no_deps", file.getFileName())
-                }
-                refreshInstalledMods()
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.install_failed", e.message ?: I18n.t("common.unknown"))
-            } finally {
-                _installingDeps.value = false
-            }
-        }
-    }
-
-    /** 清除依赖安装结果 */
-    fun clearDepInstallResult() {
-        _depInstallResult.value = null
-    }
-
-    // ============ 游戏时长统计 ============
-
-    /** 刷新统计数据（进入统计页时调用） */
-    fun refreshPlayTimeStats() {
-        try {
-            val days = _statsDays.value
-            val tracker = core.playTimeTracker()
-            _playTimeStats.value = tracker.getOverallStats(days)
-            _dailyStats.value = tracker.getDailyStatsWithZeros(days)
-            _heatmap.value = tracker.getHeatmap(days)
-            _weekdayDist.value = tracker.getWeekdayDistribution(days)
-            _records.value = tracker.getRecords()
-        } catch (e: Throwable) {
-            // 避免 NoClassDefFoundError / 数据损坏时弹出 Compose 致命 Error 对话框
-            System.err.println("[PlayTime] 刷新统计失败: ${e.javaClass.simpleName}: ${e.message}")
-            e.printStackTrace()
-            _status.value = "统计数据加载失败: ${e.message ?: e.javaClass.simpleName}"
-        }
-    }
-
-    /** 设置统计展示天数（7/14/30）并刷新 */
-    fun setStatsDays(days: Int) {
-        _statsDays.value = days
-        refreshPlayTimeStats()
-    }
-
-    // ============ 已安装 Mod 扫描 ============
-
-    fun refreshInstalledMods() {
-        // 先读缓存秒开
-        scope.launch {
-            try {
-                val cached = withContext(Dispatchers.IO) {
-                    DataCache.load("installed_mods", object : TypeToken<List<ModMeta>>() {})
-                }
-                if (cached != null && cached.isNotEmpty() && _installedMods.value.isEmpty()) {
-                    _installedMods.value = cached
-                }
-            } catch (e: Throwable) {
-                // 缓存读取失败不影响后续扫描，静默处理
-            }
-        }
-        scope.launch {
-            try {
-                val mods = withContext(Dispatchers.IO) {
-                    val allMods = mutableListOf<ModMeta>()
-                    val seenFiles = mutableSetOf<String>()
-                    // 按目录分组的 mod 列表（用于冲突检查时按目录隔离）
-                    val modsByDir = mutableMapOf<Path, MutableList<ModMeta>>()
-                    val modsDirs = mutableListOf<Path>()
-                    // 1. PMCL 工作目录的 mods
-                    modsDirs.add(config.getWorkDir().resolve("mods"))
-                    // 2. 系统所有 Minecraft 根目录的 mods
-                    for (mcDir in com.pmcl.core.version.VersionManager.detectAllMinecraftVersionsDirs()) {
-                        val mcRoot = mcDir.parent
-                        if (mcRoot != null) modsDirs.add(mcRoot.resolve("mods"))
-                    }
-                    // 3. 每个版本目录下的 mods（整合包结构：versions/<id>/mods/）
-                    val allVersionsDirs = mutableListOf<Path>()
-                    allVersionsDirs.add(config.getVersionsDir())
-                    allVersionsDirs.addAll(com.pmcl.core.version.VersionManager.detectAllMinecraftVersionsDirs())
-                    for (versionsDir in allVersionsDirs) {
-                        val versionsFile = versionsDir.toFile()
-                        if (!versionsFile.isDirectory) continue
-                        val subDirs = versionsFile.listFiles { f -> f.isDirectory } ?: continue
-                        for (subDir in subDirs) {
-                            val versionModsDir = subDir.toPath().resolve("mods")
-                            if (versionModsDir !in modsDirs) modsDirs.add(versionModsDir)
-                        }
-                    }
-                    // 4. 版本隔离目录下的 mods（instances/<id>/mods/）
-                    val instancesDir = config.getWorkDir().resolve("instances")
-                    val instancesFile = instancesDir.toFile()
-                    if (instancesFile.isDirectory) {
-                        val instDirs = instancesFile.listFiles { f -> f.isDirectory } ?: emptyArray()
-                        for (instDir in instDirs) {
-                            val instModsDir = instDir.toPath().resolve("mods")
-                            if (instModsDir !in modsDirs) modsDirs.add(instModsDir)
-                        }
-                    }
-                    // 扫描所有 mods 目录，按目录分组
-                    for (modsDir in modsDirs) {
-                        try {
-                            // 基于目录 mtime 的缓存：未变化则复用上次扫描结果
-                            val dirMtime = try { java.nio.file.Files.getLastModifiedTime(modsDir).toMillis() } catch (_: Throwable) { 0L }
-                            val cached = modScanCache[modsDir]
-                            val part = if (cached != null && cached.dirMtime == dirMtime && dirMtime > 0L) {
-                                cached.mods
-                            } else {
-                                val scanned = ModScanner.scanDirectory(modsDir)
-                                modScanCache[modsDir] = ModScanCacheEntry(dirMtime, scanned)
-                                scanned
-                            }
-                            // 为每个 mod 设置来源标签
-                            val sourceLabel = sourceLabelFor(modsDir)
-                            for (m in part) {
-                                // 用「目录路径 + 文件名」去重，避免不同目录的同名文件误去重
-                                val dedupKey = "$modsDir/${m.getJarFile()}"
-                                if (seenFiles.add(dedupKey)) {
-                                    m.setSource(sourceLabel)
-                                    allMods.add(m)
-                                    modsByDir.getOrPut(modsDir) { mutableListOf() }.add(m)
-                                }
-                            }
-                        } catch (_: Throwable) {}
-                    }
-                    // 按目录分组检查冲突，避免跨版本目录误报依赖缺失
-                    val allErrors = mutableListOf<String>()
-                    val allWarnings = mutableListOf<String>()
-                    for ((_, dirMods) in modsByDir) {
-                        if (dirMods.isEmpty()) continue
-                        val r = ModConflictChecker.check(dirMods)
-                        allErrors.addAll(r.getErrors())
-                        allWarnings.addAll(r.getWarnings())
-                    }
-                    _modConflicts.value = ModConflictChecker.Result(allErrors, allWarnings)
-                    // 应用用户自定义标签
-                    try { core.modTagStore().applyTags(allMods) } catch (_: Throwable) {}
-                    allMods
-                }
-                _installedMods.value = mods
-                DataCache.save("installed_mods", mods)
-                _status.value = I18n.t("status.mods_scanned", mods.size, modsDirsCount(mods))
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.scan_mods_failed", e.message ?: I18n.t("common.unknown"))
-                System.err.println("[refreshInstalledMods] 顶层异常: ${e.javaClass.name}: ${e.message}")
-                e.printStackTrace()
-            }
-        }
-    }
-
-    /** 所有已使用的模组标签（可观察） */
-    private val _allModTags = MutableStateFlow<List<String>>(emptyList())
-    val allModTags: StateFlow<List<String>> = _allModTags.asStateFlow()
-
-    /** 刷新标签列表（从 ModTagStore 加载） */
-    fun refreshModTags() {
-        _allModTags.value = core.modTagStore().getAllTags()
-    }
-
-    /** 设置模组标签（jarFile → tags），并刷新 UI */
-    fun setModTags(jarFile: String, tags: List<String>) {
-        scope.launch {
-            withContext(Dispatchers.IO) {
-                core.modTagStore().setTags(jarFile, tags)
-            }
-            // 更新内存中的 ModMeta
-            _installedMods.value = _installedMods.value.map { mod ->
-                if (mod.getJarFile() == jarFile) {
-                    mod.setTags(tags)
-                    mod
-                } else {
-                    mod
-                }
-            }
-            // 刷新标签列表
-            _allModTags.value = core.modTagStore().getAllTags()
-        }
-    }
-
-    private fun modsDirsCount(mods: List<ModMeta>): String {
-        return "${mods.size} mods"
-    }
-
-    /**
-     * 根据 mods 目录路径推断来源标签：
-     * - PMCL 全局 mods → "全局"
-     * - versions/<id>/mods → <id>（版本/整合包名）
-     * - 系统 .minecraft/mods → "系统"
-     */
-    private fun sourceLabelFor(modsDir: java.nio.file.Path): String {
-        // PMCL 全局 mods 目录
-        if (modsDir == config.getWorkDir().resolve("mods")) return "全局"
-        // 整合包结构：parent 是 versions/<id> 下的版本目录
-        val parent = modsDir.parent
-        if (parent != null) {
-            val grandParentName = parent.parent?.fileName?.toString()?.lowercase()
-            if (grandParentName == "versions") {
-                return parent.fileName?.toString() ?: "版本"
-            }
-        }
-        // 系统目录
-        return "系统"
-    }
-
-    /**
-     * 根据内容目录路径推断来源标签（光影包/资源包共用）。
-     * - PMCL 全局 → "全局"
-     * - versions/<id>/ 下 → <id>
-     * - instances/<id>/ 下 → <id>
-     * - 系统 .minecraft → "系统"
-     */
-    private fun contentSourceLabelFor(dir: java.nio.file.Path, subDirName: String): String {
-        if (dir == config.getWorkDir().resolve(subDirName)) return "全局"
-        val parent = dir.parent
-        if (parent != null) {
-            val grandName = parent.parent?.fileName?.toString()?.lowercase()
-            if (grandName == "versions" || grandName == "instances") {
-                return parent.fileName?.toString() ?: "版本"
-            }
-        }
-        return "系统"
-    }
-
-    /** 解析 mod jar 绝对路径：优先 jarPath，否则按文件名在已扫描列表 / 全局 mods 中定位 */
-    private fun resolveModJarPath(mod: ModMeta): java.nio.file.Path? {
-        val abs = mod.jarPath
-        if (!abs.isNullOrBlank()) return java.nio.file.Path.of(abs)
-        return resolveModJarPath(mod.jarFile)
-    }
-
-    private fun resolveModJarPath(jarFile: String?): java.nio.file.Path? {
-        if (jarFile.isNullOrBlank()) return null
-        val asPath = java.nio.file.Path.of(jarFile)
-        if (asPath.isAbsolute && java.nio.file.Files.exists(asPath)) return asPath
-        _installedMods.value.firstOrNull { it.jarFile == jarFile }?.jarPath
-            ?.takeIf { it.isNotBlank() }
-            ?.let { return java.nio.file.Path.of(it) }
-        val global = config.getWorkDir().resolve("mods").resolve(jarFile)
-        return if (java.nio.file.Files.exists(global)) global else global
-    }
-
-    /** 删除指定 mod（按 jar 文件名或已解析路径） */
-    fun deleteMod(jarFile: String) {
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) {
-                    val path = resolveModJarPath(jarFile)
-                    if (path != null) core.modManager().deleteModAt(path)
-                    else core.modManager().deleteMod(jarFile)
-                }
-                modScanCache.clear()
-                _status.value = I18n.t("status.mod_deleted", jarFile)
-                refreshInstalledMods()
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.delete_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    fun deleteMod(mod: ModMeta) {
-        scope.launch {
-            try {
-                val path = resolveModJarPath(mod)
-                    ?: throw java.io.IOException("文件不存在: ${mod.jarFile}")
-                withContext(Dispatchers.IO) { core.modManager().deleteModAt(path) }
-                modScanCache.clear()
-                _status.value = I18n.t("status.mod_deleted", mod.jarFile ?: path.fileName.toString())
-                refreshInstalledMods()
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.delete_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    /** 禁用 mod（重命名为 .jar.disabled） */
-    fun disableMod(jarFile: String) {
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) {
-                    val path = resolveModJarPath(jarFile)
-                        ?: throw java.io.IOException("文件不存在: $jarFile")
-                    core.modManager().disableModAt(path)
-                }
-                modScanCache.clear()
-                _status.value = I18n.t("status.mod_disabled", jarFile)
-                refreshInstalledMods()
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.disable_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    fun disableMod(mod: ModMeta) {
-        scope.launch {
-            try {
-                val path = resolveModJarPath(mod)
-                    ?: throw java.io.IOException("文件不存在: ${mod.jarFile}")
-                withContext(Dispatchers.IO) { core.modManager().disableModAt(path) }
-                modScanCache.clear()
-                _status.value = I18n.t("status.mod_disabled", mod.jarFile ?: path.fileName.toString())
-                refreshInstalledMods()
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.disable_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    /** 启用 mod（去掉 .disabled 后缀） */
-    fun enableMod(jarFile: String) {
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) {
-                    val path = resolveModJarPath(jarFile)
-                        ?: throw java.io.IOException("文件不存在: $jarFile")
-                    core.modManager().enableModAt(path)
-                }
-                modScanCache.clear()
-                _status.value = I18n.t("status.mod_enabled", jarFile)
-                refreshInstalledMods()
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.enable_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    fun enableMod(mod: ModMeta) {
-        scope.launch {
-            try {
-                val path = resolveModJarPath(mod)
-                    ?: throw java.io.IOException("文件不存在: ${mod.jarFile}")
-                withContext(Dispatchers.IO) { core.modManager().enableModAt(path) }
-                modScanCache.clear()
-                _status.value = I18n.t("status.mod_enabled", mod.jarFile ?: path.fileName.toString())
-                refreshInstalledMods()
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.enable_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    /** 导入模组文件到 mods 目录 */
-    fun importMod(filePath: String) {
-        scope.launch {
-            try {
-                val fileName = withContext(Dispatchers.IO) {
-                    val src = java.nio.file.Paths.get(filePath)
-                    val targetDir = config.getWorkDir().resolve("mods")
-                    java.nio.file.Files.createDirectories(targetDir)
-                    val target = targetDir.resolve(src.fileName)
-                    java.nio.file.Files.copy(src, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-                    src.fileName.toString()
-                }
-                _status.value = I18n.t("status.mod_imported", fileName)
-                refreshInstalledMods()
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.import_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    /** 批量启用模组 */
-    fun batchEnableMods(jarFiles: List<String>) {
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) {
-                    for (jarFile in jarFiles) {
-                        try {
-                            val path = resolveModJarPath(jarFile) ?: continue
-                            core.modManager().enableModAt(path)
-                        } catch (_: Throwable) {}
-                    }
-                }
-                modScanCache.clear()
-                _status.value = I18n.t("status.batch_enabled_mods", jarFiles.size)
-                refreshInstalledMods()
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.batch_enable_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    /** 批量禁用模组 */
-    fun batchDisableMods(jarFiles: List<String>) {
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) {
-                    for (jarFile in jarFiles) {
-                        try {
-                            val path = resolveModJarPath(jarFile) ?: continue
-                            core.modManager().disableModAt(path)
-                        } catch (_: Throwable) {}
-                    }
-                }
-                modScanCache.clear()
-                _status.value = I18n.t("status.batch_disabled_mods", jarFiles.size)
-                refreshInstalledMods()
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.batch_disable_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    /** 批量删除模组 */
-    fun batchDeleteMods(jarFiles: List<String>) {
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) {
-                    for (jarFile in jarFiles) {
-                        try {
-                            val path = resolveModJarPath(jarFile) ?: continue
-                            core.modManager().deleteModAt(path)
-                        } catch (_: Throwable) {}
-                    }
-                }
-                modScanCache.clear()
-                _status.value = I18n.t("status.batch_deleted_mods", jarFiles.size)
-                refreshInstalledMods()
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.batch_delete_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    /** 在系统文件管理中打开 mods 目录（优先打开第一个存在且有文件的目录） */
-    fun openModsDir() {
-        try {
-            // 候选 mods 目录：PMCL 工作目录 + 系统所有 Minecraft 根目录
-            val candidates = mutableListOf<java.io.File>()
-            candidates.add(config.getWorkDir().resolve("mods").toFile())
-            for (mcDir in com.pmcl.core.version.VersionManager.detectAllMinecraftVersionsDirs()) {
-                val mcRoot = mcDir.parent
-                if (mcRoot != null) candidates.add(mcRoot.resolve("mods").toFile())
-            }
-            // 优先选第一个存在且非空的目录，否则用 PMCL 默认目录
-            val modsDir = candidates.firstOrNull { it.isDirectory && (it.list()?.isNotEmpty() == true) }
-                ?: candidates.firstOrNull { it.isDirectory }
-                ?: config.getWorkDir().resolve("mods").toFile().also { it.mkdirs() }
-            openDir(modsDir)
-        } catch (e: Throwable) {
-            _status.value = I18n.t("status.open_dir_failed", e.message ?: I18n.t("common.unknown"))
-        }
-    }
-
-    /** 打开某个模组 jar 所在文件夹（macOS 尽量选中该文件） */
-    fun openModFolder(mod: ModMeta) {
-        try {
-            val pathStr = mod.jarPath
-            if (pathStr.isNullOrBlank()) {
-                openModsDir()
-                return
-            }
-            val file = java.io.File(pathStr)
-            if (!file.exists()) {
-                _status.value = I18n.t("status.open_dir_failed", I18n.t("common.unknown"))
-                return
-            }
-            val os = System.getProperty("os.name").lowercase()
-            when {
-                os.contains("mac") -> ProcessBuilder("open", "-R", file.absolutePath).start()
-                os.contains("win") -> ProcessBuilder("explorer", "/select,", file.absolutePath).start()
-                else -> openDir(file.parentFile ?: file)
-            }
-        } catch (e: Throwable) {
-            _status.value = I18n.t("status.open_dir_failed", e.message ?: I18n.t("common.unknown"))
-        }
-    }
-
-    /** 在系统文件管理中打开指定目录 */
-    private fun openDir(dir: java.io.File) {
+    /** 在系统文件管理中打开指定目录（内容包 / 模组页共用） */
+    @PublishedApi
+    internal fun openDir(dir: java.io.File) {
         try {
             if (!dir.isDirectory) dir.mkdirs()
             val os = System.getProperty("os.name").lowercase()
@@ -2591,14 +1739,6 @@ class LauncherViewModel {
         } catch (e: Throwable) {
             _status.value = I18n.t("status.open_dir_failed", e.message ?: I18n.t("common.unknown"))
         }
-    }
-
-    /**
-     * 检查市场项目是否已安装（按 modId 匹配）。
-     * 用于在市场列表中显示"已安装"标记。
-     */
-    fun isModInstalled(modId: String): Boolean {
-        return _installedMods.value.any { it.getModId() == modId && !it.isDisabled() }
     }
 
     // ============ 整合包管理 ============
@@ -2725,451 +1865,6 @@ class LauncherViewModel {
         _modpackUpdateResult.value = null
     }
 
-    // ===== NBT 编辑器方法 =====
-
-    private fun clearNbtHistory() {
-        nbtUndoStack.clear()
-        nbtRedoStack.clear()
-        _nbtCanUndo.value = false
-        _nbtCanRedo.value = false
-    }
-
-    private fun pushNbtUndo() {
-        val snap = _nbtRoot.value?.copy() ?: return
-        nbtUndoStack.addLast(snap)
-        while (nbtUndoStack.size > nbtMaxUndo) nbtUndoStack.removeFirst()
-        nbtRedoStack.clear()
-        _nbtCanUndo.value = true
-        _nbtCanRedo.value = false
-    }
-
-    private fun refreshNbtHistoryFlags() {
-        _nbtCanUndo.value = nbtUndoStack.isNotEmpty()
-        _nbtCanRedo.value = nbtRedoStack.isNotEmpty()
-    }
-
-    fun undoNbt() {
-        val current = _nbtRoot.value ?: return
-        val prev = nbtUndoStack.removeLastOrNull() ?: return
-        nbtRedoStack.addLast(current.copy())
-        _nbtRoot.value = prev
-        _nbtDirty.value = true
-        _nbtRevision.value++
-        refreshNbtHistoryFlags()
-    }
-
-    fun redoNbt() {
-        val current = _nbtRoot.value ?: return
-        val next = nbtRedoStack.removeLastOrNull() ?: return
-        nbtUndoStack.addLast(current.copy())
-        _nbtRoot.value = next
-        _nbtDirty.value = true
-        _nbtRevision.value++
-        refreshNbtHistoryFlags()
-    }
-
-    /** 打开 NBT 文件（自动检测 gzip 压缩，如 level.dat） */
-    fun openNbtFile(path: String) {
-        scope.launch {
-            _nbtError.value = null
-            try {
-                val result = withContext(Dispatchers.IO) {
-                    NbtReader.readWithMeta(java.nio.file.Paths.get(path))
-                }
-                _nbtGzipped.value = result.gzipped
-                _nbtRoot.value = result.root
-                _nbtFilePath.value = path
-                _nbtDirty.value = false
-                clearNbtHistory()
-                _nbtRevision.value++
-                withContext(Dispatchers.IO) {
-                    core.preferences.recordRecentNbtFile(path)
-                }
-                _recentNbtFiles.value = core.preferences.recentNbtFiles
-                _status.value = I18n.t("status.nbt_loaded", path)
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Throwable) {
-                _nbtError.value = "读取 NBT 失败: ${e.message}"
-                _status.value = I18n.t("status.nbt_read_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    /** 保存 NBT 到当前文件（深拷贝快照 + .bak + 原子写；保持压缩方式） */
-    fun saveNbtFile() {
-        val root = _nbtRoot.value ?: return
-        val path = _nbtFilePath.value ?: return
-        val gzipped = _nbtGzipped.value
-        val snapshot = root.copy()
-        scope.launch {
-            _nbtError.value = null
-            try {
-                withContext(Dispatchers.IO) {
-                    val file = java.nio.file.Paths.get(path)
-                    if (java.nio.file.Files.exists(file)) {
-                        val bak = file.resolveSibling(file.fileName.toString() + ".bak")
-                        java.nio.file.Files.copy(file, bak, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-                    }
-                    NbtWriter.write(snapshot, file, gzipped)
-                }
-                _nbtDirty.value = false
-                _status.value = I18n.t("status.nbt_saved", path)
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Throwable) {
-                _nbtError.value = "保存 NBT 失败: ${e.message}"
-                _status.value = I18n.t("status.nbt_save_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    /** 另存为指定路径（深拷贝快照 + 原子写） */
-    fun saveNbtFileAs(targetPath: String) {
-        val root = _nbtRoot.value ?: return
-        val gzipped = _nbtGzipped.value
-        val snapshot = root.copy()
-        scope.launch {
-            _nbtError.value = null
-            try {
-                withContext(Dispatchers.IO) {
-                    NbtWriter.write(snapshot, java.nio.file.Paths.get(targetPath), gzipped)
-                    core.preferences.recordRecentNbtFile(targetPath)
-                }
-                _nbtFilePath.value = targetPath
-                _nbtDirty.value = false
-                _recentNbtFiles.value = core.preferences.recentNbtFiles
-                _status.value = I18n.t("status.nbt_saved", targetPath)
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Throwable) {
-                _nbtError.value = "保存 NBT 失败: ${e.message}"
-                _status.value = I18n.t("status.nbt_save_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    /** 标记 NBT 树已修改，触发 UI 重组（调用前须已 pushNbtUndo） */
-    fun updateNbtValue() {
-        _nbtDirty.value = true
-        _nbtRevision.value++
-    }
-
-    /** 关闭当前 NBT 文件 */
-    fun closeNbtFile() {
-        _nbtRoot.value = null
-        _nbtFilePath.value = null
-        _nbtDirty.value = false
-        _nbtError.value = null
-        _nbtGzipped.value = true
-        clearNbtHistory()
-        _nbtRevision.value++
-    }
-
-    // ===== 树结构编辑 =====
-
-    /** 向 Compound 添加子标签 */
-    fun addNbtChild(parent: NbtTag.CompoundTag, name: String, type: Int) {
-        if (parent.contains(name)) return
-        pushNbtUndo()
-        parent.put(name, NbtTag.createDefault(type))
-        updateNbtValue()
-    }
-
-    /** 从 Compound 删除子标签 */
-    fun removeNbtChild(parent: NbtTag.CompoundTag, name: String) {
-        if (!parent.contains(name)) return
-        pushNbtUndo()
-        parent.remove(name)
-        updateNbtValue()
-    }
-
-    /** 重命名 Compound 子标签 */
-    fun renameNbtChild(parent: NbtTag.CompoundTag, oldName: String, newName: String) {
-        if (oldName == newName || parent.contains(newName)) return
-        val tag = parent.get(oldName) ?: return
-        pushNbtUndo()
-        parent.remove(oldName)
-        parent.put(newName, tag)
-        updateNbtValue()
-    }
-
-    /** 向 List 添加元素（使用 listType 创建默认值） */
-    fun addNbtListItem(list: NbtTag.ListTag) {
-        pushNbtUndo()
-        val type = if (list.getListType() == NbtTag.TYPE_END) NbtTag.TYPE_COMPOUND else list.getListType()
-        list.add(NbtTag.createDefault(type))
-        updateNbtValue()
-    }
-
-    /** 删除 List 元素 */
-    fun removeNbtListItem(list: NbtTag.ListTag, index: Int) {
-        if (index < 0 || index >= list.size()) return
-        pushNbtUndo()
-        list.remove(index)
-        updateNbtValue()
-    }
-
-    /** 移动 List 元素（up=true 上移，up=false 下移） */
-    fun moveNbtListItem(list: NbtTag.ListTag, index: Int, up: Boolean) {
-        val target = if (up) index - 1 else index + 1
-        if (target < 0 || target >= list.size()) return
-        pushNbtUndo()
-        val item = list.getItems()[index]
-        list.remove(index)
-        list.add(target, item)
-        updateNbtValue()
-    }
-
-    /** 内联编辑叶节点值（带撤销） */
-    fun setNbtLeafValue(tag: NbtTag, text: String): Boolean {
-        return try {
-            pushNbtUndo()
-            when (tag) {
-                is NbtTag.ByteTag -> tag.setValue(text.toByte())
-                is NbtTag.ShortTag -> tag.setValue(text.toShort())
-                is NbtTag.IntTag -> tag.setValue(text.toInt())
-                is NbtTag.LongTag -> tag.setValue(text.toLong())
-                is NbtTag.FloatTag -> tag.setValue(text.toFloat())
-                is NbtTag.DoubleTag -> tag.setValue(text.toDouble())
-                is NbtTag.StringTag -> tag.setValue(text)
-                else -> {
-                    nbtUndoStack.removeLastOrNull()
-                    refreshNbtHistoryFlags()
-                    return false
-                }
-            }
-            updateNbtValue()
-            true
-        } catch (_: NumberFormatException) {
-            nbtUndoStack.removeLastOrNull()
-            refreshNbtHistoryFlags()
-            false
-        }
-    }
-
-    /** 类型转换（数值/字符串/数组族） */
-    fun convertNbtTag(parent: NbtTag?, key: String?, tag: NbtTag, targetType: Int): Boolean {
-        if (tag.getType() == targetType) return true
-        val converted = NbtTag.convert(tag, targetType) ?: return false
-        pushNbtUndo()
-        when {
-            parent is NbtTag.CompoundTag && key != null -> parent.put(key, converted)
-            parent is NbtTag.ListTag && key != null -> {
-                val idx = key.removePrefix("[").removeSuffix("]").toIntOrNull() ?: run {
-                    nbtUndoStack.removeLastOrNull()
-                    refreshNbtHistoryFlags()
-                    return false
-                }
-                if (idx < 0 || idx >= parent.size()) {
-                    nbtUndoStack.removeLastOrNull()
-                    refreshNbtHistoryFlags()
-                    return false
-                }
-                // List 要求同类型：若 listType 不匹配则拒绝
-                if (parent.getListType() != NbtTag.TYPE_END && parent.getListType() != targetType) {
-                    nbtUndoStack.removeLastOrNull()
-                    refreshNbtHistoryFlags()
-                    return false
-                }
-                parent.remove(idx)
-                parent.add(idx, converted)
-            }
-            _nbtRoot.value === tag -> {
-                converted.setName(tag.getName())
-                _nbtRoot.value = converted
-            }
-            else -> {
-                nbtUndoStack.removeLastOrNull()
-                refreshNbtHistoryFlags()
-                return false
-            }
-        }
-        updateNbtValue()
-        return true
-    }
-
-    fun copyNbtNode(name: String, tag: NbtTag) {
-        nbtClipboard = name to tag.copy()
-        _nbtHasClipboard.value = true
-    }
-
-    fun cutNbtNode(parent: NbtTag?, key: String?, tag: NbtTag) {
-        if (parent == null || key == null) return
-        val clipName = if (parent is NbtTag.CompoundTag) key else "item"
-        nbtClipboard = clipName to tag.copy()
-        _nbtHasClipboard.value = true
-        when (parent) {
-            is NbtTag.CompoundTag -> removeNbtChild(parent, key)
-            is NbtTag.ListTag -> {
-                val idx = key.removePrefix("[").removeSuffix("]").toIntOrNull() ?: return
-                removeNbtListItem(parent, idx)
-            }
-        }
-    }
-
-    fun pasteNbtNode(parent: NbtTag) {
-        val clip = nbtClipboard ?: return
-        pushNbtUndo()
-        when (parent) {
-            is NbtTag.CompoundTag -> {
-                var name = clip.first.ifBlank { "tag" }
-                var i = 1
-                while (parent.contains(name)) {
-                    name = "${clip.first}_$i"
-                    i++
-                }
-                parent.put(name, clip.second.copy())
-            }
-            is NbtTag.ListTag -> {
-                val item = clip.second.copy()
-                if (parent.getListType() != NbtTag.TYPE_END && parent.getListType() != item.getType()) {
-                    nbtUndoStack.removeLastOrNull()
-                    refreshNbtHistoryFlags()
-                    _nbtError.value = I18n.t("nbt.paste_type_mismatch")
-                    return
-                }
-                parent.add(item)
-            }
-            else -> {
-                nbtUndoStack.removeLastOrNull()
-                refreshNbtHistoryFlags()
-                return
-            }
-        }
-        updateNbtValue()
-    }
-
-    fun duplicateNbtChild(parent: NbtTag.CompoundTag, key: String) {
-        val tag = parent.get(key) ?: return
-        var name = "${key}_copy"
-        var i = 1
-        while (parent.contains(name)) {
-            name = "${key}_copy$i"
-            i++
-        }
-        pushNbtUndo()
-        parent.put(name, tag.copy())
-        updateNbtValue()
-    }
-
-    // ===== 数组编辑 =====
-
-    /** 设置数组元素值 */
-    fun setNbtArrayElement(array: NbtTag, index: Int, value: String): Boolean {
-        try {
-            when (array) {
-                is NbtTag.ByteArrayTag -> {
-                    val arr = array.getValue()
-                    if (index < 0 || index >= arr.size) return false
-                    pushNbtUndo()
-                    try { arr[index] = value.toByte() } catch (e: NumberFormatException) {
-                        nbtUndoStack.removeLastOrNull(); refreshNbtHistoryFlags(); throw e
-                    }
-                }
-                is NbtTag.IntArrayTag -> {
-                    val arr = array.getValue()
-                    if (index < 0 || index >= arr.size) return false
-                    pushNbtUndo()
-                    try { arr[index] = value.toInt() } catch (e: NumberFormatException) {
-                        nbtUndoStack.removeLastOrNull(); refreshNbtHistoryFlags(); throw e
-                    }
-                }
-                is NbtTag.LongArrayTag -> {
-                    val arr = array.getValue()
-                    if (index < 0 || index >= arr.size) return false
-                    pushNbtUndo()
-                    try { arr[index] = value.toLong() } catch (e: NumberFormatException) {
-                        nbtUndoStack.removeLastOrNull(); refreshNbtHistoryFlags(); throw e
-                    }
-                }
-                else -> return false
-            }
-            updateNbtValue()
-            return true
-        } catch (_: NumberFormatException) {
-            return false
-        }
-    }
-
-    /** 添加数组元素 */
-    fun addNbtArrayElement(array: NbtTag, value: String): Boolean {
-        try {
-            pushNbtUndo()
-            when (array) {
-                is NbtTag.ByteArrayTag -> {
-                    val old = array.getValue()
-                    val newArr = java.util.Arrays.copyOf(old, old.size + 1)
-                    newArr[old.size] = value.toByte()
-                    array.setValue(newArr)
-                }
-                is NbtTag.IntArrayTag -> {
-                    val old = array.getValue()
-                    val newArr = java.util.Arrays.copyOf(old, old.size + 1)
-                    newArr[old.size] = value.toInt()
-                    array.setValue(newArr)
-                }
-                is NbtTag.LongArrayTag -> {
-                    val old = array.getValue()
-                    val newArr = java.util.Arrays.copyOf(old, old.size + 1)
-                    newArr[old.size] = value.toLong()
-                    array.setValue(newArr)
-                }
-                else -> {
-                    nbtUndoStack.removeLastOrNull()
-                    refreshNbtHistoryFlags()
-                    return false
-                }
-            }
-            updateNbtValue()
-            return true
-        } catch (_: NumberFormatException) {
-            nbtUndoStack.removeLastOrNull()
-            refreshNbtHistoryFlags()
-            return false
-        }
-    }
-
-    /** 删除数组元素 */
-    fun removeNbtArrayElement(array: NbtTag, index: Int) {
-        when (array) {
-            is NbtTag.ByteArrayTag -> {
-                val old = array.getValue()
-                if (index < 0 || index >= old.size) return
-                pushNbtUndo()
-                val newArr = java.util.Arrays.copyOf(old, old.size - 1)
-                var j = 0
-                for (i in old.indices) { if (i != index) newArr[j++] = old[i] }
-                array.setValue(newArr)
-            }
-            is NbtTag.IntArrayTag -> {
-                val old = array.getValue()
-                if (index < 0 || index >= old.size) return
-                pushNbtUndo()
-                val newArr = java.util.Arrays.copyOf(old, old.size - 1)
-                var j = 0
-                for (i in old.indices) { if (i != index) newArr[j++] = old[i] }
-                array.setValue(newArr)
-            }
-            is NbtTag.LongArrayTag -> {
-                val old = array.getValue()
-                if (index < 0 || index >= old.size) return
-                pushNbtUndo()
-                val newArr = java.util.Arrays.copyOf(old, old.size - 1)
-                var j = 0
-                for (i in old.indices) { if (i != index) newArr[j++] = old[i] }
-                array.setValue(newArr)
-            }
-            else -> return
-        }
-        updateNbtValue()
-    }
-
-    /** 导出 NBT 为 SNBT 字符串 */
-    fun exportNbtSnbt(): String {
-        return _nbtRoot.value?.toSnbt() ?: ""
-    }
-
     /** 删除整合包实例 */
     fun deleteModpack(name: String) {
         scope.launch {
@@ -3283,889 +1978,6 @@ class LauncherViewModel {
         refreshQueue()
     }
 
-    // ============ 配置文件编辑器 ============
-
-    /** 获取当前选中版本的 config 目录 */
-    fun getConfigDir(): java.nio.file.Path {
-        val versionId = _selectedVersion.value
-        val pref = preferences
-        if (pref.isVersionIsolation() && versionId != null) {
-            return config.getWorkDir().resolve("instances").resolve(versionId).resolve("config")
-        }
-        return config.getWorkDir().resolve("config")
-    }
-
-    /** 创建 ConfigFileManager 实例（基于当前选中版本的 config 目录） */
-    fun createConfigFileManager(): ConfigFileManager {
-        return ConfigFileManager(getConfigDir())
-    }
-
-    /** 刷新配置文件列表 */
-    fun refreshConfigFiles(subDir: String = "") {
-        scope.launch {
-            try {
-                val manager = createConfigFileManager()
-                val files = withContext(Dispatchers.IO) {
-                    manager.listFiles(subDir)
-                }
-                _configFiles.value = files
-                _configCurrentDir.value = subDir
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.config_files_load_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    /** 读取配置文件内容 */
-    fun readConfigFile(relativePath: String) {
-        scope.launch {
-            try {
-                val manager = createConfigFileManager()
-                val content = withContext(Dispatchers.IO) {
-                    manager.readFile(relativePath)
-                }
-                _configFileContent.value = content
-                _currentConfigPath.value = relativePath
-                _configFileDirty.value = false
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.config_file_read_failed", e.message ?: I18n.t("common.unknown"))
-                _configFileContent.value = null
-                _currentConfigPath.value = null
-            }
-        }
-    }
-
-    /** 保存配置文件内容 */
-    fun saveConfigFile(content: String) {
-        val path = _currentConfigPath.value ?: return
-        scope.launch {
-            try {
-                val manager = createConfigFileManager()
-                withContext(Dispatchers.IO) {
-                    manager.writeFile(path, content)
-                }
-                _configFileDirty.value = false
-                _status.value = I18n.t("status.config_file_saved", path)
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.config_file_save_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    /** 删除配置文件 */
-    fun deleteConfigFile(relativePath: String) {
-        scope.launch {
-            try {
-                val manager = createConfigFileManager()
-                withContext(Dispatchers.IO) {
-                    manager.deleteFile(relativePath)
-                }
-                if (_currentConfigPath.value == relativePath) {
-                    _configFileContent.value = null
-                    _currentConfigPath.value = null
-                    _configFileDirty.value = false
-                }
-                _status.value = I18n.t("status.config_file_deleted", relativePath)
-                refreshConfigFiles(_configCurrentDir.value)
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.delete_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    /** 创建新配置文件 */
-    fun createConfigFile(fileName: String) {
-        scope.launch {
-            try {
-                val manager = createConfigFileManager()
-                val dir = _configCurrentDir.value
-                val relativePath = if (dir.isEmpty()) fileName else "$dir/$fileName"
-                withContext(Dispatchers.IO) {
-                    manager.createFile(relativePath)
-                }
-                _status.value = I18n.t("status.config_file_created", fileName)
-                refreshConfigFiles(dir)
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.config_file_create_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    /** 标记当前文件已修改（未保存） */
-    fun markConfigDirty() {
-        _configFileDirty.value = true
-    }
-
-    /** 关闭当前编辑的文件 */
-    fun closeConfigFile() {
-        _configFileContent.value = null
-        _currentConfigPath.value = null
-        _configFileDirty.value = false
-    }
-
-    /** 进入子目录 */
-    fun enterConfigDir(subDir: String) {
-        val newDir = if (_configCurrentDir.value.isEmpty()) subDir
-                     else "${_configCurrentDir.value}/$subDir"
-        refreshConfigFiles(newDir)
-    }
-
-    /** 返回上级目录 */
-    fun navigateConfigUp() {
-        val current = _configCurrentDir.value
-        if (current.isEmpty()) return
-        val idx = current.lastIndexOf('/')
-        val parent = if (idx < 0) "" else current.substring(0, idx)
-        refreshConfigFiles(parent)
-    }
-
-    /** 在系统文件管理中打开 config 目录 */
-    fun openConfigDir() {
-        try {
-            val dir = getConfigDir().toFile()
-            if (!dir.isDirectory) dir.mkdirs()
-            openDir(dir)
-        } catch (e: Throwable) {
-            _status.value = I18n.t("status.open_dir_failed", e.message ?: I18n.t("common.unknown"))
-        }
-    }
-
-    // ============ 模组更新检测 ============
-
-    /**
-     * 检测已安装模组的更新。
-     * 自动从当前选中版本推断 gameVersion。
-     */
-    fun checkModUpdates() {
-        val mods = _installedMods.value
-        if (mods.isEmpty()) {
-            _status.value = I18n.t("status.no_installed_mods")
-            return
-        }
-        // 从选中版本推断 gameVersion
-        val versionId = _selectedVersion.value
-        val gameVersion = inferGameVersion(versionId)
-        _updateGameVersion.value = gameVersion
-
-        if (_checkingUpdates.value) return // 防止重复检测
-        _checkingUpdates.value = true
-        _updateCheckProgress.value = 0 to mods.size
-        _status.value = I18n.t("status.checking_mod_updates")
-
-        scope.launch {
-            try {
-                val results = core.modUpdateChecker().checkUpdates(
-                    mods, gameVersion
-                ) { progress ->
-                    _updateCheckProgress.value = progress[0] to progress[1]
-                }.join()
-                _modUpdates.value = results
-                val updateCount = results.count { it.hasUpdate() }
-                _status.value = if (updateCount > 0) {
-                    I18n.t("status.mod_updates_found", updateCount)
-                } else {
-                    I18n.t("status.mod_updates_all_latest")
-                }
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.check_mod_updates_failed", e.message ?: I18n.t("common.unknown"))
-            } finally {
-                _checkingUpdates.value = false
-            }
-        }
-    }
-
-    /**
-     * 从版本 ID 推断 gameVersion（如 "1.20.4-OptiFine_HD_U_I7" → "1.20.4"）。
-     */
-    private fun inferGameVersion(versionId: String?): String {
-        if (versionId == null || versionId.isEmpty()) return ""
-        // 取第一个分隔符前的部分（Forge/Fabric/OptiFine 版本通常用 - 分隔）
-        val idx = versionId.indexOfAny(charArrayOf('-', '+'))
-        return if (idx > 0) versionId.substring(0, idx) else versionId
-    }
-
-    /**
-     * 更新单个模组。
-     */
-    fun updateMod(info: ModUpdateChecker.UpdateInfo) {
-        if (_updatingMod.value) return
-        _updatingMod.value = true
-        val versionId = _selectedVersion.value
-        val gameVersion = _updateGameVersion.value
-
-        scope.launch {
-            try {
-                core.modUpdateChecker().updateMod(info, gameVersion, versionId) { status ->
-                    _status.value = status
-                }.join()
-                _status.value = I18n.t("status.mod_update_complete", info.displayName())
-                // 刷新已安装模组列表
-                refreshInstalledMods()
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.mod_update_failed", e.message ?: I18n.t("common.unknown"))
-            } finally {
-                _updatingMod.value = false
-            }
-        }
-    }
-
-    /**
-     * 一键更新所有有更新的模组。
-     */
-    fun updateAllMods() {
-        val updates = _modUpdates.value.filter { it.hasUpdate() }
-        if (updates.isEmpty()) {
-            _status.value = I18n.t("status.no_mods_to_update")
-            return
-        }
-        if (_updatingMod.value) return
-        _updatingMod.value = true
-        val versionId = _selectedVersion.value
-        val gameVersion = _updateGameVersion.value
-        _status.value = I18n.t("status.batch_updating_mods", updates.size)
-
-        scope.launch {
-            try {
-                core.modUpdateChecker().updateAll(updates, gameVersion, versionId) { progress ->
-                    _updateCheckProgress.value = progress[0] to progress[1]
-                    _status.value = I18n.t("status.batch_updating_progress", progress[0], progress[1])
-                }.join()
-                _status.value = I18n.t("status.batch_update_complete")
-                refreshInstalledMods()
-                // 重新检测一次
-                checkModUpdates()
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.batch_update_failed", e.message ?: I18n.t("common.unknown"))
-            } finally {
-                _updatingMod.value = false
-            }
-        }
-    }
-
-    /** 清空更新检测结果 */
-    fun clearModUpdates() {
-        _modUpdates.value = emptyList()
-    }
-
-    // ============ 启动游戏 ============
-
-    // ===== 预判启动：进入启动页时预测最可能的版本并后台预热资源 =====
-
-    /**
-     * 触发预判启动：用 LaunchPredictor 预测最可能的版本，若置信度达标则后台预热资源。
-     *
-     * 预热内容（不启动 MC 进程，避免窗口提前弹出）：
-     * 1. 构建完整 LaunchProfile（含 verifyLibraries 的全量文件校验，这是启动时最耗时的 IO）
-     * 2. 解析 Java 可执行文件路径
-     * 3. 启动 `java -version` 子进程预热 JVM 页缓存（OS 会缓存 java 可执行文件和依赖库）
-     *
-     * 调用时机：用户切换到 LaunchPage 时（见 LaunchPage.LaunchedEffect）。
-     *
-     * 安全保证：
-     * - 未开启 predictiveLaunch 偏好时不执行
-     * - 已有运行中实例时不执行
-     * - 已有预热 profile 时不重复预热
-     * - 预热失败不影响正常启动（用户点启动时走原 launch 流程）
-     */
-    fun predictAndPreheat() {
-        if (!preferences.isPredictiveLaunch()) return
-        if (_gameRunning.value || _runningInstances.value.isNotEmpty()) return
-        if (preheatedProfile != null) return  // 已有预热
-        if (_account.value == null) return     // 无账号无法构建 profile
-
-        scope.launch {
-            try {
-                // 1. 收集本地已安装版本 ID 作为候选集
-                val installedIds = _localVersionInfos.value.mapNotNull { it.getId() }.toSet()
-                if (installedIds.isEmpty()) return@launch
-
-                // 2. 预测
-                val predictor = com.pmcl.core.launch.LaunchPredictor(
-                    core.playTimeTracker(), preferences
-                )
-                val result = withContext(Dispatchers.IO) { predictor.predict(installedIds) }
-                if (!result.shouldPreheat()) {
-                    _predictiveState.value = PredictiveState.Idle
-                    return@launch
-                }
-                val versionId = result.topVersionId ?: return@launch
-                val account = _account.value ?: return@launch
-
-                _predictiveState.value = PredictiveState.Preheating(versionId, result.confidence)
-                // 预热全程静默：不更新 _status，避免在 UI 暴露预加载信息
-
-                // 3. 构造 LaunchProfile（这是启动时最耗时的阶段，含 verifyLibraries 全量文件校验）
-                val requiredJavaVer = withContext(Dispatchers.IO) {
-                    try { core.profileBuilder().getRequiredJavaVersion(versionId) } catch (e: Throwable) { 0 }
-                }
-                val javaExe = resolveJavaExe(versionId, requiredJavaVer)
-                if (javaExe.isEmpty()) {
-                    _predictiveState.value = PredictiveState.Failed("无法解析 Java 路径")
-                    return@launch
-                }
-                val launchProfile = try {
-                    withContext(Dispatchers.IO) {
-                        core.profileBuilder().build(versionId, account)
-                    }
-                } catch (e: Throwable) {
-                    _predictiveState.value = PredictiveState.Failed("构建启动配置失败：${e.message}")
-                    return@launch
-                }
-
-                // 4. JVM 页缓存预热（启动 `java -version` 子进程，立即退出但触发 OS 缓存）
-                withContext(Dispatchers.IO) {
-                    core.launch().prewarmJvm(javaExe)
-                }
-
-                // 5. 缓存预热结果
-                preheatedProfile = launchProfile
-                preheatedJavaExe = javaExe
-                preheatedVersionId = versionId
-                _predictiveState.value = PredictiveState.Ready(versionId, result.confidence)
-
-            } catch (e: Throwable) {
-                _predictiveState.value = PredictiveState.Failed(e.message ?: "未知错误")
-            }
-        }
-    }
-
-    /**
-     * Java 路径解析辅助（与 launch() 内的逻辑保持一致）。
-     */
-    private suspend fun resolveJavaExe(versionId: String, requiredJavaVer: Int): String {
-        return withContext(Dispatchers.IO) {
-            val versionPath = preferences.getVersionJavaPath(versionId)
-            if (versionPath.isNotEmpty()) return@withContext versionPath
-            val globalPath = preferences.getJavaPath()
-            if (globalPath.isNotEmpty()) return@withContext globalPath
-            try {
-                JavaRuntimeFinder.findJavaExecutable(
-                    config.getRuntimesDir(), requiredJavaVer
-                ) ?: ""
-            } catch (e: Throwable) { "" }
-        }
-    }
-
-    /**
-     * 取消预判启动：清空预存的 profile（用户离开启动页时调用）。
-     * 不需要杀进程，因为预热阶段没有启动 MC 进程。
-     */
-    fun cancelPreheat() {
-        if (preheatedProfile != null) {
-            preheatedProfile = null
-            preheatedJavaExe = ""
-            preheatedVersionId = ""
-            _predictiveState.value = PredictiveState.Aborted
-            // 静默取消：不更新 _status，避免在 UI 暴露预加载信息
-        }
-        // 不立刻重置 Idle，让 UI 有机会显示 Aborted；下次 predictAndPreheat 会重置
-    }
-
-    /**
-     * 尝试采用预热的 LaunchProfile：若用户启动的版本与预热版本一致，
-     * 返回预存的 (profile, javaExe) 跳过 build() 阶段；否则清空预热并返回 null。
-     *
-     * @param versionId 用户实际启动的版本 ID
-     * @return 采用成功时返回 Pair(profile, javaExe)，不匹配或无预热时返回 null
-     */
-    private fun tryAdoptPreheated(versionId: String): Pair<com.pmcl.core.launch.LaunchProfile, String>? {
-        val profile = preheatedProfile ?: return null
-        val preheatedVer = preheatedVersionId
-        if (preheatedVer != versionId) {
-            // 版本不匹配：清空预热，返回 null 让 launch() 走正常 build 路径
-            preheatedProfile = null
-            preheatedJavaExe = ""
-            preheatedVersionId = ""
-            _predictiveState.value = PredictiveState.Aborted
-            // 静默：不更新 _status，避免在 UI 暴露预加载信息
-            return null
-        }
-        // 版本匹配：复用预热的 profile
-        val javaExe = preheatedJavaExe
-        preheatedProfile = null
-        preheatedJavaExe = ""
-        preheatedVersionId = ""
-        _predictiveState.value = PredictiveState.Adopted
-        // 静默：launch() 后续会设置 _status 为"启动中…"，不暴露预热信息
-        return Pair(profile, javaExe)
-    }
-
-    fun launch() {
-        val versionId = _selectedVersion.value ?: run {
-            _status.value = I18n.t("status.version_select_first")
-            return
-        }
-        val account = _account.value ?: run {
-            _status.value = I18n.t("status.login_first")
-            return
-        }
-        // mod 冲突检测：仅警告，不阻断启动
-        // （NeoForge 支持 jar-in-jar 内嵌依赖，Sinytra Connector 提供 fabric 兼容层，
-        //   静态扫描无法检测这些，误报率高；真正的冲突游戏自己会崩并生成崩溃报告）
-        val conflicts = _modConflicts.value
-        if (conflicts != null && conflicts.hasIssues()) {
-            appendGameLog("[警告] mod 冲突检测（仅供参考，不阻断启动）：")
-            conflicts.getErrors().take(5).forEach {
-                appendGameLog("  - $it")
-            }
-            if (conflicts.getErrors().size > 5) {
-                appendGameLog("  …还有 ${conflicts.getErrors().size - 5} 条，见模组页")
-            }
-        }
-
-        scope.launch {
-            _status.value = I18n.t("status.building_launch_profile")
-            var instanceId: String? = null
-            var timeTracked = false
-            // 本次启动关联的实例（非实例启动时为 null），用于退出后回写实例游玩统计
-            var launchedInstance: InstanceInfo? = null
-            // 启动流程计时：记录从点击启动到 MC 主菜单就绪的完整时间线，输出到 latest.log
-            val tracer = com.pmcl.core.launch.LaunchTracer()
-            tracer.mark("launch_start")
-            try {
-                // 先读取版本要求的 Java 版本，用于选择合适的 Java 运行时
-                // alpha/beta/1.7- 无 javaVersion 字段返回 0，按旧版本处理（需 Java 8）
-                val requiredJavaVer = withContext(Dispatchers.IO) {
-                    try { core.profileBuilder().getRequiredJavaVersion(versionId) } catch (e: Throwable) { 0 }
-                }
-                val javaExe = withContext(Dispatchers.IO) {
-                    // 优先级：版本独立 Java > 全局 Java > 自动检测
-                    val versionPath = preferences.getVersionJavaPath(versionId)
-                    if (versionPath.isNotEmpty()) versionPath
-                    else {
-                        val customPath = preferences.getJavaPath()
-                        if (customPath.isNotEmpty()) customPath
-                        else JavaRuntimeFinder.findJavaExecutable(config.getRuntimesDir(), requiredJavaVer)
-                            ?: ""
-                    }
-                }
-                if (javaExe.isEmpty()) {
-                    _status.value = I18n.t("status.launch_failed_no_java")
-                    setGameLogs(listOf(
-                        "启动失败：未找到任何 Java 运行时",
-                        "请安装 Java（推荐 Java 8 用于旧版本，Java 21 用于新版本）",
-                        "下载地址：https://adoptium.net/temurin/releases/"
-                    ))
-                    return@launch
-                }
-                // 获取实际 Java 主版本号，用于条件注入 Java 16+ 专属参数（避免 Java 8 报错）
-                val javaMajorVer = withContext(Dispatchers.IO) {
-                    JavaRuntimeFinder.getMajorVersion(javaExe) ?: 0
-                }
-                // 旧版本用 Java 9+ 启动时，PMCL 兼容层会自动处理 LaunchWrapper 的 URLClassLoader 问题
-                // 不再硬性拦截，而是显示警告并继续启动（兼容层通过 -Djava.system.class.loader 解决）
-                val usingCompatLayer = requiredJavaVer in 1..10 && javaMajorVer > 0 && javaMajorVer >= 9
-                // 检测游戏 Java 的架构，用于让 native 库选择匹配架构的版本
-                // 在 ARM64 系统上用 x86_64 Java 启动老版本时，此参数确保选择 x86_64 natives
-                val javaArch = withContext(Dispatchers.IO) {
-                    JavaRuntimeFinder.getArchitecture(javaExe)
-                }
-                tracer.mark("java_resolved")
-                // 龙芯平台兼容性检测：native 库可能不完整，提示用户
-                if (JavaRuntimeFinder.isLoongson()) {
-                    val isLoongArch = JavaRuntimeFinder.isLoongArch64()
-                    val archName = if (isLoongArch) "LoongArch64" else "MIPS64el"
-                    val isOldVersion = requiredJavaVer in 1..10
-
-                    if (isOldVersion || !isLoongArch) {
-                        // 旧版本（LWJGL 2.x）或 MIPS64el：无原生 native，需 x86_64 + 二进制翻译
-                        _status.value = I18n.t("status.compat_hint_loongson", archName)
-                        val options = mutableListOf<CompatOption>()
-
-                        // 选项1：仍尝试启动（可能因 native 库缺失而崩溃）
-                        options.add(CompatOption(
-                            title = "仍尝试启动",
-                            description = "龙芯 $archName 上旧版本 Minecraft 的 LWJGL 原生库可能缺失。\n" +
-                                    if (isLoongArch)
-                                        "若已安装 LATX 二进制翻译 + x86_64 Java，native 库可通过翻译层运行。\n游戏可能崩溃，请知悉风险。"
-                                    else
-                                        "MIPS64el 龙芯无 x86 二进制翻译能力，旧版本大概率无法运行。\n游戏可能崩溃，请知悉风险。",
-                            action = { launchWithSpecificJava(versionId, javaExe, javaMajorVer, javaArch) }
-                        ))
-
-                        // 选项2：安装龙芯版 JDK（打开龙芯开源社区）
-                        options.add(CompatOption(
-                            title = "前往龙芯开源社区下载 JDK",
-                            description = "打开浏览器访问龙芯开源社区，下载 LoongArch64 版 JDK\n" +
-                                    "安装后 PMCL 会自动检测并使用",
-                            action = {
-                                try {
-                                    val url = "https://www.loongnix.cn/zh/api/java/"
-                                    if (System.getProperty("os.name", "").lowercase().contains("linux")) {
-                                        Runtime.getRuntime().exec(arrayOf("xdg-open", url))
-                                    } else {
-                                        java.awt.Desktop.getDesktop().browse(java.net.URI(url))
-                                    }
-                                } catch (e: Throwable) {
-                                    _status.value = I18n.t("status.cannot_open_browser", e.message ?: I18n.t("common.unknown"))
-                                }
-                            }
-                        ))
-
-                        _compatTitle.value = "龙芯 $archName 兼容性提示"
-                        _compatOptions.value = options
-                        return@launch
-                    }
-                }
-
-                // RISC-V 平台兼容性检测：native 库可能不完整，提示用户
-                if (JavaRuntimeFinder.isRiscV()) {
-                    val isOldVersion = requiredJavaVer in 1..10
-
-                    if (isOldVersion) {
-                        // 旧版本（LWJGL 2.x）：无原生 native，需 x86_64 + QEMU 用户态翻译
-                        _status.value = I18n.t("status.compat_hint_riscv")
-                        val options = mutableListOf<CompatOption>()
-
-                        // 选项1：仍尝试启动（可能因 native 库缺失而崩溃）
-                        options.add(CompatOption(
-                            title = "仍尝试启动",
-                            description = "RISC-V 64 上旧版本 Minecraft 的 LWJGL 2.x 原生库无 RISC-V 版本。\n" +
-                                    "若已安装 QEMU 用户态翻译 + x86_64 Java，native 库可通过翻译层运行。\n" +
-                                    "游戏可能崩溃或性能较差，请知悉风险。",
-                            action = { launchWithSpecificJava(versionId, javaExe, javaMajorVer, javaArch) }
-                        ))
-
-                        // 选项2：安装 RISC-V 版 JDK（打开 Adoptium）
-                        options.add(CompatOption(
-                            title = "前往 Adoptium 下载 RISC-V JDK",
-                            description = "打开浏览器访问 Adoptium，下载 RISC-V 64 版 JDK\n" +
-                                    "安装后 PMCL 会自动检测并使用",
-                            action = {
-                                try {
-                                    val url = "https://adoptium.net/temurin/releases/?version=17&arch=riscv64"
-                                    if (System.getProperty("os.name", "").lowercase().contains("linux")) {
-                                        Runtime.getRuntime().exec(arrayOf("xdg-open", url))
-                                    } else {
-                                        java.awt.Desktop.getDesktop().browse(java.net.URI(url))
-                                    }
-                                } catch (e: Throwable) {
-                                    _status.value = I18n.t("status.cannot_open_browser", e.message ?: I18n.t("common.unknown"))
-                                }
-                            }
-                        ))
-
-                        _compatTitle.value = "RISC-V 64 兼容性提示"
-                        _compatOptions.value = options
-                        return@launch
-                    }
-                }
-
-                // Apple Silicon Mac 上旧版本 + arm64 Java 检测：native 库只有 x86_64，会加载失败
-                val isArchMismatch = requiredJavaVer in 1..10
-                        && (javaArch.contains("aarch64") || javaArch.contains("arm64"))
-                        && System.getProperty("os.name", "").lowercase().contains("mac")
-                        && (System.getProperty("os.arch", "").lowercase().contains("aarch64")
-                            || System.getProperty("os.arch", "").lowercase().contains("arm64"))
-                if (isArchMismatch) {
-                    _status.value = I18n.t("status.compat_issue_arch_mismatch")
-                    // 检测外部启动器和它们管理的 Java 运行时
-                    val externalLaunchers = withContext(Dispatchers.IO) {
-                        ExternalLauncherDetector.detectLaunchers()
-                    }
-                    val externalJavas = withContext(Dispatchers.IO) {
-                        ExternalLauncherDetector.detectExternalJavaRuntimes(true)
-                    }
-                    val x86Javas = externalJavas.filter {
-                        it.majorVersion == 8 && (it.arch.contains("x86_64") || it.arch.contains("amd64"))
-                    }
-
-                    val options = mutableListOf<CompatOption>()
-
-                    // 选项1：用外部启动器管理的 x86_64 Java 8 启动
-                    if (x86Javas.isNotEmpty()) {
-                        val java = x86Javas.first()
-                        options.add(CompatOption(
-                            title = "使用 ${java.source} 的 x86_64 Java 8 启动",
-                            description = "路径: ${java.javaPath}\n通过 Rosetta 2 运行 x86_64 Java 8，PMCL 用自己的启动逻辑",
-                            action = { launchWithSpecificJava(versionId, java.javaPath, javaMajorVer, "x86_64") }
-                        ))
-                    }
-
-                    // 选项2：用外部启动器直接打开
-                    for (launcher in externalLaunchers) {
-                        options.add(CompatOption(
-                            title = "用 ${launcher.name} 启动",
-                            description = "路径: ${launcher.executablePath}\n打开 ${launcher.name} 启动器，从中启动此版本",
-                            action = { launchWithExternalLauncher(launcher, versionId) }
-                        ))
-                    }
-
-                    // 选项3：安装 x86_64 Java 8
-                    options.add(CompatOption(
-                        title = "安装 x86_64 Java 8",
-                        description = "打开浏览器下载 x86_64 版本的 Java 8\n安装后 PMCL 会自动检测并使用",
-                        action = {
-                            try {
-                                val url = "https://adoptium.net/temurin/releases/?version=8&arch=x64"
-                                if (System.getProperty("os.name", "").lowercase().contains("mac")) {
-                                    Runtime.getRuntime().exec(arrayOf("open", url))
-                                } else {
-                                    java.awt.Desktop.getDesktop().browse(java.net.URI(url))
-                                }
-                            } catch (e: Throwable) {
-                                _status.value = I18n.t("status.cannot_open_browser", e.message ?: I18n.t("common.unknown"))
-                            }
-                        }
-                    ))
-
-                    _compatTitle.value = "兼容性问题：旧版本需要 x86_64 Java"
-                    _compatOptions.value = options
-                    return@launch
-                }
-                // 尝试采用预判启动的预热 profile：版本一致则复用预热的 profile，跳过 build 阶段
-                // （build 内部含 verifyLibraries 全量文件校验，是最耗时的 IO 步骤）
-                // 实例启动（_pendingInstanceDir != null）不采用预热，因为实例有独立的 gameDir/libraries
-                val adopted = if (_pendingInstanceDir == null) tryAdoptPreheated(versionId) else null
-                val profile = adopted?.first ?: withContext(Dispatchers.IO) {
-                    val instDir = _pendingInstanceDir
-                    val instInfo = _pendingInstanceInfo
-                    if (instDir != null && instInfo != null) {
-                        // 实例启动：用基础版本的 JSON/jar/库，但 gameDir 指向实例目录
-                        launchedInstance = instInfo
-                        core.profileBuilder().buildInstance(
-                            versionId, instDir, account, javaMajorVer, javaArch
-                        )
-                    } else {
-                        core.profileBuilder().build(versionId, account, javaMajorVer, javaArch)
-                    }
-                }
-                tracer.mark("profile_built")
-
-                // 创建/复用 GameLogger 持久化日志（多实例：每个实例独立日志文件）
-                instanceId = "${versionId}_${System.currentTimeMillis()}"
-                val logFile = config.getWorkDir().resolve("logs").resolve("$instanceId.log")
-                val instLogger = withContext(Dispatchers.IO) {
-                    try { GameLogger(logFile) } catch (e: Throwable) { null }
-                }
-                instanceLoggers[instanceId] = instLogger
-                gameLogger = instLogger
-
-                // 初始化实例日志列表
-                val initLogs = if (usingCompatLayer) {
-                    mutableListOf(
-                        "[PMCL 兼容层] 检测到旧版本使用 Java $javaMajorVer 启动（推荐 Java ${requiredJavaVer}）",
-                        "[PMCL 兼容层] 已通过 PmclBootstrap 入口类注入 URLClassLoader，解决 LaunchWrapper 兼容问题",
-                        "[PMCL 兼容层] 已注入 --add-opens 参数，允许旧版本反射访问 Java 内部 API",
-                        "[PMCL 兼容层] 如遇问题，请安装 Java 8 以获得最佳兼容性",
-                        ""
-                    )
-                } else mutableListOf()
-                instanceLogs[instanceId] = initLogs
-                setGameLogs(initLogs.toList())
-
-                // 添加到运行中实例列表，设为活跃
-                _runningInstances.update { list ->
-                    list.map { it.copy(active = false) } + RunningInstance(
-                        id = instanceId,
-                        versionId = versionId,
-                        accountName = account.username,
-                        startTime = System.currentTimeMillis(),
-                        active = true
-                    )
-                }
-                _gameRunning.value = true
-                _status.value = I18n.t("status.launching", javaExe, javaMajorVer, javaArch, versionId) +
-                        if (usingCompatLayer) I18n.t("status.compat_layer_suffix") else ""
-
-                // 记录启动前的崩溃报告快照（用于退出后对比新增）
-                val crashDirBefore = withContext(Dispatchers.IO) {
-                    try { core.crashAnalyzer().scanReports(config.getWorkDir()).map { it.getFile().toString() }.toSet() }
-                    catch (t: Throwable) { emptySet<String>() }
-                }
-
-                // 记录启动：最近使用列表 + 最后游玩时间戳 + 时长追踪
-                val launchTime = System.currentTimeMillis()
-                preferences.recordRecentVersion(versionId)
-                preferences.setLastPlayedTime(versionId, launchTime)
-                _recentVersions.value = preferences.getRecentVersions()
-                _lastPlayedTimes.value = HashMap(preferences.getLastPlayedTimesRaw())
-                // 携带实例 ID 和已安装模组列表，用于细分统计（按模组/按实例）
-                val sessionModIds = _installedMods.value.mapNotNull { it.getModId().takeIf(String::isNotEmpty) }
-                core.playTimeTracker().recordStart(versionId, instanceId ?: "", sessionModIds)
-                timeTracked = true
-
-                // launchAsync 返回 CompletableFuture，需等待进程退出，否则 gameRunning 会立即被 finally 重置
-                // 预热仅预存 LaunchProfile（不启动 MC 进程），此处始终调用 launchAsync 启动真正的 MC 进程
-                val future = core.launch().launchAsync(
-                    profile, javaExe,
-                    { line ->
-                        // 同时写入实例日志和全局日志（如果该实例是活跃的）
-                        instanceLogs[instanceId]?.let { logs ->
-                            synchronized(logs) {
-                                logs.add(line)
-                                if (logs.size > 2000) logs.subList(0, logs.size - 2000).clear()
-                            }
-                        }
-                        // 仅当此实例为活跃时增量追加 UI（避免每行全量重建）
-                        if (_runningInstances.value.any { it.id == instanceId && it.active }) {
-                            appendGameLog(line)
-                        }
-                        // 解析游戏日志，更新会话上下文（服务器地址 / 世界名）用于细分统计
-                        try {
-                            if (line.contains("Connecting to")) {
-                                // 例：[Render thread/INFO]: Connecting to mc.example.com, 25565
-                                val m = Regex("""Connecting to\s+([^,\s]+)(?:[,\s]+(\d+))?""").find(line)
-                                if (m != null) {
-                                    val host = m.groupValues[1]
-                                    val port = m.groupValues.getOrNull(2)?.takeIf { it.isNotEmpty() }
-                                    val server = if (port != null) "$host:$port" else host
-                                    core.playTimeTracker().updateSessionServer(versionId, server)
-                                }
-                            } else if (line.contains("Saving chunks for level")) {
-                                // 例：Saving chunks for level 'worldName'/minecraft:overworld
-                                val m = Regex("""Saving chunks for level '([^']+)'""").find(line)
-                                if (m != null) {
-                                    core.playTimeTracker().updateSessionWorld(versionId, m.groupValues[1])
-                                }
-                            } else if (line.contains("Preparing spawn area") && !line.contains("Connecting to")) {
-                                // 单人世界加载阶段，若尚未记录世界名，用 "单人世界" 占位
-                                core.playTimeTracker().updateSessionWorld(versionId, "Singleplayer")
-                            }
-                        } catch (_: Throwable) { }
-                    },
-                    instLogger,
-                    tracer
-                )
-                val exitCode = withContext(Dispatchers.IO) { future.join() }
-                _status.value = I18n.t("status.game_exited_with_version", exitCode, versionId)
-
-                // 异常退出检测：非 0 退出码视为崩溃（用退出实例自身日志，勿用当前 UI 活跃缓冲）
-                if (exitCode != 0) {
-                    val recentLogs = instanceId?.let { id ->
-                        instanceLogs[id]?.let { logs ->
-                            synchronized(logs) { logs.takeLast(80).toList() }
-                        }
-                    } ?: _gameLogs.value.takeLast(80).map { it.text }
-                    val report = withContext(Dispatchers.IO) {
-                        try {
-                            val after = core.crashAnalyzer().scanReports(config.getWorkDir())
-                            val newReport = after.firstOrNull { it.getFile().toString() !in crashDirBefore }
-                            if (newReport != null) {
-                                newReport
-                            } else {
-                                val logText = recentLogs.joinToString("\n")
-                                if (logText.isNotBlank()) core.crashAnalyzer().analyze(logText, null)
-                                else null
-                            }
-                        } catch (t: kotlinx.coroutines.CancellationException) {
-                            throw t
-                        } catch (_: Throwable) { null }
-                    }
-                    _crashEvent.value = CrashEvent(exitCode, report, recentLogs, versionId)
-                    _crashReports.value = withContext(Dispatchers.IO) {
-                        try { core.crashAnalyzer().scanReports(config.getWorkDir()) }
-                        catch (t: kotlinx.coroutines.CancellationException) { throw t }
-                        catch (_: Throwable) { emptyList() }
-                    }
-                }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.launch_failed", e.message ?: I18n.t("common.unknown"))
-                appendGameLog("[错误] ${e.message}")
-                instanceId?.let { id ->
-                    instanceLogs[id]?.let { logs ->
-                        synchronized(logs) { logs.add("[错误] ${e.message}") }
-                    }
-                }
-            } finally {
-                // 确保 recordEnd 被调用：即使 launchAsync 抛异常也要记录时长
-                if (timeTracked) {
-                    core.playTimeTracker().recordEnd(versionId)
-                }
-                // 回写实例级游玩统计：上次游玩时间 + 累计时长，持久化后刷新实例列表 UI
-                // （必须在清除 _pendingInstanceInfo 与移除运行实例之前执行，才能读到启动时间）
-                val finishedInstance = launchedInstance
-                if (finishedInstance != null && timeTracked) {
-                    try {
-                        val startedAt = instanceId?.let { id ->
-                            _runningInstances.value.firstOrNull { it.id == id }?.startTime
-                        }
-                        val now = System.currentTimeMillis()
-                        val sessionSeconds = if (startedAt != null)
-                            ((now - startedAt) / 1000).coerceAtLeast(0) else 0L
-                        finishedInstance.setLastPlayedAt(now)
-                        finishedInstance.setTotalPlayTimeSeconds(
-                            finishedInstance.getTotalPlayTimeSeconds() + sessionSeconds
-                        )
-                        withContext(Dispatchers.IO) { core.instances().updateInstance(finishedInstance) }
-                        loadInstances()
-                    } catch (_: Throwable) { }
-                }
-                // 清除实例启动上下文
-                _pendingInstanceDir = null
-                _pendingInstanceInfo = null
-                instanceId?.let { id ->
-                    // 从运行列表中移除此实例
-                    _runningInstances.update { list ->
-                        val remaining = list.filter { it.id != id }
-                        // 如果活跃实例退出了，将最后一个实例设为活跃
-                        if (remaining.isNotEmpty() && !remaining.any { it.active }) {
-                            remaining.mapIndexed { idx, inst ->
-                                if (idx == remaining.lastIndex) inst.copy(active = true)
-                                else inst
-                            }
-                        } else remaining
-                    }
-                    // 更新 UI 日志为新的活跃实例
-                    val activeInst = _runningInstances.value.firstOrNull { it.active }
-                    if (activeInst != null) {
-                        setGameLogs(instanceLogs[activeInst.id]?.let { logs ->
-                            synchronized(logs) { logs.toList() }
-                        } ?: emptyList())
-                    }
-                    _gameRunning.value = _runningInstances.value.isNotEmpty()
-                    // 清理此实例的日志资源
-                    instanceLoggers.remove(id)?.close()
-                    instanceLogs.remove(id)
-                    gameLogger = instanceLoggers.values.lastOrNull()
-                }
-            }
-        }
-    }
-
-    /**
-     * 切换活跃实例（UI 日志面板显示该实例的日志）。
-     */
-    fun selectInstance(instanceId: String) {
-        _runningInstances.update { list ->
-            list.map { it.copy(active = it.id == instanceId) }
-        }
-        setGameLogs(instanceLogs[instanceId]?.let { logs ->
-            synchronized(logs) { logs.toList() }
-        } ?: emptyList())
-    }
-
-    /** 清空当前 UI 游戏日志（不删除磁盘日志文件） */
-    fun clearGameLogs() {
-        _gameLogs.value = emptyList()
-        val activeId = _runningInstances.value.firstOrNull { it.active }?.id
-        if (activeId != null) {
-            instanceLogs[activeId]?.let { logs ->
-                synchronized(logs) { logs.clear() }
-            }
-        }
-    }
-
-    /** 在系统文件管理器中打开游戏日志目录 */
-    fun openGameLogFolder() {
-        scope.launch {
-            try {
-                val dir = withContext(Dispatchers.IO) {
-                    val p = config.getWorkDir().resolve("logs")
-                    java.nio.file.Files.createDirectories(p)
-                    p.toFile()
-                }
-                withContext(Dispatchers.IO) {
-                    java.awt.Desktop.getDesktop().open(dir)
-                }
-            } catch (e: Throwable) {
-                _status.value = I18n.t("log.open_folder_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
     // ============ Java 运行时管理 ============
 
     /**
@@ -4195,14 +2007,20 @@ class LauncherViewModel {
     /**
      * 使用指定的 Java 路径启动游戏（兼容性选项触发）。
      * 临时使用指定的 Java 路径，不修改用户偏好设置。
+     * 与主 launch() 对齐：多实例列表 + finally 重置 running，避免异常后 UI 卡在「运行中」。
      */
     fun launchWithSpecificJava(versionId: String, javaPath: String, javaMajorVer: Int, javaArch: String) {
         dismissCompatOptions()
+        if (!launchPreparing.compareAndSet(false, true)) {
+            _status.value = I18n.t("status.launch_busy")
+            return
+        }
         scope.launch {
             _status.value = I18n.t("status.launching_with_specific_java")
             var timeTracked = false
+            var instanceId: String? = null
             try {
-                val account = _account.value
+                val account = _launchAccountOverride ?: _account.value
                 if (account == null) {
                     _status.value = I18n.t("status.login_first")
                     return@launch
@@ -4210,20 +2028,36 @@ class LauncherViewModel {
                 val profile = withContext(Dispatchers.IO) {
                     core.profileBuilder().build(versionId, account, javaMajorVer, javaArch)
                 }
-                val logFile = config.getWorkDir().resolve("logs").resolve("latest.log")
-                gameLogger = withContext(Dispatchers.IO) {
-                    try { GameLogger(logFile) } catch (e: Throwable) { null }
+                instanceId = "${versionId}_compat_${System.currentTimeMillis()}"
+                val logFile = config.getWorkDir().resolve("logs").resolve("$instanceId.log")
+                val instLogger = withContext(Dispatchers.IO) {
+                    try { GameLogger(logFile) } catch (e: Throwable) {
+                        appendGameLog(I18n.t("status.game_log_create_failed", e.message ?: I18n.t("common.unknown")))
+                        null
+                    }
                 }
-                setGameLogs(listOf(
+                instanceLoggers[instanceId] = instLogger
+                gameLogger = instLogger
+                val initLogs = mutableListOf(
                     "[PMCL] 使用外部 Java 启动: $javaPath",
                     "[PMCL] Java 版本: $javaMajorVer 架构: $javaArch",
                     ""
-                ))
+                )
+                instanceLogs[instanceId] = initLogs
+                setGameLogs(initLogs.toList())
+                _runningInstances.update { list ->
+                    list.map { it.copy(active = false) } + RunningInstance(
+                        id = instanceId!!,
+                        versionId = versionId,
+                        accountName = account.username,
+                        startTime = System.currentTimeMillis(),
+                        active = true
+                    )
+                }
                 _gameRunning.value = true
                 _status.value = I18n.t("status.launching", javaPath, javaMajorVer, javaArch, versionId)
-                // 记录游玩时长（携带已安装模组列表用于细分统计）
                 val sessionModIds = _installedMods.value.mapNotNull { it.getModId().takeIf(String::isNotEmpty) }
-                core.playTimeTracker().recordStart(versionId, "", sessionModIds)
+                core.playTimeTracker().recordStart(versionId, instanceId ?: "", sessionModIds)
                 timeTracked = true
                 preferences.recordRecentVersion(versionId)
                 preferences.setLastPlayedTime(versionId, System.currentTimeMillis())
@@ -4232,8 +2066,15 @@ class LauncherViewModel {
                 val future = core.launch().launchAsync(
                     profile, javaPath,
                     { line ->
-                        appendGameLog(line)
-                        // 解析游戏日志，更新会话上下文（服务器地址 / 世界名）用于细分统计
+                        instanceLogs[instanceId]?.let { logs ->
+                            synchronized(logs) {
+                                logs.add(line)
+                                if (logs.size > 2000) logs.subList(0, logs.size - 2000).clear()
+                            }
+                        }
+                        if (_runningInstances.value.any { it.id == instanceId && it.active }) {
+                            appendGameLog(line)
+                        }
                         try {
                             if (line.contains("Connecting to")) {
                                 val m = Regex("""Connecting to\s+([^,\s]+)(?:[,\s]+(\d+))?""").find(line)
@@ -4253,17 +2094,43 @@ class LauncherViewModel {
                             }
                         } catch (_: Throwable) { }
                     },
-                    gameLogger
+                    instLogger
                 )
+                launchPreparing.set(false)
                 val exitCode = withContext(Dispatchers.IO) { future.join() }
                 _status.value = I18n.t("status.game_exited", exitCode)
-                _gameRunning.value = false
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Throwable) {
                 _status.value = I18n.t("status.launch_failed", e.message ?: I18n.t("common.unknown"))
                 appendGameLog("启动失败: ${e.message}")
             } finally {
+                launchPreparing.set(false)
                 if (timeTracked) {
                     core.playTimeTracker().recordEnd(versionId)
+                }
+                clearLaunchInstanceContext()
+                instanceId?.let { id ->
+                    _runningInstances.update { list ->
+                        val remaining = list.filter { it.id != id }
+                        if (remaining.isNotEmpty() && !remaining.any { it.active }) {
+                            remaining.mapIndexed { idx, inst ->
+                                if (idx == remaining.lastIndex) inst.copy(active = true) else inst
+                            }
+                        } else remaining
+                    }
+                    val activeInst = _runningInstances.value.firstOrNull { it.active }
+                    if (activeInst != null) {
+                        setGameLogs(instanceLogs[activeInst.id]?.let { logs ->
+                            synchronized(logs) { logs.toList() }
+                        } ?: emptyList())
+                    }
+                    _gameRunning.value = _runningInstances.value.isNotEmpty()
+                    instanceLoggers.remove(id)?.close()
+                    instanceLogs.remove(id)
+                    gameLogger = instanceLoggers.values.lastOrNull()
+                } ?: run {
+                    _gameRunning.value = _runningInstances.value.isNotEmpty()
                 }
             }
         }
@@ -4294,9 +2161,16 @@ class LauncherViewModel {
                     }
                     val proc = ProcessBuilder(cmd).directory(workDir)
                         .redirectErrorStream(true).start()
+                    // 纳入 LaunchManager 生命周期，应用退出时可强制清理
+                    core.launch().trackExternalProcess(proc)
                     // 消费合并输出流，防止管道缓冲区满导致进程挂起
                     Thread({
-                        try { proc.inputStream.use { it.readBytes() } } catch (_: Throwable) {}
+                        try {
+                            proc.inputStream.use { it.readBytes() }
+                        } catch (_: Throwable) {
+                        } finally {
+                            core.launch().untrackExternalProcess(proc)
+                        }
                     }, "ext-launcher-drain").apply { isDaemon = true }.start()
                 }
                 _status.value = I18n.t("status.external_launcher_opened", launcher.name, versionId)
@@ -4397,8 +2271,22 @@ class LauncherViewModel {
 
     /** 手动指定 Java 可执行文件路径（空字符串表示自动检测）。 */
     fun setJavaPath(path: String) {
-        preferences.setJavaPath(path)
-        _status.value = if (path.isEmpty()) I18n.t("status.java_path_reset") else I18n.t("status.java_path_set", path)
+        val trimmed = path.trim()
+        if (trimmed.isNotEmpty()) {
+            val file = java.io.File(trimmed)
+            val name = file.name.lowercase()
+            val looksLikeJava = name == "java" || name == "java.exe" || name == "javaw.exe"
+            if (!file.isFile || !looksLikeJava) {
+                _status.value = I18n.t("status.java_path_invalid", trimmed)
+                return
+            }
+            if (!file.canExecute() && !name.endsWith(".exe")) {
+                _status.value = I18n.t("status.java_path_invalid", trimmed)
+                return
+            }
+        }
+        preferences.setJavaPath(trimmed)
+        _status.value = if (trimmed.isEmpty()) I18n.t("status.java_path_reset") else I18n.t("status.java_path_set", trimmed)
     }
 
     // ============ 下载飞入动画 ============
@@ -4515,463 +2403,6 @@ class LauncherViewModel {
         }
     }
 
-    // ============ 世界管理 ============
-
-    fun refreshWorlds() {
-        scope.launch {
-            try {
-                val list = withContext(Dispatchers.IO) {
-                    val all = mutableListOf<WorldManager.WorldInfo>()
-                    val seenPaths = mutableSetOf<String>()
-                    val savesDirs = mutableListOf<Pair<Path, String>>()
-                    // 1. PMCL 工作目录的 saves
-                    savesDirs.add(config.getWorkDir().resolve("saves") to "PMCL")
-                    // 2. 系统所有 Minecraft 根目录的 saves（HMCL / 官方启动器）
-                    for (mcDir in com.pmcl.core.version.VersionManager.detectAllMinecraftVersionsDirs()) {
-                        val mcRoot = mcDir.parent
-                        if (mcRoot != null) savesDirs.add(mcRoot.resolve("saves") to "外部启动器")
-                    }
-                    // 3. 每个版本目录下的 saves（整合包结构：versions/<id>/saves/）
-                    val allVersionsDirs = mutableListOf<Path>()
-                    allVersionsDirs.add(config.getVersionsDir())
-                    allVersionsDirs.addAll(com.pmcl.core.version.VersionManager.detectAllMinecraftVersionsDirs())
-                    for (versionsDir in allVersionsDirs) {
-                        val versionsFile = versionsDir.toFile()
-                        if (!versionsFile.isDirectory) continue
-                        val subDirs = versionsFile.listFiles { f -> f.isDirectory } ?: continue
-                        for (subDir in subDirs) {
-                            val versionSaves = subDir.toPath().resolve("saves")
-                            savesDirs.add(versionSaves to subDir.name)
-                        }
-                    }
-                    // 4. 版本隔离目录下的 saves（instances/<id>/saves/）
-                    val instancesDir = config.getWorkDir().resolve("instances")
-                    val instancesFile = instancesDir.toFile()
-                    if (instancesFile.isDirectory) {
-                        val instDirs = instancesFile.listFiles { f -> f.isDirectory } ?: emptyArray()
-                        for (instDir in instDirs) {
-                            val instSaves = instDir.toPath().resolve("saves")
-                            savesDirs.add(instSaves to instDir.name)
-                        }
-                    }
-                    // 扫描所有 saves 目录，按绝对路径去重
-                    val wm = core.worlds()
-                    val diag = StringBuilder()
-                    diag.append("savesDirs.size = ${savesDirs.size}\n")
-                    for ((savesDir, source) in savesDirs) {
-                        try {
-                            val part = wm.listWorlds(savesDir, source)
-                            for (w in part) {
-                                if (seenPaths.add(w.dir.toAbsolutePath().toString())) all.add(w)
-                            }
-                            diag.append("[$savesDir] → ${part.size} worlds (exists=${java.nio.file.Files.isDirectory(savesDir)})\n")
-                        } catch (t: Throwable) {
-                            diag.append("[$savesDir] → 异常: ${t.javaClass.simpleName}: ${t.message}\n")
-                        }
-                    }
-                    diag.append("TOTAL = ${all.size} worlds\n")
-                    System.err.println("[refreshWorlds] $diag")
-                    all
-                }
-                _worlds.value = list
-                _status.value = I18n.t("status.worlds_scanned", list.size)
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.scan_worlds_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    fun backupWorld(world: WorldManager.WorldInfo): Job {
-        return scope.launch {
-            try {
-                _status.value = I18n.t("status.backing_up", world.name)
-                val zip = withContext(Dispatchers.IO) { core.worlds().backup(world) }
-                _status.value = I18n.t("status.world_backed_up", zip.fileName.toString())
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.backup_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    /** 打开某个世界所在文件夹 */
-    fun openWorldFolder(world: WorldManager.WorldInfo) {
-        openDir(world.dir.toFile())
-    }
-
-    fun deleteWorld(world: WorldManager.WorldInfo) {
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) { core.worlds().delete(world) }
-                _status.value = I18n.t("status.world_deleted", world.name)
-                refreshWorlds()
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.delete_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    /** 列出指定世界的所有备份文件 */
-    suspend fun listBackups(worldName: String): List<java.nio.file.Path> {
-        return withContext(Dispatchers.IO) {
-            try {
-                core.worlds().listBackups(worldName)
-            } catch (e: Throwable) {
-                emptyList()
-            }
-        }
-    }
-
-    /** 从备份 zip 恢复世界（覆盖现有同名世界） */
-    fun restoreWorld(zipFile: java.nio.file.Path, worldName: String) {
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) { core.worlds().restore(zipFile, worldName) }
-                _status.value = I18n.t("status.world_restored", worldName)
-                refreshWorlds()
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.restore_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    /** 从 zip 导入世界（世界名取自 zip 文件名） */
-    fun importWorld(zipFile: java.nio.file.Path) {
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) { core.worlds().importWorld(zipFile) }
-                _status.value = I18n.t("status.world_imported", zipFile.fileName.toString())
-                refreshWorlds()
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.import_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    // ============ 截图 ============
-
-    fun refreshScreenshots() {
-        scope.launch {
-            try {
-                val list = withContext(Dispatchers.IO) {
-                    val all = mutableListOf<ScreenshotManager.Screenshot>()
-                    val seenPaths = mutableSetOf<String>()
-                    val shotDirs = mutableListOf<Pair<Path, String>>()
-                    // 1. PMCL 工作目录的 screenshots
-                    shotDirs.add(config.getWorkDir().resolve("screenshots") to "PMCL")
-                    // 2. 系统所有 Minecraft 根目录的 screenshots（HMCL / 官方启动器）
-                    for (mcDir in com.pmcl.core.version.VersionManager.detectAllMinecraftVersionsDirs()) {
-                        val mcRoot = mcDir.parent
-                        if (mcRoot != null) shotDirs.add(mcRoot.resolve("screenshots") to "外部启动器")
-                    }
-                    // 3. 每个版本目录下的 screenshots（整合包结构：versions/<id>/screenshots/）
-                    val allVersionsDirs = mutableListOf<Path>()
-                    allVersionsDirs.add(config.getVersionsDir())
-                    allVersionsDirs.addAll(com.pmcl.core.version.VersionManager.detectAllMinecraftVersionsDirs())
-                    for (versionsDir in allVersionsDirs) {
-                        val versionsFile = versionsDir.toFile()
-                        if (!versionsFile.isDirectory) continue
-                        val subDirs = versionsFile.listFiles { f -> f.isDirectory } ?: continue
-                        for (subDir in subDirs) {
-                            val versionShots = subDir.toPath().resolve("screenshots")
-                            shotDirs.add(versionShots to subDir.name)
-                        }
-                    }
-                    // 4. 版本隔离目录下的 screenshots（instances/<id>/screenshots/）
-                    val instancesDir = config.getWorkDir().resolve("instances")
-                    val instancesFile = instancesDir.toFile()
-                    if (instancesFile.isDirectory) {
-                        val instDirs = instancesFile.listFiles { f -> f.isDirectory } ?: emptyArray()
-                        for (instDir in instDirs) {
-                            val instShots = instDir.toPath().resolve("screenshots")
-                            shotDirs.add(instShots to instDir.name)
-                        }
-                    }
-                    // 扫描所有 screenshots 目录，按绝对路径去重
-                    val sm = core.screenshots()
-                    val diag = StringBuilder()
-                    diag.append("shotDirs.size = ${shotDirs.size}\n")
-                    for ((shotDir, source) in shotDirs) {
-                        try {
-                            val part = sm.list(shotDir, source)
-                            for (s in part) {
-                                if (seenPaths.add(s.path.toAbsolutePath().toString())) all.add(s)
-                            }
-                            diag.append("[$shotDir] → ${part.size} shots (exists=${java.nio.file.Files.isDirectory(shotDir)})\n")
-                        } catch (t: Throwable) {
-                            diag.append("[$shotDir] → 异常: ${t.javaClass.simpleName}: ${t.message}\n")
-                        }
-                    }
-                    // 合并后再次按修改时间倒序
-                    all.sortByDescending { it.modified }
-                    diag.append("TOTAL = ${all.size} shots\n")
-                    System.err.println("[refreshScreenshots] $diag")
-                    all
-                }
-                _screenshots.value = list
-                _status.value = I18n.t("status.screenshots_scanned", list.size)
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.scan_screenshots_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    fun deleteScreenshot(shot: ScreenshotManager.Screenshot) {
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) { core.screenshots().delete(shot) }
-                _status.value = I18n.t("status.screenshot_deleted", shot.name)
-                refreshScreenshots()
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.delete_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    /** 批量删除截图 */
-    fun deleteScreenshots(shots: List<ScreenshotManager.Screenshot>) {
-        if (shots.isEmpty()) return
-        scope.launch {
-            try {
-                var ok = 0
-                withContext(Dispatchers.IO) {
-                    for (shot in shots) {
-                        try {
-                            core.screenshots().delete(shot)
-                            ok++
-                        } catch (_: Throwable) {
-                            // 单个失败继续删其余
-                        }
-                    }
-                }
-                _status.value = I18n.t("status.screenshots_deleted", ok)
-                refreshScreenshots()
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.delete_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    /** 复制截图到系统剪贴板（作为图片） */
-    fun copyScreenshotToClipboard(shot: ScreenshotManager.Screenshot) {
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) {
-                    val img = javax.imageio.ImageIO.read(shot.getPath().toFile())
-                    if (img != null) {
-                        val selection = object : java.awt.datatransfer.Transferable {
-                            override fun getTransferDataFlavors() = arrayOf(java.awt.datatransfer.DataFlavor.imageFlavor)
-                            override fun isDataFlavorSupported(f: java.awt.datatransfer.DataFlavor) =
-                                f == java.awt.datatransfer.DataFlavor.imageFlavor
-                            override fun getTransferData(f: java.awt.datatransfer.DataFlavor): Any {
-                                if (f != java.awt.datatransfer.DataFlavor.imageFlavor)
-                                    throw java.awt.datatransfer.UnsupportedFlavorException(f)
-                                return img
-                            }
-                        }
-                        java.awt.Toolkit.getDefaultToolkit().systemClipboard.setContents(selection, null)
-                    }
-                }
-                _status.value = I18n.t("status.screenshot_copied", shot.name)
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.copy_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    /** 导出多张截图为 ZIP 文件 */
-    fun exportScreenshotsZip(shots: List<ScreenshotManager.Screenshot>, targetPath: String) {
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) {
-                    java.nio.file.Files.newOutputStream(java.nio.file.Paths.get(targetPath)).use { fos ->
-                        java.util.zip.ZipOutputStream(fos).use { zos ->
-                            val usedNames = mutableSetOf<String>()
-                            for (shot in shots) {
-                                var name = shot.getName()
-                                while (!usedNames.add(name)) {
-                                    val dot = name.lastIndexOf('.')
-                                    name = if (dot > 0) name.substring(0, dot) + "_1" + name.substring(dot)
-                                           else name + "_1"
-                                }
-                                zos.putNextEntry(java.util.zip.ZipEntry(name))
-                                java.nio.file.Files.copy(shot.getPath(), zos)
-                                zos.closeEntry()
-                            }
-                        }
-                    }
-                }
-                _status.value = I18n.t("status.screenshots_exported", shots.size, targetPath)
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.export_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    // ============ 资源包 ============
-
-    fun refreshResourcePacks() {
-        scope.launch {
-            try {
-                val list = withContext(Dispatchers.IO) {
-                    val all = mutableListOf<ResourcePackManager.Pack>()
-                    val seen = mutableSetOf<String>()
-                    val dirs = mutableListOf<java.nio.file.Path>()
-                    // 1. PMCL 全局 resourcepacks
-                    dirs.add(config.getWorkDir().resolve("resourcepacks"))
-                    // 2. 系统 .minecraft/resourcepacks
-                    for (mcDir in com.pmcl.core.version.VersionManager.detectAllMinecraftVersionsDirs()) {
-                        val mcRoot = mcDir.parent
-                        if (mcRoot != null) dirs.add(mcRoot.resolve("resourcepacks"))
-                    }
-                    // 3. 版本隔离 versions/<id>/resourcepacks
-                    val versionsDirs = mutableListOf<java.nio.file.Path>()
-                    versionsDirs.add(config.getVersionsDir())
-                    versionsDirs.addAll(com.pmcl.core.version.VersionManager.detectAllMinecraftVersionsDirs())
-                    for (vd in versionsDirs) {
-                        val vf = vd.toFile()
-                        if (!vf.isDirectory) continue
-                        val subs = vf.listFiles { f -> f.isDirectory } ?: continue
-                        for (sub in subs) dirs.add(sub.toPath().resolve("resourcepacks"))
-                    }
-                    // 4. 实例 instances/<id>/resourcepacks
-                    val instDir = config.getWorkDir().resolve("instances")
-                    if (instDir.toFile().isDirectory) {
-                        val insts = instDir.toFile().listFiles { f -> f.isDirectory } ?: emptyArray()
-                        for (inst in insts) dirs.add(inst.toPath().resolve("resourcepacks"))
-                    }
-                    // 扫描所有目录
-                    for (dir in dirs) {
-                        try {
-                            val sourceLabel = contentSourceLabelFor(dir, "resourcepacks")
-                            val part = core.resourcePacks().list(dir, sourceLabel)
-                            for (p in part) {
-                                val key = "$dir/${p.name}"
-                                if (seen.add(key)) all.add(p)
-                            }
-                        } catch (_: Throwable) {}
-                    }
-                    all
-                }
-                _resourcePacks.value = list
-                _status.value = I18n.t("status.resource_packs_scanned", list.size)
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.scan_resource_packs_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    fun enableResourcePack(pack: ResourcePackManager.Pack) {
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) { core.resourcePacks().enable(pack.name) }
-                _status.value = I18n.t("status.resource_pack_enabled", pack.name)
-                refreshResourcePacks()
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.enable_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    fun disableResourcePack(pack: ResourcePackManager.Pack) {
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) { core.resourcePacks().disable(pack.name) }
-                _status.value = I18n.t("status.resource_pack_disabled", pack.name)
-                refreshResourcePacks()
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.disable_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    fun deleteResourcePack(pack: ResourcePackManager.Pack) {
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) { core.resourcePacks().delete(pack) }
-                _status.value = I18n.t("status.resource_pack_deleted", pack.name)
-                refreshResourcePacks()
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.delete_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    /** 导入资源包文件到 resourcepacks 目录 */
-    fun importResourcePack(filePath: String) {
-        scope.launch {
-            try {
-                val fileName = withContext(Dispatchers.IO) {
-                    val src = java.nio.file.Paths.get(filePath)
-                    val targetDir = config.getWorkDir().resolve("resourcepacks")
-                    java.nio.file.Files.createDirectories(targetDir)
-                    val target = targetDir.resolve(src.fileName)
-                    java.nio.file.Files.copy(src, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-                    src.fileName.toString()
-                }
-                _status.value = I18n.t("status.resource_pack_imported", fileName)
-                refreshResourcePacks()
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.import_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    /** 批量启用资源包 */
-    fun batchEnableResourcePacks(packs: List<ResourcePackManager.Pack>) {
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) {
-                    for (pack in packs) {
-                        try {
-                            core.resourcePacks().enable(pack.name)
-                        } catch (_: Throwable) {}
-                    }
-                }
-                _status.value = I18n.t("status.batch_enabled_resource_packs", packs.size)
-                refreshResourcePacks()
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.batch_enable_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    /** 批量禁用资源包 */
-    fun batchDisableResourcePacks(packs: List<ResourcePackManager.Pack>) {
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) {
-                    for (pack in packs) {
-                        try {
-                            core.resourcePacks().disable(pack.name)
-                        } catch (_: Throwable) {}
-                    }
-                }
-                _status.value = I18n.t("status.batch_disabled_resource_packs", packs.size)
-                refreshResourcePacks()
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.batch_disable_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    /** 批量删除资源包 */
-    fun batchDeleteResourcePacks(packs: List<ResourcePackManager.Pack>) {
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) {
-                    for (pack in packs) {
-                        try {
-                            core.resourcePacks().delete(pack)
-                        } catch (_: Throwable) {}
-                    }
-                }
-                _status.value = I18n.t("status.batch_deleted_resource_packs", packs.size)
-                refreshResourcePacks()
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.batch_delete_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
 
     // ============ 完整性校验 ============
 
@@ -5155,403 +2586,6 @@ class LauncherViewModel {
         _status.value = I18n.t("status.network_prefs_applied")
     }
 
-    // ============ 光影包 ============
-
-    fun refreshShaderPacks() {
-        scope.launch {
-            try {
-                val list = withContext(Dispatchers.IO) {
-                    val all = mutableListOf<ShaderPackManager.ShaderPack>()
-                    val seen = mutableSetOf<String>()
-                    val dirs = mutableListOf<java.nio.file.Path>()
-                    // 1. PMCL 全局 shaderpacks
-                    dirs.add(config.getWorkDir().resolve("shaderpacks"))
-                    // 2. 系统 .minecraft/shaderpacks
-                    for (mcDir in com.pmcl.core.version.VersionManager.detectAllMinecraftVersionsDirs()) {
-                        val mcRoot = mcDir.parent
-                        if (mcRoot != null) dirs.add(mcRoot.resolve("shaderpacks"))
-                    }
-                    // 3. 版本隔离 versions/<id>/shaderpacks
-                    val versionsDirs = mutableListOf<java.nio.file.Path>()
-                    versionsDirs.add(config.getVersionsDir())
-                    versionsDirs.addAll(com.pmcl.core.version.VersionManager.detectAllMinecraftVersionsDirs())
-                    for (vd in versionsDirs) {
-                        val vf = vd.toFile()
-                        if (!vf.isDirectory) continue
-                        val subs = vf.listFiles { f -> f.isDirectory } ?: continue
-                        for (sub in subs) dirs.add(sub.toPath().resolve("shaderpacks"))
-                    }
-                    // 4. 实例 instances/<id>/shaderpacks
-                    val instDir = config.getWorkDir().resolve("instances")
-                    if (instDir.toFile().isDirectory) {
-                        val insts = instDir.toFile().listFiles { f -> f.isDirectory } ?: emptyArray()
-                        for (inst in insts) dirs.add(inst.toPath().resolve("shaderpacks"))
-                    }
-                    // 扫描所有目录
-                    for (dir in dirs) {
-                        try {
-                            val sourceLabel = contentSourceLabelFor(dir, "shaderpacks")
-                            val part = core.shaderPacks().list(dir, sourceLabel)
-                            for (p in part) {
-                                val key = "$dir/${p.name}"
-                                if (seen.add(key)) all.add(p)
-                            }
-                        } catch (_: Throwable) {}
-                    }
-                    all
-                }
-                _shaderPacks.value = list
-                _status.value = I18n.t("status.shader_packs_scanned", list.size)
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.scan_shader_packs_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    fun enableShaderPack(pack: ShaderPackManager.ShaderPack) {
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) { core.shaderPacks().enable(pack.name) }
-                _status.value = I18n.t("status.shader_pack_enabled", pack.name)
-                refreshShaderPacks()
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.enable_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    fun disableShaderPack(pack: ShaderPackManager.ShaderPack) {
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) { core.shaderPacks().disable(pack.name) }
-                _status.value = I18n.t("status.shader_pack_disabled", pack.name)
-                refreshShaderPacks()
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.disable_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    fun deleteShaderPack(pack: ShaderPackManager.ShaderPack) {
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) { core.shaderPacks().delete(pack) }
-                _status.value = I18n.t("status.shader_pack_deleted", pack.name)
-                refreshShaderPacks()
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.delete_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    /** 导入光影包文件到 shaderpacks 目录 */
-    fun importShaderPack(filePath: String) {
-        scope.launch {
-            try {
-                val fileName = withContext(Dispatchers.IO) {
-                    val src = java.nio.file.Paths.get(filePath)
-                    val targetDir = config.getWorkDir().resolve("shaderpacks")
-                    java.nio.file.Files.createDirectories(targetDir)
-                    val target = targetDir.resolve(src.fileName)
-                    java.nio.file.Files.copy(src, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-                    src.fileName.toString()
-                }
-                _status.value = I18n.t("status.shader_pack_imported", fileName)
-                refreshShaderPacks()
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.import_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    /** 批量启用光影包 */
-    fun batchEnableShaderPacks(packs: List<ShaderPackManager.ShaderPack>) {
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) {
-                    for (pack in packs) {
-                        try {
-                            core.shaderPacks().enable(pack.name)
-                        } catch (_: Throwable) {}
-                    }
-                }
-                _status.value = I18n.t("status.batch_enabled_shader_packs", packs.size)
-                refreshShaderPacks()
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.batch_enable_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    /** 批量禁用光影包 */
-    fun batchDisableShaderPacks(packs: List<ShaderPackManager.ShaderPack>) {
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) {
-                    for (pack in packs) {
-                        try {
-                            core.shaderPacks().disable(pack.name)
-                        } catch (_: Throwable) {}
-                    }
-                }
-                _status.value = I18n.t("status.batch_disabled_shader_packs", packs.size)
-                refreshShaderPacks()
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.batch_disable_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    /** 批量删除光影包 */
-    fun batchDeleteShaderPacks(packs: List<ShaderPackManager.ShaderPack>) {
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) {
-                    for (pack in packs) {
-                        try {
-                            core.shaderPacks().delete(pack)
-                        } catch (_: Throwable) {}
-                    }
-                }
-                _status.value = I18n.t("status.batch_deleted_shader_packs", packs.size)
-                refreshShaderPacks()
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.batch_delete_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    /** 将指定光影包设为当前选中（写入 options.txt） */
-    fun setActiveShaderPack(pack: ShaderPackManager.ShaderPack) {
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) { core.shaderPacks().setActive(pack) }
-                _status.value = I18n.t("status.shader_pack_applied", pack.name)
-                refreshShaderPacks()
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.apply_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    /** 关闭光影（清空当前选中） */
-    fun clearActiveShaderPack() {
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) { core.shaderPacks().clearActive() }
-                _status.value = I18n.t("status.shader_pack_cleared")
-                refreshShaderPacks()
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.clear_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    /** 在系统文件管理中打开 shaderpacks 目录 */
-    fun openShaderPacksDir() {
-        openDir(core.shaderPacks().shaderPacksDir.toFile())
-    }
-
-    /** 在系统文件管理中打开 resourcepacks 目录 */
-    fun openResourcePacksDir() {
-        openDir(core.resourcePacks().resourcePacksDir.toFile())
-    }
-
-    /** 在系统文件管理中打开 screenshots 目录 */
-    fun openScreenshotsDir() {
-        openDir(core.screenshots().screenshotsDir.toFile())
-    }
-
-    /** 打开单张截图所在文件夹（版本/实例真实目录） */
-    fun openScreenshotFolder(shot: ScreenshotManager.Screenshot) {
-        val parent = shot.path?.parent?.toFile()
-        if (parent == null) {
-            _status.value = I18n.t("status.open_dir_failed", I18n.t("common.unknown"))
-            return
-        }
-        openDir(parent)
-    }
-
-    // ============ 数据包 ============
-
-    fun refreshDatapacks(worldDir: java.nio.file.Path) {
-        scope.launch {
-            try {
-                val list = withContext(Dispatchers.IO) { core.datapacks().list(worldDir) }
-                _datapacks.value = list
-                _status.value = I18n.t("status.datapacks_scanned", list.size)
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.scan_datapacks_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    fun deleteDatapack(pack: DatapackManager.Datapack) {
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) { core.datapacks().delete(pack) }
-                _status.value = I18n.t("status.datapack_deleted", pack.name)
-                // 删除后刷新当前选中的世界
-                _selectedDatapackWorld.value?.let { w ->
-                    val list = withContext(Dispatchers.IO) { core.datapacks().list(w.dir) }
-                    _datapacks.value = list
-                }
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.delete_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    fun enableDatapack(pack: DatapackManager.Datapack) {
-        scope.launch {
-            try {
-                _selectedDatapackWorld.value?.let { w ->
-                    withContext(Dispatchers.IO) { core.datapacks().enable(w.dir, pack.name) }
-                    _status.value = I18n.t("status.datapack_enabled", pack.name)
-                    val list = withContext(Dispatchers.IO) { core.datapacks().list(w.dir) }
-                    _datapacks.value = list
-                }
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.enable_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    fun disableDatapack(pack: DatapackManager.Datapack) {
-        scope.launch {
-            try {
-                _selectedDatapackWorld.value?.let { w ->
-                    withContext(Dispatchers.IO) { core.datapacks().disable(w.dir, pack.name) }
-                    _status.value = I18n.t("status.datapack_disabled", pack.name)
-                    val list = withContext(Dispatchers.IO) { core.datapacks().list(w.dir) }
-                    _datapacks.value = list
-                }
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.disable_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    /** 导入数据包文件到选中世界的 datapacks 目录 */
-    fun importDatapack(filePath: String) {
-        val world = _selectedDatapackWorld.value
-        if (world == null) {
-            _status.value = I18n.t("status.world_select_first")
-            return
-        }
-        scope.launch {
-            try {
-                val fileName = withContext(Dispatchers.IO) {
-                    val src = java.nio.file.Paths.get(filePath)
-                    val targetDir = world.dir.resolve("datapacks")
-                    java.nio.file.Files.createDirectories(targetDir)
-                    val target = targetDir.resolve(src.fileName)
-                    java.nio.file.Files.copy(src, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-                    src.fileName.toString()
-                }
-                _status.value = I18n.t("status.datapack_imported", fileName)
-                val list = withContext(Dispatchers.IO) { core.datapacks().list(world.dir) }
-                _datapacks.value = list
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.import_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    /** 批量启用数据包 */
-    fun batchEnableDatapacks(packs: List<DatapackManager.Datapack>) {
-        val world = _selectedDatapackWorld.value
-        if (world == null) {
-            _status.value = I18n.t("status.world_select_first")
-            return
-        }
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) {
-                    for (pack in packs) {
-                        try {
-                            core.datapacks().enable(world.dir, pack.name)
-                        } catch (_: Throwable) {}
-                    }
-                }
-                _status.value = I18n.t("status.batch_enabled_datapacks", packs.size)
-                val list = withContext(Dispatchers.IO) { core.datapacks().list(world.dir) }
-                _datapacks.value = list
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.batch_enable_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    /** 批量禁用数据包 */
-    fun batchDisableDatapacks(packs: List<DatapackManager.Datapack>) {
-        val world = _selectedDatapackWorld.value
-        if (world == null) {
-            _status.value = I18n.t("status.world_select_first")
-            return
-        }
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) {
-                    for (pack in packs) {
-                        try {
-                            core.datapacks().disable(world.dir, pack.name)
-                        } catch (_: Throwable) {}
-                    }
-                }
-                _status.value = I18n.t("status.batch_disabled_datapacks", packs.size)
-                val list = withContext(Dispatchers.IO) { core.datapacks().list(world.dir) }
-                _datapacks.value = list
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.batch_disable_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    /** 批量删除数据包 */
-    fun batchDeleteDatapacks(packs: List<DatapackManager.Datapack>) {
-        val world = _selectedDatapackWorld.value
-        if (world == null) {
-            _status.value = I18n.t("status.world_select_first")
-            return
-        }
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) {
-                    for (pack in packs) {
-                        try {
-                            core.datapacks().delete(pack)
-                        } catch (_: Throwable) {}
-                    }
-                }
-                _status.value = I18n.t("status.batch_deleted_datapacks", packs.size)
-                val list = withContext(Dispatchers.IO) { core.datapacks().list(world.dir) }
-                _datapacks.value = list
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.batch_delete_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    /** 当前选中的数据包世界（用于 DatapacksPage） */
-    private val _selectedDatapackWorld = MutableStateFlow<WorldManager.WorldInfo?>(null)
-    val selectedDatapackWorld: StateFlow<WorldManager.WorldInfo?> = _selectedDatapackWorld.asStateFlow()
-
-    fun selectDatapackWorld(world: WorldManager.WorldInfo) {
-        _selectedDatapackWorld.value = world
-        refreshDatapacks(world.dir)
-    }
-
-    /** 清除选中的世界，返回世界列表视图 */
-    fun clearDatapackWorld() {
-        _selectedDatapackWorld.value = null
-        _datapacks.value = emptyList()
-    }
-
-    /** 打开指定世界的 datapacks 目录 */
-    fun openDatapacksDir(world: WorldManager.WorldInfo) {
-        openDir(world.dir.resolve("datapacks").toFile())
-    }
 
     // ============ Wiki 浏览 ============
 
@@ -5619,7 +2653,7 @@ class LauncherViewModel {
         _shareUrl.value = null
         scope.launch {
             try {
-                val content = logs.map { it.text }.joinToString("\n")
+                val content = redactSensitiveLogContent(logs.map { it.text }.joinToString("\n"))
                 val name = "PMCL-Log-${java.text.SimpleDateFormat("yyyyMMdd-HHmmss").format(java.util.Date())}"
                 val url = core.pastebin().upload(content, name)
                 _shareUrl.value = url
@@ -5632,171 +2666,23 @@ class LauncherViewModel {
         }
     }
 
-    // ============ 新闻 ============
-
-    /**
-     * 拉取 Minecraft.net 官方 RSS 新闻。
-     * 进入新闻页时自动调用一次；网络失败会通过 status 反馈并保留旧数据。
-     */
-    fun refreshNews() {
-        if (_newsLoading.value) return
-        scope.launch {
-            // 先读缓存秒开
-            val cached = withContext(Dispatchers.IO) {
-                DataCache.loadWithTimestamp("news_list", object : TypeToken<List<com.pmcl.core.news.NewsItem>>() {})
-            }
-            if (cached != null) {
-                @Suppress("UNCHECKED_CAST")
-                val data = cached[0] as? List<com.pmcl.core.news.NewsItem> ?: return@launch
-                val savedAt = cached[1] as? Long ?: return@launch
-                if (data.isNotEmpty()) {
-                    _newsItems.value = data
-                    _newsLoading.value = false
-                    fetchNewsCoverImages(data)
-                }
-                // 缓存未过期：后台静默刷新（stale-while-revalidate）
-                if (!DataCache.isExpired(savedAt, 60 * 60 * 1000L)) {
-                    scope.launch {
-                        try {
-                            val list = withContext(Dispatchers.IO) {
-                                core.news().fetch(20).join()
-                            }
-                            transferNewsImageUrls(list)
-                            _newsItems.value = list
-                            fetchNewsCoverImages(list)
-                            DataCache.save("news_list", list)
-                            _status.value = if (list.isEmpty()) I18n.t("status.no_news") else I18n.t("status.news_loaded", list.size)
-                        } catch (_: Throwable) {
-                            // 静默失败，保留缓存数据
-                        }
-                    }
-                    return@launch
-                }
-                // 缓存已过期：继续走正常网络请求
-            }
-            // 缓存不存在/已过期：正常网络请求
-            _newsLoading.value = true
-            _status.value = I18n.t("status.loading_news")
-            try {
-                val list = withContext(Dispatchers.IO) {
-                    core.news().fetch(20).join()
-                }
-                transferNewsImageUrls(list)
-                _newsItems.value = list
-                fetchNewsCoverImages(list)
-                _status.value = if (list.isEmpty()) I18n.t("status.no_news") else I18n.t("status.news_loaded", list.size)
-                DataCache.save("news_list", list)
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.news_load_failed", e.message ?: I18n.t("common.unknown"))
-            } finally {
-                _newsLoading.value = false
-            }
+    /** 分享前脱敏：accessToken / session / Bearer 等常见凭据。 */
+    private fun redactSensitiveLogContent(raw: String): String {
+        var s = raw
+        val patterns = listOf(
+            Regex("""(?i)(access[_-]?token\s*[=:]\s*)\S+""") to "$1***",
+            Regex("""(?i)(session\s*[=:]\s*)\S+""") to "$1***",
+            Regex("""(?i)(authorization\s*:\s*bearer\s+)\S+""") to "$1***",
+            Regex("""(?i)(x-auth-token\s*[=:]\s*)\S+""") to "$1***",
+            Regex("""(?i)(client[_-]?secret\s*[=:]\s*)\S+""") to "$1***",
+            Regex("""(?i)(refresh[_-]?token\s*[=:]\s*)\S+""") to "$1***",
+            Regex("""(?i)--accessToken\s+\S+""") to "--accessToken ***",
+            Regex("""(?i)--uuid\s+[0-9a-f-]{32,36}""") to "--uuid ***",
+        )
+        for ((re, rep) in patterns) {
+            s = re.replace(s, rep)
         }
-    }
-
-    /** 封面图后台抓取 Job，可取消 */
-    @Volatile
-    private var newsImageJob: kotlinx.coroutines.Job? = null
-
-    /** 将旧列表中已抓取的 imageUrl 按 link 迁移到新列表，避免后台刷新时重复抓取 */
-    private fun transferNewsImageUrls(newItems: List<com.pmcl.core.news.NewsItem>) {
-        val oldMap = _newsItems.value.associateBy { it.getLink() }
-        newItems.forEach { newItem ->
-            val old = oldMap[newItem.getLink()]
-            if (old != null && old.getImageUrl().isNotEmpty()) {
-                newItem.setImageUrl(old.getImageUrl())
-            }
-        }
-    }
-
-    /**
-     * RSS 不含图片 URL，异步抓取每篇文章页提取封面图并回填到 NewsItem。
-     * 并发限制 5，完成后更新缓存。已有 imageUrl 的条目跳过。
-     */
-    private fun fetchNewsCoverImages(items: List<com.pmcl.core.news.NewsItem>) {
-        newsImageJob?.cancel()
-        val toFetch = items.filter { it.getImageUrl().isEmpty() && it.getLink().isNotEmpty() }
-        if (toFetch.isEmpty()) return
-        newsImageJob = scope.launch {
-            val semaphore = Semaphore(5)
-            coroutineScope {
-                toFetch.forEach { item ->
-                    launch {
-                        semaphore.withPermit {
-                            try {
-                                val url = withContext(Dispatchers.IO) {
-                                    core.news().fetchCoverImage(item.getLink()).join()
-                                }
-                                if (url.isNotEmpty()) {
-                                    item.setImageUrl(url)
-                                    _newsItems.value = _newsItems.value.toList()
-                                }
-                            } catch (_: Throwable) {}
-                        }
-                    }
-                }
-            }
-            DataCache.save("news_list", _newsItems.value)
-        }
-    }
-
-    /** 在系统浏览器打开新闻原文链接 */
-    fun openNewsLink(url: String) {
-        if (url.isBlank()) {
-            _status.value = I18n.t("status.news_no_link")
-            return
-        }
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) { WikiBrowser.open(url) }
-                _status.value = I18n.t("status.news_opened_in_browser")
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.open_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    /** 加载新闻文章正文（在 PMCL 内部展示） */
-    fun loadArticle(url: String) {
-        if (url.isBlank()) {
-            _articleError.value = "该新闻没有可访问的链接"
-            return
-        }
-        if (_articleLoading.value) return
-        val cacheKey = "article_" + url.hashCode()
-        scope.launch {
-            // 先读缓存（永久缓存，命中即返回）
-            val cached = withContext(Dispatchers.IO) {
-                DataCache.load(cacheKey, object : TypeToken<com.pmcl.core.news.ArticleContent>() {})
-            }
-            if (cached != null) {
-                _articleContent.value = cached
-                _articleError.value = ""
-                _articleLoading.value = false
-                return@launch
-            }
-            // 缓存不存在：网络请求
-            _articleLoading.value = true
-            _articleError.value = ""
-            _articleContent.value = null
-            try {
-                val content = withContext(Dispatchers.IO) {
-                    core.news().fetchArticle(url).join()
-                }
-                _articleContent.value = content
-                DataCache.save(cacheKey, content)
-            } catch (e: Throwable) {
-                _articleError.value = "加载文章失败：${e.message}"
-            } finally {
-                _articleLoading.value = false
-            }
-        }
-    }
-
-    /** 退出文章详情视图 */
-    fun clearArticle() {
-        _articleContent.value = null
-        _articleError.value = ""
+        return s
     }
 
     // ============ 翻译 ============
@@ -5879,346 +2765,6 @@ class LauncherViewModel {
         _translationCache.value = emptyMap()
     }
 
-    // ============ 多人联机（陶瓦联机） ============
-
-    private fun resolveMpBackend(name: String?): com.pmcl.core.multiplayer.MultiplayerManager.Backend =
-        when (name) {
-            "CONNECTX" -> com.pmcl.core.multiplayer.MultiplayerManager.Backend.CONNECTX
-            "EASYTIER" -> com.pmcl.core.multiplayer.MultiplayerManager.Backend.EASYTIER
-            else -> com.pmcl.core.multiplayer.MultiplayerManager.Backend.TERRACOTTA
-        }
-
-    private val _mpBackend = MutableStateFlow(resolveMpBackend(preferences.getMpBackend()))
-    /** 当前联机后端（可观察，切换后 UI 会重组） */
-    val mpBackendState: StateFlow<com.pmcl.core.multiplayer.MultiplayerManager.Backend> =
-        _mpBackend.asStateFlow()
-
-    /** 当前联机后端（同步读取） */
-    val mpBackend: com.pmcl.core.multiplayer.MultiplayerManager.Backend
-        get() = _mpBackend.value
-
-    /** 切换联机后端 */
-    fun setMpBackend(b: com.pmcl.core.multiplayer.MultiplayerManager.Backend) {
-        if (_mpState.value == com.pmcl.core.multiplayer.MultiplayerManager.State.CONNECTING ||
-            _mpState.value == com.pmcl.core.multiplayer.MultiplayerManager.State.CONNECTED) {
-            _status.value = I18n.t("status.leave_room_before_switch_backend")
-            return
-        }
-        if (_mpBackend.value == b) return
-        val name = when (b) {
-            com.pmcl.core.multiplayer.MultiplayerManager.Backend.CONNECTX -> "CONNECTX"
-            com.pmcl.core.multiplayer.MultiplayerManager.Backend.EASYTIER -> "EASYTIER"
-            com.pmcl.core.multiplayer.MultiplayerManager.Backend.TERRACOTTA -> "TERRACOTTA"
-        }
-        preferences.setMpBackend(name)
-        core.multiplayer().setBackend(b)
-        _mpBackend.value = b
-        val label = when (b) {
-            com.pmcl.core.multiplayer.MultiplayerManager.Backend.CONNECTX -> "ConnectX"
-            com.pmcl.core.multiplayer.MultiplayerManager.Backend.EASYTIER -> "EasyTier"
-            com.pmcl.core.multiplayer.MultiplayerManager.Backend.TERRACOTTA -> "Terracotta 陶瓦联机"
-        }
-        _status.value = I18n.t("status.mp_backend_switched", label)
-    }
-
-    fun createRoom() {
-        if (_mpState.value == com.pmcl.core.multiplayer.MultiplayerManager.State.CONNECTING ||
-            _mpState.value == com.pmcl.core.multiplayer.MultiplayerManager.State.CONNECTED) {
-            _status.value = I18n.t("status.already_in_room")
-            return
-        }
-        val backend = mpBackend
-        _mpState.value = com.pmcl.core.multiplayer.MultiplayerManager.State.DOWNLOADING
-        _mpProgress.value = I18n.t("mp.progress.preparing")
-        _status.value = when (backend) {
-            com.pmcl.core.multiplayer.MultiplayerManager.Backend.CONNECTX -> I18n.t("status.creating_connectx_room")
-            com.pmcl.core.multiplayer.MultiplayerManager.Backend.TERRACOTTA -> I18n.t("status.creating_terracotta_room")
-            com.pmcl.core.multiplayer.MultiplayerManager.Backend.EASYTIER -> I18n.t("status.creating_mp_room")
-        }
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) {
-                    when (backend) {
-                        com.pmcl.core.multiplayer.MultiplayerManager.Backend.CONNECTX -> {
-                            val binPath = preferences.getConnectxBinaryPath()
-                            val serverAddr = preferences.getConnectxServerAddress()
-                            val serverPort = preferences.getConnectxServerPort()
-                            core.multiplayer().createRoomConnectX(
-                                { msg -> _mpProgress.value = msg },
-                                binPath, serverAddr, serverPort
-                            ).join()
-                        }
-                        else -> {
-                            // Terracotta / EasyTier 都走 createRoom
-                            core.multiplayer().createRoom { msg ->
-                                _mpProgress.value = msg
-                            }.join()
-                        }
-                    }
-                }
-                refreshMpState()
-                _status.value = if (core.multiplayer().state ==
-                    com.pmcl.core.multiplayer.MultiplayerManager.State.CONNECTED) {
-                    when (backend) {
-                        com.pmcl.core.multiplayer.MultiplayerManager.Backend.TERRACOTTA ->
-                            I18n.t("status.room_created_with_code", core.multiplayer().currentRoomCode)
-                        com.pmcl.core.multiplayer.MultiplayerManager.Backend.CONNECTX ->
-                            I18n.t("status.connectx_room_created")
-                        else ->
-                            I18n.t("status.room_created_with_vip", core.multiplayer().virtualIp)
-                    }
-                } else {
-                    I18n.t("status.room_started_waiting")
-                }
-            } catch (e: Throwable) {
-                _mpState.value = com.pmcl.core.multiplayer.MultiplayerManager.State.FAILED
-                _status.value = I18n.t("status.create_room_failed", e.message ?: I18n.t("common.unknown"))
-            } finally {
-                _mpProgress.value = ""
-            }
-        }
-    }
-
-    /** 通过邀请码/房间码加入房间 */
-    fun joinRoom(invitation: String) {
-        if (invitation.isBlank()) {
-            _status.value = I18n.t("status.enter_room_code_or_invitation")
-            return
-        }
-        if (_mpState.value == com.pmcl.core.multiplayer.MultiplayerManager.State.CONNECTING ||
-            _mpState.value == com.pmcl.core.multiplayer.MultiplayerManager.State.CONNECTED) {
-            _status.value = I18n.t("status.already_in_room")
-            return
-        }
-        val isConnectX = invitation.trim().startsWith("connectx-")
-        val isTerracotta = invitation.trim().startsWith("U/") ||
-            mpBackend == com.pmcl.core.multiplayer.MultiplayerManager.Backend.TERRACOTTA
-        _mpState.value = com.pmcl.core.multiplayer.MultiplayerManager.State.DOWNLOADING
-        _mpProgress.value = I18n.t("mp.progress.parsing_code")
-        _status.value = I18n.t("status.joining_room")
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) {
-                    if (isConnectX) {
-                        val binPath = preferences.getConnectxBinaryPath()
-                        val serverAddr = preferences.getConnectxServerAddress()
-                        val serverPort = preferences.getConnectxServerPort()
-                        core.multiplayer().joinRoomConnectX(invitation, { msg ->
-                            _mpProgress.value = msg
-                        }, binPath, serverAddr, serverPort).join()
-                    } else {
-                        core.multiplayer().joinRoom(invitation) { msg ->
-                            _mpProgress.value = msg
-                        }.join()
-                    }
-                }
-                refreshMpState()
-                _status.value = if (core.multiplayer().state ==
-                    com.pmcl.core.multiplayer.MultiplayerManager.State.CONNECTED) {
-                    // 启动好友系统网络服务
-                    withContext(Dispatchers.IO) {
-                        try { core.friend()?.start() } catch (e: Exception) {
-                            System.err.println("[LauncherVM] 启动好友系统失败: ${e.message}")
-                        }
-                    }
-                    if (isTerracotta && core.multiplayer().localMcAddr.isNotEmpty()) {
-                        I18n.t("status.joined_room_mc_addr", core.multiplayer().localMcAddr)
-                    } else {
-                        I18n.t("status.joined_room_vip", core.multiplayer().virtualIp)
-                    }
-                } else {
-                    I18n.t("status.connecting_room")
-                }
-            } catch (e: Throwable) {
-                _mpState.value = com.pmcl.core.multiplayer.MultiplayerManager.State.FAILED
-                _status.value = I18n.t("status.join_room_failed", e.message ?: I18n.t("common.unknown"))
-            } finally {
-                _mpProgress.value = ""
-            }
-        }
-    }
-
-    /** 离开当前房间 */
-    fun leaveRoom() {
-        scope.launch {
-            try {
-                // 停止好友系统网络服务
-                withContext(Dispatchers.IO) {
-                    try { core.friend()?.stop() } catch (e: Exception) {
-                        System.err.println("[LauncherVM] 停止好友系统失败: ${e.message}")
-                    }
-                }
-                withContext(Dispatchers.IO) { core.multiplayer().leaveRoom() }
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.leave_room_failed", e.message ?: I18n.t("common.unknown"))
-            }
-            refreshMpState()
-            _mpInvitation.value = ""
-            _mpVirtualIp.value = ""
-            _mpLocalMcAddr.value = ""
-            val backend = mpBackend
-            _status.value = when (backend) {
-                com.pmcl.core.multiplayer.MultiplayerManager.Backend.CONNECTX -> I18n.t("status.left_connectx_room")
-                com.pmcl.core.multiplayer.MultiplayerManager.Backend.TERRACOTTA -> I18n.t("status.left_terracotta_room")
-                else -> I18n.t("status.left_terracotta_room")
-            }
-        }
-    }
-
-    /** 刷新当前房间状态 / 邀请码 / 虚拟 IP 到 StateFlow */
-    fun refreshMpState() {
-        val mgr = core.multiplayer()
-        _mpState.value = mgr.state
-        _mpVirtualIp.value = mgr.virtualIp
-        _mpInvitation.value = if (mgr.isInRoom) mgr.generateInvitation() else ""
-        _mpLocalMcAddr.value = mgr.localMcAddr
-    }
-
-    /** 复制邀请码到系统剪贴板 */
-    fun copyInvitation() {
-        val code = core.multiplayer().generateInvitation()
-        if (code.isEmpty()) {
-            _status.value = I18n.t("status.no_invitation_to_share")
-            return
-        }
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) {
-                    java.awt.Toolkit.getDefaultToolkit()
-                        .systemClipboard.setContents(
-                            java.awt.datatransfer.StringSelection(code), null
-                        )
-                }
-                _status.value = I18n.t("status.invitation_copied")
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.copy_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    /** 复制任意文本到系统剪贴板 */
-    fun copyToClipboard(text: String) {
-        if (text.isBlank()) return
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) {
-                    java.awt.Toolkit.getDefaultToolkit()
-                        .systemClipboard.setContents(
-                            java.awt.datatransfer.StringSelection(text), null
-                        )
-                }
-                _status.value = I18n.t("status.copied", text)
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.copy_failed", e.message ?: I18n.t("common.unknown"))
-            }
-        }
-    }
-
-    // ============ 收藏服务器列表 + ping 延迟 ============
-
-    /** 服务器列表数据项 */
-    data class FavoriteServer(val name: String, val host: String, val port: Int)
-
-    /** ping 结果：key = "host:port"，value = 延迟毫秒（-1 不可达，-2 超时） */
-    private val _serverPings = MutableStateFlow<Map<String, Long>>(emptyMap())
-    val serverPings: StateFlow<Map<String, Long>> = _serverPings.asStateFlow()
-
-    /** 服务器列表（可观察） */
-    private val _favoriteServers = MutableStateFlow<List<FavoriteServer>>(emptyList())
-    val favoriteServers: StateFlow<List<FavoriteServer>> = _favoriteServers.asStateFlow()
-
-    /** 加载收藏服务器列表 */
-    fun loadFavoriteServers() {
-        _favoriteServers.value = preferences.getFavoriteServers().map {
-            FavoriteServer(it[0], it[1], it[2].toIntOrNull() ?: 25565)
-        }
-    }
-
-    /** 添加收藏服务器 */
-    fun addFavoriteServer(name: String, host: String, port: Int) {
-        preferences.addFavoriteServer(name, host, port)
-        loadFavoriteServers()
-    }
-
-    /** 删除收藏服务器 */
-    fun removeFavoriteServer(index: Int) {
-        preferences.removeFavoriteServer(index)
-        loadFavoriteServers()
-    }
-
-    /** 将服务器设为直连目标（写入 gameServerHost/Port） */
-    fun setDirectConnectServer(host: String, port: Int) {
-        preferences.setGameServerHost(host)
-        preferences.setGameServerPort(port)
-        _status.value = I18n.t("status.direct_connect_server_set", "$host:$port")
-    }
-
-    /** ping 单个服务器 */
-    fun pingServer(host: String, port: Int) {
-        val key = "$host:$port"
-        scope.launch {
-            try {
-                val latency = withContext(Dispatchers.IO) {
-                    com.pmcl.core.multiplayer.ServerPinger.ping(host, port)
-                }
-                // 使用 update 原子更新，避免并发 ping 完成时读-改-写丢失更新
-                _serverPings.update { it + (key to latency) }
-            } catch (e: Throwable) {
-                _serverPings.update { it + (key to com.pmcl.core.multiplayer.ServerPinger.UNREACHABLE) }
-            }
-        }
-    }
-
-    /** 批量 ping 所有收藏服务器 */
-    fun pingAllServers() {
-        val servers = _favoriteServers.value
-        servers.forEach { s -> pingServer(s.host, s.port) }
-    }
-
-    // ===== 服务器完整状态 ping（MOTD/在线人数/版本） =====
-
-    /** 服务器完整状态（可观察），key = "host:port" */
-    private val _serverStatuses = MutableStateFlow<Map<String, com.pmcl.core.multiplayer.ServerPinger.ServerStatus>>(emptyMap())
-    val serverStatuses: StateFlow<Map<String, com.pmcl.core.multiplayer.ServerPinger.ServerStatus>> = _serverStatuses.asStateFlow()
-
-    /** 正在 ping 中的服务器集合（key = "host:port"） */
-    private val _pingingServers = MutableStateFlow<Set<String>>(emptySet())
-    val pingingServers: StateFlow<Set<String>> = _pingingServers.asStateFlow()
-
-    /** 完整 ping 单个服务器，返回 MOTD/在线人数/版本等完整信息 */
-    fun pingServerFull(host: String, port: Int) {
-        val key = "$host:$port"
-        _pingingServers.update { it + key }
-        scope.launch {
-            try {
-                val status = withContext(Dispatchers.IO) {
-                    com.pmcl.core.multiplayer.ServerPinger.pingFull(host, port)
-                }
-                _serverStatuses.update { it + (key to status) }
-                // 同步更新延迟 Map，保持与旧 API 兼容
-                _serverPings.update { it + (key to status.latency) }
-            } catch (e: Throwable) {
-                val err = com.pmcl.core.multiplayer.ServerPinger.ServerStatus(
-                    com.pmcl.core.multiplayer.ServerPinger.UNREACHABLE, "", 0, 0, "", 0, null, e.message)
-                _serverStatuses.update { it + (key to err) }
-            } finally {
-                _pingingServers.update { it - key }
-            }
-        }
-    }
-
-    /** 批量完整 ping 所有收藏服务器 */
-    fun pingAllServersFull() {
-        val servers = _favoriteServers.value
-        servers.forEach { s -> pingServerFull(s.host, s.port) }
-    }
-
-    /** 更新收藏服务器（名称/地址/端口） */
-    fun updateFavoriteServer(index: Int, name: String, host: String, port: Int) {
-        preferences.updateFavoriteServer(index, name, host, port)
-        loadFavoriteServers()
-    }
-
     // ============ 独立实例管理 ============
 
     private val _instances = MutableStateFlow<List<InstanceInfo>>(emptyList())
@@ -6228,8 +2774,8 @@ class LauncherViewModel {
     val instanceLaunching: StateFlow<String?> = _instanceLaunching.asStateFlow()
 
     // 实例启动上下文：launch() 读取此字段决定是否按实例模式启动
-    @Volatile private var _pendingInstanceDir: java.nio.file.Path? = null
-    @Volatile private var _pendingInstanceInfo: InstanceInfo? = null
+    @PublishedApi @Volatile internal var _pendingInstanceDir: java.nio.file.Path? = null
+    @PublishedApi @Volatile internal var _pendingInstanceInfo: InstanceInfo? = null
 
     /** 加载实例列表 */
     fun loadInstances() {
@@ -6310,20 +2856,25 @@ class LauncherViewModel {
             _status.value = I18n.t("status.instance_missing_base_version", info.getName())
             return
         }
-        // 实例绑定账户：启动前切换到绑定账户（不改变全局选中，仅影响本次启动）
+        // 实例绑定账户：仅覆盖本次 launch，不改动全局选中账号
         val boundUuid = info.getBoundAccountUuid()
-        if (boundUuid.isNotEmpty()) {
-            val boundAcc = _accounts.value.find { it.getUuid() == boundUuid }
-            if (boundAcc != null && boundAcc.getUuid() != _account.value?.getUuid()) {
-                _account.value = boundAcc
-            }
-        }
+        _launchAccountOverride = if (boundUuid.isNotEmpty()) {
+            _accounts.value.find { it.getUuid() == boundUuid }
+        } else null
         // 设置实例上下文，launch() 会读取此字段用 buildInstance 代替 build
         _pendingInstanceDir = info.getInstanceDir()
         _pendingInstanceInfo = info
         // 选中基础版本并调用现有 launch 流程
         selectVersion(info.getBaseVersionId())
         launch()
+    }
+
+    /** 清除实例启动上下文与单次账户覆盖 */
+    @PublishedApi
+    internal fun clearLaunchInstanceContext() {
+        _pendingInstanceDir = null
+        _pendingInstanceInfo = null
+        _launchAccountOverride = null
     }
 
     /** 为实例绑定账户（uuid 为空则清除绑定） */

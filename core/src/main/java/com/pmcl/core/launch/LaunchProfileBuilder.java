@@ -312,7 +312,8 @@ public final class LaunchProfileBuilder {
             try {
                 currentVj = loadVersionJson(parent);
             } catch (IOException e) {
-                break;  // 父版本 JSON 读取失败，停止向上查找
+                throw new IOException("无法加载父版本 JSON（inheritsFrom=" + parent
+                        + "），classpath 可能不完整: " + e.getMessage(), e);
             }
             currentVer = parent;
         }
@@ -441,11 +442,16 @@ public final class LaunchProfileBuilder {
             // 需确保 gameDir/logs 目录存在且可写，否则 FileAppender 创建失败导致整个日志系统瘫痪。
             try {
                 java.nio.file.Files.createDirectories(mcRoot.resolve("logs"));
-            } catch (IOException ignored) {}
+            } catch (IOException e) {
+                System.err.println("[LaunchProfile] 无法创建 logs 目录（Log4j FileAppender 可能失效）: "
+                        + mcRoot.resolve("logs") + " — " + e.getMessage());
+            }
         }
-        // LWJGL debug 模式（帮助诊断 native 加载问题）
-        profile.addJvmArg("-Dorg.lwjgl.util.Debug=true");
-        profile.addJvmArg("-Dorg.lwjgl.util.DebugLoader=true");
+        // LWJGL debug 默认关闭（噪音/性能）；需要时加 JVM 属性 -Dpmcl.lwjgl.debug=true
+        if (Boolean.getBoolean("pmcl.lwjgl.debug")) {
+            profile.addJvmArg("-Dorg.lwjgl.util.Debug=true");
+            profile.addJvmArg("-Dorg.lwjgl.util.DebugLoader=true");
+        }
 
         // 内存参数（用 preferences 覆盖 config 默认值）
         profile.addJvmArg("-Xms" + preferences.getMinMemoryMb() + "m");
@@ -775,7 +781,7 @@ public final class LaunchProfileBuilder {
      * @param librariesDir 库文件目录（kotlin-stdlib JAR 存放位置）
      */
     private void injectKotlinStdlibIfNeeded(LaunchProfile profile, Set<String> seen,
-                                             Path gameDir, Path librariesDir) {
+                                             Path gameDir, Path librariesDir) throws IOException {
         Path modsDir = gameDir.resolve("mods");
         if (!java.nio.file.Files.isDirectory(modsDir)) return;
 
@@ -821,12 +827,16 @@ public final class LaunchProfileBuilder {
         // 3. 下载 kotlin-stdlib JAR 到 libraries 目录
         // 使用与启动器一致的 Kotlin 版本（2.0.21），向后兼容 1.9.x mod
         String kotlinVersion = "2.0.21";
+        // Maven Central 发布的 kotlin-stdlib-2.0.21.jar SHA-1（固定版本时一并更新）
+        String expectedSha1 = "618b539767b4899b4660a83006e052b63f1db551";
         String groupPath = "org/jetbrains/kotlin/kotlin-stdlib";
         String jarName = "kotlin-stdlib-" + kotlinVersion + ".jar";
         Path kotlinJar = librariesDir.resolve(groupPath).resolve(kotlinVersion).resolve(jarName);
 
-        if (!java.nio.file.Files.exists(kotlinJar)) {
+        if (!java.nio.file.Files.exists(kotlinJar)
+                || !expectedSha1.equalsIgnoreCase(sha1File(kotlinJar))) {
             try {
+                java.nio.file.Files.deleteIfExists(kotlinJar);
                 java.nio.file.Files.createDirectories(kotlinJar.getParent());
                 String groupPathUrl = groupPath.replace('/', '.');
                 // 主源 Maven Central + 阿里云镜像 fallback（国内网络下 Maven Central 可能超时）
@@ -849,6 +859,12 @@ public final class LaunchProfileBuilder {
                                         java.nio.file.StandardCopyOption.REPLACE_EXISTING);
                             }
                         }
+                        String actual = sha1File(kotlinJar);
+                        if (!expectedSha1.equalsIgnoreCase(actual)) {
+                            java.nio.file.Files.deleteIfExists(kotlinJar);
+                            throw new IOException("kotlin-stdlib SHA-1 校验失败：期望 "
+                                    + expectedSha1 + " 实际 " + actual);
+                        }
                         downloaded = true;
                         break;
                     } catch (IOException e) {
@@ -857,18 +873,35 @@ public final class LaunchProfileBuilder {
                                 + e.getMessage() + "，尝试下一个镜像");
                     }
                 }
-                if (!downloaded) throw lastErr;
+                if (!downloaded) throw lastErr != null ? lastErr
+                        : new IOException("kotlin-stdlib 下载失败");
                 System.err.println("[LaunchProfileBuilder] kotlin-stdlib 下载完成: " + kotlinJar);
             } catch (IOException e) {
-                System.err.println("[LaunchProfileBuilder] 下载 kotlin-stdlib 失败: " + e.getMessage()
-                        + " — Kotlin mod 可能因 NoClassDefFoundError 崩溃");
-                return;
+                throw new IOException("下载 kotlin-stdlib 失败（检测到 Kotlin mod，无法安全启动）: "
+                        + e.getMessage(), e);
             }
         }
 
         // 4. 加入 classpath
         addClasspath(profile, seen, kotlinJar);
         System.err.println("[LaunchProfileBuilder] kotlin-stdlib 已加入 classpath: " + kotlinJar);
+    }
+
+    private static String sha1File(Path file) {
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-1");
+            try (java.io.InputStream in = java.nio.file.Files.newInputStream(file)) {
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) > 0) md.update(buf, 0, n);
+            }
+            byte[] dig = md.digest();
+            StringBuilder sb = new StringBuilder(dig.length * 2);
+            for (byte b : dig) sb.append(String.format("%02x", b & 0xff));
+            return sb.toString();
+        } catch (Exception e) {
+            return "";
+        }
     }
 
     /**
@@ -938,7 +971,7 @@ public final class LaunchProfileBuilder {
                         && downloadManager != null) {
                     try {
                         Files.createDirectories(nativeJar.getParent());
-                        downloadManager.downloadTo(art.getUrl(), nativeJar);
+                        downloadLibraryVerified(art.getUrl(), nativeJar, art.getSha1());
                     } catch (IOException e) {
                         missing.add(lib.getName() + " (native): " + e.getMessage());
                     }
@@ -957,7 +990,7 @@ public final class LaunchProfileBuilder {
                 if (art.getUrl() != null && !art.getUrl().isEmpty() && downloadManager != null) {
                     try {
                         Files.createDirectories(libPath.getParent());
-                        downloadManager.downloadTo(art.getUrl(), libPath);
+                        downloadLibraryVerified(art.getUrl(), libPath, art.getSha1());
                     } catch (IOException e) {
                         missing.add(lib.getName() + ": " + e.getMessage());
                     }
@@ -975,7 +1008,7 @@ public final class LaunchProfileBuilder {
                     mavenUrl += lib.getPath();
                     try {
                         Files.createDirectories(libPath.getParent());
-                        downloadManager.downloadTo(mavenUrl, libPath);
+                        downloadLibraryVerified(mavenUrl, libPath, null);
                     } catch (IOException e) {
                         missing.add(lib.getName() + ": " + e.getMessage());
                     }
@@ -994,7 +1027,7 @@ public final class LaunchProfileBuilder {
                         && !nativeArt.getUrl().isEmpty() && downloadManager != null) {
                     try {
                         Files.createDirectories(nativeJar.getParent());
-                        downloadManager.downloadTo(nativeArt.getUrl(), nativeJar);
+                        downloadLibraryVerified(nativeArt.getUrl(), nativeJar, nativeArt.getSha1());
                     } catch (IOException e) {
                         missing.add(lib.getName() + ":" + lib.getNativeClassifier()
                                 + " (native): " + e.getMessage());
@@ -1009,10 +1042,37 @@ public final class LaunchProfileBuilder {
     }
 
     /**
-     * 从 native jar 中提取本地库文件（.so/.dylib/.dll/.jnilib）到目标目录。
-     * 跳过 META-INF 和目录，只提取本地库。
-     * 本地库会被扁平化放到 targetDir 根目录（LWJGL 期望 java.library.path 直接包含 .dylib/.so/.dll）。
+     * 有 SHA-1 则强制校验；无哈希时尝试 Maven 旁路 {@code .sha1}；
+     * 仍不可得则拒绝下载（与 ForgeInstaller 一致）。
      */
+    private void downloadLibraryVerified(String url, Path target, String sha1) throws IOException {
+        String effective = sha1;
+        if (effective == null || effective.isBlank()) {
+            effective = fetchMavenSha1Sidecar(url);
+        }
+        if (effective == null || effective.isBlank()) {
+            throw new IOException("库无 SHA-1 且旁路 .sha1 不可用，拒绝下载: " + url);
+        }
+        downloadManager.downloadToVerified(url, target, effective, null);
+    }
+
+    /** 读取 {@code url.sha1} 旁路文件（Maven 惯例），失败返回 null。 */
+    private String fetchMavenSha1Sidecar(String url) {
+        try {
+            String body = downloadManager.downloadString(url + ".sha1").trim();
+            if (body.isEmpty()) return null;
+            // 格式可能是 "deadbeef...  filename.jar" 或纯哈希
+            String hash = body.split("\\s+")[0].trim();
+            if (hash.matches("[0-9a-fA-F]{40}")) return hash;
+            System.err.println("[LaunchProfileBuilder] .sha1 旁路格式无效: " + url + ".sha1");
+            return null;
+        } catch (Exception e) {
+            System.err.println("[LaunchProfileBuilder] 获取 .sha1 旁路失败: " + url
+                    + " (" + e.getMessage() + ")");
+            return null;
+        }
+    }
+
     /**
      * native jar 指纹：mtime + size，用于判断 jar 是否变更。
      * 比 hash 快（无读文件开销），对"安装后不变"的 native jar 足够可靠。
@@ -1194,40 +1254,26 @@ public final class LaunchProfileBuilder {
     private byte[] loadClassBytes(String className) throws IOException {
         String resourcePath = className.replace('.', '/') + ".class";
 
-        // 策略1：通过 class.getResourceAsStream 加载
-        try {
-            Class<?> clazz = Class.forName(className);
-            try (java.io.InputStream is = clazz.getResourceAsStream(
-                    "/" + resourcePath)) {
+        // 优先 ClassLoader 资源流（避免 Class.forName 触发类初始化副作用）
+        try (java.io.InputStream is = getClass().getClassLoader().getResourceAsStream(resourcePath)) {
+            if (is != null) return is.readAllBytes();
+        }
+        ClassLoader ctx = Thread.currentThread().getContextClassLoader();
+        if (ctx != null) {
+            try (java.io.InputStream is = ctx.getResourceAsStream(resourcePath)) {
                 if (is != null) return is.readAllBytes();
             }
-            // 策略2：相对路径
-            try (java.io.InputStream is = clazz.getResourceAsStream(
-                    resourcePath.substring(resourcePath.lastIndexOf('/') + 1))) {
-                if (is != null) return is.readAllBytes();
-            }
-        } catch (ClassNotFoundException ignored) {}
-
-        // 策略3：通过当前类的 ClassLoader 加载
-        try (java.io.InputStream is = getClass().getClassLoader()
-                .getResourceAsStream(resourcePath)) {
-            if (is != null) return is.readAllBytes();
-        } catch (Throwable ignored) {}
-
-        // 策略4：通过线程上下文 ClassLoader 加载
-        try (java.io.InputStream is = Thread.currentThread().getContextClassLoader()
-                .getResourceAsStream(resourcePath)) {
-            if (is != null) return is.readAllBytes();
-        } catch (Throwable ignored) {}
-
-        // 策略5：通过系统 ClassLoader 加载
+        }
         try (java.io.InputStream is = ClassLoader.getSystemResourceAsStream(resourcePath)) {
             if (is != null) return is.readAllBytes();
-        } catch (Throwable ignored) {}
+        }
 
-        // 策略6：通过 CodeSource 定位 jar/目录，直接读取 class 文件
+        // 回退：已加载类的 CodeSource / 同路径相对资源
         try {
-            Class<?> clazz = Class.forName(className);
+            Class<?> clazz = Class.forName(className, false, getClass().getClassLoader());
+            try (java.io.InputStream is = clazz.getResourceAsStream("/" + resourcePath)) {
+                if (is != null) return is.readAllBytes();
+            }
             java.security.CodeSource cs = clazz.getProtectionDomain().getCodeSource();
             if (cs != null && cs.getLocation() != null) {
                 java.net.URL url = cs.getLocation();
@@ -1253,9 +1299,15 @@ public final class LaunchProfileBuilder {
                     }
                 }
             }
-        } catch (Throwable ignored) {}
+        } catch (ClassNotFoundException e) {
+            throw new IOException("找不到类字节码: " + className, e);
+        } catch (IOException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IOException("加载类字节码失败: " + className + " — " + e.getMessage(), e);
+        }
 
-        return null;
+        throw new IOException("无法加载类字节码: " + className);
     }
 
     /**
@@ -1279,26 +1331,52 @@ public final class LaunchProfileBuilder {
             JsonObject file = client.getAsJsonObject("file");
             String fileId = file.has("id") && !file.get("id").isJsonNull() ? file.get("id").getAsString() : "";
             String url = file.has("url") && !file.get("url").isJsonNull() ? file.get("url").getAsString() : "";
+            String sha1 = file.has("sha1") && !file.get("sha1").isJsonNull() ? file.get("sha1").getAsString() : "";
+            if (url == null || url.isBlank()) return null;
+            String ssrf = com.pmcl.core.util.SsrfChecker.validate(url);
+            if (ssrf != null) {
+                System.err.println("[LaunchProfileBuilder] log4j 配置 URL 被 SSRF 防护拒绝: " + ssrf);
+                return null;
+            }
 
             // M75: 原始文件存储为 <fileId>.orig，改写后的副本存储为 <fileId>
             // 这样原始内容永不污染，每次基于 .orig 生成新的改写副本
             Path origPath = versionsDir.resolve(versionId).resolve(fileId + ".orig");
             Path target = versionsDir.resolve(versionId).resolve(fileId);
             if (!java.nio.file.Files.exists(origPath) || java.nio.file.Files.size(origPath) == 0) {
-                // 下载原始内容到 .orig（首次或被清理后重新下载）
-                okhttp3.OkHttpClient http = downloadManager != null ? downloadManager.httpClient()
-                    : new okhttp3.OkHttpClient.Builder()
+                java.nio.file.Files.createDirectories(origPath.getParent());
+                if (downloadManager != null) {
+                    downloadManager.downloadToVerified(url, origPath, sha1, null);
+                } else {
+                    if (sha1 == null || sha1.isBlank()) {
+                        System.err.println("[LaunchProfileBuilder] log4j 配置缺少 SHA-1 且无 DownloadManager，跳过");
+                        return null;
+                    }
+                    okhttp3.OkHttpClient http = new okhttp3.OkHttpClient.Builder()
                         .connectTimeout(java.time.Duration.ofSeconds(10))
                         .readTimeout(java.time.Duration.ofSeconds(30))
                         .build();
-                okhttp3.Request req = new okhttp3.Request.Builder().url(url).get().build();
-                try (okhttp3.Response resp = http.newCall(req).execute()) {
-                    if (!resp.isSuccessful()) return null;
-                    if (resp.body() == null) return null;
-                    java.nio.file.Files.createDirectories(origPath.getParent());
-                    try (java.io.InputStream is = resp.body().byteStream();
-                         java.io.OutputStream os = java.nio.file.Files.newOutputStream(origPath)) {
-                        is.transferTo(os);
+                    okhttp3.Request req = new okhttp3.Request.Builder().url(url).get().build();
+                    try (okhttp3.Response resp = http.newCall(req).execute()) {
+                        if (!resp.isSuccessful() || resp.body() == null) return null;
+                        try (java.io.InputStream is = resp.body().byteStream();
+                             java.io.OutputStream os = java.nio.file.Files.newOutputStream(origPath)) {
+                            is.transferTo(os);
+                        }
+                    }
+                    com.pmcl.core.download.DownloadManager.verifyHashesOrWarn(origPath, sha1, null);
+                }
+            } else if (sha1 != null && !sha1.isBlank()) {
+                // 已有 .orig：启动前复检，防缓存投毒
+                try {
+                    com.pmcl.core.download.DownloadManager.verifyHashesOrWarn(origPath, sha1, null);
+                } catch (IOException e) {
+                    System.err.println("[LaunchProfileBuilder] 已有 log4j .orig 校验失败，重新下载: " + e.getMessage());
+                    java.nio.file.Files.deleteIfExists(origPath);
+                    if (downloadManager != null) {
+                        downloadManager.downloadToVerified(url, origPath, sha1, null);
+                    } else {
+                        return null;
                     }
                 }
             }
@@ -1317,6 +1395,8 @@ public final class LaunchProfileBuilder {
             java.nio.file.Files.writeString(target, content, java.nio.charset.StandardCharsets.UTF_8);
             return target;
         } catch (Exception e) {
+            System.err.println("[LaunchProfileBuilder] resolveLog4jConfig 失败 ("
+                    + versionId + "): " + e.getMessage());
             return null;
         }
     }
@@ -1495,11 +1575,10 @@ public final class LaunchProfileBuilder {
      * 预取失败时回退到直接传服务器 URL 的方式（-javaagent:jar=URL）。
      * 任何失败均记录到 stderr 但不中断启动（游戏可能仍能以离线模式运行）。
      */
-    private void injectAuthlibInjector(LaunchProfile profile, Account account) {
+    private void injectAuthlibInjector(LaunchProfile profile, Account account) throws IOException {
         String apiUrl = account.getAuthServerUrl();
         if (apiUrl == null || apiUrl.isEmpty()) {
-            System.err.println("[LaunchProfileBuilder] YGGDRASIL 账号缺少 authServerUrl，跳过 authlib-injector 注入");
-            return;
+            throw new IOException("YGGDRASIL 账号缺少 authServerUrl，无法注入 authlib-injector");
         }
 
         // 1. 确保 authlib-injector.jar 存在
@@ -1507,12 +1586,10 @@ public final class LaunchProfileBuilder {
         try {
             authlibInjectorManager.ensureJar(jarPath);
         } catch (IOException e) {
-            System.err.println("[LaunchProfileBuilder] authlib-injector.jar 下载失败: " + e.getMessage());
-            return;
+            throw new IOException("authlib-injector.jar 准备失败（皮肤站账号无法启动）: " + e.getMessage(), e);
         }
         if (!java.nio.file.Files.exists(jarPath)) {
-            System.err.println("[LaunchProfileBuilder] authlib-injector.jar 不存在，跳过注入");
-            return;
+            throw new IOException("authlib-injector.jar 不存在，无法启动皮肤站账号");
         }
 
         // 2. 预取 Yggdrasil API 元数据

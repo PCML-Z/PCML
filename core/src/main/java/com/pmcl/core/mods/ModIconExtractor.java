@@ -18,6 +18,8 @@ public final class ModIconExtractor {
             "icon.png", "logo.png", "pack.png", "mod_icon.png",
             "assets/icon.png", "META-INF/icon.png"
     };
+    /** 单图标最大字节，防止恶意 jar 撑爆 UI */
+    private static final int MAX_ICON_BYTES = 2_000_000;
 
     private ModIconExtractor() {}
 
@@ -65,8 +67,10 @@ public final class ModIconExtractor {
         try {
             JarEntry entry = jar.getJarEntry(name);
             if (entry == null || entry.isDirectory()) return null;
+            long declared = entry.getSize();
+            if (declared > MAX_ICON_BYTES) return null;
             try (InputStream in = jar.getInputStream(entry)) {
-                return in.readAllBytes();
+                return com.pmcl.core.util.SafeZipExtractor.readLimited(in, MAX_ICON_BYTES);
             }
         } catch (Throwable t) {
             return null;

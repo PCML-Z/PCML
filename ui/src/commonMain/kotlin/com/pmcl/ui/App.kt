@@ -156,9 +156,11 @@ private fun PushedUpdateDialog(vm: LauncherViewModel) {
     val pushedUpdate by vm.pushedUpdate.collectAsState()
     val pushStatusText by vm.pushStatusText.collectAsState()
     val info = pushedUpdate ?: return
+    var downloadedBytes by remember(info.version) { mutableLongStateOf(0L) }
+    var downloading by remember(info.version) { mutableStateOf(false) }
 
     AlertDialog(
-        onDismissRequest = { vm.clearPushedUpdate() },
+        onDismissRequest = { if (!downloading) vm.clearPushedUpdate() },
         title = {
             Text("发现新版本 v${info.version}")
         },
@@ -179,6 +181,21 @@ private fun PushedUpdateDialog(vm: LauncherViewModel) {
                 Text("文件大小: $sizeStr",
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
+                if (downloading && info.size > 0) {
+                    Spacer(Modifier.height(8.dp))
+                    val fraction = (downloadedBytes.toFloat() / info.size).coerceIn(0f, 1f)
+                    LinearProgressIndicator(
+                        progress = { fraction },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Text("%.1f / %.1f MB".format(
+                        downloadedBytes / 1024.0 / 1024.0,
+                        info.size / 1024.0 / 1024.0
+                    ), style = MaterialTheme.typography.labelSmall)
+                } else if (downloading) {
+                    Spacer(Modifier.height(8.dp))
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
                 if (pushStatusText.isNotEmpty()) {
                     Spacer(Modifier.height(4.dp))
                     Text(pushStatusText,
@@ -188,14 +205,21 @@ private fun PushedUpdateDialog(vm: LauncherViewModel) {
             }
         },
         confirmButton = {
-            TextButton(onClick = {
-                vm.downloadPushedUpdate { /* 进度回调，暂不展示进度条 */ }
-            }) {
-                Text("下载更新")
+            TextButton(
+                enabled = !downloading,
+                onClick = {
+                    downloading = true
+                    vm.downloadPushedUpdate { bytes -> downloadedBytes = bytes }
+                }
+            ) {
+                Text(if (downloading) "下载中…" else "下载更新")
             }
         },
         dismissButton = {
-            TextButton(onClick = { vm.clearPushedUpdate() }) {
+            TextButton(
+                enabled = !downloading,
+                onClick = { vm.clearPushedUpdate() }
+            ) {
                 Text("稍后再说")
             }
         }

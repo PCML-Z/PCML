@@ -68,8 +68,12 @@ public final class VideoCallManager {
                 grabber.setOption("framerate", String.valueOf(fps));
                 grabber.setFrameRate(fps);
             } else if (osName.contains("win")) {
-                // Windows: dshow, 设备名需要枚举，先用 "video=0" 占位
-                grabber = new FFmpegFrameGrabber("video=0");
+                // Windows: dshow 需要真实设备名；可用 -Dpmcl.camera.dshow=设备名 覆盖
+                String device = System.getProperty("pmcl.camera.dshow", "").trim();
+                if (device.isEmpty()) device = detectFirstDshowVideoDevice();
+                if (device.isEmpty()) device = "Integrated Camera";
+                System.err.println("[VideoCall] Windows dshow 设备: " + device);
+                grabber = new FFmpegFrameGrabber("video=" + device);
                 grabber.setFormat("dshow");
                 grabber.setFrameRate(fps);
             } else {
@@ -87,6 +91,71 @@ public final class VideoCallManager {
         }
 
         return grabber;
+    }
+
+    /**
+     * 用 ffmpeg -list_devices 枚举第一个 DirectShow 视频设备名。
+     * ffmpeg 不在 PATH 或枚举失败时返回空串。
+     */
+    static String detectFirstDshowVideoDevice() {
+        try {
+            ProcessBuilder pb = new ProcessBuilder(
+                    "ffmpeg", "-hide_banner", "-list_devices", "true", "-f", "dshow", "-i", "dummy");
+            pb.redirectErrorStream(true);
+            Process p = pb.start();
+            String output;
+            try (java.io.InputStream in = p.getInputStream()) {
+                output = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            }
+            p.waitFor(8, java.util.concurrent.TimeUnit.SECONDS);
+            // 典型行： [dshow @ ...] "Integrated Camera" (video)
+            java.util.regex.Matcher m = java.util.regex.Pattern
+                    .compile("\"([^\"]+)\"\\s*\\(video\\)", java.util.regex.Pattern.CASE_INSENSITIVE)
+                    .matcher(output);
+            if (m.find()) {
+                return m.group(1).trim();
+            }
+        } catch (Exception e) {
+            System.err.println("[VideoCall] dshow 设备枚举失败: " + e.getMessage());
+        }
+        return "";
+    }
+
+    /**
+     * 创建屏幕采集器（SCREEN_SHARE）。
+     * macOS: avfoundation Capture screen；Windows: gdigrab；Linux: x11grab。
+     */
+    public static FFmpegFrameGrabber createScreenGrabber(int width, int height, int fps) {
+        String osName = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT);
+        try {
+            FFmpegFrameGrabber grabber;
+            if (osName.contains("mac")) {
+                // avfoundation 屏幕设备通常为 "Capture screen 0"，索引因系统而异；
+                // 也可用 -Dpmcl.screen.avfoundation=1:none 覆盖
+                String input = System.getProperty("pmcl.screen.avfoundation", "1:none").trim();
+                grabber = new FFmpegFrameGrabber(input);
+                grabber.setFormat("avfoundation");
+                grabber.setOption("framerate", String.valueOf(fps));
+                grabber.setFrameRate(fps);
+            } else if (osName.contains("win")) {
+                grabber = new FFmpegFrameGrabber("desktop");
+                grabber.setFormat("gdigrab");
+                grabber.setOption("framerate", String.valueOf(fps));
+                grabber.setFrameRate(fps);
+            } else {
+                String display = System.getenv().getOrDefault("DISPLAY", ":0.0");
+                grabber = new FFmpegFrameGrabber(display);
+                grabber.setFormat("x11grab");
+                grabber.setOption("framerate", String.valueOf(fps));
+                grabber.setFrameRate(fps);
+            }
+            grabber.setImageWidth(width);
+            grabber.setImageHeight(height);
+            return grabber;
+        } catch (Throwable t) {
+            throw new RuntimeException("屏幕采集打开失败：" + t.getMessage()
+                    + "。请检查录屏权限/DISPLAY，或改用摄像头通话。", t);
+        }
     }
 
     /** Frame 转 BufferedImage 的转换器（线程安全） */

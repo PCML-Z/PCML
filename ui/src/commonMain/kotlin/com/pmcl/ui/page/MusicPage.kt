@@ -37,8 +37,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.skia.Image as SkiaImage
 import com.pmcl.ui.util.decodeSampledBitmap
-import java.net.URL
-
 /**
  * 音乐播放器页面：URL 解析 → 播放列表 → 当前曲目卡片 → 播放控制。
  */
@@ -611,7 +609,7 @@ private fun rememberUrlImage(url: String): ImageBitmap? {
         if (existing != null) { image = existing; return@LaunchedEffect }
         withContext(Dispatchers.IO) {
             try {
-                val bytes = URL(url).readBytes()
+                val bytes = com.pmcl.ui.util.SafeUrlFetcher.fetchBytes(url)
                 val bmp = decodeSampledBitmap(bytes, 256) ?: throw IllegalStateException("decode failed")
                 musicImageCache.put(url, bmp)
                 image = bmp

@@ -132,7 +132,18 @@ public final class JavaRuntimeDownloader {
                 String ext = url.endsWith(".zip") ? ".zip" : ".tar.gz";
                 Path archive = archDir.resolve(type.name() + "-" + entry.getVersion() + ext);
                 if (onStatus != null) onStatus.accept("下载: " + url);
+                String expectedSha1 = entry.getSha1();
+                if (expectedSha1 == null || expectedSha1.isBlank()) {
+                    throw new IOException("运行时清单未提供 SHA-1，拒绝安装未校验的 Java 归档");
+                }
                 downloadManager.downloadTo(url, archive);
+                String actualSha1 = sha1Hex(archive);
+                if (!actualSha1.equalsIgnoreCase(expectedSha1)) {
+                    Files.deleteIfExists(archive);
+                    throw new IOException("Java 运行时 SHA-1 校验失败：期望 " + expectedSha1
+                            + " 实际 " + actualSha1);
+                }
+                if (onStatus != null) onStatus.accept("SHA-1 校验通过");
 
                 // 解压
                 Files.createDirectories(targetDir);
@@ -162,24 +173,24 @@ public final class JavaRuntimeDownloader {
     }
 
     private static void extractZip(Path archive, Path target) throws IOException {
-        try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(archive.toFile())) {
-            java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = zip.entries();
-            while (entries.hasMoreElements()) {
-                java.util.zip.ZipEntry entry = entries.nextElement();
-                java.nio.file.Path out = target.resolve(entry.getName()).normalize();
-                // 防止 zip slip 路径穿越
-                if (!out.startsWith(target)) continue;
-                if (entry.isDirectory()) {
-                    Files.createDirectories(out);
-                } else {
-                    if (out.getParent() != null) Files.createDirectories(out.getParent());
-                    try (java.io.InputStream is = zip.getInputStream(entry)) {
-                        Files.copy(is, out, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                    }
-                }
+        // ZipSlip / ZipBomb：失败即中止，不静默跳过穿越条目
+        com.pmcl.core.util.SafeZipExtractor.extractSafely(archive, target);
+    }
+
+    private static String sha1Hex(Path file) throws IOException {
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-1");
+            try (java.io.InputStream in = Files.newInputStream(file)) {
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) > 0) md.update(buf, 0, n);
             }
-        } catch (java.io.IOException e) {
-            throw new IOException("解压 zip 失败: " + archive + " (" + e.getMessage() + ")", e);
+            byte[] dig = md.digest();
+            StringBuilder sb = new StringBuilder(dig.length * 2);
+            for (byte b : dig) sb.append(String.format("%02x", b & 0xff));
+            return sb.toString();
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IOException("SHA-1 unavailable", e);
         }
     }
 
@@ -201,6 +212,9 @@ public final class JavaRuntimeDownloader {
         } finally {
             if (check != null) check.destroyForcibly();
         }
+        // 解压前列出成员，拒绝路径穿越（.. / 绝对路径）
+        assertTarMembersSafe(archive);
+
         // M82: 不用 pb.inheritIO()——子进程 stdout/stderr 直接继承会污染启动器日志。
         // 改为 redirectErrorStream + 丢弃输出，错误时仅记录摘要到 stderr。
         ProcessBuilder pb = new ProcessBuilder("tar", "-xzf", archive.toString(), "-C", target.toString());
@@ -223,6 +237,41 @@ public final class JavaRuntimeDownloader {
             throw new IOException("解压被中断", e);
         } finally {
             if (p != null) p.destroyForcibly();
+        }
+    }
+
+    /** 用 tar -tzf 预检成员路径，拒绝 ZipSlip 式穿越 */
+    private static void assertTarMembersSafe(Path archive) throws IOException {
+        ProcessBuilder listPb = new ProcessBuilder("tar", "-tzf", archive.toString());
+        listPb.redirectErrorStream(true);
+        Process list = null;
+        try {
+            list = listPb.start();
+            String listing;
+            try (var in = list.getInputStream()) {
+                listing = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            }
+            if (!list.waitFor(60, TimeUnit.SECONDS)) {
+                list.destroyForcibly();
+                throw new IOException("tar 列表超时: " + archive);
+            }
+            if (list.exitValue() != 0) {
+                throw new IOException("tar 列表失败 code=" + list.exitValue() + ": " + archive);
+            }
+            for (String line : listing.split("\n")) {
+                String name = line.trim();
+                if (name.isEmpty()) continue;
+                if (name.startsWith("/") || name.startsWith("\\")
+                        || name.contains("..")
+                        || name.matches("^[A-Za-z]:[\\\\/].*")) {
+                    throw new IOException("tar 含非法路径（拒绝解压）: " + name);
+                }
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("tar 列表被中断", e);
+        } finally {
+            if (list != null) list.destroyForcibly();
         }
     }
 

@@ -123,10 +123,11 @@ public final class DatapackManager {
     }
 
     public void delete(Datapack pack) throws IOException {
-        if (pack.isZip()) {
-            Files.deleteIfExists(pack.getPath());
+        Path target = ResourcePackManager.assertUnderNamedParent(pack.getPath(), "datapacks");
+        if (pack.isZip() || Files.isRegularFile(target)) {
+            Files.deleteIfExists(target);
         } else {
-            try (var s = Files.walk(pack.getPath())) {
+            try (var s = Files.walk(target)) {
                 s.sorted(java.util.Comparator.reverseOrder())
                         .forEach(p -> {
                             try { Files.delete(p); } catch (IOException ignored) {}

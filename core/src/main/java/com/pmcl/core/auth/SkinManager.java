@@ -141,6 +141,7 @@ public final class SkinManager {
             base = base.substring(0, base.length() - "/api/yggdrasil".length());
         }
         while (base.endsWith("/")) base = base.substring(0, base.length() - 1);
+        assertYggdrasilBaseSafe(base);
 
         // 1. 登录获取 session cookie
         String loginJson = "{\"email\":\"" + escapeJson(username) + "\",\"password\":\"" + escapeJson(password) + "\"}";
@@ -202,6 +203,7 @@ public final class SkinManager {
             base = base.substring(0, base.length() - "/api/yggdrasil".length());
         }
         while (base.endsWith("/")) base = base.substring(0, base.length() - 1);
+        assertYggdrasilBaseSafe(base);
 
         // 登录获取 session
         String loginJson = "{\"email\":\"" + escapeJson(username) + "\",\"password\":\"" + escapeJson(password) + "\"}";
@@ -233,6 +235,14 @@ public final class SkinManager {
             if (!delResp.isSuccessful()) {
                 throw new IOException("重置皮肤站皮肤失败 (" + delResp.code() + "): " + readErrorBody(delResp));
             }
+        }
+    }
+
+    /** 允许局域网皮肤站，拒绝云 metadata 等链路本地目标 */
+    private static void assertYggdrasilBaseSafe(String base) throws IOException {
+        String ssrf = com.pmcl.core.util.SsrfChecker.validateAllowingPrivateLan(base);
+        if (ssrf != null) {
+            throw new IOException("皮肤站地址被拒绝（SSRF 防护）: " + ssrf);
         }
     }
 

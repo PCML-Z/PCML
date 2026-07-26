@@ -3,6 +3,7 @@ package com.pmcl.core.friend;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
+import com.pmcl.core.auth.TokenEncryptor;
 
 import java.io.IOException;
 import java.lang.reflect.Type;
@@ -59,12 +60,28 @@ public final class FriendStore {
                 String json = Files.readString(friendsFile, StandardCharsets.UTF_8);
                 Type type = new TypeToken<List<FriendEntry>>() {}.getType();
                 List<FriendEntry> entries = GSON.fromJson(json, type);
+                boolean needsResave = false;
                 if (entries != null) {
                     for (FriendEntry entry : entries) {
                         if (entry.identity != null && FriendIdentity.isValid(entry.identity)) {
+                            if (entry.authSecret != null && !entry.authSecret.isEmpty()) {
+                                if (!TokenEncryptor.isEncrypted(entry.authSecret)) {
+                                    needsResave = true;
+                                }
+                                String plain = TokenEncryptor.decrypt(entry.authSecret);
+                                if (TokenEncryptor.isEncrypted(entry.authSecret) && plain.isEmpty()) {
+                                    System.err.println("[FriendStore] 好友 authSecret 解密失败，清空: "
+                                            + entry.identity);
+                                }
+                                entry.authSecret = plain;
+                            }
                             friends.put(entry.identity, entry);
                         }
                     }
+                }
+                if (needsResave) {
+                    System.err.println("[FriendStore] 迁移 friends.json authSecret 为加密存储");
+                    saveFriends();
                 }
             } catch (Exception e) {
                 System.err.println("[FriendStore] 加载好友列表失败: " + e.getMessage());
@@ -103,15 +120,39 @@ public final class FriendStore {
         }
     }
 
-    /** 保存好友列表 */
+    /** 保存好友列表（authSecret 经 TokenEncryptor 加密落盘；内存保持明文） */
     public synchronized void saveFriends() {
         try {
-            List<FriendEntry> entries = new ArrayList<>(friends.values());
-            String json = GSON.toJson(entries);
+            List<FriendEntry> toWrite = new ArrayList<>();
+            for (FriendEntry src : friends.values()) {
+                FriendEntry copy = copyEntry(src);
+                if (copy.authSecret != null && !copy.authSecret.isEmpty()) {
+                    String enc = TokenEncryptor.encrypt(copy.authSecret);
+                    if (enc.isEmpty()) {
+                        throw new IOException("authSecret 加密失败，拒绝明文落盘: " + copy.identity);
+                    }
+                    copy.authSecret = enc;
+                }
+                toWrite.add(copy);
+            }
+            String json = GSON.toJson(toWrite);
             atomicWrite(friendsFile, json);
         } catch (IOException e) {
             System.err.println("[FriendStore] 保存好友列表失败: " + e.getMessage());
         }
+    }
+
+    private static FriendEntry copyEntry(FriendEntry src) {
+        FriendEntry e = new FriendEntry();
+        e.identity = src.identity;
+        e.displayName = src.displayName;
+        e.lastIp = src.lastIp;
+        e.lastPort = src.lastPort;
+        e.online = src.online;
+        e.addedAt = src.addedAt;
+        e.lastSeen = src.lastSeen;
+        e.authSecret = src.authSecret;
+        return e;
     }
 
     /** 保存某好友的聊天记录 */
@@ -181,6 +222,24 @@ public final class FriendStore {
         saveFriends();
     }
 
+    /** 设置/更新与好友共享的握手密钥 */
+    public void setAuthSecret(String identity, String secret) {
+        if (identity == null || secret == null || secret.isBlank()) return;
+        FriendEntry entry = friends.get(identity);
+        if (entry == null) return;
+        if (secret.equals(entry.authSecret)) return;
+        entry.authSecret = secret;
+        saveFriends();
+    }
+
+    /** 获取与好友共享的握手密钥；无则 null */
+    public String getAuthSecret(String identity) {
+        FriendEntry entry = friends.get(identity);
+        if (entry == null) return null;
+        String s = entry.authSecret;
+        return (s == null || s.isBlank()) ? null : s;
+    }
+
     /** 更新好友在线状态，返回状态是否实际变化 */
     public boolean updateOnlineStatus(String identity, boolean online, String ip, int port) {
         FriendEntry entry = friends.get(identity);
@@ -206,7 +265,9 @@ public final class FriendStore {
         saveFriends();
         try {
             Files.deleteIfExists(messagesDir.resolve(identity.replace("-", "") + ".json"));
-        } catch (IOException ignored) {}
+        } catch (IOException e) {
+            System.err.println("[FriendStore] 删除聊天记录失败 (" + identity + "): " + e.getMessage());
+        }
     }
 
     /** 重置所有好友为离线状态 */
@@ -267,6 +328,8 @@ public final class FriendStore {
         public volatile boolean online;
         public volatile long addedAt;
         public volatile long lastSeen;
+        /** 与该好友共享的握手 HMAC 密钥（好友请求时交换） */
+        public volatile String authSecret;
     }
 
     /** 聊天消息 */

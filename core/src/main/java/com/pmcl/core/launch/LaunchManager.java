@@ -27,6 +27,15 @@ public final class LaunchManager {
     /** 活跃 MC 进程（应用退出时强制清理） */
     private final java.util.Set<Process> activeProcesses =
             java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<>());
+    /** 专用线程池：避免 process.waitFor() 长时间占用 ForkJoinPool.commonPool */
+    private final java.util.concurrent.ExecutorService launchExecutor =
+            java.util.concurrent.Executors.newCachedThreadPool(r -> {
+                Thread t = new Thread(r, "pmcl-launch");
+                t.setDaemon(true);
+                return t;
+            });
+    /** 日志队列上限：满时丢弃新行，优先保证 reader 不阻塞 */
+    private static final int LOG_QUEUE_CAPACITY = 8000;
 
     public LaunchManager(LauncherConfig config) {
         this(config, null);
@@ -68,7 +77,7 @@ public final class LaunchManager {
      * 启动 MC（同步），并把日志同步写入 GameLogger 持久化。
      *
      * @param logger 若非 null，所有日志行会同时写入 latest.log
-     * @param readerHolder 若非 null，读取线程会存入 [0] 供调用方 join
+     * @param readerHolder 若非 null，[0]=reader、[1]=dispatcher，供调用方 join
      */
     Process launch(LaunchProfile profile, String javaExecutable,
                           Consumer<String> onLog, GameLogger logger,
@@ -91,53 +100,60 @@ public final class LaunchManager {
         Process process = pb.start();
         activeProcesses.add(process);
 
-        Thread reader = new Thread(() -> {
-            // H14: onLog 回调可能阻塞（UI 渲染、日志解析等），
-            // 若在 reader 线程直接调用，会阻塞读取 MC stdout 管道，
-            // 管道缓冲区满后 MC 进程会卡死（管道死锁）。
-            // 修复：reader 线程只负责读取并写入无界队列，独立 dispatcher 线程消费回调。
-            java.util.concurrent.BlockingQueue<String> logQueue = new java.util.concurrent.LinkedBlockingQueue<>();
-            // 消费线程：从队列取行调用 onLog，与 reader 线程解耦
-            Thread dispatcher = new Thread(() -> {
-                try {
-                    while (true) {
-                        String line = logQueue.take();
-                        if (line == POISON_PILL) break; // 毒丸，结束消费
-                        try {
-                            if (onLog != null) onLog.accept(line);
-                        } catch (Throwable t) {
-                            // 回调异常不能影响日志收集
-                            System.err.println("[LaunchManager] onLog 回调异常: " + t.getMessage());
-                        }
+        java.util.concurrent.BlockingQueue<String> logQueue =
+                new java.util.concurrent.ArrayBlockingQueue<>(LOG_QUEUE_CAPACITY);
+        java.util.concurrent.atomic.AtomicInteger droppedUiLogs =
+                new java.util.concurrent.atomic.AtomicInteger();
+        Thread dispatcher = new Thread(() -> {
+            try {
+                while (true) {
+                    String line = logQueue.take();
+                    if (line == POISON_PILL) break;
+                    try {
+                        if (onLog != null) onLog.accept(line);
+                    } catch (Throwable t) {
+                        System.err.println("[LaunchManager] onLog 回调异常: " + t.getMessage());
                     }
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
                 }
-            }, "mc-log-dispatcher");
-            dispatcher.setDaemon(true);
-            dispatcher.start();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }, "mc-log-dispatcher");
+        dispatcher.setDaemon(true);
+        dispatcher.start();
 
+        Thread reader = new Thread(() -> {
+            // H14: reader 只读管道入队，dispatcher 消费 onLog，避免管道死锁
             try (BufferedReader r = new BufferedReader(
                     new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
                 String line;
                 while ((line = r.readLine()) != null) {
-                    // logger.append 是非阻塞的（内部用队列），可直接调用
                     if (logger != null) logger.append(line);
-                    // onLog 通过队列异步调用，避免阻塞 reader
-                    logQueue.offer(line);
+                    // 队列满时丢弃最旧 UI 行，优先保证 reader 不阻塞；文件日志仍完整
+                    if (!logQueue.offer(line)) {
+                        logQueue.poll();
+                        logQueue.offer(line);
+                        int n = droppedUiLogs.incrementAndGet();
+                        if (n == 1 || n % 500 == 0) {
+                            String warn = "[PMCL] UI 日志队列拥塞，已丢弃 " + n + " 行（文件日志仍完整）";
+                            if (logger != null) logger.append(warn);
+                            System.err.println(warn);
+                        }
+                    }
                 }
             } catch (IOException e) {
-                // 进程输出流读取失败时记录日志，避免静默丢失崩溃信息
                 System.err.println("[LaunchManager] 进程输出读取异常: " + e.getMessage());
                 logQueue.offer("[PMCL] 进程输出读取异常: " + e.getMessage());
             } finally {
-                // 投递毒丸结束 dispatcher 线程
                 logQueue.offer(POISON_PILL);
             }
         }, "mc-process-reader");
         reader.setDaemon(true);
         reader.start();
-        if (readerHolder != null) readerHolder[0] = reader;
+        if (readerHolder != null) {
+            readerHolder[0] = reader;
+            if (readerHolder.length > 1) readerHolder[1] = dispatcher;
+        }
 
         return process;
     }
@@ -209,7 +225,7 @@ public final class LaunchManager {
                     }
                 }
 
-                Thread[] readerHolder = new Thread[1];
+                Thread[] readerHolder = new Thread[2];
                 // 包装 onLog：在原有回调基础上注入 LaunchTracer 的 MC 阶段识别
                 // 这样无论日志走到 UI 还是 GameLogger，都会被检测里程碑
                 Consumer<String> tracedOnLog = tracer != null
@@ -243,6 +259,9 @@ public final class LaunchManager {
                 // 等待读取线程读完剩余输出，避免丢失进程退出前的最后几行日志
                 if (readerHolder[0] != null) {
                     try { readerHolder[0].join(2000); } catch (InterruptedException ignored) {}
+                }
+                if (readerHolder[1] != null) {
+                    try { readerHolder[1].join(2000); } catch (InterruptedException ignored) {}
                 }
                 String exitMsg = "[PMCL] 进程退出 code=" + code;
                 if (logger != null) logger.append(exitMsg);
@@ -281,7 +300,7 @@ public final class LaunchManager {
                     }
                 }
             }
-        });
+        }, launchExecutor);
     }
 
     // ===== 预判启动支持 =====
@@ -417,6 +436,19 @@ public final class LaunchManager {
         return value.substring(0, 4) + "***" + value.substring(value.length() - 4);
     }
 
+    /**
+     * 跟踪外部启动的进程（如 HMCL/LauncherX），纳入应用退出时的强制清理。
+     * 进程结束后应调用 {@link #untrackExternalProcess(Process)}。
+     */
+    public void trackExternalProcess(Process process) {
+        if (process != null) activeProcesses.add(process);
+    }
+
+    /** 取消跟踪外部进程（进程已退出时调用，避免集合无限增长） */
+    public void untrackExternalProcess(Process process) {
+        if (process != null) activeProcesses.remove(process);
+    }
+
     /** 强制结束所有由本启动器拉起且仍存活的 MC 进程（应用退出时调用） */
     public void killAllProcesses() {
         for (Process p : activeProcesses) {
@@ -425,5 +457,11 @@ public final class LaunchManager {
             }
         }
         activeProcesses.clear();
+    }
+
+    /** 关闭启动专用线程池（应用退出时调用） */
+    public void shutdown() {
+        killAllProcesses();
+        launchExecutor.shutdownNow();
     }
 }

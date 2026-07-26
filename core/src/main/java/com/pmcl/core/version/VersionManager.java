@@ -88,7 +88,8 @@ public final class VersionManager {
                     v.has("id") && !v.get("id").isJsonNull() ? v.get("id").getAsString() : "",
                     v.has("type") && !v.get("type").isJsonNull() ? v.get("type").getAsString() : "",
                     v.has("releaseTime") && !v.get("releaseTime").isJsonNull() ? v.get("releaseTime").getAsString() : "",
-                    v.has("url") && !v.get("url").isJsonNull() ? v.get("url").getAsString() : ""
+                    v.has("url") && !v.get("url").isJsonNull() ? v.get("url").getAsString() : "",
+                    v.has("sha1") && !v.get("sha1").isJsonNull() ? v.get("sha1").getAsString() : ""
             ));
         }
         return result;

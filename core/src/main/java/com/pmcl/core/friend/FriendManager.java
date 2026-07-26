@@ -50,13 +50,20 @@ public final class FriendManager implements AutoCloseable {
         public final String ip;
         public final int port;
         public final long receivedAt;
+        /** 发起方提议的共享握手密钥 */
+        public final String authSecret;
 
         PendingRequest(FriendIdentity identity, String displayName, String ip, int port) {
+            this(identity, displayName, ip, port, null);
+        }
+
+        PendingRequest(FriendIdentity identity, String displayName, String ip, int port, String authSecret) {
             this.identity = identity;
             this.displayName = displayName;
             this.ip = ip;
             this.port = port;
             this.receivedAt = System.currentTimeMillis();
+            this.authSecret = authSecret;
         }
     }
 
@@ -145,10 +152,8 @@ public final class FriendManager implements AutoCloseable {
                     && identity.equals(identityManager.getIdentity().toString())) {
                 return identityManager.deriveSecret();
             }
-            // 对好友 identity：由于跨机器无法派生相同 secret，这里返回 null
-            // 跨机器冒充由虚拟网络 IP 隔离保护；本机冒充由 secret 校验拦截
-            // 后续可通过邀请码交换 secret 实现跨机器校验
-            return null;
+            // 好友共享密钥（好友请求时交换）；旧好友无密钥时返回 null，仅靠虚拟网隔离
+            return store.getAuthSecret(identity);
         });
 
         // 监听聊天服务器消息
@@ -369,7 +374,12 @@ public final class FriendManager implements AutoCloseable {
             Queue<Runnable> actions = pendingOnConnect.remove(identity);
             if (actions != null) {
                 for (Runnable action : actions) {
-                    try { action.run(); } catch (Exception ignored) {}
+                    try {
+                        action.run();
+                    } catch (Exception e) {
+                        System.err.println("[FriendManager] flushIfConnected 待发操作失败 ("
+                                + identity + "): " + e.getMessage());
+                    }
                 }
             }
         }
@@ -377,31 +387,46 @@ public final class FriendManager implements AutoCloseable {
 
     /** 发送好友请求到指定 IP + port */
     public void sendFriendRequest(String identity, String displayName, String ip, int port) {
-        // 先添加到本地存储
+        // 先添加到本地存储，并生成/复用共享握手密钥
         store.addFriend(identity, displayName, ip, port);
+        String sharedSecret = store.getAuthSecret(identity);
+        if (sharedSecret == null) {
+            sharedSecret = generateSharedAuthSecret();
+            store.setAuthSecret(identity, sharedSecret);
+        }
+        final String secretToSend = sharedSecret;
         fireEvent(FriendEvent.Type.FRIEND_ADDED, store.getFriend(identity));
 
         if (ip != null && !ip.isEmpty() && port > 0) {
             // 有地址，尝试连接并发送
             FriendChatClient client = getOrCreateClient(identity, ip, port);
             if (client != null && client.isConnected()) {
-                client.sendFriendRequest();
+                client.sendFriendRequest(secretToSend);
             } else if (client != null) {
-                enqueuePending(identity, () -> client.sendFriendRequest());
+                enqueuePending(identity, () -> client.sendFriendRequest(secretToSend));
             }
         } else {
             // 无地址，先检查是否已有连通的 TCP 客户端（peer 发现可能已在连接），直接发送
             FriendChatClient existing = activeClients.get(identity);
             if (existing != null && existing.isConnected()) {
-                existing.sendFriendRequest();
+                existing.sendFriendRequest(secretToSend);
             } else {
                 // 排队等待连接建立后自动发送
                 enqueuePending(identity, () -> {
                     FriendChatClient c = activeClients.get(identity);
-                    if (c != null) c.sendFriendRequest();
+                    if (c != null) c.sendFriendRequest(secretToSend);
                 });
             }
         }
+    }
+
+    /** 生成双方共享的握手密钥（32 字节 hex） */
+    private static String generateSharedAuthSecret() {
+        byte[] raw = new byte[32];
+        new java.security.SecureRandom().nextBytes(raw);
+        StringBuilder sb = new StringBuilder(raw.length * 2);
+        for (byte b : raw) sb.append(String.format("%02x", b & 0xff));
+        return sb.toString();
     }
 
     // ---------------------------------------------------------------------------
@@ -440,17 +465,26 @@ public final class FriendManager implements AutoCloseable {
 
     /** 接受好友请求 */
     public void acceptFriendRequest(PendingRequest request) {
-        store.addFriend(request.identity.toString(), request.displayName, request.ip, request.port);
-        fireEvent(FriendEvent.Type.FRIEND_ADDED, store.getFriend(request.identity.toString()));
+        String peerId = request.identity.toString();
+        store.addFriend(peerId, request.displayName, request.ip, request.port);
+        String shared = request.authSecret;
+        if (shared == null || shared.isBlank()) {
+            shared = store.getAuthSecret(peerId);
+        }
+        if (shared == null || shared.isBlank()) {
+            shared = generateSharedAuthSecret();
+        }
+        store.setAuthSecret(peerId, shared);
+        final String secretToAck = shared;
+        fireEvent(FriendEvent.Type.FRIEND_ADDED, store.getFriend(peerId));
 
-        // 发送接受应答
+        // 发送接受应答（回显共享密钥）
         if (request.ip != null && !request.ip.isEmpty() && request.port > 0) {
-            FriendChatClient client = getOrCreateClient(request.identity.toString(), request.ip, request.port);
+            FriendChatClient client = getOrCreateClient(peerId, request.ip, request.port);
             if (client != null && client.isConnected()) {
-                client.sendFriendAck(request.identity.toString(), true);
+                client.sendFriendAck(peerId, true, secretToAck);
             } else if (client != null) {
-                enqueuePending(request.identity.toString(),
-                        () -> client.sendFriendAck(request.identity.toString(), true));
+                enqueuePending(peerId, () -> client.sendFriendAck(peerId, true, secretToAck));
             }
         }
     }
@@ -644,16 +678,23 @@ public final class FriendManager implements AutoCloseable {
                 FriendProtocol.FriendRequest req = FriendProtocol.FriendRequest.fromJson(jsonLine);
                 if (req.identity != null && !req.identity.equals(myId)) {
                     if (store.isFriend(req.identity)) {
-                        // 已是好友，自动应答 accepted 并更新地址
+                        // 已是好友，自动应答 accepted 并更新地址 / 共享密钥
                         String ackIp = actualIp != null ? actualIp : "";
                         int ackPort = req.port > 0 ? req.port : 0;
                         store.addFriend(req.identity,
                                 req.name != null ? req.name : req.identity, ackIp, ackPort);
+                        String shared = store.getAuthSecret(req.identity);
+                        if (shared == null && req.authSecret != null && !req.authSecret.isBlank()) {
+                            store.setAuthSecret(req.identity, req.authSecret);
+                            shared = req.authSecret;
+                        }
+                        final String secretToAck = shared;
                         FriendChatClient client = getOrCreateClient(req.identity, ackIp, ackPort);
                         if (client != null && client.isConnected()) {
-                            client.sendFriendAck(req.identity, true);
+                            client.sendFriendAck(req.identity, true, secretToAck);
                         } else if (client != null) {
-                            enqueuePending(req.identity, () -> client.sendFriendAck(req.identity, true));
+                            enqueuePending(req.identity,
+                                    () -> client.sendFriendAck(req.identity, true, secretToAck));
                         }
                     } else {
                         // 新好友请求
@@ -662,7 +703,7 @@ public final class FriendManager implements AutoCloseable {
                         int peerPort = req.port > 0 ? req.port : 0;
                         PendingRequest pending = new PendingRequest(peerId,
                                 req.name != null ? req.name : req.identity,
-                                reqIp, peerPort);
+                                reqIp, peerPort, req.authSecret);
                         fireEvent(FriendEvent.Type.FRIEND_REQUEST_RECEIVED, pending);
                     }
                 }
@@ -675,6 +716,9 @@ public final class FriendManager implements AutoCloseable {
                         int ackPort = ack.port > 0 ? ack.port : 0;
                         store.addFriend(ack.identity, ack.name != null ? ack.name : ack.identity,
                                 ackIp, ackPort);
+                        if (ack.authSecret != null && !ack.authSecret.isBlank()) {
+                            store.setAuthSecret(ack.identity, ack.authSecret);
+                        }
                         fireEvent(FriendEvent.Type.FRIEND_ADDED, store.getFriend(ack.identity));
                     } else {
                         // 好友请求被拒绝
@@ -768,8 +812,9 @@ public final class FriendManager implements AutoCloseable {
                     identityManager.getIdentity().toString(),
                     identityManager.getDisplayName());
             client.setMyChatPort(chatServer.getPort());
-            // H9: 设置身份密钥，用于握手 HMAC 签名
-            client.setAuthSecret(identityManager.deriveSecret());
+            // 优先使用与好友交换的共享密钥；否则回退本机派生（回环/旧好友）
+            String shared = store.getAuthSecret(identity);
+            client.setAuthSecret(shared != null ? shared : identityManager.deriveSecret());
             setupClient(identity, client);
             activeClients.put(identity, client);
             result = client;

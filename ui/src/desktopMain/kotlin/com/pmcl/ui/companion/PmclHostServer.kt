@@ -44,7 +44,13 @@ class PmclHostServer(
 
     // ---- server 作用域：所有孤儿协程统一管理，stop() 时统一取消 ----
     private val serverScope = CoroutineScope(
-        SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, e -> e.printStackTrace() }
+        SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, e ->
+            System.err.println("[PmclHostServer] 未捕获异常: ${e.message}")
+            e.printStackTrace()
+            try {
+                vm.setCompanionHostError(e.message ?: e.javaClass.simpleName)
+            } catch (_: Throwable) {}
+        }
     )
 
     // ---- handleLaunch 同步锁：防止并发启动多个游戏进程 ----
@@ -82,11 +88,12 @@ class PmclHostServer(
     fun start() {
         if (running) return
         val basePort = pairing.getPort()
+        val bindHost = pairing.getBindHost()
         // 端口占用时自动递增重试（最多 10 次）
         var tryPort = basePort
         for (attempt in 0..9) {
             try {
-                server = embeddedServer(CIO, host = "0.0.0.0", port = tryPort) {
+                server = embeddedServer(CIO, host = bindHost, port = tryPort) {
                     install(WebSockets)
                     routing {
                         post("/pmcl/pair") { handlePair(call) }
@@ -99,7 +106,7 @@ class PmclHostServer(
                     pairing.setPort(tryPort)  // 持久化新端口
                 }
                 registerFriendListener()
-                println("[PmclHostServer] started on 0.0.0.0:$tryPort" +
+                println("[PmclHostServer] started on $bindHost:$tryPort" +
                     if (tryPort != basePort) " (auto-incremented from $basePort)" else "")
                 return
             } catch (e: Exception) {
@@ -145,8 +152,9 @@ class PmclHostServer(
 
             val result = pairing.pair(code, deviceName)
             if (result == null) {
+                // 统一模糊错误，避免区分「码错 / 锁定」以降低爆破信息面
                 call.respondText(
-                    """{"error":"invalid_code","message":"配对码错误"}""",
+                    """{"error":"invalid_code","message":"配对失败，请稍后重试"}""",
                     io.ktor.http.ContentType.Application.Json,
                     io.ktor.http.HttpStatusCode.Forbidden
                 )
@@ -323,12 +331,15 @@ class PmclHostServer(
             val core = vm.core
             val config = core.getConfig()
 
-            // 确定 Java 路径
+            // 确定 Java 路径：版本 JSON 解析失败不得静默降级为 Java 8
             val requiredJavaVer = try {
                 core.profileBuilder().getRequiredJavaVersion(versionId)
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
-                8
+                return errorEnvelope(
+                    null, "launch", "java_version_failed",
+                    "无法读取版本所需 Java：${e.message ?: e.javaClass.simpleName}"
+                )
             }
 
             val javaExe = run {
@@ -344,7 +355,11 @@ class PmclHostServer(
                 return errorEnvelope(null, "launch", "no_java", "未找到 Java 运行时")
             }
 
-            val javaMajorVer = JavaRuntimeFinder.getMajorVersion(javaExe) ?: 0
+            val javaMajorVer = JavaRuntimeFinder.getMajorVersion(javaExe)
+                ?: return errorEnvelope(
+                    null, "launch", "java_version_failed",
+                    "无法识别 Java 主版本：$javaExe"
+                )
             val javaArch = JavaRuntimeFinder.getArchitecture(javaExe)
 
             // 构造 LaunchProfile

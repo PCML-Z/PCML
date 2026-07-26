@@ -66,6 +66,21 @@ public final class YggdrasilAuthFlow {
         return base + path;
     }
 
+    /** 仅允许 http/https；允许局域网/回环皮肤站，拒绝云 metadata 等链路本地目标 */
+    private static void assertHttpUrl(String url) throws IOException {
+        if (url == null || url.isBlank()) {
+            throw new IOException("皮肤站地址为空");
+        }
+        String lower = url.toLowerCase(java.util.Locale.ROOT);
+        if (!lower.startsWith("https://") && !lower.startsWith("http://")) {
+            throw new IOException("皮肤站地址必须是 http:// 或 https://");
+        }
+        String ssrf = com.pmcl.core.util.SsrfChecker.validateAllowingPrivateLan(url);
+        if (ssrf != null) {
+            throw new IOException("皮肤站地址被拒绝（SSRF 防护）: " + ssrf);
+        }
+    }
+
     /**
      * 登录皮肤站。
      *
@@ -77,6 +92,7 @@ public final class YggdrasilAuthFlow {
      */
     public Account login(String apiUrl, String username, String password) throws IOException {
         String normalizedUrl = normalizeApiUrl(apiUrl);
+        assertHttpUrl(normalizedUrl);
 
         // 构建登录请求体
         JsonObject agent = new JsonObject();
@@ -127,6 +143,10 @@ public final class YggdrasilAuthFlow {
      */
     public boolean validate(String apiUrl, String accessToken) {
         String normalizedUrl = normalizeApiUrl(apiUrl);
+        try { assertHttpUrl(normalizedUrl); } catch (IOException e) {
+            System.err.println("[YggdrasilAuthFlow] validate: " + e.getMessage());
+            return false;
+        }
         JsonObject payload = new JsonObject();
         payload.addProperty("accessToken", accessToken);
         payload.addProperty("clientToken", "");
@@ -155,6 +175,10 @@ public final class YggdrasilAuthFlow {
      */
     public String refresh(String apiUrl, String accessToken) {
         String normalizedUrl = normalizeApiUrl(apiUrl);
+        try { assertHttpUrl(normalizedUrl); } catch (IOException e) {
+            System.err.println("[YggdrasilAuthFlow] refresh: " + e.getMessage());
+            return null;
+        }
         JsonObject payload = new JsonObject();
         payload.addProperty("accessToken", accessToken);
         payload.addProperty("clientToken", "");
@@ -187,6 +211,10 @@ public final class YggdrasilAuthFlow {
      */
     public void invalidate(String apiUrl, String accessToken) {
         String normalizedUrl = normalizeApiUrl(apiUrl);
+        try { assertHttpUrl(normalizedUrl); } catch (IOException e) {
+            System.err.println("[YggdrasilAuthFlow] invalidate: " + e.getMessage());
+            return;
+        }
         JsonObject payload = new JsonObject();
         payload.addProperty("accessToken", accessToken);
         payload.addProperty("clientToken", "");

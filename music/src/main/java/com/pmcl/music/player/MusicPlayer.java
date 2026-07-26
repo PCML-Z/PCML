@@ -1,5 +1,6 @@
 package com.pmcl.music.player;
 
+import com.pmcl.core.util.SsrfChecker;
 import org.bytedeco.ffmpeg.global.avutil;
 import org.bytedeco.javacv.FFmpegFrameGrabber;
 import org.bytedeco.javacv.Frame;
@@ -103,6 +104,16 @@ public class MusicPlayer {
     public void play(String url, Map<String, String> headers, long durationMs) {
         // 先清理旧播放
         stop();
+
+        // 远程 URL 禁止打内网；本地路径允许（FFmpeg 本地文件）
+        if (url != null && (url.startsWith("http://") || url.startsWith("https://"))) {
+            String err = SsrfChecker.validate(url);
+            if (err != null) {
+                setState(PlaybackState.ERROR);
+                notifyError("Unsafe audio URL: " + err);
+                return;
+            }
+        }
 
         setState(PlaybackState.LOADING);
         currentUrl = url;

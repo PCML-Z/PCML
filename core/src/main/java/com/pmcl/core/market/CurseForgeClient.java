@@ -216,6 +216,18 @@ public final class CurseForgeClient implements ModMarketClient {
                         }
                         String releaseType = o.has("releaseType")
                                 ? cfReleaseType(o.get("releaseType").getAsInt()) : "release";
+                        // CurseForge hashes: algo 1=SHA1, 2=MD5
+                        String sha1 = "";
+                        if (o.has("hashes") && o.get("hashes").isJsonArray()) {
+                            for (JsonElement he : o.getAsJsonArray("hashes")) {
+                                JsonObject ho = he.getAsJsonObject();
+                                int algo = ho.has("algo") ? ho.get("algo").getAsInt() : -1;
+                                if (algo == 1) {
+                                    sha1 = safeStr(ho, "value");
+                                    break;
+                                }
+                            }
+                        }
                         result.add(new ModFile(
                                 "curseforge", projectId,
                                 safeStr(o, "id"),
@@ -223,7 +235,7 @@ public final class CurseForgeClient implements ModMarketClient {
                                 o.has("fileLength") ? o.get("fileLength").getAsLong() : 0,
                                 safeStr(o, "downloadUrl"),
                                 gameVersions, loaders, releaseType
-                        ));
+                        ).hashes(sha1, ""));
                     }
                     return result;
                 } catch (Exception e) {

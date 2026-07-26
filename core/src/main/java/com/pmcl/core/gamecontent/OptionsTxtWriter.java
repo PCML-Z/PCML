@@ -54,8 +54,10 @@ public final class OptionsTxtWriter {
             }
             if (!found) lines.add(line);
             Files.writeString(optionsFile, String.join("\n", lines) + "\n", StandardCharsets.UTF_8);
-        } catch (IOException ignored) {
-            // 写入失败不应阻塞启动
+        } catch (IOException e) {
+            // 写入失败不应阻塞启动，但必须可观测
+            System.err.println("[OptionsTxtWriter] 写入失败 " + optionsFile + " key=" + key
+                    + ": " + e.getMessage());
         }
     }
 

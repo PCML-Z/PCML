@@ -139,7 +139,12 @@ fun main() = application {
 
     Window(
         onCloseRequest = {
-            try { vm.shutdown() } catch (_: Throwable) {}
+            try {
+                vm.shutdown()
+            } catch (e: Throwable) {
+                System.err.println("[PMCL] shutdown 异常（仍将退出）: ${e.message}")
+                e.printStackTrace()
+            }
             exitApplication()
         },
         title = "PMCL — Minecraft Launcher",
@@ -421,7 +426,11 @@ private fun readDarkThemePref(path: String): Boolean {
  * 窗口拖拽修饰符：按住左键拖拽移动窗口（Compose 1.7 无 WindowDragArea，手动实现）。
  * 拖动开始/结束 时更新 isDragging 状态，用于切换透明/不透明渲染避免闪烁。
  *
- * 使用 Final pass 并跳过已被子组件消费的事件，避免标题栏搜索框/按钮点击时整窗被拖走。
+ * 仅挂在标题栏空白区（标题文字 / Spacer），不要挂整行 Row，
+ * 这样搜索框与按钮会先命中自身，不会整窗被拖走。
+ *
+ * 注意：不要用 Final pass + isConsumed 过滤——Compose Desktop 上许多事件在 Final
+ * 时已被标记 consumed，会导致拖拽永远无法启动。
  */
 private fun WindowScope.windowDragModifier(isDragging: MutableState<Boolean>): Modifier =
     Modifier.pointerInput(Unit) {
@@ -430,16 +439,7 @@ private fun WindowScope.windowDragModifier(isDragging: MutableState<Boolean>): M
 
         awaitPointerEventScope {
             while (true) {
-                val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Final)
-                // 搜索框、IconButton 等已消费时不启动/不继续拖拽
-                if (event.changes.any { it.isConsumed }) {
-                    if (!event.buttons.isPrimaryPressed && initialMouse != null) {
-                        isDragging.value = false
-                        initialMouse = null
-                        initialWindowLoc = null
-                    }
-                    continue
-                }
+                val event = awaitPointerEvent()
                 val mouseLocation = MouseInfo.getPointerInfo()?.location
 
                 if (event.buttons.isPrimaryPressed) {
@@ -498,7 +498,7 @@ private fun FrameWindowScope.BorderlessTitleBar(
                 modifier = Modifier.fillMaxSize(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-            // 标题（可拖拽区域）
+            // 标题（可拖拽区域；fillMaxHeight 扩大命中条带）
             Text(
                 "PMCL — Minecraft Launcher",
                 style = MaterialTheme.typography.labelMedium,
@@ -507,9 +507,11 @@ private fun FrameWindowScope.BorderlessTitleBar(
                 maxLines = 1,
                 modifier = Modifier
                     .padding(start = 12.dp)
+                    .fillMaxHeight()
+                    .wrapContentHeight(Alignment.CenterVertically)
                     .then(windowDragModifier(isDragging))
             )
-            Spacer(Modifier.width(12.dp).then(windowDragModifier(isDragging)))
+            Spacer(Modifier.width(12.dp).fillMaxHeight().then(windowDragModifier(isDragging)))
             // 搜索框：独立布局，不挂窗口拖拽，避免抢焦点/无法输入
             TopBarSearchField(
                 modifier = Modifier.width(280.dp),
@@ -517,7 +519,7 @@ private fun FrameWindowScope.BorderlessTitleBar(
                 focusRequester = searchFocusRequester,
                 compact = true
             )
-            Spacer(Modifier.weight(1f).then(windowDragModifier(isDragging)))
+            Spacer(Modifier.weight(1f).fillMaxHeight().then(windowDragModifier(isDragging)))
             // iOS 伴随 App 配对按钮
             IconButton(onClick = onOpenCompanion, modifier = Modifier.size(32.dp)) {
                 Icon(Icons.Filled.PhoneIphone, "iOS 伴随 App 配对", modifier = Modifier.size(16.dp))

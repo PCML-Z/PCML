@@ -79,7 +79,18 @@ public final class ScreenshotManager {
     }
 
     public void delete(Screenshot shot) throws IOException {
-        Files.deleteIfExists(shot.getPath());
+        Path path = shot.getPath();
+        if (path == null) throw new IOException("截图路径为空");
+        Path file = path.toAbsolutePath().normalize();
+        Path parent = file.getParent();
+        if (parent == null || parent.getFileName() == null
+                || !"screenshots".equalsIgnoreCase(parent.getFileName().toString())) {
+            throw new IOException("拒绝删除：路径不在 screenshots 目录下: " + file);
+        }
+        if (!isImage(file.getFileName().toString())) {
+            throw new IOException("拒绝删除：不是图片文件: " + file);
+        }
+        Files.deleteIfExists(file);
     }
 
     private static boolean isImage(String name) {

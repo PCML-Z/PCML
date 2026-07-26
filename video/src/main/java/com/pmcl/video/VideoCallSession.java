@@ -146,6 +146,24 @@ public final class VideoCallSession {
     public void removeListener(CallListener listener) { listeners.remove(listener); }
 
     /**
+     * 附加已绑定端口的视频 UDP socket（信令交换端口前由 UI 创建）。
+     * 取代对私有字段的反射注入。
+     */
+    public void attachVideoSocket(DatagramSocket socket) {
+        if (socket == null) {
+            throw new IllegalArgumentException("video socket must not be null");
+        }
+        this.videoSocket = socket;
+        this.localPortReady = true;
+    }
+
+    /** 当前视频 UDP 本地端口；未就绪时返回 0 */
+    public int getLocalVideoPort() {
+        DatagramSocket s = videoSocket;
+        return (s != null && !s.isClosed()) ? s.getLocalPort() : 0;
+    }
+
+    /**
      * M60 修复：使用 CAS 原子转换状态，终态（ENDED）不可逆。
      * 监听器通知在状态更新成功后触发，不持锁，避免回调阻塞其他线程。
      */
@@ -191,11 +209,9 @@ public final class VideoCallSession {
                 }
             }
 
-            // 创建视频媒体流（使用 RTCP mux，只需一个 Component）
-            if (mediaType != MediaType.AUDIO_ONLY) {
-                IceMediaStream videoStream = iceAgent.createMediaStream("video");
-                agentCreateComponent(iceAgent, videoStream, "video");
-            }
+            // 始终创建 video ICE 流（端口交换/连通依赖）；AUDIO_ONLY 仅跳过摄像头采集
+            IceMediaStream videoStream = iceAgent.createMediaStream("video");
+            agentCreateComponent(iceAgent, videoStream, "video");
 
             // 收集本地候选并通知
             String localUfrag = iceAgent.getLocalUfrag();
@@ -230,7 +246,7 @@ public final class VideoCallSession {
             // SELECTED_AND_TCP: 对已选配对发送 keepalive，保持 ICE 连接不被超时终止
             agent.createComponent(stream, KeepAliveStrategy.SELECTED_AND_TCP, true);
         } catch (Exception e) {
-            System.err.println("[VideoCall] 创建 ICE Component " + name + " 失败: " + e.getMessage());
+            throw new RuntimeException("创建 ICE Component " + name + " 失败: " + e.getMessage(), e);
         }
     }
 
@@ -479,15 +495,28 @@ public final class VideoCallSession {
         startCaptureThread(videoSocket, remote);
     }
 
-    /** 启动摄像头采集 + 发送线程 */
+    /** 启动摄像头/屏幕采集 + 发送线程 */
     private void startCaptureThread(DatagramSocket socket, InetSocketAddress remoteAddress) {
         frameConverter = new Java2DFrameConverter();
 
         captureThread = new Thread(() -> {
             try {
-                grabber = VideoCallManager.createCameraGrabber(VIDEO_WIDTH, VIDEO_HEIGHT, VIDEO_FPS);
+                if (mediaType == MediaType.AUDIO_ONLY) {
+                    // 音频专用：保持通话态但不采集/发送视频帧（暂无独立音频 RTP 路径）
+                    System.out.println("[VideoCall] AUDIO_ONLY：跳过视频采集");
+                    while (capturing.get() && !Thread.currentThread().isInterrupted()) {
+                        Thread.sleep(500);
+                    }
+                    return;
+                }
+                if (mediaType == MediaType.SCREEN_SHARE) {
+                    grabber = VideoCallManager.createScreenGrabber(VIDEO_WIDTH, VIDEO_HEIGHT, VIDEO_FPS);
+                    System.out.println("[VideoCall] 屏幕采集已启动");
+                } else {
+                    grabber = VideoCallManager.createCameraGrabber(VIDEO_WIDTH, VIDEO_HEIGHT, VIDEO_FPS);
+                    System.out.println("[VideoCall] 摄像头采集已启动");
+                }
                 grabber.start();
-                System.out.println("[VideoCall] 摄像头采集已启动");
 
                 long frameCount = 0;
                 // M53 修复：使用 AtomicLong 以便在压缩线程 lambda 中安全自增

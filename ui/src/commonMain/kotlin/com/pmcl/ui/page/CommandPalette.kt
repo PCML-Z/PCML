@@ -36,6 +36,8 @@ import com.pmcl.core.i18n.I18n
 import com.pmcl.ui.navigation.NavDestination
 import com.pmcl.ui.navigation.allDestinations
 import com.pmcl.ui.viewmodel.LauncherViewModel
+import com.pmcl.ui.viewmodel.launch
+import com.pmcl.ui.viewmodel.refreshInstalledMods
 
 /**
  * 统一搜索项类型。

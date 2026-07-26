@@ -34,7 +34,12 @@ public class AcFunAudioSource implements AudioSource {
     private static final Pattern AC_PATTERN = Pattern.compile("ac(\\d+)", Pattern.CASE_INSENSITIVE);
     private static final Pattern DIGIT_PATTERN = Pattern.compile("\\d+");
 
-    private final OkHttpClient client = new OkHttpClient();
+    private final OkHttpClient client = new OkHttpClient.Builder()
+            .connectTimeout(java.time.Duration.ofSeconds(15))
+            .readTimeout(java.time.Duration.ofSeconds(30))
+            .writeTimeout(java.time.Duration.ofSeconds(15))
+            .followRedirects(true)
+            .build();
 
     @Override
     public String type() {

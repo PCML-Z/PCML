@@ -4,6 +4,8 @@ import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -41,6 +43,8 @@ public final class FriendChatServer implements AutoCloseable {
 
     private final AtomicInteger connectionCount = new AtomicInteger(0);
     private static final int MAX_CONNECTIONS = 50;
+    /** 活跃客户端 socket，close() 时一并关闭，避免 accept 中断后 handler 悬挂 */
+    private final Set<Socket> clientSockets = ConcurrentHashMap.newKeySet();
 
     /** 身份校验器：返回 true 表示该 identity 是已知好友，允许握手通过。
      *  默认拒绝所有连接（安全默认），必须由 FriendManager 设置。 */
@@ -118,6 +122,10 @@ public final class FriendChatServer implements AutoCloseable {
             }
         } catch (IOException ignored) {
         }
+        for (Socket s : clientSockets) {
+            try { s.close(); } catch (IOException ignored) {}
+        }
+        clientSockets.clear();
         if (acceptThread != null) {
             acceptThread.interrupt();
         }
@@ -145,12 +153,15 @@ public final class FriendChatServer implements AutoCloseable {
                     try { client.close(); } catch (IOException ignored) {}
                     continue;
                 }
+                clientSockets.add(client);
                 Thread handle = new Thread(() -> {
                     connectionCount.incrementAndGet();
                     try {
                         handleClient(client);
                     } finally {
                         connectionCount.decrementAndGet();
+                        clientSockets.remove(client);
+                        try { if (!client.isClosed()) client.close(); } catch (IOException ignored) {}
                     }
                 }, "FriendChat-Handler");
                 handle.setDaemon(true);
@@ -192,18 +203,19 @@ public final class FriendChatServer implements AutoCloseable {
                         + " from " + remoteAddr + " (ts=" + authInfo.timestamp + ", now=" + now + ")");
                 return;
             }
-            // H9: HMAC 签名校验——仅当 secret 可用时强制校验
-            // 跨机器好友无法派生相同 secret（机器绑定 keyfile 不同），此时跳过签名校验，
-            // 由虚拟网络 IP 隔离保护。本机回环连接（secret 可用）强制校验，防止本机冒充。
+            // H9: HMAC 强制校验——无共享密钥则拒绝（须通过好友请求交换 authSecret）
             String expectedSig = computeAuthSignature(authInfo.identity, authInfo.timestamp);
-            if (expectedSig != null) {
-                // secret 可用：必须校验签名
-                if (!expectedSig.equalsIgnoreCase(authInfo.signature)) {
-                    System.err.println("[FriendChatServer] 拒绝连接: HMAC 签名无效 " + authInfo.identity + " from " + remoteAddr);
-                    return;
-                }
+            if (expectedSig == null) {
+                System.err.println("[FriendChatServer] 拒绝连接: 缺少共享 HMAC 密钥 "
+                        + authInfo.identity + " from " + remoteAddr
+                        + "（请重新发送/接受好友请求以交换密钥）");
+                return;
             }
-            // secret 不可用（跨机器好友）：跳过签名校验，仅靠 identity + IP 隔离
+            if (!expectedSig.equalsIgnoreCase(authInfo.signature)) {
+                System.err.println("[FriendChatServer] 拒绝连接: HMAC 签名无效 "
+                        + authInfo.identity + " from " + remoteAddr);
+                return;
+            }
             if (!identityValidator.test(authInfo.identity)) {
                 System.err.println("[FriendChatServer] 拒绝连接: 未知身份 " + authInfo.identity + " from " + remoteAddr);
                 return;

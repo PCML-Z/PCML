@@ -284,13 +284,20 @@ public final class ModrinthClient implements ModMarketClient {
                         if (v.has("files")) {
                             for (JsonElement f : v.getAsJsonArray("files")) {
                                 JsonObject fo = f.getAsJsonObject();
+                                String sha1 = "";
+                                String sha512 = "";
+                                if (fo.has("hashes") && fo.get("hashes").isJsonObject()) {
+                                    JsonObject h = fo.getAsJsonObject("hashes");
+                                    sha1 = safeStr(h, "sha1");
+                                    sha512 = safeStr(h, "sha512");
+                                }
                                 result.add(new ModFile(
                                         "modrinth", projectId, versionId,
                                         safeStr(fo, "filename"),
                                         fo.has("size") ? fo.get("size").getAsLong() : 0,
                                         safeStr(fo, "url"),
                                         gameVersions, loaders, versionType, deps
-                                ));
+                                ).hashes(sha1, sha512));
                             }
                         }
                     }

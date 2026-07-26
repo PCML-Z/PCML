@@ -28,6 +28,16 @@ import androidx.compose.ui.unit.sp
 import com.pmcl.core.gamecontent.ConfigFileManager
 import com.pmcl.core.i18n.I18n
 import com.pmcl.ui.viewmodel.LauncherViewModel
+import com.pmcl.ui.viewmodel.refreshConfigFiles
+import com.pmcl.ui.viewmodel.openConfigDir
+import com.pmcl.ui.viewmodel.navigateConfigUp
+import com.pmcl.ui.viewmodel.enterConfigDir
+import com.pmcl.ui.viewmodel.readConfigFile
+import com.pmcl.ui.viewmodel.saveConfigFile
+import com.pmcl.ui.viewmodel.closeConfigFile
+import com.pmcl.ui.viewmodel.markConfigDirty
+import com.pmcl.ui.viewmodel.createConfigFile
+import com.pmcl.ui.viewmodel.deleteConfigFile
 import java.text.SimpleDateFormat
 import java.util.Date
 

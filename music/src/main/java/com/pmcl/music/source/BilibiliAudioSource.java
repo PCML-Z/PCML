@@ -40,7 +40,12 @@ public class BilibiliAudioSource implements AudioSource {
     private static final Pattern BV_PATTERN = Pattern.compile("BV[a-zA-Z0-9]{10}");
     private static final Pattern AV_PATTERN = Pattern.compile("av(\\d+)", Pattern.CASE_INSENSITIVE);
 
-    private final OkHttpClient client = new OkHttpClient();
+    private final OkHttpClient client = new OkHttpClient.Builder()
+            .connectTimeout(java.time.Duration.ofSeconds(15))
+            .readTimeout(java.time.Duration.ofSeconds(30))
+            .writeTimeout(java.time.Duration.ofSeconds(15))
+            .followRedirects(true)
+            .build();
 
     @Override
     public String type() {

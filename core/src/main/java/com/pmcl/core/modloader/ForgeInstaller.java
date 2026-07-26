@@ -112,7 +112,19 @@ public final class ForgeInstaller implements ModLoaderInstaller {
                         "下载 " + loaderName + " installer.jar"));
                 String installerUrl = buildInstallerUrl(gameVersion, loaderVersion);
                 installerJar = Files.createTempFile("forge-installer-", ".jar");
-                downloads.downloadTo(installerUrl, installerJar);
+                // Maven 旁路 .sha1（失败则拒绝安装，防供应链投毒）
+                String expectedSha1;
+                try {
+                    String sha1Body = downloads.downloadString(installerUrl + ".sha1").trim();
+                    expectedSha1 = sha1Body.split("\\s+")[0];
+                    if (expectedSha1.isEmpty() || expectedSha1.length() < 40) {
+                        throw new IOException("无效的 SHA-1 旁路内容");
+                    }
+                } catch (IOException e) {
+                    throw new IOException(loaderName + " installer 缺少可校验的 SHA-1（"
+                            + installerUrl + ".sha1）: " + e.getMessage(), e);
+                }
+                downloads.downloadToVerified(installerUrl, installerJar, expectedSha1, null);
 
                 // 2. 提取 install_profile.json
                 if (onProgress != null) onProgress.accept(new InstallProgress(

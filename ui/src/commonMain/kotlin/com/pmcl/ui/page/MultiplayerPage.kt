@@ -23,6 +23,13 @@ import com.pmcl.core.i18n.I18n
 import com.pmcl.core.multiplayer.MultiplayerManager
 import com.pmcl.ui.animation.AnimatedSegmentedSelector
 import com.pmcl.ui.viewmodel.LauncherViewModel
+import com.pmcl.ui.viewmodel.setMpBackend
+import com.pmcl.ui.viewmodel.createRoom
+import com.pmcl.ui.viewmodel.joinRoom
+import com.pmcl.ui.viewmodel.leaveRoom
+import com.pmcl.ui.viewmodel.copyInvitation
+import com.pmcl.ui.viewmodel.copyToClipboard
+import com.pmcl.ui.viewmodel.syncConnectXConfig
 
 /**
  * 多人联机页：创建 / 加入房间为主，其余收进设置与说明。
@@ -355,6 +362,7 @@ fun MultiplayerPage(vm: LauncherViewModel) {
                 vm.preferences.setConnectxBinaryPath(connectxBinPath)
                 vm.preferences.setConnectxServerAddress(connectxServer)
                 vm.preferences.setConnectxServerPort(connectxPort.toIntOrNull() ?: 3535)
+                vm.syncConnectXConfig()
                 showConnectXSettings = false
             }
         )

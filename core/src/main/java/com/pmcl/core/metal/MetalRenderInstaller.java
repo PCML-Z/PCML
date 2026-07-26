@@ -119,36 +119,49 @@ public final class MetalRenderInstaller {
             // 选择 primary=true 的文件，若无则取第一个 .jar 文件
             String fileUrl = null;
             String fileName = null;
+            String sha1 = "";
+            String sha512 = "";
             if (version.has("files")) {
                 JsonArray files = version.getAsJsonArray("files");
+                JsonObject chosen = null;
                 // 第一轮：找 primary
                 for (JsonElement fe : files) {
                     JsonObject fo = fe.getAsJsonObject();
                     if (fo.has("primary") && fo.get("primary").getAsBoolean()) {
-                        fileUrl = fo.has("url") ? fo.get("url").getAsString() : null;
-                        fileName = fo.has("filename") ? fo.get("filename").getAsString() : null;
+                        chosen = fo;
                         break;
                     }
                 }
                 // 第二轮：无 primary 则取第一个 .jar（排除 -sources.jar / -dev.jar）
-                if (fileUrl == null) {
+                if (chosen == null) {
                     for (JsonElement fe : files) {
                         JsonObject fo = fe.getAsJsonObject();
                         String fn = fo.has("filename") ? fo.get("filename").getAsString() : "";
                         if (fn.endsWith(".jar") && !fn.contains("-sources") && !fn.contains("-dev")) {
-                            fileUrl = fo.has("url") ? fo.get("url").getAsString() : null;
-                            fileName = fn;
+                            chosen = fo;
                             break;
                         }
+                    }
+                }
+                if (chosen != null) {
+                    fileUrl = chosen.has("url") ? chosen.get("url").getAsString() : null;
+                    fileName = chosen.has("filename") ? chosen.get("filename").getAsString() : null;
+                    if (chosen.has("hashes") && chosen.get("hashes").isJsonObject()) {
+                        JsonObject h = chosen.getAsJsonObject("hashes");
+                        sha1 = h.has("sha1") ? h.get("sha1").getAsString() : "";
+                        sha512 = h.has("sha512") ? h.get("sha512").getAsString() : "";
                     }
                 }
             }
             if (fileUrl == null || fileName == null) {
                 throw new IOException("Modrinth 返回的 " + projectId + " 版本无可用文件");
             }
+            if ((sha1 == null || sha1.isBlank()) && (sha512 == null || sha512.isBlank())) {
+                throw new IOException("Modrinth 未提供 " + fileName + " 的哈希，拒绝安装未校验的 MetalRender 组件");
+            }
             Path target = modsDir.resolve(fileName);
-            // 覆盖下载（支持升级已存在的旧版本）
-            downloads.downloadTo(fileUrl, target);
+            // 覆盖下载（支持升级已存在的旧版本）+ 哈希校验
+            downloads.downloadToVerified(fileUrl, target, sha1, sha512);
             if (onProgress != null) {
                 onProgress.accept("done:" + fileName);
             }

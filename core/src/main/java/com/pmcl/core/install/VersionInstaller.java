@@ -80,7 +80,11 @@ public final class VersionInstaller {
                 InstallProgress.Stage.DOWNLOAD_VERSION_JSON, 0, 1, "下载版本清单"));
         Path versionJsonPath = config.getVersionsDir().resolve(versionId).resolve(versionId + ".json");
         Files.createDirectories(versionJsonPath.getParent());
-        String versionJsonStr = downloadManager.downloadString(target.getUrl());
+        String versionSha1 = target.getSha1();
+        if (versionSha1 == null || versionSha1.isBlank()) {
+            throw new IOException("版本清单缺少 SHA-1，拒绝下载: " + versionId);
+        }
+        String versionJsonStr = downloadManager.downloadStringVerified(target.getUrl(), versionSha1);
         Files.writeString(versionJsonPath, versionJsonStr, java.nio.charset.StandardCharsets.UTF_8);
 
         VersionJson vj = VersionJson.parse(versionJsonStr);
@@ -129,11 +133,15 @@ public final class VersionInstaller {
             if (onProgress != null) onProgress.accept(new InstallProgress(
                     InstallProgress.Stage.DOWNLOAD_ASSET_INDEX, 0, 1, "下载资产索引"));
             String assetIndexUrl = resolveAssetIndexUrl(vj);
+            String assetIndexSha1 = resolveAssetIndexSha1(vj);
             if (assetIndexUrl != null) {
-                String idxJson = downloadManager.downloadString(assetIndexUrl);
+                if (assetIndexSha1 == null || assetIndexSha1.isBlank()) {
+                    throw new IOException("assetIndex 缺少 sha1，拒绝无完整性校验的索引下载");
+                }
                 Path idxPath = config.getAssetsDir().resolve("indexes").resolve(vj.getAssets() + ".json");
                 Files.createDirectories(idxPath.getParent());
-                Files.writeString(idxPath, idxJson, java.nio.charset.StandardCharsets.UTF_8);
+                downloadManager.downloadToVerified(assetIndexUrl, idxPath, assetIndexSha1, null);
+                String idxJson = Files.readString(idxPath, java.nio.charset.StandardCharsets.UTF_8);
 
                 AssetIndex idx = AssetIndex.parse(idxJson);
                 for (AssetIndex.Asset a : idx.getAssets().values()) {
@@ -264,6 +272,17 @@ public final class VersionInstaller {
         return null;
     }
 
+    private String resolveAssetIndexSha1(VersionJson vj) {
+        JsonObject root = vj.getRawJson();
+        if (root.has("assetIndex")) {
+            JsonObject ai = root.getAsJsonObject("assetIndex");
+            if (ai.has("sha1") && !ai.get("sha1").isJsonNull()) {
+                return ai.get("sha1").getAsString();
+            }
+        }
+        return null;
+    }
+
     /**
      * 合并继承版本的 JSON：父版本为主，子版本覆盖 mainClass 等。
      * 简化实现：直接重新下载父版本 JSON 并合并 libraries。
@@ -276,8 +295,12 @@ public final class VersionInstaller {
         }
         if (parent == null) return child;
         if (parent.getUrl() == null) return child;
+        String parentSha1 = parent.getSha1();
+        if (parentSha1 == null || parentSha1.isBlank()) {
+            throw new IOException("父版本清单缺少 SHA-1，拒绝下载: " + parentId);
+        }
 
-        String parentJson = downloadManager.downloadString(parent.getUrl());
+        String parentJson = downloadManager.downloadStringVerified(parent.getUrl(), parentSha1);
         // 简单合并：将父版本的 libraries 与子版本合并（去重）
         JsonObject parentObj = JsonParser.parseString(parentJson).getAsJsonObject();
         JsonObject childObj = child.getRawJson();

@@ -98,11 +98,14 @@ public final class InstanceManager {
                 try {
                     saveInstanceInfo(info);
                 } catch (IOException saveErr) {
-                    // 持久化失败不影响本次返回，下次扫描会重新生成（稳定的 UUID）
+                    System.err.println("[InstanceManager] 持久化 instance.json 失败 "
+                            + instanceDir + ": " + saveErr.getMessage());
                 }
                 return info;
             }
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            System.err.println("[InstanceManager] 读取实例元数据失败 "
+                    + instanceDir + ": " + e.getMessage());
         }
         return null;
     }

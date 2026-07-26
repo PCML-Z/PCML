@@ -48,13 +48,21 @@ import com.pmcl.core.i18n.I18n
 import com.pmcl.core.market.ModProject
 import com.pmcl.ui.animation.MotionTokens
 import com.pmcl.ui.viewmodel.LauncherViewModel
+import com.pmcl.ui.viewmodel.searchMods
+import com.pmcl.ui.viewmodel.loadPopularMods
+import com.pmcl.ui.viewmodel.loadCategoryMods
+import com.pmcl.ui.viewmodel.clearCategory
+import com.pmcl.ui.viewmodel.openModDetail
+import com.pmcl.ui.viewmodel.closeModDetail
+import com.pmcl.ui.viewmodel.listProjectFiles
+import com.pmcl.ui.viewmodel.installModWithDeps
+import com.pmcl.ui.viewmodel.clearDepInstallResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.skia.Image as SkiaImage
 import com.pmcl.ui.util.decodeSampledBitmap
 import java.awt.Desktop
 import java.net.URI
-import java.net.URL
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -1365,7 +1373,7 @@ private fun rememberUrlImage(url: String): ImageBitmap? {
         if (existing != null) { image = existing; return@LaunchedEffect }
         withContext(Dispatchers.IO) {
             try {
-                val bytes = URL(url).readBytes()
+                val bytes = com.pmcl.ui.util.SafeUrlFetcher.fetchBytes(url)
                 val bmp = decodeSampledBitmap(bytes, 128) ?: throw IllegalStateException("decode failed")
                 modImageCache.put(url, bmp)
                 image = bmp

@@ -415,7 +415,7 @@ public final class PluginManager {
         Path tempFile = Files.createTempFile("pmcl-plugin-", ".jar");
         try {
             System.out.println("[PluginManager] Downloading plugin from: " + url);
-            core.downloads().downloadTo(url, tempFile);
+            core.downloads().downloadToSsrfChecked(url, tempFile);
             return installFromPath(tempFile);
         } finally {
             Files.deleteIfExists(tempFile);
@@ -541,7 +541,7 @@ public final class PluginManager {
         Path tempFile = Files.createTempFile("pmcl-plugin-", ".ppk");
         try {
             System.out.println("[PluginManager] Downloading plugin package from: " + url);
-            core.downloads().downloadTo(url, tempFile);
+            core.downloads().downloadToSsrfChecked(url, tempFile);
             return installFromPackage(tempFile);
         } finally {
             Files.deleteIfExists(tempFile);
@@ -716,7 +716,10 @@ public final class PluginManager {
                     return false;
                 }
             } catch (Exception e) {
-                System.err.println("[PluginManager] Launch hook error: " + e.getMessage());
+                // fail-closed：钩子异常不得被当成「放行」
+                System.err.println("[PluginManager] Launch hook error (abort launch): " + e.getMessage());
+                e.printStackTrace();
+                return false;
             }
         }
         return true;
@@ -752,7 +755,19 @@ public final class PluginManager {
                 });
             }
             if (!isSigned) {
-                System.err.println("[PluginManager] WARNING: plugin JAR is not signed (" +
+                // 默认要求签名；显式 -Dpmcl.plugins.allowUnsigned=true 才放行（兼容旧插件）
+                boolean allowUnsigned = Boolean.parseBoolean(
+                        System.getProperty("pmcl.plugins.allowUnsigned", "false"));
+                // 兼容旧开关：requireSigned=false 等价于允许未签名
+                String requireProp = System.getProperty("pmcl.plugins.requireSigned");
+                if (requireProp != null) {
+                    allowUnsigned = !Boolean.parseBoolean(requireProp);
+                }
+                if (!allowUnsigned) {
+                    throw new SecurityException("Plugin JAR is not signed: " + jarPath
+                            + " (set -Dpmcl.plugins.allowUnsigned=true to allow)");
+                }
+                System.err.println("[PluginManager] WARNING: loading unsigned plugin JAR (" +
                         jarPath + ") — integrity cannot be verified against tampering.");
             }
 
@@ -769,6 +784,10 @@ public final class PluginManager {
             // M28：getInputStream 在 verify=true 模式下会自动验签当前 entry
             try (InputStream is = jar.getInputStream(entry)) {
                 props.load(new java.io.InputStreamReader(is, java.nio.charset.StandardCharsets.UTF_8));
+            }
+            // 签名通过 ≠ 信任：若配置了可信指纹，则必须命中；未配置时告警或严格拒绝
+            if (isSigned) {
+                assertTrustedPluginSigner(entry, jarPath);
             }
 
             // Read required fields — must be present and non-blank
@@ -841,6 +860,101 @@ public final class PluginManager {
                 PluginInfo.PROPERTIES_PATH + ". Required fields: " +
                 "plugin.id, plugin.name, plugin.version, plugin.author, " +
                 "plugin.description, plugin.api-version, plugin.main-class");
+    }
+
+    /**
+     * 签名完整性通过后，再校验签名者证书指纹是否在可信列表中。
+     * <ul>
+     *   <li>可信列表：{@code -Dpmcl.plugins.trustedFingerprints=hex,hex}
+     *       （可选 {@code sha256:} 前缀）以及 {@code ~/.pmcl/plugins/trusted-signers.txt}
+     *       （每行一个 SHA-256 十六进制指纹，{@code #} 注释）</li>
+     *   <li>列表非空：必须命中，否则拒绝</li>
+     *   <li>列表为空：默认仅告警；{@code -Dpmcl.plugins.requireTrustedSigner=true} 则拒绝</li>
+     *   <li>{@code -Dpmcl.plugins.allowAnySigner=true}：跳过指纹校验（仍要求 JAR 签名）</li>
+     * </ul>
+     */
+    private void assertTrustedPluginSigner(JarEntry entry, Path jarPath) throws Exception {
+        if (Boolean.parseBoolean(System.getProperty("pmcl.plugins.allowAnySigner", "false"))) {
+            return;
+        }
+        java.security.CodeSigner[] signers = entry.getCodeSigners();
+        if (signers == null || signers.length == 0) {
+            throw new SecurityException("Plugin JAR claims signature but entry has no CodeSigner: " + jarPath);
+        }
+        Set<String> present = new java.util.LinkedHashSet<>();
+        for (java.security.CodeSigner signer : signers) {
+            if (signer.getSignerCertPath() == null) continue;
+            for (java.security.cert.Certificate cert : signer.getSignerCertPath().getCertificates()) {
+                present.add(sha256Fingerprint(cert.getEncoded()));
+            }
+        }
+        if (present.isEmpty()) {
+            throw new SecurityException("Plugin JAR has CodeSigners but no certificates: " + jarPath);
+        }
+        Set<String> trusted = loadTrustedPluginFingerprints();
+        if (!trusted.isEmpty()) {
+            boolean hit = false;
+            for (String fp : present) {
+                if (trusted.contains(fp)) { hit = true; break; }
+            }
+            if (!hit) {
+                throw new SecurityException("Plugin signer not in trusted fingerprint list: " + jarPath
+                        + " (signers=" + present + "; configure -Dpmcl.plugins.trustedFingerprints=... "
+                        + "or ~/.pmcl/plugins/trusted-signers.txt)");
+            }
+            return;
+        }
+        if (Boolean.parseBoolean(System.getProperty("pmcl.plugins.requireTrustedSigner", "false"))) {
+            throw new SecurityException("No trusted plugin signer fingerprints configured; refusing "
+                    + jarPath + " (set -Dpmcl.plugins.trustedFingerprints=... or "
+                    + "-Dpmcl.plugins.allowAnySigner=true)");
+        }
+        System.err.println("[PluginManager] WARNING: no trusted signer allowlist configured; "
+                + "accepting any valid signature for " + jarPath
+                + " (fingerprints=" + present + "). Pin with -Dpmcl.plugins.trustedFingerprints "
+                + "or set -Dpmcl.plugins.requireTrustedSigner=true.");
+    }
+
+    private Set<String> loadTrustedPluginFingerprints() {
+        Set<String> out = new java.util.LinkedHashSet<>();
+        String prop = System.getProperty("pmcl.plugins.trustedFingerprints", "");
+        if (prop != null && !prop.isBlank()) {
+            for (String part : prop.split("[,;\\s]+")) {
+                String n = normalizeFingerprint(part);
+                if (!n.isEmpty()) out.add(n);
+            }
+        }
+        Path file = pluginsDir.resolve("trusted-signers.txt");
+        if (Files.isRegularFile(file)) {
+            try {
+                for (String line : Files.readAllLines(file, java.nio.charset.StandardCharsets.UTF_8)) {
+                    String t = line.trim();
+                    if (t.isEmpty() || t.startsWith("#")) continue;
+                    String n = normalizeFingerprint(t);
+                    if (!n.isEmpty()) out.add(n);
+                }
+            } catch (IOException e) {
+                System.err.println("[PluginManager] Failed to read trusted-signers.txt: " + e.getMessage());
+            }
+        }
+        return out;
+    }
+
+    private static String normalizeFingerprint(String raw) {
+        if (raw == null) return "";
+        String s = raw.trim().toLowerCase(java.util.Locale.ROOT);
+        if (s.startsWith("sha256:")) s = s.substring("sha256:".length());
+        s = s.replace(":", "").replace(" ", "");
+        if (!s.matches("[0-9a-f]{64}")) return "";
+        return s;
+    }
+
+    private static String sha256Fingerprint(byte[] encoded) throws Exception {
+        java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+        byte[] dig = md.digest(encoded);
+        StringBuilder sb = new StringBuilder(dig.length * 2);
+        for (byte b : dig) sb.append(String.format("%02x", b & 0xff));
+        return sb.toString();
     }
 
     // ==================== Utility ====================

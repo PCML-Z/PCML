@@ -26,13 +26,16 @@ import androidx.compose.ui.unit.sp
 import com.pmcl.core.i18n.I18n
 import com.pmcl.core.news.NewsItem
 import com.pmcl.ui.viewmodel.LauncherViewModel
+import com.pmcl.ui.viewmodel.refreshNews
+import com.pmcl.ui.viewmodel.loadArticle
+import com.pmcl.ui.viewmodel.clearArticle
+import com.pmcl.ui.viewmodel.openNewsLink
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.skia.Image as SkiaImage
 import com.pmcl.ui.util.decodeSampledBitmap
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
-import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -700,7 +703,7 @@ private fun rememberUrlImage(url: String): ImageBitmap? {
         withContext(Dispatchers.IO) {
             try {
                 if (url.isNullOrBlank()) return@withContext
-                val bytes = URL(url).readBytes()
+                val bytes = com.pmcl.ui.util.SafeUrlFetcher.fetchBytes(url)
                 val bmp = decodeSampledBitmap(bytes, 256) ?: throw IllegalStateException("decode failed")
                 newsImageCache.put(url, bmp)
                 image = bmp

@@ -272,10 +272,37 @@ public final class WorldManager {
         restore(zipFile, name);
     }
 
-    /** 删除世界 */
+    /** 删除世界（仅允许删除位于某个 saves/ 下且含 level.dat 的目录） */
     public void delete(WorldInfo world) throws IOException {
-        deleteRecursive(world.getDir());
+        Path dir = assertDeletableWorldDir(world.getDir());
+        deleteRecursive(dir);
         sizeCache.remove(world.getDir());
+        sizeCache.remove(dir);
+    }
+
+    /**
+     * 防止任意路径递归删除：目录必须在名为 {@code saves} 的父目录下，
+     * 且包含 {@code level.dat}（Minecraft 世界特征文件）。
+     */
+    static Path assertDeletableWorldDir(Path worldDir) throws IOException {
+        if (worldDir == null) throw new IOException("世界目录为空");
+        Path dir = worldDir.toAbsolutePath().normalize();
+        if (!Files.isDirectory(dir)) throw new IOException("不是目录: " + dir);
+        boolean underSaves = false;
+        for (Path p = dir.getParent(); p != null; p = p.getParent()) {
+            Path name = p.getFileName();
+            if (name != null && "saves".equalsIgnoreCase(name.toString())) {
+                underSaves = true;
+                break;
+            }
+        }
+        if (!underSaves) {
+            throw new IOException("拒绝删除：路径不在 saves 目录下: " + dir);
+        }
+        if (!Files.isRegularFile(dir.resolve("level.dat"))) {
+            throw new IOException("拒绝删除：缺少 level.dat，不像 Minecraft 世界: " + dir);
+        }
+        return dir;
     }
 
     private static long dirSize(Path dir) throws IOException {

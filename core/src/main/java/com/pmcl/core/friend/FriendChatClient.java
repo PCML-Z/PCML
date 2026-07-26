@@ -203,20 +203,32 @@ public final class FriendChatClient implements AutoCloseable {
 
     /** 发送好友请求 */
     public void sendFriendRequest() {
+        sendFriendRequest(null);
+    }
+
+    /** 发送好友请求（携带共享握手密钥） */
+    public void sendFriendRequest(String authSecret) {
         FriendProtocol.FriendRequest req = new FriendProtocol.FriendRequest();
         req.identity = myIdentity;
         req.name = myName;
         req.port = myChatPort;
+        req.authSecret = authSecret;
         send(req.toJson());
     }
 
     /** 发送好友请求应答 */
     public void sendFriendAck(String targetIdentity, boolean accepted) {
+        sendFriendAck(targetIdentity, accepted, null);
+    }
+
+    /** 发送好友请求应答（回显共享握手密钥） */
+    public void sendFriendAck(String targetIdentity, boolean accepted, String authSecret) {
         FriendProtocol.FriendAck ack = new FriendProtocol.FriendAck();
         ack.identity = myIdentity;
         ack.name = myName;
         ack.accepted = accepted;
         ack.port = myChatPort;
+        ack.authSecret = authSecret;
         send(ack.toJson());
     }
 

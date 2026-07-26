@@ -52,11 +52,22 @@ public final class MultiplayerManager {
     /** Terracotta 房客模式下的本地 MC 连接地址（如 127.0.0.1:25565） */
     private volatile String localMcAddr = "";
     private volatile String lastError = "";
+    /** ConnectX 运行时配置（由偏好同步，供 joinRoom 自动路由） */
+    private volatile String connectxBinaryPath = "";
+    private volatile String connectxServerAddress = "";
+    private volatile int connectxServerPort = 3535;
 
     public MultiplayerManager() {
         this.easyTier = new EasyTierManager();
         this.connectX = new ConnectXManager();
         this.terracotta = new TerracottaManager();
+    }
+
+    /** 同步 ConnectX 二进制与服务器配置（偏好变更时调用） */
+    public void configureConnectX(String binaryPath, String serverAddr, int serverPort) {
+        this.connectxBinaryPath = binaryPath != null ? binaryPath.trim() : "";
+        this.connectxServerAddress = serverAddr != null ? serverAddr.trim() : "";
+        this.connectxServerPort = serverPort > 0 ? serverPort : 3535;
     }
 
     public EasyTierManager getEasyTier() { return easyTier; }
@@ -78,6 +89,12 @@ public final class MultiplayerManager {
         return s == State.CONNECTING || s == State.CONNECTED;
     }
 
+    /** 是否正在占用联机后端（下载/连接中也算忙，防双击双开） */
+    public boolean isBusy() {
+        State s = state;
+        return s == State.DOWNLOADING || s == State.CONNECTING || s == State.CONNECTED;
+    }
+
     // ============ EasyTier 后端 ============
 
     /**
@@ -92,9 +109,9 @@ public final class MultiplayerManager {
             return CompletableFuture.failedFuture(new IllegalStateException(
                 "ConnectX 后端请使用 createRoomConnectX 方法（需要 binaryPath / serverAddr / serverPort）"));
         }
-        // S7: synchronized 保证 isInRoom() 检查与 state 赋值原子，避免双击启动两个进程
-        if (isInRoom()) {
-            return CompletableFuture.failedFuture(new IllegalStateException("已在房间中，请先离开"));
+        // S7: synchronized 保证忙状态检查与 state 赋值原子，避免双击启动两个进程
+        if (isBusy()) {
+            return CompletableFuture.failedFuture(new IllegalStateException("已在房间中或正在连接，请先离开"));
         }
         currentNetworkName = "pmcl-" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
         currentNetworkSecret = UUID.randomUUID().toString().replace("-", "").substring(0, 24);
@@ -106,8 +123,8 @@ public final class MultiplayerManager {
      * 通过邀请码/房间码加入已有房间（自动识别 Terracotta / EasyTier / ConnectX 格式）。
      */
     public synchronized CompletableFuture<Void> joinRoom(String invitationCode, Consumer<String> onProgress) {
-        if (isInRoom()) {
-            return CompletableFuture.failedFuture(new IllegalStateException("已在房间中，请先离开"));
+        if (isBusy()) {
+            return CompletableFuture.failedFuture(new IllegalStateException("已在房间中或正在连接，请先离开"));
         }
         String trimmed = invitationCode.trim();
         // Terracotta 房间码格式：U/XXXX-XXXX-XXXX-XXXX
@@ -115,10 +132,12 @@ public final class MultiplayerManager {
             return joinRoomTerracotta(trimmed, onProgress, "PMCL-Player");
         }
         if (trimmed.startsWith(INVITE_PREFIX_CONNECTX)) {
-            // ConnectX 邀请码：需要外部传入 binaryPath / serverAddr / serverPort
-            // 这里用空值占位，实际调用方应使用 joinRoomConnectX 重载
-            return CompletableFuture.failedFuture(new IllegalStateException(
-                "ConnectX 邀请码请使用 joinRoomConnectX 方法（需要 binaryPath / serverAddr / serverPort）"));
+            if (connectxBinaryPath.isEmpty() || connectxServerAddress.isEmpty()) {
+                return CompletableFuture.failedFuture(new IllegalStateException(
+                    "ConnectX 未配置二进制路径或服务器地址，请先在联机设置中填写"));
+            }
+            return joinRoomConnectX(trimmed, onProgress,
+                    connectxBinaryPath, connectxServerAddress, connectxServerPort);
         }
         // EasyTier 邀请码
         try {
@@ -209,8 +228,8 @@ public final class MultiplayerManager {
      * @param playerName 玩家名（用于房间内显示）
      */
     public synchronized CompletableFuture<Void> createRoomTerracotta(Consumer<String> onProgress, String playerName) {
-        if (isInRoom()) {
-            return CompletableFuture.failedFuture(new IllegalStateException("已在房间中，请先离开"));
+        if (isBusy()) {
+            return CompletableFuture.failedFuture(new IllegalStateException("已在房间中或正在连接，请先离开"));
         }
         state = State.DOWNLOADING;
         lastError = "";
@@ -240,8 +259,8 @@ public final class MultiplayerManager {
      * @param roomCode 房间码 U/XXXX-XXXX-XXXX-XXXX
      */
     public synchronized CompletableFuture<Void> joinRoomTerracotta(String roomCode, Consumer<String> onProgress, String playerName) {
-        if (isInRoom()) {
-            return CompletableFuture.failedFuture(new IllegalStateException("已在房间中，请先离开"));
+        if (isBusy()) {
+            return CompletableFuture.failedFuture(new IllegalStateException("已在房间中或正在连接，请先离开"));
         }
         // 阻止加入自己的房间码：同一台电脑无法同时当房主和房客
         if (roomCode.equals(currentRoomCode) && !currentRoomCode.isEmpty()) {
@@ -291,8 +310,8 @@ public final class MultiplayerManager {
     public synchronized CompletableFuture<Void> createRoomConnectX(Consumer<String> onProgress,
             String binaryPath, String serverAddr, int serverPort,
             String roomName, int maxUsers, String password, boolean useRelay) {
-        if (isInRoom()) {
-            return CompletableFuture.failedFuture(new IllegalStateException("已在房间中，请先离开"));
+        if (isBusy()) {
+            return CompletableFuture.failedFuture(new IllegalStateException("已在房间中或正在连接，请先离开"));
         }
         backend = Backend.CONNECTX;
         state = State.CONNECTING;
@@ -329,8 +348,8 @@ public final class MultiplayerManager {
     /** 通过邀请码加入 ConnectX 房间 */
     public synchronized CompletableFuture<Void> joinRoomConnectX(String invitationCode, Consumer<String> onProgress,
             String binaryPath, String serverAddr, int serverPort) {
-        if (isInRoom()) {
-            return CompletableFuture.failedFuture(new IllegalStateException("已在房间中，请先离开"));
+        if (isBusy()) {
+            return CompletableFuture.failedFuture(new IllegalStateException("已在房间中或正在连接，请先离开"));
         }
         try {
             String[] parts = parseConnectXInvitation(invitationCode);

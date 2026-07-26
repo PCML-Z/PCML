@@ -162,42 +162,21 @@ fun FriendPage(vm: LauncherViewModel) {
                         }
                     }
                     FriendManager.FriendEvent.Type.CALL_INVITE_RECEIVED -> {
-                        // 收到视频通话邀请，提取来电者和对方的视频端口
-                        val data = event.data
-                        if (data != null && activeCallSession == null) {
-                            try {
-                                val fields = data.javaClass.declaredFields
-                                var fromId = ""
-                                var fromName = ""
-                                var callerVideoPort = 0
-                                for (f in fields) {
-                                    f.isAccessible = true
-                                    when (f.name) {
-                                        "from" -> fromId = f.get(data) as? String ?: ""
-                                        "fromName" -> fromName = f.get(data) as? String ?: ""
-                                        "videoPort" -> callerVideoPort = f.getInt(data)
-                                    }
-                                }
-                                if (fromId.isNotEmpty()) {
-                                    incomingCall = Pair(fromId, fromName.ifEmpty { fromId })
-                                    // 保存来电者视频端口，以便在接听时使用
-                                    pendingCallerVideoPort = callerVideoPort
-                                }
-                            } catch (_: Exception) {}
+                        val invite = event.data as? com.pmcl.core.friend.FriendProtocol.CallInvite
+                        if (invite != null && activeCallSession == null) {
+                            val fromId = invite.from ?: ""
+                            if (fromId.isNotEmpty()) {
+                                incomingCall = Pair(fromId, invite.fromName?.takeIf { it.isNotEmpty() } ?: fromId)
+                                pendingCallerVideoPort = invite.videoPort
+                            } else {
+                                System.err.println("[FriendPage] CALL_INVITE_RECEIVED 缺少 from")
+                            }
                         }
                     }
                     FriendManager.FriendEvent.Type.CALL_ACCEPTED -> {
-                        // 对方接听，提取视频端口并开始 ICE 协商
-                        val data = event.data
-                        if (data != null && activeCallSession != null) {
-                            try {
-                                val f = data.javaClass.getDeclaredField("videoPort")
-                                f.isAccessible = true
-                                val remotePort = f.getInt(data)
-                                if (remotePort > 0) {
-                                    activeCallSession?.onRemoteVideoPort(remotePort)
-                                }
-                            } catch (_: Exception) {}
+                        val accept = event.data as? com.pmcl.core.friend.FriendProtocol.CallAccept
+                        if (accept != null && activeCallSession != null && accept.videoPort > 0) {
+                            activeCallSession?.onRemoteVideoPort(accept.videoPort)
                         }
                         activeCallSession?.startIceNegotiation()
                     }
@@ -207,26 +186,13 @@ fun FriendPage(vm: LauncherViewModel) {
                         activeCallSession = null
                     }
                     FriendManager.FriendEvent.Type.CALL_ICE_CANDIDATE -> {
-                        // 收到远端 ICE 候选
-                        val data = event.data
-                        if (data != null && activeCallSession != null) {
-                            try {
-                                val fields = data.javaClass.declaredFields
-                                var candidate = ""
-                                var ufrag = ""
-                                var pwd = ""
-                                for (f in fields) {
-                                    f.isAccessible = true
-                                    when (f.name) {
-                                        "candidate" -> candidate = f.get(data) as? String ?: ""
-                                        "ufrag" -> ufrag = f.get(data) as? String ?: ""
-                                        "pwd" -> pwd = f.get(data) as? String ?: ""
-                                    }
-                                }
-                                if (candidate.isNotEmpty()) {
-                                    activeCallSession?.addRemoteCandidate(candidate, ufrag, pwd)
-                                }
-                            } catch (_: Exception) {}
+                        val ice = event.data as? com.pmcl.core.friend.FriendProtocol.CallIceCandidate
+                        if (ice != null && activeCallSession != null) {
+                            val candidate = ice.candidate ?: ""
+                            if (candidate.isNotEmpty()) {
+                                activeCallSession?.addRemoteCandidate(
+                                    candidate, ice.ufrag ?: "", ice.pwd ?: "")
+                            }
                         }
                     }
                     FriendManager.FriendEvent.Type.FRIEND_REMOVED -> {
@@ -428,13 +394,8 @@ fun FriendPage(vm: LauncherViewModel) {
                                         // M47 修复：切换 session 前先结束旧 session，避免资源泄漏（旧 socket/线程未清理）
                                         activeCallSession?.end()
                                         activeCallSession = session
-                                        // 将视频 socket 附加到 session（用反射设置 videoSocket 字段）
-                                        try {
-                                            val f = com.pmcl.video.VideoCallSession::class.java.getDeclaredField("videoSocket")
-                                            f.isAccessible = true
-                                            f.set(session, videoSocket)
-                                        } catch (_: Exception) {}
-                                        
+                                        session.attachVideoSocket(videoSocket)
+
                                         val inviteResult = friendManager.sendCallInvite(activeFriendId, "video", videoPort)
                                         if (inviteResult == null) {
                                             System.err.println("[VideoCall] 无法发送通话邀请：好友无网络地址")
@@ -612,12 +573,8 @@ fun FriendPage(vm: LauncherViewModel) {
                         // 创建视频 socket
                         val videoSocket = java.net.DatagramSocket()
                         val videoPort = videoSocket.localPort
-                        try {
-                            val f = com.pmcl.video.VideoCallSession::class.java.getDeclaredField("videoSocket")
-                            f.isAccessible = true
-                            f.set(session, videoSocket)
-                        } catch (_: Exception) {}
-                        
+                        session.attachVideoSocket(videoSocket)
+
                         // 设置远端视频端口
                         if (callerPort > 0) {
                             session.onRemoteVideoPort(callerPort)

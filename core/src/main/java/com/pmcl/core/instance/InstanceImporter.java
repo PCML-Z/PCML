@@ -4,34 +4,27 @@ import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.pmcl.core.util.SafeZipExtractor;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
-import java.util.UUID;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
 /**
  * 实例导入器：从 .pmcl-instance（ZIP）文件导入实例。
  * <p>
- * 导入流程：
- * <ol>
- *   <li>读取 zip 中的 instance.json 获取实例元数据</li>
- *   <li>创建新实例目录（生成新 instanceId）</li>
- *   <li>解压 config/ 目录到新实例（含 ZipSlip 防护）</li>
- *   <li>解压图标文件（如有）</li>
- *   <li>读取 mods.json 模组清单并返回（UI 层据此引导用户重新下载模组）</li>
- *   <li>写入 instance.json（新 instanceId，清空 boundAccountUuid）</li>
- * </ol>
- * <p>
- * 模组 jar 不包含在导出包中（版权 + 体积考量），导入后需根据 mods.json 清单
- * 重新下载。返回的 {@link ImportResult} 包含模组清单，UI 层可据此提示用户。
+ * 含 ZipSlip 防护与单条目/总量大小上限，避免恶意包导致 OOM。
  */
 public final class InstanceImporter {
 
     private static final Gson gson = new Gson();
+    private static final long MAX_JSON_BYTES = 8L * 1024 * 1024;      // 8 MB
+    private static final long MAX_ICON_BYTES = 16L * 1024 * 1024;     // 16 MB
+    private static final long MAX_CONFIG_ENTRY = 32L * 1024 * 1024;   // 32 MB / file
+    private static final long MAX_CONFIG_TOTAL = 256L * 1024 * 1024;  // 256 MB configs
+    private static final int MAX_ENTRIES = 50_000;
 
     private InstanceImporter() {}
 
@@ -48,7 +41,6 @@ public final class InstanceImporter {
             throw new IOException("导入文件不存在: " + zipPath);
         }
 
-        // 临时存储 zip 中的数据
         String instanceName = "Imported Instance";
         String baseVersionId = "";
         String loader = null;
@@ -58,21 +50,27 @@ public final class InstanceImporter {
         byte[] iconData = null;
         String modsJson = null;
         Path tempConfigDir = null;
+        long configTotal = 0;
+        int entryCount = 0;
 
         try (ZipInputStream zis = new ZipInputStream(Files.newInputStream(zipPath), StandardCharsets.UTF_8)) {
             ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
+                if (++entryCount > MAX_ENTRIES) {
+                    throw new IOException("导入包 entry 数量超过上限 " + MAX_ENTRIES);
+                }
                 String name = entry.getName();
                 if (entry.isDirectory()) continue;
 
-                // ZipSlip 防护：拒绝绝对路径和 .. 路径
-                if (name.contains("..") || name.startsWith("/")) {
+                // ZipSlip：拒绝绝对路径、..、反斜杠盘符路径
+                if (name.contains("..") || name.startsWith("/") || name.startsWith("\\")
+                        || name.matches("^[A-Za-z]:[\\\\/].*")) {
                     System.err.println("[InstanceImporter] 跳过不安全条目: " + name);
                     continue;
                 }
 
                 if (name.equals("instance.json")) {
-                    String json = readString(zis);
+                    String json = new String(SafeZipExtractor.readLimited(zis, MAX_JSON_BYTES), StandardCharsets.UTF_8);
                     JsonObject o = JsonParser.parseString(json).getAsJsonObject();
                     if (o.has("name")) instanceName = o.get("name").getAsString();
                     if (o.has("baseVersionId")) baseVersionId = o.get("baseVersionId").getAsString();
@@ -80,57 +78,66 @@ public final class InstanceImporter {
                     if (o.has("loaderVersion")) loaderVersion = o.get("loaderVersion").getAsString();
                     if (o.has("description")) description = o.get("description").getAsString();
                 } else if (name.equals("mods.json")) {
-                    modsJson = readString(zis);
+                    modsJson = new String(SafeZipExtractor.readLimited(zis, MAX_JSON_BYTES), StandardCharsets.UTF_8);
                 } else if (name.startsWith("config/")) {
-                    // 解压 config 到临时目录，稍后移动到新实例目录
                     if (tempConfigDir == null) {
                         tempConfigDir = Files.createTempDirectory("pmcl-import-config");
                     }
                     String relative = name.substring("config/".length());
+                    if (relative.isEmpty() || relative.contains("..")) continue;
                     Path targetFile = tempConfigDir.resolve(relative).normalize();
-                    // ZipSlip 二次防护：确保目标在临时目录内
                     if (!targetFile.startsWith(tempConfigDir)) {
                         System.err.println("[InstanceImporter] 跳过逃逸临时目录的条目: " + name);
                         continue;
                     }
                     Files.createDirectories(targetFile.getParent());
-                    Files.copy(zis, targetFile, StandardCopyOption.REPLACE_EXISTING);
+                    long written = SafeZipExtractor.copyLimited(zis, targetFile, MAX_CONFIG_ENTRY);
+                    configTotal += written;
+                    if (configTotal > MAX_CONFIG_TOTAL) {
+                        throw new IOException("config/ 解压总量超过上限 " + MAX_CONFIG_TOTAL);
+                    }
                 } else if (isIconFile(name)) {
                     iconFileName = Paths.get(name).getFileName().toString();
-                    iconData = readAllBytes(zis);
+                    iconData = SafeZipExtractor.readLimited(zis, MAX_ICON_BYTES);
                 }
             }
         }
 
-        // 创建新实例
-        InstanceInfo newInfo = manager.createInstance(instanceName, baseVersionId, loader, loaderVersion);
-        if (description != null) newInfo.setDescription(description);
-        Path newInstanceDir = newInfo.getInstanceDir();
+        InstanceInfo newInfo = null;
+        try {
+            newInfo = manager.createInstance(instanceName, baseVersionId, loader, loaderVersion);
+            if (description != null) newInfo.setDescription(description);
+            Path newInstanceDir = newInfo.getInstanceDir();
 
-        // 移动 config 目录
-        if (tempConfigDir != null && Files.isDirectory(tempConfigDir)) {
-            Path targetConfig = newInstanceDir.resolve("config");
-            try (DirectoryStream<Path> stream = Files.newDirectoryStream(tempConfigDir)) {
-                for (Path src : stream) {
-                    Path dst = targetConfig.resolve(src.getFileName());
-                    Files.createDirectories(dst.getParent());
-                    Files.move(src, dst, StandardCopyOption.REPLACE_EXISTING);
+            if (tempConfigDir != null && Files.isDirectory(tempConfigDir)) {
+                Path targetConfig = newInstanceDir.resolve("config");
+                try (DirectoryStream<Path> stream = Files.newDirectoryStream(tempConfigDir)) {
+                    for (Path src : stream) {
+                        Path dst = targetConfig.resolve(src.getFileName());
+                        Files.createDirectories(dst.getParent());
+                        Files.move(src, dst, StandardCopyOption.REPLACE_EXISTING);
+                    }
+                } finally {
+                    deleteRecursive(tempConfigDir);
+                    tempConfigDir = null;
                 }
-            } finally {
-                deleteRecursive(tempConfigDir);
             }
+
+            if (iconFileName != null && iconData != null) {
+                Files.write(newInstanceDir.resolve(iconFileName), iconData);
+                newInfo.setIconPath(iconFileName);
+            }
+
+            manager.saveInstanceInfo(newInfo);
+        } catch (Exception e) {
+            if (tempConfigDir != null) deleteRecursive(tempConfigDir);
+            if (newInfo != null) {
+                try { manager.deleteInstance(newInfo.getInstanceId()); } catch (Throwable ignored) {}
+            }
+            if (e instanceof IOException) throw (IOException) e;
+            throw new IOException("导入实例失败: " + e.getMessage(), e);
         }
 
-        // 复制图标
-        if (iconFileName != null && iconData != null) {
-            Files.write(newInstanceDir.resolve(iconFileName), iconData);
-            newInfo.setIconPath(iconFileName);
-        }
-
-        // 保存更新后的元数据
-        manager.saveInstanceInfo(newInfo);
-
-        // 解析模组清单
         java.util.List<ModEntry> modList = new java.util.ArrayList<>();
         if (modsJson != null && !modsJson.isEmpty()) {
             try {
@@ -158,18 +165,6 @@ public final class InstanceImporter {
         String lower = name.toLowerCase();
         return lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg")
                 || lower.endsWith(".gif") || lower.endsWith(".webp");
-    }
-
-    private static String readString(InputStream is) throws IOException {
-        return new String(readAllBytes(is), StandardCharsets.UTF_8);
-    }
-
-    private static byte[] readAllBytes(InputStream is) throws IOException {
-        java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
-        byte[] buf = new byte[8192];
-        int n;
-        while ((n = is.read(buf)) != -1) bos.write(buf, 0, n);
-        return bos.toByteArray();
     }
 
     private static void deleteRecursive(Path dir) {

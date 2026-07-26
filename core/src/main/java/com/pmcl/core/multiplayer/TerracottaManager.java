@@ -142,21 +142,7 @@ public final class TerracottaManager {
                 extractTerracotta(tarball, binaryPath);
 
                 if (!isWindows()) {
-                    try {
-                        Process chmodP = new ProcessBuilder("chmod", "+x", binaryPath.toString())
-                                .redirectErrorStream(true).start();
-                        if (!chmodP.waitFor(10, java.util.concurrent.TimeUnit.SECONDS))
-                            chmodP.destroyForcibly();
-                    } catch (Exception ignored) {}
-                    // macOS：移除隔离属性
-                    if (System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("mac")) {
-                        try {
-                            Process xattrP = new ProcessBuilder("xattr", "-dr", "com.apple.quarantine", binaryPath.toString())
-                                    .redirectErrorStream(true).start();
-                            if (!xattrP.waitFor(10, java.util.concurrent.TimeUnit.SECONDS))
-                                xattrP.destroyForcibly();
-                        } catch (Exception ignored) {}
-                    }
+                    com.pmcl.core.util.NativeBinaryPermissions.prepareDownloadedBinary(binaryPath);
                 }
                 Files.deleteIfExists(tarball);
                 if (progress != null) progress.accept("Terracotta 就绪");

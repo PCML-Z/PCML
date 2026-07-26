@@ -1,11 +1,14 @@
 package com.pmcl.music.source;
 
+import com.pmcl.core.util.SsrfChecker;
+
 import java.util.Map;
 
 /**
  * 直链音频源：作为兜底实现，直接使用用户输入的 URL 作为音频流。
  *
  * <p>{@link #matches(String)} 始终返回 true，作为 {@link AudioSourceResolver} 的最后一道兜底。
+ * 解析时经 {@link SsrfChecker} 拒绝内网 / 非 http(s) 地址。
  */
 public class DirectAudioSource implements AudioSource {
 
@@ -24,6 +27,10 @@ public class DirectAudioSource implements AudioSource {
 
     @Override
     public AudioStreamInfo resolve(String url) {
+        String err = SsrfChecker.validate(url);
+        if (err != null) {
+            throw new IllegalArgumentException("Unsafe audio URL: " + err);
+        }
         String title = extractTitle(url);
         return new AudioStreamInfo(
                 title,

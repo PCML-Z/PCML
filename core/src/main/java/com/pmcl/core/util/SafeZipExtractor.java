@@ -49,6 +49,50 @@ public final class SafeZipExtractor {
     private SafeZipExtractor() {}
 
     /**
+     * 从输入流读取最多 {@code maxBytes} 字节；超出则抛 IOException（防 OOM）。
+     */
+    public static byte[] readLimited(InputStream in, long maxBytes) throws IOException {
+        java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+        byte[] buf = new byte[BUFFER_SIZE];
+        long total = 0;
+        int n;
+        while ((n = in.read(buf)) > 0) {
+            total += n;
+            if (total > maxBytes) {
+                throw new IOException("Entry exceeds size limit " + maxBytes + " bytes");
+            }
+            bos.write(buf, 0, n);
+        }
+        return bos.toByteArray();
+    }
+
+    /**
+     * 将输入流复制到文件，最多 {@code maxBytes} 字节；超出则删除目标并抛错。
+     */
+    public static long copyLimited(InputStream in, Path dest, long maxBytes) throws IOException {
+        Path parent = dest.getParent();
+        if (parent != null) Files.createDirectories(parent);
+        long total = 0;
+        try (java.io.OutputStream out = Files.newOutputStream(dest,
+                java.nio.file.StandardOpenOption.CREATE,
+                java.nio.file.StandardOpenOption.TRUNCATE_EXISTING,
+                java.nio.file.StandardOpenOption.WRITE)) {
+            byte[] buf = new byte[BUFFER_SIZE];
+            int n;
+            while ((n = in.read(buf)) > 0) {
+                total += n;
+                if (total > maxBytes) {
+                    out.close();
+                    try { Files.deleteIfExists(dest); } catch (IOException ignored) {}
+                    throw new IOException("Entry exceeds size limit " + maxBytes + " bytes");
+                }
+                out.write(buf, 0, n);
+            }
+        }
+        return total;
+    }
+
+    /**
      * 安全解压 ZIP 文件到目标目录（无 entry 过滤）。
      *
      * @param zipFile   ZIP 文件路径
