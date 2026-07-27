@@ -9,6 +9,7 @@ import com.pmcl.core.download.DownloadManager;
 import com.pmcl.core.install.InstallInterruptedException;
 import com.pmcl.core.install.InstallProgress;
 import com.pmcl.core.install.VersionInstaller;
+import com.pmcl.core.market.CurseForgeClient;
 import com.pmcl.core.market.ModMarketManager;
 import com.pmcl.core.modloader.ModLoader;
 import com.pmcl.core.modloader.ModLoaderManager;
@@ -622,6 +623,63 @@ public final class ModpackManager {
                     .forEach(modFiles::add);
         }
 
+        // 在线 fingerprint 查询：补全 projectID/fileID
+        // CurseForge 整合包标准要求 manifest.files 包含 projectID/fileID，
+        // 离线导出（无 API Key 或查询失败）时 files 留空，mods 直接打包到 overrides/。
+        com.google.gson.JsonArray filesArray = new com.google.gson.JsonArray();
+        boolean onlineMode = false;
+        int matchedCount = 0;
+        java.util.Set<Path> matchedMods = new java.util.HashSet<>();
+        CurseForgeClient cfClient = null;
+        if (modMarketManager != null && modMarketManager.hasCurseForge()) {
+            for (com.pmcl.core.market.ModMarketClient c : modMarketManager.getClients()) {
+                if (c instanceof CurseForgeClient) {
+                    cfClient = (CurseForgeClient) c;
+                    break;
+                }
+            }
+        }
+        if (cfClient != null) {
+            try {
+                if (progress != null) progress.accept(new InstallProgress(
+                        InstallProgress.Stage.DOWNLOAD_VERSION_JSON, 0, 0,
+                        "正在在线查询模组 CurseForge 信息..."));
+                // 计算 Murmur2 哈希并批量查询（只查一次，结果缓存到 modHashes）
+                java.util.List<Long> fingerprints = new java.util.ArrayList<>();
+                java.util.Map<Path, Long> modHashes = new java.util.HashMap<>();
+                for (Path mod : modFiles) {
+                    long hash = computeMurmur2(mod);
+                    fingerprints.add(hash);
+                    modHashes.put(mod, hash);
+                }
+                java.util.Map<Long, JsonObject> lookup = cfClient.fingerprintLookup(fingerprints);
+                for (Path mod : modFiles) {
+                    long hash = modHashes.get(mod);
+                    JsonObject info = lookup.get(hash);
+                    if (info != null) {
+                        // 在线匹配成功：写入 files 数组，不打包到 overrides
+                        long projId = info.get("projectID").getAsLong();
+                        long fileId = info.get("fileID").getAsLong();
+                        JsonObject f = new JsonObject();
+                        f.addProperty("projectID", projId);
+                        f.addProperty("fileID", fileId);
+                        f.addProperty("required", true);
+                        filesArray.add(f);
+                        matchedMods.add(mod);
+                        matchedCount++;
+                    }
+                }
+                onlineMode = matchedCount > 0;
+                if (progress != null) progress.accept(new InstallProgress(
+                        InstallProgress.Stage.DOWNLOAD_VERSION_JSON, matchedCount, modFiles.size(),
+                        "CurseForge 在线匹配: " + matchedCount + "/" + modFiles.size() + " 个模组"));
+            } catch (Throwable e) {
+                System.err.println("[ModpackManager] CurseForge fingerprint 查询失败，回退离线模式: "
+                        + e.getMessage());
+                onlineMode = false;
+            }
+        }
+
         // 构建 CurseForge manifest.json
         JsonObject manifest = new JsonObject();
         manifest.addProperty("manifestType", "minecraftModpack");
@@ -629,6 +687,9 @@ public final class ModpackManager {
         manifest.addProperty("name", versionId);
         manifest.addProperty("version", versionId);
         manifest.addProperty("author", author);
+        if (onlineMode) {
+            manifest.addProperty("author", author + " (CurseForge 在线导出)");
+        }
 
         // minecraft.version + modLoaders
         JsonObject minecraft = new JsonObject();
@@ -649,8 +710,8 @@ public final class ModpackManager {
         minecraft.add("modLoaders", modLoaders);
         manifest.add("minecraft", minecraft);
 
-        // files 数组留空（离线导出无 projectID/fileID）
-        manifest.add("files", new com.google.gson.JsonArray());
+        // files 数组：在线模式含 projectID/fileID；离线模式留空
+        manifest.add("files", filesArray);
         manifest.addProperty("overrides", "overrides");
 
         // 打包 zip
@@ -681,7 +742,10 @@ public final class ModpackManager {
             zos.closeEntry();
 
             // 写入 overrides/mods/*.jar
+            // 在线模式下，已匹配的 mod 不打包（由导入时从 CurseForge API 下载）；
+            // 未匹配的 mod 仍打包到 overrides（避免模组丢失）
             for (Path mod : modFiles) {
+                if (matchedMods.contains(mod)) continue;
                 String entryName = "overrides/mods/" + mod.getFileName().toString();
                 zos.putNextEntry(new ZipEntry(entryName));
                 Files.copy(mod, zos);
@@ -730,6 +794,492 @@ public final class ModpackManager {
         zos.putNextEntry(new ZipEntry("overrides/" + fileName));
         Files.copy(file, zos);
         zos.closeEntry();
+    }
+
+    // ===== CurseForge Murmur2 哈希 =====
+
+    /**
+     * 计算 mod 文件的 Murmur2_32 哈希（CurseForge fingerprint 算法）。
+     * <p>
+     * CurseForge 使用变体 Murmur2：读取文件字节，UTF-8 解码后计算 Murmur2_32。
+     * 算法参考：<a href="https://minecraft.wiki/w/CurseForge_fingerprint">Minecraft Wiki</a>
+     */
+    static long computeMurmur2(Path file) throws IOException {
+        byte[] bytes = Files.readAllBytes(file);
+        return murmur2(bytes);
+    }
+
+    /**
+     * CurseForge 使用的 Murmur2_32 变体实现。
+     * <p>
+     * 与标准 Murmur2 区别：输入为字节数组，按小端 uint32 读取处理。
+     */
+    static long murmur2(byte[] data) {
+        // CurseForge Murmur2 实现（参考 OpenEye/Glyph 工具）
+        int length = data.length;
+        int h = (length & 0xFFFFFFFF) != 0 ? length : 0;
+        int i = 0;
+
+        while (length >= 4) {
+            int k = (data[i] & 0xFF)
+                    | ((data[i + 1] & 0xFF) << 8)
+                    | ((data[i + 2] & 0xFF) << 16)
+                    | ((data[i + 3] & 0xFF) << 24);
+            k *= 0x5bd1e995;
+            k ^= (k >>> 24);
+            k *= 0x5bd1e995;
+
+            h *= 0x5bd1e995;
+            h ^= k;
+
+            i += 4;
+            length -= 4;
+        }
+
+        switch (length) {
+            case 3:
+                h ^= (data[i + 2] & 0xFF) << 16;
+            case 2:
+                h ^= (data[i + 1] & 0xFF) << 8;
+            case 1:
+                h ^= (data[i] & 0xFF);
+                h *= 0x5bd1e995;
+        }
+
+        h ^= (h >>> 13);
+        h *= 0x5bd1e995;
+        h ^= (h >>> 15);
+
+        // 转为无符号 long
+        return h & 0xFFFFFFFFL;
+    }
+
+    // ===== MultiMC 格式导出 =====
+
+    /**
+     * 导出 MultiMC 格式整合包（mmc-pack.json + instance.cfg）。
+     * <p>
+     * MultiMC 格式特点：
+     * - instance.cfg: 实例配置（键值对，类似 INI）
+     * - mmc-pack.json: 组件清单（components 数组，含 MC 版本和加载器）
+     * - .minecraft/: 实际游戏文件（mods/configs 等）
+     */
+    public CompletableFuture<Void> exportMultiMC(String versionId, Path targetPath,
+                                                  Consumer<InstallProgress> onProgress) {
+        return CompletableFuture.runAsync(() -> {
+            try {
+                doExportMultiMC(versionId, targetPath, onProgress);
+            } catch (Throwable e) {
+                if (onProgress != null) {
+                    onProgress.accept(new InstallProgress(InstallProgress.Stage.FAILED, 0, 0,
+                            "MultiMC 整合包导出失败: " + e.getMessage()));
+                }
+                throw new RuntimeException("MultiMC 整合包导出失败", e);
+            }
+        });
+    }
+
+    private void doExportMultiMC(String versionId, Path targetPath,
+                                  Consumer<InstallProgress> progress) throws Exception {
+        Path gameDir = resolveGameDir(versionId);
+        if (!Files.isDirectory(gameDir)) {
+            throw new IOException("版本目录不存在: " + gameDir);
+        }
+
+        // 读取 modpack.json 元数据
+        String loader = "";
+        String loaderVersion = "";
+        String gameVersion = versionId;
+        Path modpackJson = gameDir.resolve("modpack.json");
+        if (Files.isRegularFile(modpackJson)) {
+            try {
+                JsonObject info = JsonParser.parseString(Files.readString(modpackJson,
+                        java.nio.charset.StandardCharsets.UTF_8)).getAsJsonObject();
+                loader = safeStr(info, "loader", "");
+                loaderVersion = safeStr(info, "loaderVersion", "");
+                String gv = safeStr(info, "gameVersion", "");
+                if (!gv.isEmpty()) gameVersion = gv;
+            } catch (Exception ignored) {}
+        }
+
+        if (progress != null) progress.accept(new InstallProgress(
+                InstallProgress.Stage.DOWNLOAD_ASSET_INDEX, 0, 0,
+                "正在打包 MultiMC 整合包..."));
+
+        Files.createDirectories(targetPath.getParent());
+        try (ZipOutputStream zos = new ZipOutputStream(Files.newOutputStream(targetPath))) {
+            // instance.cfg（INI 格式）
+            StringBuilder cfg = new StringBuilder();
+            cfg.append("InstanceType=OneSix\n");
+            cfg.append("name=").append(versionId).append("\n");
+            cfg.append("ManagedPack=false\n");
+            cfg.append("lastLaunchTime=0\n");
+            zos.putNextEntry(new ZipEntry("instance.cfg"));
+            zos.write(cfg.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            zos.closeEntry();
+
+            // mmc-pack.json
+            JsonObject pack = new JsonObject();
+            pack.addProperty("formatVersion", 1);
+            com.google.gson.JsonArray components = new com.google.gson.JsonArray();
+
+            // Minecraft 组件
+            JsonObject mc = new JsonObject();
+            mc.addProperty("uid", "net.minecraft");
+            mc.addProperty("version", gameVersion);
+            mc.addProperty("important", true);
+            components.add(mc);
+
+            // 加载器组件
+            if (!loader.isEmpty()) {
+                JsonObject ld = new JsonObject();
+                String uid = switch (loader.toLowerCase()) {
+                    case "fabric" -> "net.fabricmc.fabric-loader";
+                    case "forge" -> "net.minecraftforge";
+                    case "quilt" -> "org.quiltmc.quilt-loader";
+                    case "neoforge" -> "net.neoforged";
+                    default -> loader;
+                };
+                ld.addProperty("uid", uid);
+                if (!loaderVersion.isEmpty()) {
+                    ld.addProperty("version", loaderVersion);
+                }
+                ld.addProperty("important", true);
+                components.add(ld);
+            }
+            pack.add("components", components);
+            zos.putNextEntry(new ZipEntry("mmc-pack.json"));
+            zos.write(pack.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            zos.closeEntry();
+
+            // .minecraft/mods/*.jar
+            Path modsDir = gameDir.resolve("mods");
+            if (Files.isDirectory(modsDir)) {
+                try (var stream = Files.list(modsDir)) {
+                    stream.filter(p -> p.toString().toLowerCase().endsWith(".jar")
+                            && !p.toString().endsWith(".disabled"))
+                            .forEach(p -> {
+                                try {
+                                    String entryName = ".minecraft/mods/" + p.getFileName();
+                                    zos.putNextEntry(new ZipEntry(entryName));
+                                    Files.copy(p, zos);
+                                    zos.closeEntry();
+                                } catch (IOException e) {
+                                    throw new RuntimeException(e);
+                                }
+                            });
+                }
+            }
+
+            // 其他 override 目录
+            addMmcOverrideDir(zos, gameDir, "config");
+            addMmcOverrideDir(zos, gameDir, "resourcepacks");
+            addMmcOverrideDir(zos, gameDir, "shaderpacks");
+            addMmcOverrideFile(zos, gameDir, "options.txt");
+        }
+
+        if (progress != null) progress.accept(new InstallProgress(
+                InstallProgress.Stage.DONE, 0, 0,
+                "MultiMC 整合包已导出: " + targetPath));
+    }
+
+    private void addMmcOverrideDir(ZipOutputStream zos, Path gameDir, String dirName) throws IOException {
+        Path dir = gameDir.resolve(dirName);
+        if (!Files.isDirectory(dir)) return;
+        java.util.List<Path> files = new ArrayList<>();
+        try (var stream = Files.walk(dir)) {
+            stream.filter(Files::isRegularFile).forEach(files::add);
+        }
+        for (Path f : files) {
+            String rel = dir.getParent().relativize(f).toString().replace('\\', '/');
+            String entryName = ".minecraft/" + rel;
+            zos.putNextEntry(new ZipEntry(entryName));
+            Files.copy(f, zos);
+            zos.closeEntry();
+        }
+    }
+
+    private void addMmcOverrideFile(ZipOutputStream zos, Path gameDir, String fileName) throws IOException {
+        Path file = gameDir.resolve(fileName);
+        if (!Files.isRegularFile(file)) return;
+        zos.putNextEntry(new ZipEntry(".minecraft/" + fileName));
+        Files.copy(file, zos);
+        zos.closeEntry();
+    }
+
+    // ===== 纯 zip/服务器包导出 =====
+
+    /**
+     * 导出纯 zip/服务器包（无 manifest，直接打包完整游戏目录）。
+     * <p>
+     * 适用于：
+     * - 服务器分发给玩家客户端文件
+     * - 纯备份用途
+     * - 不需要整合包标准格式的场景
+     * <p>
+     * 打包内容：mods/configs/resourcepacks/shaderpacks/options.txt + 可选 world 目录。
+     */
+    public CompletableFuture<Void> exportServerPack(String versionId, Path targetPath,
+                                                     boolean includeWorld,
+                                                     Consumer<InstallProgress> onProgress) {
+        return CompletableFuture.runAsync(() -> {
+            try {
+                doExportServerPack(versionId, targetPath, includeWorld, onProgress);
+            } catch (Throwable e) {
+                if (onProgress != null) {
+                    onProgress.accept(new InstallProgress(InstallProgress.Stage.FAILED, 0, 0,
+                            "服务器包导出失败: " + e.getMessage()));
+                }
+                throw new RuntimeException("服务器包导出失败", e);
+            }
+        });
+    }
+
+    private void doExportServerPack(String versionId, Path targetPath,
+                                     boolean includeWorld,
+                                     Consumer<InstallProgress> progress) throws Exception {
+        Path gameDir = resolveGameDir(versionId);
+        if (!Files.isDirectory(gameDir)) {
+            throw new IOException("版本目录不存在: " + gameDir);
+        }
+
+        if (progress != null) progress.accept(new InstallProgress(
+                InstallProgress.Stage.DOWNLOAD_ASSET_INDEX, 0, 0,
+                "正在打包服务器包..."));
+
+        Files.createDirectories(targetPath.getParent());
+        try (ZipOutputStream zos = new ZipOutputStream(Files.newOutputStream(targetPath))) {
+            // 打包 mods/
+            addServerPackDir(zos, gameDir, "mods");
+            addServerPackDir(zos, gameDir, "config");
+            addServerPackDir(zos, gameDir, "resourcepacks");
+            addServerPackDir(zos, gameDir, "shaderpacks");
+            addServerPackFile(zos, gameDir, "options.txt");
+            // 可选：打包存档
+            if (includeWorld) {
+                addServerPackDir(zos, gameDir, "saves");
+                addServerPackDir(zos, gameDir, "world");
+            }
+            // 打包 modpack.json（如果有，用于版本信息）
+            addServerPackFile(zos, gameDir, "modpack.json");
+        }
+
+        if (progress != null) progress.accept(new InstallProgress(
+                InstallProgress.Stage.DONE, 0, 0,
+                "服务器包已导出: " + targetPath));
+    }
+
+    private void addServerPackDir(ZipOutputStream zos, Path gameDir, String dirName) throws IOException {
+        Path dir = gameDir.resolve(dirName);
+        if (!Files.isDirectory(dir)) return;
+        java.util.List<Path> files = new ArrayList<>();
+        try (var stream = Files.walk(dir)) {
+            stream.filter(Files::isRegularFile).forEach(files::add);
+        }
+        for (Path f : files) {
+            String rel = dir.getParent().relativize(f).toString().replace('\\', '/');
+            zos.putNextEntry(new ZipEntry(rel));
+            Files.copy(f, zos);
+            zos.closeEntry();
+        }
+    }
+
+    private void addServerPackFile(ZipOutputStream zos, Path gameDir, String fileName) throws IOException {
+        Path file = gameDir.resolve(fileName);
+        if (!Files.isRegularFile(file)) return;
+        zos.putNextEntry(new ZipEntry(fileName));
+        Files.copy(file, zos);
+        zos.closeEntry();
+    }
+
+    // ===== PMCL 私有格式 .lsl3 导出 =====
+
+    /**
+     * 导出 PMCL 私有格式 .lsl3。
+     * <p>
+     * .lsl3 格式设计：
+     * - pmcl.json: 元数据（版本信息、加载器、PMCL 版本、导出时间）
+     * - mods.json: mod 清单（文件名 + SHA1 + 大小，用于增量更新校验）
+     * - files/: 所有游戏文件（mods/configs/resourcepacks 等）
+     * <p>
+     * 优势：含完整 SHA1 校验，支持增量更新；比 CF 格式更紧凑（无 projectID 依赖）。
+     */
+    public CompletableFuture<Void> exportLsl3(String versionId, Path targetPath,
+                                               Consumer<InstallProgress> onProgress) {
+        return CompletableFuture.runAsync(() -> {
+            try {
+                doExportLsl3(versionId, targetPath, onProgress);
+            } catch (Throwable e) {
+                if (onProgress != null) {
+                    onProgress.accept(new InstallProgress(InstallProgress.Stage.FAILED, 0, 0,
+                            "LSL3 整合包导出失败: " + e.getMessage()));
+                }
+                throw new RuntimeException("LSL3 整合包导出失败", e);
+            }
+        });
+    }
+
+    private void doExportLsl3(String versionId, Path targetPath,
+                              Consumer<InstallProgress> progress) throws Exception {
+        Path gameDir = resolveGameDir(versionId);
+        if (!Files.isDirectory(gameDir)) {
+            throw new IOException("版本目录不存在: " + gameDir);
+        }
+
+        // 读取 modpack.json 元数据
+        String loader = "";
+        String loaderVersion = "";
+        String gameVersion = versionId;
+        String author = "PMCL";
+        Path modpackJson = gameDir.resolve("modpack.json");
+        if (Files.isRegularFile(modpackJson)) {
+            try {
+                JsonObject info = JsonParser.parseString(Files.readString(modpackJson,
+                        java.nio.charset.StandardCharsets.UTF_8)).getAsJsonObject();
+                loader = safeStr(info, "loader", "");
+                loaderVersion = safeStr(info, "loaderVersion", "");
+                String gv = safeStr(info, "gameVersion", "");
+                if (!gv.isEmpty()) gameVersion = gv;
+                author = safeStr(info, "author", "PMCL");
+            } catch (Exception ignored) {}
+        }
+
+        if (progress != null) progress.accept(new InstallProgress(
+                InstallProgress.Stage.DOWNLOAD_VERSION_JSON, 0, 0,
+                "正在收集模组信息..."));
+
+        // 收集 mods 列表并计算 SHA1
+        Path modsDir = gameDir.resolve("mods");
+        com.google.gson.JsonArray modsList = new com.google.gson.JsonArray();
+        if (Files.isDirectory(modsDir)) {
+            try (var stream = Files.list(modsDir)) {
+                java.util.List<Path> modFiles = new java.util.ArrayList<>();
+                stream.filter(p -> p.toString().toLowerCase().endsWith(".jar")
+                        && !p.toString().endsWith(".disabled"))
+                        .forEach(modFiles::add);
+                int idx = 0;
+                for (Path mod : modFiles) {
+                    String sha1 = sha1Hex(mod);
+                    long size = Files.size(mod);
+                    JsonObject entry = new JsonObject();
+                    entry.addProperty("file", "mods/" + mod.getFileName());
+                    entry.addProperty("sha1", sha1);
+                    entry.addProperty("size", size);
+                    modsList.add(entry);
+                    idx++;
+                    if (progress != null) progress.accept(new InstallProgress(
+                            InstallProgress.Stage.DOWNLOAD_CLIENT, idx, modFiles.size(),
+                            "正在计算模组哈希 (" + idx + "/" + modFiles.size() + ")..."));
+                }
+            }
+        }
+
+        // 构建 pmcl.json 元数据
+        JsonObject pmclMeta = new JsonObject();
+        pmclMeta.addProperty("format", "lsl3");
+        pmclMeta.addProperty("formatVersion", 1);
+        pmclMeta.addProperty("name", versionId);
+        pmclMeta.addProperty("gameVersion", gameVersion);
+        pmclMeta.addProperty("loader", loader);
+        pmclMeta.addProperty("loaderVersion", loaderVersion);
+        pmclMeta.addProperty("author", author);
+        pmclMeta.addProperty("pmclVersion", "1.0.0");
+        pmclMeta.addProperty("exportTime", java.time.Instant.now().toString());
+        pmclMeta.add("mods", modsList);
+
+        if (progress != null) progress.accept(new InstallProgress(
+                InstallProgress.Stage.DOWNLOAD_ASSET_INDEX, 0, 0,
+                "正在打包 LSL3 整合包..."));
+
+        Files.createDirectories(targetPath.getParent());
+        try (ZipOutputStream zos = new ZipOutputStream(Files.newOutputStream(targetPath))) {
+            // 写入 pmcl.json
+            zos.putNextEntry(new ZipEntry("pmcl.json"));
+            zos.write(pmclMeta.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            zos.closeEntry();
+
+            // 写入 files/mods/*.jar
+            if (Files.isDirectory(modsDir)) {
+                try (var stream = Files.list(modsDir)) {
+                    stream.filter(p -> p.toString().toLowerCase().endsWith(".jar")
+                            && !p.toString().endsWith(".disabled"))
+                            .forEach(p -> {
+                                try {
+                                    zos.putNextEntry(new ZipEntry("files/mods/" + p.getFileName()));
+                                    Files.copy(p, zos);
+                                    zos.closeEntry();
+                                } catch (IOException e) {
+                                    throw new RuntimeException(e);
+                                }
+                            });
+                }
+            }
+
+            // 其他 override 目录
+            addLsl3OverrideDir(zos, gameDir, "config");
+            addLsl3OverrideDir(zos, gameDir, "resourcepacks");
+            addLsl3OverrideDir(zos, gameDir, "shaderpacks");
+            addLsl3OverrideFile(zos, gameDir, "options.txt");
+        }
+
+        if (progress != null) progress.accept(new InstallProgress(
+                InstallProgress.Stage.DONE, 0, 0,
+                "LSL3 整合包已导出: " + targetPath));
+    }
+
+    private void addLsl3OverrideDir(ZipOutputStream zos, Path gameDir, String dirName) throws IOException {
+        Path dir = gameDir.resolve(dirName);
+        if (!Files.isDirectory(dir)) return;
+        java.util.List<Path> files = new ArrayList<>();
+        try (var stream = Files.walk(dir)) {
+            stream.filter(Files::isRegularFile).forEach(files::add);
+        }
+        for (Path f : files) {
+            String rel = dir.getParent().relativize(f).toString().replace('\\', '/');
+            String entryName = "files/" + rel;
+            zos.putNextEntry(new ZipEntry(entryName));
+            Files.copy(f, zos);
+            zos.closeEntry();
+        }
+    }
+
+    private void addLsl3OverrideFile(ZipOutputStream zos, Path gameDir, String fileName) throws IOException {
+        Path file = gameDir.resolve(fileName);
+        if (!Files.isRegularFile(file)) return;
+        zos.putNextEntry(new ZipEntry("files/" + fileName));
+        Files.copy(file, zos);
+        zos.closeEntry();
+    }
+
+    /** 计算 SHA-1 十六进制哈希 */
+    private static String sha1Hex(Path file) throws IOException {
+        try (InputStream is = Files.newInputStream(file)) {
+            java.security.MessageDigest md;
+            try {
+                md = java.security.MessageDigest.getInstance("SHA-1");
+            } catch (java.security.NoSuchAlgorithmException e) {
+                throw new IOException("SHA-1 不可用", e);
+            }
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = is.read(buf)) != -1) {
+                md.update(buf, 0, n);
+            }
+            byte[] digest = md.digest();
+            StringBuilder sb = new StringBuilder(digest.length * 2);
+            for (byte b : digest) {
+                sb.append(String.format("%02x", b & 0xFF));
+            }
+            return sb.toString();
+        }
+    }
+
+    /** 解析版本目录（版本隔离或共享） */
+    private Path resolveGameDir(String versionId) {
+        if (preferences.isVersionIsolation()) {
+            return config.getWorkDir().resolve("instances").resolve(versionId);
+        }
+        return config.getWorkDir();
     }
 
     // ===== 列出已安装整合包 =====
@@ -1021,6 +1571,16 @@ public final class ModpackManager {
             if (cfEntry != null) {
                 return parseCurseForgeManifest(zf, cfEntry);
             }
+            // 尝试 PMCL LSL3 格式（pmcl.json）
+            ZipEntry lsl3Entry = zf.getEntry("pmcl.json");
+            if (lsl3Entry != null) {
+                return parseLsl3Manifest(zf, lsl3Entry);
+            }
+            // 尝试 MultiMC 格式（mmc-pack.json + instance.cfg）
+            ZipEntry mmcEntry = zf.getEntry("mmc-pack.json");
+            if (mmcEntry != null) {
+                return parseMultiMCManifest(zf, mmcEntry);
+            }
             // 尝试 FTB 格式（modpack.json + minecraft/ 目录）
             ZipEntry ftbEntry = zf.getEntry("modpack.json");
             if (ftbEntry != null) {
@@ -1031,8 +1591,134 @@ public final class ModpackManager {
                 // 即使没有 minecraft/ 前缀，也尝试按 FTB 解析（某些 FTB 包用 overrides/）
                 return parseFtbManifest(zf, ftbEntry);
             }
-            throw new IOException("无法识别的整合包格式：缺少 modrinth.index.json、manifest.json 或 modpack.json");
+            // 尝试纯 zip/服务器包（无 manifest，检测 mods/ 目录）
+            if (zf.getEntry("mods/") != null || zf.stream()
+                    .anyMatch(e -> e.getName().startsWith("mods/") && e.getName().endsWith(".jar"))) {
+                return parseServerPackManifest(zf);
+            }
+            throw new IOException("无法识别的整合包格式：缺少 modrinth.index.json、manifest.json、"
+                    + "pmcl.json、mmc-pack.json、modpack.json 或 mods/ 目录");
         }
+    }
+
+    /** 解析 PMCL LSL3 格式清单 */
+    private ParsedManifest parseLsl3Manifest(ZipFile zf, ZipEntry entry) throws IOException {
+        String json;
+        try (InputStream in = zf.getInputStream(entry)) {
+            json = new String(com.pmcl.core.util.SafeZipExtractor.readLimited(in, MAX_MANIFEST_BYTES),
+                    java.nio.charset.StandardCharsets.UTF_8);
+        }
+        JsonObject root = JsonParser.parseString(json).getAsJsonObject();
+
+        String name = safeStr(root, "name", "未命名 LSL3 整合包");
+        String gameVersion = safeStr(root, "gameVersion", "");
+        String loader = safeStr(root, "loader", "");
+        String loaderVersion = safeStr(root, "loaderVersion", "");
+        String author = safeStr(root, "author", "PMCL");
+
+        List<ModpackFile> files = new ArrayList<>();
+        if (root.has("mods") && root.get("mods").isJsonArray()) {
+            for (JsonElement e : root.getAsJsonArray("mods")) {
+                JsonObject m = e.getAsJsonObject();
+                String filePath = safeStr(m, "file", "");
+                String sha1 = safeStr(m, "sha1", "");
+                long size = m.has("size") ? m.get("size").getAsLong() : 0L;
+                if (!filePath.isEmpty()) {
+                    // LSL3 文件在 files/ 前缀下
+                    files.add(new ModpackFile(
+                            "files/" + filePath, sha1, size,
+                            "", null, null));
+                }
+            }
+        }
+
+        return new ParsedManifest(name, gameVersion, loader, loaderVersion,
+                "lsl3", files, author);
+    }
+
+    /** 解析 MultiMC 格式清单（mmc-pack.json + instance.cfg） */
+    private ParsedManifest parseMultiMCManifest(ZipFile zf, ZipEntry entry) throws IOException {
+        String json;
+        try (InputStream in = zf.getInputStream(entry)) {
+            json = new String(com.pmcl.core.util.SafeZipExtractor.readLimited(in, MAX_MANIFEST_BYTES),
+                    java.nio.charset.StandardCharsets.UTF_8);
+        }
+        JsonObject root = JsonParser.parseString(json).getAsJsonObject();
+
+        String gameVersion = "";
+        String loader = "";
+        String loaderVersion = "";
+
+        if (root.has("components") && root.get("components").isJsonArray()) {
+            for (JsonElement e : root.getAsJsonArray("components")) {
+                JsonObject c = e.getAsJsonObject();
+                String uid = safeStr(c, "uid", "");
+                String ver = safeStr(c, "version", "");
+                if ("net.minecraft".equals(uid)) {
+                    gameVersion = ver;
+                } else if ("net.fabricmc.fabric-loader".equals(uid)) {
+                    loader = "fabric";
+                    loaderVersion = ver;
+                } else if ("net.minecraftforge".equals(uid)) {
+                    loader = "forge";
+                    loaderVersion = ver;
+                } else if ("org.quiltmc.quilt-loader".equals(uid)) {
+                    loader = "quilt";
+                    loaderVersion = ver;
+                } else if ("net.neoforged".equals(uid)) {
+                    loader = "neoforge";
+                    loaderVersion = ver;
+                }
+            }
+        }
+
+        // 从 instance.cfg 读取实例名
+        String name = "MultiMC 整合包";
+        ZipEntry cfgEntry = zf.getEntry("instance.cfg");
+        if (cfgEntry != null) {
+            try (InputStream in = zf.getInputStream(cfgEntry)) {
+                String cfg = new String(com.pmcl.core.util.SafeZipExtractor.readLimited(in, MAX_MANIFEST_BYTES),
+                        java.nio.charset.StandardCharsets.UTF_8);
+                for (String line : cfg.split("\n")) {
+                    if (line.startsWith("name=")) {
+                        name = line.substring(5).trim();
+                        break;
+                    }
+                }
+            }
+        }
+
+        // 收集 .minecraft/mods/*.jar 作为文件列表
+        List<ModpackFile> files = new ArrayList<>();
+        java.util.Enumeration<? extends ZipEntry> entries = zf.entries();
+        while (entries.hasMoreElements()) {
+            ZipEntry e = entries.nextElement();
+            String entryName = e.getName();
+            if (entryName.startsWith(".minecraft/mods/") && entryName.endsWith(".jar")) {
+                String fileName = entryName.substring(entryName.lastIndexOf('/') + 1);
+                files.add(new ModpackFile("mods/" + fileName, "", 0L, "", null, null));
+            }
+        }
+
+        return new ParsedManifest(name, gameVersion, loader, loaderVersion,
+                "multimc", files, "MultiMC");
+    }
+
+    /** 解析纯 zip/服务器包（无 manifest，直接扫描 mods/ 目录） */
+    private ParsedManifest parseServerPackManifest(ZipFile zf) throws IOException {
+        List<ModpackFile> files = new ArrayList<>();
+        java.util.Enumeration<? extends ZipEntry> entries = zf.entries();
+        while (entries.hasMoreElements()) {
+            ZipEntry e = entries.nextElement();
+            String name = e.getName();
+            if (name.startsWith("mods/") && name.endsWith(".jar") && !e.isDirectory()) {
+                String fileName = name.substring(name.lastIndexOf('/') + 1);
+                files.add(new ModpackFile("mods/" + fileName, "", 0L, "", null, null));
+            }
+        }
+        // 服务器包无版本信息，需要用户手动指定
+        return new ParsedManifest("服务器包", "", "", "",
+                "serverpack", files, "Server");
     }
 
     private static final long MAX_MANIFEST_BYTES = 8L * 1024 * 1024;
@@ -1230,9 +1916,18 @@ public final class ModpackManager {
     private void extractOverrides(Path file, Path instanceDir, String format) throws IOException {
         // modrinth/curseforge 用 "overrides/" 前缀
         // FTB 用 "minecraft/" 前缀，但某些 FTB 包也可能用 "overrides/"，所以两者都尝试
+        // MultiMC 用 ".minecraft/" 前缀
+        // LSL3 用 "files/" 前缀
+        // serverpack 无前缀，直接是 mods/ config/ 等
         List<String> prefixes;
         if (format.equals("ftb")) {
             prefixes = List.of("minecraft/", "overrides/");
+        } else if (format.equals("multimc")) {
+            prefixes = List.of(".minecraft/");
+        } else if (format.equals("lsl3")) {
+            prefixes = List.of("files/");
+        } else if (format.equals("serverpack")) {
+            prefixes = List.of("");  // 无前缀，直接解压到根目录
         } else {
             prefixes = List.of("overrides/");
         }
@@ -1356,29 +2051,6 @@ public final class ModpackManager {
         }
         if (result.isEmpty()) return "unnamed";
         return result;
-    }
-
-    private String sha1Hex(Path file) throws IOException {
-        try (InputStream in = Files.newInputStream(file)) {
-            java.security.MessageDigest md;
-            try {
-                md = java.security.MessageDigest.getInstance("SHA-1");
-            } catch (Exception e) {
-                return "";
-            }
-            byte[] buf = new byte[8192];
-            int n;
-            while ((n = in.read(buf)) != -1) {
-                md.update(buf, 0, n);
-            }
-            byte[] digest = md.digest();
-            StringBuilder sb = new StringBuilder();
-            for (byte b : digest) {
-                // H13: b & 0xff 防止 byte 符号扩展为 int 时产生 ffffffff 而非 ff
-                sb.append(String.format("%02x", b & 0xff));
-            }
-            return sb.toString();
-        }
     }
 
     private String safeStr(JsonObject obj, String key, String def) {

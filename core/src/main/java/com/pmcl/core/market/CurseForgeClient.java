@@ -296,4 +296,84 @@ public final class CurseForgeClient implements ModMarketClient {
     private static String safeStr(JsonObject o, String key) {
         return o.has(key) && !o.get(key).isJsonNull() ? o.get(key).getAsString() : "";
     }
+
+    /**
+     * 通过 Murmur2 哈希批量查询 mod 文件的 CurseForge projectID/fileID。
+     * <p>
+     * CurseForge fingerprint API：POST /mods/fingerprint，body 为 JSON 数组 of Murmur2 哈希值。
+     * 返回每个哈希对应的 mod 信息（projectID、fileID、fileName 等）。
+     * 用于 CurseForge 整合包在线导出时补全 manifest.files 数组。
+     *
+     * @param murmur2Hashes mod 文件的 Murmur2 哈希值列表
+     * @return Map: murmur2 hash → CurseForge 文件信息 JsonObject（含 projectId、fileId、fileName）
+     */
+    public java.util.Map<Long, JsonObject> fingerprintLookup(java.util.List<Long> murmur2Hashes) {
+        if (murmur2Hashes == null || murmur2Hashes.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        if (apiKey == null || apiKey.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        String url = BASE + "/mods/fingerprint";
+        // body: {"fingerprints": [hash1, hash2, ...]}
+        JsonObject body = new JsonObject();
+        com.google.gson.JsonArray arr = new com.google.gson.JsonArray();
+        for (Long h : murmur2Hashes) arr.add(h);
+        body.add("fingerprints", arr);
+
+        okhttp3.RequestBody rb = okhttp3.RequestBody.create(body.toString(),
+                okhttp3.MediaType.get("application/json; charset=utf-8"));
+        okhttp3.Request req = new okhttp3.Request.Builder()
+                .url(url)
+                .header("X-API-Key", apiKey)
+                .header("Accept", "application/json")
+                .post(rb)
+                .build();
+
+        okhttp3.Response resp;
+        try {
+            resp = http.newCall(req).execute();
+        } catch (IOException e) {
+            throw new RuntimeException("CurseForge fingerprint 查询失败: " + e.getMessage(), e);
+        }
+        try (resp) {
+            if (!resp.isSuccessful()) {
+                throw new RuntimeException("CurseForge fingerprint 查询失败: HTTP " + resp.code());
+            }
+            String json = resp.body() != null ? resp.body().string() : "";
+            JsonObject root = JsonParser.parseString(json).getAsJsonObject();
+            // 响应结构: {"data":{"exact_matches":[{...mod file info...}],...}}
+            if (!root.has("data")) return Collections.emptyMap();
+            JsonObject data = root.getAsJsonObject("data");
+            if (!data.has("exact_matches")) return Collections.emptyMap();
+            java.util.Map<Long, JsonObject> result = new java.util.HashMap<>();
+            for (JsonElement e : data.getAsJsonArray("exact_matches")) {
+                if (e.isJsonNull()) continue;
+                JsonObject match = e.getAsJsonObject();
+                // match.id = fileID, match.file.fingerprint = murmur2 hash
+                // match.file.modId = projectID
+                long fileId = match.has("id") ? match.get("id").getAsLong() : 0L;
+                long modId = 0L;
+                long fingerprint = 0L;
+                String fileName = "";
+                if (match.has("file") && !match.get("file").isJsonNull()) {
+                    JsonObject file = match.getAsJsonObject("file");
+                    modId = file.has("modId") ? file.get("modId").getAsLong() : 0L;
+                    fingerprint = file.has("fileFingerprint")
+                            ? file.get("fileFingerprint").getAsLong() : 0L;
+                    fileName = file.has("fileName") ? file.get("fileName").getAsString() : "";
+                }
+                if (fingerprint != 0L && modId != 0L) {
+                    JsonObject info = new JsonObject();
+                    info.addProperty("projectID", modId);
+                    info.addProperty("fileID", fileId);
+                    info.addProperty("fileName", fileName);
+                    result.put(fingerprint, info);
+                }
+            }
+            return result;
+        } catch (IOException e) {
+            throw new RuntimeException("CurseForge fingerprint 响应读取失败: " + e.getMessage(), e);
+        }
+    }
 }
