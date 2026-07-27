@@ -169,7 +169,7 @@ public final class JavaRuntimeFinder {
     }
 
     /**
-     * 从候选 java 路径中选最佳：优先 Java 21，其次 17，避免 24+ 等过新版本。
+     * 从候选 java 路径中选最佳：优先 Java 21，其次 17，避免 26+ 等过新版本。
      */
     private static String pickBestJava(List<String> candidates) {
         return pickBestJavaForVersion(candidates, 0);
@@ -194,7 +194,7 @@ public final class JavaRuntimeFinder {
                 if (ver == null) continue;
                 if (ver == 21 && j21 == null) j21 = exe;
                 else if (ver == 17 && j17 == null) j17 = exe;
-                else if (ver >= 11 && ver < 24 && modern == null) modern = exe;
+                else if (ver >= 11 && ver < 26 && modern == null) modern = exe;
             }
             if (j21 != null) {
                 System.err.println("[JavaRuntimeFinder] 转译模式: 选中 Java 21 for 旧版本");
@@ -226,7 +226,7 @@ public final class JavaRuntimeFinder {
                 // 次选：x86_64 架构的 Java 9+（配合 PMCL 兼容层）
                 for (String exe : candidates) {
                     Integer ver = getMajorVersion(exe);
-                    if (ver != null && ver >= 9 && ver < 24 && isX86Arch(exe)) {
+                    if (ver != null && ver >= 9 && ver < 26 && isX86Arch(exe)) {
                         System.err.println("[JavaRuntimeFinder] Apple Silicon: 选中 x86_64 Java " + ver + " for 旧版本");
                         return exe;
                     }
@@ -241,10 +241,12 @@ public final class JavaRuntimeFinder {
                 }
             }
             // 非 Apple Silicon 或未找到 x86_64 Java：按常规逻辑选 Java 8
+            // Apple Silicon 上老版本 natives 为 x86_64，arm64 Java 8 会致 UnsatisfiedLinkError，需排除
             String exact = null;
             for (String exe : candidates) {
                 Integer ver = getMajorVersion(exe);
                 if (ver != null && ver == requiredMajorVersion) {
+                    if (isAppleSilicon && !isX86Arch(exe)) continue;
                     exact = exe;
                     break;
                 }
@@ -253,17 +255,26 @@ public final class JavaRuntimeFinder {
             // 找不到精确匹配，退而求其次找 Java 8（最通用旧版）
             for (String exe : candidates) {
                 Integer ver = getMajorVersion(exe);
-                if (ver != null && ver == 8) return exe;
+                if (ver != null && ver == 8) {
+                    if (isAppleSilicon && !isX86Arch(exe)) continue;
+                    return exe;
+                }
+            }
+            // Apple Silicon 上未找到 x86_64 Java：关闭转译模式时老版本将无法启动
+            if (isAppleSilicon && !preferLegacyTranslation) {
+                System.err.println("[JavaRuntimeFinder] 警告: Apple Silicon 上未找到 x86_64 Java，"
+                        + "老版本 native 库为 x86_64，arm64 Java 将导致 UnsatisfiedLinkError。"
+                        + "建议开启转译模式或安装 x86_64 Java 8（通过 Rosetta 2 运行）。");
             }
         }
-        // 新版本（17/21）或未指定：优先 21，其次 17，避免 24+ 等过新版本
+        // 新版本（17/21）或未指定：优先 21，其次 17，避免 26+ 等过新版本
         String j21 = null, j17 = null, other = null;
         for (String exe : candidates) {
             Integer ver = getMajorVersion(exe);
             if (ver == null) continue;
             if (ver == 21 && j21 == null) j21 = exe;
             else if (ver == 17 && j17 == null) j17 = exe;
-            else if (ver >= 8 && ver < 24 && other == null) other = exe;
+            else if (ver >= 8 && ver < 26 && other == null) other = exe;
         }
         if (j21 != null) return j21;
         if (j17 != null) return j17;

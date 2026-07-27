@@ -26,6 +26,14 @@ public final class VersionJson {
     private final Artifact clientArtifact;
     private final JsonObject rawJson;
 
+    /**
+     * 游戏 Java 进程的 os.arch（如 "aarch64"、"x86_64"）。
+     * 用于 matchesRules 判断 arch-specific 的 JVM 参数是否匹配。
+     * 启动器架构与游戏 Java 架构可能不同（如 Apple Silicon 上通过 Rosetta 跑 x86_64 Java），
+     * 用启动器架构会导致选错带 arch 规则的参数。null 时回退到启动器 os.arch。
+     */
+    private String gameJavaArch;
+
     private VersionJson(String id, String mainClass, String assets, String inheritsFrom,
                         int javaVersion,
                         List<Library> libraries, Artifact clientArtifact, JsonObject rawJson) {
@@ -84,6 +92,12 @@ public final class VersionJson {
     public List<Library> getLibraries() { return libraries; }
     public Artifact getClientArtifact() { return clientArtifact; }
     public JsonObject getRawJson() { return rawJson; }
+
+    /**
+     * 设置游戏 Java 进程的 os.arch，用于 matchesRules 判断 arch-specific 参数。
+     * 应在调用 getJvmArgs() 之前设置；未设置时回退到启动器 os.arch。
+     */
+    public void setGameJavaArch(String arch) { this.gameJavaArch = arch; }
 
     /**
      * 解析 JVM 参数（仅新格式 arguments.jvm；旧版本组装默认值）。
@@ -155,7 +169,10 @@ public final class VersionJson {
     private boolean matchesRules(JsonArray rules) {
         if (rules == null || rules.size() == 0) return true;
         String osName = currentOsName();
-        String osArch = System.getProperty("os.arch", "").toLowerCase();
+        // 优先使用游戏 Java 进程的架构（可能在 Rosetta 下与启动器架构不同），
+        // 未设置时回退到启动器 os.arch
+        String osArch = (gameJavaArch != null && !gameJavaArch.isEmpty())
+                ? gameJavaArch.toLowerCase() : System.getProperty("os.arch", "").toLowerCase();
         for (JsonElement e : rules) {
             JsonObject rule = e.getAsJsonObject();
             String action = rule.has("action") && !rule.get("action").isJsonNull()

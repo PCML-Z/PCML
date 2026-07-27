@@ -308,9 +308,6 @@ public final class RetroWrapperSupport {
         }
         extra.add(launchwrapperJar);
 
-        // 预下载 log4j（不修改 classpath，仅确保文件就绪）
-        ensureLog4jForLaunchWrapper(profile, workDir, downloads, seenClasspath, libRoot);
-
         // Apple Silicon natives 下载（不修改 classpath，仅提取到 nativesDir）
         if (isAppleSiliconArm64Java(javaArch) && isLwjgl2Era(versionId)) {
             applyAppleSiliconNatives(nativesDir, downloads, libRoot);
@@ -323,6 +320,10 @@ public final class RetroWrapperSupport {
         for (Path p : extra) {
             addClasspath(profile, seenClasspath, p);
         }
+
+        // log4j：LaunchWrapper 的 LogWrapper 引用 log4j 类，alpha/beta classpath 无 log4j。
+        // 在 Phase 2 注入确保两阶段设计（Phase 1 纯下载不修改 profile）。
+        ensureLog4jForLaunchWrapper(profile, workDir, downloads, seenClasspath, libRoot);
 
         // OptiFine jars under libraries/ — only for OptiFine versions (do not pollute alpha/beta)
         ensureLocalTweakerJars(profile, workDir, seenClasspath, versionId);
@@ -384,7 +385,9 @@ public final class RetroWrapperSupport {
             walk.filter(p -> {
                         String name = p.getFileName().toString().toLowerCase(Locale.ROOT);
                         return Files.isRegularFile(p) && name.endsWith(".jar")
-                                && !name.contains("launchwrapper");
+                                && !name.contains("launchwrapper")
+                                && !name.contains("sources")
+                                && !name.contains("javadoc");
                     })
                     .forEach(p -> {
                         addClasspath(profile, seen, p);

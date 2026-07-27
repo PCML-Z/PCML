@@ -442,6 +442,15 @@ public final class LaunchProfileBuilder {
             profile.addJvmArg("--enable-native-access=ALL-UNNAMED");
         }
 
+        // 老版本 + 澪模式兼容性：忽略 JVM 不识别的 -XX 选项，避免启动直接失败
+        // MioFlags 的 UseProfiledLoopPredicate 仅 JDK 16+ 支持；Java 8 老版本遇不识别的
+        // -XX 选项会报 "Unrecognized VM option" 直接退出。必须在任何可能不识别的 -XX 参数
+        // 之前注入此选项。老版本(lwjgl2Era/Java<11)和澪模式均依赖此保护确保稳定启动。
+        if ((javaMajorVersion > 0 && javaMajorVersion < 11)
+                || (preferences != null && preferences.isMioModeEnabled())) {
+            profile.addJvmArg("-XX:+IgnoreUnrecognizedVMOptions");
+        }
+
         // === 转译层：RetroWrapper + FrankenLWJGL，使 Java 21+（含 Apple Silicon arm64）可跑旧版 ===
         String translationMode = preferences != null
                 ? preferences.getLegacyTranslationMode() : "AUTO";
@@ -449,6 +458,9 @@ public final class LaunchProfileBuilder {
         if (effectiveArch == null || effectiveArch.isBlank()) {
             effectiveArch = System.getProperty("os.arch", "");
         }
+        // 让 VersionJson 用游戏 Java 架构匹配 arch-specific 的 JVM 参数 rules，
+        // 避免启动器架构（arm64）与游戏 Java 架构（x86_64 Rosetta）不一致时选错参数
+        vj.setGameJavaArch(effectiveArch);
         int requiredJava = vj.getJavaVersion();
         if (requiredJava <= 0 && !vj.getRawJson().has("arguments")) requiredJava = 8;
         boolean useTranslation = RetroWrapperSupport.shouldApply(
@@ -495,6 +507,11 @@ public final class LaunchProfileBuilder {
         // 指定 log4j2-xml 配置文件（如 client-1.12.xml），需要下载并通过 -Dlog4j.configurationFile 传入。
         // 不设置的话 Log4j 不初始化，所有日志（含崩溃堆栈）被丢弃。
         Path log4jXml = resolveLog4jConfig(vj, versionsDir, versionId);
+        // alpha/beta/1.6-1.12.2 无 logging.client 字段，但 LaunchWrapper 的 LogWrapper 引用 log4j
+        // 类（ensureLog4jForLaunchWrapper 已注入 jar）；不注入配置则 log4j 不初始化，崩溃堆栈被丢弃。
+        if (log4jXml == null && usesLaunchWrapper) {
+            log4jXml = ensureDefaultLog4jConfig(gameDir);
+        }
         if (log4jXml != null) {
             profile.addJvmArg("-Dlog4j.configurationFile=" + log4jXml.toString());
             // Log4j 配置中 fileName="logs/latest.log" 是相对路径，
@@ -1540,6 +1557,55 @@ public final class LaunchProfileBuilder {
         }
 
         throw new IOException("无法加载类字节码: " + className);
+    }
+
+    /**
+     * 为 LaunchWrapper 老版本（alpha/beta/1.6-1.12.2）生成默认 log4j2 配置。
+     * <p>
+     * 这些版本 JSON 无 logging.client 字段，但 LaunchWrapper 的 LogWrapper 引用 log4j 类；
+     * 不注入配置则 log4j 不初始化，游戏崩溃堆栈被丢弃，无法定位启动失败原因。
+     * 配置同时输出到控制台和 gameDir/logs/latest.log。
+     *
+     * @param gameDir 游戏运行目录
+     * @return 配置文件路径，生成失败返回 null
+     */
+    private Path ensureDefaultLog4jConfig(Path gameDir) {
+        try {
+            Path logsDir = gameDir.resolve("logs");
+            java.nio.file.Files.createDirectories(logsDir);
+            Path config = logsDir.resolve("pmcl-log4j2.xml");
+            String absLatest = logsDir.resolve("latest.log").toAbsolutePath().toString();
+            String absLogsDir = logsDir.toAbsolutePath().toString();
+            String content = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                    + "<Configuration status=\"WARN\">\n"
+                    + "  <Appenders>\n"
+                    + "    <Console name=\"Console\" target=\"SYSTEM_OUT\">\n"
+                    + "      <PatternLayout pattern=\"[%d{HH:mm:ss}] [%t/%level] [%logger]: %msg%n\"/>\n"
+                    + "    </Console>\n"
+                    + "    <RollingFile name=\"File\" fileName=\"" + absLatest + "\""
+                    + " filePattern=\"" + absLogsDir + "/%d{yyyy-MM-dd}-%i.log.gz\">\n"
+                    + "      <PatternLayout pattern=\"[%d{HH:mm:ss}] [%t/%level] [%logger]: %msg%n\"/>\n"
+                    + "      <Policies>\n"
+                    + "        <TimeBasedTriggeringPolicy/>\n"
+                    + "        <SizeBasedTriggeringPolicy size=\"10MB\"/>\n"
+                    + "      </Policies>\n"
+                    + "      <DefaultRolloverStrategy max=\"5\"/>\n"
+                    + "    </RollingFile>\n"
+                    + "  </Appenders>\n"
+                    + "  <Loggers>\n"
+                    + "    <Logger name=\"net.minecraft\" level=\"INFO\"/>\n"
+                    + "    <Root level=\"INFO\">\n"
+                    + "      <AppenderRef ref=\"Console\"/>\n"
+                    + "      <AppenderRef ref=\"File\"/>\n"
+                    + "    </Root>\n"
+                    + "  </Loggers>\n"
+                    + "</Configuration>\n";
+            java.nio.file.Files.writeString(config, content, java.nio.charset.StandardCharsets.UTF_8);
+            return config;
+        } catch (IOException e) {
+            System.err.println("[LaunchProfile] 生成默认 log4j2 配置失败: " + e.getMessage());
+            return null;
+        }
     }
 
     /**
