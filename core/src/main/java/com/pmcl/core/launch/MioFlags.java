@@ -52,8 +52,7 @@ final class MioFlags {
         flags.add("-XX:+UseFMA");                        // 融合乘加（物理计算）
         flags.add("-XX:+UseSuperWord");                  // 自动向量化（默认开，显式声明）
         // AVX 等级按 CPU 自动选，不强制避免不支持 CPU 启动失败
-        // BMI2 在 x86 上启用，ARM 自动忽略
-        flags.add("-XX:+UseBMI2");                       // 位操作指令集
+        // BMI2：支持的 JVM 默认已启用，显式 -XX:+UseBMI2 在部分 JVM（OpenJ9/旧 HotSpot）上会拒绝启动，故不强制
 
         // ===== G1 GC 更激进（与 AikarFlags 叠加，后注入的覆盖前者）=====
         flags.add("-XX:MaxGCPauseMillis=50");            // Aikar=200，澪模式降到 50ms
