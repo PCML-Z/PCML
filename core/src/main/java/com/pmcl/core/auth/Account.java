@@ -79,11 +79,16 @@ public final class Account {
 
     /**
      * 微软账号是否应在启动前刷新：已过期或 5 分钟内过期，且持有 refresh_token。
-     * expiresAt==0 的旧账号不主动刷新（无法判断），避免每次启动都打微软接口。
+     * <p>
+     * P1-3: expiresAt<=0 的旧账号（早期版本持久化、completeLogin 时 expiresIn 解析为 0）
+     * 也应主动刷新，避免过期 token 传给游戏导致多人游戏被踢、皮肤加载失败。
+     * 仅当无 refresh_token 时才真正无法刷新。
      */
     public boolean needsMicrosoftRefresh() {
         if (type != AccountType.MICROSOFT) return false;
-        if (msRefreshToken.isEmpty() || expiresAt <= 0) return false;
+        if (msRefreshToken.isEmpty()) return false;
+        // P1-3: 旧账号 expiresAt<=0 视为可能过期，主动刷新验证有效性
+        if (expiresAt <= 0) return true;
         return System.currentTimeMillis() >= expiresAt - 5 * 60_000L;
     }
 

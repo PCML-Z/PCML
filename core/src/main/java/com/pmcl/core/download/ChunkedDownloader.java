@@ -5,11 +5,13 @@ import okhttp3.Request;
 import okhttp3.Response;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InterruptedIOException;
 import java.io.RandomAccessFile;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -99,9 +101,32 @@ public final class ChunkedDownloader {
      * @param onProgress 进度回调（已完成字节数，节流到 50ms 一次）
      */
     public CompletableFuture<Void> download(String url, Path target, Consumer<Long> onProgress) {
+        return download(url, target, null, onProgress);
+    }
+
+    /**
+     * 分片下载文件（带 SHA1 校验）。
+     * P1-2: 完成后强制校验 SHA1，防止分片续传错位或 CDN 行为不一致导致损坏文件静默通过。
+     *
+     * @param url           资源 URL（已镜像重写）
+     * @param target        目标文件路径
+     * @param expectedSha1  期望的 SHA-1（null 表示不校验）
+     * @param onProgress    进度回调（已完成字节数，节流到 50ms 一次）
+     */
+    public CompletableFuture<Void> download(String url, Path target, String expectedSha1,
+                                             Consumer<Long> onProgress) {
         return CompletableFuture.runAsync(() -> {
             try {
                 doDownload(url, target, onProgress);
+                // P1-2: 下载完成后校验 SHA1，防止分片续传错位/CDN 行为不一致导致损坏文件
+                if (expectedSha1 != null && !expectedSha1.isEmpty()) {
+                    String actual = sha1(target);
+                    if (!actual.equalsIgnoreCase(expectedSha1)) {
+                        try { Files.deleteIfExists(target); } catch (IOException ignored) {}
+                        throw new IOException("分片下载 SHA1 校验失败: " + target
+                                + " 期望=" + expectedSha1 + " 实际=" + actual);
+                    }
+                }
             } catch (IOException e) {
                 throw new RuntimeException("分片下载失败: " + url, e);
             }
@@ -144,7 +169,7 @@ public final class ChunkedDownloader {
         Path partFile = target.resolveSibling(target.getFileName() + ".part");
         // 加载已完成的分片进度（断点续传）
         // S15: 传入 url 校验，切换镜像后 hash 不匹配则丢弃旧进度，避免拼接不同文件数据
-        long[] chunkCompleted = loadChunkProgress(target, actualChunks, url);
+        long[] chunkCompleted = loadChunkProgress(target, actualChunks, url, size);
         // 预分配文件
         try (RandomAccessFile raf = new RandomAccessFile(partFile.toFile(), "rw")) {
             raf.setLength(size);
@@ -209,7 +234,7 @@ public final class ChunkedDownloader {
                 throw new InterruptedIOException("分片下载已中断");
             }
             // 非中断失败：保留 .part 与进度，降级单连接
-            saveChunkProgress(target, chunkCompleted, url);
+            saveChunkProgress(target, chunkCompleted, url, size);
             try {
                 fallbackSingleConnection(url, partFile, target, size, chunkCompleted,
                         chunkSize, actualChunks, onProgress);
@@ -255,8 +280,11 @@ public final class ChunkedDownloader {
      * <p>
      * S15: 进度文件首行存储 URL hash，切换镜像后续传会因 hash 不匹配而丢弃旧进度，
      * 避免拼接不同文件数据导致文件损坏。
+     * <p>
+     * P1-2: 第 2 行存储 expectedSize + chunkCount，Content-Length 或分片数变化时丢弃进度，
+     * 避免旧分片边界被强行套到新分片导致 seek 写入错误偏移。
      */
-    private long[] loadChunkProgress(Path target, int chunkCount, String url) {
+    private long[] loadChunkProgress(Path target, int chunkCount, String url, long expectedSize) {
         Path progressFile = target.resolveSibling(target.getFileName() + PROGRESS_SUFFIX);
         if (!Files.exists(progressFile)) return new long[chunkCount];
         try {
@@ -267,11 +295,29 @@ public final class ChunkedDownloader {
             if (!expectedHash.equals(lines.get(0).trim())) {
                 return new long[chunkCount];
             }
+            // P1-2: 第 2 行是 "size|chunkCount"，不匹配则丢弃（CDN 行为不一致或分片算法调整）
+            if (lines.size() >= 2) {
+                String[] meta = lines.get(1).trim().split("\\|");
+                if (meta.length == 2) {
+                    try {
+                        long savedSize = Long.parseLong(meta[0]);
+                        int savedChunks = Integer.parseInt(meta[1]);
+                        if (savedSize != expectedSize || savedChunks != chunkCount) {
+                            return new long[chunkCount];
+                        }
+                    } catch (NumberFormatException ignored) {
+                        return new long[chunkCount];
+                    }
+                } else {
+                    // 旧格式无 meta 行，丢弃进度（安全第一）
+                    return new long[chunkCount];
+                }
+            }
             long[] result = new long[chunkCount];
-            // 从第 2 行开始解析分片进度
-            for (int i = 0; i < Math.min(lines.size() - 1, chunkCount); i++) {
+            // 从第 3 行开始解析分片进度
+            for (int i = 0; i < Math.min(lines.size() - 2, chunkCount); i++) {
                 try {
-                    result[i] = Long.parseLong(lines.get(i + 1).trim());
+                    result[i] = Long.parseLong(lines.get(i + 2).trim());
                 } catch (NumberFormatException ignored) {
                     result[i] = 0;
                 }
@@ -282,12 +328,13 @@ public final class ChunkedDownloader {
         }
     }
 
-    /** 保存分片进度到 .chunks 文件（首行为 URL hash） */
-    private void saveChunkProgress(Path target, long[] chunkCompleted, String url) {
+    /** 保存分片进度到 .chunks 文件（首行 URL hash，第 2 行 size|chunkCount） */
+    private void saveChunkProgress(Path target, long[] chunkCompleted, String url, long expectedSize) {
         Path progressFile = target.resolveSibling(target.getFileName() + PROGRESS_SUFFIX);
         try {
             StringBuilder sb = new StringBuilder();
             sb.append(calculateUrlHash(url)).append('\n');
+            sb.append(expectedSize).append('|').append(chunkCompleted.length).append('\n');
             for (long c : chunkCompleted) {
                 sb.append(c).append('\n');
             }
@@ -574,6 +621,24 @@ public final class ChunkedDownloader {
     private static void throwIfInterrupted() throws InterruptedIOException {
         if (Thread.currentThread().isInterrupted()) {
             throw new InterruptedIOException("分片下载已中断");
+        }
+    }
+
+    /** P1-2: 计算文件 SHA-1，用于分片下载完成后校验完整性 */
+    private static String sha1(Path file) throws IOException {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-1");
+            try (InputStream is = Files.newInputStream(file)) {
+                byte[] buf = new byte[64 * 1024];
+                int n;
+                while ((n = is.read(buf)) != -1) md.update(buf, 0, n);
+            }
+            byte[] digest = md.digest();
+            StringBuilder sb = new StringBuilder(digest.length * 2);
+            for (byte b : digest) sb.append(String.format("%02x", b));
+            return sb.toString();
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IOException("SHA-1 不可用", e);
         }
     }
 }

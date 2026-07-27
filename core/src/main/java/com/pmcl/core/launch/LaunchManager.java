@@ -314,8 +314,14 @@ public final class LaunchManager {
 
                 // Fire GameLaunchedEvent
                 if (pluginManager != null) {
-                    String accountName = profile.getPlayerName() != null ? profile.getPlayerName() : "Player";
-                    pluginManager.fireEvent(new GameLaunchedEvent(versionId, accountName));
+                    try {
+                        String accountName = profile.getPlayerName() != null ? profile.getPlayerName() : "Player";
+                        pluginManager.fireEvent(new GameLaunchedEvent(versionId, accountName));
+                    } catch (RuntimeException pe) {
+                        // P1-1: 插件异常不得导致游戏进程泄漏，记录后继续
+                        if (logger != null) logger.append("[PMCL] GameLaunchedEvent 插件异常: " + pe.getMessage());
+                        System.err.println("[LaunchManager] GameLaunchedEvent plugin error: " + pe.getMessage());
+                    }
                 }
 
                 int code = process.waitFor();
@@ -346,12 +352,20 @@ public final class LaunchManager {
 
                 // Plugin afterLaunch hooks + GameExitedEvent
                 if (pluginManager != null) {
-                    pluginManager.afterLaunch(versionId, code);
-                    pluginManager.fireEvent(new GameExitedEvent(versionId, code));
+                    try {
+                        pluginManager.afterLaunch(versionId, code);
+                        pluginManager.fireEvent(new GameExitedEvent(versionId, code));
+                    } catch (RuntimeException pe) {
+                        // P1-1: 插件异常不得让 future 异常退出（游戏已正常退出），记录后返回真实退出码
+                        if (logger != null) logger.append("[PMCL] afterLaunch/GameExited 插件异常: " + pe.getMessage());
+                        System.err.println("[LaunchManager] afterLaunch/GameExited plugin error: " + pe.getMessage());
+                    }
                 }
 
                 return code;
-            } catch (IOException | InterruptedException e) {
+            } catch (Throwable e) {
+                // P1-1: 捕获 Throwable 而非仅 IOException|InterruptedException，
+                // 确保插件 RuntimeException 也能触发进程清理，防止僵尸进程残留。
                 if (e instanceof InterruptedException) Thread.currentThread().interrupt();
                 // 异常路径：销毁可能已启动的进程，防止僵尸进程残留
                 if (process != null) {

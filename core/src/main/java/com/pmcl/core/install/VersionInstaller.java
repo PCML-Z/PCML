@@ -96,6 +96,10 @@ public final class VersionInstaller {
         }
         String versionJsonStr = downloadManager.downloadStringVerified(target.getUrl(), versionSha1);
         Files.writeString(versionJsonPath, versionJsonStr, java.nio.charset.StandardCharsets.UTF_8);
+        // P1-5: 持久化版本清单的 SHA-1，供启动时校验本地 JSON 完整性，
+        // 防止本地篡改/磁盘损坏导致恶意 library 注入或解析错误。
+        Path versionSha1Path = stagingDir.resolve(versionId + ".json.sha1");
+        Files.writeString(versionSha1Path, versionSha1, java.nio.charset.StandardCharsets.UTF_8);
 
         VersionJson vj = VersionJson.parse(versionJsonStr);
 

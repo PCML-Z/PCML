@@ -265,6 +265,18 @@ public final class LaunchProfileBuilder {
      */
     private LaunchProfile buildInternal(String versionId, Account account, int javaMajorVersion,
                                         java.nio.file.Path instanceDir) throws IOException {
+        // P1-4: 在线账号校验 accessToken 非空，避免空 token 传给游戏导致服务器踢人。
+        // 离线/GitHub 账号允许空 token（离线模式，UUID 作为玩家标识）。
+        if (account != null) {
+            Account.AccountType at = account.getType();
+            if (at == Account.AccountType.MICROSOFT || at == Account.AccountType.YGGDRASIL) {
+                String tok = account.getAccessToken();
+                if (tok == null || tok.isEmpty()) {
+                    throw new IOException("账号 " + account.getUsername() + "（" + at
+                            + "）的 accessToken 为空，请重新登录");
+                }
+            }
+        }
         VersionJson vj = loadVersionJson(versionId);
 
         LaunchProfile profile = new LaunchProfile(config, account, versionId);
@@ -1721,6 +1733,10 @@ public final class LaunchProfileBuilder {
             throw new IOException("版本未安装: " + versionId +
                 "（已查找: " + getVersionsDirs() + "）");
         }
+        // P1-5: 校验本地版本 JSON 的 SHA-1（若安装时保存了 sidecar）。
+        // 防止本地篡改/磁盘损坏导致恶意 library 注入或解析错误的 libraries 列表。
+        // 父版本（depth>0）也校验，但校验失败仅警告不中断（兼容手动安装的父版本无 sha1）。
+        verifyVersionJsonSha1(jsonPath, versionId, depth == 0);
         String json = Files.readString(jsonPath, java.nio.charset.StandardCharsets.UTF_8);
         VersionJson vj = VersionJson.parse(json);
 
@@ -1805,6 +1821,59 @@ public final class LaunchProfileBuilder {
             vj = VersionJson.parse(childObj.toString());
         }
         return vj;
+    }
+
+    /**
+     * P1-5: 校验本地版本 JSON 的 SHA-1。
+     * 安装时由 VersionInstaller 保存 {versionId}.json.sha1 sidecar（来自版本清单）。
+     * 启动时读取 sidecar 并重新计算本地 JSON 的 SHA-1 比对，不匹配则：
+     * - 顶层版本（strict=true）：抛 IOException 中断启动（防篡改/损坏）
+     * - 父版本（strict=false）：仅警告（兼容手动安装的父版本可能无 sidecar）
+     * 无 sidecar 文件时跳过校验（兼容旧版本/外部安装）。
+     */
+    private void verifyVersionJsonSha1(Path jsonPath, String versionId, boolean strict) throws IOException {
+        Path sha1Path = jsonPath.resolveSibling(jsonPath.getFileName() + ".sha1");
+        if (!Files.exists(sha1Path)) return; // 无 sidecar，跳过（兼容旧版本/外部安装）
+        String expected;
+        try {
+            expected = Files.readString(sha1Path, java.nio.charset.StandardCharsets.UTF_8).trim();
+            if (expected.isEmpty()) return;
+            // 兼容 sidecar 可能含文件名前缀（如 "abc123  1.21.json"），取第一个 token
+            int space = expected.indexOf(' ');
+            if (space > 0) expected = expected.substring(0, space);
+        } catch (IOException e) {
+            System.err.println("[LaunchProfileBuilder] 读取版本 JSON SHA-1 sidecar 失败: " + e.getMessage());
+            return;
+        }
+        String actual = sha1OfFile(jsonPath);
+        if (!actual.equalsIgnoreCase(expected)) {
+            String msg = "版本 JSON SHA-1 校验失败: " + versionId
+                    + " 期望=" + expected + " 实际=" + actual
+                    + "（可能被篡改或磁盘损坏，建议重新安装该版本）";
+            if (strict) {
+                throw new IOException(msg);
+            } else {
+                System.err.println("[LaunchProfileBuilder] 警告: " + msg);
+            }
+        }
+    }
+
+    /** 计算文件 SHA-1 的十六进制摘要 */
+    private static String sha1OfFile(Path file) throws IOException {
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-1");
+            try (java.io.InputStream is = Files.newInputStream(file)) {
+                byte[] buf = new byte[64 * 1024];
+                int n;
+                while ((n = is.read(buf)) != -1) md.update(buf, 0, n);
+            }
+            byte[] digest = md.digest();
+            StringBuilder sb = new StringBuilder(digest.length * 2);
+            for (byte b : digest) sb.append(String.format("%02x", b));
+            return sb.toString();
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IOException("SHA-1 不可用", e);
+        }
     }
 
     /**
