@@ -46,6 +46,8 @@ final class MioFlags {
 
         // ===== CPU 指令集显式启用（MC 区块渲染/物理/噪声生成是向量化热点）=====
         flags.add("-XX:+UseAES");                        // AES 加速（区块加密）
+        // UseAESIntrinsics 是诊断选项，必须先解锁才能启用，否则 Windows JVM 启动失败
+        flags.add("-XX:+UnlockDiagnosticVMOptions");
         flags.add("-XX:+UseAESIntrinsics");              // AES 内联
         flags.add("-XX:+UseFMA");                        // 融合乘加（物理计算）
         flags.add("-XX:+UseSuperWord");                  // 自动向量化（默认开，显式声明）
