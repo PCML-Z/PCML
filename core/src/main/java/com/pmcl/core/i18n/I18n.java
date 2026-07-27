@@ -717,6 +717,7 @@ public final class I18n {
         ZH.put("mp.not_joined", "尚未加入任何房间。创建房间或粘贴朋友发来的房间码加入。");
         ZH.put("mp.host", "房主");
         ZH.put("mp.create_room", "创建房间");
+        ZH.put("mp.arch_unsupported", "当前 CPU 架构不被联机后端支持（EasyTier 无 LoongArch64/RISC-V/MIPS 构建），联机功能已禁用");
         ZH.put("mp.guest", "房客");
         ZH.put("mp.room_code_label", "房间码 / 邀请码");
         ZH.put("mp.join_room", "加入房间");
@@ -2682,6 +2683,7 @@ public final class I18n {
         EN.put("mp.not_joined", "Not in a room. Create one or paste a friend's room code.");
         EN.put("mp.host", "Host");
         EN.put("mp.create_room", "Create room");
+        EN.put("mp.arch_unsupported", "Current CPU architecture is not supported by multiplayer backend (EasyTier has no LoongArch64/RISC-V/MIPS builds). Multiplayer disabled.");
         EN.put("mp.guest", "Guest");
         EN.put("mp.room_code_label", "Room code / invite code");
         EN.put("mp.join_room", "Join room");
@@ -4582,6 +4584,7 @@ public final class I18n {
         JA.put("mp.not_joined", "ルームに参加していません。作成するか友達のコードを貼り付けてください。");
         JA.put("mp.host", "ホスト");
         JA.put("mp.create_room", "ルーム作成");
+        JA.put("mp.arch_unsupported", "現在の CPU アーキテクチャはマルチプレイバックエンドでサポートされていません（EasyTier に LoongArch64/RISC-V/MIPS ビルドがありません）。マルチプレイ機能は無効です。");
         JA.put("mp.guest", "ゲスト");
         JA.put("mp.room_code_label", "ルームコード / 招待コード");
         JA.put("mp.join_room", "ルーム参加");

@@ -77,6 +77,32 @@ public final class EasyTierManager {
     }
 
     /**
+     * 检测当前 CPU 架构是否被 EasyTier 官方 release 支持。
+     * <p>
+     * EasyTier 官方 release（截至 v2.6.4）仅提供 x86_64/aarch64 的 Linux/macOS/Windows 构建，
+     * 不提供 LoongArch64 / RISC-V 64 / MIPS64el 构建。在这些架构上启动 EasyTier 会因
+     * 下载不到匹配架构的二进制而失败，UI 层应调用本方法提前检测并禁用联机入口。
+     *
+     * @return true 表示当前架构支持 EasyTier；false 表示不支持，UI 应禁用 EasyTier 后端
+     */
+    public static boolean isEasyTierSupportedOnCurrentArch() {
+        String arch = System.getProperty("os.arch", "").toLowerCase();
+        // 龙芯 LoongArch64（la64/la464/loongarch64）
+        if (arch.contains("loongarch64") || arch.contains("la64") || arch.contains("la464")) {
+            return false;
+        }
+        // 龙芯旧版 MIPS64el
+        if (arch.contains("mips64el") || arch.contains("mips64")) {
+            return false;
+        }
+        // RISC-V 64
+        if (arch.contains("riscv64") || arch.contains("risc-v64") || arch.contains("rv64")) {
+            return false;
+        }
+        return true;
+    }
+
+    /**
      * 若二进制不存在，则从 GitHub Releases 下载并解压。
      * <p>
      * 实现策略：
@@ -366,9 +392,6 @@ public final class EasyTierManager {
         // Windows/Linux: aarch64|arm64；macOS 偶发仅报 arm
         boolean isArm = arch.contains("aarch64") || arch.contains("arm64")
                 || (os.contains("mac") && arch.equals("arm"));
-        // 龙芯 LoongArch64（la64/la464/loongarch64）
-        boolean isLoongArch64 = arch.contains("loongarch64")
-                || arch.contains("la64") || arch.contains("la464");
 
         List<String> osKeys;
         List<String> archKeys;
@@ -380,30 +403,23 @@ public final class EasyTierManager {
             archKeys = isArm ? Arrays.asList("aarch64", "arm64") : Arrays.asList("x86_64", "amd64");
         } else {
             osKeys = Arrays.asList("linux");
-            if (isLoongArch64) {
-                archKeys = Arrays.asList("loongarch64");
-            } else {
-                archKeys = isArm ? Arrays.asList("aarch64", "arm64") : Arrays.asList("x86_64", "amd64");
-            }
+            archKeys = isArm ? Arrays.asList("aarch64", "arm64") : Arrays.asList("x86_64", "amd64");
         }
 
         // 排除关键字：GUI 客户端、Android apk、Linux 包格式、Magisk、Web Dashboard 等。
-        // 注意：龙芯 loongarch64 不再过滤（EasyTier 官方 release 有 loongarch64 包）。
-        // RISC-V 64 / MIPS64el 仍过滤：EasyTier 官方无对应架构构建（截至 v2.6.4），
-        // 移除过滤会导致 matchAsset 下载到错误架构的包。这两个架构的联机功能
-        // 需等待 EasyTier 上游添加构建后才能启用。
+        // 国产架构过滤：EasyTier 官方 release（截至 v2.6.4）无 loongarch/riscv/mips 构建，
+        // 移除过滤会导致 matchAsset 下载到错误架构的包。
+        // 这些架构的联机功能需等待 EasyTier 上游添加构建后才能启用，
+        // UI 层应通过 isEasyTierSupportedOnCurrentArch() 检测并禁用入口。
         java.util.function.Predicate<String> isCliZip = ln ->
                 !ln.contains("gui") && !ln.endsWith(".apk") && !ln.endsWith(".rpm")
                 && !ln.endsWith(".deb") && !ln.endsWith(".appimage") && !ln.endsWith(".dmg")
                 && !ln.endsWith(".exe") && !ln.contains("magisk") && !ln.contains("web-dashboard")
-                && !ln.contains("freebsd") && !ln.contains("mips")
+                && !ln.contains("freebsd") && !ln.contains("loongarch") && !ln.contains("mips")
                 && !ln.contains("riscv") && !ln.contains("armv7") && !ln.contains("armhf")
                 && !ln.contains("-arm-");
 
-        // 龙芯架构下放宽 isForeignArm 判定：loongarch64 不属于 ARM，但也不应回退到 x86_64。
-        // matchAsset 第二轮「非 ARM 主机放宽回退」逻辑通过 isArm 控制：龙芯 isArm=false，
-        // 但 archKeys 已是 loongarch64，第二轮的 !isForeignArm.test(ln) 仍会正确匹配。
-        // 这里无需额外修改，原有三轮匹配逻辑已能正确处理 loongarch64。
+        // 后续三轮匹配逻辑（精确匹配 → 放宽回退）同原实现
 
         java.util.function.Predicate<String> archMatch = ln ->
                 archKeys.stream().anyMatch(ln::contains);

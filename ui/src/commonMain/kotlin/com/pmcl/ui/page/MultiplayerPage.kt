@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -20,6 +21,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
+import com.pmcl.core.multiplayer.EasyTierManager
 import com.pmcl.core.multiplayer.MultiplayerManager
 import com.pmcl.ui.animation.AnimatedSegmentedSelector
 import com.pmcl.ui.viewmodel.LauncherViewModel
@@ -57,6 +59,9 @@ fun MultiplayerPage(vm: LauncherViewModel) {
     val inRoom = state == MultiplayerManager.State.CONNECTING ||
         state == MultiplayerManager.State.CONNECTED
     val failed = state == MultiplayerManager.State.FAILED
+
+    // 国产架构（LoongArch64/RISC-V 64/MIPS64el）无 EasyTier 官方构建，禁用联机功能
+    val archSupported = EasyTierManager.isEasyTierSupportedOnCurrentArch()
 
     val stateText = when (state) {
         MultiplayerManager.State.IDLE -> I18n.t("mp.state.idle")
@@ -122,6 +127,34 @@ fun MultiplayerPage(vm: LauncherViewModel) {
             }
         }
 
+        // 架构不支持警告横幅
+        if (!archSupported) {
+            Surface(
+                color = MaterialTheme.colorScheme.errorContainer,
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Filled.Warning,
+                        null,
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Text(
+                        I18n.t("mp.arch_unsupported"),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                }
+            }
+        }
+
         if (!inRoom) {
             // 联机方式（单行，不占大卡片）
             Text(
@@ -140,7 +173,7 @@ fun MultiplayerPage(vm: LauncherViewModel) {
             // 主操作：创建
             Button(
                 onClick = { vm.createRoom() },
-                enabled = !busy,
+                enabled = !busy && archSupported,
                 modifier = Modifier.fillMaxWidth().height(48.dp)
             ) {
                 Icon(Icons.Filled.PlayArrow, null, Modifier.size(20.dp))
@@ -172,12 +205,12 @@ fun MultiplayerPage(vm: LauncherViewModel) {
                         )
                     },
                     singleLine = true,
-                    enabled = !busy,
+                    enabled = !busy && archSupported,
                     shape = RoundedCornerShape(12.dp)
                 )
                 Button(
                     onClick = { vm.joinRoom(joinCode) },
-                    enabled = !busy && joinCode.isNotBlank(),
+                    enabled = !busy && joinCode.isNotBlank() && archSupported,
                     modifier = Modifier.height(56.dp)
                 ) {
                     Icon(Icons.AutoMirrored.Filled.ArrowForward, null, Modifier.size(18.dp))
