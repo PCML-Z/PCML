@@ -129,6 +129,7 @@ public final class VersionInstaller {
         // 确保离线环境下无论用 arm64 Java（新版本）还是 x86_64 Java（老版本 via Rosetta 2）
         // 都有对应架构的 natives 可用，避免首次启动联网补下载。
         boolean appleSilicon = isAppleSilicon();
+        boolean loongArch64 = isLoongArch64();
         for (Library lib : vj.getLibraries()) {
             if (!lib.appliesToCurrentOs()) continue;
             // 主 artifact
@@ -165,6 +166,15 @@ public final class VersionInstaller {
                         }
                     } finally {
                         Library.clearArchOverride();
+                    }
+                }
+                // 龙芯 LoongArch64：尝试从社区 maven 源下载 loongarch64 native（仅 LWJGL）。
+                // 若社区源无对应版本，下载会失败但不阻塞整体安装（LaunchProfileBuilder 在
+                // 启动时会回退到 x86_64 native + LATX 二进制翻译）。
+                if (loongArch64) {
+                    DownloadTask loongTask = buildLoongArch64NativeTask(lib);
+                    if (loongTask != null) {
+                        addTask(tasks, seenPaths, loongTask);
                     }
                 }
             }
@@ -345,6 +355,52 @@ public final class VersionInstaller {
         String osName = System.getProperty("os.name", "").toLowerCase();
         String osArch = System.getProperty("os.arch", "").toLowerCase();
         return osName.contains("mac") && (osArch.equals("aarch64") || osArch.equals("arm64"));
+    }
+
+    /**
+     * 检测当前是否为龙芯 LoongArch64（linux-la64/la464/loongarch64）。
+     * 龙芯旧版 MIPS64el（3A 旧型号）不在内，因其无可用 native 源。
+     */
+    private static boolean isLoongArch64() {
+        String osArch = System.getProperty("os.arch", "").toLowerCase();
+        return osArch.contains("loongarch64") || osArch.contains("la64") || osArch.contains("la464");
+    }
+
+    /**
+     * 龙芯 LoongArch64 native 库社区源：Glavo 维护的 loongarch64 LWJGL maven 仓库。
+     * 仅对 LWJGL（org.lwjgl:*）相关库有效，其他库无 loongarch64 移植版。
+     */
+    private static final String LOONGARCH64_NATIVE_MAVEN =
+            "https://repo1.maven.org/maven2/";
+
+    /**
+     * 龙芯 LoongArch64：为 LWJGL 库构造社区源 loongarch64 native 下载任务。
+     * <p>
+     * Mojang 版本 JSON 的 classifiers 中无 natives-linux-loongarch64，
+     * 但 Maven Central 上 Glavo 等社区维护者发布了部分 LWJGL 3.x 的 loongarch64 移植版。
+     * 此处尝试用 maven 坐标构造下载 URL，下载失败由 DownloadManager 跳过（不影响整体安装）。
+     *
+     * @param lib 当前库（必须 isNativeLib 且 name 以 org.lwjgl: 开头）
+     * @return 下载任务，或 null 表示无可用 loongarch64 native
+     */
+    private DownloadTask buildLoongArch64NativeTask(Library lib) {
+        String name = lib.getName();
+        if (!name.startsWith("org.lwjgl:")) return null;
+        // 解析 maven 坐标：org.lwjgl:lwjgl:3.3.3 → group=org.lwjgl, artifact=lwjgl, version=3.3.3
+        String[] parts = name.split(":");
+        if (parts.length < 3) return null;
+        String group = parts[0];
+        String artifactId = parts[1];
+        String version = parts[2];
+        String classifier = "natives-linux-loongarch64";
+        String groupPath = group.replace('.', '/');
+        // Maven Central 路径：org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3-natives-linux-loongarch64.jar
+        String relPath = groupPath + "/" + artifactId + "/" + version + "/"
+                + artifactId + "-" + version + "-" + classifier + ".jar";
+        String url = LOONGARCH64_NATIVE_MAVEN + relPath;
+        String targetPath = "libraries/" + lib.getPathForClassifier(classifier);
+        // SHA-1 可选：Maven Central 提供 .sha1 文件，但此处不强制校验以保持容错
+        return new DownloadTask(url, null, 0L, targetPath);
     }
 
     private McVersion findVersion(String versionId) throws IOException {

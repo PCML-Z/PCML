@@ -24,12 +24,25 @@ import java.util.function.Consumer;
  * 数据源：piston-meta.mojang.com/v1/products/java-runtime/manifest.json
  * 镜像：BMCLAPI 自动重写（由 DownloadManager 完成）。
  * <p>
+ * 龙芯 LoongArch64 架构 Mojang 清单不支持，回退到 Dragonwell (Alibaba) 官方
+ * 维护的 LoongArch64 JDK 构建（GitHub Releases），覆盖 Java 8/11/17。
+ * <p>
  * 下载后解压到 {workDir}/runtimes/{arch}/{name}，由 JavaRuntimeFinder 扫描使用。
  */
 public final class JavaRuntimeDownloader {
 
     private static final String MANIFEST_URL =
             "https://piston-meta.mojang.com/v1/products/java-runtime/manifest.json";
+
+    /** 龙芯 LoongArch64 JDK 源：Dragonwell 官方维护，GitHub Releases API */
+    private static final String LOONGSON_JDK_RELEASES_API =
+            "https://api.github.com/repos/alibaba/dragonwell%s/releases/latest";
+    /** Dragonwell 各 Java 版本对应的仓库版本后缀（8/11/17/21） */
+    private static final java.util.Map<RuntimeType, String> LOONGSON_DRAGONWELL_REPO =
+            java.util.Map.of(
+                    RuntimeType.JAVA_8, "8",
+                    RuntimeType.JAVA_17, "17",
+                    RuntimeType.JAVA_21, "21");
 
     private final LauncherConfig config;
     private final DownloadManager downloadManager;
@@ -73,13 +86,19 @@ public final class JavaRuntimeDownloader {
 
     /**
      * 列出某类型下所有可用运行时条目。
+     * <p>
+     * 龙芯 LoongArch64 架构改走 Dragonwell GitHub Releases，不查 Mojang 清单。
      */
     public CompletableFuture<List<RuntimeEntry>> listRuntimes(RuntimeType type) {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 String arch = resolveArch(type);
-                // 龙芯等 Mojang 清单不支持的架构：返回空列表
+                // 龙芯 MIPS64el / RISC-V：无可用 JDK 源，返回空列表
                 if (arch == null) return new ArrayList<>();
+                // 龙芯 LoongArch64：改走 Dragonwell GitHub Releases
+                if ("linux-loongarch64".equals(arch)) {
+                    return listLoongsonDragonwellRuntimes(type);
+                }
                 String json = downloadManager.downloadString(MANIFEST_URL);
                 JsonObject root = JsonParser.parseString(json).getAsJsonObject();
                 // 结构: [arch][type][entry...]
@@ -105,6 +124,50 @@ public final class JavaRuntimeDownloader {
                 throw new RuntimeException("拉取 Java 运行时清单失败", e);
             }
         });
+    }
+
+    /**
+     * 龙芯 LoongArch64：从 Dragonwell GitHub Releases 拉取 JDK 列表。
+     * <p>
+     * Dragonwell 是阿里巴巴维护的 OpenJDK 发行版，官方提供 LoongArch64 构建。
+     * 通过 GitHub Releases API 获取最新 release，匹配 linux-loongarch64 tar.gz asset。
+     * SHA-1 校验改为可选（GitHub asset 不提供 sha1，但 asset 内置下载完整性由 HTTPS 保证）。
+     */
+    private List<RuntimeEntry> listLoongsonDragonwellRuntimes(RuntimeType type) {
+        String repoSuffix = LOONGSON_DRAGONWELL_REPO.get(type);
+        if (repoSuffix == null) return new ArrayList<>();
+        String apiUrl = String.format(LOONGSON_JDK_RELEASES_API, repoSuffix);
+        try {
+            String json = downloadManager.downloadString(apiUrl);
+            JsonObject root = JsonParser.parseString(json).getAsJsonObject();
+            String version = root.has("tag_name") && !root.get("tag_name").isJsonNull()
+                    ? root.get("tag_name").getAsString() : type.name();
+            if (!root.has("assets")) return new ArrayList<>();
+            List<RuntimeEntry> result = new ArrayList<>();
+            for (JsonElement e : root.getAsJsonArray("assets")) {
+                JsonObject asset = e.getAsJsonObject();
+                String name = asset.has("name") && !asset.get("name").isJsonNull()
+                        ? asset.get("name").getAsString() : "";
+                String lower = name.toLowerCase();
+                // 匹配 loongarch64 的 tar.gz，排除 sources/javadoc/debug
+                if (!lower.contains("loongarch64") || !lower.endsWith(".tar.gz")) continue;
+                if (lower.contains("sources") || lower.contains("javadoc")
+                        || lower.contains("debug") || lower.contains("static")) continue;
+                String url = asset.has("browser_download_url")
+                        ? asset.get("browser_download_url").getAsString() : "";
+                long size = asset.has("size") ? asset.get("size").getAsLong() : 0L;
+                if (url.isEmpty()) continue;
+                // GitHub Releases 不提供 SHA-1，传空串表示跳过校验（install 中特殊处理）
+                result.add(new RuntimeEntry(
+                        "Dragonwell-" + version + "-loongarch64",
+                        version, url, "", size));
+            }
+            return result;
+        } catch (Throwable e) {
+            System.err.println("[JavaRuntimeDownloader] 拉取 Dragonwell 龙芯 JDK 清单失败: "
+                    + e.getMessage());
+            return new ArrayList<>();
+        }
     }
 
     private static final String READY_MARKER = ".pmcl-runtime-ok";
@@ -148,11 +211,20 @@ public final class JavaRuntimeDownloader {
                 archive = assertUnder(archDir, archDir.resolve(dirName + ext));
                 if (onStatus != null) onStatus.accept("下载: " + url);
                 String expectedSha1 = entry.getSha1();
-                if (expectedSha1 == null || expectedSha1.isBlank()) {
-                    throw new IOException("运行时清单未提供 SHA-1，拒绝安装未校验的 Java 归档");
+                // 龙芯 Dragonwell 源（GitHub Releases）不提供 SHA-1，
+                // 改为跳过校验直接下载（HTTPS 已提供传输完整性保障）。
+                if (expectedSha1 != null && !expectedSha1.isBlank()) {
+                    downloadManager.downloadToVerified(url, archive, expectedSha1, null);
+                    if (onStatus != null) onStatus.accept("SHA-1 校验通过");
+                } else {
+                    boolean isLoongson = "linux-loongarch64".equals(arch);
+                    if (isLoongson) {
+                        if (onStatus != null) onStatus.accept("龙芯 JDK：GitHub Releases 源无 SHA-1，跳过校验");
+                        downloadManager.downloadTo(url, archive);
+                    } else {
+                        throw new IOException("运行时清单未提供 SHA-1，拒绝安装未校验的 Java 归档");
+                    }
                 }
-                downloadManager.downloadToVerified(url, archive, expectedSha1, null);
-                if (onStatus != null) onStatus.accept("SHA-1 校验通过");
 
                 Files.createDirectories(stagingDir);
                 if (onStatus != null) onStatus.accept("解压到: " + stagingDir);
@@ -432,15 +504,21 @@ public final class JavaRuntimeDownloader {
      * 只有 x86_64 版本，必须通过 Rosetta 2 运行 x86_64 Java 8。
      * 因此 Java 8 在 Apple Silicon 上强制下载 macos-amd64 版本。
      * <p>
-     * 龙芯（LoongArch64 / MIPS64el）与 RISC-V 64 架构在 Mojang 清单中不存在，
-     * 返回 null 表示无法自动下载，调用方应提示用户手动安装对应架构的 JDK。
+     * 龙芯 LoongArch64：Mojang 清单无对应包，但仍返回 "linux-loongarch64"，
+     * 由 {@link #listRuntimes} 和 {@link #install} 改走 Dragonwell 源。
+     * 龙芯旧版 MIPS64el：Dragonwell 无对应包，返回 null 提示用户手动安装。
+     * RISC-V 64：暂无稳定 JDK 源，返回 null。
      */
     private static String resolveArch(RuntimeType type) {
-        // 龙芯架构：Mojang 清单无对应包，返回 null
-        if (com.pmcl.core.launch.JavaRuntimeFinder.isLoongson()) {
+        // 龙芯 LoongArch64：返回架构标识，由 listRuntimes/install 改走 Dragonwell
+        if (com.pmcl.core.launch.JavaRuntimeFinder.isLoongArch64()) {
+            return "linux-loongarch64";
+        }
+        // 龙芯旧版 MIPS64el（3A 旧型号）：无可用 JDK 源，返回 null
+        if (com.pmcl.core.launch.JavaRuntimeFinder.isMips64el()) {
             return null;
         }
-        // RISC-V 架构：Mojang 清单无对应包，返回 null
+        // RISC-V 64：暂无稳定 JDK 源，返回 null
         if (com.pmcl.core.launch.JavaRuntimeFinder.isRiscV()) {
             return null;
         }

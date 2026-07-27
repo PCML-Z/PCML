@@ -366,6 +366,9 @@ public final class EasyTierManager {
         // Windows/Linux: aarch64|arm64；macOS 偶发仅报 arm
         boolean isArm = arch.contains("aarch64") || arch.contains("arm64")
                 || (os.contains("mac") && arch.equals("arm"));
+        // 龙芯 LoongArch64（la64/la464/loongarch64）
+        boolean isLoongArch64 = arch.contains("loongarch64")
+                || arch.contains("la64") || arch.contains("la464");
 
         List<String> osKeys;
         List<String> archKeys;
@@ -377,17 +380,27 @@ public final class EasyTierManager {
             archKeys = isArm ? Arrays.asList("aarch64", "arm64") : Arrays.asList("x86_64", "amd64");
         } else {
             osKeys = Arrays.asList("linux");
-            archKeys = isArm ? Arrays.asList("aarch64", "arm64") : Arrays.asList("x86_64", "amd64");
+            if (isLoongArch64) {
+                archKeys = Arrays.asList("loongarch64");
+            } else {
+                archKeys = isArm ? Arrays.asList("aarch64", "arm64") : Arrays.asList("x86_64", "amd64");
+            }
         }
 
-        // 排除关键字：GUI 客户端、Android apk、Linux 包格式、Magisk、Web Dashboard 等
+        // 排除关键字：GUI 客户端、Android apk、Linux 包格式、Magisk、Web Dashboard 等。
+        // 注意：龙芯 loongarch64 不再过滤（EasyTier 官方 release 有 loongarch64 包）。
         java.util.function.Predicate<String> isCliZip = ln ->
                 !ln.contains("gui") && !ln.endsWith(".apk") && !ln.endsWith(".rpm")
                 && !ln.endsWith(".deb") && !ln.endsWith(".appimage") && !ln.endsWith(".dmg")
                 && !ln.endsWith(".exe") && !ln.contains("magisk") && !ln.contains("web-dashboard")
-                && !ln.contains("freebsd") && !ln.contains("loongarch") && !ln.contains("mips")
+                && !ln.contains("freebsd") && !ln.contains("mips")
                 && !ln.contains("riscv") && !ln.contains("armv7") && !ln.contains("armhf")
                 && !ln.contains("-arm-");
+
+        // 龙芯架构下放宽 isForeignArm 判定：loongarch64 不属于 ARM，但也不应回退到 x86_64。
+        // matchAsset 第二轮「非 ARM 主机放宽回退」逻辑通过 isArm 控制：龙芯 isArm=false，
+        // 但 archKeys 已是 loongarch64，第二轮的 !isForeignArm.test(ln) 仍会正确匹配。
+        // 这里无需额外修改，原有三轮匹配逻辑已能正确处理 loongarch64。
 
         java.util.function.Predicate<String> archMatch = ln ->
                 archKeys.stream().anyMatch(ln::contains);
