@@ -27,12 +27,23 @@ internal fun LauncherViewModel.loadSavedAccount() {
             _accounts.value = store.getAccounts()
             val sel = store.getSelected().orElse(null)
             _account.value = sel
+            // P2-1: 检测到 keyfile 丢失/损坏导致账号解密失败时，弹出明显提示
+            // 而非静默丢失。UI 观察 corruptedAccounts 显示对话框后调用 clearCorruptedAccountWarning。
+            if (store.hasCorruptedAccounts()) {
+                _corruptedAccounts.value = store.getCorruptedAccounts()
+                val names = store.getCorruptedAccounts().joinToString(", ")
+                _status.value = I18n.t("status.account_corrupted_detected",
+                        store.getCorruptedAccounts().size, names)
+                System.err.println("[LauncherViewModel] 检测到 ${store.getCorruptedAccounts().size} 个账号因 keyfile 丢失无法解密: $names")
+            }
             if (sel != null) {
                 // 基于账户 UUID 派生好友身份
                 withContext(Dispatchers.IO) {
                     core.friend()?.switchAccount(sel.getUuid(), sel.getUsername())
                 }
-                _status.value = I18n.t("status.account_loaded", sel.getUsername(), sel.getType())
+                if (!store.hasCorruptedAccounts()) {
+                    _status.value = I18n.t("status.account_loaded", sel.getUsername(), sel.getType())
+                }
             }
         } catch (e: Throwable) {
             _status.value = I18n.t("status.account_load_failed", e.message ?: I18n.t("common.unknown"))

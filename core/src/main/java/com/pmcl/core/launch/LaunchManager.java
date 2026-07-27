@@ -220,13 +220,17 @@ public final class LaunchManager {
                     Thread.currentThread().interrupt();
                 }
             } finally {
-                // put 阻塞直到毒丸入队，避免 offer 在队列满时丢弃导致 dispatcher 永不退出
+                // P2-4(H4): put 在 dispatcher 阻塞(onLog 回调卡住)时会永久死锁。
+                // 改为 offer 带超时：2 秒内入队成功则正常退出；超时则清空队列再 offer，
+                // 确保毒丸一定能入队让 dispatcher 退出。
                 try {
-                    logQueue.put(POISON_PILL);
+                    if (!logQueue.offer(POISON_PILL, 2, java.util.concurrent.TimeUnit.SECONDS)) {
+                        logQueue.clear();
+                        logQueue.offer(POISON_PILL);
+                    }
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
-                    // 兜底：腾出空间再 offer
-                    logQueue.poll();
+                    logQueue.clear();
                     logQueue.offer(POISON_PILL);
                 }
             }
@@ -275,6 +279,8 @@ public final class LaunchManager {
         return CompletableFuture.supplyAsync(() -> {
             Process process = null;
             ProcessTuner tuner = null;
+            // P2-4: readerHolder 声明在 try 块之前，确保 catch 块也能访问以 join 线程
+            Thread[] readerHolder = new Thread[2];
             try {
                 // 澪模式 L3：系统电源策略（启动前，需 sudo 授权）
                 if (preferences != null && preferences.isMioModeEnabled() && preferences.isMioModeSystemPower()) {
@@ -289,7 +295,6 @@ public final class LaunchManager {
                     return EXIT_CANCELLED;
                 }
 
-                Thread[] readerHolder = new Thread[2];
                 // 包装 onLog：在原有回调基础上注入 LaunchTracer 的 MC 阶段识别
                 // 这样无论日志走到 UI 还是 GameLogger，都会被检测里程碑
                 Consumer<String> tracedOnLog = tracer != null
@@ -373,6 +378,20 @@ public final class LaunchManager {
                     if (process.isAlive()) {
                         try { process.destroyForcibly(); } catch (Exception ignored) {}
                     }
+                }
+                // P2-4(H3): 异常路径也需 join reader/dispatcher 线程，防止线程泄漏。
+                // reader 在进程销毁后会收到 EOF 并投递毒丸，dispatcher 消费毒丸后退出。
+                if (readerHolder[0] != null) {
+                    try { readerHolder[0].join(2000); } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                    }
+                    if (readerHolder[0].isAlive()) readerHolder[0].interrupt();
+                }
+                if (readerHolder[1] != null) {
+                    try { readerHolder[1].join(2000); } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                    }
+                    if (readerHolder[1].isAlive()) readerHolder[1].interrupt();
                 }
                 // 提取根因消息，避免 UI 显示 "启动失败：启动失败"
                 Throwable root = e;

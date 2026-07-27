@@ -125,6 +125,10 @@ public final class VersionInstaller {
         if (onProgress != null) onProgress.accept(new InstallProgress(
                 InstallProgress.Stage.DOWNLOAD_LIBRARIES, 0, vj.getLibraries().size(),
                 "扫描依赖库"));
+        // P2-2: Apple Silicon 上安装时同时下载 arm64 + x86_64 两套 natives，
+        // 确保离线环境下无论用 arm64 Java（新版本）还是 x86_64 Java（老版本 via Rosetta 2）
+        // 都有对应架构的 natives 可用，避免首次启动联网补下载。
+        boolean appleSilicon = isAppleSilicon();
         for (Library lib : vj.getLibraries()) {
             if (!lib.appliesToCurrentOs()) continue;
             // 主 artifact
@@ -134,13 +138,34 @@ public final class VersionInstaller {
                         a.getUrl(), a.getSha1(), a.getSize(),
                         "libraries/" + lib.getPath()));
             }
-            // native classifier（按当前 OS 选择）
+            // native classifier（按当前 OS + 架构选择）
             if (lib.isNativeLib()) {
                 VersionJson.Artifact n = lib.getNativeArtifact();
                 if (n != null) {
                     addTask(tasks, seenPaths, new DownloadTask(
                             n.getUrl(), n.getSha1(), n.getSize(),
                             "libraries/" + lib.getPathForClassifier(lib.getNativeClassifier())));
+                }
+                // P2-2: Apple Silicon 额外下载 x86_64 natives（供 Rosetta 2 模式下的老版本使用）
+                if (appleSilicon) {
+                    // 1. 获取 arm64 视角的 native classifier（默认架构）
+                    String armClassifier = lib.getNativeClassifier();
+                    // 2. 切换到 x86_64 视角
+                    Library.setArchOverride("x86_64");
+                    try {
+                        String x86Classifier = lib.getNativeClassifier();
+                        // 3. 如果两者不同，额外下载 x86_64 版本
+                        if (x86Classifier != null && !x86Classifier.equals(armClassifier)) {
+                            VersionJson.Artifact x86Native = lib.getClassifiers().get(x86Classifier);
+                            if (x86Native != null) {
+                                addTask(tasks, seenPaths, new DownloadTask(
+                                        x86Native.getUrl(), x86Native.getSha1(), x86Native.getSize(),
+                                        "libraries/" + lib.getPathForClassifier(x86Classifier)));
+                            }
+                        }
+                    } finally {
+                        Library.clearArchOverride();
+                    }
                 }
             }
         }
@@ -315,6 +340,13 @@ public final class VersionInstaller {
         }
     }
 
+    /** P2-2: 检测当前是否为 Apple Silicon（arm64 macOS） */
+    private static boolean isAppleSilicon() {
+        String osName = System.getProperty("os.name", "").toLowerCase();
+        String osArch = System.getProperty("os.arch", "").toLowerCase();
+        return osName.contains("mac") && (osArch.equals("aarch64") || osArch.equals("arm64"));
+    }
+
     private McVersion findVersion(String versionId) throws IOException {
         List<McVersion> versions = versionManager.fetchRemoteVersions().join();
         for (McVersion v : versions) {
@@ -357,29 +389,52 @@ public final class VersionInstaller {
 
     /**
      * 合并继承版本的 JSON：父版本为主，子版本覆盖 mainClass 等。
-     * 简化实现：直接重新下载父版本 JSON 并合并 libraries。
+     * <p>
+     * P2-3: 改为递归合并，带循环检测和深度限制（与 LaunchProfileBuilder.loadVersionJson 一致）。
+     * 旧实现只合并一层直接父版本，若父版本自身有 inheritsFrom（多层 Forge 链），
+     * 祖父版本的 libraries/client.jar 不会被加入下载任务，安装声称成功但文件不全。
      */
     private VersionJson mergeInherited(VersionJson child, String parentId) throws IOException {
-        List<McVersion> versions = versionManager.fetchRemoteVersions().join();
-        McVersion parent = null;
-        for (McVersion v : versions) {
-            if (v.getId().equals(parentId)) { parent = v; break; }
-        }
-        if (parent == null) {
-            throw new IOException("找不到 inheritsFrom 父版本: " + parentId);
-        }
-        if (parent.getUrl() == null) {
-            throw new IOException("父版本缺少下载 URL: " + parentId);
-        }
-        String parentSha1 = parent.getSha1();
-        if (parentSha1 == null || parentSha1.isBlank()) {
-            throw new IOException("父版本清单缺少 SHA-1，拒绝下载: " + parentId);
-        }
+        return mergeInheritedRecursive(child, parentId, new java.util.HashSet<>(), 0);
+    }
 
-        String parentJson = downloadManager.downloadStringVerified(parent.getUrl(), parentSha1);
-        // 简单合并：将父版本的 libraries 与子版本合并（去重）
-        JsonObject parentObj = JsonParser.parseString(parentJson).getAsJsonObject();
-        JsonObject childObj = child.getRawJson();
+    private VersionJson mergeInheritedRecursive(VersionJson child, String parentId,
+                                                  java.util.Set<String> visiting, int depth) throws IOException {
+        if (depth > 16) {
+            throw new IOException("版本继承链过深（>" + depth + "）: " + visiting
+                    + "，可能存在异常 inheritsFrom 链");
+        }
+        if (!visiting.add(parentId)) {
+            throw new IOException("检测到循环版本继承: " + visiting + " -> " + parentId);
+        }
+        try {
+            List<McVersion> versions = versionManager.fetchRemoteVersions().join();
+            McVersion parent = null;
+            for (McVersion v : versions) {
+                if (v.getId().equals(parentId)) { parent = v; break; }
+            }
+            if (parent == null) {
+                throw new IOException("找不到 inheritsFrom 父版本: " + parentId);
+            }
+            if (parent.getUrl() == null) {
+                throw new IOException("父版本缺少下载 URL: " + parentId);
+            }
+            String parentSha1 = parent.getSha1();
+            if (parentSha1 == null || parentSha1.isBlank()) {
+                throw new IOException("父版本清单缺少 SHA-1，拒绝下载: " + parentId);
+            }
+
+            String parentJson = downloadManager.downloadStringVerified(parent.getUrl(), parentSha1);
+            JsonObject parentObj = JsonParser.parseString(parentJson).getAsJsonObject();
+
+            // P2-3: 递归处理父版本的 inheritsFrom（多层 Forge 链）
+            VersionJson parentVj = VersionJson.parse(parentJson);
+            if (parentVj.getInheritsFrom() != null && !parentVj.getInheritsFrom().equals(parentId)) {
+                parentVj = mergeInheritedRecursive(parentVj, parentVj.getInheritsFrom(), visiting, depth + 1);
+                parentObj = parentVj.getRawJson();
+            }
+
+            JsonObject childObj = child.getRawJson();
 
         // 子版本若没有 mainClass/assetIndex，则用父版本
         if (!childObj.has("mainClass") && parentObj.has("mainClass")) {
@@ -453,5 +508,8 @@ public final class VersionInstaller {
             childObj.add("libraries", merged);
         }
         return VersionJson.parse(childObj.toString());
+        } finally {
+            visiting.remove(parentId);
+        }
     }
 }

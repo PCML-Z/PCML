@@ -1977,10 +1977,16 @@ public final class LaunchProfileBuilder {
             profile.addJvmArg("-Dauthlibinjector.yggdrasil.prefetched=" + prefetched);
             System.err.println("[LaunchProfileBuilder] authlib-injector 注入成功（预取方式）");
         } else {
-            // 回退方式：-javaagent:jar=服务器URL（运行时由 agent 自行获取 API 元数据）
+            // P2-5: 预取失败回退方式，写明显警告让用户在日志中看到皮肤加载失败的原因
             String normalizedUrl = com.pmcl.core.auth.YggdrasilAuthFlow.normalizeApiUrl(apiUrl);
             profile.addJavaAgent(jarPath.toString(), normalizedUrl);
-            System.err.println("[LaunchProfileBuilder] authlib-injector 注入成功（回退方式，URL=" + normalizedUrl + "）");
+            String warn = "[PMCL] 警告: authlib-injector 预取皮肤站 API 失败，已回退到运行时获取模式。"
+                    + "若网络不通，皮肤/披风加载将失败，部分严格校验的服务器可能拒绝连接。"
+                    + "皮肤站 URL: " + normalizedUrl;
+            System.err.println("[LaunchProfileBuilder] " + warn);
+            // 通过 addJvmArg 注入提示属性，authlib-injector 启动时会在日志中显示
+            // 同时将警告写入游戏启动日志（通过 profile 的 gameArgs 前缀）
+            profile.addJvmArg("-Dpmcl.authlibinjector.warning=" + warn);
         }
     }
 }

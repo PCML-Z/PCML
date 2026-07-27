@@ -1636,6 +1636,7 @@ public final class I18n {
         // ===== 状态消息 - 账号 =====
         ZH.put("status.account_loaded", "已加载账号：{0}（{1}）");
         ZH.put("status.account_load_failed", "加载账号失败：{0}");
+        ZH.put("status.account_corrupted_detected", "检测到 {0} 个账号因机器标识变化无法解密（{1}），请重新登录");
         ZH.put("status.account_save_failed", "保存账号失败：{0}");
         ZH.put("status.account_switched", "已切换到账号：{0}");
         ZH.put("status.account_removed", "已移除当前账号");
@@ -3588,6 +3589,7 @@ public final class I18n {
         EN.put("status.records_purged", "Purged all play records for {0}");
         EN.put("status.account_loaded", "Loaded account: {0} ({1})");
         EN.put("status.account_load_failed", "Failed to load account: {0}");
+        EN.put("status.account_corrupted_detected", "Detected {0} account(s) cannot be decrypted due to machine identity change ({1}), please re-login");
         EN.put("status.account_save_failed", "Failed to save account: {0}");
         EN.put("status.account_switched", "Switched to account: {0}");
         EN.put("status.account_removed", "Current account removed");
@@ -5493,6 +5495,7 @@ public final class I18n {
         // ===== ステータスメッセージ - アカウント =====
         JA.put("status.account_loaded", "アカウント読み込み：{0}（{1}）");
         JA.put("status.account_load_failed", "アカウント読み込み失敗：{0}");
+        JA.put("status.account_corrupted_detected", "{0} 個のアカウントがマシン ID 変更により復号不可（{1}）、再ログインしてください");
         JA.put("status.account_save_failed", "アカウント保存失敗：{0}");
         JA.put("status.account_switched", "アカウント切替：{0}");
         JA.put("status.account_removed", "現在のアカウントを削除");

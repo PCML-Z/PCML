@@ -154,6 +154,8 @@ fun App(vm: LauncherViewModel) {
                     }
                     // 全局：GitHub Release 同步更新弹窗（任意页面都可见）
                     PushedUpdateDialog(vm)
+                    // P2-1: 账号 keyfile 丢失/损坏警告（任意页面都可见）
+                    CorruptedAccountsDialog(vm)
                 }
             }
         }
@@ -230,6 +232,38 @@ private fun PushedUpdateDialog(vm: LauncherViewModel) {
                 onClick = { vm.clearPushedUpdate() }
             ) {
                 Text("稍后再说")
+            }
+        }
+    )
+}
+
+/**
+ * P2-1: 账号 keyfile 丢失/损坏警告对话框。
+ * 当 AccountStore 检测到无法解密的账号时弹出，避免账号静默丢失而无提示。
+ * 用户确认后调用 [LauncherViewModel.clearCorruptedAccountWarning] 清除状态。
+ */
+@Composable
+private fun CorruptedAccountsDialog(vm: LauncherViewModel) {
+    val corrupted by vm.corruptedAccounts.collectAsState()
+    if (corrupted.isEmpty()) return
+    AlertDialog(
+        onDismissRequest = { vm.clearCorruptedAccountWarning() },
+        title = { Text("账号解密失败") },
+        text = {
+            Column {
+                Text("检测到 ${corrupted.size} 个账号因机器标识变化或密钥文件丢失，无法解密 accessToken：")
+                Spacer(Modifier.height(8.dp))
+                Text(corrupted.joinToString("、"),
+                     style = MaterialTheme.typography.bodySmall,
+                     color = MaterialTheme.colorScheme.outline)
+                Spacer(Modifier.height(8.dp))
+                Text("这些账号已从列表中移除，请重新登录以恢复使用。",
+                     style = MaterialTheme.typography.bodySmall)
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { vm.clearCorruptedAccountWarning() }) {
+                Text("我知道了")
             }
         }
     )

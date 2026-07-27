@@ -341,6 +341,19 @@ class LauncherViewModel {
     val accounts: StateFlow<List<Account>> = _accounts.asStateFlow()
 
     /**
+     * P2-1: 因 keyfile 丢失/损坏而无法解密的账号用户名列表。
+     * 非空时 UI 应弹出明显提示，告知用户 N 个账号需要重新登录（而非静默丢失）。
+     * UI 消费后调用 [clearCorruptedAccountWarning] 清除。
+     */
+    @PublishedApi internal val _corruptedAccounts = MutableStateFlow<List<String>>(emptyList())
+    val corruptedAccounts: StateFlow<List<String>> = _corruptedAccounts.asStateFlow()
+
+    /** UI 消费完损坏账号提示后清除，避免反复弹窗 */
+    fun clearCorruptedAccountWarning() {
+        _corruptedAccounts.value = emptyList()
+    }
+
+    /**
      * 单次启动账户覆盖（实例绑定账户）：不改动全局选中账号，
      * 在 launch() finally 中清除。
      */

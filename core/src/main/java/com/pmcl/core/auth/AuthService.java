@@ -252,6 +252,7 @@ public final class AuthService {
                 return new AccountStore(new ArrayList<>(), null);
             }
             List<Account> accounts = new ArrayList<>();
+            List<String> corrupted = new ArrayList<>();
             if (root.has("accounts")) {
                 for (JsonElement e : root.getAsJsonArray("accounts")) {
                     JsonObject o = e.getAsJsonObject();
@@ -272,8 +273,11 @@ public final class AuthService {
                     String accessToken = TokenEncryptor.decrypt(
                             o.has("accessToken") && !o.get("accessToken").isJsonNull() ? o.get("accessToken").getAsString() : "");
                     if (accessToken == null) {
-                        System.err.println("[AuthService] 账号 accessToken 解密失败，跳过: "
-                                + (o.has("username") && !o.get("username").isJsonNull() ? o.get("username").getAsString() : "(unknown)"));
+                        // P2-1: 不再静默跳过，记录到 corruptedAccounts 供 UI 提示用户重新登录
+                        String uname = o.has("username") && !o.get("username").isJsonNull()
+                                ? o.get("username").getAsString() : "(unknown)";
+                        System.err.println("[AuthService] 账号 accessToken 解密失败，已记录: " + uname);
+                        corrupted.add(uname);
                         continue;
                     }
                     accounts.add(new Account(
@@ -294,7 +298,7 @@ public final class AuthService {
             }
             String selected = root.has("selected") && !root.get("selected").isJsonNull()
                     ? root.get("selected").getAsString() : null;
-            return new AccountStore(accounts, selected);
+            return new AccountStore(accounts, selected, corrupted);
         }
     }
 
