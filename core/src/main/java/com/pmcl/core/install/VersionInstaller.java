@@ -170,6 +170,9 @@ public final class VersionInstaller {
 
         // 6. 执行批量下载
         final long total = tasks.stream().mapToLong(DownloadTask::getSize).sum();
+        // H4: 磁盘空间预检。下载到一半磁盘满会留下大量 .part 残留（共享目录，不在 staging 内），
+        // 恶化磁盘空间且重试仍失败。预留 10% 余量，空间不足时直接抛出明确错误。
+        checkDiskSpace(config.getWorkDir(), total);
         downloadManager.downloadAll(tasks,
                 file -> {},
                 bytes -> {
@@ -279,6 +282,32 @@ public final class VersionInstaller {
             if (extracted == 0) {
                 throw new IOException("native 库解压结果为空: " + nativeJar);
             }
+        }
+    }
+
+    /**
+     * H4: 磁盘空间预检。
+     * 对工作目录所在分区检查可用空间，预留 10% 余量（含 native 解压、日志、索引等额外开销）。
+     * 空间不足时抛出明确异常，避免下载到一半磁盘满留下大量 .part 残留恶化空间。
+     */
+    private static void checkDiskSpace(Path workDir, long requiredBytes) throws IOException {
+        if (requiredBytes <= 0) return;
+        try {
+            java.nio.file.FileStore store = java.nio.file.Files.getFileStore(workDir);
+            long usable = store.getUsableSpace();
+            if (usable < 0) return; // 某些 FS 无法获取，跳过检查
+            // 预留 10% 余量（至少 50MB，应对 native 解压 + 日志 + 索引）
+            long requiredWithMargin = (long) (requiredBytes * 1.1) + (50L * 1024 * 1024);
+            if (usable < requiredWithMargin) {
+                long needMb = requiredWithMargin / (1024 * 1024);
+                long haveMb = usable / (1024 * 1024);
+                throw new IOException("磁盘空间不足: 需要 " + needMb + " MB（含 10% 余量），"
+                        + "可用 " + haveMb + " MB。请清理磁盘后重试。"
+                        + "（目标分区: " + store.name() + "）");
+            }
+        } catch (java.nio.file.FileSystemException e) {
+            // 文件系统不支持 getFileStore，跳过预检（不阻塞安装）
+            System.err.println("[VersionInstaller] 磁盘空间预检跳过: " + e.getMessage());
         }
     }
 

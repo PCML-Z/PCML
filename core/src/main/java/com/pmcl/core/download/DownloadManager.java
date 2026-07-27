@@ -395,6 +395,15 @@ public final class DownloadManager {
                 throw e;
             } catch (IOException e) {
                 last = e;
+                // H3: 第 2 次重试起删除 .part 文件从头下载，避免续传损坏前缀导致永久失败。
+                // .part 可能因磁盘错误、写入缓冲未落盘、跨会话写入错位等原因损坏，
+                // 无条件从 existingSize 续传会反复下载失败直到用户手动删除 .part。
+                // 牺牲带宽换可靠性：第 2 次起强制全新下载。
+                if (i >= 1) {
+                    Path partFile = config.getWorkDir().resolve(task.getRelativePath())
+                            .resolveSibling(config.getWorkDir().resolve(task.getRelativePath()).getFileName() + ".part");
+                    try { Files.deleteIfExists(partFile); } catch (IOException ignored) {}
+                }
                 // 指数退避 + 随机抖动：避免高并发下所有失败任务同步重试（thundering herd）
                 long base = 500L * (1L << i); // 500ms, 1s, 2s, 4s ...
                 long jitter = ThreadLocalRandom.current().nextLong(200);
@@ -513,12 +522,17 @@ public final class DownloadManager {
         }
         Request req = reqBuilder.build();
 
+        String reqHost = okhttp3.HttpUrl.parse(url) != null ? okhttp3.HttpUrl.parse(url).host() : "";
         try (Response resp = http.newCall(req).execute()) {
             int code = resp.code();
             // 200 = 全新下载，206 = Range 成功
             boolean rangeOk = (code == 206);
             boolean fullOk = (code == 200);
             if (!rangeOk && !fullOk) {
+                // H1: HTTP 4xx/5xx 标记镜像 host 失败，连续达阈值后熔断回退官方源
+                if (code >= 400) {
+                    mirror.markFailure(reqHost);
+                }
                 throw new IOException("下载失败 code=" + code + " url=" + url);
             }
             // 如果服务端忽略 Range（返回 200），从头开始
@@ -565,6 +579,12 @@ public final class DownloadManager {
                     }
                 }
             }
+            // H1: 下载成功，重置该 host 的失败计数
+            mirror.markSuccess(reqHost);
+        } catch (IOException e) {
+            // H1: 网络错误同样标记失败（连接超时、DNS 失败、连接重置等）
+            mirror.markFailure(reqHost);
+            throw e;
         }
 
         // 返回 .part 路径，校验和重命名由调用方在释放 semaphore 后执行
@@ -919,6 +939,13 @@ public final class DownloadManager {
                 // 更新已下载大小用于下次重试续传
                 if (enableResume && Files.exists(tmp)) {
                     try { existingSize = Files.size(tmp); } catch (Exception ignored) {}
+                }
+                // H3: 第 2 次重试起删除 .download 文件从头下载，避免续传损坏前缀导致永久失败。
+                // .download 可能因磁盘错误、写入缓冲未落盘、跨会话写入错位等原因损坏，
+                // 无条件从 existingSize 续传会反复下载失败直到用户手动删除 .download。
+                if (i >= 1) {
+                    try { Files.deleteIfExists(tmp); } catch (IOException ignored) {}
+                    existingSize = 0;
                 }
                 // SSL 握手失败：立即 fallback 到 curl（写入 .download 临时文件，再原子提升）
                 if (CurlFallback.isSslHandshakeFailure(e) && CurlFallback.isAvailable()) {

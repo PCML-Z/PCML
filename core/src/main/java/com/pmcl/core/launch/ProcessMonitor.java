@@ -5,6 +5,7 @@ import oshi.hardware.GlobalMemory;
 import oshi.software.os.OSProcess;
 import oshi.software.os.OperatingSystem;
 
+import java.io.IOException;
 import java.util.Optional;
 
 /**
@@ -136,13 +137,33 @@ public final class ProcessMonitor {
         if (depth > 8) return; // 防御性深度限制
         if (parentPid <= 0 || parentPid > Integer.MAX_VALUE) return;
         // pgrep -P <pid> 列出指定父进程的所有子进程 pid
+        // 关键：必须先 waitFor 再读取输出。若 readAllBytes 在 waitFor 之前，
+        // 当 pgrep 因 /proc 异常或僵尸进程挂起时，readAllBytes 永不 EOF，应用退出被永久阻塞。
         Process p = null;
         try {
             p = new ProcessBuilder("pgrep", "-P", String.valueOf(parentPid))
                     .redirectErrorStream(true).start();
-            String out = new String(p.getInputStream().readAllBytes(),
-                    java.nio.charset.StandardCharsets.UTF_8);
-            if (!p.waitFor(2, java.util.concurrent.TimeUnit.SECONDS)) return;
+            // 异步排空 stdout，防止管道写满导致 pgrep 阻塞 write
+            final Process pp = p;
+            java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
+            Thread drainer = new Thread(() -> {
+                try (java.io.InputStream is = pp.getInputStream()) {
+                    is.transferTo(buf);
+                } catch (IOException ignored) {}
+            }, "pgrep-drainer");
+            drainer.setDaemon(true);
+            drainer.start();
+            if (!p.waitFor(2, java.util.concurrent.TimeUnit.SECONDS)) {
+                p.destroyForcibly();
+                try { drainer.join(200); } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                }
+                return;
+            }
+            try { drainer.join(500); } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+            }
+            String out = buf.toString(java.nio.charset.StandardCharsets.UTF_8);
             java.util.StringTokenizer st = new java.util.StringTokenizer(out.trim());
             while (st.hasMoreTokens()) {
                 try {

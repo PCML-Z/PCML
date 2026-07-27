@@ -3,6 +3,8 @@ package com.pmcl.core.launch;
 import com.pmcl.core.LauncherConfig;
 import com.pmcl.core.auth.Account;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -143,8 +145,25 @@ public final class LaunchProfile {
 
         // classpath
         if (!classpath.isEmpty()) {
-            cmd.add("-cp");
-            cmd.add(String.join(System.getProperty("path.separator"), classpath));
+            String cp = String.join(System.getProperty("path.separator"), classpath);
+            // H2: Windows CreateProcess 命令行长度上限 32767 字符。
+            // 大型整合包（500+ mods）classpath 轻松超 32K，导致 CreateProcess 失败（错误码 206）。
+            // Java 9+ 支持 @argfile：将长 classpath 写入临时文件，用 @file 引用。
+            // 阈值取 30000 留余量（cmd 还包含 java/jvmArgs/mainClass/gameArgs）。
+            if (cp.length() > 30000) {
+                Path argFile = writeClasspathArgFile(cp);
+                if (argFile != null) {
+                    cmd.add("-cp");
+                    cmd.add("@" + argFile.toString());
+                } else {
+                    // 回退：argfile 写入失败时仍直接传 cp（极端情况）
+                    cmd.add("-cp");
+                    cmd.add(cp);
+                }
+            } else {
+                cmd.add("-cp");
+                cmd.add(cp);
+            }
         }
 
         // 主类
@@ -156,5 +175,27 @@ public final class LaunchProfile {
         // 这里只需追加 gameArgs，避免重复注入导致 joptsimple 报 "multiple arguments" 错误。
         cmd.addAll(gameArgs);
         return Collections.unmodifiableList(cmd);
+    }
+
+    /**
+     * H2: 将超长 classpath 写入临时 argfile。
+     * argfile 格式：每行一个参数，JVM 自动展开 @file。
+     * 文件写入工作目录的 .pmcl/argfiles/ 下，按 versionId 命名，启动后可保留供调试。
+     */
+    private Path writeClasspathArgFile(String classpath) {
+        try {
+            Path argDir = config.getWorkDir().resolve("argfiles");
+            Files.createDirectories(argDir);
+            String name = (versionId != null ? versionId : "mc") + "-" + System.currentTimeMillis() + ".cp";
+            Path file = argDir.resolve(name);
+            // argfile 内容：-cp <classpath>，JVM 读取时按行解析
+            // 用引用包裹 classpath 防止路径含空格被截断
+            Files.writeString(file, "-cp \"" + classpath + "\"",
+                    java.nio.charset.StandardCharsets.UTF_8);
+            return file;
+        } catch (IOException e) {
+            System.err.println("[LaunchProfile] 写入 classpath argfile 失败，回退到直接传参: " + e.getMessage());
+            return null;
+        }
     }
 }
