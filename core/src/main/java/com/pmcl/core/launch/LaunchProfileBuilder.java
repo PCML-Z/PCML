@@ -1757,7 +1757,13 @@ public final class LaunchProfileBuilder {
         // S9: account 或其 getter 返回 null 时 String.replace 抛 NPE，离线/未登录账号启动崩溃
         String username = account != null ? account.getUsername() : "";
         String uuid = account != null ? account.getUuid() : "";
-        String accessToken = account != null ? account.getAccessToken() : "";
+        // GITHUB 账户的 accessToken 是 GitHub OAuth token（gho_ 开头），不能用于 MC 认证；
+        // 传入会导致 Mojang API 401（无法获取 profile key pair），连接启用 enforce-secure-profile 的服务器时被踢。
+        // 降级为空 token（等价离线模式），保留 UUID 作为玩家标识。
+        String accessToken = "";
+        if (account != null && account.getType() != Account.AccountType.GITHUB) {
+            accessToken = account.getAccessToken();
+        }
         if (username == null) username = "";
         if (uuid == null) uuid = "";
         if (accessToken == null) accessToken = "";
