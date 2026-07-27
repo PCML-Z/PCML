@@ -428,9 +428,9 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                 val notes = pm.drainNotifications()
                 for (n in notes) {
                     val prefix = when (n.level) {
-                        com.pmcl.plugin.api.NotificationLevel.WARN -> "⚠ "
-                        com.pmcl.plugin.api.NotificationLevel.ERROR -> "✖ "
-                        com.pmcl.plugin.api.NotificationLevel.SUCCESS -> "✓ "
+                        com.pmcl.plugin.api.NotificationLevel.WARN -> ""
+                        com.pmcl.plugin.api.NotificationLevel.ERROR -> ""
+                        com.pmcl.plugin.api.NotificationLevel.SUCCESS -> ""
                         else -> ""
                     }
                     snackbarHostState.showSnackbar(prefix + n.title + ": " + n.message)

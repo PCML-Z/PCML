@@ -59,6 +59,7 @@ public final class VersionInstaller {
         return CompletableFuture.runAsync(() -> {
             Path stagingDir = config.getVersionsDir().resolve(versionId + STAGING_SUFFIX);
             try {
+                VersionStaging.assertSafeVersionId(versionId);
                 doInstall(versionId, onProgress);
             } catch (Throwable e) {
                 if (InstallInterruptedException.isInterrupted(e)) {

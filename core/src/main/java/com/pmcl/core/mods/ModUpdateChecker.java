@@ -218,7 +218,7 @@ public final class ModUpdateChecker {
         List<ModFile> compatible = new ArrayList<>();
         for (ModFile f : files) {
             boolean gvMatch = gameVersion == null || gameVersion.isEmpty()
-                    || f.getGameVersions().contains(gameVersion);
+                    || (f.getGameVersions() != null && f.getGameVersions().contains(gameVersion));
             // 要求显式 loader 匹配；空 loaders 不再视为通配（避免 Forge jar 推给 Fabric）
             boolean loaderMatch = loader == null || loader.isEmpty()
                     || (f.getLoaders() != null && f.getLoaders().contains(loader));

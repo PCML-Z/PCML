@@ -101,8 +101,10 @@ public final class FriendChatServer implements AutoCloseable {
     public void start(int listenPort) throws IOException {
         if (running.get()) return;
 
-        // 绑定到所有接口（0.0.0.0）—— 这是必要的，因为 LAN 内的对等节点通过组播发现后
-        // 需要能 TCP 连接到本服务器。鉴权由 auth 握手提供，而非 IP 限制。
+        // 安全权衡：绑定到所有接口（0.0.0.0）是必要的，因为 LAN 内的对等节点通过组播发现后
+        // 需要能 TCP 连接到本服务器。这会暴露端口给同 LAN 的任何主机，
+        // 但鉴权由 auth 握手（HMAC 签名 + 时间戳防重放）提供，而非 IP 限制，
+        // 未通过握手的连接不会触发任何 MessageListener。
         serverSocket = new ServerSocket(listenPort);
         this.port = serverSocket.getLocalPort();
         running.set(true);

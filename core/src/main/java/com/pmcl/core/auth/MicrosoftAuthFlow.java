@@ -180,8 +180,8 @@ public final class MicrosoftAuthFlow {
                     deviceCode,
                     userCode,
                     verificationUri,
-                    o.has("expires_in") && !o.get("expires_in").isJsonNull() ? o.get("expires_in").getAsInt() : 0,
-                    o.has("interval") && !o.get("interval").isJsonNull() ? o.get("interval").getAsInt() : 0,
+                    o.has("expires_in") && !o.get("expires_in").isJsonNull() ? Math.max(1, o.get("expires_in").getAsInt()) : 900,
+                    o.has("interval") && !o.get("interval").isJsonNull() ? Math.max(5, o.get("interval").getAsInt()) : 5,
                     safeStr(o, "message")
             );
         } catch (IOException e) {

@@ -276,11 +276,18 @@ public final class JavaRuntimeFinder {
         Process p = null;
         try {
             p = new ProcessBuilder("sysctl", "-n", "hw.optional.arm64").start();
-            try (var in = p.getInputStream()) {
-                String out = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8).trim();
-                if (p.waitFor(2, java.util.concurrent.TimeUnit.SECONDS) && p.exitValue() == 0) {
-                    return "1".equals(out);
-                }
+            final Process fp = p;
+            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+            Thread drainer = new Thread(() -> {
+                try (var in = fp.getInputStream()) { in.transferTo(bos); }
+                catch (IOException ignored) {}
+            });
+            drainer.setDaemon(true);
+            drainer.start();
+            if (p.waitFor(2, java.util.concurrent.TimeUnit.SECONDS) && p.exitValue() == 0) {
+                try { drainer.join(1000); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+                String out = bos.toString(java.nio.charset.StandardCharsets.UTF_8).trim();
+                return "1".equals(out);
             }
         } catch (Exception ignored) {} finally {
             if (p != null) p.destroyForcibly();
@@ -358,16 +365,25 @@ public final class JavaRuntimeFinder {
         Process p = null;
         try {
             p = new ProcessBuilder(javaExe, "-version").redirectErrorStream(true).start();
-            try (java.io.InputStream is = p.getInputStream()) {
-                String output = new String(is.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
-                if (!p.waitFor(5, TimeUnit.SECONDS)) {
-                    return null;
-                }
-                // 输出形如: java version "21.0.1" 2023-10-17 LTS
-                //          openjdk version "17.0.9" 2023-10-17
-                Matcher m = VERSION_PATTERN.matcher(output);
-                if (m.find()) return Integer.parseInt(m.group(1));
+            final Process fp = p;
+            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+            Thread drainer = new Thread(() -> {
+                try (java.io.InputStream is = fp.getInputStream()) { is.transferTo(bos); }
+                catch (IOException ignored) {}
+            });
+            drainer.setDaemon(true);
+            drainer.start();
+            if (!p.waitFor(5, TimeUnit.SECONDS)) {
+                p.destroyForcibly();
+                try { drainer.join(500); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+                return null;
             }
+            try { drainer.join(1000); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+            String output = bos.toString(java.nio.charset.StandardCharsets.UTF_8);
+            // 输出形如: java version "21.0.1" 2023-10-17 LTS
+            //          openjdk version "17.0.9" 2023-10-17
+            Matcher m = VERSION_PATTERN.matcher(output);
+            if (m.find()) return Integer.parseInt(m.group(1));
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
         } catch (IOException ignored) {
@@ -403,16 +419,24 @@ public final class JavaRuntimeFinder {
         try {
             p = new ProcessBuilder(javaExe, "-XshowSettings:properties", "-version")
                     .redirectErrorStream(true).start();
-            try (java.io.InputStream is = p.getInputStream()) {
-                String output = new String(is.readAllBytes(),
-                        java.nio.charset.StandardCharsets.UTF_8);
-                if (!p.waitFor(5, TimeUnit.SECONDS)) {
-                    return null;
-                }
-                // 输出包含:    os.arch = aarch64  或  os.arch = x86_64  或  os.arch = amd64
-                Matcher m = ARCH_PATTERN.matcher(output);
-                if (m.find()) return m.group(1);
+            final Process fp = p;
+            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+            Thread drainer = new Thread(() -> {
+                try (java.io.InputStream is = fp.getInputStream()) { is.transferTo(bos); }
+                catch (IOException ignored) {}
+            });
+            drainer.setDaemon(true);
+            drainer.start();
+            if (!p.waitFor(5, TimeUnit.SECONDS)) {
+                p.destroyForcibly();
+                try { drainer.join(500); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+                return null;
             }
+            try { drainer.join(1000); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+            String output = bos.toString(java.nio.charset.StandardCharsets.UTF_8);
+            // 输出包含:    os.arch = aarch64  或  os.arch = x86_64  或  os.arch = amd64
+            Matcher m = ARCH_PATTERN.matcher(output);
+            if (m.find()) return m.group(1);
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
         } catch (IOException ignored) {

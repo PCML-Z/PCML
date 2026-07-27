@@ -236,18 +236,26 @@ public final class ModrinthClient implements ModMarketClient {
      * loader 与 category 都通过 categories 字段过滤（Modrinth 把加载器和功能分类统一归类为 category）。
      */
     private String buildFacets(String gameVersion, String loader, String category) {
-        List<String> groups = new ArrayList<>();
-        groups.add("[\"project_type:mod\"]");
+        com.google.gson.JsonArray facets = new com.google.gson.JsonArray();
+        com.google.gson.JsonArray typeGroup = new com.google.gson.JsonArray();
+        typeGroup.add("project_type:mod");
+        facets.add(typeGroup);
         if (gameVersion != null && !gameVersion.isEmpty()) {
-            groups.add("[\"versions:" + gameVersion + "\"]");
+            com.google.gson.JsonArray g = new com.google.gson.JsonArray();
+            g.add("versions:" + gameVersion);
+            facets.add(g);
         }
         if (loader != null && !loader.isEmpty()) {
-            groups.add("[\"categories:" + loader + "\"]");
+            com.google.gson.JsonArray l = new com.google.gson.JsonArray();
+            l.add("categories:" + loader);
+            facets.add(l);
         }
         if (category != null && !category.isEmpty()) {
-            groups.add("[\"categories:" + category + "\"]");
+            com.google.gson.JsonArray c = new com.google.gson.JsonArray();
+            c.add("categories:" + category);
+            facets.add(c);
         }
-        return "[" + String.join(",", groups) + "]";
+        return facets.toString();
     }
 
     @Override

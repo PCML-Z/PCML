@@ -164,13 +164,20 @@ public final class ConfigFileManager {
     public void writeFile(String relativePath, String content) throws IOException {
         Path file = configDir.resolve(relativePath).normalize();
         if (!file.startsWith(configDir)) throw new IOException("非法路径: " + relativePath);
-        Files.createDirectories(file.getParent());
+        Path parent = file.getParent();
+        if (parent != null) Files.createDirectories(parent);
         // 自动备份
         Path backup = Path.of(file + ".bak");
         if (Files.exists(file) && !Files.exists(backup)) {
             Files.copy(file, backup);
         }
-        Files.writeString(file, content, java.nio.charset.StandardCharsets.UTF_8);
+        Path tmp = file.resolveSibling(file.getFileName() + ".tmp." + java.util.UUID.randomUUID());
+        Files.writeString(tmp, content, java.nio.charset.StandardCharsets.UTF_8);
+        try {
+            Files.move(tmp, file, java.nio.file.StandardCopyOption.ATOMIC_MOVE, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+            Files.move(tmp, file, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        }
     }
 
     /** 删除文件 */

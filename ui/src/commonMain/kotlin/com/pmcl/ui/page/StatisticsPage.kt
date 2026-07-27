@@ -342,8 +342,8 @@ private fun RealtimePerformanceCard(entranceDelay: Int = 0) {
                 )
                 ApplePerfMetric(
                     label = I18n.t("stats.network"),
-                    valueText = "↑${formatNetSpeed(s.netUpKbS)}",
-                    caption = "↓${formatNetSpeed(s.netDownKbS)}",
+                    valueText = "up ${formatNetSpeed(s.netUpKbS)}",
+                    caption = "down ${formatNetSpeed(s.netDownKbS)}",
                     detail = I18n.t("stats.net_peak", formatNetSpeed(peaks.netUpPeak), formatNetSpeed(peaks.netDownPeak)),
                     progress = ((s.netUpKbS + s.netDownKbS) / 1024.0).coerceIn(0.0, 1.0).toFloat(),
                     history = netHistory,

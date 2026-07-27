@@ -36,7 +36,7 @@ public final class ModFile {
         this.fileName = fileName;
         this.fileSize = fileSize;
         this.downloadUrl = downloadUrl;
-        this.gameVersions = gameVersions;
+        this.gameVersions = gameVersions != null ? new java.util.ArrayList<>(gameVersions) : new java.util.ArrayList<>();
         this.loaders = loaders;
         this.releaseType = releaseType;
         this.dependencies = dependencies != null ? dependencies : java.util.Collections.emptyList();
@@ -55,7 +55,7 @@ public final class ModFile {
     public String getFileName() { return fileName; }
     public long getFileSize() { return fileSize; }
     public String getDownloadUrl() { return downloadUrl; }
-    public List<String> getGameVersions() { return gameVersions; }
+    public java.util.List<String> getGameVersions() { return new java.util.ArrayList<>(gameVersions); }
     public List<String> getLoaders() { return loaders; }
     public String getReleaseType() { return releaseType; }
     /** 返回依赖的 project ID 列表（来自 Modrinth API 的 dependencies 字段），无依赖时返回空列表 */

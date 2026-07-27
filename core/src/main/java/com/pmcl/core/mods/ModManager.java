@@ -19,9 +19,15 @@ public final class ModManager {
     private final Path modsDir;
 
     /** scanDirectory 结果缓存（按 mods 目录 mtime 失效） */
-    private volatile List<ModMeta> cachedMods;
-    /** 缓存对应的 mods 目录 mtime（毫秒） */
-    private volatile long cachedModsTime;
+    private static final class CacheEntry {
+        final java.util.List<ModMeta> mods;
+        final long mtime;
+        CacheEntry(java.util.List<ModMeta> mods, long mtime) {
+            this.mods = mods;
+            this.mtime = mtime;
+        }
+    }
+    private volatile CacheEntry cache;
 
     public ModManager(Path modsDir) {
         this.modsDir = modsDir;
@@ -112,9 +118,14 @@ public final class ModManager {
         if (jarFileName == null || jarFileName.isEmpty()) {
             throw new IllegalArgumentException("jar 文件名为空");
         }
-        Path asPath = Path.of(jarFileName);
-        if (asPath.isAbsolute()) return asPath;
-        return modsDir.resolve(jarFileName);
+        if (jarFileName.contains("..") || jarFileName.contains("/") || jarFileName.contains("\\") || jarFileName.indexOf('\0') >= 0) {
+            throw new IllegalArgumentException("非法 jar 文件名: " + jarFileName);
+        }
+        Path resolved = modsDir.resolve(jarFileName).toAbsolutePath().normalize();
+        if (!resolved.startsWith(modsDir.toAbsolutePath().normalize())) {
+            throw new IllegalArgumentException("路径越界: " + jarFileName);
+        }
+        return resolved;
     }
 
     /**
@@ -148,13 +159,12 @@ public final class ModManager {
             // 目录不存在等异常：直接扫描不缓存
             return ModScanner.scanDirectory(modsDir);
         }
-        List<ModMeta> cached = cachedMods;
-        if (cached != null && cachedModsTime == currentMtime) {
-            return cached;
+        CacheEntry e = cache;
+        if (e != null && e.mtime == currentMtime) {
+            return e.mods;
         }
         List<ModMeta> mods = ModScanner.scanDirectory(modsDir);
-        cachedMods = mods;
-        cachedModsTime = currentMtime;
+        cache = new CacheEntry(mods, currentMtime);
         return mods;
     }
 
@@ -162,7 +172,6 @@ public final class ModManager {
      * 清除扫描结果缓存。应在 mod 安装/卸载/增删后调用，确保下次查询重新扫描。
      */
     public void invalidateCache() {
-        cachedMods = null;
-        cachedModsTime = 0;
+        cache = null;
     }
 }

@@ -173,7 +173,7 @@ fun DownloadPage(vm: LauncherViewModel) {
             )
 
             LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                itemsIndexed(filtered, key = { _, v -> v.getId() }) { index, v ->
+                itemsIndexed(filtered, key = { idx, v -> v.getId() ?: "v$idx" }) { index, v ->
                     Box(Modifier.animateItemPlacement()) {
                     StaggeredAppear(index) {
                     DownloadRow(
@@ -192,7 +192,7 @@ fun DownloadPage(vm: LauncherViewModel) {
         } else {
             // 加载器列表
             LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                itemsIndexed(modLoaderVersions, key = { _, lv -> lv.getLoaderVersion() }) { index, lv ->
+                itemsIndexed(modLoaderVersions, key = { idx, lv -> lv.getLoaderVersion() ?: "lv$idx" }) { index, lv ->
                     Box(Modifier.animateItemPlacement()) {
                     StaggeredAppear(index) {
                     DownloadRow(

@@ -69,6 +69,8 @@ public final class GitHubAuthFlow {
     /** 关闭内部调度线程 */
     public void shutdown() {
         scheduler.shutdownNow();
+        http.connectionPool().evictAll();
+        http.dispatcher().executorService().shutdown();
     }
 
     /**

@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -267,7 +268,8 @@ fun LaunchPage(vm: LauncherViewModel) {
                             Modifier.padding(10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("⚠ ", style = MaterialTheme.typography.bodySmall)
+                            Icon(Icons.Filled.Warning, null, Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
                             Text(
                                 I18n.t("launch.no_local_hint"),
                                 style = MaterialTheme.typography.bodySmall,
@@ -1850,7 +1852,7 @@ private fun LocalVersionRow(
                 }
                 Spacer(Modifier.height(2.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("${if (info.isHasJar()) "✓jar" else "✗jar"}  ${if (info.isHasJson()) "✓json" else "✗json"}",
+                    Text("jar  json",
                          style = MaterialTheme.typography.labelSmall,
                          color = MaterialTheme.colorScheme.outline)
                     val mainClass = info.getMainClass()

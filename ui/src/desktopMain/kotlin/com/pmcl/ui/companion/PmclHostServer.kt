@@ -341,31 +341,28 @@ class PmclHostServer(
     //  Handler: 启动 / 停止游戏
     // ================================================================
 
-    private fun handleLaunch(payload: JsonElement?): JsonObject {
+    private suspend fun handleLaunch(payload: JsonElement?): JsonObject {
         // 同步认领 + 与桌面互斥，避免 TOCTOU 双开 / UI 状态分叉
-        val versionId: String
-        val profile: com.pmcl.core.launch.LaunchProfile
-        val javaExe: String
-        synchronized(launchLock) {
-            if (launchClaimed || currentProcess?.isAlive == true) {
-                return errorEnvelope(null, "launch", "already_running", "游戏已在运行")
-            }
-            if (vm.isDesktopLaunchBusy()) {
-                return errorEnvelope(null, "launch", "already_running", "桌面端正在启动或运行游戏")
-            }
+        // 快速预检（无锁脏读，仅作短路；权威检查在 synchronized 内）
+        if (launchClaimed || currentProcess?.isAlive == true) {
+            return errorEnvelope(null, "launch", "already_running", "游戏已在运行")
+        }
 
-            val obj = payload?.asJsonObject ?: return errorEnvelope(null, "launch", "bad_request", "缺少 payload")
-            versionId = obj.get("versionId")?.asString
-                ?: return errorEnvelope(null, "launch", "bad_request", "缺少 versionId")
+        val obj = payload?.asJsonObject
+            ?: return errorEnvelope(null, "launch", "bad_request", "缺少 payload")
+        val versionId = obj.get("versionId")?.asString
+            ?: return errorEnvelope(null, "launch", "bad_request", "缺少 versionId")
 
-            var account = vm.account.value
-                ?: return errorEnvelope(null, "launch", "no_account", "桌面端未登录账号")
+        var account = vm.account.value
+            ?: return errorEnvelope(null, "launch", "no_account", "桌面端未登录账号")
 
-            val core = vm.core
-            val config = core.getConfig()
+        val core = vm.core
+        val config = core.getConfig()
 
-            // 启动前刷新临近过期的微软/皮肤站令牌
-            try {
+        // 启动前刷新临近过期的微软/皮肤站令牌（网络 I/O，移出锁外避免长时持锁 / 跨线程释放 monitor）
+        var authExpired = false
+        try {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 if (account.needsMicrosoftRefresh()) {
                     account = core.auth().refreshMicrosoftAccount(account)
                     vm.upsertAccountFromCompanion(account)
@@ -377,16 +374,35 @@ class PmclHostServer(
                 ) {
                     val newTok = core.auth().yggdrasilRefresh(
                         account.authServerUrl, account.accessToken, account.clientToken
-                    ) ?: return errorEnvelope(null, "launch", "auth_expired", "皮肤站令牌已失效，请重新登录")
-                    account = account.withAccessToken(newTok)
-                    vm.upsertAccountFromCompanion(account)
+                    )
+                    if (newTok != null) {
+                        account = account.withAccessToken(newTok)
+                        vm.upsertAccountFromCompanion(account)
+                    } else {
+                        authExpired = true
+                    }
                 }
-            } catch (e: Exception) {
-                if (e is CancellationException) throw e
-                return errorEnvelope(
-                    null, "launch", "auth_refresh_failed",
-                    "账号令牌刷新失败：${e.message ?: e.javaClass.simpleName}"
-                )
+            }
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            return errorEnvelope(
+                null, "launch", "auth_refresh_failed",
+                "账号令牌刷新失败：${e.message ?: e.javaClass.simpleName}"
+            )
+        }
+        if (authExpired) {
+            return errorEnvelope(null, "launch", "auth_expired", "皮肤站令牌已失效，请重新登录")
+        }
+
+        val profile: com.pmcl.core.launch.LaunchProfile
+        val javaExe: String
+        synchronized(launchLock) {
+            // 原子重检 + 认领，避免 TOCTOU 双开 / UI 状态分叉
+            if (launchClaimed || currentProcess?.isAlive == true) {
+                return errorEnvelope(null, "launch", "already_running", "游戏已在运行")
+            }
+            if (vm.isDesktopLaunchBusy()) {
+                return errorEnvelope(null, "launch", "already_running", "桌面端正在启动或运行游戏")
             }
 
             val requiredJavaVer = try {
@@ -501,16 +517,23 @@ class PmclHostServer(
     private fun handleKill(): JsonObject {
         synchronized(launchLock) {
             val proc = currentProcess
-            if (proc != null && proc.isAlive) {
-                val killed = processMonitor.forceKill(proc)
-                if (!killed) {
-                    return errorEnvelope(null, "kill", "kill_failed", "无法终止进程")
+            if (proc != null) {
+                if (proc.isAlive) {
+                    val killed = processMonitor.forceKill(proc)
+                    if (!killed) {
+                        return errorEnvelope(null, "kill", "kill_failed", "无法终止进程")
+                    }
                 }
+                currentProcess = null
+                currentVersionId = null
+                currentStartTime = null
+                launchClaimed = false  // 仅在确实杀到进程时才清零
+            } else {
+                // 进程未赋值，说明启动协程仍在运行
+                // 不清零 launchClaimed，让启动协程自己完成或失败后清零
+                // 返回错误让客户端知道无法 kill
+                return errorEnvelope(null, "kill", "not_running", "游戏进程尚未启动，无法 kill")
             }
-            currentProcess = null
-            currentVersionId = null
-            currentStartTime = null
-            launchClaimed = false
         }
         try { vm.releaseCompanionLaunch() } catch (_: Throwable) {}
         return okResponse(null)

@@ -200,7 +200,14 @@ public final class SsrfChecker {
                 || addr.isLinkLocalAddress()
                 || addr.isSiteLocalAddress()    // 10.x, 172.16-31.x, 192.168.x
                 || addr.isMulticastAddress()
-                || isCarrierGradeNat(addr);     // 100.64.0.0/10
+                || isCarrierGradeNat(addr)      // 100.64.0.0/10
+                || isIpv6UniqueLocal(addr);     // fc00::/7
+    }
+
+    /** IPv6 Unique Local Address (RFC 4193): fc00::/7 — Java isSiteLocalAddress 不覆盖 IPv6。 */
+    private static boolean isIpv6UniqueLocal(InetAddress addr) {
+        byte[] bytes = addr.getAddress();
+        return bytes.length == 16 && (bytes[0] & 0xFE) == 0xFC;
     }
 
     /** Carrier-grade NAT (RFC 6598): 100.64.0.0/10 — 不算私有但常用于内网。 */

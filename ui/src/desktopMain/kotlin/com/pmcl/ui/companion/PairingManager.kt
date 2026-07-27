@@ -206,10 +206,10 @@ class PairingManager(private val dataFile: Path) {
     private fun decryptSecret(stored: String): String {
         if (stored.isEmpty()) return stored
         val plain = TokenEncryptor.decrypt(stored)
-        if (TokenEncryptor.isEncrypted(stored) && plain.isEmpty()) {
+        if (TokenEncryptor.isEncrypted(stored) && plain.isNullOrEmpty()) {
             System.err.println("[PairingManager] 密文解密失败（可能是机器标识变化）")
         }
-        return plain
+        return plain ?: ""
     }
 
     // ---- 配对码 ----

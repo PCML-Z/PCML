@@ -14,6 +14,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -80,7 +81,7 @@ public final class VideoCallSession {
     // M60 修复：state 改为 AtomicReference，统一并发访问，消除 volatile + synchronized 混用
     private final java.util.concurrent.atomic.AtomicReference<State> stateRef =
             new java.util.concurrent.atomic.AtomicReference<>(State.RINGING);
-    private Agent iceAgent;
+    private volatile Agent iceAgent;
 
     // 摄像头采集
     private FFmpegFrameGrabber grabber;
@@ -362,6 +363,14 @@ public final class VideoCallSession {
 
             TransportAddress ta = new TransportAddress(address, port, Transport.parse(transport));
 
+            InetAddress addr = ta.getAddress();
+            if (addr.isLoopbackAddress() || addr.isSiteLocalAddress()
+                || addr.isLinkLocalAddress() || addr.isMulticastAddress()
+                || addr.isAnyLocalAddress()) {
+                System.err.println("[VideoCall] 拒绝内网远端候选: " + addr);
+                return;
+            }
+
             if (streamName != null) {
                 IceMediaStream stream = iceAgent.getStream(streamName);
                 if (stream != null) {
@@ -490,6 +499,13 @@ public final class VideoCallSession {
             remote = new InetSocketAddress("127.0.0.1", port);
         } else {
             remote = new InetSocketAddress(pendingIceRemote.getAddress(), port);
+        }
+        InetAddress remoteAddr = remote.getAddress();
+        if (remoteAddr.isLoopbackAddress() || remoteAddr.isSiteLocalAddress()
+            || remoteAddr.isLinkLocalAddress() || remoteAddr.isMulticastAddress()
+            || remoteAddr.isAnyLocalAddress()) {
+            System.err.println("[VideoCall] 拒绝向内网地址发送视频流: " + remoteAddr);
+            return;
         }
         System.out.println("[VideoCall] 远端视频端口就绪: " + remote + " 开始发送");
         startCaptureThread(videoSocket, remote);

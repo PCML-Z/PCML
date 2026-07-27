@@ -119,6 +119,15 @@ public final class CurseForgeClient implements ModMarketClient {
             try (Response resp = http.newCall(req).execute()) {
                 String body = resp.body() != null ? resp.body().string() : "{}";
                 if (!resp.isSuccessful()) {
+                    if (resp.code() == 429) {
+                        String retryAfter = resp.header("Retry-After");
+                        long waitMs = 5000; // 默认 5s
+                        if (retryAfter != null) {
+                            try { waitMs = Long.parseLong(retryAfter) * 1000L; } catch (NumberFormatException ignored) {}
+                        }
+                        try { Thread.sleep(Math.min(waitMs, 60000)); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); throw new IOException("中断", ie); }
+                        continue; // 重试
+                    }
                     throw new IOException("HTTP " + resp.code() + ": " + body);
                 }
                 JsonObject root = JsonParser.parseString(body).getAsJsonObject();
@@ -196,6 +205,15 @@ public final class CurseForgeClient implements ModMarketClient {
                 try (Response resp = http.newCall(req).execute()) {
                     String body = resp.body() != null ? resp.body().string() : "{}";
                     if (!resp.isSuccessful()) {
+                        if (resp.code() == 429) {
+                            String retryAfter = resp.header("Retry-After");
+                            long waitMs = 5000; // 默认 5s
+                            if (retryAfter != null) {
+                                try { waitMs = Long.parseLong(retryAfter) * 1000L; } catch (NumberFormatException ignored) {}
+                            }
+                            try { Thread.sleep(Math.min(waitMs, 60000)); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); throw new IOException("中断", ie); }
+                            continue; // 重试
+                        }
                         throw new IOException("HTTP " + resp.code() + ": " + body);
                     }
                     JsonObject root = JsonParser.parseString(body).getAsJsonObject();

@@ -150,6 +150,7 @@ public final class CurlFallback {
         cmd.add("--data-binary"); cmd.add(body);
         // 在 body 末尾追加 HTTP 状态码，用于判断 4xx/5xx
         cmd.add("-w"); cmd.add("\n__HTTP_CODE__%{http_code}");
+        cmd.add("--");
         cmd.add(url);
 
         Process p = new ProcessBuilder(cmd).start();
@@ -240,6 +241,7 @@ public final class CurlFallback {
         }
         cmd.add("--data-binary"); cmd.add(body);
         cmd.add("-w"); cmd.add("\n__HTTP_CODE__%{http_code}");
+        cmd.add("--");
         cmd.add(url);
 
         Process p = new ProcessBuilder(cmd).start();
@@ -311,6 +313,7 @@ public final class CurlFallback {
         addSafeRedirectFlags(cmd);
         cmd.add("-H"); cmd.add("User-Agent: PMCL/1.0");
         cmd.add("-H"); cmd.add("Accept: */*");
+        cmd.add("--");
         cmd.add(url);
 
         Process p = new ProcessBuilder(cmd).start();
@@ -367,6 +370,7 @@ public final class CurlFallback {
                 cmd.add("-H"); cmd.add(h);
             }
         }
+        cmd.add("--");
         cmd.add(url);
 
         Process p = new ProcessBuilder(cmd).start();
@@ -418,6 +422,7 @@ public final class CurlFallback {
         addSafeRedirectFlags(cmd);
         cmd.add("-H"); cmd.add("User-Agent: PMCL/1.0");
         cmd.add("-o"); cmd.add(tmp.toString());
+        cmd.add("--");
         cmd.add(url);
 
         Process p = new ProcessBuilder(cmd).start();
@@ -465,6 +470,7 @@ public final class CurlFallback {
             cmd.add("-I");                     // HEAD 请求
             addSafeRedirectFlags(cmd);
             cmd.add("-H"); cmd.add("User-Agent: PMCL/1.0");
+            cmd.add("--");
             cmd.add(url);
 
             Process p = new ProcessBuilder(cmd).start();

@@ -112,7 +112,10 @@ public final class PluginPackageBuilder {
 
         // Validate that all declared libraries exist
         for (PluginPackageParser.LibraryRef lib : libraries) {
-            Path libPath = extractedDir.resolve(lib.getPath());
+            Path libPath = extractedDir.resolve(lib.getPath()).normalize();
+            if (!libPath.startsWith(extractedDir.normalize())) {
+                throw new IOException("Library path escapes plugin dir: " + lib.getPath());
+            }
             if (!Files.exists(libPath)) {
                 throw new IOException(
                     "Declared library '" + lib.getPath() + "' not found in extracted package.");

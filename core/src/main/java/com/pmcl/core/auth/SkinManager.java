@@ -226,7 +226,7 @@ public final class SkinManager {
 
         // 删除皮肤
         Request deleteReq = new Request.Builder()
-                .url(base + "/api/skin/delete?pid=" + playerId)
+                .url(base + "/api/skin/delete?pid=" + java.net.URLEncoder.encode(playerId, java.nio.charset.StandardCharsets.UTF_8))
                 .header("Cookie", cookies)
                 .delete()
                 .build();

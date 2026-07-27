@@ -39,8 +39,10 @@ public final class ModMeta {
         this.description = description;
         this.authors = authors;
         this.loader = loader;
-        this.depends = depends == null ? Collections.emptyList() : Collections.unmodifiableList(depends);
-        this.conflicts = conflicts == null ? Collections.emptyList() : Collections.unmodifiableList(conflicts);
+        this.depends = depends == null ? Collections.emptyList()
+            : Collections.unmodifiableList(new java.util.ArrayList<>(depends));
+        this.conflicts = conflicts == null ? Collections.emptyList()
+            : Collections.unmodifiableList(new java.util.ArrayList<>(conflicts));
         this.jarFile = jarFile;
         this.disabled = disabled;
         this.tags = Collections.emptyList();

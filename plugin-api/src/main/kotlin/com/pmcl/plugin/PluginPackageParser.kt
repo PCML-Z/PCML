@@ -464,6 +464,9 @@ object PluginPackageParser {
         // Validate source file paths and check for duplicates
         val seenPaths = mutableSetOf<String>()
         for (src in sources) {
+            require(!src.path.contains("..")) {
+                "源码路径不得包含 '..': '${src.path}'"
+            }
             if (!seenPaths.add(src.path)) {
                 throw IllegalArgumentException(
                     "Duplicate source path: '${src.path}'. " +
@@ -539,6 +542,9 @@ object PluginPackageParser {
         }
         // Check all library paths
         for (lib in pkg.libraries) {
+            require(!lib.path.contains("..")) {
+                "库路径不得包含 '..': '${lib.path}'"
+            }
             require(lib.path.startsWith("lib/") && lib.path.endsWith(".jar")) {
                 "Library path must start with 'lib/' and end with '.jar', got: '${lib.path}'"
             }
@@ -549,6 +555,9 @@ object PluginPackageParser {
         }
         // Check all resource paths
         for (res in pkg.resources) {
+            require(!res.path.contains("..")) {
+                "资源路径不得包含 '..': '${res.path}'"
+            }
             require(res.path.startsWith("resources/")) {
                 "Resource path must start with 'resources/', got: '${res.path}'"
             }

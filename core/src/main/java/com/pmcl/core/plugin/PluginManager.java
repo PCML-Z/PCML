@@ -196,7 +196,7 @@ public final class PluginManager {
     // ==================== State Persistence ====================
 
     @SuppressWarnings("unchecked")
-    private void loadState() {
+    private synchronized void loadState() {
         // M26 修复：先清理旧状态，确保 loadState 二次调用行为一致。
         // 否则若 JSON 缺少某字段或解析失败，会残留前一次的数据，导致状态不一致。
         // 使用 clear()+putAll() 而非 reassign，避免外部持有旧引用导致 stale read。

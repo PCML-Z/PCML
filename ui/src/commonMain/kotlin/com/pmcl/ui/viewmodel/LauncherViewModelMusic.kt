@@ -362,8 +362,8 @@ fun LauncherViewModel.deleteMusicPlaylist(id: String) {
 
 fun LauncherViewModel.switchMusicPlaylist(id: String) {
     if (id == _musicActivePlaylistId.value) return
-    // 先保存当前
-    persistMusicPlaylistSync()
+    // 先保存当前（异步，避免阻塞 UI）
+    scope.launch { persistMusicPlaylistSync() }
     stopMusic()
     _musicCurrentIndex.value = -1
     _musicLyrics.value = emptyList()

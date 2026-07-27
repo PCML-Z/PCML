@@ -115,7 +115,7 @@ fun MusicPage(vm: LauncherViewModel) {
                         ) {
                             playlistIndex.forEach { p ->
                                 DropdownMenuItem(
-                                    text = { Text(p.name + if (p.id == activePlaylistId) " ✓" else "") },
+                                    text = { Text(p.name) },
                                     onClick = {
                                         vm.switchMusicPlaylist(p.id)
                                         playlistMenuExpanded = false

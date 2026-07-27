@@ -149,10 +149,11 @@ public class MusicPlayer {
 
     public void stop() {
         Thread t = playThread;
+        state = PlaybackState.STOPPED;
         if (t != null) {
             t.interrupt();
+            try { t.join(2000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
         }
-        state = PlaybackState.STOPPED;
         cleanup();
         setState(PlaybackState.IDLE);
         playThread = null;
@@ -177,19 +178,25 @@ public class MusicPlayer {
         Map<String, String> headers = currentHeaders;
         try {
             FFmpegFrameGrabber g = new FFmpegFrameGrabber(url);
-            // HTTP 请求头
-            if (headers != null && !headers.isEmpty()) {
-                g.setOption("headers", buildHeaderString(headers));
+            try {
+                // HTTP 请求头
+                if (headers != null && !headers.isEmpty()) {
+                    g.setOption("headers", buildHeaderString(headers));
+                }
+                // 网络重连 / 优化参数
+                g.setOption("reconnect", "1");
+                g.setOption("reconnect_streamed", "1");
+                g.setOption("reconnect_delay_max", "5");
+                g.setOption("analyzeduration", "1000000"); // 1s，加快首帧
+                // 强制 16-bit PCM 输出
+                g.setSampleFormat(avutil.AV_SAMPLE_FMT_S16);
+                g.start();
+                grabber = g;
+            } catch (Throwable e) {
+                try { g.stop(); } catch (Throwable ignored) {}
+                try { g.close(); } catch (Throwable ignored) {}
+                throw e;
             }
-            // 网络重连 / 优化参数
-            g.setOption("reconnect", "1");
-            g.setOption("reconnect_streamed", "1");
-            g.setOption("reconnect_delay_max", "5");
-            g.setOption("analyzeduration", "1000000"); // 1s，加快首帧
-            // 强制 16-bit PCM 输出
-            g.setSampleFormat(avutil.AV_SAMPLE_FMT_S16);
-            g.start();
-            grabber = g;
 
             int sampleRate = g.getSampleRate();
             int channels = g.getAudioChannels();
@@ -207,7 +214,8 @@ public class MusicPlayer {
             setState(PlaybackState.PLAYING);
 
             // 主播放循环
-            while (!Thread.currentThread().isInterrupted() && state != PlaybackState.STOPPED) {
+            while (!Thread.currentThread().isInterrupted() && state != PlaybackState.STOPPED
+                   && Thread.currentThread() == playThread) {
                 // seek 处理
                 if (seekRequested) {
                     try {

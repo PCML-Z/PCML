@@ -262,22 +262,29 @@ public final class OptiFineInstaller implements ModLoaderInstaller {
                 tmpOut.toAbsolutePath().toString());
         pb.redirectErrorStream(true);
         Process p = pb.start();
-        String output;
-        try (InputStream in = p.getInputStream()) {
-            output = new String(in.readAllBytes(), StandardCharsets.UTF_8);
-        }
+        java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+        Thread drainer = new Thread(() -> {
+            try (InputStream in = p.getInputStream()) { in.transferTo(bos); }
+            catch (IOException ignored) {}
+        });
+        drainer.setDaemon(true);
+        drainer.start();
         boolean finished;
         try {
             finished = p.waitFor(5, TimeUnit.MINUTES);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             p.destroyForcibly();
+            try { drainer.join(500); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
             throw new InstallInterruptedException("OptiFine Patcher 被中断", e);
         }
         if (!finished) {
             p.destroyForcibly();
+            try { drainer.join(500); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
             throw new IOException("OptiFine Patcher 超时");
         }
+        try { drainer.join(1000); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+        String output = bos.toString(StandardCharsets.UTF_8);
         if (p.exitValue() != 0 || !Files.isRegularFile(tmpOut) || Files.size(tmpOut) < 1024) {
             String preview = output == null ? "" : output.trim();
             if (preview.length() > 500) preview = preview.substring(preview.length() - 500);

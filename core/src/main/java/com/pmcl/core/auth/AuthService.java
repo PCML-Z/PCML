@@ -269,11 +269,17 @@ public final class AuthService {
                     if (o.has("expiresAt") && !o.get("expiresAt").isJsonNull()) {
                         try { expiresAt = o.get("expiresAt").getAsLong(); } catch (Throwable ignored) {}
                     }
+                    String accessToken = TokenEncryptor.decrypt(
+                            o.has("accessToken") && !o.get("accessToken").isJsonNull() ? o.get("accessToken").getAsString() : "");
+                    if (accessToken == null) {
+                        System.err.println("[AuthService] 账号 accessToken 解密失败，跳过: "
+                                + (o.has("username") && !o.get("username").isJsonNull() ? o.get("username").getAsString() : "(unknown)"));
+                        continue;
+                    }
                     accounts.add(new Account(
                             o.has("username") && !o.get("username").isJsonNull() ? o.get("username").getAsString() : "",
                             o.has("uuid") && !o.get("uuid").isJsonNull() ? o.get("uuid").getAsString() : "",
-                            TokenEncryptor.decrypt(
-                                o.has("accessToken") && !o.get("accessToken").isJsonNull() ? o.get("accessToken").getAsString() : ""),
+                            accessToken,
                             accountType,
                             o.has("skinUrl") && !o.get("skinUrl").isJsonNull() ? o.get("skinUrl").getAsString() : "",
                             o.has("skinModel") && !o.get("skinModel").isJsonNull() ? o.get("skinModel").getAsString() : "classic",

@@ -16,9 +16,9 @@ import java.util.List;
  */
 public final class RuntimeManager {
 
-    private SystemInfo systemInfo;
-    private HardwareAbstractionLayer hardware;
-    private OperatingSystem os;
+    private final SystemInfo systemInfo;
+    private final HardwareAbstractionLayer hardware;
+    private final OperatingSystem os;
     private volatile boolean available = false;
 
     // CPU 负载计算所需的上一次采样

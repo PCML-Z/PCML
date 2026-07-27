@@ -81,7 +81,17 @@ public final class GitHubReleaseSyncChecker implements AutoCloseable {
 
     /** 配置 GitHub 仓库（格式 "owner/repo"），null 或空表示禁用 */
     public void setGithubRepo(String repo) {
-        this.githubRepo = (repo == null) ? "" : repo.trim();
+        if (repo == null || repo.isBlank()) {
+            this.githubRepo = "";
+            return;
+        }
+        String trimmed = repo.trim();
+        if (!trimmed.matches("^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")) {
+            System.err.println("[GitHubSync] 非法 repo 格式: " + repo);
+            this.githubRepo = "";
+            return;
+        }
+        this.githubRepo = trimmed;
     }
 
     /** 更新当前客户端版本号 */

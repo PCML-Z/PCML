@@ -127,7 +127,7 @@ private fun MigrationCard(
             Spacer(Modifier.height(12.dp))
 
             if (migrated) {
-                Text("✓ 已完成迁移",
+                Text("已完成迁移",
                      style = MaterialTheme.typography.bodySmall,
                      color = MaterialTheme.colorScheme.primary,
                      fontWeight = FontWeight.Medium)

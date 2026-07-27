@@ -18,8 +18,8 @@ public final class MirrorManager {
         CUSTOM
     }
 
-    private MirrorType type = MirrorType.OFFICIAL;
-    private String customBase = "";
+    private volatile MirrorType type = MirrorType.OFFICIAL;
+    private volatile String customBase = "";
 
     /** 官方域名 → BMCLAPI 域名映射 */
     private static final Map<String, String> BMCLAPI_MAP = new LinkedHashMap<>();

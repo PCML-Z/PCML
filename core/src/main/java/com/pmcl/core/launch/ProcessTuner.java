@@ -27,7 +27,7 @@ public final class ProcessTuner {
     private final boolean isWindows;
     private final boolean isLinux;
 
-    private Process caffeinateProcess;   // L2：防休眠子进程
+    private volatile Process caffeinateProcess;   // L2：防休眠子进程
     private Integer originalLowPowerMode; // L3：原始低电量模式状态，用于恢复
 
     public ProcessTuner() {
@@ -244,11 +244,21 @@ public final class ProcessTuner {
         Process p = null;
         try {
             p = new ProcessBuilder("pmset", "-g").redirectErrorStream(true).start();
-            String out = new String(p.getInputStream().readAllBytes(),
-                    java.nio.charset.StandardCharsets.UTF_8);
+            final Process fp = p;
+            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+            Thread drainer = new Thread(() -> {
+                try (java.io.InputStream is = fp.getInputStream()) { is.transferTo(bos); }
+                catch (IOException ignored) {}
+            });
+            drainer.setDaemon(true);
+            drainer.start();
             if (!p.waitFor(5, TimeUnit.SECONDS)) {
+                p.destroyForcibly();
+                try { drainer.join(500); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
                 return null;
             }
+            try { drainer.join(1000); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+            String out = bos.toString(java.nio.charset.StandardCharsets.UTF_8);
             // pmset -g 输出含 "lowpowermode     0" 或 "lowpowermode     1"
             java.util.regex.Matcher m = java.util.regex.Pattern.compile(
                 "lowpowermode\\s+(\\d)").matcher(out);

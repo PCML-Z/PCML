@@ -69,11 +69,11 @@ public final class FriendStore {
                                     needsResave = true;
                                 }
                                 String plain = TokenEncryptor.decrypt(entry.authSecret);
-                                if (TokenEncryptor.isEncrypted(entry.authSecret) && plain.isEmpty()) {
+                                if (TokenEncryptor.isEncrypted(entry.authSecret) && (plain == null || plain.isEmpty())) {
                                     System.err.println("[FriendStore] 好友 authSecret 解密失败，清空: "
                                             + entry.identity);
                                 }
-                                entry.authSecret = plain;
+                                entry.authSecret = plain != null ? plain : "";
                             }
                             friends.put(entry.identity, entry);
                         }
@@ -289,7 +289,7 @@ public final class FriendStore {
     }
 
     /** 添加一条消息 */
-    public void addMessage(String peerIdentity, String msgId, String text, long timestamp, boolean fromMe) {
+    public synchronized void addMessage(String peerIdentity, String msgId, String text, long timestamp, boolean fromMe) {
         StoredMessage msg = new StoredMessage();
         msg.id = msgId;
         msg.text = text;

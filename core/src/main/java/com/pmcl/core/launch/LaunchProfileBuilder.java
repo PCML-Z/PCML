@@ -94,6 +94,9 @@ public final class LaunchProfileBuilder {
      * 在所有已知 versions 目录中查找版本 JSON，返回首个找到的路径。
      */
     private Path findVersionJson(String versionId) {
+        if (versionId == null || versionId.contains("..") || versionId.contains("/") || versionId.contains("\\") || versionId.indexOf('\0') >= 0) {
+            throw new IllegalArgumentException("非法版本 ID: " + versionId);
+        }
         for (Path dir : getVersionsDirs()) {
             Path jsonPath = dir.resolve(versionId).resolve(versionId + ".json");
             if (Files.exists(jsonPath)) return jsonPath;
@@ -105,6 +108,9 @@ public final class LaunchProfileBuilder {
      * 在所有已知 versions 目录中查找版本 jar，返回首个找到的路径。
      */
     private Path findVersionJar(String versionId) {
+        if (versionId == null || versionId.contains("..") || versionId.contains("/") || versionId.contains("\\") || versionId.indexOf('\0') >= 0) {
+            throw new IllegalArgumentException("非法版本 ID: " + versionId);
+        }
         for (Path dir : getVersionsDirs()) {
             Path jarPath = dir.resolve(versionId).resolve(versionId + ".jar");
             if (Files.exists(jarPath)) return jarPath;
@@ -139,6 +145,9 @@ public final class LaunchProfileBuilder {
      * </ol>
      */
     private Path resolveGameDir(String versionId, Path mcRoot) {
+        if (versionId == null || versionId.contains("..") || versionId.contains("/") || versionId.contains("\\") || versionId.indexOf('\0') >= 0) {
+            throw new IllegalArgumentException("非法版本 ID: " + versionId);
+        }
         // 版本隔离：每个版本独立的游戏目录
         if (preferences.isVersionIsolation()) {
             Path instanceDir = config.getWorkDir().resolve("instances").resolve(versionId);

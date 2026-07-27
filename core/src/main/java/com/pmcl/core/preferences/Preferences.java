@@ -1346,9 +1346,9 @@ public final class Preferences {
     private static String decryptStoredSecret(String stored) {
         if (stored == null || stored.isEmpty()) return "";
         String plain = TokenEncryptor.decrypt(stored);
-        if (TokenEncryptor.isEncrypted(stored) && plain.isEmpty()) {
+        if (TokenEncryptor.isEncrypted(stored) && (plain == null || plain.isEmpty())) {
             System.err.println("[Preferences] 敏感字段解密失败（可能是机器标识变化）");
         }
-        return plain;
+        return plain != null ? plain : "";
     }
 }

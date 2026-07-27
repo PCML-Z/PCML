@@ -344,6 +344,7 @@ public final class ModpackManager {
         if (url == null || url.isEmpty()) {
             throw new IOException("无下载 URL");
         }
+        validateDownloadUrl(url);
         Path target = instanceDirAbs.resolve(mf.path).normalize();
         if (!target.startsWith(instanceDirAbs)) {
             throw new IOException("非法路径: " + mf.path);
@@ -359,6 +360,29 @@ public final class ModpackManager {
             return;
         }
         downloads.downloadToVerified(url, target, sha1, null);
+    }
+
+    private void validateDownloadUrl(String url) throws IOException {
+        if (url == null || url.isEmpty()) throw new IOException("空下载 URL");
+        java.net.URI uri;
+        try { uri = java.net.URI.create(url); } catch (Exception e) {
+            throw new IOException("非法下载 URL: " + url, e);
+        }
+        String scheme = uri.getScheme();
+        if (!"https".equalsIgnoreCase(scheme) && !"http".equalsIgnoreCase(scheme)) {
+            throw new IOException("非法下载协议: " + scheme);
+        }
+        String host = uri.getHost();
+        if (host == null) throw new IOException("下载 URL 缺少 host: " + url);
+        // 内网主机校验
+        try {
+            java.net.InetAddress addr = java.net.InetAddress.getByName(host);
+            if (com.pmcl.core.util.SsrfChecker.isInternalAddress(addr)) {
+                throw new IOException("非法下载主机（内网地址）: " + host);
+            }
+        } catch (java.net.UnknownHostException e) {
+            throw new IOException("无法解析下载主机: " + host, e);
+        }
     }
 
     /**
@@ -791,7 +815,14 @@ public final class ModpackManager {
     // ===== 删除整合包实例 =====
 
     public void deleteModpack(String name) throws IOException {
-        Path dir = config.getWorkDir().resolve("instances").resolve(name);
+        if (name == null || name.contains("..") || name.contains("/") || name.contains("\\") || name.indexOf('\0') >= 0) {
+            throw new IOException("非法整合包名称: " + name);
+        }
+        Path instancesRoot = config.getWorkDir().resolve("instances").toAbsolutePath().normalize();
+        Path dir = instancesRoot.resolve(name).normalize();
+        if (!dir.startsWith(instancesRoot)) {
+            throw new IOException("路径越界: " + name);
+        }
         if (!Files.isDirectory(dir)) {
             throw new IOException("整合包实例不存在: " + name);
         }

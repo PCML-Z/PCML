@@ -250,12 +250,35 @@ public final class WorldManager {
                 try (ZipInputStream zis = new ZipInputStream(Files.newInputStream(zipFile))) {
                     com.pmcl.core.util.SafeZipExtractor.extractStreamSafely(zis, staging, null);
                 }
-                // 解压成功，删除原世界并原子替换
-                if (Files.exists(target)) deleteRecursive(target);
+                // 解压成功，原子替换原世界（先备份 target→bak，move staging→target，成功后删 bak，失败恢复）
+                Path bak = target.resolveSibling(worldName + ".bak");
+                if (Files.exists(target)) {
+                    try {
+                        Files.move(target, bak, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+                    } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                        Files.move(target, bak, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    }
+                }
                 try {
-                    Files.move(staging, target, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
-                } catch (java.nio.file.AtomicMoveNotSupportedException e) {
-                    Files.move(staging, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    try {
+                        Files.move(staging, target, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+                    } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                        Files.move(staging, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    }
+                    // 成功后清理备份
+                    if (Files.exists(bak)) deleteRecursive(bak);
+                } catch (IOException e) {
+                    // move 失败：恢复备份
+                    try {
+                        if (Files.exists(bak)) {
+                            try {
+                                Files.move(bak, target, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+                            } catch (java.nio.file.AtomicMoveNotSupportedException ex) {
+                                Files.move(bak, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                            }
+                        }
+                    } catch (IOException ignored) {}
+                    throw e;
                 }
             } catch (IOException e) {
                 // 解压失败：清理暂存目录，保留原存档不受影响

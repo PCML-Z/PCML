@@ -62,6 +62,11 @@ public final class AudioCache {
             return audioUrl;
         }
 
+        if (audioUrl.startsWith("http://") || audioUrl.startsWith("https://")) {
+            String err = com.pmcl.core.util.SsrfChecker.validate(audioUrl);
+            if (err != null) throw new IOException("Unsafe audio URL: " + err);
+        }
+
         Files.createDirectories(cacheDir);
         String key = cacheKey(sourceType, originalId, audioUrl);
         Path meta = cacheDir.resolve(key + ".meta");
@@ -93,7 +98,19 @@ public final class AudioCache {
             if (body == null) throw new IOException("empty body");
             try (InputStream in = body.byteStream();
                  OutputStream out = Files.newOutputStream(tmp)) {
-                in.transferTo(out);
+                long MAX_AUDIO_SIZE = 500L * 1024 * 1024; // 500MB
+                long total = 0;
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) != -1) {
+                    total += n;
+                    if (total > MAX_AUDIO_SIZE) {
+                        try { out.close(); } catch (IOException ignored) {}
+                        try { Files.deleteIfExists(tmp); } catch (IOException ignored) {}
+                        throw new IOException("音频文件过大，超过 " + MAX_AUDIO_SIZE + " 字节");
+                    }
+                    out.write(buf, 0, n);
+                }
             }
         }
         Files.move(tmp, data, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);

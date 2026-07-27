@@ -3,7 +3,9 @@ package com.pmcl.ui.viewmodel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import com.pmcl.core.i18n.I18n
@@ -15,6 +17,9 @@ import com.pmcl.core.web.WikiBrowser
 /**
  * M29 拆分：新闻域。
  */
+
+/** 保护 _newsItems 的 read-modify-write，避免并发封面图回填竞态 */
+private val newsUpdateLock = Mutex()
 
 // ============ 新闻 ============
 
@@ -110,8 +115,10 @@ internal fun LauncherViewModel.fetchNewsCoverImages(items: List<com.pmcl.core.ne
                                 core.news().fetchCoverImage(item.getLink()).join()
                             }
                             if (url.isNotEmpty()) {
-                                item.setImageUrl(url)
-                                _newsItems.value = _newsItems.value.toList()
+                                newsUpdateLock.withLock {
+                                    item.setImageUrl(url)
+                                    _newsItems.value = _newsItems.value.toList()
+                                }
                             }
                         } catch (_: Throwable) {}
                     }

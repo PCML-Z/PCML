@@ -276,8 +276,16 @@ public final class InstanceManager {
 
     /** 保存实例元数据到 instance.json */
     public void saveInstanceInfo(InstanceInfo info) throws IOException {
-        Files.createDirectories(info.getInstanceDir());
-        Files.writeString(info.getInstanceDir().resolve(INSTANCE_MARKER), info.toJson(), java.nio.charset.StandardCharsets.UTF_8);
+        Path file = info.getInstanceDir().resolve(INSTANCE_MARKER);
+        Path parent = file.getParent();
+        if (parent != null) Files.createDirectories(parent);
+        Path tmp = file.resolveSibling(file.getFileName() + ".tmp." + java.util.UUID.randomUUID());
+        Files.writeString(tmp, info.toJson(), java.nio.charset.StandardCharsets.UTF_8);
+        try {
+            Files.move(tmp, file, java.nio.file.StandardCopyOption.ATOMIC_MOVE, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+            Files.move(tmp, file, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        }
     }
 
     /** 获取实例目录（用于启动时设置 gameDir） */

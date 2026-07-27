@@ -65,7 +65,7 @@ public final class ChunkedDownloader {
     private volatile OkHttpClient http;
     private final int chunkCount;
     private final ExecutorService pool;
-    private volatile int speedLimitBytesPerSec = 0;
+    private volatile long speedLimitBytesPerSec = 0;
 
     /**
      * @param http       共享 OkHttpClient（必须配 Dispatcher.maxRequestsPerHost ≥ chunkCount）
@@ -87,7 +87,7 @@ public final class ChunkedDownloader {
     }
 
     /** 设置限速（bytes/sec，0=不限） */
-    public void setSpeedLimit(int bytesPerSec) {
+    public void setSpeedLimit(long bytesPerSec) {
         this.speedLimitBytesPerSec = Math.max(0, bytesPerSec);
     }
 

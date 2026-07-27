@@ -635,7 +635,9 @@ public final class DownloadQueueManager {
                 task.finishedAt = System.currentTimeMillis();
                 notifyListeners();
             } finally {
-                runningFutures.remove(task.id);
+                if (gen == task.runGeneration) {
+                    runningFutures.remove(task.id);
+                }
             }
         });
         runningFutures.put(task.id, future);

@@ -108,7 +108,7 @@ public final class TokenEncryptor {
             return new String(plaintext, StandardCharsets.UTF_8);
         } catch (Exception e) {
             System.err.println("[TokenEncryptor] 解密失败（可能是机器标识变化）: " + e.getMessage());
-            return "";
+            return null;
         }
     }
 

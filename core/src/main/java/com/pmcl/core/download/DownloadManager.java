@@ -83,7 +83,7 @@ public final class DownloadManager {
     private volatile ChunkedDownloader chunked;
 
     // 网络参数（由 reconfigure 设置，跨线程可见）
-    private volatile int speedLimitBytesPerSec = 0;     // 0 = 不限速
+    private volatile long speedLimitBytesPerSec = 0;     // 0 = 不限速
     private volatile int retryCount = 3;
     private volatile boolean enableResume = true;
     private volatile int chunkedDownloadThreads = 4;    // 单文件分片连接数
@@ -116,7 +116,7 @@ public final class DownloadManager {
             else if ("CUSTOM".equals(mt)) mirror.setType(MirrorManager.MirrorType.CUSTOM);
             else mirror.setType(MirrorManager.MirrorType.OFFICIAL);
             mirror.setCustomBase(pref.getCustomMirrorBase());
-            speedLimitBytesPerSec = pref.getDownloadSpeedLimitKb() * 1024;
+            this.speedLimitBytesPerSec = (long) pref.getDownloadSpeedLimitKb() * 1024L;
             retryCount = Math.max(0, pref.getDownloadRetryCount());
             enableResume = pref.isEnableResume();
             chunkedDownloadThreads = Math.max(1, pref.getChunkedDownloadThreads());
@@ -206,7 +206,7 @@ public final class DownloadManager {
             cleaner.start();
         }
 
-        speedLimitBytesPerSec = pref.getDownloadSpeedLimitKb() * 1024;
+        this.speedLimitBytesPerSec = (long) pref.getDownloadSpeedLimitKb() * 1024L;
         retryCount = Math.max(0, pref.getDownloadRetryCount());
         enableResume = pref.isEnableResume();
         chunkedDownloadThreads = Math.max(1, pref.getChunkedDownloadThreads());
