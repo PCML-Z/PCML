@@ -322,7 +322,7 @@ fun LauncherViewModel.launch() {
             val requiredJavaVer = withContext(Dispatchers.IO) {
                 core.profileBuilder().getRequiredJavaVersion(versionId)
             }
-            val javaExe = withContext(Dispatchers.IO) {
+            var javaExe = withContext(Dispatchers.IO) {
                 // 优先级：版本独立 Java > 全局 Java > 自动检测
                 val versionPath = preferences.getVersionJavaPath(versionId)
                 if (versionPath.isNotEmpty()) versionPath
@@ -340,13 +340,54 @@ fun LauncherViewModel.launch() {
                 }
             }
             if (javaExe.isEmpty()) {
-                _status.value = I18n.t("status.launch_failed_no_java")
-                setGameLogs(listOf(
-                    "启动失败：未找到任何 Java 运行时",
-                    "请安装 Java（推荐 Java 8 用于旧版本，Java 21 用于新版本）",
-                    "下载地址：https://adoptium.net/temurin/releases/"
-                ))
-                return@launch
+                // 自动下载缺失的 Java 运行时，避免用户手动安装
+                // 老版本（1.12.2-）且开启了转译模式 → 下载 Java 21（RetroWrapper 兼容层自动处理）
+                // 老版本未开启转译 → 下载 Java 8（原生兼容）
+                // 新版本 → 下载 Java 21
+                val preferTranslation = preferences.preferLegacyTranslation()
+                        && requiredJavaVer in 1..10
+                        && com.pmcl.core.launch.RetroWrapperSupport.isTranslationEligible(versionId)
+                val downloadVer = when {
+                    requiredJavaVer in 1..10 && preferTranslation -> 21
+                    requiredJavaVer in 1..10 -> 8
+                    else -> 21
+                }
+                val runtimeType = when (downloadVer) {
+                    8 -> com.pmcl.core.runtime.JavaRuntimeDownloader.RuntimeType.JAVA_8
+                    else -> com.pmcl.core.runtime.JavaRuntimeDownloader.RuntimeType.JAVA_21
+                }
+                _status.value = "未找到 Java 运行时，正在自动下载 Java $downloadVer…"
+                setGameLogs(listOf("未找到 Java 运行时，正在自动下载 Java $downloadVer…"))
+                try {
+                    withContext(Dispatchers.IO) {
+                        val entries = core.javaDownloader().listRuntimes(runtimeType).join()
+                        if (entries.isNullOrEmpty()) {
+                            throw RuntimeException("Mojang 清单未返回可用的 Java $downloadVer 运行时")
+                        }
+                        val entry = entries[0]
+                        core.javaDownloader().install(runtimeType, entry) { msg ->
+                            _status.value = msg
+                        }.join()
+                    }
+                    // 重新查找 Java
+                    javaExe = withContext(Dispatchers.IO) {
+                        JavaRuntimeFinder.findJavaExecutable(
+                            config.getRuntimesDir(), requiredJavaVer, preferTranslation
+                        ) ?: ""
+                    }
+                } catch (e: Throwable) {
+                    appendGameLog("Java $downloadVer 自动下载失败：${e.message}")
+                }
+                if (javaExe.isEmpty()) {
+                    _status.value = I18n.t("status.launch_failed_no_java")
+                    setGameLogs(listOf(
+                        "启动失败：未找到任何 Java 运行时",
+                        "请安装 Java（推荐 Java 8 用于旧版本，Java 21 用于新版本）",
+                        "下载地址：https://adoptium.net/temurin/releases/"
+                    ))
+                    return@launch
+                }
+                appendGameLog("Java $downloadVer 自动下载完成：$javaExe")
             }
             // 获取实际 Java 主版本号，用于条件注入 Java 16+ 专属参数（避免 Java 8 报错）
             val javaMajorVer = withContext(Dispatchers.IO) {

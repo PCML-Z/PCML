@@ -291,6 +291,9 @@ public final class RetroWrapperSupport {
         Files.createDirectories(libRoot);
 
         boolean useRetroTweaker = needsRetroTweaker(versionId);
+
+        // === Phase 1: 下载所有依赖（可能抛出 IOException）===
+        // 在此阶段不修改 profile，确保下载失败时 profile 保持原始状态，调用方可安全回退。
         Path launchwrapperJar = ensureLocal(libRoot.resolve("launchwrapper-1.13-java-9-and-above.jar"),
                 "launchwrapper-1.13-java-9-and-above.jar", LAUNCHWRAPPER_URL, downloads);
 
@@ -305,15 +308,21 @@ public final class RetroWrapperSupport {
         }
         extra.add(launchwrapperJar);
 
-        // Drop stock Mojang LaunchWrapper only (keep optifine/launchwrapper-of if present;
-        // our Java 9+ LaunchWrapper is still added and takes precedence when listed later).
+        // 预下载 log4j（不修改 classpath，仅确保文件就绪）
+        ensureLog4jForLaunchWrapper(profile, workDir, downloads, seenClasspath, libRoot);
+
+        // Apple Silicon natives 下载（不修改 classpath，仅提取到 nativesDir）
+        if (isAppleSiliconArm64Java(javaArch) && isLwjgl2Era(versionId)) {
+            applyAppleSiliconNatives(nativesDir, downloads, libRoot);
+        }
+
+        // === Phase 2: 提交 — 所有下载成功后，修改 profile ===
+        // 移除 stock Mojang LaunchWrapper（保留 optifine/launchwrapper-of）
         removeStockLaunchWrapper(profile, seenClasspath);
 
         for (Path p : extra) {
             addClasspath(profile, seenClasspath, p);
         }
-
-        ensureLog4jForLaunchWrapper(profile, workDir, downloads, seenClasspath, libRoot);
 
         // OptiFine jars under libraries/ — only for OptiFine versions (do not pollute alpha/beta)
         ensureLocalTweakerJars(profile, workDir, seenClasspath, versionId);
@@ -329,9 +338,7 @@ public final class RetroWrapperSupport {
             // 勿默认开启 -Dretrowrapper.hack：会弹出传送调试窗（Finding player…）
         }
 
-        // Apple Silicon 色补丁策略（RetroWrapper M1ColorTweakInjector）：
-        // - Applet 时代：ForceEnable 常把画面改成纯黑 → ForceDisable
-        // - 1.6–1.12 窗口色偏：EnableWindowedInverted + experimental
+        // Apple Silicon 色补丁策略 + FrankenLWJGL jar 替换
         if (isAppleSiliconArm64Java(javaArch) && isLwjgl2Era(versionId)) {
             if (useRetroTweaker) {
                 profile.addJvmArg("-Dretrowrapper.forceM1PatchToValue=ForceDisable");
@@ -339,7 +346,6 @@ public final class RetroWrapperSupport {
                 profile.addJvmArg("-Dretrowrapper.enableExperimentalPatches=true");
                 profile.addJvmArg("-Dretrowrapper.forceM1PatchToValue=EnableWindowedInverted");
             }
-            applyAppleSiliconNatives(nativesDir, downloads, libRoot);
             replaceLwjglJarsForFranken(profile, seenClasspath, libRoot, downloads);
         }
 
@@ -477,7 +483,8 @@ public final class RetroWrapperSupport {
      */
     private static Path ensureLocal(Path target, String resourceFileName, String fallbackUrl,
                                     DownloadManager downloads) throws IOException {
-        if (Files.isRegularFile(target) && Files.size(target) > 100) {
+        // 4KB 下限：有效 JAR 至少数 KB，避免中断下载残留的损坏文件被误判为有效
+        if (Files.isRegularFile(target) && Files.size(target) > 4096) {
             return target;
         }
         Files.createDirectories(target.getParent());
@@ -486,7 +493,7 @@ public final class RetroWrapperSupport {
         try (InputStream in = openBundled(resourcePath)) {
             if (in != null) {
                 Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
-                if (Files.isRegularFile(target) && Files.size(target) > 100) {
+                if (Files.isRegularFile(target) && Files.size(target) > 4096) {
                     return target;
                 }
             }
@@ -500,7 +507,7 @@ public final class RetroWrapperSupport {
                 Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
             }
         }
-        if (!Files.isRegularFile(target) || Files.size(target) < 100) {
+        if (!Files.isRegularFile(target) || Files.size(target) < 4096) {
             throw new IOException("RetroWrapper dependency unavailable (bundled+download failed): "
                     + resourceFileName);
         }

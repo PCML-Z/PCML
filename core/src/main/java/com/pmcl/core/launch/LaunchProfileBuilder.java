@@ -1784,6 +1784,8 @@ public final class LaunchProfileBuilder {
                 .replace("${assets_index_name}", effectiveAssetsIndex)
                 .replace("${user_type}", "msa")
                 .replace("${auth_player_name}", username)
+                // OptiFine/LiteLoader 安装器的 fallback 模板使用非标准 ${auth_name}（Mojang 标准为 ${auth_player_name}）
+                .replace("${auth_name}", username)
                 .replace("${auth_uuid}", uuid)
                 .replace("${auth_access_token}", accessToken)
                 .replace("${auth_session}", accessToken)

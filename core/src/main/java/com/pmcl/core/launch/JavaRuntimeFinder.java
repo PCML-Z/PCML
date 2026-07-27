@@ -22,8 +22,12 @@ import java.util.stream.Stream;
  */
 public final class JavaRuntimeFinder {
 
-    /** 匹配 java -version 输出中的版本号，如 version "21.0.1" */
-    private static final Pattern VERSION_PATTERN = Pattern.compile("version\\s+\"(\\d+)");
+    /**
+     * 匹配 java -version 输出中的版本号。
+     * Java 8 输出 {@code version "1.8.0_301"}（带 1. 前缀），Java 9+ 输出 {@code version "17.0.9"}。
+     * 使用 (?:1\.)? 跳过 Java 8 的 "1." 前缀，确保正确捕获主版本号 8 而非 1。
+     */
+    private static final Pattern VERSION_PATTERN = Pattern.compile("version\\s+\"(?:1\\.)?(\\d+)");
 
     /** 匹配 -XshowSettings:properties 输出中的 os.arch 属性 */
     private static final Pattern ARCH_PATTERN = Pattern.compile("os\\.arch\\s*=\\s*(\\S+)");
@@ -408,8 +412,11 @@ public final class JavaRuntimeFinder {
             ARCH_CACHE.put(javaExe, result);
             return result;
         }
-        // 探测失败，返回 unknown（os.arch 是启动器自身架构，会误导目标 Java 架构判断）
-        return "unknown";
+        // 探测失败，回退到启动器自身 os.arch。
+        // 返回 "unknown" 会导致 native classifier 匹配失败、Library.setArchOverride 设置无效值，
+        // 进而选到错误架构的 native 库导致游戏启动崩溃。启动器与游戏通常在同一架构上运行，
+        // 用 os.arch 作为 fallback 比返回 "unknown" 更安全。
+        return System.getProperty("os.arch", "x86_64");
     }
 
     /** 实际通过 fork java -XshowSettings:properties -version 解析 os.arch */
