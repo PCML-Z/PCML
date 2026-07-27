@@ -45,14 +45,11 @@ final class MioFlags {
         flags.add("-XX:+UseProfiledLoopPredicate");      // JDK 16+ 性能更好的循环谓词
 
         // ===== CPU 指令集显式启用（MC 区块渲染/物理/噪声生成是向量化热点）=====
+        // 仅使用 product 选项；诊断/实验性选项（UseAESIntrinsics 等）不注入，
+        // 配合 LaunchProfile 中的 -XX:+IgnoreUnrecognizedVMOptions 确保跨 JVM 构建稳定启动。
         flags.add("-XX:+UseAES");                        // AES 加速（区块加密）
-        // UseAESIntrinsics 是诊断选项，必须先解锁才能启用，否则 Windows JVM 启动失败
-        flags.add("-XX:+UnlockDiagnosticVMOptions");
-        flags.add("-XX:+UseAESIntrinsics");              // AES 内联
         flags.add("-XX:+UseFMA");                        // 融合乘加（物理计算）
         flags.add("-XX:+UseSuperWord");                  // 自动向量化（默认开，显式声明）
-        // AVX 等级按 CPU 自动选，不强制避免不支持 CPU 启动失败
-        // BMI2：支持的 JVM 默认已启用，显式 -XX:+UseBMI2 在部分 JVM（OpenJ9/旧 HotSpot）上会拒绝启动，故不强制
 
         // ===== G1 GC 更激进（与 AikarFlags 叠加，后注入的覆盖前者）=====
         flags.add("-XX:MaxGCPauseMillis=50");            // Aikar=200，澪模式降到 50ms

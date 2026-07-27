@@ -135,6 +135,10 @@ public final class LaunchProfile {
         cmd.addAll(javaAgents);
 
         // JVM 参数（内存/GC/Aikar 等已由 LaunchProfileBuilder 通过 addJvmArg 注入）
+        // IgnoreUnrecognizedVMOptions 必须在所有 -XX 参数之前，确保不识别的选项只告警不中止 JVM。
+        // 跨平台稳定性的基石：不同 JVM 构建（HotSpot/OpenJ9/不同 JDK 发行版）对 -XX 选项支持不同，
+        // 不识别的 -XX:+ 选项默认会导致 JVM 拒绝启动（exit code 1）。
+        cmd.add("-XX:+IgnoreUnrecognizedVMOptions");
         cmd.addAll(jvmArgs);
 
         // classpath
