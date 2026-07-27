@@ -389,6 +389,9 @@ public final class EasyTierManager {
 
         // 排除关键字：GUI 客户端、Android apk、Linux 包格式、Magisk、Web Dashboard 等。
         // 注意：龙芯 loongarch64 不再过滤（EasyTier 官方 release 有 loongarch64 包）。
+        // RISC-V 64 / MIPS64el 仍过滤：EasyTier 官方无对应架构构建（截至 v2.6.4），
+        // 移除过滤会导致 matchAsset 下载到错误架构的包。这两个架构的联机功能
+        // 需等待 EasyTier 上游添加构建后才能启用。
         java.util.function.Predicate<String> isCliZip = ln ->
                 !ln.contains("gui") && !ln.endsWith(".apk") && !ln.endsWith(".rpm")
                 && !ln.endsWith(".deb") && !ln.endsWith(".appimage") && !ln.endsWith(".dmg")

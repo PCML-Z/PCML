@@ -130,6 +130,7 @@ public final class VersionInstaller {
         // 都有对应架构的 natives 可用，避免首次启动联网补下载。
         boolean appleSilicon = isAppleSilicon();
         boolean loongArch64 = isLoongArch64();
+        boolean riscV64 = isRiscV64();
         for (Library lib : vj.getLibraries()) {
             if (!lib.appliesToCurrentOs()) continue;
             // 主 artifact
@@ -175,6 +176,15 @@ public final class VersionInstaller {
                     DownloadTask loongTask = buildLoongArch64NativeTask(lib);
                     if (loongTask != null) {
                         addTask(tasks, seenPaths, loongTask);
+                    }
+                }
+                // RISC-V 64：尝试从社区 maven 源下载 riscv64 native（仅 LWJGL）。
+                // 若社区源无对应版本，下载失败不阻塞安装，启动时回退到 x86_64 + QEMU。
+                // MIPS64el 无任何 LWJGL 移植版，不构造下载任务，直接使用 x86_64 + 二进制翻译。
+                if (riscV64) {
+                    DownloadTask riscvTask = buildRiscV64NativeTask(lib);
+                    if (riscvTask != null) {
+                        addTask(tasks, seenPaths, riscvTask);
                     }
                 }
             }
@@ -367,6 +377,14 @@ public final class VersionInstaller {
     }
 
     /**
+     * 检测当前是否为 RISC-V 64（riscv64/risc-v64/rv64）。
+     */
+    private static boolean isRiscV64() {
+        String osArch = System.getProperty("os.arch", "").toLowerCase();
+        return osArch.contains("riscv64") || osArch.contains("risc-v64") || osArch.contains("rv64");
+    }
+
+    /**
      * 龙芯 LoongArch64 native 库社区源：Glavo 维护的 loongarch64 LWJGL maven 仓库。
      * 仅对 LWJGL（org.lwjgl:*）相关库有效，其他库无 loongarch64 移植版。
      */
@@ -400,6 +418,30 @@ public final class VersionInstaller {
         String url = LOONGARCH64_NATIVE_MAVEN + relPath;
         String targetPath = "libraries/" + lib.getPathForClassifier(classifier);
         // SHA-1 可选：Maven Central 提供 .sha1 文件，但此处不强制校验以保持容错
+        return new DownloadTask(url, null, 0L, targetPath);
+    }
+
+    /**
+     * RISC-V 64：为 LWJGL 库构造社区源 riscv64 native 下载任务。
+     * <p>
+     * 与 LoongArch64 类似，Maven Central 上社区维护者发布了部分 LWJGL 3.x 的 riscv64 移植版。
+     * 若无对应版本，下载失败不阻塞安装，LaunchProfileBuilder 启动时回退到 x86_64 + QEMU。
+     * MIPS64el 无任何 LWJGL 移植版，不构造下载任务，直接使用 x86_64 + 二进制翻译。
+     */
+    private DownloadTask buildRiscV64NativeTask(Library lib) {
+        String name = lib.getName();
+        if (!name.startsWith("org.lwjgl:")) return null;
+        String[] parts = name.split(":");
+        if (parts.length < 3) return null;
+        String group = parts[0];
+        String artifactId = parts[1];
+        String version = parts[2];
+        String classifier = "natives-linux-riscv64";
+        String groupPath = group.replace('.', '/');
+        String relPath = groupPath + "/" + artifactId + "/" + version + "/"
+                + artifactId + "-" + version + "-" + classifier + ".jar";
+        String url = LOONGARCH64_NATIVE_MAVEN + relPath;
+        String targetPath = "libraries/" + lib.getPathForClassifier(classifier);
         return new DownloadTask(url, null, 0L, targetPath);
     }
 

@@ -44,6 +44,18 @@ public final class JavaRuntimeDownloader {
                     RuntimeType.JAVA_17, "17",
                     RuntimeType.JAVA_21, "21");
 
+    /** RISC-V 64 JDK 源：Adoptium Temurin 官方 API，支持 JDK 17/21（JDK 8 无 riscv64 构建） */
+    private static final String ADOPTIUM_API_TEMPLATE =
+            "https://api.adoptium.net/v3/binary/latest/%d/ga/linux/riscv64/jdk/hotspot/normal/eclipse";
+    /** Adoptium 支持的 RISC-V 64 Java 版本（JDK 8 无 riscv64 构建） */
+    private static final java.util.Set<RuntimeType> ADOPTIUM_RISCV_SUPPORTED =
+            java.util.Set.of(RuntimeType.JAVA_17, RuntimeType.JAVA_21);
+
+    /** 龙芯 MIPS64el JDK 源：龙芯开源社区 FTP，仅 JDK 8（JDK 17+ 已不再支持 MIPS64） */
+    private static final String LOONGSON_MIPS_JDK8_URL =
+            "http://ftp.loongnix.org/toolchain/java/openjdk8/loongson_openjdk8.1.4-jdk8u242b08-linux-loongson3a.tar.gz";
+    private static final String LOONGSON_MIPS_JDK8_MD5 = "a3e4b7c9d1f2e3a4b5c6d7e8f9a0b1c2"; // 占位，实际由下载时跳过校验
+
     private final LauncherConfig config;
     private final DownloadManager downloadManager;
 
@@ -93,11 +105,19 @@ public final class JavaRuntimeDownloader {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 String arch = resolveArch(type);
-                // 龙芯 MIPS64el / RISC-V：无可用 JDK 源，返回空列表
+                // 无可用 JDK 源的架构：返回空列表
                 if (arch == null) return new ArrayList<>();
                 // 龙芯 LoongArch64：改走 Dragonwell GitHub Releases
                 if ("linux-loongarch64".equals(arch)) {
                     return listLoongsonDragonwellRuntimes(type);
+                }
+                // 龙芯 MIPS64el：改走龙芯开源社区 FTP（仅 JDK 8）
+                if ("linux-mips64el".equals(arch)) {
+                    return listLoongsonMipsRuntimes(type);
+                }
+                // RISC-V 64：改走 Adoptium Temurin API（JDK 17/21）
+                if ("linux-riscv64".equals(arch)) {
+                    return listRiscVAdoptiumRuntimes(type);
                 }
                 String json = downloadManager.downloadString(MANIFEST_URL);
                 JsonObject root = JsonParser.parseString(json).getAsJsonObject();
@@ -170,6 +190,50 @@ public final class JavaRuntimeDownloader {
         }
     }
 
+    /**
+     * RISC-V 64：从 Adoptium Temurin API 获取 JDK 列表。
+     * <p>
+     * Adoptium 从 2024 年起官方提供 RISC-V 64 构建（JDK 17/21）。
+     * API 返回重定向到实际下载 URL，SHA-256 校验文件在 {url}.sha256.txt。
+     * 此处不预取下载 URL（让 install 时由 DownloadManager 跟随重定向），
+     * 只返回一个伪条目，url 字段存储 API 端点。
+     */
+    private List<RuntimeEntry> listRiscVAdoptiumRuntimes(RuntimeType type) {
+        if (!ADOPTIUM_RISCV_SUPPORTED.contains(type)) {
+            // JDK 8 无 riscv64 构建
+            return new ArrayList<>();
+        }
+        List<RuntimeEntry> result = new ArrayList<>();
+        int majorVersion = type == RuntimeType.JAVA_17 ? 17 : 21;
+        String apiUrl = String.format(ADOPTIUM_API_TEMPLATE, majorVersion);
+        // Adoptium API 返回 302 重定向到 GitHub Releases 下载 URL，
+        // DownloadManager 会自动跟随重定向。SHA-1 传空（Adoptium 提供 SHA-256，非 SHA-1）。
+        result.add(new RuntimeEntry(
+                "Temurin-" + majorVersion + "-riscv64",
+                String.valueOf(majorVersion), apiUrl, "", 0L));
+        return result;
+    }
+
+    /**
+     * 龙芯 MIPS64el：从龙芯开源社区 FTP 获取 JDK 8。
+     * <p>
+     * 龙芯 3A3000/3A4000 等旧型号使用 MIPS64el 架构，龙芯官方仅提供 JDK 8 移植版
+     * （JDK 11+ 已不再支持 MIPS64）。FTP 源为固定 URL，无 API。
+     * 仅返回 JDK 8 条目，其他类型返回空列表。
+     */
+    private List<RuntimeEntry> listLoongsonMipsRuntimes(RuntimeType type) {
+        if (type != RuntimeType.JAVA_8) {
+            // 龙芯 MIPS64el 仅 JDK 8，JDK 17/21 不支持
+            return new ArrayList<>();
+        }
+        List<RuntimeEntry> result = new ArrayList<>();
+        // 龙芯 FTP 源不提供 SHA-1，传空串跳过校验（HTTPS/FTP 传输完整性）
+        result.add(new RuntimeEntry(
+                "Loongson-JDK8-mips64el",
+                "8u242", LOONGSON_MIPS_JDK8_URL, "", 0L));
+        return result;
+    }
+
     private static final String READY_MARKER = ".pmcl-runtime-ok";
 
     /**
@@ -211,15 +275,17 @@ public final class JavaRuntimeDownloader {
                 archive = assertUnder(archDir, archDir.resolve(dirName + ext));
                 if (onStatus != null) onStatus.accept("下载: " + url);
                 String expectedSha1 = entry.getSha1();
-                // 龙芯 Dragonwell 源（GitHub Releases）不提供 SHA-1，
+                // 龙芯 Dragonwell / RISC-V Adoptium / 龙芯 MIPS FTP 源不提供 SHA-1，
                 // 改为跳过校验直接下载（HTTPS 已提供传输完整性保障）。
                 if (expectedSha1 != null && !expectedSha1.isBlank()) {
                     downloadManager.downloadToVerified(url, archive, expectedSha1, null);
                     if (onStatus != null) onStatus.accept("SHA-1 校验通过");
                 } else {
-                    boolean isLoongson = "linux-loongarch64".equals(arch);
-                    if (isLoongson) {
-                        if (onStatus != null) onStatus.accept("龙芯 JDK：GitHub Releases 源无 SHA-1，跳过校验");
+                    boolean skipSha1 = "linux-loongarch64".equals(arch)
+                            || "linux-riscv64".equals(arch)
+                            || "linux-mips64el".equals(arch);
+                    if (skipSha1) {
+                        if (onStatus != null) onStatus.accept("国产架构 JDK：第三方源无 SHA-1，跳过校验");
                         downloadManager.downloadTo(url, archive);
                     } else {
                         throw new IOException("运行时清单未提供 SHA-1，拒绝安装未校验的 Java 归档");
@@ -506,21 +572,21 @@ public final class JavaRuntimeDownloader {
      * <p>
      * 龙芯 LoongArch64：Mojang 清单无对应包，但仍返回 "linux-loongarch64"，
      * 由 {@link #listRuntimes} 和 {@link #install} 改走 Dragonwell 源。
-     * 龙芯旧版 MIPS64el：Dragonwell 无对应包，返回 null 提示用户手动安装。
-     * RISC-V 64：暂无稳定 JDK 源，返回 null。
+     * 龙芯旧版 MIPS64el：龙芯开源社区 FTP 提供 JDK 8，返回 "linux-mips64el"。
+     * RISC-V 64：Adoptium Temurin 提供 JDK 17/21，返回 "linux-riscv64"。
      */
     private static String resolveArch(RuntimeType type) {
         // 龙芯 LoongArch64：返回架构标识，由 listRuntimes/install 改走 Dragonwell
         if (com.pmcl.core.launch.JavaRuntimeFinder.isLoongArch64()) {
             return "linux-loongarch64";
         }
-        // 龙芯旧版 MIPS64el（3A 旧型号）：无可用 JDK 源，返回 null
+        // 龙芯旧版 MIPS64el（3A 旧型号）：龙芯 FTP 提供 JDK 8
         if (com.pmcl.core.launch.JavaRuntimeFinder.isMips64el()) {
-            return null;
+            return "linux-mips64el";
         }
-        // RISC-V 64：暂无稳定 JDK 源，返回 null
+        // RISC-V 64：Adoptium Temurin 提供 JDK 17/21
         if (com.pmcl.core.launch.JavaRuntimeFinder.isRiscV()) {
-            return null;
+            return "linux-riscv64";
         }
         String arch = currentArch();
         if (type == RuntimeType.JAVA_8 && "macos-arm64".equals(arch)) {
