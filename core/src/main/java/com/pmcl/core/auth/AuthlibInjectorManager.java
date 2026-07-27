@@ -61,9 +61,20 @@ public final class AuthlibInjectorManager {
         Path versionFile = jarPath.resolveSibling(jarPath.getFileName() + ".version");
         Path hashFile = jarPath.resolveSibling(jarPath.getFileName() + ".sha256");
         if (info == null) {
-            // 无网络版本信息：仅当本地 jar + 已存 hash 同时存在时才允许（无法在线校验）
+            // 无网络版本信息：必须用已存 SHA256 重新哈希比对，不能仅凭文件存在就信任
             if (Files.exists(jarPath) && Files.exists(hashFile)) {
-                System.err.println("[AuthlibInjectorManager] 无法获取最新版本信息，使用已校验的本地 authlib-injector.jar");
+                String expected = Files.readString(hashFile, StandardCharsets.UTF_8).trim();
+                if (!expected.matches("[0-9a-fA-F]{64}")) {
+                    throw new IOException("本地 authlib-injector SHA256 旁路无效，拒绝离线使用");
+                }
+                String actual = sha256Hex(jarPath);
+                if (!actual.equalsIgnoreCase(expected)) {
+                    Files.deleteIfExists(jarPath);
+                    Files.deleteIfExists(hashFile);
+                    Files.deleteIfExists(versionFile);
+                    throw new IOException("本地 authlib-injector.jar 与已存 SHA256 不匹配，拒绝使用");
+                }
+                System.err.println("[AuthlibInjectorManager] 无法获取最新版本信息，本地 jar SHA256 校验通过，继续使用");
                 return jarPath;
             }
             if (Files.exists(jarPath)) {
@@ -97,22 +108,31 @@ public final class AuthlibInjectorManager {
             }
         }
 
-        // 下载 jar
+        // 下载 jar（先落到临时文件，校验通过后再提升，避免 javaagent 用上坏文件）
         System.err.println("[AuthlibInjectorManager] 下载 authlib-injector " + info.version + " from " + info.downloadUrl);
-        downloadFile(info.downloadUrl, jarPath);
-        // 完整性校验：authlib-injector.jar 会通过 -javaagent 注入 Minecraft 进程，
-        // 若被篡改可执行任意代码——官方必须提供 sha256，缺失则失败关闭。
         if (info.sha256.isEmpty()) {
-            Files.deleteIfExists(jarPath);
             throw new IOException("官方版本信息未提供 sha256，拒绝安装未校验的 authlib-injector.jar");
         }
-        String actual = sha256Hex(jarPath);
-        if (!actual.equalsIgnoreCase(info.sha256)) {
+        Path tmp = jarPath.resolveSibling(jarPath.getFileName() + ".verified-tmp");
+        Files.deleteIfExists(tmp);
+        try {
+            downloadFile(info.downloadUrl, tmp);
+            String actual = sha256Hex(tmp);
+            if (!actual.equalsIgnoreCase(info.sha256)) {
+                throw new IOException("authlib-injector.jar SHA256 校验失败：预期 " + info.sha256
+                        + "，实际 " + actual + "（文件可能被篡改或下载损坏）");
+            }
+            try {
+                Files.move(tmp, jarPath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                Files.move(tmp, jarPath, StandardCopyOption.REPLACE_EXISTING);
+            }
+        } catch (IOException e) {
+            try { Files.deleteIfExists(tmp); } catch (IOException ignored) {}
             Files.deleteIfExists(jarPath);
             Files.deleteIfExists(versionFile);
             Files.deleteIfExists(hashFile);
-            throw new IOException("authlib-injector.jar SHA256 校验失败：预期 " + info.sha256
-                    + "，实际 " + actual + "（文件可能被篡改或下载损坏）");
+            throw e;
         }
         System.err.println("[AuthlibInjectorManager] SHA256 校验通过");
         Files.writeString(versionFile, info.version, StandardCharsets.UTF_8);

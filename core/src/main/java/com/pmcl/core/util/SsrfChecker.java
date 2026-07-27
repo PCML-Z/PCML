@@ -99,6 +99,45 @@ public final class SsrfChecker {
     }
 
     /**
+     * Validate a bare host (no scheme) for TCP probes such as server ping.
+     * Allows private LAN / loopback for local Minecraft servers, but blocks
+     * link-local (incl. cloud metadata), multicast and any-local addresses.
+     */
+    public static String validateHostAllowingPrivateLan(String host) {
+        if (host == null || host.isBlank()) {
+            return "Host is null or blank";
+        }
+        String h = host.trim();
+        if (h.length() > 253) {
+            return "Host exceeds max length";
+        }
+        if (h.contains("/") || h.contains("\\") || h.contains(" ") || h.contains("\0")) {
+            return "Host contains illegal characters";
+        }
+        // Strip IPv6 brackets if present
+        if (h.startsWith("[") && h.endsWith("]")) {
+            h = h.substring(1, h.length() - 1);
+        }
+        String numericIpError = rejectNumericIpLiteral(h);
+        if (numericIpError != null) {
+            return numericIpError;
+        }
+        InetAddress[] addresses;
+        try {
+            addresses = InetAddress.getAllByName(h);
+        } catch (UnknownHostException e) {
+            return "Cannot resolve host: " + host;
+        }
+        for (InetAddress addr : addresses) {
+            if (addr.isLinkLocalAddress() || addr.isMulticastAddress() || addr.isAnyLocalAddress()) {
+                return "Host '" + host + "' resolves to restricted address " + addr.getHostAddress()
+                        + " (link-local/multicast/any-local blocked)";
+            }
+        }
+        return null;
+    }
+
+    /**
      * 允许私有局域网与回环（皮肤站 / 本机 authlib 合法场景），
      * 但仍拒绝链路本地（含云 metadata 169.254.169.254）、组播与任意本地 0.0.0.0。
      */

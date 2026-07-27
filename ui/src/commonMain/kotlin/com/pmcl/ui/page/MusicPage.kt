@@ -1,48 +1,50 @@
 package com.pmcl.ui.page
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
+import com.pmcl.music.lyrics.LyricsLine
+import com.pmcl.music.lyrics.LyricsParser
 import com.pmcl.music.player.PlaybackState
-import com.pmcl.ui.viewmodel.LauncherViewModel
-import com.pmcl.ui.viewmodel.resolveAndAddMusicTrack
-import com.pmcl.ui.viewmodel.playMusicAt
-import com.pmcl.ui.viewmodel.clearMusicPlaylist
-import com.pmcl.ui.viewmodel.removeMusicTrack
-import com.pmcl.ui.viewmodel.toggleMusicPlayPause
-import com.pmcl.ui.viewmodel.seekMusicTo
-import com.pmcl.ui.viewmodel.playPreviousMusic
-import com.pmcl.ui.viewmodel.playNextMusic
-import com.pmcl.ui.viewmodel.cycleMusicRepeatMode
-import com.pmcl.ui.viewmodel.toggleMusicShuffle
-import com.pmcl.ui.viewmodel.toggleMusicMute
-import com.pmcl.ui.viewmodel.setMusicVolume
+import com.pmcl.music.source.LocalAudioSource
+import com.pmcl.ui.util.decodeSampledBitmap
+import com.pmcl.ui.viewmodel.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.jetbrains.skia.Image as SkiaImage
-import com.pmcl.ui.util.decodeSampledBitmap
+import java.awt.FileDialog
+import java.awt.Frame
+import java.io.FilenameFilter
+import javax.swing.JFileChooser
+
 /**
- * 音乐播放器页面：URL 解析 → 播放列表 → 当前曲目卡片 → 播放控制。
+ * 音乐播放器页面：URL 解析 → 播放列表 / 历史 → 当前曲目卡片 → 播放控制。
  */
 @Composable
 fun MusicPage(vm: LauncherViewModel) {
     val playlist by vm.musicPlaylist.collectAsState()
+    val history by vm.musicHistory.collectAsState()
     val currentIndex by vm.musicCurrentIndex.collectAsState()
     val state by vm.musicPlaybackState.collectAsState()
     val currentMs by vm.musicCurrentMs.collectAsState()
@@ -52,118 +54,307 @@ fun MusicPage(vm: LauncherViewModel) {
     val loadingUrl by vm.musicLoadingUrl.collectAsState()
     val repeatMode by vm.musicRepeatMode.collectAsState()
     val shuffle by vm.musicShuffle.collectAsState()
+    val lyrics by vm.musicLyrics.collectAsState()
+    val playlistIndex by vm.musicPlaylistIndex.collectAsState()
+    val activePlaylistId by vm.musicActivePlaylistId.collectAsState()
 
     var inputUrl by remember { mutableStateOf("") }
     var showClearDialog by remember { mutableStateOf(false) }
+    var showClearHistoryDialog by remember { mutableStateOf(false) }
     var removeIndex by remember { mutableStateOf<Int?>(null) }
+    var listTab by remember { mutableIntStateOf(0) } // 0=播放列表 1=历史
+    var showCreatePlaylist by remember { mutableStateOf(false) }
+    var newPlaylistName by remember { mutableStateOf("") }
+    var playlistMenuExpanded by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
-        // 标题
-        Text(
-            I18n.t("music.title"),
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold
-        )
-        Text(
-            I18n.t("music.subtitle"),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.outline
-        )
-        Spacer(Modifier.height(12.dp))
-
-        // 输入栏
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(
-                value = inputUrl,
-                onValueChange = { inputUrl = it },
-                modifier = Modifier.weight(1f),
-                placeholder = { Text(I18n.t("music.input_placeholder")) },
-                singleLine = true
-            )
-            Spacer(Modifier.width(8.dp))
-            Button(
-                onClick = {
-                    vm.resolveAndAddMusicTrack(inputUrl)
-                    inputUrl = ""
-                },
-                enabled = loadingUrl == null && inputUrl.isNotBlank()
-            ) {
-                if (loadingUrl != null) {
-                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                } else {
-                    Icon(Icons.Filled.Add, null, Modifier.size(16.dp))
+        // 上方：标题 / 输入 / 正在播放（可滚动，高度上限避免挤掉列表）
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 360.dp)
+                .weight(1f, fill = false),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            item(key = "header") {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            I18n.t("music.title"),
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            I18n.t("music.subtitle"),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                    }
+                    TextButton(onClick = { vm.clearMusicCache() }) {
+                        Icon(Icons.Filled.CleaningServices, null, Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(I18n.t("music.clear_cache"))
+                    }
                 }
-                Spacer(Modifier.width(4.dp))
-                Text(if (loadingUrl != null) I18n.t("music.resolving") else I18n.t("music.resolve"))
+            }
+
+            item(key = "playlist-picker") {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(I18n.t("music.playlists"), style = MaterialTheme.typography.labelLarge)
+                    Spacer(Modifier.width(8.dp))
+                    Box {
+                        OutlinedButton(onClick = { playlistMenuExpanded = true }) {
+                            val name = playlistIndex.firstOrNull { it.id == activePlaylistId }?.name
+                                ?: I18n.t("music.playlist_default")
+                            Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Icon(Icons.Filled.ArrowDropDown, null)
+                        }
+                        DropdownMenu(
+                            expanded = playlistMenuExpanded,
+                            onDismissRequest = { playlistMenuExpanded = false }
+                        ) {
+                            playlistIndex.forEach { p ->
+                                DropdownMenuItem(
+                                    text = { Text(p.name + if (p.id == activePlaylistId) " ✓" else "") },
+                                    onClick = {
+                                        vm.switchMusicPlaylist(p.id)
+                                        playlistMenuExpanded = false
+                                    }
+                                )
+                            }
+                            HorizontalDivider()
+                            DropdownMenuItem(
+                                text = { Text(I18n.t("music.playlist_create")) },
+                                onClick = {
+                                    playlistMenuExpanded = false
+                                    newPlaylistName = ""
+                                    showCreatePlaylist = true
+                                }
+                            )
+                            if (playlistIndex.size > 1) {
+                                DropdownMenuItem(
+                                    text = { Text(I18n.t("music.playlist_delete")) },
+                                    onClick = {
+                                        vm.deleteMusicPlaylist(activePlaylistId)
+                                        playlistMenuExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            item(key = "url-input") {
+                OutlinedTextField(
+                    value = inputUrl,
+                    onValueChange = { inputUrl = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text(I18n.t("music.input_placeholder")) },
+                    singleLine = true
+                )
+            }
+
+            item(key = "actions") {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Button(
+                        onClick = {
+                            vm.resolveAndAddMusicTrack(inputUrl)
+                            inputUrl = ""
+                        },
+                        enabled = loadingUrl == null && inputUrl.isNotBlank()
+                    ) {
+                        if (loadingUrl != null) {
+                            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Filled.Add, null, Modifier.size(16.dp))
+                        }
+                        Spacer(Modifier.width(4.dp))
+                        Text(if (loadingUrl != null) I18n.t("music.resolving") else I18n.t("music.resolve"))
+                    }
+                    OutlinedButton(onClick = {
+                        val fd = FileDialog(null as Frame?, I18n.t("music.pick_files"), FileDialog.LOAD)
+                        fd.isMultipleMode = true
+                        fd.filenameFilter = FilenameFilter { _, name -> LocalAudioSource.hasAudioExt(name) }
+                        fd.isVisible = true
+                        val files = fd.files?.map { it.absolutePath }.orEmpty()
+                        if (files.isNotEmpty()) vm.addLocalMusicFiles(files)
+                    }) {
+                        Icon(Icons.Filled.AudioFile, null, Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(I18n.t("music.add_files"))
+                    }
+                    OutlinedButton(onClick = {
+                        val chooser = JFileChooser().apply {
+                            fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
+                            dialogTitle = I18n.t("music.pick_folder")
+                        }
+                        if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
+                            vm.addLocalMusicFolder(chooser.selectedFile.absolutePath)
+                        }
+                    }) {
+                        Icon(Icons.Filled.FolderOpen, null, Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(I18n.t("music.add_folder"))
+                    }
+                }
+            }
+
+            if (currentIndex in playlist.indices) {
+                item(key = "now-playing") {
+                    NowPlayingCard(
+                        playlist[currentIndex],
+                        state,
+                        currentMs,
+                        durationMs,
+                        lyrics,
+                        vm
+                    )
+                }
             }
         }
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(10.dp))
 
-        // 当前播放卡片
-        currentIndex.takeIf { it >= 0 && it < playlist.size }?.let { idx ->
-            NowPlayingCard(playlist[idx], state, currentMs, durationMs, vm)
-            Spacer(Modifier.height(12.dp))
-        }
-
-        // 播放列表标题
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                I18n.t("music.playlist"),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
+        // 播放列表 / 历史：固定在滚动区下方，避免滚走后找不到
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
                 modifier = Modifier.weight(1f)
-            )
+            ) {
+                Row(
+                    Modifier.padding(3.dp),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    listOf(
+                        0 to I18n.t("music.playlist"),
+                        1 to I18n.t("music.history")
+                    ).forEach { (tab, label) ->
+                        val on = listTab == tab
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(
+                                    if (on) MaterialTheme.colorScheme.surface
+                                    else Color.Transparent
+                                )
+                                .clickable { listTab = tab }
+                                .padding(vertical = 7.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                label,
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium,
+                                color = if (on) MaterialTheme.colorScheme.onSurface
+                                else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.width(8.dp))
             Text(
-                I18n.t("music.track_count", playlist.size),
+                if (listTab == 0) I18n.t("music.track_count", playlist.size)
+                else I18n.t("music.track_count", history.size),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.outline
             )
-            if (playlist.isNotEmpty()) {
-                Spacer(Modifier.width(8.dp))
+            if (listTab == 0 && playlist.isNotEmpty()) {
                 TextButton(onClick = { showClearDialog = true }) {
                     Icon(Icons.Filled.DeleteSweep, null, Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
                     Text(I18n.t("music.clear"))
                 }
             }
+            if (listTab == 1) {
+                TextButton(
+                    onClick = { showClearHistoryDialog = true },
+                    enabled = history.isNotEmpty()
+                ) {
+                    Icon(Icons.Filled.DeleteSweep, null, Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(I18n.t("music.clear_history"))
+                }
+            }
         }
 
         Spacer(Modifier.height(8.dp))
 
-        // 列表
-        if (playlist.isEmpty()) {
-            EmptyState()
-        } else {
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-                modifier = Modifier.weight(1f)
-            ) {
-                // H15: key 不能包含索引 i，删除项时会导致身份错乱
-                // 原实现 "$i-${t.sourceUrl}" 使每项的 key 随位置变化，
-                // 删除中间项时后续项的 key 全部改变，Compose 误认为身份变更，
-                // 导致动画错乱、播放状态错位。
-                // 修复：仅用 sourceUrl 作为 key（唯一标识）
-                itemsIndexed(playlist, key = { _, t -> t.sourceUrl }) { index, track ->
-                    PlaylistRow(
-                        index = index,
-                        track = track,
-                        isCurrent = index == currentIndex,
-                        isPlaying = index == currentIndex && state == PlaybackState.PLAYING,
-                        onPlay = { vm.playMusicAt(index) },
-                        onRemove = { removeIndex = index }
-                    )
+        // 列表区域单独滚动
+        LazyColumn(
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            if (listTab == 0) {
+                if (playlist.isEmpty()) {
+                    item(key = "playlist-empty") { EmptyState() }
+                } else {
+                    itemsIndexed(playlist, key = { _, t -> "p-${t.sourceUrl}" }) { index, track ->
+                        PlaylistRow(
+                            index = index,
+                            track = track,
+                            isCurrent = index == currentIndex,
+                            isPlaying = index == currentIndex && state == PlaybackState.PLAYING,
+                            onPlay = { vm.playOrToggleMusicAt(index) },
+                            onRemove = { removeIndex = index }
+                        )
+                    }
+                }
+            } else {
+                if (history.isEmpty()) {
+                    item(key = "history-empty") { HistoryEmptyState() }
+                } else {
+                    itemsIndexed(history, key = { _, t -> "h-${t.sourceUrl}" }) { index, track ->
+                        HistoryRow(
+                            track = track,
+                            onPlay = { vm.playMusicFromHistory(track) },
+                            onRemove = { vm.removeMusicHistoryAt(index) }
+                        )
+                    }
                 }
             }
         }
 
         Spacer(Modifier.height(12.dp))
-
-        // 播放控制
         PlayerControls(state, currentMs, durationMs, volume, muted, repeatMode, shuffle, vm)
     }
 
-    // 清空确认
+    if (showCreatePlaylist) {
+        AlertDialog(
+            onDismissRequest = { showCreatePlaylist = false },
+            title = { Text(I18n.t("music.playlist_create")) },
+            text = {
+                OutlinedTextField(
+                    value = newPlaylistName,
+                    onValueChange = { newPlaylistName = it },
+                    singleLine = true,
+                    placeholder = { Text(I18n.t("music.playlist_untitled")) }
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.createMusicPlaylist(newPlaylistName)
+                    showCreatePlaylist = false
+                }) { Text(I18n.t("common.confirm")) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCreatePlaylist = false }) { Text(I18n.t("common.cancel")) }
+            }
+        )
+    }
+
     if (showClearDialog) {
         AlertDialog(
             onDismissRequest = { showClearDialog = false },
@@ -181,7 +372,23 @@ fun MusicPage(vm: LauncherViewModel) {
         )
     }
 
-    // 移除确认
+    if (showClearHistoryDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearHistoryDialog = false },
+            title = { Text(I18n.t("music.clear_history")) },
+            text = { Text(I18n.t("music.clear_history_confirm")) },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.clearMusicHistory()
+                    showClearHistoryDialog = false
+                }) { Text(I18n.t("common.confirm")) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearHistoryDialog = false }) { Text(I18n.t("common.cancel")) }
+            }
+        )
+    }
+
     removeIndex?.let { idx ->
         if (idx in playlist.indices) {
             AlertDialog(
@@ -202,15 +409,13 @@ fun MusicPage(vm: LauncherViewModel) {
     }
 }
 
-// ===== 辅助 Composable =====
-
-/** 当前播放曲目卡片：封面 + 标题 + UP主 + 来源徽章 + 时长 + 进度条 */
 @Composable
 private fun NowPlayingCard(
     track: MusicTrack,
     state: PlaybackState,
     currentMs: Long,
     durationMs: Long,
+    lyrics: List<LyricsLine>,
     vm: LauncherViewModel
 ) {
     Surface(
@@ -221,7 +426,6 @@ private fun NowPlayingCard(
     ) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                // 封面图（80x80，无封面时用 MusicNote 占位）
                 CoverThumbnail(track.coverUrl, size = 80.dp)
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
@@ -249,9 +453,16 @@ private fun NowPlayingCard(
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.outline
                         )
+                        if (track.sourceType != "local" && track.sourceUrl.startsWith("http")) {
+                            Spacer(Modifier.width(4.dp))
+                            TextButton(onClick = { vm.openMusicSourceUrl(track.sourceUrl) }) {
+                                Icon(Icons.Filled.OpenInNew, null, Modifier.size(14.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text(I18n.t("music.open_url"), style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
                     }
                 }
-                // 播放/暂停按钮
                 val isPlaying = state == PlaybackState.PLAYING
                 val isLoading = state == PlaybackState.LOADING
                 FilledIconButton(
@@ -273,7 +484,6 @@ private fun NowPlayingCard(
 
             Spacer(Modifier.height(12.dp))
 
-            // 进度条 + 时间
             val dur = durationMs.coerceAtLeast(track.durationMs).coerceAtLeast(1L)
             val progress = (currentMs.toFloat() / dur).coerceIn(0f, 1f)
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -295,11 +505,61 @@ private fun NowPlayingCard(
                     color = MaterialTheme.colorScheme.outline
                 )
             }
+
+            Spacer(Modifier.height(10.dp))
+            LyricsPanel(lyrics, currentMs)
         }
     }
 }
 
-/** 空状态：图标 + 提示 */
+@Composable
+private fun LyricsPanel(lyrics: List<LyricsLine>, currentMs: Long) {
+    Text(
+        I18n.t("music.lyrics"),
+        style = MaterialTheme.typography.labelLarge,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+    Spacer(Modifier.height(6.dp))
+    if (lyrics.isEmpty()) {
+        Text(
+            I18n.t("music.lyrics_empty"),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.outline
+        )
+        return
+    }
+    val active = LyricsParser.indexAt(lyrics, currentMs)
+    val scroll = rememberScrollState()
+    LaunchedEffect(active) {
+        if (active >= 0) {
+            // 约每行 22dp，滚到当前行附近
+            scroll.animateScrollTo((active * 22).coerceAtLeast(0))
+        }
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(120.dp)
+            .verticalScroll(scroll),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        lyrics.forEachIndexed { i, line ->
+            val on = i == active
+            Text(
+                line.text.ifBlank { " " },
+                style = if (on) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodySmall,
+                fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
+                color = if (on) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+}
+
 @Composable
 private fun EmptyState() {
     Box(
@@ -329,7 +589,29 @@ private fun EmptyState() {
     }
 }
 
-/** 列表行：序号/播放图标 + 标题 + UP主/时长 + 来源徽章 + 移除按钮 */
+@Composable
+private fun HistoryEmptyState() {
+    Box(
+        Modifier.fillMaxWidth().padding(vertical = 32.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(
+                Icons.Filled.History,
+                contentDescription = null,
+                modifier = Modifier.size(48.dp),
+                tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                I18n.t("music.history_empty"),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.outline
+            )
+        }
+    }
+}
+
 @Composable
 private fun PlaylistRow(
     index: Int,
@@ -350,7 +632,6 @@ private fun PlaylistRow(
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 序号或播放图标
             Box(
                 modifier = Modifier.size(32.dp),
                 contentAlignment = Alignment.Center
@@ -403,15 +684,13 @@ private fun PlaylistRow(
                 }
             }
 
-            // 播放按钮
             IconButton(onClick = onPlay, modifier = Modifier.size(32.dp)) {
                 Icon(
                     if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                    contentDescription = I18n.t("music.play"),
+                    contentDescription = if (isPlaying) I18n.t("music.pause") else I18n.t("music.play"),
                     modifier = Modifier.size(18.dp)
                 )
             }
-            // 移除按钮
             IconButton(onClick = onRemove, modifier = Modifier.size(32.dp)) {
                 Icon(
                     Icons.Filled.Close,
@@ -424,7 +703,59 @@ private fun PlaylistRow(
     }
 }
 
-/** 底部播放控制栏 */
+@Composable
+private fun HistoryRow(
+    track: MusicTrack,
+    onPlay: () -> Unit,
+    onRemove: () -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 1.dp
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            CoverThumbnail(track.coverUrl, size = 36.dp)
+            Spacer(Modifier.width(8.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    track.title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        track.uploader.ifBlank { "—" },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    SourceBadge(track.sourceType, compact = true)
+                }
+            }
+            IconButton(onClick = onPlay, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Filled.PlayArrow, contentDescription = I18n.t("music.play"), Modifier.size(18.dp))
+            }
+            IconButton(onClick = onRemove, modifier = Modifier.size(32.dp)) {
+                Icon(
+                    Icons.Filled.Close,
+                    contentDescription = I18n.t("music.remove"),
+                    modifier = Modifier.size(16.dp),
+                    tint = MaterialTheme.colorScheme.outline
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun PlayerControls(
     state: PlaybackState,
@@ -443,7 +774,6 @@ private fun PlayerControls(
         tonalElevation = 1.dp
     ) {
         Column(Modifier.padding(12.dp)) {
-            // 第一行：上一曲 / 播放暂停 / 下一曲  ...  循环模式 / 随机
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -468,22 +798,24 @@ private fun PlayerControls(
                         )
                     }
                 }
+                IconButton(onClick = { vm.stopMusic() }) {
+                    Icon(Icons.Filled.Stop, contentDescription = I18n.t("music.stop"))
+                }
                 IconButton(onClick = { vm.playNextMusic() }) {
                     Icon(Icons.Filled.SkipNext, contentDescription = I18n.t("music.next"))
                 }
 
                 Spacer(Modifier.weight(1f))
 
-                // 循环模式：0=顺序(灰 Repeat), 1=列表循环(亮 Repeat), 2=单曲循环(RepeatOne)
                 IconButton(onClick = { vm.cycleMusicRepeatMode() }) {
                     val tint = if (repeatMode != 0) MaterialTheme.colorScheme.primary
                                else MaterialTheme.colorScheme.outline
                     when (repeatMode) {
                         2 -> Icon(Icons.Filled.RepeatOne, contentDescription = I18n.t("music.repeat_one"), tint = tint)
-                        else -> Icon(Icons.Filled.Repeat, contentDescription = I18n.t("music.repeat_all"), tint = tint)
+                        1 -> Icon(Icons.Filled.Repeat, contentDescription = I18n.t("music.repeat_all"), tint = tint)
+                        else -> Icon(Icons.Filled.Repeat, contentDescription = I18n.t("music.repeat_off"), tint = tint)
                     }
                 }
-                // 随机
                 IconButton(onClick = { vm.toggleMusicShuffle() }) {
                     Icon(
                         Icons.Filled.Shuffle,
@@ -496,25 +828,24 @@ private fun PlayerControls(
 
             Spacer(Modifier.height(4.dp))
 
-            // 第二行：音量
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = { vm.toggleMusicMute() }, modifier = Modifier.size(32.dp)) {
                     Icon(
                         if (muted || volume == 0) Icons.Filled.VolumeOff
                         else if (volume < 50) Icons.Filled.VolumeDown
                         else Icons.Filled.VolumeUp,
-                        contentDescription = I18n.t("music.volume"),
+                        contentDescription = I18n.t("music.mute"),
                         modifier = Modifier.size(18.dp)
                     )
                 }
                 Slider(
-                    value = volume.toFloat(),
+                    value = if (muted) 0f else volume.toFloat(),
                     onValueChange = { vm.setMusicVolume(it.toInt()) },
                     valueRange = 0f..100f,
                     modifier = Modifier.weight(1f)
                 )
                 Text(
-                    "$volume",
+                    if (muted) "0" else "$volume",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.outline,
                     modifier = Modifier.width(28.dp)
@@ -524,13 +855,13 @@ private fun PlayerControls(
     }
 }
 
-/** 来源徽章：B站/A站/直链 */
 @Composable
 private fun SourceBadge(sourceType: String, compact: Boolean = false) {
     val (label, color) = when (sourceType) {
         "bilibili" -> I18n.t("music.source_bilibili") to Color(0xFFFB7299)
         "acfun"    -> I18n.t("music.source_acfun")    to Color(0xFFFD4C5D)
         "direct"   -> I18n.t("music.source_direct")   to MaterialTheme.colorScheme.outline
+        "local"    -> I18n.t("music.source_local")    to Color(0xFF34C759)
         else       -> sourceType to MaterialTheme.colorScheme.outline
     }
     Surface(
@@ -547,10 +878,14 @@ private fun SourceBadge(sourceType: String, compact: Boolean = false) {
     }
 }
 
-/** 封面缩略图：异步从 URL 加载，失败/无封面时用 MusicNote Icon 占位 */
+@Composable
+internal fun MusicCoverThumbnail(coverUrl: String, size: androidx.compose.ui.unit.Dp) {
+    CoverThumbnail(coverUrl, size)
+}
+
 @Composable
 private fun CoverThumbnail(coverUrl: String, size: androidx.compose.ui.unit.Dp) {
-    val bmp = rememberUrlImage(coverUrl)
+    val bmp = rememberMusicUrlImage(coverUrl)
     Surface(
         modifier = Modifier.size(size),
         shape = RoundedCornerShape(8.dp),
@@ -576,9 +911,6 @@ private fun CoverThumbnail(coverUrl: String, size: androidx.compose.ui.unit.Dp) 
     }
 }
 
-// ===== 工具函数 =====
-
-/** 时长格式化：mm:ss 或 h:mm:ss；未知显示 music.duration_unknown */
 private fun formatMusicDuration(ms: Long): String {
     if (ms <= 0) return I18n.t("music.duration_unknown")
     val totalSec = ms / 1000
@@ -591,12 +923,10 @@ private fun formatMusicDuration(ms: Long): String {
     } else "%d:%02d".format(m, s)
 }
 
-// M32 修复：复用全局 LruImageCache，避免每个页面各自实现缓存导致内存浪费与不一致策略
 private val musicImageCache = com.pmcl.ui.util.LruImageCache()
 
-/** 异步从 URL 加载图片，返回 Skia 解码的 ImageBitmap。失败返回 null。 */
 @Composable
-private fun rememberUrlImage(url: String): ImageBitmap? {
+internal fun rememberMusicUrlImage(url: String): ImageBitmap? {
     if (url.isEmpty()) return null
     val cached = musicImageCache.get(url)
     if (cached != null) return cached

@@ -32,6 +32,22 @@ import java.util.stream.Stream;
  */
 public final class ModScanner {
 
+    /** 模组元数据 entry 上限，防压缩炸弹式 OOM */
+    private static final long MAX_META_BYTES = 2L * 1024 * 1024;
+
+    private static String readEntryLimited(JarFile jar, JarEntry entry) throws IOException {
+        long declared = entry.getSize();
+        if (declared > MAX_META_BYTES) {
+            throw new IOException("Mod metadata entry too large: " + entry.getName()
+                    + " (" + declared + " bytes)");
+        }
+        try (InputStream in = jar.getInputStream(entry)) {
+            return new String(com.pmcl.core.util.SafeZipExtractor.readLimited(in, MAX_META_BYTES),
+                    StandardCharsets.UTF_8);
+        }
+    }
+
+
     private ModScanner() {}
 
     /**
@@ -108,21 +124,18 @@ public final class ModScanner {
     }
 
     private static ModMeta parseFabric(JarFile jar, JarEntry entry, String fileName) throws IOException {
-        try (InputStream in = jar.getInputStream(entry)) {
-            JsonObject o = JsonParser.parseString(new String(in.readAllBytes(), StandardCharsets.UTF_8))
-                    .getAsJsonObject();
-            String id = safeStr(o, "id", fileName);
-            String version = safeStr(o, "version", "unknown");
-            String name = safeStr(o, "name", id);
-            String desc = safeStr(o, "description", "");
-            String authors = extractAuthors(o);
-            List<String> deps = jsonArrToStrings(o, "depends");
-            List<String> conflicts = jsonArrToStrings(o, "conflicts");
-            ModMeta meta = new ModMeta(id, version, name, desc, authors, "fabric",
-                    deps, conflicts, fileName);
-            meta.setIconEntry(extractFabricIcon(o));
-            return meta;
-        }
+        JsonObject o = JsonParser.parseString(readEntryLimited(jar, entry)).getAsJsonObject();
+        String id = safeStr(o, "id", fileName);
+        String version = safeStr(o, "version", "unknown");
+        String name = safeStr(o, "name", id);
+        String desc = safeStr(o, "description", "");
+        String authors = extractAuthors(o);
+        List<String> deps = jsonArrToStrings(o, "depends");
+        List<String> conflicts = jsonArrToStrings(o, "conflicts");
+        ModMeta meta = new ModMeta(id, version, name, desc, authors, "fabric",
+                deps, conflicts, fileName);
+        meta.setIconEntry(extractFabricIcon(o));
+        return meta;
     }
 
     /** fabric.mod.json 的 icon 可为字符串或 { "64": "path", ... } */
@@ -165,53 +178,50 @@ public final class ModScanner {
      * 结构：{ "schema_version": 1, "quilt_loader": { "id", "version", "name", ... , "depends": [...] } }
      */
     private static ModMeta parseQuilt(JarFile jar, JarEntry entry, String fileName) throws IOException {
-        try (InputStream in = jar.getInputStream(entry)) {
-            JsonObject o = JsonParser.parseString(new String(in.readAllBytes(), StandardCharsets.UTF_8))
-                    .getAsJsonObject();
-            JsonObject ql = o.has("quilt_loader") ? o.getAsJsonObject("quilt_loader") : o;
-            String id = safeStr(ql, "id", fileName);
-            String version = safeStr(ql, "version", "unknown");
-            String name = safeStr(ql, "name", id);
-            String desc = safeStr(ql, "description", "");
-            String authors = extractAuthors(ql);
-            String icon = extractFabricIcon(ql);
-            if (icon.isEmpty()) icon = extractFabricIcon(o);
-            List<String> deps = new ArrayList<>();
-            List<String> conflicts = new ArrayList<>();
-            // depends 可以是数组 [{id, optional}] 或对象 {id: {...}}
-            if (ql.has("depends")) {
-                JsonElement d = ql.get("depends");
-                if (d.isJsonArray()) {
-                    for (JsonElement e : d.getAsJsonArray()) {
-                        if (e.isJsonObject() && e.getAsJsonObject().has("id")) {
-                            deps.add(e.getAsJsonObject().get("id").getAsString());
-                        } else if (e.isJsonPrimitive()) {
-                            deps.add(e.getAsString());
-                        }
+        JsonObject o = JsonParser.parseString(readEntryLimited(jar, entry)).getAsJsonObject();
+        JsonObject ql = o.has("quilt_loader") ? o.getAsJsonObject("quilt_loader") : o;
+        String id = safeStr(ql, "id", fileName);
+        String version = safeStr(ql, "version", "unknown");
+        String name = safeStr(ql, "name", id);
+        String desc = safeStr(ql, "description", "");
+        String authors = extractAuthors(ql);
+        String icon = extractFabricIcon(ql);
+        if (icon.isEmpty()) icon = extractFabricIcon(o);
+        List<String> deps = new ArrayList<>();
+        List<String> conflicts = new ArrayList<>();
+        // depends 可以是数组 [{id, optional}] 或对象 {id: {...}}
+        if (ql.has("depends")) {
+            JsonElement d = ql.get("depends");
+            if (d.isJsonArray()) {
+                for (JsonElement e : d.getAsJsonArray()) {
+                    if (e.isJsonObject() && e.getAsJsonObject().has("id")) {
+                        deps.add(e.getAsJsonObject().get("id").getAsString());
+                    } else if (e.isJsonPrimitive()) {
+                        deps.add(e.getAsString());
                     }
-                } else if (d.isJsonObject()) {
-                    deps.addAll(d.getAsJsonObject().keySet());
                 }
+            } else if (d.isJsonObject()) {
+                deps.addAll(d.getAsJsonObject().keySet());
             }
-            if (ql.has("breaks")) {
-                JsonElement b = ql.get("breaks");
-                if (b.isJsonArray()) {
-                    for (JsonElement e : b.getAsJsonArray()) {
-                        if (e.isJsonObject() && e.getAsJsonObject().has("id")) {
-                            conflicts.add(e.getAsJsonObject().get("id").getAsString());
-                        } else if (e.isJsonPrimitive()) {
-                            conflicts.add(e.getAsString());
-                        }
-                    }
-                } else if (b.isJsonObject()) {
-                    conflicts.addAll(b.getAsJsonObject().keySet());
-                }
-            }
-            ModMeta meta = new ModMeta(id, version, name, desc, authors, "quilt",
-                    deps, conflicts, fileName);
-            meta.setIconEntry(icon);
-            return meta;
         }
+        if (ql.has("breaks")) {
+            JsonElement b = ql.get("breaks");
+            if (b.isJsonArray()) {
+                for (JsonElement e : b.getAsJsonArray()) {
+                    if (e.isJsonObject() && e.getAsJsonObject().has("id")) {
+                        conflicts.add(e.getAsJsonObject().get("id").getAsString());
+                    } else if (e.isJsonPrimitive()) {
+                        conflicts.add(e.getAsString());
+                    }
+                }
+            } else if (b.isJsonObject()) {
+                conflicts.addAll(b.getAsJsonObject().keySet());
+            }
+        }
+        ModMeta meta = new ModMeta(id, version, name, desc, authors, "quilt",
+                deps, conflicts, fileName);
+        meta.setIconEntry(icon);
+        return meta;
     }
 
     /**
@@ -219,58 +229,54 @@ public final class ModScanner {
      * 完整段解析 [[mods]] 与 [[dependencies.<modId>]]，区分 mandatory / optional / incompatible。
      */
     private static ModMeta parseForge(JarFile jar, JarEntry entry, String fileName, String loader) throws IOException {
-        try (InputStream in = jar.getInputStream(entry)) {
-            String content = new String(in.readAllBytes(), StandardCharsets.UTF_8);
-            // 预先按行拆分一次，避免 tomlValueInSection 每次都重新 split
-            String[] lines = content.split("\n");
-            // === 提取 [[mods]] 段内的字段 ===
-            String modId = tomlValueInSection(lines, "modId", "mods");
-            String version = tomlValueInSection(lines, "version", "mods");
-            String name = tomlValueInSection(lines, "displayName", "mods");
-            if (name == null) name = tomlValueInSection(lines, "name", "mods");
-            String desc = tomlValueInSection(lines, "description", "mods");
-            String authors = tomlValueInSection(lines, "authors", "mods");
+        String content = readEntryLimited(jar, entry);
+        // 预先按行拆分一次，避免 tomlValueInSection 每次都重新 split
+        String[] lines = content.split("\n");
+        // === 提取 [[mods]] 段内的字段 ===
+        String modId = tomlValueInSection(lines, "modId", "mods");
+        String version = tomlValueInSection(lines, "version", "mods");
+        String name = tomlValueInSection(lines, "displayName", "mods");
+        if (name == null) name = tomlValueInSection(lines, "name", "mods");
+        String desc = tomlValueInSection(lines, "description", "mods");
+        String authors = tomlValueInSection(lines, "authors", "mods");
 
-            // === 解析所有 [[dependencies.<modId>]] 段 ===
-            // 每个段含：modId, mandatory=true/false, type=required/optional/incompatible
-            List<String> deps = new ArrayList<>();
-            List<String> conflicts = new ArrayList<>();
-            for (TomlDepBlock dep : parseTomlDepBlocks(content)) {
-                if (dep.incompatible) {
-                    conflicts.add(dep.modId);
-                } else if (dep.mandatory) {
-                    deps.add(dep.modId);
-                }
-                // optional 不加入（不会阻塞启动）
+        // === 解析所有 [[dependencies.<modId>]] 段 ===
+        // 每个段含：modId, mandatory=true/false, type=required/optional/incompatible
+        List<String> deps = new ArrayList<>();
+        List<String> conflicts = new ArrayList<>();
+        for (TomlDepBlock dep : parseTomlDepBlocks(content)) {
+            if (dep.incompatible) {
+                conflicts.add(dep.modId);
+            } else if (dep.mandatory) {
+                deps.add(dep.modId);
             }
-            // 去重（同一 modId 可能在多个段中）
-            deps = dedup(deps);
-            conflicts = dedup(conflicts);
-
-            ModMeta meta = new ModMeta(modId != null ? modId : fileName,
-                    version != null ? version : "unknown",
-                    name != null ? name : modId,
-                    desc != null ? desc : "",
-                    authors != null ? authors : "",
-                    loader, deps, conflicts, fileName);
-            String logo = tomlValueInSection(lines, "logoFile", "mods");
-            if (logo == null || logo.isEmpty()) logo = tomlValueInSection(lines, "logoFile", "");
-            if (logo != null && !logo.isEmpty()) meta.setIconEntry(logo);
-            return meta;
+            // optional 不加入（不会阻塞启动）
         }
+        // 去重（同一 modId 可能在多个段中）
+        deps = dedup(deps);
+        conflicts = dedup(conflicts);
+
+        ModMeta meta = new ModMeta(modId != null ? modId : fileName,
+                version != null ? version : "unknown",
+                name != null ? name : modId,
+                desc != null ? desc : "",
+                authors != null ? authors : "",
+                loader, deps, conflicts, fileName);
+        String logo = tomlValueInSection(lines, "logoFile", "mods");
+        if (logo == null || logo.isEmpty()) logo = tomlValueInSection(lines, "logoFile", "");
+        if (logo != null && !logo.isEmpty()) meta.setIconEntry(logo);
+        return meta;
     }
 
     private static ModMeta parseManifest(JarFile jar, JarEntry entry, String fileName) throws IOException {
-        try (InputStream in = jar.getInputStream(entry)) {
-            String content = new String(in.readAllBytes(), StandardCharsets.UTF_8);
-            String name = manifestAttr(content, "Implementation-Title");
-            String version = manifestAttr(content, "Implementation-Version");
-            return new ModMeta(name != null ? name : fileName,
-                    version != null ? version : "unknown",
-                    name != null ? name : fileName,
-                    "通过 MANIFEST.MF 识别", "", "unknown",
-                    Collections.emptyList(), Collections.emptyList(), fileName);
-        }
+        String content = readEntryLimited(jar, entry);
+        String name = manifestAttr(content, "Implementation-Title");
+        String version = manifestAttr(content, "Implementation-Version");
+        return new ModMeta(name != null ? name : fileName,
+                version != null ? version : "unknown",
+                name != null ? name : fileName,
+                "通过 MANIFEST.MF 识别", "", "unknown",
+                Collections.emptyList(), Collections.emptyList(), fileName);
     }
 
     // ==================== TOML 解析辅助 ====================

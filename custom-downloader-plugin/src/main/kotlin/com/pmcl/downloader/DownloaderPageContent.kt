@@ -12,12 +12,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.pmcl.core.download.DownloadManager
 import com.pmcl.plugin.ComposableContent
+import com.pmcl.plugin.api.DownloadsApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.nio.file.Files
+import java.nio.file.Path
 import java.nio.file.Paths
 
 /**
@@ -30,17 +31,18 @@ import java.nio.file.Paths
  * - 下载历史记录列表
  */
 class DownloaderPageContent(
-    private val downloadManager: DownloadManager
+    private val downloads: DownloadsApi,
+    private val dataDir: Path
 ) : ComposableContent {
 
     @Composable
     override fun invoke() {
-        DownloaderPage(downloadManager)
+        DownloaderPage(downloads, dataDir)
     }
 }
 
 @Composable
-private fun DownloaderPage(dl: DownloadManager) {
+private fun DownloaderPage(dl: DownloadsApi, dataDir: Path) {
     val scope = rememberCoroutineScope()
 
     // 输入状态
@@ -166,26 +168,24 @@ private fun DownloaderPage(dl: DownloadManager) {
                                     )).takeLast(MAX_HISTORY)
                                 }
                                 DownloadMode.FILE -> {
-                                    // S23 安全修复：保存路径必须位于 ~/.pmcl/downloads/ 内
-                                    val target = if (savePath.isNotBlank()) {
-                                        try {
-                                            FileHelper.sanitizeSavePath(savePath)
-                                        } catch (e: IllegalArgumentException) {
-                                            statusText = "Error: ${e.message}"
-                                            statusError = true
-                                            return@launch
-                                        }
+                                    // 稳定 API：目标必须位于插件 dataDir 内
+                                    val filename = if (savePath.isNotBlank()) {
+                                        Paths.get(savePath).fileName.toString()
                                     } else {
-                                        val filename = FileHelper.extractFilename(urlInput)
-                                        Paths.get(System.getProperty("user.home"), ".pmcl", "downloads", filename)
+                                        FileHelper.extractFilename(urlInput)
+                                    }
+                                    val target = dataDir.resolve(filename).normalize()
+                                    if (!target.startsWith(dataDir.toAbsolutePath().normalize())) {
+                                        statusText = "Error: invalid save name"
+                                        statusError = true
+                                        return@launch
                                     }
                                     withContext(Dispatchers.IO) {
-                                        FileHelper.ensureParentDir(target)
-                                        dl.downloadTo(urlInput, target) { bytes ->
-                                            downloadedBytes = bytes
-                                        }
+                                        Files.createDirectories(target.parent)
+                                        dl.downloadTo(urlInput, target)
                                     }
                                     val size = Files.size(target)
+                                    downloadedBytes = size
                                     statusText = "Saved to: $target (${formatSize(size)})"
                                     history = (history + DownloadHistoryEntry(
                                         url = urlInput,

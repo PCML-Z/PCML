@@ -21,6 +21,12 @@ public final class LaunchManager {
     /** H14: 毒丸对象，用于结束 log dispatcher 线程 */
     private static final String POISON_PILL = new String("__PMCL_LOG_POISON__");
 
+    /**
+     * 设备保护拒绝 / 插件 beforeLaunch 取消时的伪退出码。
+     * UI 不得将其当作游戏崩溃弹窗。
+     */
+    public static final int EXIT_CANCELLED = -100;
+
     private final LauncherConfig config;
     private final Preferences preferences;
     private PluginManager pluginManager;
@@ -49,6 +55,59 @@ public final class LaunchManager {
     /** Inject plugin manager for launch hooks and events. Called by LauncherCore. */
     public void setPluginManager(PluginManager pm) {
         this.pluginManager = pm;
+    }
+
+    /**
+     * 启动前门禁：设备绑定保护 + 插件 beforeLaunch。
+     * 桌面 {@link #launchAsync} 与同步 {@link #launch}（含 Companion）必须共用此校验，
+     * 避免未授权设备或插件策略被旁路。
+     *
+     * @return {@code null} 表示允许启动；非 null 为拒绝原因（可对用户展示）
+     */
+    public String verifyBeforeLaunch(LaunchProfile profile) {
+        return verifyBeforeLaunch(profile, null, null);
+    }
+
+    /**
+     * @param onLog  可选 UI 日志回调
+     * @param logger 可选 GameLogger
+     * @return {@code null} 表示允许；非 null 为拒绝原因
+     */
+    public String verifyBeforeLaunch(LaunchProfile profile,
+                                     Consumer<String> onLog,
+                                     GameLogger logger) {
+        if (profile == null) {
+            return "[PMCL] 启动配置为空，已取消";
+        }
+        // 设备绑定保护：开启时设备不匹配则拒绝
+        if (preferences != null && preferences.isDeviceProtectionEnabled()) {
+            boolean allowed = com.pmcl.core.auth.DeviceBinder.verifyOnLaunch(
+                    preferences.getDeviceProtectionLicense(),
+                    preferences.getDeviceProtectionPublicKey());
+            if (!allowed) {
+                String denyMsg = "[PMCL] 设备未授权：当前设备与绑定设备不匹配，启动已取消";
+                if (logger != null) logger.append(denyMsg);
+                if (onLog != null) onLog.accept(denyMsg);
+                return denyMsg;
+            }
+        }
+        // 插件 beforeLaunch 可取消启动
+        if (pluginManager != null) {
+            String versionId = profile.getVersionId();
+            String accountName = profile.getPlayerName() != null ? profile.getPlayerName() : "Player";
+            if (!pluginManager.beforeLaunch(versionId, accountName)) {
+                String cancelMsg = pluginManager.getLastLaunchCancelReason();
+                if (cancelMsg == null || cancelMsg.isBlank()) {
+                    cancelMsg = "[PMCL] Launch cancelled by plugin hook";
+                } else if (!cancelMsg.startsWith("[")) {
+                    cancelMsg = "[PMCL] " + cancelMsg;
+                }
+                if (logger != null) logger.append(cancelMsg);
+                if (onLog != null) onLog.accept(cancelMsg);
+                return cancelMsg;
+            }
+        }
+        return null;
     }
 
     /**
@@ -82,6 +141,14 @@ public final class LaunchManager {
     Process launch(LaunchProfile profile, String javaExecutable,
                           Consumer<String> onLog, GameLogger logger,
                           Thread[] readerHolder) throws IOException {
+        // 同步路径（含 Companion）与 launchAsync 共用门禁，禁止旁路
+        String deny = verifyBeforeLaunch(profile, onLog, logger);
+        if (deny != null) {
+            throw new IOException(deny);
+        }
+        if (pluginManager != null) {
+            pluginManager.applyLaunchContributions(profile);
+        }
         java.util.List<String> cmd = profile.buildCommand(javaExecutable);
         // 调试：打印启动命令（敏感参数脱敏，防止 accessToken 泄漏到 latest.log）
         if (logger != null) {
@@ -96,6 +163,10 @@ public final class LaunchManager {
         ProcessBuilder pb = new ProcessBuilder(cmd);
         // 用 profile 实际的 gameDir 作为进程工作目录（支持启动外部 Minecraft 安装）
         pb.directory(profile.getGameDir().toFile());
+        // 插件贡献的环境变量（已在 applyLaunchContributions 中过滤危险键）
+        if (profile.getEnv() != null && !profile.getEnv().isEmpty()) {
+            pb.environment().putAll(profile.getEnv());
+        }
         pb.redirectErrorStream(true);
         Process process = pb.start();
         activeProcesses.add(process);
@@ -143,9 +214,21 @@ public final class LaunchManager {
                 }
             } catch (IOException e) {
                 System.err.println("[LaunchManager] 进程输出读取异常: " + e.getMessage());
-                logQueue.offer("[PMCL] 进程输出读取异常: " + e.getMessage());
+                try {
+                    logQueue.put("[PMCL] 进程输出读取异常: " + e.getMessage());
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                }
             } finally {
-                logQueue.offer(POISON_PILL);
+                // put 阻塞直到毒丸入队，避免 offer 在队列满时丢弃导致 dispatcher 永不退出
+                try {
+                    logQueue.put(POISON_PILL);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    // 兜底：腾出空间再 offer
+                    logQueue.poll();
+                    logQueue.offer(POISON_PILL);
+                }
             }
         }, "mc-process-reader");
         reader.setDaemon(true);
@@ -200,29 +283,10 @@ public final class LaunchManager {
                     if (ok && logger != null) logger.append("[PMCL] 澪模式 L3：已关闭系统低电量模式");
                 }
 
-                // 设备绑定保护校验：保护开启时，设备不匹配则拒绝启动
-                // 防止启动器和游戏被复制到其他设备使用
-                if (preferences != null && preferences.isDeviceProtectionEnabled()) {
-                    boolean allowed = com.pmcl.core.auth.DeviceBinder.verifyOnLaunch(
-                            preferences.getDeviceProtectionLicense(),
-                            preferences.getDeviceProtectionPublicKey());
-                    if (!allowed) {
-                        String denyMsg = "[PMCL] 设备未授权：当前设备与绑定设备不匹配，启动已取消";
-                        if (logger != null) logger.append(denyMsg);
-                        if (onLog != null) onLog.accept(denyMsg);
-                        return -1;
-                    }
-                }
-
-                // Plugin beforeLaunch hooks (can cancel launch)
-                if (pluginManager != null) {
-                    String accountName = profile.getPlayerName() != null ? profile.getPlayerName() : "Player";
-                    if (!pluginManager.beforeLaunch(versionId, accountName)) {
-                        String cancelMsg = "[PMCL] Launch cancelled by plugin hook";
-                        if (logger != null) logger.append(cancelMsg);
-                        if (onLog != null) onLog.accept(cancelMsg);
-                        return -1;
-                    }
+                // 与同步 launch() 共用门禁（设备绑定 + 插件 beforeLaunch）
+                String deny = verifyBeforeLaunch(profile, onLog, logger);
+                if (deny != null) {
+                    return EXIT_CANCELLED;
                 }
 
                 Thread[] readerHolder = new Thread[2];
@@ -258,10 +322,21 @@ public final class LaunchManager {
                 activeProcesses.remove(process);
                 // 等待读取线程读完剩余输出，避免丢失进程退出前的最后几行日志
                 if (readerHolder[0] != null) {
-                    try { readerHolder[0].join(2000); } catch (InterruptedException ignored) {}
+                    try {
+                        readerHolder[0].join(2000);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
                 }
                 if (readerHolder[1] != null) {
-                    try { readerHolder[1].join(2000); } catch (InterruptedException ignored) {}
+                    try {
+                        readerHolder[1].join(2000);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                    if (readerHolder[1].isAlive()) {
+                        readerHolder[1].interrupt();
+                    }
                 }
                 String exitMsg = "[PMCL] 进程退出 code=" + code;
                 if (logger != null) logger.append(exitMsg);
@@ -449,11 +524,30 @@ public final class LaunchManager {
         if (process != null) activeProcesses.remove(process);
     }
 
-    /** 强制结束所有由本启动器拉起且仍存活的 MC 进程（应用退出时调用） */
+    /** 是否仍有由本启动器跟踪且存活的游戏进程。 */
+    public boolean hasActiveProcesses() {
+        return activeProcessCount() > 0;
+    }
+
+    /** 当前仍存活的受跟踪游戏进程数。 */
+    public int activeProcessCount() {
+        int n = 0;
+        for (Process p : activeProcesses) {
+            if (p != null && p.isAlive()) n++;
+        }
+        return n;
+    }
+
+    /** 强制结束所有由本启动器拉起且仍存活的 MC 进程树（应用退出时调用） */
     public void killAllProcesses() {
+        ProcessMonitor monitor = new ProcessMonitor();
         for (Process p : activeProcesses) {
             if (p != null && p.isAlive()) {
-                try { p.destroyForcibly(); } catch (Exception ignored) {}
+                try {
+                    monitor.forceKill(p);
+                } catch (Exception e) {
+                    try { p.destroyForcibly(); } catch (Exception ignored) {}
+                }
             }
         }
         activeProcesses.clear();

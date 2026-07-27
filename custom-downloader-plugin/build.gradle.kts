@@ -14,7 +14,6 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
 
 dependencies {
     compileOnly(project(":plugin-api"))
-    compileOnly(project(":core"))
     // Compose runtime — for @Composable annotations in plugin GUI pages
     // M2/M8 安全修复：使用 libs.versions.toml 统一版本，避免硬编码导致 UI 升级时签名不匹配
     val composeVer = libs.versions.compose.multiplatform.get()

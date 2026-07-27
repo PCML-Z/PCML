@@ -62,11 +62,20 @@ public final class JavaRuntimeFinder {
      *                             LaunchWrapper 的 URLClassLoader 兼容问题）
      */
     public static String findJavaExecutable(Path runtimesDir, int requiredMajorVersion) {
+        return findJavaExecutable(runtimesDir, requiredMajorVersion, false);
+    }
+
+    /**
+     * @param preferLegacyTranslation when true, old versions prefer modern arm64/x64 Java 21
+     *                                (for RetroWrapper) instead of Rosetta x86 Java 8
+     */
+    public static String findJavaExecutable(Path runtimesDir, int requiredMajorVersion,
+                                            boolean preferLegacyTranslation) {
 
         // 1. 优先扫描启动器下载的 runtimes 目录
         if (runtimesDir != null) {
             List<String> runtimeJavas = scanRuntimes(runtimesDir);
-            String best = pickBestJavaForVersion(runtimeJavas, requiredMajorVersion);
+            String best = pickBestJavaForVersion(runtimeJavas, requiredMajorVersion, preferLegacyTranslation);
             if (best != null) return best;
         }
 
@@ -125,7 +134,7 @@ public final class JavaRuntimeFinder {
         }
 
         // 从候选中按目标版本选最佳
-        String best = pickBestJavaForVersion(candidates, requiredMajorVersion);
+        String best = pickBestJavaForVersion(candidates, requiredMajorVersion, preferLegacyTranslation);
         if (best != null) return best;
 
         // 旧版本优先 Java 8，找不到时回退到 Java 9+（由 PMCL 兼容层处理 LaunchWrapper 问题）
@@ -144,7 +153,9 @@ public final class JavaRuntimeFinder {
         try {
             p = new ProcessBuilder("java", "-version").redirectErrorStream(true).start();
             if (p.waitFor(5, TimeUnit.SECONDS) && p.exitValue() == 0) return "java";
-        } catch (IOException | InterruptedException ignored) {
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+        } catch (IOException ignored) {
         } finally {
             if (p != null) p.destroyForcibly();
         }
@@ -166,6 +177,34 @@ public final class JavaRuntimeFinder {
      *                             非 0（如 8）：优先精确匹配目标版本，其次按默认策略
      */
     private static String pickBestJavaForVersion(List<String> candidates, int requiredMajorVersion) {
+        return pickBestJavaForVersion(candidates, requiredMajorVersion, false);
+    }
+
+    private static String pickBestJavaForVersion(List<String> candidates, int requiredMajorVersion,
+                                                 boolean preferLegacyTranslation) {
+        // 转译模式：旧版本优先用现代 Java 21/17（RetroWrapper + FrankenLWJGL），不必强绑 x86 Java 8
+        if (preferLegacyTranslation && requiredMajorVersion > 0 && requiredMajorVersion < 11) {
+            String j21 = null, j17 = null, modern = null;
+            for (String exe : candidates) {
+                Integer ver = getMajorVersion(exe);
+                if (ver == null) continue;
+                if (ver == 21 && j21 == null) j21 = exe;
+                else if (ver == 17 && j17 == null) j17 = exe;
+                else if (ver >= 11 && ver < 24 && modern == null) modern = exe;
+            }
+            if (j21 != null) {
+                System.err.println("[JavaRuntimeFinder] 转译模式: 选中 Java 21 for 旧版本");
+                return j21;
+            }
+            if (j17 != null) {
+                System.err.println("[JavaRuntimeFinder] 转译模式: 选中 Java 17 for 旧版本");
+                return j17;
+            }
+            if (modern != null) {
+                System.err.println("[JavaRuntimeFinder] 转译模式: 选中 Java for 旧版本 → " + modern);
+                return modern;
+            }
+        }
         // alpha/beta 等 Old 版本：精确匹配 Java 8 优先（LWJGL 2.x / 反射在 Java 9+ 上不兼容）
         if (requiredMajorVersion > 0 && requiredMajorVersion < 11) {
             // Apple Silicon Mac 特殊处理：旧版本 native 库只有 x86_64 架构，
@@ -230,7 +269,7 @@ public final class JavaRuntimeFinder {
     /**
      * 判断当前系统是否为 Apple Silicon Mac（arm64 架构的 macOS）。
      */
-    private static boolean isAppleSiliconMac() {
+    public static boolean isAppleSiliconMac() {
         if (!System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("mac")) return false;
         // 优先用 sysctl 检测真实硬件架构（Rosetta 2 下 os.arch 不可靠）
         // M78: try-finally 确保 Process 被销毁（Process 未实现 AutoCloseable）
@@ -329,7 +368,10 @@ public final class JavaRuntimeFinder {
                 Matcher m = VERSION_PATTERN.matcher(output);
                 if (m.find()) return Integer.parseInt(m.group(1));
             }
-        } catch (IOException | InterruptedException ignored) {} finally {
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+        } catch (IOException ignored) {
+        } finally {
             if (p != null) p.destroyForcibly();
         }
         return null;
@@ -371,7 +413,10 @@ public final class JavaRuntimeFinder {
                 Matcher m = ARCH_PATTERN.matcher(output);
                 if (m.find()) return m.group(1);
             }
-        } catch (IOException | InterruptedException ignored) {} finally {
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+        } catch (IOException ignored) {
+        } finally {
             if (p != null) p.destroyForcibly();
         }
         return null;
@@ -400,7 +445,12 @@ public final class JavaRuntimeFinder {
         try (Stream<Path> stream = Files.list(runtimesDir)) {
             stream.filter(Files::isDirectory).forEach(archDir -> {
                 try (Stream<Path> inner = Files.list(archDir)) {
-                    inner.filter(Files::isDirectory).forEach(jvmDir -> {
+                    inner.filter(Files::isDirectory)
+                            .filter(p -> {
+                                String n = p.getFileName().toString();
+                                return !n.endsWith(".staging") && !n.endsWith(".bak");
+                            })
+                            .forEach(jvmDir -> {
                         String exe = resolveJava(jvmDir.toString());
                         if (exe != null) result.add(exe);
                     });

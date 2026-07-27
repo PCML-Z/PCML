@@ -70,3 +70,77 @@ class RoomCreatedEvent(val roomCode: String, val virtualIp: String) : PmclEvent(
 class RoomJoinedEvent(val roomCode: String, val virtualIp: String) : PmclEvent() {
     override val type = "room_joined"
 }
+
+/** Fired when the selected account changes (identity only, no tokens). */
+class AccountSelectedEvent(val accountUuid: String, val username: String) : PmclEvent() {
+    override val type = "account_selected"
+}
+
+/** Fired when an instance is created. */
+class InstanceCreatedEvent(val instanceId: String, val name: String) : PmclEvent() {
+    override val type = "instance_created"
+}
+
+/** Fired when an instance is deleted. */
+class InstanceDeletedEvent(val instanceId: String) : PmclEvent() {
+    override val type = "instance_deleted"
+}
+
+/** Fired when a download requested via [com.pmcl.plugin.api.DownloadsApi] completes. */
+class DownloadCompletedEvent(val url: String, val targetPath: String, val success: Boolean) : PmclEvent() {
+    override val type = "download_completed"
+}
+
+/** Fired when the host navigates to a page (built-in or plugin). */
+class NavigationEvent(val target: String) : PmclEvent() {
+    override val type = "navigation"
+}
+
+/** Fired when a host preference changes via [com.pmcl.plugin.api.SettingsApi]. */
+class SettingsChangedEvent(val key: String, val value: String) : PmclEvent() {
+    override val type = "settings_changed"
+}
+
+/** Fired when an offline / managed account is added via AccountsApi. */
+class AccountAddedEvent(val accountUuid: String, val username: String, val accountType: String) : PmclEvent() {
+    override val type = "account_added"
+}
+
+/** Fired when an account is removed via AccountsApi. */
+class AccountRemovedEvent(val accountUuid: String) : PmclEvent() {
+    override val type = "account_removed"
+}
+
+/** Fired when a plugin rewrites a download URL. */
+class UrlRewrittenEvent(val originalUrl: String, val rewrittenUrl: String, val pluginId: String) : PmclEvent() {
+    override val type = "url_rewritten"
+}
+
+/** Fired when the active theme preset / pack changes. */
+class ThemeChangedEvent(val themePreset: String, val customThemePackId: String) : PmclEvent() {
+    override val type = "theme_changed"
+}
+
+/** Fired when music playback state changes (host bridge). */
+class MusicStateChangedEvent(
+    val state: String,
+    val title: String,
+    val volume: Int,
+) : PmclEvent() {
+    override val type = "music_state_changed"
+}
+
+/** Fired when a download-queue task changes status. */
+class QueueTaskChangedEvent(
+    val taskId: String,
+    val name: String,
+    val status: String,
+    val progress: Double,
+) : PmclEvent() {
+    override val type = "queue_task_changed"
+}
+
+/** Fired when a plugin enables or disables a local mod. */
+class ModToggledEvent(val fileName: String, val enabled: Boolean) : PmclEvent() {
+    override val type = "mod_toggled"
+}

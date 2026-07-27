@@ -147,6 +147,9 @@ public final class MicrosoftAuthFlow {
                     .build();
             try (Response resp = http.newCall(req).execute()) {
                 json = resp.body() != null ? resp.body().string() : "";
+                if (!resp.isSuccessful() && (json == null || json.isEmpty())) {
+                    throw new IOException("请求设备码失败 code=" + resp.code());
+                }
             }
         } catch (IOException e) {
             // SSL 握手失败（GFW 干扰）→ fallback 到 curl
@@ -159,18 +162,30 @@ public final class MicrosoftAuthFlow {
         }
         try {
             JsonObject o = JsonParser.parseString(json).getAsJsonObject();
+            String error = safeStr(o, "error");
+            if (!error.isEmpty()) {
+                throw new IOException("请求设备码失败: " + error + " "
+                        + safeStr(o, "error_description"));
+            }
             // 微软 device code 端点返回字段为 verification_uri（部分旧文档写作 verification_url，
             // 实际响应为 verification_uri）。同时兼容两种字段名以防万一。
             String verificationUri = safeStr(o, "verification_uri");
             if (verificationUri.isEmpty()) verificationUri = safeStr(o, "verification_url");
+            String deviceCode = safeStr(o, "device_code");
+            String userCode = safeStr(o, "user_code");
+            if (deviceCode.isEmpty() || userCode.isEmpty() || verificationUri.isEmpty()) {
+                throw new IOException("设备码响应缺少必填字段 body=" + json);
+            }
             return new DeviceCode(
-                    safeStr(o, "device_code"),
-                    safeStr(o, "user_code"),
+                    deviceCode,
+                    userCode,
                     verificationUri,
                     o.has("expires_in") && !o.get("expires_in").isJsonNull() ? o.get("expires_in").getAsInt() : 0,
                     o.has("interval") && !o.get("interval").isJsonNull() ? o.get("interval").getAsInt() : 0,
                     safeStr(o, "message")
             );
+        } catch (IOException e) {
+            throw e;
         } catch (Throwable t) {
             throw new IOException("解析设备码响应失败: " + t.getMessage() + " body=" + json, t);
         }
@@ -181,22 +196,42 @@ public final class MicrosoftAuthFlow {
      *
      * @param onPending 每次轮询返回 pending 时回调（可用于 UI 提示）
      */
+    /** 微软 OAuth token 响应（含 refresh，供启动前刷新） */
+    public static final class MsOAuthToken {
+        public final String accessToken;
+        public final String refreshToken;
+        public final int expiresInSec;
+
+        public MsOAuthToken(String accessToken, String refreshToken, int expiresInSec) {
+            this.accessToken = accessToken != null ? accessToken : "";
+            this.refreshToken = refreshToken != null ? refreshToken : "";
+            this.expiresInSec = Math.max(0, expiresInSec);
+        }
+    }
+
     public CompletableFuture<String> pollForMsAccessToken(DeviceCode dc,
                                                           Consumer<String> onPending) {
-        CompletableFuture<String> future = new CompletableFuture<>();
+        return pollForMsOAuthToken(dc, onPending).thenApply(t -> t.accessToken);
+    }
+
+    /** 异步轮询设备码，返回含 refresh_token 的完整 OAuth 响应 */
+    public CompletableFuture<MsOAuthToken> pollForMsOAuthToken(DeviceCode dc,
+                                                               Consumer<String> onPending) {
+        CompletableFuture<MsOAuthToken> future = new CompletableFuture<>();
         pollOnce(dc, onPending, future);
         return future;
     }
 
     private void pollOnce(DeviceCode dc, Consumer<String> onPending,
-                          CompletableFuture<String> future) {
+                          CompletableFuture<MsOAuthToken> future) {
         // S6: 取消/完成/异常后停止调度，避免 ~180 次无效请求触发限流
         if (future.isDone()) return;
         // login.live.com 旧端点：与 requestDeviceCode 配套。
         // 不带 scope（scope 已在 devicecode 请求时指定，token 端点会自动继承）。
         String body = "client_id=" + clientId +
                 "&grant_type=urn:ietf:params:oauth:grant-type:device_code" +
-                "&device_code=" + dc.getDeviceCode();
+                "&device_code=" + java.net.URLEncoder.encode(
+                        dc.getDeviceCode(), java.nio.charset.StandardCharsets.UTF_8);
         String json;
         try {
             Request req = new Request.Builder()
@@ -238,8 +273,11 @@ public final class MicrosoftAuthFlow {
                     future.completeExceptionally(new RuntimeException("token 响应中 access_token 为空: " + json));
                     return;
                 }
+                String refresh = safeStr(o, "refresh_token");
+                int expiresIn = o.has("expires_in") && !o.get("expires_in").isJsonNull()
+                        ? o.get("expires_in").getAsInt() : 0;
                 // 不输出 token 长度/前缀等元数据，防止凭据信息泄漏到共享日志
-                future.complete(token);
+                future.complete(new MsOAuthToken(token, refresh, expiresIn));
                 return;
             }
             switch (error) {
@@ -327,12 +365,16 @@ public final class MicrosoftAuthFlow {
 
     /**
      * 第五步：用 XSTS token 换取 MC access_token。
+     * @return [mcAccessToken, expiresInSeconds]
      */
-    public String loginMinecraft(String xstsToken, String userHash) throws IOException {
+    public String[] loginMinecraft(String xstsToken, String userHash) throws IOException {
         JsonObject payload = new JsonObject();
         payload.addProperty("identityToken", "XBL3.0 x=" + userHash + ";" + xstsToken);
         JsonObject resp = postJson(MC_LOGIN_URL, payload);
-        return safeStr(resp, "access_token");
+        String token = safeStr(resp, "access_token");
+        int expiresIn = resp.has("expires_in") && !resp.get("expires_in").isJsonNull()
+                ? resp.get("expires_in").getAsInt() : 86400;
+        return new String[]{ token, String.valueOf(Math.max(expiresIn, 60)) };
     }
 
     /**
@@ -482,12 +524,104 @@ public final class MicrosoftAuthFlow {
      * ${auth_xuid} 参数（1.16+ 连接 Realms 或需 Xbox Live 验证的服务器时必需）。
      */
     public Account completeLogin(String msAccessToken) throws IOException {
-        String[] xbl = authXboxLive(msAccessToken);
+        return completeLogin(new MsOAuthToken(msAccessToken, "", 0));
+    }
+
+    /** 端到端登录（保留 refresh_token，供启动前自动刷新）。 */
+    public Account completeLogin(MsOAuthToken oauth) throws IOException {
+        if (oauth == null || oauth.accessToken.isEmpty()) {
+            throw new IOException("MS access_token 为空");
+        }
+        String[] xbl = authXboxLive(oauth.accessToken);
         String xsts = authXsts(xbl[0]);
-        String mcToken = loginMinecraft(xsts, xbl[1]);
+        String[] mc = loginMinecraft(xsts, xbl[1]);
+        String mcToken = mc[0];
+        long expiresAt = System.currentTimeMillis()
+                + Long.parseLong(mc[1]) * 1000L;
         String[] profile = fetchProfile(mcToken);
         return new Account(profile[0], profile[1], mcToken, Account.AccountType.MICROSOFT,
-                profile[2], profile[3], xbl[1]);
+                profile[2], profile[3], xbl[1], "", oauth.refreshToken, expiresAt);
+    }
+
+    /**
+     * 用 refresh_token 刷新微软会话并换发新的 MC accessToken。
+     * 失败抛 IOException（调用方应提示重新登录）。
+     */
+    public Account refreshLogin(String msRefreshToken) throws IOException {
+        if (msRefreshToken == null || msRefreshToken.isEmpty()) {
+            throw new IOException("无 refresh_token，请重新登录微软账号");
+        }
+        MsOAuthToken oauth = refreshMsOAuthToken(msRefreshToken);
+        return completeLogin(oauth);
+    }
+
+    /**
+     * 用 refresh_token 换取新的 MS access_token。
+     * 浏览器登录发自 v2 consumers 端点，设备码发自 login.live.com；
+     * 先试 v2 再回退 live，避免端点错配导致 invalid_grant。
+     */
+    public MsOAuthToken refreshMsOAuthToken(String refreshToken) throws IOException {
+        IOException first = null;
+        try {
+            return refreshMsOAuthTokenAt(V2_TOKEN_URL, refreshToken);
+        } catch (IOException e) {
+            first = e;
+        }
+        try {
+            return refreshMsOAuthTokenAt(TOKEN_URL, refreshToken);
+        } catch (IOException e) {
+            if (first != null) e.addSuppressed(first);
+            throw e;
+        }
+    }
+
+    private MsOAuthToken refreshMsOAuthTokenAt(String tokenUrl, String refreshToken) throws IOException {
+        String body = "client_id=" + clientId +
+                "&grant_type=refresh_token" +
+                "&refresh_token=" + java.net.URLEncoder.encode(refreshToken, "UTF-8") +
+                "&scope=" + java.net.URLEncoder.encode(V2_SCOPE, "UTF-8");
+        String json;
+        try {
+            Request req = new Request.Builder()
+                    .url(tokenUrl)
+                    .post(RequestBody.create(body,
+                            MediaType.get("application/x-www-form-urlencoded")))
+                    .build();
+            try (Response resp = http.newCall(req).execute()) {
+                json = resp.body() != null ? resp.body().string() : "";
+                if (!resp.isSuccessful() && (json == null || json.isEmpty())) {
+                    throw new IOException("刷新 token 失败 code=" + resp.code() + " endpoint=" + tokenUrl);
+                }
+            }
+        } catch (IOException e) {
+            if (CurlFallback.isSslHandshakeFailure(e) && CurlFallback.isAvailable()) {
+                json = CurlFallback.postStringAllowingErrors(tokenUrl, body,
+                        "application/x-www-form-urlencoded", null);
+            } else {
+                throw new IOException("刷新 token 失败 (" + tokenUrl + "): " + e.getMessage(), e);
+            }
+        }
+        try {
+            JsonObject o = JsonParser.parseString(json).getAsJsonObject();
+            String error = safeStr(o, "error");
+            if (!error.isEmpty()) {
+                throw new IOException("刷新 token 失败: " + error + " " + safeStr(o, "error_description")
+                        + " endpoint=" + tokenUrl);
+            }
+            String access = safeStr(o, "access_token");
+            if (access.isEmpty()) {
+                throw new IOException("刷新后 access_token 为空 endpoint=" + tokenUrl);
+            }
+            String newRefresh = safeStr(o, "refresh_token");
+            if (newRefresh.isEmpty()) newRefresh = refreshToken;
+            int expiresIn = o.has("expires_in") && !o.get("expires_in").isJsonNull()
+                    ? o.get("expires_in").getAsInt() : 0;
+            return new MsOAuthToken(access, newRefresh, expiresIn);
+        } catch (IOException e) {
+            throw e;
+        } catch (Throwable t) {
+            throw new IOException("解析 refresh 响应失败: " + t.getMessage(), t);
+        }
     }
 
     /**
@@ -533,30 +667,18 @@ public final class MicrosoftAuthFlow {
             String code = server.awaitCode(300);
 
             onStatus.accept("交换 access_token…");
-            String msAccessToken = exchangeCodeForToken(code, redirectUri);
+            MsOAuthToken oauth = exchangeCodeForToken(code, redirectUri);
 
             onStatus.accept("登录 Xbox Live…");
-            String[] xbl = authXboxLive(msAccessToken);
-
-            onStatus.accept("获取 XSTS token…");
-            String xsts = authXsts(xbl[0]);
-
-            onStatus.accept("登录 Minecraft…");
-            String mcToken = loginMinecraft(xsts, xbl[1]);
-
-            onStatus.accept("获取玩家档案…");
-            String[] profile = fetchProfile(mcToken);
-
-            return new Account(profile[0], profile[1], mcToken, Account.AccountType.MICROSOFT,
-                    profile[2], profile[3], xbl[1]);
+            return completeLogin(oauth);
         }
     }
 
     /**
-     * 用授权码交换 MS access_token。
+     * 用授权码交换 MS access_token（含 refresh）。
      * 带 curl fallback，防止 GFW 拦截 Java TLS。
      */
-    private String exchangeCodeForToken(String code, String redirectUri) throws IOException {
+    private MsOAuthToken exchangeCodeForToken(String code, String redirectUri) throws IOException {
         String body = "client_id=" + clientId +
                 "&grant_type=authorization_code" +
                 "&code=" + java.net.URLEncoder.encode(code, "UTF-8") +
@@ -590,7 +712,12 @@ public final class MicrosoftAuthFlow {
             if (token.isEmpty()) {
                 throw new IOException("access_token 为空: " + json);
             }
-            return token;
+            String refresh = safeStr(o, "refresh_token");
+            int expiresIn = o.has("expires_in") && !o.get("expires_in").isJsonNull()
+                    ? o.get("expires_in").getAsInt() : 0;
+            return new MsOAuthToken(token, refresh, expiresIn);
+        } catch (IOException e) {
+            throw e;
         } catch (Throwable t) {
             throw new IOException("解析 token 响应失败: " + t.getMessage() + " body=" + json, t);
         }

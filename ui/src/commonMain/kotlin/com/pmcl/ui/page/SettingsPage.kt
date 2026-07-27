@@ -56,8 +56,11 @@ fun SettingsPage(vm: LauncherViewModel) {
     var language by remember { mutableStateOf(pref.getLanguage()) }
     var borderless by remember { mutableStateOf(pref.isBorderlessWindow()) }
 
-    // 插件主题包列表（轮询 PluginManager.revision 变化时刷新）
+    // 插件主题包 / 设置分区（轮询 PluginManager.revision 变化时刷新）
     var pluginThemePacks by remember { mutableStateOf<List<com.pmcl.plugin.ThemePack>>(emptyList()) }
+    var pluginSettingsSections by remember {
+        mutableStateOf<List<com.pmcl.core.plugin.PluginManager.RegisteredPage>>(emptyList())
+    }
     LaunchedEffect("poll-plugin-theme-packs") {
         var lastRev = -1L
         while (true) {
@@ -65,6 +68,7 @@ fun SettingsPage(vm: LauncherViewModel) {
             if (rev != lastRev) {
                 lastRev = rev
                 pluginThemePacks = vm.core.plugins().getCustomThemePacks()
+                pluginSettingsSections = vm.core.plugins().getCustomSettingsSections()
             }
             kotlinx.coroutines.delay(1000)
         }
@@ -729,6 +733,36 @@ fun SettingsPage(vm: LauncherViewModel) {
 
         // 关于
         AboutCard(vm)
+
+        // 插件扩展设置分区
+        if (pluginSettingsSections.isNotEmpty()) {
+            Spacer(Modifier.height(24.dp))
+            Text(
+                "扩展设置",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(Modifier.height(8.dp))
+            pluginSettingsSections.forEach { section ->
+                Card(
+                    modifier = Modifier.fillMaxWidth().glassCardBorder(),
+                    colors = glassCardColors(),
+                    elevation = glassCardElevation()
+                ) {
+                    Column(Modifier.padding(16.dp)) {
+                        Text(
+                            section.title + " · " + section.pluginId,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        // Compose 不允许 try/catch 包裹 @Composable 调用；异常由宿主 SafePluginPage 同类策略承接
+                        section.content.invoke()
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+            }
+        }
     }
 }
 
@@ -1918,6 +1952,7 @@ private fun JavaRuntimeCard(vm: LauncherViewModel, pref: com.pmcl.core.preferenc
     val dlStatus by vm.javaDownloadStatus.collectAsState()
     var manualPath by remember { mutableStateOf(pref.getJavaPath()) }
     val detectedPath = remember { vm.detectJavaPath() }
+    val modifier = Modifier
 
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
@@ -2036,6 +2071,37 @@ private fun JavaRuntimeCard(vm: LauncherViewModel, pref: com.pmcl.core.preferenc
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
+
+            Spacer(modifier.height(16.dp))
+            Text(
+                I18n.t("settings.legacy_translation"),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                I18n.t("settings.legacy_translation_desc"),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline
+            )
+            Spacer(Modifier.height(8.dp))
+            var translationMode by remember { mutableStateOf(pref.getLegacyTranslationMode()) }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(
+                    "AUTO" to I18n.t("settings.legacy_translation_auto"),
+                    "ON" to I18n.t("settings.legacy_translation_on"),
+                    "OFF" to I18n.t("settings.legacy_translation_off"),
+                ).forEach { (mode, label) ->
+                    if (translationMode == mode) {
+                        Button(onClick = { /* selected */ }) { Text(label) }
+                    } else {
+                        OutlinedButton(onClick = {
+                            translationMode = mode
+                            pref.setLegacyTranslationMode(mode)
+                        }) { Text(label) }
+                    }
+                }
+            }
         }
     }
 }

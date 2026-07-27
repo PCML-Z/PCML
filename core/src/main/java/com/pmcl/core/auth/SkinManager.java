@@ -246,15 +246,42 @@ public final class SkinManager {
         }
     }
 
-    /** 校验皮肤文件：大小不超过 1MB，扩展名是 png */
+    /** 校验皮肤文件：PNG 魔数 + 尺寸（64×32 / 64×64）+ ≤1MB */
     private void validateSkinFile(Path skinFile) throws IOException {
-        String name = skinFile.getFileName().toString().toLowerCase();
+        String name = skinFile.getFileName().toString().toLowerCase(java.util.Locale.ROOT);
         if (!name.endsWith(".png")) {
             throw new IOException("皮肤文件必须是 PNG 格式");
         }
         long size = Files.size(skinFile);
+        if (size < 33) {
+            throw new IOException("皮肤文件过小，不是有效 PNG");
+        }
         if (size > 1024 * 1024) {
             throw new IOException("皮肤文件过大（" + (size / 1024) + "KB），最大支持 1MB");
+        }
+        byte[] header;
+        try (java.io.InputStream in = Files.newInputStream(skinFile)) {
+            header = in.readNBytes(24);
+        }
+        if (header.length < 24) {
+            throw new IOException("皮肤 PNG 缺少 IHDR");
+        }
+        // PNG signature
+        byte[] sig = new byte[]{(byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A};
+        for (int i = 0; i < sig.length; i++) {
+            if (header[i] != sig[i]) {
+                throw new IOException("皮肤文件不是有效 PNG（魔数不匹配）");
+            }
+        }
+        int width = ((header[16] & 0xFF) << 24) | ((header[17] & 0xFF) << 16)
+                | ((header[18] & 0xFF) << 8) | (header[19] & 0xFF);
+        int height = ((header[20] & 0xFF) << 24) | ((header[21] & 0xFF) << 16)
+                | ((header[22] & 0xFF) << 8) | (header[23] & 0xFF);
+        boolean okSize = (width == 64 && (height == 32 || height == 64))
+                || (width == 128 && height == 128); // 部分高清皮肤
+        if (!okSize) {
+            throw new IOException("皮肤尺寸必须为 64x32 / 64x64（或 128x128），当前 "
+                    + width + "x" + height);
         }
     }
 

@@ -1,39 +1,22 @@
 package com.pmcl.downloader
 
-import com.pmcl.core.download.DownloadManager
 import com.pmcl.plugin.PmclPlugin
 import com.pmcl.plugin.PluginContext
+import com.pmcl.plugin.api.DownloadsApi
 import java.nio.file.Paths
 
 /**
- * 自定义下载器插件 —— 使用 PMCL 内置的 DownloadManager 下载任意 URL 内容。
- *
- * 通过 PluginContext.getService(DownloadManager::class.java) 获取下载器实例，
- * 自动继承 PMCL 的代理配置、镜像源重写、SSL fallback 等能力。
- *
- * GUI 页面：在侧边栏添加 "Downloader" 页面，提供可视化下载操作。
- *
- * 注册的命令（通过 plugin:custom-downloader:<name> 调用）：
- *   dl-text <url>           下载 URL 文本内容并显示
- *   dl-file <url> [path]    下载文件到本地（默认保存到 ~/.pmcl/downloads/）
- *   dl-mirror               显示当前镜像源状态
- *   dl-head <url>           只下载前 500 字符预览
+ * 自定义下载器插件 —— 使用稳定 [DownloadsApi]（隔离 ClassLoader 安全）。
  */
 class CustomDownloaderPlugin : PmclPlugin {
     override val pluginId = "custom-downloader"
 
-    private var dl: DownloadManager? = null
+    private var downloads: DownloadsApi? = null
 
     override fun onEnable(ctx: PluginContext) {
-        // 获取 PMCL 下载器实例
-        dl = ctx.getService(DownloadManager::class.java)
-        if (dl == null) {
-            ctx.error("DownloadManager not available! Plugin cannot function.")
-            return
-        }
-        ctx.info("Custom Downloader enabled — DownloadManager acquired.")
+        downloads = ctx.downloads()
+        ctx.info("Custom Downloader enabled — DownloadsApi acquired.")
 
-        // dl-text: 下载文本内容
         ctx.registerCommand("dl-text", "Download URL content as text and display it") { args ->
             val url = args.firstOrNull()?.takeIf { it.isNotBlank() }
                 ?: return@registerCommand "Usage: dl-text <url>"
@@ -41,41 +24,31 @@ class CustomDownloaderPlugin : PmclPlugin {
                 return@registerCommand "Error: Invalid URL — ${UrlValidator.getValidationError(url)}"
             }
             try {
-                val content = dl!!.downloadString(url)
-                val display = if (content.length > 5000) {
+                val content = downloads!!.downloadString(url)
+                if (content.length > 5000) {
                     content.substring(0, 5000) + "\n\n... (truncated, total ${content.length} chars)"
                 } else {
                     content
                 }
-                display
             } catch (e: Exception) {
                 "Download failed: ${e.message}"
             }
         }
 
-        // dl-file: 下载文件到本地
-        ctx.registerCommand("dl-file", "Download a file to local disk (default: ~/.pmcl/downloads/)") { args ->
+        ctx.registerCommand("dl-file", "Download a file into the plugin data directory") { args ->
             val url = args.firstOrNull()?.takeIf { it.isNotBlank() }
-                ?: return@registerCommand "Usage: dl-file <url> [savePath]"
+                ?: return@registerCommand "Usage: dl-file <url> [filename]"
             if (!UrlValidator.isValidUrl(url)) {
                 return@registerCommand "Error: Invalid URL — ${UrlValidator.getValidationError(url)}"
             }
-            // S23 安全修复：保存路径必须位于 ~/.pmcl/downloads/ 内，防止路径穿越
-            val savePath = if (args.size >= 2 && args[1].isNotBlank()) {
-                try {
-                    FileHelper.sanitizeSavePath(args[1])
-                } catch (e: IllegalArgumentException) {
-                    return@registerCommand "Error: ${e.message}"
-                }
+            val filename = if (args.size >= 2 && args[1].isNotBlank()) {
+                Paths.get(args[1]).fileName.toString()
             } else {
-                val filename = FileHelper.extractFilename(url)
-                Paths.get(System.getProperty("user.home"), ".pmcl", "downloads", filename)
+                FileHelper.extractFilename(url)
             }
+            val savePath = ctx.getDataDir().resolve(filename)
             try {
-                FileHelper.ensureParentDir(savePath)
-                dl!!.downloadTo(url, savePath) { bytesRead ->
-                    // 进度回调（静默，CLI单行输出不适合实时进度）
-                }
+                downloads!!.downloadTo(url, savePath)
                 val size = java.nio.file.Files.size(savePath)
                 "Downloaded: $url\nSaved to: $savePath\nSize: ${formatSize(size)}"
             } catch (e: Exception) {
@@ -83,20 +56,6 @@ class CustomDownloaderPlugin : PmclPlugin {
             }
         }
 
-        // dl-mirror: 显示镜像源状态
-        ctx.registerCommand("dl-mirror", "Show current mirror source status") { _ ->
-            val mirror = dl!!.mirror()
-            buildString {
-                appendLine("=== Mirror Source Status ===")
-                appendLine("Type:        ${mirror.type}")
-                appendLine("Custom base: ${mirror.customBase.ifEmpty { "(not set)" }}")
-                appendLine()
-                appendLine("Available types: OFFICIAL, BMCLAPI, CUSTOM")
-                appendLine("Change via: Settings > Network > Mirror Source")
-            }.trim()
-        }
-
-        // dl-head: 只下载前500字符预览
         ctx.registerCommand("dl-head", "Download and preview first 500 chars of URL content") { args ->
             val url = args.firstOrNull()?.takeIf { it.isNotBlank() }
                 ?: return@registerCommand "Usage: dl-head <url>"
@@ -104,30 +63,26 @@ class CustomDownloaderPlugin : PmclPlugin {
                 return@registerCommand "Error: Invalid URL — ${UrlValidator.getValidationError(url)}"
             }
             try {
-                val content = dl!!.downloadString(url)
-                if (content.length <= 500) {
-                    content
-                } else {
-                    content.substring(0, 500) + "\n\n... (${content.length} chars total)"
-                }
+                val content = downloads!!.downloadString(url)
+                if (content.length <= 500) content
+                else content.substring(0, 500) + "\n\n... (${content.length} chars total)"
             } catch (e: Exception) {
                 "Download failed: ${e.message}"
             }
         }
 
-        ctx.info("Registered 4 commands: dl-text, dl-file, dl-mirror, dl-head")
+        ctx.info("Registered commands: dl-text, dl-file, dl-head")
 
-        // 注册 GUI 页面 — 在 PMCL 侧边栏添加 "Downloader" 页面
         ctx.registerPage(
             "downloader-page",
             "Downloader",
-            DownloaderPageContent(dl!!)
+            DownloaderPageContent(downloads!!, ctx.getDataDir())
         )
         ctx.info("Registered GUI page: Downloader")
     }
 
     override fun onDisable() {
-        dl = null
+        downloads = null
     }
 
     private fun formatSize(bytes: Long): String {

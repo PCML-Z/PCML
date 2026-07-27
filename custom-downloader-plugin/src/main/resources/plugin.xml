@@ -6,12 +6,13 @@
     <info>
         <id>custom-downloader</id>
         <name>Custom Downloader</name>
-        <version>1.1.0</version>
+        <version>1.2.0</version>
         <author>PMCL User</author>
-        <description>Download any URL content via PMCL's download manager — CLI commands + GUI page with text preview, file download, and history</description>
-        <api-version>1.0</api-version>
+        <description>Download any URL via stable DownloadsApi — CLI commands + GUI page</description>
+        <api-version>1.1</api-version>
         <main-class>com.pmcl.downloader.CustomDownloaderPlugin</main-class>
         <license>MIT</license>
+        <permissions>NETWORK</permissions>
     </info>
 
     <sources>

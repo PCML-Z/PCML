@@ -32,6 +32,8 @@ public final class NewsClient {
 
     private static final String FEED_URL = "https://www.minecraft.net/feeds/community-content/rss";
     private static final int DEFAULT_LIMIT = 20;
+    /** OkHttp 响应体上限，防异常大包 OOM（与 CurlFallback 文本上限同量级） */
+    private static final long MAX_BODY_BYTES = 8L * 1024 * 1024;
 
     /** 重试次数（总请求次数 = RETRY + 1） */
     private static final int RETRY = 3;
@@ -114,7 +116,7 @@ public final class NewsClient {
                     if (!resp.isSuccessful()) {
                         throw new RuntimeException("RSS 请求失败：HTTP " + resp.code());
                     }
-                    byte[] bytes = resp.body() != null ? resp.body().bytes() : new byte[0];
+                    byte[] bytes = readBodyCapped(resp);
                     return parseBytes(bytes, max);
                 } catch (Exception e) {
                     last = e;
@@ -131,6 +133,20 @@ public final class NewsClient {
             String msg = last != null ? last.getMessage() : "未知错误";
             throw new RuntimeException(friendlyError(msg), last);
         });
+    }
+
+    /** 读取响应体，超过 {@link #MAX_BODY_BYTES} 拒绝。 */
+    private static byte[] readBodyCapped(Response resp) throws java.io.IOException {
+        if (resp.body() == null) return new byte[0];
+        long cl = resp.body().contentLength();
+        if (cl > MAX_BODY_BYTES) {
+            throw new java.io.IOException("响应体过大 (" + cl + " > " + MAX_BODY_BYTES + ")");
+        }
+        byte[] bytes = resp.body().bytes();
+        if (bytes.length > MAX_BODY_BYTES) {
+            throw new java.io.IOException("响应体过大 (" + bytes.length + " > " + MAX_BODY_BYTES + ")");
+        }
+        return bytes;
     }
 
     /**
@@ -186,7 +202,7 @@ public final class NewsClient {
                             .build();
                     try (Response resp = http.newCall(req).execute()) {
                         if (!resp.isSuccessful()) return "";
-                        byte[] bytes = resp.body() != null ? resp.body().bytes() : new byte[0];
+                        byte[] bytes = readBodyCapped(resp);
                         html = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
                     }
                 }
@@ -267,7 +283,7 @@ public final class NewsClient {
                     if (!resp.isSuccessful()) {
                         throw new RuntimeException("文章请求失败：HTTP " + resp.code());
                     }
-                    byte[] bytes = resp.body() != null ? resp.body().bytes() : new byte[0];
+                    byte[] bytes = readBodyCapped(resp);
                     String html = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
                     return extractArticleContent(html, articleUrl);
                 } catch (Exception e) {

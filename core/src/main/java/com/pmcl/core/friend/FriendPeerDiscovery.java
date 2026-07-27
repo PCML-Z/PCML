@@ -203,6 +203,7 @@ public final class FriendPeerDiscovery implements AutoCloseable {
             try {
                 Thread.sleep(5000); // 每 5 秒广播一次
             } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
                 break;
             }
         }

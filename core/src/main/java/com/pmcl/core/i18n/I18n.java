@@ -28,6 +28,15 @@ public final class I18n {
     private static final Map<String, String> EN = new LinkedHashMap<>();
     private static final Map<String, String> JA = new LinkedHashMap<>();
 
+    /**
+     * Plugin-registered overlays: languageCode → (key → value).
+     * Looked up before built-in maps so plugins can localize their own strings
+     * (and optionally override host keys — prefer plugin-prefixed keys).
+     */
+    private static final java.util.concurrent.ConcurrentHashMap<String,
+            java.util.concurrent.ConcurrentHashMap<String, String>> PLUGIN_STRINGS =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
     static {
         initZh();
         initEn();
@@ -216,13 +225,17 @@ public final class I18n {
         ZH.put("music.resolving", "解析中…");
         ZH.put("music.resolve_failed", "解析失败：{0}");
         ZH.put("music.resolve_success", "已添加：{0}");
+        ZH.put("music.already_in_playlist", "已在播放列表中：{0}");
         ZH.put("music.empty", "播放列表为空。输入链接添加曲目");
         ZH.put("music.empty_hint", "支持 B站、A站视频链接和音频直链");
         ZH.put("music.now_playing", "正在播放");
         ZH.put("music.playlist", "播放列表");
         ZH.put("music.history", "历史");
+        ZH.put("music.history_empty", "暂无播放历史");
         ZH.put("music.clear", "清空");
         ZH.put("music.clear_confirm", "确定清空播放列表？");
+        ZH.put("music.clear_history", "清空历史");
+        ZH.put("music.clear_history_confirm", "确定清空播放历史？");
         ZH.put("music.remove", "移除");
         ZH.put("music.remove_confirm", "确定从播放列表移除 \"{0}\"？");
         ZH.put("music.play", "播放");
@@ -253,6 +266,25 @@ public final class I18n {
         ZH.put("music.repeat_one", "单曲循环");
         ZH.put("music.shuffle", "随机播放");
         ZH.put("music.open_url", "打开原网页");
+        ZH.put("music.open_url_failed", "无法打开链接：{0}");
+        ZH.put("music.source_local", "本地");
+        ZH.put("music.add_files", "添加文件");
+        ZH.put("music.add_folder", "添加文件夹");
+        ZH.put("music.pick_files", "选择音频文件");
+        ZH.put("music.pick_folder", "选择音频文件夹");
+        ZH.put("music.local_added", "已添加 {0} 首本地曲目");
+        ZH.put("music.local_none_added", "未添加任何本地曲目");
+        ZH.put("music.lyrics", "歌词");
+        ZH.put("music.lyrics_empty", "暂无歌词（本地可放同名 .lrc；B站尝试字幕）");
+        ZH.put("music.playlists", "播放列表");
+        ZH.put("music.playlist_default", "默认播放列表");
+        ZH.put("music.playlist_create", "新建播放列表");
+        ZH.put("music.playlist_delete", "删除当前列表");
+        ZH.put("music.playlist_untitled", "未命名列表");
+        ZH.put("music.playlist_keep_one", "至少保留一个播放列表");
+        ZH.put("music.clear_cache", "清理缓存");
+        ZH.put("music.cache_cleared", "音频缓存已清理");
+        ZH.put("music.cache_clear_failed", "清理缓存失败：{0}");
         ZH.put("music.status_idle", "就绪");
         ZH.put("music.status_loading", "加载中");
         ZH.put("music.status_playing", "播放中");
@@ -610,6 +642,8 @@ public final class I18n {
         ZH.put("stats.total_duration", "总时长");
         ZH.put("stats.total_sessions", "总会话");
         ZH.put("stats.daily_avg", "日均");
+        ZH.put("stats.unit_hour", "小时");
+        ZH.put("stats.unit_minute", "分钟");
         ZH.put("stats.recent_days", "近 {0} 天");
         ZH.put("stats.daily_trend", "每日游玩时长");
         ZH.put("stats.version_dist", "版本游玩时长分布");
@@ -1059,6 +1093,12 @@ public final class I18n {
         ZH.put("settings.downloading", "正在下载…");
         ZH.put("settings.manual_java_path", "手动指定 Java 可执行文件路径");
         ZH.put("settings.manual_java_path_hint", "留空则自动检测（优先 runtimes 目录，再系统路径）");
+        ZH.put("settings.legacy_translation", "旧版转译运行（RetroWrapper）");
+        ZH.put("settings.legacy_translation_desc",
+                "用 Java 21+（含 Apple Silicon arm64）启动 Classic～1.12（LWJGL2）旧版。1.13+ 无需此项。基于开源 RetroWrapper 与 FrankenLWJGL。");
+        ZH.put("settings.legacy_translation_auto", "自动");
+        ZH.put("settings.legacy_translation_on", "始终开启");
+        ZH.put("settings.legacy_translation_off", "关闭");
         ZH.put("settings.color.sky_blue", "天空蓝");
         ZH.put("settings.color.mint", "薄荷绿");
         ZH.put("settings.color.amber", "琥珀橙");
@@ -1764,6 +1804,12 @@ public final class I18n {
         // ===== 状态消息 - 启动游戏 =====
         ZH.put("status.building_launch_profile", "正在构建启动配置…");
         ZH.put("status.launch_busy", "正在准备启动，请稍候");
+        ZH.put("status.launch_busy_companion", "Companion 正在启动或运行游戏，请稍候");
+        ZH.put("status.launch_cancelled", "启动已取消（设备保护或插件拦截）");
+        ZH.put("status.refreshing_microsoft_token", "正在刷新微软账号令牌…");
+        ZH.put("status.microsoft_token_refresh_failed", "微软令牌刷新失败，请重新登录：{0}");
+        ZH.put("status.refreshing_yggdrasil_token", "正在刷新皮肤站令牌…");
+        ZH.put("status.yggdrasil_token_refresh_failed", "皮肤站令牌已失效，请重新登录");
         ZH.put("status.launch_failed_no_java", "启动失败：未找到 Java 运行时");
         ZH.put("status.java_version_detect_failed", "无法识别 Java 主版本：{0}");
         ZH.put("status.game_log_create_failed", "游戏日志文件创建失败：{0}");
@@ -2156,13 +2202,17 @@ public final class I18n {
         EN.put("music.resolving", "Parsing...");
         EN.put("music.resolve_failed", "Parse failed: {0}");
         EN.put("music.resolve_success", "Added: {0}");
+        EN.put("music.already_in_playlist", "Already in playlist: {0}");
         EN.put("music.empty", "Playlist is empty. Enter a URL to add a track");
         EN.put("music.empty_hint", "Supports BiliBili, AcFun URLs and direct audio links");
         EN.put("music.now_playing", "Now Playing");
         EN.put("music.playlist", "Playlist");
         EN.put("music.history", "History");
+        EN.put("music.history_empty", "No play history yet");
         EN.put("music.clear", "Clear");
         EN.put("music.clear_confirm", "Clear playlist?");
+        EN.put("music.clear_history", "Clear history");
+        EN.put("music.clear_history_confirm", "Clear play history?");
         EN.put("music.remove", "Remove");
         EN.put("music.remove_confirm", "Remove \"{0}\" from playlist?");
         EN.put("music.play", "Play");
@@ -2193,6 +2243,25 @@ public final class I18n {
         EN.put("music.repeat_one", "Repeat one");
         EN.put("music.shuffle", "Shuffle");
         EN.put("music.open_url", "Open original page");
+        EN.put("music.open_url_failed", "Could not open link: {0}");
+        EN.put("music.source_local", "Local");
+        EN.put("music.add_files", "Add files");
+        EN.put("music.add_folder", "Add folder");
+        EN.put("music.pick_files", "Choose audio files");
+        EN.put("music.pick_folder", "Choose audio folder");
+        EN.put("music.local_added", "Added {0} local track(s)");
+        EN.put("music.local_none_added", "No local tracks added");
+        EN.put("music.lyrics", "Lyrics");
+        EN.put("music.lyrics_empty", "No lyrics (use a sidecar .lrc, or Bilibili subtitles)");
+        EN.put("music.playlists", "Playlists");
+        EN.put("music.playlist_default", "Default playlist");
+        EN.put("music.playlist_create", "New playlist");
+        EN.put("music.playlist_delete", "Delete current");
+        EN.put("music.playlist_untitled", "Untitled playlist");
+        EN.put("music.playlist_keep_one", "Keep at least one playlist");
+        EN.put("music.clear_cache", "Clear cache");
+        EN.put("music.cache_cleared", "Audio cache cleared");
+        EN.put("music.cache_clear_failed", "Failed to clear cache: {0}");
         EN.put("music.status_idle", "Idle");
         EN.put("music.status_loading", "Loading");
         EN.put("music.status_playing", "Playing");
@@ -2541,6 +2610,8 @@ public final class I18n {
         EN.put("stats.total_duration", "Total");
         EN.put("stats.total_sessions", "Sessions");
         EN.put("stats.daily_avg", "Daily avg");
+        EN.put("stats.unit_hour", "hr");
+        EN.put("stats.unit_minute", "min");
         EN.put("stats.recent_days", "Last {0} days");
         EN.put("stats.daily_trend", "Daily Play Time");
         EN.put("stats.version_dist", "Version Play Time Distribution");
@@ -2980,6 +3051,12 @@ public final class I18n {
         EN.put("settings.downloading", "Downloading…");
         EN.put("settings.manual_java_path", "Manually specify Java executable path");
         EN.put("settings.manual_java_path_hint", "Leave empty for auto-detection (runtimes directory first, then system path)");
+        EN.put("settings.legacy_translation", "Legacy translation (RetroWrapper)");
+        EN.put("settings.legacy_translation_desc",
+                "Run Classic–1.12 (LWJGL2) Minecraft with Java 21+ (incl. Apple Silicon). Not needed for 1.13+. Uses RetroWrapper / FrankenLWJGL.");
+        EN.put("settings.legacy_translation_auto", "Auto");
+        EN.put("settings.legacy_translation_on", "Always on");
+        EN.put("settings.legacy_translation_off", "Off");
         EN.put("settings.color.sky_blue", "Sky blue");
         EN.put("settings.color.mint", "Mint green");
         EN.put("settings.color.amber", "Amber orange");
@@ -3655,6 +3732,12 @@ public final class I18n {
         EN.put("status.batch_update_failed", "Batch update failed: {0}");
         EN.put("status.building_launch_profile", "Building launch profile…");
         EN.put("status.launch_busy", "Preparing launch, please wait…");
+        EN.put("status.launch_busy_companion", "Companion is launching or running the game; please wait");
+        EN.put("status.launch_cancelled", "Launch cancelled (device protection or plugin)");
+        EN.put("status.refreshing_microsoft_token", "Refreshing Microsoft account token…");
+        EN.put("status.microsoft_token_refresh_failed", "Microsoft token refresh failed, please sign in again: {0}");
+        EN.put("status.refreshing_yggdrasil_token", "Refreshing Yggdrasil token…");
+        EN.put("status.yggdrasil_token_refresh_failed", "Yggdrasil token expired, please sign in again");
         EN.put("status.launch_failed_no_java", "Launch failed: no Java runtime found");
         EN.put("status.java_version_detect_failed", "Could not detect Java major version: {0}");
         EN.put("status.game_log_create_failed", "Failed to create game log file: {0}");
@@ -4018,13 +4101,17 @@ public final class I18n {
         JA.put("music.resolving", "解析中...");
         JA.put("music.resolve_failed", "解析失敗：{0}");
         JA.put("music.resolve_success", "追加済み：{0}");
+        JA.put("music.already_in_playlist", "再生リストに既にあります：{0}");
         JA.put("music.empty", "再生リストが空です。URLを入力してトラックを追加");
         JA.put("music.empty_hint", "Bilibili、AcFunのURLと音声直リンクに対応");
         JA.put("music.now_playing", "再生中");
         JA.put("music.playlist", "再生リスト");
         JA.put("music.history", "履歴");
+        JA.put("music.history_empty", "再生履歴がありません");
         JA.put("music.clear", "クリア");
         JA.put("music.clear_confirm", "再生リストをクリアしますか？");
+        JA.put("music.clear_history", "履歴をクリア");
+        JA.put("music.clear_history_confirm", "再生履歴をクリアしますか？");
         JA.put("music.remove", "削除");
         JA.put("music.remove_confirm", "\"{0}\"を再生リストから削除しますか？");
         JA.put("music.play", "再生");
@@ -4055,6 +4142,25 @@ public final class I18n {
         JA.put("music.repeat_one", "1曲リピート");
         JA.put("music.shuffle", "シャッフル");
         JA.put("music.open_url", "元のページを開く");
+        JA.put("music.open_url_failed", "リンクを開けません：{0}");
+        JA.put("music.source_local", "ローカル");
+        JA.put("music.add_files", "ファイル追加");
+        JA.put("music.add_folder", "フォルダ追加");
+        JA.put("music.pick_files", "音声ファイルを選択");
+        JA.put("music.pick_folder", "音声フォルダを選択");
+        JA.put("music.local_added", "ローカル曲を {0} 曲追加しました");
+        JA.put("music.local_none_added", "追加されたローカル曲はありません");
+        JA.put("music.lyrics", "歌詞");
+        JA.put("music.lyrics_empty", "歌詞なし（同名 .lrc または Bilibili 字幕）");
+        JA.put("music.playlists", "再生リスト");
+        JA.put("music.playlist_default", "デフォルトリスト");
+        JA.put("music.playlist_create", "新規リスト");
+        JA.put("music.playlist_delete", "現在のリストを削除");
+        JA.put("music.playlist_untitled", "無題のリスト");
+        JA.put("music.playlist_keep_one", "再生リストは1つ以上必要です");
+        JA.put("music.clear_cache", "キャッシュ削除");
+        JA.put("music.cache_cleared", "音声キャッシュを削除しました");
+        JA.put("music.cache_clear_failed", "キャッシュ削除に失敗：{0}");
         JA.put("music.status_idle", "待機中");
         JA.put("music.status_loading", "読み込み中");
         JA.put("music.status_playing", "再生中");
@@ -4403,6 +4509,8 @@ public final class I18n {
         JA.put("stats.total_duration", "合計");
         JA.put("stats.total_sessions", "セッション");
         JA.put("stats.daily_avg", "日均");
+        JA.put("stats.unit_hour", "時間");
+        JA.put("stats.unit_minute", "分");
         JA.put("stats.recent_days", "過去 {0} 日");
         JA.put("stats.daily_trend", "日別プレイ時間");
         JA.put("stats.version_dist", "バージョン別プレイ時間分布");
@@ -4842,6 +4950,12 @@ public final class I18n {
         JA.put("settings.downloading", "ダウンロード中…");
         JA.put("settings.manual_java_path", "Java 実行ファイルパスを手動指定");
         JA.put("settings.manual_java_path_hint", "空欄で自動検出（runtimes ディレクトリ優先、次にシステムパス）");
+        JA.put("settings.legacy_translation", "旧版トランスレーション（RetroWrapper）");
+        JA.put("settings.legacy_translation_desc",
+                "Classic～1.12（LWJGL2）を Java 21+（Apple Silicon 含む）で起動。1.13+ では不要。RetroWrapper / FrankenLWJGL を使用。");
+        JA.put("settings.legacy_translation_auto", "自動");
+        JA.put("settings.legacy_translation_on", "常に有効");
+        JA.put("settings.legacy_translation_off", "オフ");
         JA.put("settings.color.sky_blue", "スカイブルー");
         JA.put("settings.color.mint", "ミントグリーン");
         JA.put("settings.color.amber", "アンバーオレンジ");
@@ -5547,6 +5661,12 @@ public final class I18n {
         // ===== ステータスメッセージ - ゲーム起動 =====
         JA.put("status.building_launch_profile", "起動プロファイルを構築中…");
         JA.put("status.launch_busy", "起動準備中です。しばらくお待ちください");
+        JA.put("status.launch_busy_companion", "Companion がゲームを起動/実行中です。しばらくお待ちください");
+        JA.put("status.launch_cancelled", "起動がキャンセルされました（デバイス保護またはプラグイン）");
+        JA.put("status.refreshing_microsoft_token", "Microsoft アカウントのトークンを更新中…");
+        JA.put("status.microsoft_token_refresh_failed", "Microsoft トークン更新失敗。再ログインしてください：{0}");
+        JA.put("status.refreshing_yggdrasil_token", "Yggdrasil トークンを更新中…");
+        JA.put("status.yggdrasil_token_refresh_failed", "Yggdrasil トークンが無効です。再ログインしてください");
         JA.put("status.launch_failed_no_java", "起動失敗：Java ランタイムが見つかりません");
         JA.put("status.java_version_detect_failed", "Java メジャーバージョンを検出できません：{0}");
         JA.put("status.game_log_create_failed", "ゲームログファイルの作成に失敗：{0}");
@@ -5805,11 +5925,17 @@ public final class I18n {
     /** 翻訳キー、サポート {0} {1} などパラメータプレースホルダ */
     public static String t(String key, Object... args) {
         Map<String, String> map;
-        if (current == EN_US || current == UD_EN) map = EN;
-        else if (current == JA_JP) map = JA;
-        else if (current == ZH_TW) map = ZH_TW_MAP;
-        else map = ZH;
-        String val = map.getOrDefault(key, key);
+        String langCode;
+        if (current == EN_US || current == UD_EN) { map = EN; langCode = "en_US"; }
+        else if (current == JA_JP) { map = JA; langCode = "ja_JP"; }
+        else if (current == ZH_TW) { map = ZH_TW_MAP; langCode = "zh_TW"; }
+        else { map = ZH; langCode = "zh_CN"; }
+
+        String val = null;
+        var pluginMap = PLUGIN_STRINGS.get(langCode);
+        if (pluginMap != null) val = pluginMap.get(key);
+        if (val == null) val = map.getOrDefault(key, key);
+
         if (args != null && args.length > 0) {
             for (int i = 0; i < args.length; i++) {
                 val = val.replace("{" + i + "}", String.valueOf(args[i]));
@@ -5818,6 +5944,39 @@ public final class I18n {
         // 颠倒英语：参数填充后再做字符翻转，避免占位符 {0} 被翻转
         if (current == UD_EN) val = toUpsideDown(val);
         return val;
+    }
+
+    /**
+     * Register or replace plugin translation strings for a language code.
+     * Keys should be plugin-prefixed (e.g. {@code myplugin.hello}).
+     */
+    public static void putPluginStrings(String language, Map<String, String> strings) {
+        if (language == null || language.isBlank() || strings == null || strings.isEmpty()) return;
+        String lang = language.trim();
+        var map = PLUGIN_STRINGS.computeIfAbsent(lang, k -> new java.util.concurrent.ConcurrentHashMap<>());
+        for (Map.Entry<String, String> e : strings.entrySet()) {
+            if (e.getKey() == null || e.getKey().isBlank()) continue;
+            map.put(e.getKey(), e.getValue() != null ? e.getValue() : "");
+        }
+    }
+
+    /** Remove specific keys previously registered for [language]. */
+    public static void removePluginStrings(String language, Iterable<String> keys) {
+        if (language == null || language.isBlank() || keys == null) return;
+        var map = PLUGIN_STRINGS.get(language.trim());
+        if (map == null) return;
+        for (String k : keys) {
+            if (k != null) map.remove(k);
+        }
+    }
+
+    /** Clear all plugin strings for one language, or every language when language is blank. */
+    public static void clearPluginStrings(String language) {
+        if (language == null || language.isBlank()) {
+            PLUGIN_STRINGS.clear();
+        } else {
+            PLUGIN_STRINGS.remove(language.trim());
+        }
     }
 
     /** 颠倒英语字符映射表，索引为 ASCII 码（0-127），未映射位置存放原字符 */

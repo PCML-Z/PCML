@@ -61,6 +61,36 @@ public final class OptionsTxtWriter {
         }
     }
 
+    /**
+     * 修复旧版 MC（alpha 等）会崩溃的空值行：{@code lastServer:} 经
+     * {@code String.split(":")} 后长度为 1，触发 ArrayIndexOutOfBoundsException。
+     * 将「仅有 key:」的行改为 {@code key: }（尾部空格），保证 split 得到 value。
+     */
+    public static void sanitizeEmptyValues(Path optionsFile) {
+        if (optionsFile == null || !Files.isRegularFile(optionsFile)) return;
+        try {
+            List<String> lines = new ArrayList<>(
+                    Files.readAllLines(optionsFile, StandardCharsets.UTF_8));
+            boolean changed = false;
+            for (int i = 0; i < lines.size(); i++) {
+                String line = lines.get(i);
+                if (line == null) continue;
+                String trimmed = line.trim();
+                int colon = trimmed.indexOf(':');
+                if (colon > 0 && colon == trimmed.length() - 1) {
+                    lines.set(i, trimmed + " ");
+                    changed = true;
+                }
+            }
+            if (changed) {
+                Files.writeString(optionsFile, String.join("\n", lines) + "\n",
+                        StandardCharsets.UTF_8);
+            }
+        } catch (IOException e) {
+            System.err.println("[OptionsTxtWriter] sanitizeEmptyValues 失败: " + e.getMessage());
+        }
+    }
+
     /** 读取普通字段值，不存在返回 null。 */
     public static String readOption(Path optionsFile, String key) {
         if (optionsFile == null || !Files.exists(optionsFile) || key == null) return null;

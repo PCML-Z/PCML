@@ -181,7 +181,7 @@ fun DownloadPage(vm: LauncherViewModel) {
                         subtitle = "${typeLabel(v.getType())} · ${(v.getReleaseTime() ?: "").take(10)}",
                         buttonText = I18n.t("download.install"),
                         installing = installing,
-                        onAction = { vm.enqueueVersionInstall(v.getId()) },
+                        onAction = { vm.installVersion(v.getId()) },
                         vm = vm,
                         flyTitle = v.getId()
                     )

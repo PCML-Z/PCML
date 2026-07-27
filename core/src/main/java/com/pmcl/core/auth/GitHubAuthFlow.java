@@ -3,6 +3,7 @@ package com.pmcl.core.auth;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.pmcl.core.download.CurlFallback;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -76,24 +77,53 @@ public final class GitHubAuthFlow {
     public DeviceCode requestDeviceCode() throws IOException {
         String body = "client_id=" + URLEncoder.encode(clientId, StandardCharsets.UTF_8) +
                 "&scope=" + URLEncoder.encode(SCOPE, StandardCharsets.UTF_8);
-        Request req = new Request.Builder()
-                .url(DEVICE_CODE_URL)
-                .header("Accept", "application/json")
-                .post(RequestBody.create(body, FORM))
-                .build();
-        try (Response resp = http.newCall(req).execute()) {
-            String json = resp.body() != null ? resp.body().string() : "";
+        String json;
+        try {
+            Request req = new Request.Builder()
+                    .url(DEVICE_CODE_URL)
+                    .header("Accept", "application/json")
+                    .post(RequestBody.create(body, FORM))
+                    .build();
+            try (Response resp = http.newCall(req).execute()) {
+                json = resp.body() != null ? resp.body().string() : "";
+                if (!resp.isSuccessful() && (json == null || json.isEmpty())) {
+                    throw new IOException("请求 GitHub 设备码失败 code=" + resp.code());
+                }
+            }
+        } catch (IOException e) {
+            if (CurlFallback.isSslHandshakeFailure(e) && CurlFallback.isAvailable()) {
+                json = CurlFallback.postString(DEVICE_CODE_URL, body,
+                        "application/x-www-form-urlencoded",
+                        java.util.List.of("Accept: application/json"));
+            } else {
+                throw new IOException("请求 GitHub 设备码失败: " + e.getMessage(), e);
+            }
+        }
+        try {
             JsonObject o = JsonParser.parseString(json).getAsJsonObject();
+            String error = safeStr(o, "error");
+            if (!error.isEmpty()) {
+                throw new IOException("请求 GitHub 设备码失败: " + error + " "
+                        + safeStr(o, "error_description"));
+            }
+            String deviceCode = safeStr(o, "device_code");
+            String userCode = safeStr(o, "user_code");
+            String verificationUri = safeStr(o, "verification_uri");
+            if (deviceCode.isEmpty() || userCode.isEmpty() || verificationUri.isEmpty()) {
+                throw new IOException("GitHub 设备码响应缺少必填字段");
+            }
             return new DeviceCode(
-                    safeStr(o, "device_code"),
-                    safeStr(o, "user_code"),
-                    safeStr(o, "verification_uri"),
+                    deviceCode,
+                    userCode,
+                    verificationUri,
                     o.has("expires_in") && !o.get("expires_in").isJsonNull() ? o.get("expires_in").getAsInt() : 900,
                     o.has("interval") && !o.get("interval").isJsonNull() ? o.get("interval").getAsInt() : 5,
                     safeStr(o, "message")
             );
         } catch (IOException e) {
-            throw new RuntimeException("网络错误", e);
+            throw e;
+        } catch (Throwable t) {
+            throw new IOException("解析 GitHub 设备码失败: " + t.getMessage(), t);
         }
     }
 
@@ -115,17 +145,44 @@ public final class GitHubAuthFlow {
         String body = "client_id=" + URLEncoder.encode(clientId, StandardCharsets.UTF_8) +
                 "&device_code=" + URLEncoder.encode(dc.getDeviceCode(), StandardCharsets.UTF_8) +
                 "&grant_type=" + URLEncoder.encode("urn:ietf:params:oauth:grant-type:device_code", StandardCharsets.UTF_8);
-        Request req = new Request.Builder()
-                .url(TOKEN_URL)
-                .header("Accept", "application/json")
-                .post(RequestBody.create(body, FORM))
-                .build();
-        try (Response resp = http.newCall(req).execute()) {
-            String json = resp.body() != null ? resp.body().string() : "";
+        String json;
+        try {
+            Request req = new Request.Builder()
+                    .url(TOKEN_URL)
+                    .header("Accept", "application/json")
+                    .post(RequestBody.create(body, FORM))
+                    .build();
+            try (Response resp = http.newCall(req).execute()) {
+                json = resp.body() != null ? resp.body().string() : "";
+            }
+        } catch (IOException e) {
+            if (CurlFallback.isSslHandshakeFailure(e) && CurlFallback.isAvailable()) {
+                try {
+                    json = CurlFallback.postStringAllowingErrors(TOKEN_URL, body,
+                            "application/x-www-form-urlencoded",
+                            java.util.List.of("Accept: application/json"));
+                } catch (IOException ce) {
+                    future.completeExceptionally(new RuntimeException("网络错误", ce));
+                    return;
+                }
+            } else {
+                future.completeExceptionally(new RuntimeException("网络错误", e));
+                return;
+            }
+        } catch (Throwable e) {
+            future.completeExceptionally(new RuntimeException("网络错误", e));
+            return;
+        }
+        try {
             JsonObject o = JsonParser.parseString(json).getAsJsonObject();
             String error = o.has("error") && !o.get("error").isJsonNull() ? o.get("error").getAsString() : null;
             if (error == null) {
-                future.complete(safeStr(o, "access_token"));
+                String token = safeStr(o, "access_token");
+                if (token.isEmpty()) {
+                    future.completeExceptionally(new RuntimeException("GitHub access_token 为空"));
+                    return;
+                }
+                future.complete(token);
                 return;
             }
             switch (error) {
@@ -147,7 +204,7 @@ public final class GitHubAuthFlow {
                     return;
             }
         } catch (Throwable e) {
-            future.completeExceptionally(new RuntimeException("网络错误", e));
+            future.completeExceptionally(new RuntimeException("解析 GitHub token 失败", e));
             return;
         }
         // S6: 调度前再次检查，避免取消后仍发请求
@@ -165,27 +222,44 @@ public final class GitHubAuthFlow {
      * </ul>
      */
     public Account completeLogin(String accessToken) throws IOException {
-        Request req = new Request.Builder()
-                .url(USER_API_URL)
-                .header("Authorization", "Bearer " + accessToken)
-                .header("Accept", "application/vnd.github+json")
-                .get()
-                .build();
-        try (Response resp = http.newCall(req).execute()) {
-            String json = resp.body() != null ? resp.body().string() : "";
-            JsonObject o = JsonParser.parseString(json).getAsJsonObject();
-            String login = safeStr(o, "login");
-            long githubId = o.has("id") && !o.get("id").isJsonNull() ? o.get("id").getAsLong() : 0;
-            String avatarUrl = safeStr(o, "avatar_url");
-
-            // 基于 GitHub 用户 ID 生成确定性 UUID
-            String uuid = UUID.nameUUIDFromBytes(
-                    ("GitHub:" + githubId).getBytes(StandardCharsets.UTF_8)).toString();
-
-            return new Account(login, uuid, accessToken, Account.AccountType.GITHUB, avatarUrl, "classic");
-        } catch (IOException e) {
-            throw new RuntimeException("获取 GitHub 用户信息失败", e);
+        if (accessToken == null || accessToken.isBlank()) {
+            throw new IOException("GitHub access_token 为空，拒绝完成登录");
         }
+        String json;
+        try {
+            Request req = new Request.Builder()
+                    .url(USER_API_URL)
+                    .header("Authorization", "Bearer " + accessToken)
+                    .header("Accept", "application/vnd.github+json")
+                    .get()
+                    .build();
+            try (Response resp = http.newCall(req).execute()) {
+                json = resp.body() != null ? resp.body().string() : "";
+                if (!resp.isSuccessful()) {
+                    throw new IOException("获取 GitHub 用户信息失败 HTTP " + resp.code());
+                }
+            }
+        } catch (IOException e) {
+            if (CurlFallback.isSslHandshakeFailure(e) && CurlFallback.isAvailable()) {
+                json = new String(CurlFallback.getBytes(USER_API_URL, "GET",
+                        java.util.List.of(
+                                "Authorization: Bearer " + accessToken,
+                                "Accept: application/vnd.github+json")),
+                        StandardCharsets.UTF_8);
+            } else {
+                throw new IOException("获取 GitHub 用户信息失败: " + e.getMessage(), e);
+            }
+        }
+        JsonObject o = JsonParser.parseString(json).getAsJsonObject();
+        String login = safeStr(o, "login");
+        if (login.isEmpty()) {
+            throw new IOException("GitHub 用户信息缺少 login");
+        }
+        long githubId = o.has("id") && !o.get("id").isJsonNull() ? o.get("id").getAsLong() : 0;
+        String avatarUrl = safeStr(o, "avatar_url");
+        String uuid = UUID.nameUUIDFromBytes(
+                ("GitHub:" + githubId).getBytes(StandardCharsets.UTF_8)).toString();
+        return new Account(login, uuid, accessToken, Account.AccountType.GITHUB, avatarUrl, "classic");
     }
 
     private static String safeStr(JsonObject o, String key) {

@@ -230,14 +230,18 @@ object PluginPackageParser {
         val factory = DocumentBuilderFactory.newInstance()
         factory.isNamespaceAware = false
         factory.isValidating = false
-        // XXE protection
+        // XXE protection — fail closed if secure features cannot be enabled
         try {
             factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
             factory.setFeature("http://xml.org/sax/features/external-general-entities", false)
             factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false)
+            factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false)
         } catch (e: Exception) {
-            // Features may not be available on all parsers; non-fatal
+            throw IllegalStateException(
+                "Refusing to parse plugin.xml: XXE-hardening features unavailable on this XML parser", e)
         }
+        factory.isXIncludeAware = false
+        factory.setExpandEntityReferences(false)
         // M22 修复：DoS 防护——元素数/深度/属性数/名称长度/实体扩展上限。
         // 这些 jdk.xml.* 属性是 JAXP 标准，Oracle JDK 与 OpenJDK 内置解析器均支持；
         // 若运行在第三方解析器上则静默跳过（pre-size check 仍是兜底防线）。
@@ -322,6 +326,12 @@ object PluginPackageParser {
         val permissionsStr = elem.optionalChildText("permissions") ?: ""
         val permissions = if (permissionsStr.isBlank()) emptyList()
             else permissionsStr.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                .map { raw ->
+                    val perm = PluginPermission.parseOrNull(raw)
+                        ?: throw IllegalArgumentException(
+                            "Unknown plugin permission '$raw'. Allowed: ${PluginPermission.names()}")
+                    perm.name
+                }
 
         // dependencies will be set later from the top-level <dependencies> element
         return PluginInfo(

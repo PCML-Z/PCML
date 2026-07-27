@@ -190,32 +190,39 @@ private suspend fun LauncherViewModel.startFriendSubsystemQuiet(): String? {
 /** 离开当前房间 */
 fun LauncherViewModel.leaveRoom() {
     scope.launch {
-        var leftOk = false
         try {
             // 停止好友系统网络服务
             withContext(Dispatchers.IO) {
                 try { core.friend()?.stop() } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
                     System.err.println("[LauncherVM] 停止好友系统失败: ${e.message}")
                 }
             }
             withContext(Dispatchers.IO) { core.multiplayer().leaveRoom() }
-            leftOk = true
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Throwable) {
+            refreshMpState()
             _status.value = I18n.t("status.leave_room_failed", e.message ?: I18n.t("common.unknown"))
+            return@launch
         }
         refreshMpState()
+        // core leaveRoom 清理失败时设 FAILED 且不抛异常——不得伪装成「已离开」
+        if (core.multiplayer().state == com.pmcl.core.multiplayer.MultiplayerManager.State.FAILED) {
+            val err = core.multiplayer().lastError.ifBlank { I18n.t("common.unknown") }
+            _status.value = I18n.t("status.leave_room_failed", err)
+            return@launch
+        }
         _mpInvitation.value = ""
         _mpVirtualIp.value = ""
         _mpLocalMcAddr.value = ""
-        if (leftOk) {
-            val backend = mpBackend
-            _status.value = when (backend) {
-                com.pmcl.core.multiplayer.MultiplayerManager.Backend.CONNECTX ->
-                    I18n.t("status.left_connectx_room")
-                com.pmcl.core.multiplayer.MultiplayerManager.Backend.TERRACOTTA ->
-                    I18n.t("status.left_terracotta_room")
-                else -> I18n.t("status.left_terracotta_room")
-            }
+        val backend = mpBackend
+        _status.value = when (backend) {
+            com.pmcl.core.multiplayer.MultiplayerManager.Backend.CONNECTX ->
+                I18n.t("status.left_connectx_room")
+            com.pmcl.core.multiplayer.MultiplayerManager.Backend.TERRACOTTA ->
+                I18n.t("status.left_terracotta_room")
+            else -> I18n.t("status.left_terracotta_room")
         }
     }
 }

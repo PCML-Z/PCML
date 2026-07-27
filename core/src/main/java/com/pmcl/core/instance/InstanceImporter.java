@@ -62,11 +62,10 @@ public final class InstanceImporter {
                 String name = entry.getName();
                 if (entry.isDirectory()) continue;
 
-                // ZipSlip：拒绝绝对路径、..、反斜杠盘符路径
+                // ZipSlip：任一非法条目即失败，禁止静默跳过导致「导入成功但内容残缺」
                 if (name.contains("..") || name.startsWith("/") || name.startsWith("\\")
                         || name.matches("^[A-Za-z]:[\\\\/].*")) {
-                    System.err.println("[InstanceImporter] 跳过不安全条目: " + name);
-                    continue;
+                    throw new IOException("ZipSlip: 导入包含非法路径条目: " + name);
                 }
 
                 if (name.equals("instance.json")) {
@@ -84,11 +83,13 @@ public final class InstanceImporter {
                         tempConfigDir = Files.createTempDirectory("pmcl-import-config");
                     }
                     String relative = name.substring("config/".length());
-                    if (relative.isEmpty() || relative.contains("..")) continue;
-                    Path targetFile = tempConfigDir.resolve(relative).normalize();
-                    if (!targetFile.startsWith(tempConfigDir)) {
-                        System.err.println("[InstanceImporter] 跳过逃逸临时目录的条目: " + name);
-                        continue;
+                    if (relative.isEmpty() || relative.contains("..")) {
+                        throw new IOException("ZipSlip: config 条目非法: " + name);
+                    }
+                    Path tempAbs = tempConfigDir.toAbsolutePath().normalize();
+                    Path targetFile = tempAbs.resolve(relative).normalize();
+                    if (!targetFile.startsWith(tempAbs)) {
+                        throw new IOException("ZipSlip: config 路径越界: " + name);
                     }
                     Files.createDirectories(targetFile.getParent());
                     long written = SafeZipExtractor.copyLimited(zis, targetFile, MAX_CONFIG_ENTRY);

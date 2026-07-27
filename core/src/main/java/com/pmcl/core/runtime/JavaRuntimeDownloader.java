@@ -6,11 +6,12 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.pmcl.core.LauncherConfig;
 import com.pmcl.core.download.DownloadManager;
+import com.pmcl.core.util.FileUtils;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -106,57 +107,112 @@ public final class JavaRuntimeDownloader {
         });
     }
 
+    private static final String READY_MARKER = ".pmcl-runtime-ok";
+
     /**
      * 下载并解压指定运行时到 runtimes 目录。
-     * 简化实现：直接下载 .tar.gz / .zip 到本地后调用系统 tar/unzip 解压。
+     * 写入 {@code *.staging} 再原子提升，避免半成品被扫描为可用 Java。
      */
     public CompletableFuture<Void> install(RuntimeType type, RuntimeEntry entry,
                                            Consumer<String> onStatus) {
         return CompletableFuture.runAsync(() -> {
+            Path stagingDir = null;
+            Path archive = null;
             try {
                 String arch = resolveArch(type);
                 if (arch == null) {
                     throw new RuntimeException("当前架构不支持自动下载 Java（Mojang 清单无对应包），请手动安装对应架构的 JDK");
                 }
                 Path runtimesDir = config.getRuntimesDir();
-                Path archDir = runtimesDir.resolve(arch);
-                Path targetDir = archDir.resolve(type.name() + "-" + entry.getVersion());
-                if (Files.exists(targetDir) && Files.exists(targetDir.resolve("bin"))) {
+                Path archDir = runtimesDir.toAbsolutePath().normalize().resolve(arch).normalize();
+                if (!archDir.startsWith(runtimesDir.toAbsolutePath().normalize())) {
+                    throw new IOException("非法架构目录: " + arch);
+                }
+                String safeVersion = sanitizeRuntimeVersion(entry.getVersion());
+                String dirName = type.name() + "-" + safeVersion;
+                Path targetDir = assertUnder(archDir, archDir.resolve(dirName));
+                if (isRuntimeReady(targetDir)) {
                     if (onStatus != null) onStatus.accept("已存在：" + targetDir);
                     return;
                 }
+                // 清理上次失败留下的半成品
+                if (Files.exists(targetDir)) {
+                    FileUtils.deleteRecursively(targetDir);
+                }
                 Files.createDirectories(archDir);
+                stagingDir = assertUnder(archDir, archDir.resolve(dirName + ".staging"));
+                FileUtils.deleteRecursively(stagingDir);
 
-                // 下载归档
                 String url = entry.getUrl();
                 String ext = url.endsWith(".zip") ? ".zip" : ".tar.gz";
-                Path archive = archDir.resolve(type.name() + "-" + entry.getVersion() + ext);
+                archive = assertUnder(archDir, archDir.resolve(dirName + ext));
                 if (onStatus != null) onStatus.accept("下载: " + url);
                 String expectedSha1 = entry.getSha1();
                 if (expectedSha1 == null || expectedSha1.isBlank()) {
                     throw new IOException("运行时清单未提供 SHA-1，拒绝安装未校验的 Java 归档");
                 }
-                downloadManager.downloadTo(url, archive);
-                String actualSha1 = sha1Hex(archive);
-                if (!actualSha1.equalsIgnoreCase(expectedSha1)) {
-                    Files.deleteIfExists(archive);
-                    throw new IOException("Java 运行时 SHA-1 校验失败：期望 " + expectedSha1
-                            + " 实际 " + actualSha1);
-                }
+                downloadManager.downloadToVerified(url, archive, expectedSha1, null);
                 if (onStatus != null) onStatus.accept("SHA-1 校验通过");
 
-                // 解压
-                Files.createDirectories(targetDir);
-                if (onStatus != null) onStatus.accept("解压到: " + targetDir);
-                extractArchive(archive, targetDir);
-
-                // 清理归档
+                Files.createDirectories(stagingDir);
+                if (onStatus != null) onStatus.accept("解压到: " + stagingDir);
+                extractArchive(archive, stagingDir);
                 Files.deleteIfExists(archive);
+                archive = null;
+
+                if (!hasJavaBin(stagingDir)) {
+                    throw new IOException("解压后未找到可用 java 可执行文件: " + stagingDir);
+                }
+                Files.writeString(stagingDir.resolve(READY_MARKER), "ok");
+
+                Path bakDir = assertUnder(archDir, archDir.resolve(dirName + ".bak"));
+                FileUtils.deleteRecursively(bakDir);
+                try {
+                    try {
+                        Files.move(stagingDir, targetDir, StandardCopyOption.ATOMIC_MOVE);
+                    } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                        Files.move(stagingDir, targetDir);
+                    }
+                } catch (IOException e) {
+                    throw new IOException("无法提升 Java 运行时目录: " + dirName, e);
+                }
+                stagingDir = null;
                 if (onStatus != null) onStatus.accept("完成: " + targetDir);
             } catch (IOException e) {
+                if (archive != null) {
+                    try { Files.deleteIfExists(archive); } catch (IOException ignored) {}
+                }
+                if (stagingDir != null) {
+                    FileUtils.deleteRecursively(stagingDir);
+                }
                 throw new RuntimeException("Java 运行时安装失败", e);
             }
         });
+    }
+
+    private static boolean isRuntimeReady(Path targetDir) {
+        // 兼容旧安装（无 marker）：只要能解析到 java 可执行文件即视为可用
+        return Files.isDirectory(targetDir) && hasJavaBin(targetDir);
+    }
+
+    private static boolean hasJavaBin(Path jvmDir) {
+        String os = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT);
+        boolean win = os.contains("win");
+        // Mojang 包可能多一层目录（如 jre / jdk-*）
+        Path[] candidates = {
+                jvmDir.resolve("bin").resolve(win ? "java.exe" : "java"),
+                jvmDir.resolve("jre").resolve("bin").resolve(win ? "java.exe" : "java")
+        };
+        for (Path c : candidates) {
+            if (Files.isRegularFile(c)) return true;
+        }
+        try (var stream = Files.list(jvmDir)) {
+            return stream.filter(Files::isDirectory)
+                    .anyMatch(child -> Files.isRegularFile(
+                            child.resolve("bin").resolve(win ? "java.exe" : "java")));
+        } catch (IOException e) {
+            return false;
+        }
     }
 
     private void extractArchive(Path archive, Path target) throws IOException {
@@ -177,23 +233,6 @@ public final class JavaRuntimeDownloader {
         com.pmcl.core.util.SafeZipExtractor.extractSafely(archive, target);
     }
 
-    private static String sha1Hex(Path file) throws IOException {
-        try {
-            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-1");
-            try (java.io.InputStream in = Files.newInputStream(file)) {
-                byte[] buf = new byte[8192];
-                int n;
-                while ((n = in.read(buf)) > 0) md.update(buf, 0, n);
-            }
-            byte[] dig = md.digest();
-            StringBuilder sb = new StringBuilder(dig.length * 2);
-            for (byte b : dig) sb.append(String.format("%02x", b & 0xff));
-            return sb.toString();
-        } catch (java.security.NoSuchAlgorithmException e) {
-            throw new IOException("SHA-1 unavailable", e);
-        }
-    }
-
     private static void extractTarGz(Path archive, Path target) throws IOException {
         // 先检查 tar 是否可用
         Process check = null;
@@ -212,7 +251,7 @@ public final class JavaRuntimeDownloader {
         } finally {
             if (check != null) check.destroyForcibly();
         }
-        // 解压前列出成员，拒绝路径穿越（.. / 绝对路径）
+        // 解压前预检：路径穿越 + 符号链接/特殊文件类型
         assertTarMembersSafe(archive);
 
         // M82: 不用 pb.inheritIO()——子进程 stdout/stderr 直接继承会污染启动器日志。
@@ -238,18 +277,80 @@ public final class JavaRuntimeDownloader {
         } finally {
             if (p != null) p.destroyForcibly();
         }
+        // 解压后二次校验：拒绝逃逸 staging 的符号链接 / 非常规文件
+        assertExtractedTreeSafe(target);
     }
 
-    /** 用 tar -tzf 预检成员路径，拒绝 ZipSlip 式穿越 */
+    /** 运行时版本号只允许安全文件名字符，防止路径穿越。 */
+    static String sanitizeRuntimeVersion(String version) throws IOException {
+        if (version == null || version.isBlank()) {
+            throw new IOException("运行时版本号为空");
+        }
+        String v = version.trim();
+        if (v.length() > 64 || !v.matches("[A-Za-z0-9._-]+") || v.contains("..")) {
+            throw new IOException("非法运行时版本号: " + version);
+        }
+        return v;
+    }
+
+    private static Path assertUnder(Path base, Path child) throws IOException {
+        Path b = base.toAbsolutePath().normalize();
+        Path c = child.toAbsolutePath().normalize();
+        if (!c.startsWith(b)) {
+            throw new IOException("路径越界: " + child + " not under " + base);
+        }
+        return c;
+    }
+
+    /**
+     * 用 {@code tar -tvzf} 流式预检：拒绝路径穿越、符号/硬链接与特殊设备节点；
+     * 限制条目数与列表输出总字节，避免恶意归档撑爆内存或堵死管道。
+     */
     private static void assertTarMembersSafe(Path archive) throws IOException {
-        ProcessBuilder listPb = new ProcessBuilder("tar", "-tzf", archive.toString());
+        final int maxEntries = 200_000;
+        final long maxListingBytes = 32L * 1024 * 1024;
+        ProcessBuilder listPb = new ProcessBuilder("tar", "-tvzf", archive.toString());
         listPb.redirectErrorStream(true);
         Process list = null;
         try {
             list = listPb.start();
-            String listing;
-            try (var in = list.getInputStream()) {
-                listing = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            long bytes = 0;
+            int entries = 0;
+            try (var in = list.getInputStream();
+                 var reader = new java.io.BufferedReader(
+                         new java.io.InputStreamReader(in, java.nio.charset.StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    bytes += line.length() + 1L;
+                    if (bytes > maxListingBytes) {
+                        list.destroyForcibly();
+                        throw new IOException("tar 列表过大（>" + maxListingBytes + "）: " + archive);
+                    }
+                    if (line.isBlank()) continue;
+                    if (++entries > maxEntries) {
+                        list.destroyForcibly();
+                        throw new IOException("tar 条目数过多（>" + maxEntries + "）: " + archive);
+                    }
+                    char type = line.charAt(0);
+                    // 常见 listing：- 普通文件，d 目录；拒绝 l/h/c/b/p/s 等
+                    if (type != '-' && type != 'd' && !Character.isDigit(type)) {
+                        // 某些 tar 首列不是模式（纯文件名列表回退场景极少）；含 " -> " 一律拒绝
+                        if (type == 'l' || type == 'h' || type == 'c' || type == 'b'
+                                || type == 'p' || type == 's' || line.contains(" -> ")) {
+                            throw new IOException("tar 含链接或特殊文件（拒绝解压）: " + line.trim());
+                        }
+                    }
+                    if (line.contains(" -> ")) {
+                        throw new IOException("tar 含符号链接（拒绝解压）: " + line.trim());
+                    }
+                    String name = extractTarListName(line);
+                    if (name.isEmpty()) continue;
+                    if (name.startsWith("/") || name.startsWith("\\")
+                            || name.contains("..")
+                            || name.matches("^[A-Za-z]:[\\\\/].*")) {
+                        throw new IOException("tar 含非法路径（拒绝解压）: " + name);
+                    }
+                }
             }
             if (!list.waitFor(60, TimeUnit.SECONDS)) {
                 list.destroyForcibly();
@@ -258,20 +359,69 @@ public final class JavaRuntimeDownloader {
             if (list.exitValue() != 0) {
                 throw new IOException("tar 列表失败 code=" + list.exitValue() + ": " + archive);
             }
-            for (String line : listing.split("\n")) {
-                String name = line.trim();
-                if (name.isEmpty()) continue;
-                if (name.startsWith("/") || name.startsWith("\\")
-                        || name.contains("..")
-                        || name.matches("^[A-Za-z]:[\\\\/].*")) {
-                    throw new IOException("tar 含非法路径（拒绝解压）: " + name);
-                }
-            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IOException("tar 列表被中断", e);
         } finally {
             if (list != null) list.destroyForcibly();
+        }
+    }
+
+    /** 从 {@code tar -tv} 行尽量取出成员名（取最后一个时间戳后的路径字段）。 */
+    private static String extractTarListName(String line) {
+        // GNU/BSD 典型：permissions links owner group size date time name
+        // 简化：若含 " -> " 已在上层拒绝；否则取最后一个空白分隔的「看起来像路径」字段集合
+        String trimmed = line.trim();
+        if (trimmed.isEmpty()) return "";
+        // 若行以权限位开头，跳过前若干字段
+        if (trimmed.length() > 10 && (trimmed.charAt(0) == '-' || trimmed.charAt(0) == 'd'
+                || trimmed.charAt(0) == 'l')) {
+            String[] parts = trimmed.split("\\s+");
+            if (parts.length >= 6) {
+                // 拼回可能含空格的文件名：从索引 5 或 6 起（date/time 后）
+                int start = parts.length >= 8 ? 7 : 5;
+                if (start < parts.length) {
+                    StringBuilder sb = new StringBuilder(parts[start]);
+                    for (int i = start + 1; i < parts.length; i++) {
+                        sb.append(' ').append(parts[i]);
+                    }
+                    return sb.toString();
+                }
+            }
+        }
+        return trimmed;
+    }
+
+    /** 解压后拒绝逃逸目标目录的符号链接，并删除非常规特殊文件。 */
+    private static void assertExtractedTreeSafe(Path target) throws IOException {
+        Path base = target.toAbsolutePath().normalize();
+        Path baseReal;
+        try {
+            baseReal = base.toRealPath();
+        } catch (IOException e) {
+            baseReal = base;
+        }
+        try (var walk = Files.walk(base)) {
+            for (Path p : (Iterable<Path>) walk::iterator) {
+                if (Files.isSymbolicLink(p)) {
+                    Path linkTarget = Files.readSymbolicLink(p);
+                    Path resolved = p.getParent() != null
+                            ? p.getParent().resolve(linkTarget).normalize()
+                            : linkTarget.toAbsolutePath().normalize();
+                    if (!resolved.startsWith(base)) {
+                        throw new IOException("解压产物含逃逸符号链接: " + p + " -> " + linkTarget);
+                    }
+                    try {
+                        Path real = p.toRealPath();
+                        if (!real.startsWith(baseReal)) {
+                            throw new IOException("解压产物符号链接解析越界: " + p + " -> " + real);
+                        }
+                    } catch (IOException ignored) {
+                        // 断链：删除以免后续误用
+                        Files.deleteIfExists(p);
+                    }
+                }
+            }
         }
     }
 

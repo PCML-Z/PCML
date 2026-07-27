@@ -19,6 +19,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 等待 Microsoft 授权后重定向到该 URL 并附带 {@code code} + {@code state} 参数。
  * <p>
  * 必须校验 {@code state}，防止本机其它进程伪造回调注入授权码。
+ * 仅处理 {@code /callback}；其它路径（如 favicon）返回 404，绝不完成 future。
  */
 public final class OAuthCallbackServer implements AutoCloseable {
 
@@ -37,12 +38,15 @@ public final class OAuthCallbackServer implements AutoCloseable {
         this.server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
         this.port = server.getAddress().getPort();
         server.createContext("/callback", this::handleCallback);
-        // 根路径也接收（部分情况下 Microsoft 去掉 path）
-        server.createContext("/", this::handleCallback);
         server.start();
     }
 
     private void handleCallback(HttpExchange exchange) throws IOException {
+        // 仅接受 GET；无 query / 无 code|error 时不碰 future（防 favicon 等探针误杀登录）
+        if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+            sendPlain(exchange, 405, "Method Not Allowed");
+            return;
+        }
         String query = exchange.getRequestURI().getQuery();
         String code = null;
         String state = null;
@@ -61,6 +65,11 @@ public final class OAuthCallbackServer implements AutoCloseable {
                     case "error_description": errorDesc = value; break;
                 }
             }
+        }
+
+        if (code == null && error == null) {
+            sendPlain(exchange, 400, "Missing code or error");
+            return;
         }
 
         String responseHtml;
@@ -82,7 +91,7 @@ public final class OAuthCallbackServer implements AutoCloseable {
         } else {
             responseHtml = htmlPage("授权失败", "#F44336",
                     errorDesc != null ? escapeHtml(errorDesc)
-                            : (error != null ? escapeHtml(error) : "未知错误"));
+                            : escapeHtml(error != null ? error : "未知错误"));
             if (completed.compareAndSet(false, true)) {
                 codeFuture.completeExceptionally(
                         new RuntimeException("授权失败: " + (error != null ? error : "未知")
@@ -95,6 +104,15 @@ public final class OAuthCallbackServer implements AutoCloseable {
         exchange.sendResponseHeaders(200, respBytes.length);
         try (OutputStream os = exchange.getResponseBody()) {
             os.write(respBytes);
+        }
+    }
+
+    private static void sendPlain(HttpExchange exchange, int code, String body) throws IOException {
+        byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+        exchange.getResponseHeaders().set("Content-Type", "text/plain; charset=UTF-8");
+        exchange.sendResponseHeaders(code, bytes.length);
+        try (OutputStream os = exchange.getResponseBody()) {
+            os.write(bytes);
         }
     }
 

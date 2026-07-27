@@ -716,6 +716,7 @@ private fun ModRow(
     val shape = RoundedCornerShape(12.dp)
     val jarKey = m.getJarFile()
     Surface(
+        onClick = { if (selectionMode) onToggleSelect() else onShowDetail() },
         color = if (m.isDisabled()) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
                 else MaterialTheme.colorScheme.surfaceVariant,
         shape = shape,
@@ -743,8 +744,7 @@ private fun ModRow(
                 Modifier
                     .size(56.dp)
                     .clip(RoundedCornerShape(10.dp))
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.65f))
-                    .clickable { if (selectionMode) onToggleSelect() else onShowDetail() },
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.65f)),
                 contentAlignment = Alignment.Center
             ) {
                 if (iconBmp != null) {
@@ -767,11 +767,7 @@ private fun ModRow(
 
             Spacer(Modifier.width(12.dp))
 
-            Column(
-                Modifier
-                    .weight(1f)
-                    .clickable { if (selectionMode) onToggleSelect() else onShowDetail() }
-            ) {
+            Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         displayName + if (m.isDisabled()) I18n.t("mods.disabled_suffix") else "",

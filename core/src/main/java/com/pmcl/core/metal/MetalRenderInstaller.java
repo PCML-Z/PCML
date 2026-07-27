@@ -156,10 +156,18 @@ public final class MetalRenderInstaller {
             if (fileUrl == null || fileName == null) {
                 throw new IOException("Modrinth 返回的 " + projectId + " 版本无可用文件");
             }
+            if (fileName.contains("..") || fileName.contains("/") || fileName.contains("\\")
+                    || fileName.indexOf('\0') >= 0 || fileName.isBlank()) {
+                throw new IOException("非法 MetalRender 文件名: " + fileName);
+            }
             if ((sha1 == null || sha1.isBlank()) && (sha512 == null || sha512.isBlank())) {
                 throw new IOException("Modrinth 未提供 " + fileName + " 的哈希，拒绝安装未校验的 MetalRender 组件");
             }
-            Path target = modsDir.resolve(fileName);
+            Path modsAbs = modsDir.toAbsolutePath().normalize();
+            Path target = modsAbs.resolve(fileName).normalize();
+            if (!target.startsWith(modsAbs)) {
+                throw new IOException("MetalRender 路径越界: " + fileName);
+            }
             // 覆盖下载（支持升级已存在的旧版本）+ 哈希校验
             downloads.downloadToVerified(fileUrl, target, sha1, sha512);
             if (onProgress != null) {

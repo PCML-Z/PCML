@@ -14,6 +14,6 @@ data class MusicTrack(
     val uploader: String,
     val durationMs: Long,       // 0 表示未知
     val coverUrl: String,       // 可空用 ""
-    val sourceType: String,     // "bilibili" / "acfun" / "direct"
+    val sourceType: String,     // "bilibili" / "acfun" / "direct" / "local"
     val originalId: String      // BV号/ac号等
 )

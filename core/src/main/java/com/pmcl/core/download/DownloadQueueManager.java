@@ -1,14 +1,17 @@
 package com.pmcl.core.download;
 
 import com.pmcl.core.LauncherConfig;
+import com.pmcl.core.install.InstallInterruptedException;
 import com.pmcl.core.install.InstallProgress;
 import com.pmcl.core.install.VersionInstaller;
+import com.pmcl.core.install.VersionStaging;
 import com.pmcl.core.market.ModFile;
 import com.pmcl.core.market.ModMarketManager;
 import com.pmcl.core.modloader.ModLoader;
 import com.pmcl.core.modloader.ModLoaderInstaller;
 import com.pmcl.core.modloader.ModLoaderManager;
 import com.pmcl.core.preferences.Preferences;
+import com.pmcl.core.util.Exceptions;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -83,6 +86,14 @@ public final class DownloadQueueManager {
         private final long createdAt;
         /** 任务完成时间戳（DONE/FAILED/CANCELLED） */
         private volatile long finishedAt;
+        /**
+         * 取消时需丢弃的版本 staging id（原版安装目录名）。
+         * 暂停保留 staging；取消则清理，避免孤儿 .staging。
+         */
+        private volatile String cleanupVersionId;
+        /** 模组下载完成事件用：显示名 / 文件名 */
+        private volatile String eventModName;
+        private volatile String eventModVersion;
 
         public QueueTask(String id, String name, TaskType type) {
             this.id = id;
@@ -127,6 +138,9 @@ public final class DownloadQueueManager {
     private final ModMarketManager modMarketManager;
     private final ModLoaderManager modLoaderManager;
     private final Preferences preferences;
+
+    /** Optional plugin event bus. */
+    private volatile com.pmcl.core.plugin.PluginManager pluginManager;
 
     /** 任务表：id -> task，保持插入顺序 */
     private final Map<String, QueueTask> tasks = Collections.synchronizedMap(new LinkedHashMap<>());
@@ -175,6 +189,10 @@ public final class DownloadQueueManager {
                 });
     }
 
+    public void setPluginManager(com.pmcl.core.plugin.PluginManager pluginManager) {
+        this.pluginManager = pluginManager;
+    }
+
     // ===== 任务提交 =====
 
     /**
@@ -184,9 +202,72 @@ public final class DownloadQueueManager {
         QueueTask task = new QueueTask(UUID.randomUUID().toString(),
                 "Minecraft " + versionId, TaskType.VERSION_INSTALL);
         task.message = "等待安装: " + versionId;
+        task.cleanupVersionId = versionId;
         // 版本安装的总字节数在运行时由 InstallProgress 回调填入
         addTask(task);
         schedule(task, () -> runVersionInstall(task, versionId));
+        return task.id;
+    }
+
+    /**
+     * 提交「原版 → 可选加载器」串联安装任务（同一队列任务内顺序执行，避免并发抢跑）。
+     *
+     * @param loaderName    加载器名（如 FORGE），null 表示仅原版
+     * @param loaderVersion 加载器版本，loaderName 非 null 时必填
+     */
+    public String submitVersionInstallThenLoader(String versionId,
+                                                 String loaderName,
+                                                 String loaderVersion) {
+        final boolean withLoader = loaderName != null && !loaderName.isBlank()
+                && loaderVersion != null && !loaderVersion.isBlank();
+        final String loaderNameF = loaderName;
+        final String loaderVersionF = loaderVersion;
+        String name = withLoader
+                ? "Minecraft " + versionId + " + " + loaderName + " " + loaderVersion
+                : "Minecraft " + versionId;
+        QueueTask task = new QueueTask(UUID.randomUUID().toString(), name, TaskType.VERSION_INSTALL);
+        task.message = "等待安装: " + versionId;
+        task.cleanupVersionId = versionId;
+        addTask(task);
+        // 自引用 Runnable：暂停后续传时仍能跑完「原版 + 加载器」整条链
+        final Runnable[] combined = new Runnable[1];
+        combined[0] = () -> {
+            storeResumeWork(task.id, combined[0]);
+            try {
+                versionInstaller.install(versionId, progress -> {
+                    throwIfTaskInterrupted(task);
+                    task.totalBytes = Math.max(task.totalBytes, progress.getTotal());
+                    task.completedBytes = progress.getCompleted();
+                    task.message = progress.getMessage() != null ? progress.getMessage() : "安装中";
+                    notifyProgress(task);
+                }).join();
+                if (withLoader) {
+                    throwIfTaskInterrupted(task);
+                    ModLoader loader = ModLoader.valueOf(loaderNameF.toUpperCase());
+                    ModLoaderInstaller installer = modLoaderManager.get(loader);
+                    task.message = "原版完成，安装 " + loaderNameF + "...";
+                    notifyProgress(task);
+                    installer.install(versionId, loaderVersionF, progress -> {
+                        throwIfTaskInterrupted(task);
+                        task.totalBytes = Math.max(task.totalBytes, progress.getTotal());
+                        task.completedBytes = progress.getCompleted();
+                        task.message = progress.getMessage() != null ? progress.getMessage() : "安装中";
+                        notifyProgress(task);
+                    }).join();
+                    if (task.totalBytes <= 0) {
+                        task.totalBytes = 1;
+                        task.completedBytes = 1;
+                    }
+                }
+            } catch (Throwable e) {
+                rethrowQueueFailure(e);
+            } finally {
+                if (!(task.pauseRequested || task.status == TaskStatus.PAUSED)) {
+                    clearResumeWork(task.id);
+                }
+            }
+        };
+        schedule(task, combined[0]);
         return task.id;
     }
 
@@ -212,6 +293,8 @@ public final class DownloadQueueManager {
                 displayName, TaskType.MOD_DOWNLOAD);
         task.totalBytes = modFile.getFileSize();
         task.message = "等待下载: " + displayName;
+        task.eventModName = modFile.getFileName();
+        task.eventModVersion = modFile.getFileId() != null ? modFile.getFileId() : displayName;
         addTask(task);
         schedule(task, () -> runModDownload(task, modFile, gameVersion, versionId));
         return task.id;
@@ -272,7 +355,8 @@ public final class DownloadQueueManager {
     }
 
     /**
-     * 取消任务：中断运行线程，标记 CANCELLED，不删除已下载文件（用户可手动清理）。
+     * 取消任务：中断运行线程，标记 CANCELLED，丢弃版本 staging 与续传句柄。
+     * 已下载到 libraries/assets 的完整文件保留（可复用）；半成品 staging 清除。
      */
     public void cancel(String taskId) {
         QueueTask task = tasks.get(taskId);
@@ -283,11 +367,21 @@ public final class DownloadQueueManager {
         if (f != null) {
             f.cancel(true);
         }
+        discardCancelledArtifacts(task);
         task.status = TaskStatus.CANCELLED;
         task.message = "已取消";
         task.finishedAt = System.currentTimeMillis();
         runningFutures.remove(taskId);
         notifyListeners();
+    }
+
+    /** 取消时清理 staging 与续传，与暂停（保留断点）区分。 */
+    private void discardCancelledArtifacts(QueueTask task) {
+        clearResumeWork(task.id);
+        String vid = task.cleanupVersionId;
+        if (vid != null && !vid.isBlank()) {
+            VersionStaging.discard(config.getVersionsDir(), vid);
+        }
     }
 
     /**
@@ -438,7 +532,11 @@ public final class DownloadQueueManager {
             ls = new ArrayList<>(listeners);
         }
         for (Consumer<List<QueueTask>> l : ls) {
-            try { l.accept(snapshot); } catch (Throwable ignored) {}
+            try {
+                l.accept(snapshot);
+            } catch (Throwable ex) {
+                System.err.println("[DownloadQueue] listener error: " + Exceptions.rootMessage(ex));
+            }
         }
     }
 
@@ -500,23 +598,38 @@ public final class DownloadQueueManager {
             notifyListeners();
             try {
                 work.run();
-                if (!task.cancelRequested && !task.pauseRequested) {
+                // work 正常返回时也必须结算状态：暂停/取消不得残留 RUNNING（否则无法 resume）
+                if (task.cancelRequested) {
+                    discardCancelledArtifacts(task);
+                    task.status = TaskStatus.CANCELLED;
+                    task.message = "已取消";
+                    task.finishedAt = System.currentTimeMillis();
+                    notifyListeners();
+                } else if (task.pauseRequested) {
+                    task.status = TaskStatus.PAUSED;
+                    task.message = "已暂停";
+                    notifyListeners();
+                } else {
                     task.status = TaskStatus.DONE;
                     task.message = "完成";
                     task.completedBytes = task.totalBytes;
                     task.finishedAt = System.currentTimeMillis();
                     notifyListeners();
+                    firePluginTaskDone(task);
                 }
             } catch (Throwable e) {
-                if (task.pauseRequested) {
-                    task.status = TaskStatus.PAUSED;
-                    task.message = "已暂停";
-                } else if (task.cancelRequested) {
+                if (task.cancelRequested) {
+                    discardCancelledArtifacts(task);
                     task.status = TaskStatus.CANCELLED;
                     task.message = "已取消";
+                } else if (task.pauseRequested || InstallInterruptedException.isInterrupted(e)) {
+                    // Future.cancel(true) 可能只带中断、尚未写 pauseRequested：按暂停保留续传
+                    task.pauseRequested = true;
+                    task.status = TaskStatus.PAUSED;
+                    task.message = "已暂停";
                 } else {
                     task.status = TaskStatus.FAILED;
-                    task.errorMessage = e.getMessage() != null ? e.getMessage() : e.toString();
+                    task.errorMessage = Exceptions.rootMessage(e);
                     task.message = "失败: " + task.errorMessage;
                 }
                 task.finishedAt = System.currentTimeMillis();
@@ -562,27 +675,17 @@ public final class DownloadQueueManager {
         storeResumeWork(task.id, () -> runVersionInstall(task, versionId));
         try {
             versionInstaller.install(versionId, progress -> {
-                if (task.cancelRequested || task.pauseRequested) {
-                    throw new RuntimeException("__PMCL_INTERRUPTED__");
-                }
+                throwIfTaskInterrupted(task);
                 task.totalBytes = Math.max(task.totalBytes, progress.getTotal());
                 task.completedBytes = progress.getCompleted();
                 task.message = progress.getMessage() != null ? progress.getMessage() : "安装中";
                 notifyProgress(task);
             }).join();
         } catch (Throwable e) {
-            if (e.getMessage() != null && e.getMessage().contains("__PMCL_INTERRUPTED__")) {
-                throw new RuntimeException("中断", e);
-            }
-            throw e;
+            rethrowQueueFailure(e);
         } finally {
-            // H7: 原实现在 status 仍为 RUNNING 时（work.run 正常返回但 pauseRequested/cancelRequested 为 true）
-            // 不清理 resumeWork 导致内存泄漏。修复：非 RUNNING 终态清理，RUNNING 但有中断请求时也清理
-            if (task.status != TaskStatus.RUNNING) {
-                if (isTerminalStatus(task.status)) clearResumeWork(task.id);
-                // PAUSED 状态保留 resumeWork 供 resume 使用，不清理
-            } else {
-                // status 仍为 RUNNING 但 work 已退出：任务异常终止，清理避免泄漏
+            // pause 时 work.finally 早于 schedule 结算状态：必须用 pauseRequested 保留 resumeWork
+            if (!(task.pauseRequested || task.status == TaskStatus.PAUSED)) {
                 clearResumeWork(task.id);
             }
         }
@@ -597,9 +700,7 @@ public final class DownloadQueueManager {
             task.message = "正在安装 " + loaderName + " " + loaderVersion;
             notifyProgress(task);
             installer.install(gameVersion, loaderVersion, progress -> {
-                if (task.cancelRequested || task.pauseRequested) {
-                    throw new RuntimeException("__PMCL_INTERRUPTED__");
-                }
+                throwIfTaskInterrupted(task);
                 task.totalBytes = Math.max(task.totalBytes, progress.getTotal());
                 task.completedBytes = progress.getCompleted();
                 task.message = progress.getMessage() != null ? progress.getMessage() : "安装中";
@@ -610,11 +711,10 @@ public final class DownloadQueueManager {
                 task.totalBytes = 1;
                 task.completedBytes = 1;
             }
+        } catch (Throwable e) {
+            rethrowQueueFailure(e);
         } finally {
-            // H7: status 仍为 RUNNING 时也清理，避免内存泄漏
-            if (task.status != TaskStatus.RUNNING) {
-                if (isTerminalStatus(task.status)) clearResumeWork(task.id);
-            } else {
+            if (!(task.pauseRequested || task.status == TaskStatus.PAUSED)) {
                 clearResumeWork(task.id);
             }
         }
@@ -625,18 +725,15 @@ public final class DownloadQueueManager {
         storeResumeWork(task.id, () -> runModDownload(task, modFile, gameVersion, versionId));
         try {
             modMarketManager.installMod(modFile, gameVersion, versionId, preferences, status -> {
-                if (task.cancelRequested || task.pauseRequested) {
-                    throw new RuntimeException("__PMCL_INTERRUPTED__");
-                }
+                throwIfTaskInterrupted(task);
                 task.message = status;
                 notifyProgress(task);
             }).join();
             task.completedBytes = task.totalBytes;
+        } catch (Throwable e) {
+            rethrowQueueFailure(e);
         } finally {
-            // H7: status 仍为 RUNNING 时也清理，避免内存泄漏
-            if (task.status != TaskStatus.RUNNING) {
-                if (isTerminalStatus(task.status)) clearResumeWork(task.id);
-            } else {
+            if (!(task.pauseRequested || task.status == TaskStatus.PAUSED)) {
                 clearResumeWork(task.id);
             }
         }
@@ -654,41 +751,66 @@ public final class DownloadQueueManager {
             } catch (Throwable ignored) {}
 
             downloadManager.downloadTo(url, target, completedBytes -> {
-                if (task.cancelRequested || task.pauseRequested) {
-                    // 抛异常中断下载线程
-                    Thread.currentThread().interrupt();
-                    throw new RuntimeException("__PMCL_INTERRUPTED__");
-                }
+                throwIfTaskInterrupted(task);
                 task.completedBytes = completedBytes;
                 if (task.totalBytes == 0) task.totalBytes = completedBytes;
                 notifyProgress(task);
             });
         } catch (Throwable e) {
-            if (e.getMessage() != null && e.getMessage().contains("__PMCL_INTERRUPTED__")) {
-                throw new RuntimeException("中断", e);
-            }
-            if (e instanceof RuntimeException) throw (RuntimeException) e;
-            throw new RuntimeException(e);
+            rethrowQueueFailure(e);
         } finally {
-            // H7: status 仍为 RUNNING 时也清理，避免内存泄漏
-            if (task.status != TaskStatus.RUNNING) {
-                if (isTerminalStatus(task.status)) clearResumeWork(task.id);
-            } else {
+            if (!(task.pauseRequested || task.status == TaskStatus.PAUSED)) {
                 clearResumeWork(task.id);
             }
         }
     }
 
-    /** M52: 判断任务是否处于终态（DONE/FAILED/CANCELLED），终态需清理 resumeWork */
-    private static boolean isTerminalStatus(TaskStatus status) {
-        return status == TaskStatus.DONE
-                || status == TaskStatus.FAILED
-                || status == TaskStatus.CANCELLED;
+    private static void throwIfTaskInterrupted(QueueTask task) {
+        if (task.cancelRequested || task.pauseRequested) {
+            Thread.currentThread().interrupt();
+            throw new InstallInterruptedException(
+                    task.cancelRequested ? "任务已取消" : "任务已暂停");
+        }
+        if (Thread.currentThread().isInterrupted()) {
+            throw new InstallInterruptedException("任务已中断");
+        }
+    }
+
+    private static void rethrowQueueFailure(Throwable e) {
+        if (InstallInterruptedException.isInterrupted(e)) {
+            throw e instanceof InstallInterruptedException
+                    ? (InstallInterruptedException) e
+                    : new InstallInterruptedException("任务已中断", e);
+        }
+        if (e instanceof RuntimeException) throw (RuntimeException) e;
+        throw new RuntimeException(e);
+    }
+
+    private void firePluginTaskDone(QueueTask task) {
+        com.pmcl.core.plugin.PluginManager pm = pluginManager;
+        if (pm == null || task == null) return;
+        try {
+            if (task.type == TaskType.VERSION_INSTALL && task.cleanupVersionId != null
+                    && !task.cleanupVersionId.isBlank()) {
+                pm.fireEvent(new com.pmcl.plugin.VersionInstalledEvent(task.cleanupVersionId));
+            } else if (task.type == TaskType.MOD_DOWNLOAD) {
+                String name = task.eventModName != null ? task.eventModName : task.name;
+                String ver = task.eventModVersion != null ? task.eventModVersion : "";
+                pm.fireEvent(new com.pmcl.plugin.ModInstalledEvent(name, ver));
+            }
+        } catch (Throwable ignored) {}
     }
 
     /** 关闭队列管理器，释放线程池 */
     public void shutdown() {
         cancelAll();
-        executor.shutdown();
+        executor.shutdownNow();
+        try {
+            if (!executor.awaitTermination(3, java.util.concurrent.TimeUnit.SECONDS)) {
+                System.err.println("[DownloadQueue] 线程池未能在 3s 内退出");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 }

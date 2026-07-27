@@ -6,6 +6,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.pmcl.core.LauncherConfig;
+import com.pmcl.core.install.VersionStaging;
 import com.pmcl.core.preferences.Preferences;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -204,6 +205,8 @@ public final class VersionManager {
         int[] scanned = {0};
         for (Path p : subDirs) {
             String id = p.getFileName().toString();
+            // 跳过安装暂存 / 回滚备份目录，避免半成品出现在版本列表
+            if (VersionStaging.isTransientDirName(id)) continue;
             Path json = p.resolve(id + ".json");
             Path jar = p.resolve(id + ".jar");
             boolean hasJson = Files.exists(json);

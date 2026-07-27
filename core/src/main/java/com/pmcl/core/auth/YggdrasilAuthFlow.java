@@ -102,7 +102,8 @@ public final class YggdrasilAuthFlow {
         payload.add("agent", agent);
         payload.addProperty("username", username);
         payload.addProperty("password", password);
-        payload.addProperty("clientToken", UUID.randomUUID().toString().replace("-", ""));
+        String clientToken = UUID.randomUUID().toString().replace("-", "");
+        payload.addProperty("clientToken", clientToken);
 
         Request req = new Request.Builder()
                 .url(url(normalizedUrl, "/authserver/login"))
@@ -119,6 +120,8 @@ public final class YggdrasilAuthFlow {
 
             JsonObject o = JsonParser.parseString(body).getAsJsonObject();
             String accessToken = safeStr(o, "accessToken");
+            String returnedClient = safeStr(o, "clientToken");
+            if (!returnedClient.isEmpty()) clientToken = returnedClient;
             JsonObject selectedProfile = o.has("selectedProfile") && o.get("selectedProfile").isJsonObject()
                     ? o.getAsJsonObject("selectedProfile") : null;
 
@@ -130,7 +133,8 @@ public final class YggdrasilAuthFlow {
             String playerUuid = safeStr(selectedProfile, "id");
 
             return new Account(playerName, playerUuid, accessToken,
-                    Account.AccountType.YGGDRASIL, "", "classic", "", normalizedUrl);
+                    Account.AccountType.YGGDRASIL, "", "classic", "", normalizedUrl,
+                    "", 0L, clientToken);
         }
     }
 
@@ -142,6 +146,10 @@ public final class YggdrasilAuthFlow {
      * @return true 表示 token 有效
      */
     public boolean validate(String apiUrl, String accessToken) {
+        return validate(apiUrl, accessToken, "");
+    }
+
+    public boolean validate(String apiUrl, String accessToken, String clientToken) {
         String normalizedUrl = normalizeApiUrl(apiUrl);
         try { assertHttpUrl(normalizedUrl); } catch (IOException e) {
             System.err.println("[YggdrasilAuthFlow] validate: " + e.getMessage());
@@ -149,7 +157,7 @@ public final class YggdrasilAuthFlow {
         }
         JsonObject payload = new JsonObject();
         payload.addProperty("accessToken", accessToken);
-        payload.addProperty("clientToken", "");
+        payload.addProperty("clientToken", clientToken != null ? clientToken : "");
 
         Request req = new Request.Builder()
                 .url(url(normalizedUrl, "/authserver/validate"))
@@ -174,6 +182,10 @@ public final class YggdrasilAuthFlow {
      * @return 新的 accessToken，失败返回 null
      */
     public String refresh(String apiUrl, String accessToken) {
+        return refresh(apiUrl, accessToken, "");
+    }
+
+    public String refresh(String apiUrl, String accessToken, String clientToken) {
         String normalizedUrl = normalizeApiUrl(apiUrl);
         try { assertHttpUrl(normalizedUrl); } catch (IOException e) {
             System.err.println("[YggdrasilAuthFlow] refresh: " + e.getMessage());
@@ -181,7 +193,7 @@ public final class YggdrasilAuthFlow {
         }
         JsonObject payload = new JsonObject();
         payload.addProperty("accessToken", accessToken);
-        payload.addProperty("clientToken", "");
+        payload.addProperty("clientToken", clientToken != null ? clientToken : "");
 
         Request req = new Request.Builder()
                 .url(url(normalizedUrl, "/authserver/refresh"))
@@ -210,6 +222,10 @@ public final class YggdrasilAuthFlow {
      * @param accessToken 待失效的 token
      */
     public void invalidate(String apiUrl, String accessToken) {
+        invalidate(apiUrl, accessToken, "");
+    }
+
+    public void invalidate(String apiUrl, String accessToken, String clientToken) {
         String normalizedUrl = normalizeApiUrl(apiUrl);
         try { assertHttpUrl(normalizedUrl); } catch (IOException e) {
             System.err.println("[YggdrasilAuthFlow] invalidate: " + e.getMessage());
@@ -217,7 +233,7 @@ public final class YggdrasilAuthFlow {
         }
         JsonObject payload = new JsonObject();
         payload.addProperty("accessToken", accessToken);
-        payload.addProperty("clientToken", "");
+        payload.addProperty("clientToken", clientToken != null ? clientToken : "");
 
         Request req = new Request.Builder()
                 .url(url(normalizedUrl, "/authserver/invalidate"))

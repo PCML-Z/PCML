@@ -10,7 +10,11 @@ java {
 }
 
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
-    kotlinOptions.jvmTarget = "21"
+    kotlinOptions {
+        jvmTarget = "21"
+        // So Java host facades can inherit Kotlin interface default methods
+        freeCompilerArgs = freeCompilerArgs + listOf("-Xjvm-default=all")
+    }
 }
 
 // Plugin API must not depend on core or ui at runtime.

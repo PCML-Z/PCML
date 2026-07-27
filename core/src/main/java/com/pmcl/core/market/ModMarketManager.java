@@ -236,12 +236,24 @@ public final class ModMarketManager {
                         modsDir = modsDir.resolve(gameVersion);
                     }
                 }
-                Path target = modsDir.resolve(file.getFileName());
+                String fileName = file.getFileName();
+                if (fileName == null || fileName.isBlank()
+                        || fileName.contains("..")
+                        || fileName.contains("/")
+                        || fileName.contains("\\")
+                        || fileName.indexOf('\0') >= 0) {
+                    throw new IOException("非法模组文件名: " + fileName);
+                }
+                Path modsAbs = modsDir.toAbsolutePath().normalize();
+                Path target = modsAbs.resolve(fileName).normalize();
+                if (!target.startsWith(modsAbs)) {
+                    throw new IOException("模组路径越界: " + fileName);
+                }
                 // 重复安装检测：覆盖下载
                 if (java.nio.file.Files.exists(target)) {
-                    if (onStatus != null) onStatus.accept("覆盖已存在: " + file.getFileName());
+                    if (onStatus != null) onStatus.accept("覆盖已存在: " + fileName);
                 }
-                java.nio.file.Files.createDirectories(modsDir);
+                java.nio.file.Files.createDirectories(modsAbs);
                 if (onStatus != null) {
                     onStatus.accept("正在下载: " + file.getFileName()
                             + " (" + (file.getFileSize() / 1024) + " KB)");

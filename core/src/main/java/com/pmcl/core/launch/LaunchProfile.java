@@ -6,7 +6,9 @@ import com.pmcl.core.auth.Account;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 启动参数构造。
@@ -23,6 +25,8 @@ public final class LaunchProfile {
     private List<String> gameArgs = new ArrayList<>();
     /** Java Agent 参数（-javaagent:jar=path），插入在 JVM 参数最前面 */
     private List<String> javaAgents = new ArrayList<>();
+    /** 额外环境变量（由插件 LaunchHook 贡献） */
+    private final Map<String, String> env = new LinkedHashMap<>();
     /** 实际 Minecraft 根目录（外部安装时为 ~/.minecraft，.pmcl 安装时为 config.getWorkDir()） */
     private java.nio.file.Path gameDir;
 
@@ -81,6 +85,45 @@ public final class LaunchProfile {
         } else {
             javaAgents.add("-javaagent:" + jarPath);
         }
+        return this;
+    }
+
+    /** 直接追加已格式化的 -javaagent:… 参数（插件贡献用） */
+    public LaunchProfile addJavaAgentRaw(String agentArg) {
+        if (agentArg != null && !agentArg.isBlank()) {
+            String t = agentArg.trim();
+            if (!t.startsWith("-javaagent:")) {
+                t = "-javaagent:" + t;
+            }
+            javaAgents.add(t);
+        }
+        return this;
+    }
+
+    public LaunchProfile putEnv(String key, String value) {
+        if (key != null && !key.isBlank()) {
+            env.put(key.trim(), value != null ? value : "");
+        }
+        return this;
+    }
+
+    public Map<String, String> getEnv() {
+        return Collections.unmodifiableMap(env);
+    }
+
+    /** Mutable classpath list (used by RetroWrapper translation layer). */
+    List<String> getClasspathMutable() {
+        return classpath;
+    }
+
+    /** Read-only view of game args for tweaker detection. */
+    List<String> getGameArgsView() {
+        return Collections.unmodifiableList(gameArgs);
+    }
+
+    /** Prepend a game argument (used to inject --tweakClass ahead of others). */
+    LaunchProfile prependGameArg(String arg) {
+        if (arg != null) gameArgs.add(0, arg);
         return this;
     }
 

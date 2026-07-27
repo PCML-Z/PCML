@@ -1,0 +1,39 @@
+Bundled third-party libraries for PMCL legacy translation (RetroWrapper).
+
+These jars are shipped inside PMCL and extracted at launch time into
+~/.pmcl/libraries/retrowrapper/<version>/ when needed.
+
+-------------------------------------------------------------------------------
+RetroWrapper 1.7.8 (NeRdTheNed fork)
+  Source: https://github.com/NeRdTheNed/RetroWrapper
+  License: MIT
+  File: RetroWrapper-1.7.8.jar
+
+LegacyLauncher / LaunchWrapper (Java 9+)
+  Source: https://github.com/LightWayUp/LegacyLauncher
+  File: launchwrapper-1.13-java-9-and-above.jar
+
+FrankenLWJGL (universal macOS LWJGL 2 natives)
+  Source: https://github.com/NeRdTheNed/FrankenLWJGL
+  License: CC0 (script); LWJGL natives under LWJGL license
+  File: lwjgl-platform-franken-osx.jar
+
+LWJGL 2.9.4-nightly-20150209 (matching Franken natives; fixes black Display on modern macOS)
+  Source: https://libraries.minecraft.net/org/lwjgl/lwjgl/
+  Files: lwjgl-2.9.4-nightly-20150209.jar, lwjgl_util-2.9.4-nightly-20150209.jar
+
+jinput-m1 (Apple Silicon jinput natives)
+  Source: https://github.com/r58Playz/jinput-m1
+  File: jinput-platform-m1-osx.jar
+
+OW2 ASM 9.7
+  Source: https://repo1.maven.org/maven2/org/ow2/asm/
+  License: BSD-3-Clause
+  Files: asm-9.7.jar, asm-commons-9.7.jar, asm-tree-9.7.jar,
+         asm-analysis-9.7.jar, asm-util-9.7.jar
+
+JOpt Simple 5.0.4
+  Source: https://repo1.maven.org/maven2/net/sf/jopt-simple/
+  License: MIT
+  File: jopt-simple-5.0.4.jar
+-------------------------------------------------------------------------------

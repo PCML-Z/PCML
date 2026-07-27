@@ -101,12 +101,12 @@ public final class InstanceExporter {
                 addDirectoryToZip(zos, configDir, "config/");
             }
 
-            // 4. 复制图标文件（如有）
+            // 4. 复制图标文件（如有）——仅允许实例目录内的简单文件名
             String iconPath = info.getIconPath();
             if (iconPath != null && !iconPath.isEmpty()) {
-                Path iconFile = instanceDir.resolve(iconPath);
-                if (Files.exists(iconFile)) {
-                    String zipEntryName = Paths.get(iconPath).getFileName().toString();
+                Path iconFile = InstanceManager.resolveSafeIconPath(instanceDir, iconPath);
+                if (iconFile != null && Files.isRegularFile(iconFile)) {
+                    String zipEntryName = iconFile.getFileName().toString();
                     writeZipEntry(zos, zipEntryName, Files.readAllBytes(iconFile));
                 }
             }

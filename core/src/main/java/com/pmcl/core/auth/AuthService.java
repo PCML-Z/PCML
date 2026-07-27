@@ -91,7 +91,7 @@ public final class AuthService {
      */
     public CompletableFuture<Account> loginMicrosoftAsync(DeviceCode dc,
                                                           Consumer<String> onPending) {
-        return flow.pollForMsAccessToken(dc, onPending)
+        return flow.pollForMsOAuthToken(dc, onPending)
                 .thenApplyAsync(token -> {
                     try {
                         return flow.completeLogin(token);
@@ -99,6 +99,27 @@ public final class AuthService {
                         throw new RuntimeException("微软登录失败: " + e.getMessage(), e);
                     }
                 });
+    }
+
+    /**
+     * 启动前刷新微软账号 MC token（需已持久化 refresh_token）。
+     */
+    public Account refreshMicrosoftAccount(Account account) throws IOException {
+        if (account == null || account.getType() != Account.AccountType.MICROSOFT) {
+            throw new IOException("非微软账号");
+        }
+        if (account.getMsRefreshToken().isEmpty()) {
+            throw new IOException("无 refresh_token，请重新登录微软账号");
+        }
+        Account refreshed = flow.refreshLogin(account.getMsRefreshToken());
+        // 若 refresh 后 UUID 变化（极少见），仍采用刷新结果；否则保留皮肤站字段等
+        if (account.getUuid().equals(refreshed.getUuid())) {
+            return account.withMicrosoftSession(
+                    refreshed.getAccessToken(),
+                    refreshed.getMsRefreshToken(),
+                    refreshed.getExpiresAt());
+        }
+        return refreshed;
     }
 
     /**
@@ -164,14 +185,22 @@ public final class AuthService {
      * 验证皮肤站 accessToken 是否有效。
      */
     public boolean yggdrasilValidate(String apiUrl, String accessToken) {
-        return yggdrasilFlow.validate(apiUrl, accessToken);
+        return yggdrasilValidate(apiUrl, accessToken, "");
+    }
+
+    public boolean yggdrasilValidate(String apiUrl, String accessToken, String clientToken) {
+        return yggdrasilFlow.validate(apiUrl, accessToken, clientToken);
     }
 
     /**
      * 刷新皮肤站 accessToken。失败返回 null。
      */
     public String yggdrasilRefresh(String apiUrl, String accessToken) {
-        return yggdrasilFlow.refresh(apiUrl, accessToken);
+        return yggdrasilRefresh(apiUrl, accessToken, "");
+    }
+
+    public String yggdrasilRefresh(String apiUrl, String accessToken, String clientToken) {
+        return yggdrasilFlow.refresh(apiUrl, accessToken, clientToken);
     }
 
     /**
@@ -190,96 +219,141 @@ public final class AuthService {
 
     // ============ 多账号持久化 ============
 
+    /** 串行化 accounts.json 读写，避免 load/save 竞态与共享 .tmp 撕文件 */
+    private final Object accountStoreLock = new Object();
+
     /**
      * 加载所有账号 + 当前选中账号。
      * 文件不存在时返回空 AccountStore。
      */
     public AccountStore loadStore(Path file) throws IOException {
-        if (!Files.exists(file)) return new AccountStore(new ArrayList<>(), null);
-        JsonObject root;
-        try {
-            root = JsonParser.parseString(Files.readString(file, java.nio.charset.StandardCharsets.UTF_8)).getAsJsonObject();
-        } catch (Throwable t) {
-            // 账号文件损坏：备份后返回空，避免静默丢失用户数据
-            System.err.println("[AuthService] 账号文件解析失败: " + t.getMessage());
+        synchronized (accountStoreLock) {
+            if (!Files.exists(file)) return new AccountStore(new ArrayList<>(), null);
+            String raw;
             try {
-                java.nio.file.Path backup = file.resolveSibling(file.getFileName() + ".corrupt");
-                Files.move(file, backup, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                System.err.println("[AuthService] 损坏文件已备份至: " + backup);
-            } catch (Throwable backupErr) {
-                System.err.println("[AuthService] 备份损坏文件失败: " + backupErr.getMessage());
+                raw = Files.readString(file, java.nio.charset.StandardCharsets.UTF_8);
+            } catch (IOException e) {
+                throw e;
             }
-            return new AccountStore(new ArrayList<>(), null);
-        }
-        List<Account> accounts = new ArrayList<>();
-        if (root.has("accounts")) {
-            for (JsonElement e : root.getAsJsonArray("accounts")) {
-                JsonObject o = e.getAsJsonObject();
-                Account.AccountType accountType;
+            JsonObject root;
+            try {
+                root = JsonParser.parseString(raw).getAsJsonObject();
+            } catch (Throwable t) {
+                // 解析失败：保留原文件并复制备份，绝不 move 掉唯一副本（防并发写撕裂误杀）
+                System.err.println("[AuthService] 账号文件解析失败（已保留原文件）: " + t.getMessage());
                 try {
-                    accountType = Account.AccountType.valueOf(
-                            o.has("type") && !o.get("type").isJsonNull() ? o.get("type").getAsString() : "OFFLINE");
-                } catch (IllegalArgumentException ex) {
-                    accountType = Account.AccountType.OFFLINE;
+                    Path backup = file.resolveSibling(
+                            file.getFileName() + ".corrupt." + System.currentTimeMillis());
+                    Files.copy(file, backup, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    System.err.println("[AuthService] 可疑文件已复制至: " + backup);
+                } catch (Throwable backupErr) {
+                    System.err.println("[AuthService] 备份可疑文件失败: " + backupErr.getMessage());
                 }
-                accounts.add(new Account(
-                        o.has("username") && !o.get("username").isJsonNull() ? o.get("username").getAsString() : "",
-                        o.has("uuid") && !o.get("uuid").isJsonNull() ? o.get("uuid").getAsString() : "",
-                        // 解密 accessToken（兼容旧明文格式——非加密格式原样返回）
-                        TokenEncryptor.decrypt(
-                            o.has("accessToken") && !o.get("accessToken").isJsonNull() ? o.get("accessToken").getAsString() : ""),
-                        accountType,
-                        o.has("skinUrl") && !o.get("skinUrl").isJsonNull() ? o.get("skinUrl").getAsString() : "",
-                        o.has("skinModel") && !o.get("skinModel").isJsonNull() ? o.get("skinModel").getAsString() : "classic",
-                        o.has("xuid") && !o.get("xuid").isJsonNull() ? o.get("xuid").getAsString() : "",
-                        o.has("authServerUrl") && !o.get("authServerUrl").isJsonNull() ? o.get("authServerUrl").getAsString() : ""
-                ));
+                return new AccountStore(new ArrayList<>(), null);
             }
+            List<Account> accounts = new ArrayList<>();
+            if (root.has("accounts")) {
+                for (JsonElement e : root.getAsJsonArray("accounts")) {
+                    JsonObject o = e.getAsJsonObject();
+                    Account.AccountType accountType;
+                    try {
+                        accountType = Account.AccountType.valueOf(
+                                o.has("type") && !o.get("type").isJsonNull() ? o.get("type").getAsString() : "OFFLINE");
+                    } catch (IllegalArgumentException ex) {
+                        accountType = Account.AccountType.OFFLINE;
+                    }
+                    String encRefresh = o.has("msRefreshToken") && !o.get("msRefreshToken").isJsonNull()
+                            ? o.get("msRefreshToken").getAsString() : "";
+                    String msRefresh = encRefresh.isEmpty() ? "" : TokenEncryptor.decrypt(encRefresh);
+                    long expiresAt = 0L;
+                    if (o.has("expiresAt") && !o.get("expiresAt").isJsonNull()) {
+                        try { expiresAt = o.get("expiresAt").getAsLong(); } catch (Throwable ignored) {}
+                    }
+                    accounts.add(new Account(
+                            o.has("username") && !o.get("username").isJsonNull() ? o.get("username").getAsString() : "",
+                            o.has("uuid") && !o.get("uuid").isJsonNull() ? o.get("uuid").getAsString() : "",
+                            TokenEncryptor.decrypt(
+                                o.has("accessToken") && !o.get("accessToken").isJsonNull() ? o.get("accessToken").getAsString() : ""),
+                            accountType,
+                            o.has("skinUrl") && !o.get("skinUrl").isJsonNull() ? o.get("skinUrl").getAsString() : "",
+                            o.has("skinModel") && !o.get("skinModel").isJsonNull() ? o.get("skinModel").getAsString() : "classic",
+                            o.has("xuid") && !o.get("xuid").isJsonNull() ? o.get("xuid").getAsString() : "",
+                            o.has("authServerUrl") && !o.get("authServerUrl").isJsonNull() ? o.get("authServerUrl").getAsString() : "",
+                            msRefresh != null ? msRefresh : "",
+                            expiresAt,
+                            o.has("clientToken") && !o.get("clientToken").isJsonNull()
+                                    ? o.get("clientToken").getAsString() : ""
+                    ));
+                }
+            }
+            String selected = root.has("selected") && !root.get("selected").isJsonNull()
+                    ? root.get("selected").getAsString() : null;
+            return new AccountStore(accounts, selected);
         }
-        String selected = root.has("selected") && !root.get("selected").isJsonNull()
-                ? root.get("selected").getAsString() : null;
-        return new AccountStore(accounts, selected);
     }
 
     /**
      * 保存账号集合 + 选中状态。
      */
-    public synchronized void saveStore(AccountStore store, Path file) throws IOException {
-        JsonObject root = new JsonObject();
-        if (store.getSelectedUuid() != null) {
-            root.addProperty("selected", store.getSelectedUuid());
-        }
-        JsonArray arr = new JsonArray();
-        for (Account a : store.getAccounts()) {
-            JsonObject o = new JsonObject();
-            o.addProperty("uuid", a.getUuid());
-            o.addProperty("username", a.getUsername());
-            // 加密 accessToken（AES-256-GCM）；加密失败绝不落盘明文
-            String plainToken = a.getAccessToken();
-            String encToken = TokenEncryptor.encrypt(plainToken);
-            if (plainToken != null && !plainToken.isEmpty()
-                    && (encToken == null || encToken.isEmpty())) {
-                throw new IOException("无法加密账号 accessToken（" + a.getUsername()
-                        + "），账号文件未保存。请检查磁盘权限或 ~/.pmcl/.keyfile");
+    public void saveStore(AccountStore store, Path file) throws IOException {
+        synchronized (accountStoreLock) {
+            JsonObject root = new JsonObject();
+            if (store.getSelectedUuid() != null) {
+                root.addProperty("selected", store.getSelectedUuid());
             }
-            o.addProperty("accessToken", encToken != null ? encToken : "");
-            o.addProperty("type", a.getType().name());
-            o.addProperty("skinUrl", a.getSkinUrl());
-            o.addProperty("skinModel", a.getSkinModel());
-            o.addProperty("xuid", a.getXuid());
-            o.addProperty("authServerUrl", a.getAuthServerUrl());
-            arr.add(o);
-        }
-        root.add("accounts", arr);
-        Files.createDirectories(file.getParent());
-        // 原子写入：防止并发写损坏账号文件
-        Path tmp = file.resolveSibling(file.getFileName() + ".tmp");
-        Files.writeString(tmp, gson.toJson(root), java.nio.charset.StandardCharsets.UTF_8);
-        try {
-            Files.move(tmp, file, java.nio.file.StandardCopyOption.ATOMIC_MOVE,
-                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-        } catch (java.nio.file.AtomicMoveNotSupportedException e) {
-            Files.move(tmp, file, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            JsonArray arr = new JsonArray();
+            for (Account a : store.getAccounts()) {
+                JsonObject o = new JsonObject();
+                o.addProperty("uuid", a.getUuid());
+                o.addProperty("username", a.getUsername());
+                String plainToken = a.getAccessToken();
+                String encToken = TokenEncryptor.encrypt(plainToken);
+                if (plainToken != null && !plainToken.isEmpty()
+                        && (encToken == null || encToken.isEmpty())) {
+                    throw new IOException("无法加密账号 accessToken（" + a.getUsername()
+                            + "），账号文件未保存。请检查磁盘权限或 ~/.pmcl/.keyfile");
+                }
+                o.addProperty("accessToken", encToken != null ? encToken : "");
+                o.addProperty("type", a.getType().name());
+                o.addProperty("skinUrl", a.getSkinUrl());
+                o.addProperty("skinModel", a.getSkinModel());
+                o.addProperty("xuid", a.getXuid());
+                o.addProperty("authServerUrl", a.getAuthServerUrl());
+                if (a.getClientToken() != null && !a.getClientToken().isEmpty()) {
+                    o.addProperty("clientToken", a.getClientToken());
+                }
+                String plainRefresh = a.getMsRefreshToken();
+                if (plainRefresh != null && !plainRefresh.isEmpty()) {
+                    String encRefresh = TokenEncryptor.encrypt(plainRefresh);
+                    if (encRefresh == null || encRefresh.isEmpty()) {
+                        throw new IOException("无法加密账号 msRefreshToken（" + a.getUsername()
+                                + "），账号文件未保存。请检查磁盘权限或 ~/.pmcl/.keyfile");
+                    }
+                    o.addProperty("msRefreshToken", encRefresh);
+                }
+                if (a.getExpiresAt() > 0) {
+                    o.addProperty("expiresAt", a.getExpiresAt());
+                }
+                arr.add(o);
+            }
+            root.add("accounts", arr);
+            Files.createDirectories(file.getParent());
+            // 唯一 tmp，避免并发 save 争用 accounts.json.tmp
+            Path tmp = file.resolveSibling(file.getFileName() + ".tmp." + java.util.UUID.randomUUID());
+            try {
+                Files.writeString(tmp, gson.toJson(root), java.nio.charset.StandardCharsets.UTF_8);
+                try {
+                    Files.move(tmp, file, java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                            java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                    Files.move(tmp, file, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                }
+                tmp = null;
+            } finally {
+                if (tmp != null) {
+                    try { Files.deleteIfExists(tmp); } catch (IOException ignored) {}
+                }
+            }
         }
     }
 
@@ -301,5 +375,15 @@ public final class AuthService {
                 .filter(a -> a.getUuid().equals(store.getSelectedUuid()))
                 .findFirst();
         return sel.orElse(null);
+    }
+
+    /** 关闭微软 / GitHub 登录流的调度器与连接池。 */
+    public void shutdown() {
+        try {
+            if (flow != null) flow.shutdown();
+        } catch (Throwable ignored) {}
+        try {
+            if (githubFlow != null) githubFlow.shutdown();
+        } catch (Throwable ignored) {}
     }
 }

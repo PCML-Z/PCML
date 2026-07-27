@@ -69,8 +69,16 @@ public final class PastebinClient {
      * @param name    paste 名称（可为空）
      * @return paste URL（如 https://paste.gg/u/anonymous/...）
      */
+    private static final int MAX_UPLOAD_CHARS = 1_500_000; // ~1.5MB 文本，防 OOM
+
     public String upload(String content, String name) throws IOException {
         String safeName = (name == null || name.isBlank()) ? "PMCL Log" : name;
+        if (content == null) content = "";
+        if (content.length() > MAX_UPLOAD_CHARS) {
+            // 保留尾部（崩溃栈通常在文件末尾）
+            content = content.substring(content.length() - MAX_UPLOAD_CHARS);
+            content = "...[truncated by PMCL]...\n" + content;
+        }
         // M55 修复：用 Gson 构建 JSON payload，替代手动转义
         JsonObject payloadObj = new JsonObject();
         payloadObj.addProperty("name", safeName);
@@ -121,7 +129,21 @@ public final class PastebinClient {
             if (url.startsWith("/")) {
                 return "https://paste.gg" + url;
             }
-            return url;
+            // 仅接受 paste.gg 主机，防止响应被篡改时打开钓鱼链接
+            try {
+                java.net.URI uri = java.net.URI.create(url);
+                String host = uri.getHost();
+                if (host == null || !host.equalsIgnoreCase("paste.gg")) {
+                    return null;
+                }
+                String scheme = uri.getScheme();
+                if (scheme == null || !scheme.equalsIgnoreCase("https")) {
+                    return null;
+                }
+                return url;
+            } catch (Exception e) {
+                return null;
+            }
         } catch (Exception e) {
             return null;
         }

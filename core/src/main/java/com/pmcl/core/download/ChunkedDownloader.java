@@ -5,6 +5,7 @@ import okhttp3.Request;
 import okhttp3.Response;
 
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.io.RandomAccessFile;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -198,26 +199,54 @@ public final class ChunkedDownloader {
         try {
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
         } catch (RuntimeException ex) {
-            // 分片失败：保留 .part 文件和进度，尝试降级为单连接续传剩余分片
+            // 先取消兄弟分片，避免继续写同一 .part
+            for (CompletableFuture<Void> f : futures) {
+                f.cancel(true);
+            }
+            Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+            if (isInterruptCause(cause) || Thread.currentThread().isInterrupted()) {
+                Thread.currentThread().interrupt();
+                throw new InterruptedIOException("分片下载已中断");
+            }
+            // 非中断失败：保留 .part 与进度，降级单连接
             saveChunkProgress(target, chunkCompleted, url);
             try {
                 fallbackSingleConnection(url, partFile, target, size, chunkCompleted,
                         chunkSize, actualChunks, onProgress);
             } catch (IOException fallbackErr) {
-                throw ex; // 降级也失败，抛原始异常
+                if (isInterruptCause(fallbackErr) || Thread.currentThread().isInterrupted()) {
+                    Thread.currentThread().interrupt();
+                    throw new InterruptedIOException("分片下载已中断");
+                }
+                throw ex;
             }
             return;
         }
 
-        // 全部完成，清理进度文件
+        // 全部完成：校验总长度后再提升
+        if (!Files.isRegularFile(partFile) || Files.size(partFile) != size) {
+            throw new IOException("分片合并后大小不匹配: expected=" + size
+                    + " actual=" + (Files.exists(partFile) ? Files.size(partFile) : -1));
+        }
         deleteChunkProgress(target);
-        // 原子重命名
         try {
             Files.move(partFile, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
         } catch (java.nio.file.AtomicMoveNotSupportedException e) {
             Files.move(partFile, target, StandardCopyOption.REPLACE_EXISTING);
         }
         if (onProgress != null) onProgress.accept(size);
+    }
+
+    private static boolean isInterruptCause(Throwable e) {
+        Throwable cur = e;
+        while (cur != null) {
+            if (cur instanceof InterruptedException || cur instanceof InterruptedIOException) {
+                return true;
+            }
+            if (cur instanceof java.util.concurrent.CancellationException) return true;
+            cur = cur.getCause();
+        }
+        return false;
     }
 
     /**
@@ -319,14 +348,18 @@ public final class ChunkedDownloader {
             try {
                 downloadChunk(url, partFile, start, end, idx, onBytes);
                 return;
+            } catch (InterruptedIOException ex) {
+                throw ex;
             } catch (IOException ex) {
                 last = ex;
                 if (attempt < CHUNK_RETRY) {
                     long base = 300L * (1L << attempt); // 300ms, 600ms, 1200ms
                     long jitter = ThreadLocalRandom.current().nextLong(100);
-                    try { Thread.sleep(base + jitter); } catch (InterruptedException ie) {
+                    try {
+                        Thread.sleep(base + jitter);
+                    } catch (InterruptedException ie) {
                         Thread.currentThread().interrupt();
-                        throw ex;
+                        throw new InterruptedIOException("分片下载已中断");
                     }
                 }
             }
@@ -372,6 +405,7 @@ public final class ChunkedDownloader {
                     long lastThrottleTime = System.currentTimeMillis();
                     long bytesInWindow = 0;
                     while ((n = in.read(buf)) != -1) {
+                        throwIfInterrupted();
                         raf.write(buf, 0, n);
                         completedTotal += n;
                         chunkCompleted[i] += n;
@@ -384,8 +418,11 @@ public final class ChunkedDownloader {
                                 long allowed = (speedLimitBytesPerSec * elapsed) / 1000L;
                                 if (bytesInWindow > allowed) {
                                     long sleepMs = (bytesInWindow - allowed) * 1000L / speedLimitBytesPerSec;
-                                    try { Thread.sleep(sleepMs); } catch (InterruptedException ie) {
+                                    try {
+                                        Thread.sleep(sleepMs);
+                                    } catch (InterruptedException ie) {
                                         Thread.currentThread().interrupt();
+                                        throw new InterruptedIOException("分片下载已中断");
                                     }
                                 }
                                 lastThrottleTime = System.currentTimeMillis();
@@ -427,6 +464,8 @@ public final class ChunkedDownloader {
                 throw new IOException("分片 " + idx + " code=" + resp.code());
             }
             if (resp.body() == null) throw new IOException("响应体为空: " + url);
+            long expected = end - start + 1;
+            long written = 0;
             try (var in = resp.body().byteStream();
                  RandomAccessFile raf = new RandomAccessFile(partFile.toFile(), "rw")) {
                 raf.seek(start);
@@ -435,7 +474,13 @@ public final class ChunkedDownloader {
                 long lastThrottleTime = System.currentTimeMillis();
                 long bytesInWindow = 0;
                 while ((n = in.read(buf)) != -1) {
+                    throwIfInterrupted();
+                    if (written + n > expected) {
+                        throw new IOException("分片 " + idx + " 写入超出 Range: "
+                                + (written + n) + "/" + expected);
+                    }
                     raf.write(buf, 0, n);
+                    written += n;
                     if (onBytes != null) onBytes.accept((long) n);
                     // 限速
                     if (speedLimitBytesPerSec > 0) {
@@ -446,8 +491,11 @@ public final class ChunkedDownloader {
                             long allowed = (speedLimitBytesPerSec * elapsed) / 1000L;
                             if (bytesInWindow > allowed) {
                                 long sleepMs = (bytesInWindow - allowed) * 1000L / speedLimitBytesPerSec;
-                                try { Thread.sleep(sleepMs); } catch (InterruptedException ie) {
+                                try {
+                                    Thread.sleep(sleepMs);
+                                } catch (InterruptedException ie) {
                                     Thread.currentThread().interrupt();
+                                    throw new InterruptedIOException("分片下载已中断");
                                 }
                             }
                             lastThrottleTime = System.currentTimeMillis();
@@ -455,6 +503,9 @@ public final class ChunkedDownloader {
                         }
                     }
                 }
+            }
+            if (written != expected) {
+                throw new IOException("分片 " + idx + " 长度不足: " + written + "/" + expected);
             }
         }
     }
@@ -478,6 +529,7 @@ public final class ChunkedDownloader {
                 long lastThrottleTime = System.currentTimeMillis();
                 long bytesInWindow = 0;
                 while ((n = in.read(buf)) != -1) {
+                    throwIfInterrupted();
                     raf.write(buf, 0, n);
                     total += n;
                     bytesInWindow += n;
@@ -489,8 +541,11 @@ public final class ChunkedDownloader {
                             long allowed = (speedLimitBytesPerSec * elapsed) / 1000L;
                             if (bytesInWindow > allowed) {
                                 long sleepMs = (bytesInWindow - allowed) * 1000L / speedLimitBytesPerSec;
-                                try { Thread.sleep(sleepMs); } catch (InterruptedException ie) {
+                                try {
+                                    Thread.sleep(sleepMs);
+                                } catch (InterruptedException ie) {
                                     Thread.currentThread().interrupt();
+                                    throw new InterruptedIOException("分片下载已中断");
                                 }
                             }
                             lastThrottleTime = System.currentTimeMillis();
@@ -513,6 +568,12 @@ public final class ChunkedDownloader {
                 long size = Files.exists(target) ? Files.size(target) : 0L;
                 onProgress.accept(size);
             }
+        }
+    }
+
+    private static void throwIfInterrupted() throws InterruptedIOException {
+        if (Thread.currentThread().isInterrupted()) {
+            throw new InterruptedIOException("分片下载已中断");
         }
     }
 }

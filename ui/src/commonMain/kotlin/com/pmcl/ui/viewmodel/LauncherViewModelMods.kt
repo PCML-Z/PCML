@@ -38,6 +38,8 @@ fun LauncherViewModel.searchMods(query: String, gameVersion: String? = null, loa
             }
             _marketResults.value = list
             _status.value = I18n.t("status.mods_found", list.size, if (core.modMarket().hasCurseForge()) I18n.t("common.enabled") else I18n.t("common.disabled"))
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Throwable) {
             _status.value = I18n.t("status.search_failed", e.message ?: I18n.t("common.unknown"))
         } finally {
@@ -104,6 +106,8 @@ fun LauncherViewModel.loadPopularMods(gameVersion: String? = null, loader: Strin
             _popularMods.value = list
             _status.value = I18n.t("status.popular_mods_loaded", list.size)
             DataCache.save(cacheKey, list)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Throwable) {
             _status.value = I18n.t("status.popular_mods_load_failed", e.message ?: I18n.t("common.unknown"))
         } finally {
@@ -135,6 +139,8 @@ fun LauncherViewModel.loadCategoryMods(category: String, gameVersion: String? = 
             }
             _categoryResults.value = list
             _status.value = I18n.t("status.category_mods_loaded", list.size)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Throwable) {
             _status.value = I18n.t("status.category_load_failed", e.message ?: I18n.t("common.unknown"))
         } finally {
@@ -193,6 +199,14 @@ fun LauncherViewModel.installMod(file: ModFile, gameVersion: String) {
             }
             _status.value = I18n.t("status.mod_installed", file.getFileName())
             refreshInstalledMods()
+            try {
+                core.plugins().fireEvent(
+                    com.pmcl.plugin.ModInstalledEvent(file.getFileName(), file.getFileId() ?: "")
+                )
+            } catch (_: Throwable) {
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Throwable) {
             _status.value = I18n.t("status.mod_install_failed", e.message ?: I18n.t("common.unknown"))
         }
@@ -220,6 +234,8 @@ fun LauncherViewModel.installModWithDeps(file: ModFile, gameVersion: String) {
                 I18n.t("status.mod_install_complete_no_deps", file.getFileName())
             }
             refreshInstalledMods()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Throwable) {
             _status.value = I18n.t("status.install_failed", e.message ?: I18n.t("common.unknown"))
         } finally {

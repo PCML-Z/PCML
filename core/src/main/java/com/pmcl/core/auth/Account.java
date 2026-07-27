@@ -13,6 +13,12 @@ public final class Account {
     private final String skinModel; // "classic" 或 "slim"
     private final String xuid;      // Xbox Live userHash（uhs），微软账号用于 auth_xuid 启动参数
     private final String authServerUrl; // 皮肤站 API 地址（YGGDRASIL 账号专用），空表示非皮肤站
+    /** 微软 OAuth refresh_token；空表示旧账号无法自动刷新 */
+    private final String msRefreshToken;
+    /** MC accessToken 过期时间（epoch ms）；0 表示未知 */
+    private final long expiresAt;
+    /** Yggdrasil clientToken；皮肤站会话绑定用，空表示旧账号需重新登录 */
+    private final String clientToken;
 
     public Account(String username, String uuid, String accessToken, AccountType type) {
         this(username, uuid, accessToken, type, "", "classic", "");
@@ -30,6 +36,19 @@ public final class Account {
 
     public Account(String username, String uuid, String accessToken, AccountType type,
                    String skinUrl, String skinModel, String xuid, String authServerUrl) {
+        this(username, uuid, accessToken, type, skinUrl, skinModel, xuid, authServerUrl, "", 0L);
+    }
+
+    public Account(String username, String uuid, String accessToken, AccountType type,
+                   String skinUrl, String skinModel, String xuid, String authServerUrl,
+                   String msRefreshToken, long expiresAt) {
+        this(username, uuid, accessToken, type, skinUrl, skinModel, xuid, authServerUrl,
+                msRefreshToken, expiresAt, "");
+    }
+
+    public Account(String username, String uuid, String accessToken, AccountType type,
+                   String skinUrl, String skinModel, String xuid, String authServerUrl,
+                   String msRefreshToken, long expiresAt, String clientToken) {
         this.username = username;
         this.uuid = uuid;
         this.accessToken = accessToken;
@@ -38,6 +57,9 @@ public final class Account {
         this.skinModel = skinModel != null ? skinModel : "classic";
         this.xuid = xuid != null ? xuid : "";
         this.authServerUrl = authServerUrl != null ? authServerUrl : "";
+        this.msRefreshToken = msRefreshToken != null ? msRefreshToken : "";
+        this.expiresAt = expiresAt;
+        this.clientToken = clientToken != null ? clientToken : "";
     }
 
     public String getUsername() { return username; }
@@ -50,6 +72,32 @@ public final class Account {
     public String getXuid() { return xuid; }
     /** 返回皮肤站 API 地址（YGGDRASIL 账号专用），非皮肤站账号返回空字符串。 */
     public String getAuthServerUrl() { return authServerUrl; }
+    public String getMsRefreshToken() { return msRefreshToken; }
+    public long getExpiresAt() { return expiresAt; }
+    /** Yggdrasil clientToken（皮肤站会话绑定）。 */
+    public String getClientToken() { return clientToken; }
+
+    /**
+     * 微软账号是否应在启动前刷新：已过期或 5 分钟内过期，且持有 refresh_token。
+     * expiresAt==0 的旧账号不主动刷新（无法判断），避免每次启动都打微软接口。
+     */
+    public boolean needsMicrosoftRefresh() {
+        if (type != AccountType.MICROSOFT) return false;
+        if (msRefreshToken.isEmpty() || expiresAt <= 0) return false;
+        return System.currentTimeMillis() >= expiresAt - 5 * 60_000L;
+    }
+
+    /** 用新的 MC 会话字段构造副本（保留身份与皮肤元数据）。 */
+    public Account withMicrosoftSession(String newAccessToken, String newRefreshToken, long newExpiresAt) {
+        return new Account(username, uuid, newAccessToken, type, skinUrl, skinModel, xuid, authServerUrl,
+                newRefreshToken != null ? newRefreshToken : msRefreshToken, newExpiresAt, clientToken);
+    }
+
+    /** 用新的 Yggdrasil accessToken 构造副本（保留 clientToken）。 */
+    public Account withAccessToken(String newAccessToken) {
+        return new Account(username, uuid, newAccessToken, type, skinUrl, skinModel, xuid, authServerUrl,
+                msRefreshToken, expiresAt, clientToken);
+    }
 
     /**
      * 返回头像 URL。

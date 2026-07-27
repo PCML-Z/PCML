@@ -16,7 +16,7 @@ import java.net.URLClassLoader;
  *   <li>{@code com.pmcl.plugin.*} — 插件 API 公共接口（必须可访问）</li>
  *   <li>{@code androidx.compose.*} — Compose 运行时（插件 UI 页面需要）</li>
  *   <li>{@code kotlin.*} / {@code kotlinx.*} — Kotlin 标准库与协程</li>
- *   <li>{@code java.*} / {@code javax.*} / {@code sun.*} — JDK 标准类</li>
+ *   <li>{@code java.*} / {@code javax.*} — JDK 公开 API（不含 sun.* / jdk.internal）</li>
  *   <li>插件自身的包（由 URLClassLoader 父类处理）</li>
  *   <li>第三方依赖包（org.jetbrains.annotations / org.intellij / com.google.gson 等公共 API）</li>
  * </ul>
@@ -33,9 +33,9 @@ import java.net.URLClassLoader;
  * 例外：插件通过 getService 获取的服务实例本身可以被反射访问，这是受控的——
  * 我们在 getService 层做权限校验，而非依赖 ClassLoader 完全隔离。
  * <p>
- * 安全说明：这是深度防御层。恶意插件仍可通过 Thread.currentThread().getContextClassLoader()
- * 或反射 sun.misc.Unsafe 绕过，需要 SecurityManager 才能彻底隔离。但对于"无意中"
- * 访问敏感类的插件，本类提供有效的防护。
+ * 安全说明：这是深度防御层，不是进程级沙箱。恶意插件仍可能通过
+ * Thread context ClassLoader、JNI 或 Runtime.exec 绕过。敏感能力必须以 typed API
+ * + 权限声明为准；本 ClassLoader 主要阻止无意直连 com.pmcl.core.*。
  */
 public final class PluginIsolatingClassLoader extends URLClassLoader {
 
@@ -44,7 +44,7 @@ public final class PluginIsolatingClassLoader extends URLClassLoader {
         "com.pmcl.plugin.",          // 插件 API 公共接口
     };
 
-    /** 允许插件直接加载的第三方包前缀。 */
+    /** 允许插件直接加载的第三方包前缀（刻意排除 sun.* 与 jdk.internal，阻断 Unsafe 捷径）。 */
     private static final String[] ALLOWED_THIRD_PARTY_PREFIXES = {
         "androidx.compose.",
         "kotlin.",
@@ -55,8 +55,15 @@ public final class PluginIsolatingClassLoader extends URLClassLoader {
         "org.slf4j.",
         "java.",
         "javax.",
-        "sun.",
-        "jdk.",
+    };
+
+    /** 额外硬禁：即使双亲委派也不允许插件主动 loadClass 这些内部 API。 */
+    private static final String[] FORBIDDEN_JDK_PREFIXES = {
+        "sun.misc.",
+        "sun.reflect.",
+        "jdk.internal.",
+        "com.sun.jndi.",
+        "com.sun.net.ssl.internal.",
     };
 
     /** 完全禁止的 PMCL core 包前缀（即使通过反射也不允许）。 */
@@ -75,6 +82,12 @@ public final class PluginIsolatingClassLoader extends URLClassLoader {
 
     @Override
     protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+        // 0. 阻断 JDK 内部 API（Unsafe 等）
+        if (isForbiddenJdk(name)) {
+            throw new SecurityException("[Plugin:" + pluginId
+                    + "] 加载 JDK 内部类被禁止: " + name);
+        }
+
         // 1. 检查是否为禁止的敏感类
         if (isForbidden(name)) {
             throw new SecurityException("[Plugin:" + pluginId
@@ -104,6 +117,14 @@ public final class PluginIsolatingClassLoader extends URLClassLoader {
             if (name.startsWith(prefix)) return true;
         }
         return false;
+    }
+
+    private boolean isForbiddenJdk(String name) {
+        for (String prefix : FORBIDDEN_JDK_PREFIXES) {
+            if (name.startsWith(prefix)) return true;
+        }
+        // Block sun.* / jdk.* / com.sun.* internal surfaces (not in third-party allowlist).
+        return name.startsWith("sun.") || name.startsWith("jdk.") || name.startsWith("com.sun.");
     }
 
     /** 判断类是否为允许直接加载的类。 */

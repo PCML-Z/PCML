@@ -42,25 +42,49 @@ class PmclHostServer(
     private var server: EmbeddedServer<*, *>? = null
     private val gson: Gson = GsonBuilder().create()
 
-    // ---- server 作用域：所有孤儿协程统一管理，stop() 时统一取消 ----
-    private val serverScope = CoroutineScope(
-        SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, e ->
-            System.err.println("[PmclHostServer] 未捕获异常: ${e.message}")
-            e.printStackTrace()
-            try {
-                vm.setCompanionHostError(e.message ?: e.javaClass.simpleName)
-            } catch (_: Throwable) {}
-        }
-    )
+    // ---- server 作用域：stop() 取消后须在 start() 重建，否则 launch/install 协程永久死亡 ----
+    private val scopeHandler = CoroutineExceptionHandler { _, e ->
+        System.err.println("[PmclHostServer] 未捕获异常: ${e.message}")
+        e.printStackTrace()
+        try {
+            vm.setCompanionHostError(e.message ?: e.javaClass.simpleName)
+        } catch (_: Throwable) {}
+    }
+    private var serverJob = SupervisorJob()
+    private var serverScope = CoroutineScope(serverJob + Dispatchers.IO + scopeHandler)
 
     // ---- handleLaunch 同步锁：防止并发启动多个游戏进程 ----
     private val launchLock = Any()
+    /** 已认领但 process 尚未赋值：堵住 TOCTOU 双开窗口 */
+    @Volatile
+    private var launchClaimed = false
 
     // ---- 运行进程状态 ----
     private var currentProcess: Process? = null
     private var currentVersionId: String? = null
     private var currentStartTime: Long? = null
     private val processMonitor = ProcessMonitor()
+
+    private fun ensureServerScope() {
+        if (!serverJob.isActive) {
+            serverJob = SupervisorJob()
+            serverScope = CoroutineScope(serverJob + Dispatchers.IO + scopeHandler)
+        }
+    }
+
+    /** 强制结束 Companion 拉起的 MC（stop/cancel 路径） */
+    private fun killCompanionGameLocked() {
+        val proc = currentProcess
+        currentProcess = null
+        currentVersionId = null
+        currentStartTime = null
+        launchClaimed = false
+        if (proc != null && proc.isAlive) {
+            try { processMonitor.forceKill(proc) } catch (_: Throwable) {}
+            try { vm.core.launch().untrackExternalProcess(proc) } catch (_: Throwable) {}
+        }
+        try { vm.releaseCompanionLaunch() } catch (_: Throwable) {}
+    }
 
     // ---- WebSocket 连接与会话 ----
     private val connections = ConcurrentHashMap<WebSocketSession, Unit>()
@@ -87,6 +111,7 @@ class PmclHostServer(
 
     fun start() {
         if (running) return
+        ensureServerScope()
         val basePort = pairing.getPort()
         val bindHost = pairing.getBindHost()
         // 端口占用时自动递增重试（最多 10 次）
@@ -122,7 +147,9 @@ class PmclHostServer(
         running = false
         statsJob?.cancel()
         statsJob = null
-        serverScope.cancel()
+        synchronized(launchLock) { killCompanionGameLocked() }
+        // 先杀进程再取消作用域，避免 waitFor 协程被取消后句柄丢失
+        serverJob.cancel()
         server?.stop(1000, 2000)
         server = null
         connections.clear()
@@ -315,34 +342,64 @@ class PmclHostServer(
     // ================================================================
 
     private fun handleLaunch(payload: JsonElement?): JsonObject {
-        // 同步检查 + 启动，避免并发请求触发多次启动
+        // 同步认领 + 与桌面互斥，避免 TOCTOU 双开 / UI 状态分叉
+        val versionId: String
+        val profile: com.pmcl.core.launch.LaunchProfile
+        val javaExe: String
         synchronized(launchLock) {
-            if (currentProcess?.isAlive == true) {
+            if (launchClaimed || currentProcess?.isAlive == true) {
                 return errorEnvelope(null, "launch", "already_running", "游戏已在运行")
+            }
+            if (vm.isDesktopLaunchBusy()) {
+                return errorEnvelope(null, "launch", "already_running", "桌面端正在启动或运行游戏")
             }
 
             val obj = payload?.asJsonObject ?: return errorEnvelope(null, "launch", "bad_request", "缺少 payload")
-            val versionId = obj.get("versionId")?.asString
+            versionId = obj.get("versionId")?.asString
                 ?: return errorEnvelope(null, "launch", "bad_request", "缺少 versionId")
 
-            val account = vm.account.value
+            var account = vm.account.value
                 ?: return errorEnvelope(null, "launch", "no_account", "桌面端未登录账号")
 
             val core = vm.core
             val config = core.getConfig()
 
-            // 确定 Java 路径：版本 JSON 解析失败不得静默降级为 Java 8
+            // 启动前刷新临近过期的微软/皮肤站令牌
+            try {
+                if (account.needsMicrosoftRefresh()) {
+                    account = core.auth().refreshMicrosoftAccount(account)
+                    vm.upsertAccountFromCompanion(account)
+                } else if (account.type == Account.AccountType.YGGDRASIL
+                    && account.authServerUrl.isNotEmpty()
+                    && !core.auth().yggdrasilValidate(
+                        account.authServerUrl, account.accessToken, account.clientToken
+                    )
+                ) {
+                    val newTok = core.auth().yggdrasilRefresh(
+                        account.authServerUrl, account.accessToken, account.clientToken
+                    ) ?: return errorEnvelope(null, "launch", "auth_expired", "皮肤站令牌已失效，请重新登录")
+                    account = account.withAccessToken(newTok)
+                    vm.upsertAccountFromCompanion(account)
+                }
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                return errorEnvelope(
+                    null, "launch", "auth_refresh_failed",
+                    "账号令牌刷新失败：${e.message ?: e.javaClass.simpleName}"
+                )
+            }
+
             val requiredJavaVer = try {
                 core.profileBuilder().getRequiredJavaVersion(versionId)
             } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
+                if (e is CancellationException) throw e
                 return errorEnvelope(
                     null, "launch", "java_version_failed",
                     "无法读取版本所需 Java：${e.message ?: e.javaClass.simpleName}"
                 )
             }
 
-            val javaExe = run {
+            javaExe = run {
                 val versionPath = core.getPreferences().getVersionJavaPath(versionId)
                 if (versionPath.isNotEmpty()) versionPath
                 else {
@@ -362,54 +419,79 @@ class PmclHostServer(
                 )
             val javaArch = JavaRuntimeFinder.getArchitecture(javaExe)
 
-            // 构造 LaunchProfile
-            val profile = try {
+            profile = try {
                 core.profileBuilder().build(versionId, account, javaMajorVer, javaArch)
             } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
+                if (e is CancellationException) throw e
                 return errorEnvelope(null, "launch", "profile_build_failed", e.message ?: "构造启动配置失败")
             }
 
-            // 启动：用同步 launch() 在后台线程获取 Process 引用
+            // 与桌面 launchAsync 对齐：设备绑定保护 + 插件 beforeLaunch（认领槽位前拒绝）
+            val preDeny = core.launch().verifyBeforeLaunch(profile)
+            if (preDeny != null) {
+                val code = when {
+                    preDeny.contains("设备未授权") || preDeny.contains("device", ignoreCase = true) ->
+                        "device_denied"
+                    preDeny.contains("plugin", ignoreCase = true) ->
+                        "plugin_cancelled"
+                    else -> "launch_denied"
+                }
+                return errorEnvelope(null, "launch", code, preDeny)
+            }
+
+            if (!vm.tryClaimCompanionLaunch(versionId)) {
+                return errorEnvelope(null, "launch", "already_running", "桌面端正在启动或运行游戏")
+            }
+            launchClaimed = true
             currentVersionId = versionId
             currentStartTime = System.currentTimeMillis()
+        }
 
-            serverScope.launch {
-                try {
-                    val proc = core.launch().launch(profile, javaExe, { }, null)
+        ensureServerScope()
+        serverScope.launch {
+            var proc: Process? = null
+            try {
+                proc = vm.core.launch().launch(profile, javaExe, { }, null)
+                synchronized(launchLock) {
                     currentProcess = proc
-                    processMonitor.startTracking(proc)
-
-                    // 推送启动事件
-                    val startPayload = JsonObject()
-                    startPayload.addProperty("running", true)
-                    startPayload.addProperty("versionId", versionId)
-                    startPayload.addProperty("startedAt", isoTime(currentStartTime!!))
-                    broadcastEvent("launchState", startPayload)
-
-                    // 阻塞等待进程退出
-                    val exitCode = proc.waitFor()
-                    currentProcess = null
-                    currentVersionId = null
-                    currentStartTime = null
-
-                    // 推送停止事件
-                    val stopPayload = JsonObject()
-                    stopPayload.addProperty("running", false)
-                    stopPayload.addProperty("versionId", versionId)
-                    broadcastEvent("launchState", stopPayload)
-                } catch (e: Exception) {
-                    if (e is kotlinx.coroutines.CancellationException) throw e
-                    currentProcess = null
-                    currentVersionId = null
-                    currentStartTime = null
-
-                    val errPayload = JsonObject()
-                    errPayload.addProperty("running", false)
-                    errPayload.addProperty("versionId", versionId)
-                    errPayload.addProperty("error", e.message ?: "启动失败")
-                    broadcastEvent("launchState", errPayload)
                 }
+                processMonitor.startTracking(proc)
+
+                val startPayload = JsonObject()
+                startPayload.addProperty("running", true)
+                startPayload.addProperty("versionId", versionId)
+                startPayload.addProperty("startedAt", isoTime(currentStartTime ?: System.currentTimeMillis()))
+                broadcastEvent("launchState", startPayload)
+
+                proc.waitFor()
+            } catch (e: CancellationException) {
+                if (proc != null && proc.isAlive) {
+                    try { processMonitor.forceKill(proc) } catch (_: Throwable) {}
+                }
+                throw e
+            } catch (e: Exception) {
+                val errPayload = JsonObject()
+                errPayload.addProperty("running", false)
+                errPayload.addProperty("versionId", versionId)
+                errPayload.addProperty("error", e.message ?: "启动失败")
+                broadcastEvent("launchState", errPayload)
+            } finally {
+                val ended = synchronized(launchLock) {
+                    val p = currentProcess ?: proc
+                    currentProcess = null
+                    currentVersionId = null
+                    currentStartTime = null
+                    launchClaimed = false
+                    p
+                }
+                if (ended != null) {
+                    try { vm.core.launch().untrackExternalProcess(ended) } catch (_: Throwable) {}
+                }
+                try { vm.releaseCompanionLaunch() } catch (_: Throwable) {}
+                val stopPayload = JsonObject()
+                stopPayload.addProperty("running", false)
+                stopPayload.addProperty("versionId", versionId)
+                broadcastEvent("launchState", stopPayload)
             }
         }
 
@@ -417,16 +499,20 @@ class PmclHostServer(
     }
 
     private fun handleKill(): JsonObject {
-        val proc = currentProcess
-        if (proc != null && proc.isAlive) {
-            val killed = processMonitor.forceKill(proc)
-            if (!killed) {
-                return errorEnvelope(null, "kill", "kill_failed", "无法终止进程")
+        synchronized(launchLock) {
+            val proc = currentProcess
+            if (proc != null && proc.isAlive) {
+                val killed = processMonitor.forceKill(proc)
+                if (!killed) {
+                    return errorEnvelope(null, "kill", "kill_failed", "无法终止进程")
+                }
             }
+            currentProcess = null
+            currentVersionId = null
+            currentStartTime = null
+            launchClaimed = false
         }
-        currentProcess = null
-        currentVersionId = null
-        currentStartTime = null
+        try { vm.releaseCompanionLaunch() } catch (_: Throwable) {}
         return okResponse(null)
     }
 

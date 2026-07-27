@@ -153,38 +153,47 @@ public final class TokenEncryptor {
      * 该文件提供"按机器实例隔离"的额外熵——即使机器标识相同（克隆镜像），
      * 不同实例的 keyfile 不同，密钥也不同。
      */
+    private static final Object KEYFILE_LOCK = new Object();
+
     private static String loadOrCreateSecondarySecret() {
-        try {
-            Path keyFile = Paths.get(System.getProperty("user.home"), ".pmcl", ".keyfile");
-            if (Files.exists(keyFile)) {
-                byte[] data = Files.readAllBytes(keyFile);
-                if (data.length >= 32) {
-                    return Base64.getEncoder().encodeToString(data);
-                }
-            }
-            // 生成新密钥
-            Files.createDirectories(keyFile.getParent());
-            byte[] newKey = new byte[32];
-            RNG.nextBytes(newKey);
-            // H11: 原子写入——先写临时文件再 rename，防止写入中途崩溃导致密钥文件损坏
-            // 原实现 Files.write 直接覆盖目标文件，写入中途崩溃会留下截断/空文件，
-            // 下次加载时密钥不一致，所有已加密 token 无法解密
-            Path tmpFile = keyFile.resolveSibling(keyFile.getFileName() + ".tmp");
-            Files.write(tmpFile, newKey);
-            hardenKeyFilePermissions(tmpFile);
+        synchronized (KEYFILE_LOCK) {
             try {
-                Files.move(tmpFile, keyFile,
-                        java.nio.file.StandardCopyOption.ATOMIC_MOVE,
-                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-            } catch (java.nio.file.AtomicMoveNotSupportedException e) {
-                Files.move(tmpFile, keyFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                Path keyFile = Paths.get(System.getProperty("user.home"), ".pmcl", ".keyfile");
+                if (Files.exists(keyFile)) {
+                    byte[] data = Files.readAllBytes(keyFile);
+                    if (data.length >= 32) {
+                        return Base64.getEncoder().encodeToString(data);
+                    }
+                }
+                // 生成新密钥（不 REPLACE 已有合法 keyfile，避免并发双写导致 token 无法解密）
+                Files.createDirectories(keyFile.getParent());
+                byte[] newKey = new byte[32];
+                RNG.nextBytes(newKey);
+                Path tmpFile = keyFile.resolveSibling(
+                        keyFile.getFileName() + ".tmp." + java.util.UUID.randomUUID());
+                Files.write(tmpFile, newKey);
+                hardenKeyFilePermissions(tmpFile);
+                try {
+                    try {
+                        Files.move(tmpFile, keyFile, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+                    } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                        Files.move(tmpFile, keyFile);
+                    }
+                } catch (java.nio.file.FileAlreadyExistsException exists) {
+                    // 另一线程/进程已创建：读取胜出方密钥
+                    try { Files.deleteIfExists(tmpFile); } catch (Exception ignored) {}
+                    byte[] data = Files.readAllBytes(keyFile);
+                    if (data.length >= 32) {
+                        return Base64.getEncoder().encodeToString(data);
+                    }
+                    throw new java.io.IOException("keyfile 已存在但内容无效");
+                }
+                hardenKeyFilePermissions(keyFile);
+                return Base64.getEncoder().encodeToString(newKey);
+            } catch (Exception e) {
+                System.err.println("[TokenEncryptor] 辅助密钥文件创建失败: " + e.getMessage());
+                return machineFallbackSecret();
             }
-            hardenKeyFilePermissions(keyFile);
-            return Base64.getEncoder().encodeToString(newKey);
-        } catch (Exception e) {
-            // keyfile 创建失败：用机器派生熵降级，避免所有实例共享同一常量
-            System.err.println("[TokenEncryptor] 辅助密钥文件创建失败: " + e.getMessage());
-            return machineFallbackSecret();
         }
     }
 

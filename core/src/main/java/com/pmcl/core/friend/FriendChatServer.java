@@ -169,25 +169,32 @@ public final class FriendChatServer implements AutoCloseable {
             } catch (IOException e) {
                 if (running.get()) {
                     System.err.println("[FriendChatServer] Accept 错误: " + e.getMessage());
-                    try { Thread.sleep(1000); } catch (InterruptedException ie) { break; }
+                    try {
+                        Thread.sleep(1000);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
                 }
             }
         }
     }
 
     private void handleClient(Socket socket) {
-        try (socket;
-             BufferedReader reader = new BufferedReader(
-                     new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8))) {
+        try (socket) {
+            InputStream in = socket.getInputStream();
             // 阶段 1：握手——5 秒内必须收到 auth 消息，否则关闭连接
             socket.setSoTimeout(AUTH_TIMEOUT_MS);
             String remoteAddr = socket.getInetAddress().getHostAddress();
-            String authLine = reader.readLine();
-            if (authLine == null) {
-                // 客户端连接后立即断开
+            String authLine;
+            try {
+                authLine = FriendProtocol.readLineBounded(in, FriendProtocol.MAX_MESSAGE_LENGTH);
+            } catch (IOException e) {
+                System.err.println("[FriendChatServer] 拒绝连接: 握手行过长 from " + remoteAddr);
                 return;
             }
-            if (authLine.length() > FriendProtocol.MAX_MESSAGE_LENGTH) {
+            if (authLine == null) {
+                // 客户端连接后立即断开
                 return;
             }
             // H9: 解析握手消息，校验 identity + 时间戳 + HMAC 签名
@@ -234,9 +241,16 @@ public final class FriendChatServer implements AutoCloseable {
             }
 
             // 阶段 2：分发后续消息
-            String line;
-            while (running.get() && (line = reader.readLine()) != null) {
-                if (line.length() > FriendProtocol.MAX_MESSAGE_LENGTH) continue;
+            while (running.get()) {
+                String line;
+                try {
+                    line = FriendProtocol.readLineBounded(in, FriendProtocol.MAX_MESSAGE_LENGTH);
+                } catch (IOException e) {
+                    System.err.println("[FriendChatServer] 消息过长，关闭连接 "
+                            + identity + " from " + remoteAddr);
+                    break;
+                }
+                if (line == null) break;
 
                 for (MessageListener listener : listeners) {
                     try {

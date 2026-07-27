@@ -299,18 +299,28 @@ public final class FriendChatClient implements AutoCloseable {
                     }
                 }
             } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
                 break;
             }
         }
     }
 
     private void readLoop() {
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8))) {
+        try {
+            InputStream in = socket.getInputStream();
             // 不设读超时：依赖 writeLoop 的心跳（15秒）检测连接活性
             // 双向是两条独立 TCP 连接，对端不会通过本连接回发数据，短读超时会导致误断开
-            String line;
-            while (running.get() && (line = reader.readLine()) != null) {
+            while (running.get()) {
+                String line;
+                try {
+                    line = FriendProtocol.readLineBounded(in, FriendProtocol.MAX_MESSAGE_LENGTH);
+                } catch (IOException e) {
+                    if (running.get()) {
+                        handleDisconnect("消息过长或读取失败: " + e.getMessage());
+                    }
+                    return;
+                }
+                if (line == null) break;
                 if (callback != null) {
                     try {
                         callback.onMessageReceived(line);
@@ -319,7 +329,7 @@ public final class FriendChatClient implements AutoCloseable {
                     }
                 }
             }
-            // readLine 返回 null 表示对端正常关闭
+            // null 表示对端正常关闭
             if (running.get()) {
                 handleDisconnect("连接已关闭");
             }

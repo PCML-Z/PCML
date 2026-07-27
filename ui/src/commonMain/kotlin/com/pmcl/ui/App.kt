@@ -45,7 +45,16 @@ import com.pmcl.ui.theme.LauncherTheme
 import com.pmcl.ui.theme.LocalThemeState
 import com.pmcl.ui.theme.ThemeState
 import com.pmcl.ui.viewmodel.LauncherViewModel
+import com.pmcl.ui.viewmodel.pauseMusic
+import com.pmcl.ui.viewmodel.playNextMusic
+import com.pmcl.ui.viewmodel.playPreviousMusic
+import com.pmcl.ui.viewmodel.resumeMusic
+import com.pmcl.ui.viewmodel.setMusicVolume
+import com.pmcl.ui.viewmodel.stopMusic
 import com.pmcl.ui.widget.MiniMusicBar
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun App(vm: LauncherViewModel) {
@@ -243,6 +252,8 @@ private fun MainWindowContent(vm: LauncherViewModel) {
 
     // Collect plugin-provided pages (refreshable via revision polling)
     var pluginPages by remember { mutableStateOf<List<PluginManager.RegisteredPage>>(emptyList()) }
+    var hiddenNavRoutes by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var navBadgeMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var lastRevision by remember { mutableStateOf(-1L) }
     LaunchedEffect("load-plugins") {
         // 延迟 1.5 秒加载插件，让首屏 UI 先完成渲染（插件加载涉及 JAR 读取+ClassLoader+反射，开销大）
@@ -260,7 +271,24 @@ private fun MainWindowContent(vm: LauncherViewModel) {
             // Non-fatal: plugins are optional
         }
         pluginPages = vm.core.plugins().getCustomPages()
+        hiddenNavRoutes = try {
+            vm.core.plugins().hiddenBuiltinNavRoutes
+        } catch (_: Throwable) { emptySet() }
+        navBadgeMap = try {
+            vm.core.plugins().navBadges.associate { it.target to it.text }
+        } catch (_: Throwable) { emptyMap() }
         lastRevision = vm.core.plugins().getRevision()
+        // 若当前正停在已卸载/禁用的插件页，立刻退回内置页，避免 Compose 持有已关闭 ClassLoader 的内容
+        val afterLoad = current
+        if (afterLoad is NavTarget.PluginPage) {
+            val stillThere = pluginPages.any {
+                it.pluginId == afterLoad.page.pluginId && it.id == afterLoad.page.id
+            }
+            if (!stillThere) {
+                current = NavTarget.BuiltIn(NavDestination.Plugins)
+                navDirection = 0
+            }
+        }
         // 插件加载完成后，检查持久化的 customThemePackId 是否仍可用
         // 若可用则填充实际 ThemePack 对象（启动时仅设置了占位 ID）
         vm.reconcileCustomThemePack(themeState)
@@ -273,15 +301,33 @@ private fun MainWindowContent(vm: LauncherViewModel) {
             if (rev != lastRevision) {
                 lastRevision = rev
                 pluginPages = vm.core.plugins().getCustomPages()
+                hiddenNavRoutes = try {
+                    vm.core.plugins().hiddenBuiltinNavRoutes
+                } catch (_: Throwable) { emptySet() }
+                navBadgeMap = try {
+                    vm.core.plugins().navBadges.associate { it.target to it.text }
+                } catch (_: Throwable) { emptyMap() }
+                val cur = current
+                if (cur is NavTarget.PluginPage) {
+                    val stillThere = pluginPages.any {
+                        it.pluginId == cur.page.pluginId && it.id == cur.page.id
+                    }
+                    if (!stillThere) {
+                        current = NavTarget.BuiltIn(NavDestination.Plugins)
+                        navDirection = 0
+                    }
+                }
                 // 插件结构变化（启用/禁用/卸载）可能影响主题包可用性
                 vm.reconcileCustomThemePack(themeState)
             }
         }
     }
 
-    // Build full nav list: built-in destinations + plugin pages
-    val navItems = remember(pluginPages) {
-        val builtIn = allDestinations.map { NavTarget.BuiltIn(it) }
+    // Build full nav list: built-in destinations + plugin pages (respect plugin-hidden routes)
+    val navItems = remember(pluginPages, hiddenNavRoutes) {
+        val builtIn = allDestinations
+            .filter { it.route.lowercase() !in hiddenNavRoutes }
+            .map { NavTarget.BuiltIn(it) }
         val plugins = pluginPages.map { NavTarget.PluginPage(it) }
         builtIn + plugins
     }
@@ -293,6 +339,255 @@ private fun MainWindowContent(vm: LauncherViewModel) {
         val msg = recoveryMessage ?: return@LaunchedEffect
         snackbarHostState.showSnackbar(msg)
         vm.clearRecoveryMessage()
+    }
+
+    // 插件 UI 桥：导航 / 启动 / 通知 / 剪贴板 / URL / 对话框
+    val pluginUiScope = rememberCoroutineScope()
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+    var pluginDialog by remember { mutableStateOf<com.pmcl.plugin.api.PluginDialogRequest?>(null) }
+    val pendingPluginDialogs = remember { mutableListOf<com.pmcl.plugin.api.PluginDialogRequest>() }
+    var pluginInputDialog by remember { mutableStateOf<com.pmcl.plugin.api.PluginInputDialogRequest?>(null) }
+    val pendingInputDialogs = remember { mutableListOf<com.pmcl.plugin.api.PluginInputDialogRequest>() }
+    val pendingFilePickers = remember { mutableListOf<com.pmcl.plugin.api.PluginFilePickerRequest>() }
+    var activeFilePicker by remember { mutableStateOf<com.pmcl.plugin.api.PluginFilePickerRequest?>(null) }
+    val pluginProgress = remember { mutableStateMapOf<String, com.pmcl.plugin.api.PluginProgressUpdate>() }
+    LaunchedEffect("plugin-ui-bridges") {
+        val pm = vm.core.plugins()
+        pm.setNavigationHandler { target ->
+            pluginUiScope.launch {
+                when {
+                    target.startsWith("plugin:") -> {
+                        val parts = target.removePrefix("plugin:").split(":", limit = 2)
+                        if (parts.size == 2) {
+                            val page = pm.getCustomPages().firstOrNull {
+                                it.pluginId == parts[0] && it.id == parts[1]
+                            }
+                            if (page != null) {
+                                current = NavTarget.PluginPage(page)
+                            }
+                        }
+                    }
+                    target.equals("settings", ignoreCase = true) ->
+                        current = NavTarget.BuiltIn(NavDestination.Settings)
+                    target.equals("plugins", ignoreCase = true) ->
+                        current = NavTarget.BuiltIn(NavDestination.Plugins)
+                    target.equals("home", ignoreCase = true) || target.equals("launch", ignoreCase = true) ->
+                        current = NavTarget.BuiltIn(NavDestination.Launch)
+                    target.equals("versions", ignoreCase = true) || target.equals("download", ignoreCase = true) ->
+                        current = NavTarget.BuiltIn(NavDestination.Download)
+                    target.equals("instances", ignoreCase = true) ->
+                        current = NavTarget.BuiltIn(NavDestination.Instances)
+                    target.equals("accounts", ignoreCase = true) ->
+                        current = NavTarget.BuiltIn(NavDestination.Accounts)
+                    else -> { /* ignore unknown */ }
+                }
+            }
+        }
+        pm.setLaunchRequestHandler { versionId ->
+            pluginUiScope.launch { vm.quickLaunch(versionId) }
+        }
+        pm.setClipboardHandler { text ->
+            pluginUiScope.launch {
+                clipboard.setText(androidx.compose.ui.text.AnnotatedString(text))
+            }
+        }
+        pm.setOpenUrlHandler { url ->
+            pluginUiScope.launch(Dispatchers.IO) {
+                try {
+                    if (java.awt.Desktop.isDesktopSupported()) {
+                        java.awt.Desktop.getDesktop().browse(java.net.URI(url))
+                    }
+                } catch (_: Throwable) {
+                }
+            }
+        }
+        pm.setMusicBridge(object : com.pmcl.core.plugin.PluginManager.MusicBridge {
+            override fun nowPlaying(): com.pmcl.plugin.api.MusicPlaybackSummary {
+                val idx = vm.musicCurrentIndex.value
+                val list = vm.musicPlaylist.value
+                val title = list.getOrNull(idx)?.title.orEmpty()
+                return com.pmcl.plugin.api.MusicPlaybackSummary(
+                    state = vm.musicPlaybackState.value.name,
+                    title = title,
+                    index = idx,
+                    currentMs = vm.musicCurrentMs.value,
+                    durationMs = vm.musicDurationMs.value,
+                    volume = vm.musicVolume.value,
+                )
+            }
+            override fun pause() = vm.pauseMusic()
+            override fun resume() = vm.resumeMusic()
+            override fun stop() = vm.stopMusic()
+            override fun playNext() = vm.playNextMusic()
+            override fun playPrevious() = vm.playPreviousMusic()
+            override fun setVolume(volume: Int) = vm.setMusicVolume(volume)
+        })
+        try {
+            while (true) {
+                kotlinx.coroutines.delay(400)
+                val notes = pm.drainNotifications()
+                for (n in notes) {
+                    val prefix = when (n.level) {
+                        com.pmcl.plugin.api.NotificationLevel.WARN -> "⚠ "
+                        com.pmcl.plugin.api.NotificationLevel.ERROR -> "✖ "
+                        com.pmcl.plugin.api.NotificationLevel.SUCCESS -> "✓ "
+                        else -> ""
+                    }
+                    snackbarHostState.showSnackbar(prefix + n.title + ": " + n.message)
+                }
+                if (pluginDialog == null) {
+                    val dialogs = pm.drainDialogs()
+                    if (dialogs.isNotEmpty()) {
+                        pluginDialog = dialogs[0]
+                        pendingPluginDialogs.addAll(dialogs.subList(1, dialogs.size))
+                    } else if (pendingPluginDialogs.isNotEmpty()) {
+                        pluginDialog = pendingPluginDialogs.removeAt(0)
+                    }
+                }
+                if (pluginInputDialog == null) {
+                    val inputs = pm.drainInputDialogs()
+                    if (inputs.isNotEmpty()) {
+                        pluginInputDialog = inputs[0]
+                        pendingInputDialogs.addAll(inputs.subList(1, inputs.size))
+                    } else if (pendingInputDialogs.isNotEmpty()) {
+                        pluginInputDialog = pendingInputDialogs.removeAt(0)
+                    }
+                }
+                if (activeFilePicker == null) {
+                    val pickers = pm.drainFilePickers()
+                    if (pickers.isNotEmpty()) {
+                        activeFilePicker = pickers[0]
+                        pendingFilePickers.addAll(pickers.subList(1, pickers.size))
+                    } else if (pendingFilePickers.isNotEmpty()) {
+                        activeFilePicker = pendingFilePickers.removeAt(0)
+                    }
+                }
+                for (u in pm.drainProgressUpdates()) {
+                    val key = u.pluginId + ":" + u.id
+                    if (u.dismiss) pluginProgress.remove(key)
+                    else pluginProgress[key] = u
+                }
+            }
+        } finally {
+            // Composition disposed / effect cancelled — drop UI bridges so plugins cannot
+            // call into a dead Compose tree or stale clipboard/Desktop handlers.
+            try { pm.setNavigationHandler(null) } catch (_: Throwable) {}
+            try { pm.setLaunchRequestHandler(null) } catch (_: Throwable) {}
+            try { pm.setClipboardHandler(null) } catch (_: Throwable) {}
+            try { pm.setOpenUrlHandler(null) } catch (_: Throwable) {}
+            try { pm.setMusicBridge(null) } catch (_: Throwable) {}
+        }
+    }
+
+    LaunchedEffect(activeFilePicker) {
+        val req = activeFilePicker ?: return@LaunchedEffect
+        val path = withContext(Dispatchers.IO) {
+            try {
+                runPluginFilePicker(req)
+            } catch (_: Throwable) {
+                null
+            }
+        }
+        try { req.onResult?.call(path) } catch (_: Throwable) {}
+        activeFilePicker = null
+    }
+
+    if (pluginDialog != null) {
+        val dlg = pluginDialog!!
+        val isConfirm = dlg.kind == com.pmcl.plugin.api.DialogKind.CONFIRM
+        AlertDialog(
+            onDismissRequest = {
+                try { dlg.onResult?.call(false) } catch (_: Throwable) {}
+                pluginDialog = null
+            },
+            title = { Text(dlg.title) },
+            text = { Text(dlg.message) },
+            confirmButton = {
+                TextButton(onClick = {
+                    try { dlg.onResult?.call(true) } catch (_: Throwable) {}
+                    pluginDialog = null
+                }) { Text(dlg.confirmLabel) }
+            },
+            dismissButton = if (isConfirm) {
+                {
+                    TextButton(onClick = {
+                        try { dlg.onResult?.call(false) } catch (_: Throwable) {}
+                        pluginDialog = null
+                    }) { Text(dlg.cancelLabel) }
+                }
+            } else null
+        )
+    }
+
+    if (pluginInputDialog != null) {
+        val dlg = pluginInputDialog!!
+        var inputValue by remember(dlg.id) { mutableStateOf(dlg.defaultValue) }
+        AlertDialog(
+            onDismissRequest = {
+                try { dlg.onResult?.call(null) } catch (_: Throwable) {}
+                pluginInputDialog = null
+            },
+            title = { Text(dlg.title) },
+            text = {
+                Column {
+                    if (dlg.message.isNotBlank()) {
+                        Text(dlg.message)
+                        Spacer(Modifier.height(8.dp))
+                    }
+                    OutlinedTextField(
+                        value = inputValue,
+                        onValueChange = { inputValue = it },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    try { dlg.onResult?.call(inputValue) } catch (_: Throwable) {}
+                    pluginInputDialog = null
+                }) { Text(dlg.confirmLabel) }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    try { dlg.onResult?.call(null) } catch (_: Throwable) {}
+                    pluginInputDialog = null
+                }) { Text(dlg.cancelLabel) }
+            },
+        )
+    }
+
+    if (pluginProgress.isNotEmpty()) {
+        Box(
+            modifier = Modifier.fillMaxSize().padding(16.dp),
+            contentAlignment = Alignment.BottomEnd
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                for (u in pluginProgress.values.toList()) {
+                    val fraction = u.progress.toFloat()
+                    Column(
+                        Modifier
+                            .widthIn(max = 320.dp)
+                            .background(
+                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f),
+                                MaterialTheme.shapes.medium
+                            )
+                            .padding(12.dp)
+                    ) {
+                        Text(u.title, style = MaterialTheme.typography.labelLarge)
+                        Spacer(Modifier.height(6.dp))
+                        if (fraction < 0f) {
+                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        } else {
+                            LinearProgressIndicator(
+                                progress = { fraction.coerceIn(0f, 1f) },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 
     Row(Modifier.fillMaxSize()) {
@@ -326,6 +621,11 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                     ) {
                         navItems.forEach { target ->
                             val selected = current == target
+                            val badgeKey = when (target) {
+                                is NavTarget.BuiltIn -> target.dest.route
+                                is NavTarget.PluginPage -> "plugin:${target.page.pluginId}:${target.page.id}"
+                            }
+                            val badgeText = navBadgeMap[badgeKey]
                             NavigationRailItem(
                                 selected = selected,
                                 onClick = {
@@ -335,9 +635,18 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                                 current = target
                             },
                                 icon = {
-                                    when (target) {
-                                        is NavTarget.BuiltIn -> Icon(target.dest.icon, contentDescription = I18n.t(target.dest.labelKey))
-                                        is NavTarget.PluginPage -> Icon(Icons.Filled.Extension, contentDescription = target.page.title)
+                                    val iconContent = @Composable {
+                                        when (target) {
+                                            is NavTarget.BuiltIn -> Icon(target.dest.icon, contentDescription = I18n.t(target.dest.labelKey))
+                                            is NavTarget.PluginPage -> Icon(Icons.Filled.Extension, contentDescription = target.page.title)
+                                        }
+                                    }
+                                    if (!badgeText.isNullOrBlank()) {
+                                        BadgedBox(badge = { Badge { Text(badgeText.take(4)) } }) {
+                                            iconContent()
+                                        }
+                                    } else {
+                                        iconContent()
                                     }
                                 },
                                 label = {
@@ -442,12 +751,46 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                 )
             }
 
-            // 底部音乐迷你条（仅当有当前曲目时显示）
+            // 底部：插件状态栏动作 + 音乐迷你条
             val musicCurrentIdx by vm.musicCurrentIndex.collectAsState()
             val musicPlaylist by vm.musicPlaylist.collectAsState()
+            var pluginRev by remember { mutableStateOf(0L) }
+            LaunchedEffect("plugin-statusbar") {
+                while (true) {
+                    kotlinx.coroutines.delay(1000)
+                    pluginRev = vm.core.plugins().getRevision()
+                }
+            }
+            val statusActions = remember(pluginRev) {
+                try { vm.core.plugins().getCustomStatusBarActions() } catch (_: Throwable) { emptyList() }
+            }
+            if (statusActions.isNotEmpty()) {
+                Spacer(Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    for (action in statusActions) {
+                        TextButton(onClick = {
+                            try { action.handler?.run() } catch (_: Throwable) {}
+                        }) {
+                            Text(action.title)
+                        }
+                    }
+                }
+            }
             if (musicPlaylist.isNotEmpty() && musicCurrentIdx >= 0) {
                 Spacer(Modifier.height(4.dp))
-                MiniMusicBar(vm)
+                MiniMusicBar(
+                    vm = vm,
+                    onOpenMusic = {
+                        val target = NavTarget.BuiltIn(NavDestination.Music)
+                        val oldIndex = navItems.indexOf(current)
+                        val newIndex = navItems.indexOf(target)
+                        navDirection = if (newIndex > oldIndex) 1 else if (newIndex < oldIndex) -1 else 0
+                        current = target
+                    }
+                )
             }
         }
     } // close Row
@@ -522,3 +865,45 @@ private fun SafePluginPage(page: PluginManager.RegisteredPage) {
     // 至少保证插件 content lambda 的获取不传播到 NavHost。
     page.content.invoke()
 }
+
+/** Host-mediated file/folder picker for plugins (AWT/Swing). */
+private fun runPluginFilePicker(req: com.pmcl.plugin.api.PluginFilePickerRequest): String? {
+    return when (req.mode) {
+        com.pmcl.plugin.api.FilePickerMode.OPEN_FOLDER -> {
+            val chooser = javax.swing.JFileChooser().apply {
+                dialogTitle = req.title
+                fileSelectionMode = javax.swing.JFileChooser.DIRECTORIES_ONLY
+            }
+            if (chooser.showOpenDialog(null) == javax.swing.JFileChooser.APPROVE_OPTION) {
+                chooser.selectedFile?.absolutePath
+            } else null
+        }
+        com.pmcl.plugin.api.FilePickerMode.SAVE_FILE -> {
+            val fd = java.awt.FileDialog(null as java.awt.Frame?, req.title, java.awt.FileDialog.SAVE)
+            applyFileDialogFilters(fd, req.filters)
+            fd.isVisible = true
+            val dir = fd.directory
+            val file = fd.file
+            if (dir != null && file != null) java.io.File(dir, file).absolutePath else null
+        }
+        else -> {
+            val fd = java.awt.FileDialog(null as java.awt.Frame?, req.title, java.awt.FileDialog.LOAD)
+            applyFileDialogFilters(fd, req.filters)
+            fd.isVisible = true
+            val dir = fd.directory
+            val file = fd.file
+            if (dir != null && file != null) java.io.File(dir, file).absolutePath else null
+        }
+    }
+}
+
+private fun applyFileDialogFilters(fd: java.awt.FileDialog, filters: String) {
+    if (filters.isBlank()) return
+    val exts = filters.split(';').map { it.trim().lowercase().removePrefix(".") }.filter { it.isNotEmpty() }
+    if (exts.isEmpty()) return
+    fd.setFilenameFilter { _, name ->
+        val lower = name.lowercase()
+        exts.any { lower.endsWith(".$it") }
+    }
+}
+

@@ -212,18 +212,18 @@ class LauncherViewModel {
             preheatJob?.cancel()
             preheatJob = null
             preheatedProfile = null
+            preheatedJavaExe = ""
+            preheatedJavaMajor = 0
+            preheatedVersionId = ""
+            preheatedAccountUuid = ""
         } catch (_: Throwable) {}
-        try { core.multiplayer().leaveRoom() } catch (_: Throwable) {}
-        try { core.launch().shutdown() } catch (_: Throwable) {}
         try {
             instanceLoggers.values.forEach { logger ->
                 try { logger?.close() } catch (_: Throwable) {}
             }
             instanceLoggers.clear()
         } catch (_: Throwable) {}
-        try { core.downloadQueue().shutdown() } catch (_: Throwable) {}
-        try { core.downloads().shutdown() } catch (_: Throwable) {}
-        try { core.preferences.shutdown() } catch (_: Throwable) {}
+        try { core.shutdown() } catch (_: Throwable) {}
         try { stopMusic() } catch (_: Throwable) {}
         scope.cancel()
     }
@@ -286,6 +286,52 @@ class LauncherViewModel {
     /** Companion 宿主未捕获异常时回写桌面状态栏，避免「假死」无反馈 */
     fun setCompanionHostError(detail: String) {
         _status.value = I18n.t("status.companion_host_error", detail)
+    }
+
+    /** 桌面侧是否正在准备/运行游戏（供 Companion 互斥） */
+    fun isDesktopLaunchBusy(): Boolean =
+        launchPreparing.get() || _gameRunning.value || _runningInstances.value.isNotEmpty()
+
+    /** Companion 是否占用启动槽 */
+    fun isCompanionLaunchBusy(): Boolean = companionLaunchBusy.get()
+
+    /**
+     * Companion 认领启动槽。失败表示桌面或另一路 Companion 已占用。
+     * 成功后必须在进程结束 / 启动失败时调用 [releaseCompanionLaunch]。
+     */
+    fun tryClaimCompanionLaunch(versionId: String): Boolean {
+        if (isDesktopLaunchBusy()) return false
+        if (!companionLaunchBusy.compareAndSet(false, true)) return false
+        // 占位实例：进程真正起来前也挡住桌面再点启动
+        val id = "companion_${versionId}_${System.currentTimeMillis()}"
+        companionRunningInstanceId = id
+        _runningInstances.update { list ->
+            list.map { it.copy(active = false) } + RunningInstance(
+                id = id,
+                versionId = versionId,
+                accountName = _account.value?.username ?: "Companion",
+                startTime = System.currentTimeMillis(),
+                active = true
+            )
+        }
+        _gameRunning.value = true
+        return true
+    }
+
+    /** Companion 游戏进程已退出或启动失败：释放槽位并同步 UI */
+    fun releaseCompanionLaunch() {
+        val id = companionRunningInstanceId
+        companionRunningInstanceId = null
+        companionLaunchBusy.set(false)
+        if (id != null) {
+            _runningInstances.update { list -> list.filter { it.id != id } }
+        }
+        _gameRunning.value = _runningInstances.value.isNotEmpty()
+    }
+
+    /** Companion 宿主刷新账号后回写（desktopMain 调用，避免扩展函数跨源集可见性坑） */
+    fun upsertAccountFromCompanion(acc: Account) {
+        upsertAccount(acc)
     }
 
     @PublishedApi internal val _account = MutableStateFlow<Account?>(null)
@@ -467,6 +513,10 @@ class LauncherViewModel {
     @PublishedApi internal val gson = com.google.gson.Gson()
     @PublishedApi internal val musicPlayer = MusicPlayer()
     @PublishedApi internal val audioResolver = AudioSourceResolver()
+    @PublishedApi internal val audioCache = com.pmcl.music.cache.AudioCache(
+        java.nio.file.Path.of(System.getProperty("user.home"), ".pmcl", "music", "cache")
+    )
+    @PublishedApi internal val lyricsProvider = com.pmcl.music.lyrics.LyricsProvider()
 
     @PublishedApi internal val _musicPlaylist = MutableStateFlow<List<MusicTrack>>(emptyList())
     val musicPlaylist: StateFlow<List<MusicTrack>> = _musicPlaylist.asStateFlow()
@@ -491,6 +541,9 @@ class LauncherViewModel {
     @PublishedApi internal val _musicMuted = MutableStateFlow(false)
     val musicMuted: StateFlow<Boolean> = _musicMuted.asStateFlow()
 
+    /** 取消静音时恢复的音量（1–100） */
+    @PublishedApi internal val _musicVolumeBeforeMute = MutableStateFlow(80)
+
     @PublishedApi internal val _musicLoadingUrl = MutableStateFlow<String?>(null)
     val musicLoadingUrl: StateFlow<String?> = _musicLoadingUrl.asStateFlow()
 
@@ -499,6 +552,20 @@ class LauncherViewModel {
 
     @PublishedApi internal val _musicShuffle = MutableStateFlow(false)
     val musicShuffle: StateFlow<Boolean> = _musicShuffle.asStateFlow()
+
+    @PublishedApi internal val _musicHistory = MutableStateFlow<List<MusicTrack>>(emptyList())
+    val musicHistory: StateFlow<List<MusicTrack>> = _musicHistory.asStateFlow()
+
+    @PublishedApi internal val _musicLyrics = MutableStateFlow<List<com.pmcl.music.lyrics.LyricsLine>>(emptyList())
+    val musicLyrics: StateFlow<List<com.pmcl.music.lyrics.LyricsLine>> = _musicLyrics.asStateFlow()
+
+    @PublishedApi internal val _musicPlaylistIndex = MutableStateFlow(
+        listOf(MusicPlaylistMeta("default", "Default"))
+    )
+    val musicPlaylistIndex: StateFlow<List<MusicPlaylistMeta>> = _musicPlaylistIndex.asStateFlow()
+
+    @PublishedApi internal val _musicActivePlaylistId = MutableStateFlow("default")
+    val musicActivePlaylistId: StateFlow<String> = _musicActivePlaylistId.asStateFlow()
 
     fun setPerfHudVisible(v: Boolean) {
         preferences.setShowPerfHud(v)
@@ -886,6 +953,13 @@ class LauncherViewModel {
     /** 启动准备互斥：防双击并行构建两套 profile；进程已启动后释放以允许多开 */
     @PublishedApi internal val launchPreparing = java.util.concurrent.atomic.AtomicBoolean(false)
 
+    /**
+     * Companion 宿主占用启动槽（认领中或进程存活）。
+     * 与桌面 launch() 互斥，避免双开 MC。
+     */
+    @PublishedApi internal val companionLaunchBusy = java.util.concurrent.atomic.AtomicBoolean(false)
+    @PublishedApi @Volatile internal var companionRunningInstanceId: String? = null
+
     // ===== 多实例启动（M29 Launch 扩展访问） =====
     data class RunningInstance(
         val id: String,
@@ -906,7 +980,11 @@ class LauncherViewModel {
     // 用户点击启动时，若版本匹配则复用预存的 profile 跳过 build() 阶段
     @PublishedApi @Volatile internal var preheatedProfile: com.pmcl.core.launch.LaunchProfile? = null
     @PublishedApi @Volatile internal var preheatedJavaExe: String = ""
+    /** 预热时用于 build() 的 Java 主版本；与实际启动不一致时不得复用（兼容层依赖此值） */
+    @PublishedApi @Volatile internal var preheatedJavaMajor: Int = 0
     @PublishedApi @Volatile internal var preheatedVersionId: String = ""
+    /** 预热时绑定的账号 UUID；切换账号后不得复用旧 token profile */
+    @PublishedApi @Volatile internal var preheatedAccountUuid: String = ""
     /** 预热协程句柄：离开启动页时取消，避免晚到写入覆盖 */
     @PublishedApi @Volatile internal var preheatJob: kotlinx.coroutines.Job? = null
     /** 预热代数：cancel / 新一轮预热时递增，完成写入前校验 */
@@ -1190,10 +1268,10 @@ class LauncherViewModel {
                 }
             }
             override fun onProgress(currentMs: Long, durationMs: Long) {
-                // 节流：仅当整秒变化时才发射，避免每秒 4-10 次高频更新导致全局重组
-                val sec = currentMs / 1000
-                if (sec != lastMusicProgressSec) {
-                    lastMusicProgressSec = sec
+                // 节流：200ms（歌词跟随时更平滑；整秒对 UI 仍足够）
+                val bucket = currentMs / 200
+                if (bucket != lastMusicProgressSec) {
+                    lastMusicProgressSec = bucket
                     _musicCurrentMs.value = currentMs
                 }
                 if (durationMs > 0) _musicDurationMs.value = durationMs
@@ -1204,22 +1282,8 @@ class LauncherViewModel {
             override fun onTrackEnded() {}
         })
 
-        // 加载持久化播放列表
-        scope.launch {
-            try {
-                val file = java.io.File(System.getProperty("user.home"), ".pmcl/music/playlist.json")
-                if (file.exists()) {
-                    val type = object : TypeToken<List<MusicTrack>>() {}.type
-                    val list: List<MusicTrack> = withContext(Dispatchers.IO) {
-                        gson.fromJson(file.readText(), type) ?: emptyList()
-                    }
-                    _musicPlaylist.value = list
-                }
-            } catch (t: Throwable) {
-                System.err.println("[VM] 加载音乐播放列表失败: ${t.message}")
-                _status.value = I18n.t("music.playlist_load_failed", t.message ?: I18n.t("common.unknown"))
-            }
-        }
+        // 加载播放列表 / 偏好 / 历史
+        loadMusicPersistedState()
     }
 
     /** 扫描本地已安装版本（详细信息），自动检测 .pmcl/versions + 系统默认 Minecraft 目录，带进度回调 */
@@ -1280,16 +1344,23 @@ class LauncherViewModel {
                     invalidPinned.forEach { preferences.unpinVersion(it) }
                     _pinnedVersions.value = preferences.getPinnedVersions()
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Throwable) {
                 _status.value = I18n.t("status.scan_local_failed", e.message ?: "")
             } finally {
-                // 最小显示 600ms，避免扫描太快导致动画一闪而过
-                val elapsed = System.currentTimeMillis() - startTime
-                if (elapsed < 600) {
-                    kotlinx.coroutines.delay(600 - elapsed)
+                // 最小显示 600ms；delay 被取消时仍必须清掉 _scanning，否则扫描按钮永久失效
+                try {
+                    val elapsed = System.currentTimeMillis() - startTime
+                    if (elapsed < 600) {
+                        kotlinx.coroutines.delay(600 - elapsed)
+                    }
+                } catch (_: kotlinx.coroutines.CancellationException) {
+                    // ignore
+                } finally {
+                    _scanning.value = false
+                    _scanProgress.value = null
                 }
-                _scanning.value = false
-                _scanProgress.value = null
             }
         }
     }
@@ -1372,44 +1443,45 @@ class LauncherViewModel {
         scope.launch {
             _loading.value = true
             _status.value = I18n.t("status.fetching_version_manifest")
-            // 先读缓存秒开
-            val cached = withContext(Dispatchers.IO) {
-                DataCache.loadWithTimestamp("versions_remote_v2", object : TypeToken<List<McVersion>>() {})
-            }
-            if (cached != null) {
-                @Suppress("UNCHECKED_CAST")
-                val data = cached[0] as? List<McVersion> ?: return@launch
-                val savedAt = cached[1] as? Long ?: return@launch
-                if (data.isNotEmpty()) {
-                    _versions.value = data
-                    if (_selectedVersion.value == null) {
-                        _selectedVersion.value = data.first().getId()
-                    }
+            try {
+                // 先读缓存秒开
+                val cached = withContext(Dispatchers.IO) {
+                    DataCache.loadWithTimestamp("versions_remote_v2", object : TypeToken<List<McVersion>>() {})
                 }
-                // 缓存未过期：后台静默刷新（stale-while-revalidate）
-                if (!DataCache.isExpired(savedAt, 6 * 60 * 60 * 1000L)) {
-                    _loading.value = false
-                    _status.value = I18n.t("status.versions_loaded", data.size)
-                    scope.launch {
-                        try {
-                            val list = withContext(Dispatchers.IO) {
-                                core.versions().fetchRemoteVersions().join()
+                if (cached != null) {
+                    @Suppress("UNCHECKED_CAST")
+                    val data = cached[0] as? List<McVersion>
+                    val savedAt = cached[1] as? Long
+                    if (data != null && savedAt != null) {
+                        if (data.isNotEmpty()) {
+                            _versions.value = data
+                            if (_selectedVersion.value == null) {
+                                _selectedVersion.value = data.first().getId()
                             }
-                            _versions.value = list
-                            DataCache.save("versions_remote_v2", list)
-                            _status.value = I18n.t("status.versions_loaded", list.size)
-                        } catch (_: Throwable) {
-                            // 静默失败，保留缓存数据
+                        }
+                        // 缓存未过期：后台静默刷新（stale-while-revalidate）
+                        if (!DataCache.isExpired(savedAt, 6 * 60 * 60 * 1000L)) {
+                            _status.value = I18n.t("status.versions_loaded", data.size)
+                            scope.launch {
+                                try {
+                                    val list = withContext(Dispatchers.IO) {
+                                        core.versions().fetchRemoteVersions().join()
+                                    }
+                                    _versions.value = list
+                                    DataCache.save("versions_remote_v2", list)
+                                    _status.value = I18n.t("status.versions_loaded", list.size)
+                                } catch (e: kotlinx.coroutines.CancellationException) {
+                                    throw e
+                                } catch (_: Throwable) {
+                                    // 静默失败，保留缓存数据
+                                }
+                            }
+                            return@launch
                         }
                     }
-                    // 无论远程拉取成败，都要刷新本地版本扫描
-                    refreshLocalVersions()
-                    return@launch
+                    // 缓存损坏或已过期：继续走正常网络请求
                 }
-                // 缓存已过期：继续走正常网络请求
-            }
-            // 缓存不存在/已过期：正常网络请求
-            try {
+                // 缓存不存在/已过期：正常网络请求
                 val list = withContext(Dispatchers.IO) {
                     core.versions().fetchRemoteVersions().join()
                 }
@@ -1419,6 +1491,8 @@ class LauncherViewModel {
                     _selectedVersion.value = list.first().getId()
                 }
                 DataCache.save("versions_remote_v2", list)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Throwable) {
                 _status.value = I18n.t("status.fetch_failed", e.message ?: I18n.t("common.unknown"))
             } finally {
@@ -1635,37 +1709,56 @@ class LauncherViewModel {
      * @param loaderVersion  加载器版本号，loader 非 null 时必须提供
      */
     fun proceedInstall(versionId: String, loader: ModLoader? = null, loaderVersion: String? = null) {
+        // 走下载队列：弹窗确认后入队，悬浮队列 / 下载队列页可看到进度与控制
+        initDownloadQueue()
+        val loaderName = loader?.name
+        core.downloadQueue().submitVersionInstallThenLoader(
+            versionId,
+            loaderName,
+            loaderVersion
+        )
+        refreshQueue()
+        _status.value = if (loader != null && !loaderVersion.isNullOrEmpty()) {
+            I18n.t("status.queued_loader", loader.name, loaderVersion)
+        } else {
+            I18n.t("status.queued_minecraft_version", versionId)
+        }
+        // 监听队列完成以刷新本地版本列表
         scope.launch {
-            _installing.value = true
-            _status.value = I18n.t("status.install_starting", versionId)
             try {
                 withContext(Dispatchers.IO) {
-                    core.install().install(versionId) { p ->
-                        _installProgress.value = p
-                        _status.value = I18n.t("status.install_progress", p.getStage(), p.getMessage())
-                    }.join()
+                    // 短暂轮询直到该名称相关任务离开活跃态（最多等很久由队列自己跑）
+                    var idleRounds = 0
+                    while (idleRounds < 3) {
+                        kotlinx.coroutines.delay(800)
+                        val active = core.downloadQueue().tasks.any {
+                            it.name.contains(versionId) && it.isActive
+                        }
+                        if (!active) idleRounds++ else idleRounds = 0
+                    }
                 }
                 refreshLocalVersions()
-                _status.value = I18n.t("status.install_complete", versionId)
-                // 游戏安装成功后，若用户选择了加载器则继续安装
-                if (loader != null && !loaderVersion.isNullOrEmpty()) {
-                    _status.value = I18n.t("status.installing_loader", loader, loaderVersion)
-                    withContext(Dispatchers.IO) {
-                        core.modLoaders().get(loader)
-                            .install(versionId, loaderVersion) { p ->
-                                _installProgress.value = p
-                                _status.value = I18n.t("status.install_progress", p.getStage(), p.getMessage())
-                            }.join()
-                    }
-                    refreshLocalVersions()
-                    _status.value = I18n.t("status.loader_install_complete", loader, loaderVersion)
-                }
-            } catch (e: Throwable) {
-                _status.value = I18n.t("status.install_failed", e.message ?: I18n.t("common.unknown"))
-            } finally {
-                _installing.value = false
+            } catch (_: Throwable) {
+                // 刷新失败不影响队列本身
             }
         }
+    }
+
+    /** 展开 CompletionException / RuntimeException 包装，露出真正失败原因。 */
+    private fun rootCauseMessage(e: Throwable): String {
+        var cur: Throwable? = e
+        var lastMeaningful = e.message
+        while (cur != null) {
+            val msg = cur.message
+            if (!msg.isNullOrBlank()
+                && !msg.startsWith("安装失败:")
+                && !msg.startsWith("Install failed")
+            ) {
+                lastMeaningful = msg
+            }
+            cur = cur.cause
+        }
+        return lastMeaningful?.takeIf { it.isNotBlank() } ?: I18n.t("common.unknown")
     }
 
     fun listModLoaderVersions(loader: ModLoader, gameVersion: String) {
@@ -1715,6 +1808,8 @@ class LauncherViewModel {
                 }
                 refreshLocalVersions()
                 _status.value = I18n.t("status.loader_install_complete", loader, loaderVersion)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Throwable) {
                 _status.value = I18n.t("status.install_failed", e.message ?: I18n.t("common.unknown"))
             } finally {
@@ -2011,6 +2106,10 @@ class LauncherViewModel {
      */
     fun launchWithSpecificJava(versionId: String, javaPath: String, javaMajorVer: Int, javaArch: String) {
         dismissCompatOptions()
+        if (isCompanionLaunchBusy()) {
+            _status.value = I18n.t("status.launch_busy_companion")
+            return
+        }
         if (!launchPreparing.compareAndSet(false, true)) {
             _status.value = I18n.t("status.launch_busy")
             return
@@ -2020,11 +2119,12 @@ class LauncherViewModel {
             var timeTracked = false
             var instanceId: String? = null
             try {
-                val account = _launchAccountOverride ?: _account.value
+                var account = _launchAccountOverride ?: _account.value
                 if (account == null) {
                     _status.value = I18n.t("status.login_first")
                     return@launch
                 }
+                account = ensureLaunchAccount(account)
                 val profile = withContext(Dispatchers.IO) {
                     core.profileBuilder().build(versionId, account, javaMajorVer, javaArch)
                 }
@@ -2098,7 +2198,12 @@ class LauncherViewModel {
                 )
                 launchPreparing.set(false)
                 val exitCode = withContext(Dispatchers.IO) { future.join() }
-                _status.value = I18n.t("status.game_exited", exitCode)
+                if (exitCode == com.pmcl.core.launch.LaunchManager.EXIT_CANCELLED) {
+                    _status.value = I18n.t("status.launch_cancelled")
+                    appendGameLog(I18n.t("status.launch_cancelled"))
+                } else {
+                    _status.value = I18n.t("status.game_exited", exitCode)
+                }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Throwable) {

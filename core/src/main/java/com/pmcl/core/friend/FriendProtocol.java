@@ -30,6 +30,31 @@ public final class FriendProtocol {
     /** 最大消息长度（字节），防止 DoS */
     public static final int MAX_MESSAGE_LENGTH = 65536;
 
+    /**
+     * 有界读行：按字节读取直到 {@code \n}；忽略 {@code \r}；超过 {@code maxBytes} 立即失败。
+     * 避免 {@code BufferedReader.readLine} 先分配整行再校验导致的堆耗尽。
+     *
+     * @return UTF-8 解码后的一行（不含换行）；EOF 且无内容时返回 null
+     */
+    public static String readLineBounded(java.io.InputStream in, int maxBytes)
+            throws java.io.IOException {
+        if (in == null) throw new java.io.IOException("input is null");
+        if (maxBytes <= 0) throw new java.io.IOException("maxBytes must be positive");
+        java.io.ByteArrayOutputStream buf =
+                new java.io.ByteArrayOutputStream(Math.min(256, maxBytes));
+        int c;
+        while ((c = in.read()) != -1) {
+            if (c == '\n') break;
+            if (c == '\r') continue;
+            if (buf.size() >= maxBytes) {
+                throw new java.io.IOException("message exceeds max length " + maxBytes);
+            }
+            buf.write(c);
+        }
+        if (c == -1 && buf.size() == 0) return null;
+        return buf.toString(java.nio.charset.StandardCharsets.UTF_8);
+    }
+
     /** UDP 广播内容 */
     public static final class DiscoverMessage {
         public String type = "discover";

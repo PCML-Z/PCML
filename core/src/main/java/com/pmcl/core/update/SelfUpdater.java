@@ -116,9 +116,18 @@ public final class SelfUpdater {
                     throw new IOException("更新清单未提供 SHA-256/SHA-1，拒绝安装未校验的更新包");
                 }
                 // 复制到 ~/.pmcl/updates/pmcl-{version}.jar
-                Path updatesDir = Paths.get(System.getProperty("user.home"), ".pmcl", "updates");
+                String ver = info.getVersion();
+                if (ver == null || !ver.matches("[A-Za-z0-9._+-]+")
+                        || ver.contains("..")) {
+                    throw new IOException("更新版本号非法（拒绝路径穿越）: " + ver);
+                }
+                Path updatesDir = Paths.get(System.getProperty("user.home"), ".pmcl", "updates")
+                        .toAbsolutePath().normalize();
                 Files.createDirectories(updatesDir);
-                Path target = updatesDir.resolve("pmcl-" + info.getVersion() + ".jar");
+                Path target = updatesDir.resolve("pmcl-" + ver + ".jar").normalize();
+                if (!target.startsWith(updatesDir)) {
+                    throw new IOException("更新目标路径越界: " + target);
+                }
                 Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
                 tmp = null; // 已移动，无需清理
                 if (onProgress != null) onProgress.accept(info.getSize());

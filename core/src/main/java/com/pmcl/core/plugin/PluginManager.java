@@ -8,6 +8,7 @@ import com.pmcl.core.LauncherCore;
 import com.pmcl.plugin.ComposableContent;
 import com.pmcl.plugin.CommandHandler;
 import com.pmcl.plugin.EventListener;
+import com.pmcl.plugin.HomeCard;
 import com.pmcl.plugin.LaunchHook;
 import com.pmcl.plugin.PmclEvent;
 import com.pmcl.plugin.PmclPlugin;
@@ -20,6 +21,34 @@ import com.pmcl.plugin.PluginErrorEvent;
 import com.pmcl.plugin.PluginPackageParser;
 import com.pmcl.plugin.PluginPackageParser.PluginPackage;
 import com.pmcl.plugin.ThemePack;
+import com.pmcl.plugin.PluginPermission;
+import com.pmcl.plugin.UrlRewriteHook;
+import com.pmcl.plugin.UrlRewrittenEvent;
+import com.pmcl.plugin.api.AccountsApi;
+import com.pmcl.plugin.api.ActionHandler;
+import com.pmcl.plugin.api.DownloadsApi;
+import com.pmcl.plugin.api.FilesystemApi;
+import com.pmcl.plugin.api.HttpApi;
+import com.pmcl.plugin.api.I18nApi;
+import com.pmcl.plugin.api.InstancesApi;
+import com.pmcl.plugin.api.LaunchApi;
+import com.pmcl.plugin.api.ModpackApi;
+import com.pmcl.plugin.api.ModsApi;
+import com.pmcl.plugin.api.NavBadge;
+import com.pmcl.plugin.api.NewsApi;
+import com.pmcl.plugin.api.PluginDialogRequest;
+import com.pmcl.plugin.api.PluginFilePickerRequest;
+import com.pmcl.plugin.api.PluginInputDialogRequest;
+import com.pmcl.plugin.api.PluginMenuAction;
+import com.pmcl.plugin.api.PluginNotification;
+import com.pmcl.plugin.api.PluginProgressUpdate;
+import com.pmcl.plugin.api.PluginStatusBarAction;
+import com.pmcl.plugin.api.PluginsApi;
+import com.pmcl.plugin.api.MusicPlaybackSummary;
+import com.pmcl.plugin.api.SchedulerApi;
+import com.pmcl.plugin.api.SettingsApi;
+import com.pmcl.plugin.api.UiApi;
+import com.pmcl.plugin.api.VersionsApi;
 
 import java.io.File;
 import java.io.IOException;
@@ -37,7 +66,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Consumer;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.stream.Collectors;
@@ -88,12 +119,48 @@ public final class PluginManager {
     private final Map<String, List<RegisteredCommand>> customCommands = new HashMap<>();
     // Registered pages (pluginId -> list of pages)
     private final Map<String, List<RegisteredPage>> customPages = new HashMap<>();
+    // Registered settings sections (pluginId -> list)
+    private final Map<String, List<RegisteredPage>> customSettingsSections = new HashMap<>();
+    // Menu / palette actions
+    private final Map<String, List<PluginMenuAction>> customMenuActions = new HashMap<>();
+    // Status bar actions
+    private final Map<String, List<PluginStatusBarAction>> customStatusBarActions = new HashMap<>();
+    // Home cards
+    private final Map<String, List<HomeCard>> customHomeCards = new HashMap<>();
     // Registered theme packs (pluginId -> list of packs)
     private final Map<String, List<com.pmcl.plugin.ThemePack>> customThemePacks = new HashMap<>();
     // Event listeners
     private final List<EventListener> eventListeners = new CopyOnWriteArrayList<>();
     // Launch hooks
     private final List<LaunchHook> launchHooks = new CopyOnWriteArrayList<>();
+    // URL rewrite hooks
+    private final List<TrackedUrlRewriteHook> urlRewriteHooks = new CopyOnWriteArrayList<>();
+    // Nav badges: pluginId -> (target -> text)
+    private final Map<String, Map<String, String>> navBadges = new HashMap<>();
+    // Hidden built-in nav routes: pluginId -> set of routes
+    private final Map<String, java.util.Set<String>> hiddenBuiltinNav = new HashMap<>();
+    // Plugin i18n keys tracked for cleanup: pluginId -> language -> keys
+    private final Map<String, Map<String, java.util.Set<String>>> pluginStringKeys = new HashMap<>();
+    // Scheduled tasks: pluginId -> taskId -> future
+    private final Map<String, Map<String, java.util.concurrent.ScheduledFuture<?>>> scheduledTasks = new HashMap<>();
+    private final java.util.concurrent.ScheduledExecutorService pluginScheduler =
+            java.util.concurrent.Executors.newScheduledThreadPool(2, r -> {
+                Thread t = new Thread(r, "pmcl-plugin-scheduler");
+                t.setDaemon(true);
+                return t;
+            });
+    // Host UI bridges
+    private final ConcurrentLinkedQueue<PluginNotification> notifications = new ConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedQueue<PluginDialogRequest> dialogRequests = new ConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedQueue<PluginFilePickerRequest> filePickerRequests = new ConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedQueue<PluginProgressUpdate> progressUpdates = new ConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedQueue<PluginInputDialogRequest> inputDialogRequests = new ConcurrentLinkedQueue<>();
+    private volatile Consumer<String> navigationHandler;
+    private volatile Consumer<String> launchRequestHandler;
+    private volatile Consumer<String> clipboardHandler;
+    private volatile Consumer<String> openUrlHandler;
+    private volatile MusicBridge musicBridge;
+    private volatile String lastLaunchCancelReason = null;
     // Plugin enabled state (persisted)
     private Map<String, Boolean> enabledState = new HashMap<>();
     // Plugin configs (persisted per-plugin)
@@ -114,6 +181,8 @@ public final class PluginManager {
         this.stateFile = pluginsDir.resolve(STATE_FILE);
         ensurePluginsDir();
         loadState();
+        // URL rewrite hooks are applied only on plugin-initiated DownloadsApi/HttpApi
+        // paths — never wired into the host DownloadManager pipeline.
     }
 
     private void ensurePluginsDir() {
@@ -325,11 +394,20 @@ public final class PluginManager {
         // Unregister extensions
         customCommands.remove(pluginId);
         customPages.remove(pluginId);
+        customSettingsSections.remove(pluginId);
+        customMenuActions.remove(pluginId);
+        customStatusBarActions.remove(pluginId);
+        customHomeCards.remove(pluginId);
         customThemePacks.remove(pluginId);
+        navBadges.remove(pluginId);
+        hiddenBuiltinNav.remove(pluginId);
+        clearPluginStrings(pluginId, "");
+        cancelAllPluginTasks(pluginId);
         eventListeners.removeIf(l -> l instanceof TrackedEventListener &&
                 ((TrackedEventListener) l).pluginId.equals(pluginId));
         launchHooks.removeIf(h -> h instanceof TrackedLaunchHook &&
                 ((TrackedLaunchHook) h).pluginId.equals(pluginId));
+        urlRewriteHooks.removeIf(h -> h.pluginId.equals(pluginId));
 
         entry.setState(PluginState.DISABLED);
         enabledState.put(pluginId, false);
@@ -354,9 +432,347 @@ public final class PluginManager {
         }
         customCommands.remove(pluginId);
         customPages.remove(pluginId);
+        customSettingsSections.remove(pluginId);
+        customMenuActions.remove(pluginId);
+        customStatusBarActions.remove(pluginId);
+        customHomeCards.remove(pluginId);
         customThemePacks.remove(pluginId);
+        navBadges.remove(pluginId);
+        hiddenBuiltinNav.remove(pluginId);
+        clearPluginStrings(pluginId, "");
+        cancelAllPluginTasks(pluginId);
+        urlRewriteHooks.removeIf(h -> h.pluginId.equals(pluginId));
         System.out.println("[PluginManager] Unloaded plugin: " + pluginId);
         bumpRevision();
+    }
+
+    /**
+     * Disable all plugins and shut down the event executor. Idempotent.
+     */
+    public synchronized void close() {
+        List<String> ids = new ArrayList<>(loadedPlugins.keySet());
+        for (String id : ids) {
+            try {
+                unloadPlugin(id);
+            } catch (Throwable e) {
+                System.err.println("[PluginManager] unload on close failed for " + id + ": " + e.getMessage());
+            }
+        }
+        try {
+            eventExecutor.shutdownNow();
+        } catch (Throwable ignored) {}
+        try {
+            pluginScheduler.shutdownNow();
+        } catch (Throwable ignored) {}
+        notifications.clear();
+        dialogRequests.clear();
+        filePickerRequests.clear();
+        progressUpdates.clear();
+        inputDialogRequests.clear();
+        navigationHandler = null;
+        launchRequestHandler = null;
+        clipboardHandler = null;
+        openUrlHandler = null;
+        musicBridge = null;
+        bumpRevision();
+    }
+
+    public void setNavigationHandler(Consumer<String> handler) {
+        this.navigationHandler = handler;
+    }
+
+    public void setLaunchRequestHandler(Consumer<String> handler) {
+        this.launchRequestHandler = handler;
+    }
+
+    public void setClipboardHandler(Consumer<String> handler) {
+        this.clipboardHandler = handler;
+    }
+
+    public void setOpenUrlHandler(Consumer<String> handler) {
+        this.openUrlHandler = handler;
+    }
+
+    public void setMusicBridge(MusicBridge bridge) {
+        this.musicBridge = bridge;
+    }
+
+    MusicBridge getMusicBridge() {
+        return musicBridge;
+    }
+
+    /** UI-owned music transport bridge for [com.pmcl.plugin.api.MusicApi]. */
+    public interface MusicBridge {
+        MusicPlaybackSummary nowPlaying();
+        void pause();
+        void resume();
+        void stop();
+        void playNext();
+        void playPrevious();
+        void setVolume(int volume);
+    }
+
+    Consumer<String> getNavigationHandler() { return navigationHandler; }
+
+    Consumer<String> getLaunchRequestHandler() { return launchRequestHandler; }
+
+    Consumer<String> getClipboardHandler() { return clipboardHandler; }
+
+    Consumer<String> getOpenUrlHandler() { return openUrlHandler; }
+
+    void offerNotification(PluginNotification n) {
+        if (n == null) return;
+        notifications.offer(n);
+        while (notifications.size() > 100) notifications.poll();
+        bumpRevision();
+    }
+
+    void offerDialog(PluginDialogRequest req) {
+        if (req == null) return;
+        dialogRequests.offer(req);
+        while (dialogRequests.size() > 20) {
+            PluginDialogRequest dropped = dialogRequests.poll();
+            if (dropped != null && dropped.getOnResult() != null) {
+                try { dropped.getOnResult().call(false); } catch (Throwable ignored) {}
+            }
+        }
+        bumpRevision();
+    }
+
+    void offerFilePicker(PluginFilePickerRequest req) {
+        if (req == null) return;
+        filePickerRequests.offer(req);
+        while (filePickerRequests.size() > 10) {
+            PluginFilePickerRequest dropped = filePickerRequests.poll();
+            if (dropped != null && dropped.getOnResult() != null) {
+                try { dropped.getOnResult().call(null); } catch (Throwable ignored) {}
+            }
+        }
+        bumpRevision();
+    }
+
+    void offerProgress(PluginProgressUpdate update) {
+        if (update == null) return;
+        progressUpdates.offer(update);
+        while (progressUpdates.size() > 50) progressUpdates.poll();
+        bumpRevision();
+    }
+
+    /** Drain pending plugin notifications for the host UI. */
+    public List<PluginNotification> drainNotifications() {
+        List<PluginNotification> out = new ArrayList<>();
+        PluginNotification n;
+        while ((n = notifications.poll()) != null) out.add(n);
+        return out;
+    }
+
+    /** Drain pending dialog requests for the host UI. */
+    public List<PluginDialogRequest> drainDialogs() {
+        List<PluginDialogRequest> out = new ArrayList<>();
+        PluginDialogRequest d;
+        while ((d = dialogRequests.poll()) != null) out.add(d);
+        return out;
+    }
+
+    /** Drain pending file picker requests for the host UI. */
+    public List<PluginFilePickerRequest> drainFilePickers() {
+        List<PluginFilePickerRequest> out = new ArrayList<>();
+        PluginFilePickerRequest r;
+        while ((r = filePickerRequests.poll()) != null) out.add(r);
+        return out;
+    }
+
+    /** Drain pending input-dialog requests for the host UI. */
+    public List<PluginInputDialogRequest> drainInputDialogs() {
+        List<PluginInputDialogRequest> out = new ArrayList<>();
+        PluginInputDialogRequest r;
+        while ((r = inputDialogRequests.poll()) != null) out.add(r);
+        return out;
+    }
+
+    void offerInputDialog(PluginInputDialogRequest req) {
+        if (req == null) return;
+        inputDialogRequests.offer(req);
+        while (inputDialogRequests.size() > 20) {
+            PluginInputDialogRequest dropped = inputDialogRequests.poll();
+            if (dropped != null && dropped.getOnResult() != null) {
+                try { dropped.getOnResult().call(null); } catch (Throwable ignored) {}
+            }
+        }
+        bumpRevision();
+    }
+
+    /** Drain pending progress updates for the host UI. */
+    public List<PluginProgressUpdate> drainProgressUpdates() {
+        List<PluginProgressUpdate> out = new ArrayList<>();
+        PluginProgressUpdate u;
+        while ((u = progressUpdates.poll()) != null) out.add(u);
+        return out;
+    }
+
+    public synchronized List<PluginMenuAction> getCustomMenuActions() {
+        List<PluginMenuAction> all = new ArrayList<>();
+        for (List<PluginMenuAction> acts : customMenuActions.values()) {
+            all.addAll(acts);
+        }
+        return all;
+    }
+
+    public synchronized List<PluginStatusBarAction> getCustomStatusBarActions() {
+        List<PluginStatusBarAction> all = new ArrayList<>();
+        for (List<PluginStatusBarAction> acts : customStatusBarActions.values()) {
+            all.addAll(acts);
+        }
+        return all;
+    }
+
+    public synchronized List<HomeCard> getCustomHomeCards() {
+        List<HomeCard> all = new ArrayList<>();
+        for (List<HomeCard> cards : customHomeCards.values()) {
+            all.addAll(cards);
+        }
+        all.sort(java.util.Comparator.comparingInt(HomeCard::getOrder));
+        return all;
+    }
+
+    public synchronized List<NavBadge> getNavBadges() {
+        List<NavBadge> out = new ArrayList<>();
+        for (Map<String, String> map : navBadges.values()) {
+            for (Map.Entry<String, String> e : map.entrySet()) {
+                if (e.getValue() != null && !e.getValue().isBlank()) {
+                    out.add(new NavBadge(e.getKey(), e.getValue()));
+                }
+            }
+        }
+        return out;
+    }
+
+    public synchronized java.util.Set<String> getHiddenBuiltinNavRoutes() {
+        java.util.Set<String> out = new java.util.HashSet<>();
+        for (java.util.Set<String> set : hiddenBuiltinNav.values()) {
+            out.addAll(set);
+        }
+        return out;
+    }
+
+    synchronized void setNavBadge(String pluginId, String target, String text) {
+        if (text == null || text.isBlank()) {
+            clearNavBadge(pluginId, target);
+            return;
+        }
+        navBadges.computeIfAbsent(pluginId, k -> new HashMap<>()).put(target, text.trim());
+        bumpRevision();
+    }
+
+    synchronized void clearNavBadge(String pluginId, String target) {
+        Map<String, String> map = navBadges.get(pluginId);
+        if (map != null) {
+            map.remove(target);
+            if (map.isEmpty()) navBadges.remove(pluginId);
+            bumpRevision();
+        }
+    }
+
+    synchronized void hideBuiltinNav(String pluginId, String route) {
+        hiddenBuiltinNav.computeIfAbsent(pluginId, k -> new java.util.HashSet<>())
+                .add(route.trim().toLowerCase(java.util.Locale.ROOT));
+        bumpRevision();
+    }
+
+    synchronized void showBuiltinNav(String pluginId, String route) {
+        java.util.Set<String> set = hiddenBuiltinNav.get(pluginId);
+        if (set != null) {
+            set.remove(route.trim().toLowerCase(java.util.Locale.ROOT));
+            if (set.isEmpty()) hiddenBuiltinNav.remove(pluginId);
+            bumpRevision();
+        }
+    }
+
+    synchronized void registerPluginStrings(String pluginId, String language, Map<String, String> strings) {
+        com.pmcl.core.i18n.I18n.putPluginStrings(language, strings);
+        Map<String, java.util.Set<String>> byLang =
+                pluginStringKeys.computeIfAbsent(pluginId, k -> new HashMap<>());
+        java.util.Set<String> keys = byLang.computeIfAbsent(language, k -> new java.util.HashSet<>());
+        keys.addAll(strings.keySet());
+    }
+
+    synchronized void clearPluginStrings(String pluginId, String language) {
+        Map<String, java.util.Set<String>> byLang = pluginStringKeys.get(pluginId);
+        if (byLang == null) return;
+        if (language == null || language.isBlank()) {
+            for (Map.Entry<String, java.util.Set<String>> e : byLang.entrySet()) {
+                com.pmcl.core.i18n.I18n.removePluginStrings(e.getKey(), e.getValue());
+            }
+            pluginStringKeys.remove(pluginId);
+        } else {
+            java.util.Set<String> keys = byLang.remove(language);
+            if (keys != null) com.pmcl.core.i18n.I18n.removePluginStrings(language, keys);
+            if (byLang.isEmpty()) pluginStringKeys.remove(pluginId);
+        }
+    }
+
+    private static final int MAX_TASKS_PER_PLUGIN = 16;
+    private static final long MIN_REPEAT_PERIOD_MS = 250L;
+
+    synchronized String schedulePluginTask(String pluginId, long delayMs, long periodMs, Runnable task) {
+        Map<String, java.util.concurrent.ScheduledFuture<?>> existing =
+                scheduledTasks.computeIfAbsent(pluginId, k -> new HashMap<>());
+        if (existing.size() >= MAX_TASKS_PER_PLUGIN) {
+            throw new IllegalStateException("Plugin '" + pluginId + "' exceeded scheduled task limit ("
+                    + MAX_TASKS_PER_PLUGIN + ")");
+        }
+        long delay = Math.max(0L, delayMs);
+        long period = periodMs;
+        if (period > 0) period = Math.max(MIN_REPEAT_PERIOD_MS, period);
+        String id = java.util.UUID.randomUUID().toString();
+        Runnable wrapped = () -> {
+            try {
+                task.run();
+            } catch (Throwable t) {
+                System.err.println("[Plugin:" + pluginId + "] scheduled task error: " + t.getMessage());
+            }
+        };
+        java.util.concurrent.ScheduledFuture<?> future;
+        if (period > 0) {
+            future = pluginScheduler.scheduleAtFixedRate(wrapped, delay, period,
+                    java.util.concurrent.TimeUnit.MILLISECONDS);
+        } else {
+            future = pluginScheduler.schedule(wrapped, delay, java.util.concurrent.TimeUnit.MILLISECONDS);
+        }
+        existing.put(id, future);
+        return id;
+    }
+
+    synchronized void cancelPluginTask(String pluginId, String taskId) {
+        Map<String, java.util.concurrent.ScheduledFuture<?>> map = scheduledTasks.get(pluginId);
+        if (map == null) return;
+        java.util.concurrent.ScheduledFuture<?> f = map.remove(taskId);
+        if (f != null) f.cancel(false);
+        if (map.isEmpty()) scheduledTasks.remove(pluginId);
+    }
+
+    synchronized void cancelAllPluginTasks(String pluginId) {
+        Map<String, java.util.concurrent.ScheduledFuture<?>> map = scheduledTasks.remove(pluginId);
+        if (map == null) return;
+        for (java.util.concurrent.ScheduledFuture<?> f : map.values()) {
+            f.cancel(false);
+        }
+    }
+
+    /** Last plugin cancel reason from beforeLaunch (may be null). */
+    public String getLastLaunchCancelReason() {
+        return lastLaunchCancelReason;
+    }
+
+    Map<String, String> getPluginConfigMap(String pluginId) {
+        return pluginConfigs.get(pluginId);
+    }
+
+    void setPluginConfigValue(String pluginId, String key, String value) {
+        synchronized (this) {
+            pluginConfigs.computeIfAbsent(pluginId, k -> new HashMap<>()).put(key, value);
+            saveState();
+        }
     }
 
     /**
@@ -434,6 +850,16 @@ public final class PluginManager {
      * @throws Exception if loading fails
      */
     public synchronized PluginInfo loadPluginPackage(Path ppkPath) throws Exception {
+        // .ppk 尚无签名清单：默认拒绝执行；开发/受信任源显式放行
+        boolean allowUnsignedPkg = Boolean.parseBoolean(
+                System.getProperty("pmcl.plugins.allowUnsignedPackages", "false"));
+        if (!allowUnsignedPkg) {
+            throw new SecurityException("Unsigned .ppk packages are blocked by default: " + ppkPath
+                    + " (set -Dpmcl.plugins.allowUnsignedPackages=true to allow)");
+        }
+        System.err.println("[PluginManager] WARNING: loading unsigned .ppk package ("
+                + ppkPath + ") — no publisher authenticity check.");
+
         // Parse and validate the package manifest
         PluginPackage pkg = PluginPackageParser.parse(ppkPath);
         PluginInfo info = pkg.getInfo();
@@ -465,16 +891,20 @@ public final class PluginManager {
         PluginIsolatingClassLoader classLoader = PluginPackageBuilder.createClassLoader(
                 packageDir, pkg, getClass().getClassLoader());
 
-        // Load main class
-        Class<?> mainClass = classLoader.loadClass(info.getMainClass());
-        if (!PmclPlugin.class.isAssignableFrom(mainClass)) {
-            classLoader.close();
-            throw new ClassCastException("Main class " + info.getMainClass() +
-                    " does not implement PmclPlugin");
+        // Load + instantiate — 异常路径关闭 classLoader 防止句柄泄漏
+        PmclPlugin plugin;
+        try {
+            Class<?> mainClass = classLoader.loadClass(info.getMainClass());
+            if (!PmclPlugin.class.isAssignableFrom(mainClass)) {
+                classLoader.close();
+                throw new ClassCastException("Main class " + info.getMainClass() +
+                        " does not implement PmclPlugin");
+            }
+            plugin = (PmclPlugin) mainClass.getDeclaredConstructor().newInstance();
+        } catch (Throwable t) {
+            try { classLoader.close(); } catch (Exception ignored) {}
+            throw t;
         }
-
-        // Instantiate
-        PmclPlugin plugin = (PmclPlugin) mainClass.getDeclaredConstructor().newInstance();
 
         // Create context
         PluginContextImpl ctx = new PluginContextImpl(this, info.getId());
@@ -647,6 +1077,15 @@ public final class PluginManager {
         return all;
     }
 
+    /** Settings sections registered by enabled plugins. */
+    public synchronized List<RegisteredPage> getCustomSettingsSections() {
+        List<RegisteredPage> all = new ArrayList<>();
+        for (List<RegisteredPage> sections : customSettingsSections.values()) {
+            all.addAll(sections);
+        }
+        return all;
+    }
+
     /**
      * Get all theme packs registered by enabled plugins.
      * Used by Settings UI to populate the theme picker.
@@ -693,30 +1132,43 @@ public final class PluginManager {
 
     public void fireEvent(PmclEvent event) {
         // M24 修复：异步派发——快照 listeners，提交到线程池，避免慢 listener 阻塞调用方。
-        // 注意：同一 listener 可能收到乱序事件；若需顺序保证，应在 listener 内部加队列。
-        // eventListeners 是 CopyOnWriteArrayList，迭代时自动快照，无需额外复制。
+        if (eventExecutor.isShutdown()) return;
         for (EventListener listener : eventListeners) {
-            eventExecutor.submit(() -> {
-                try {
-                    listener.onEvent(event);
-                } catch (Exception e) {
-                    System.err.println("[PluginManager] Event listener error: " + e.getMessage());
-                }
-            });
+            try {
+                eventExecutor.submit(() -> {
+                    try {
+                        listener.onEvent(event);
+                    } catch (Exception e) {
+                        System.err.println("[PluginManager] Event listener error: " + e.getMessage());
+                    }
+                });
+            } catch (java.util.concurrent.RejectedExecutionException ignored) {
+                // Executor already shutting down
+            }
         }
     }
 
     // ==================== Launch Hooks ====================
 
     public boolean beforeLaunch(String versionId, String accountName) {
+        lastLaunchCancelReason = null;
         for (LaunchHook hook : launchHooks) {
             try {
                 if (!hook.beforeLaunch(versionId, accountName)) {
-                    System.out.println("[PluginManager] Launch cancelled by plugin hook");
+                    String reason = null;
+                    try {
+                        reason = hook.cancelReason();
+                    } catch (Throwable ignored) {}
+                    if (reason == null || reason.isBlank()) {
+                        reason = "Launch cancelled by plugin hook";
+                    }
+                    lastLaunchCancelReason = reason;
+                    System.out.println("[PluginManager] Launch cancelled: " + reason);
                     return false;
                 }
             } catch (Exception e) {
                 // fail-closed：钩子异常不得被当成「放行」
+                lastLaunchCancelReason = "Launch hook error: " + e.getMessage();
                 System.err.println("[PluginManager] Launch hook error (abort launch): " + e.getMessage());
                 e.printStackTrace();
                 return false;
@@ -733,6 +1185,171 @@ public final class PluginManager {
                 System.err.println("[PluginManager] Launch hook error: " + e.getMessage());
             }
         }
+    }
+
+    /**
+     * Append plugin-contributed JVM / game args onto an already-built profile.
+     * Blank entries and args containing control characters are skipped.
+     */
+    public void applyLaunchContributions(com.pmcl.core.launch.LaunchProfile profile) {
+        if (profile == null) return;
+        String versionId = profile.getVersionId() != null ? profile.getVersionId() : "";
+        String accountName = profile.getPlayerName() != null ? profile.getPlayerName() : "Player";
+        for (LaunchHook hook : launchHooks) {
+            try {
+                List<String> jvm = hook.contributeJvmArgs(versionId, accountName);
+                if (jvm != null) {
+                    for (String arg : jvm) {
+                        if (isSafeLaunchArg(arg)) profile.addJvmArg(arg.trim());
+                    }
+                }
+            } catch (Exception e) {
+                System.err.println("[PluginManager] contributeJvmArgs error: " + e.getMessage());
+            }
+            try {
+                List<String> game = hook.contributeGameArgs(versionId, accountName);
+                if (game != null) {
+                    for (String arg : game) {
+                        if (isSafeLaunchArg(arg)) profile.addGameArg(arg.trim());
+                    }
+                }
+            } catch (Exception e) {
+                System.err.println("[PluginManager] contributeGameArgs error: " + e.getMessage());
+            }
+            try {
+                Map<String, String> env = hook.contributeEnv(versionId, accountName);
+                if (env != null) {
+                    for (Map.Entry<String, String> e : env.entrySet()) {
+                        if (isSafeEnvKey(e.getKey())) {
+                            profile.putEnv(e.getKey().trim(), e.getValue() != null ? e.getValue() : "");
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                System.err.println("[PluginManager] contributeEnv error: " + e.getMessage());
+            }
+            try {
+                List<String> jars = hook.contributeClasspathJars(versionId, accountName);
+                if (jars != null) {
+                    String ownerId = (hook instanceof TrackedLaunchHook)
+                            ? ((TrackedLaunchHook) hook).pluginId : null;
+                    for (String jar : jars) {
+                        if (jar == null || jar.isBlank()) continue;
+                        Path p = Paths.get(jar.trim()).toAbsolutePath().normalize();
+                        if (!Files.isRegularFile(p, java.nio.file.LinkOption.NOFOLLOW_LINKS)) continue;
+                        if (Files.isSymbolicLink(p) || !isPathUnderPluginData(ownerId, p)) {
+                            System.err.println("[PluginManager] Rejected classpath jar outside plugin data: " + p);
+                            continue;
+                        }
+                        profile.addClasspath(p);
+                    }
+                }
+            } catch (Exception e) {
+                System.err.println("[PluginManager] contributeClasspathJars error: " + e.getMessage());
+            }
+            try {
+                List<String> agents = hook.contributeJavaAgents(versionId, accountName);
+                if (agents != null) {
+                    String ownerId = (hook instanceof TrackedLaunchHook)
+                            ? ((TrackedLaunchHook) hook).pluginId : null;
+                    for (String agent : agents) {
+                        if (agent == null || agent.isBlank()) continue;
+                        String a = agent.trim();
+                        if (a.contains("\n") || a.contains("\r") || a.contains("`") || a.contains("\0")) continue;
+                        // agent may be "path" or "path=options" — validate path portion
+                        String pathPart = a;
+                        int eq = a.indexOf('=');
+                        if (eq > 0) pathPart = a.substring(0, eq);
+                        Path p = Paths.get(pathPart.trim()).toAbsolutePath().normalize();
+                        if (Files.isSymbolicLink(p)
+                                || !Files.isRegularFile(p, java.nio.file.LinkOption.NOFOLLOW_LINKS)
+                                || !isPathUnderPluginData(ownerId, p)) {
+                            System.err.println("[PluginManager] Rejected javaagent outside plugin data: " + a);
+                            continue;
+                        }
+                        profile.addJavaAgentRaw(a);
+                    }
+                }
+            } catch (Exception e) {
+                System.err.println("[PluginManager] contributeJavaAgents error: " + e.getMessage());
+            }
+        }
+    }
+
+    private static boolean isSafeEnvKey(String key) {
+        if (key == null || key.isBlank()) return false;
+        String k = key.trim();
+        if (k.contains("=") || k.contains("\0") || k.contains("\n") || k.contains("\r")) return false;
+        // Allowlist only — prevents CLASSPATH / JAVA_HOME / BASH_ENV style injection
+        return k.matches("PMCL_PLUGIN_[A-Z0-9_]{1,64}");
+    }
+
+    String applyUrlRewrites(String url) {
+        if (url == null || url.isBlank() || urlRewriteHooks.isEmpty()) return url;
+        String current = url;
+        for (TrackedUrlRewriteHook hook : urlRewriteHooks) {
+            try {
+                String next = hook.delegate.rewrite(current);
+                if (next != null && !next.isBlank() && !next.equals(current)) {
+                    // Post-rewrite SSRF gate: reject private/link-local targets
+                    String ssrf = com.pmcl.core.util.SsrfChecker.validate(next);
+                    if (ssrf != null) {
+                        System.err.println("[PluginManager] UrlRewriteHook SSRF blocked ("
+                                + hook.pluginId + "): " + ssrf);
+                        continue;
+                    }
+                    fireEvent(new UrlRewrittenEvent(current, next, hook.pluginId));
+                    current = next;
+                }
+            } catch (Exception e) {
+                System.err.println("[PluginManager] UrlRewriteHook error (" + hook.pluginId + "): " + e.getMessage());
+            }
+        }
+        return current;
+    }
+
+    private boolean isPathUnderPluginData(String pluginId, Path absPath) {
+        if (pluginId == null || pluginId.isBlank() || absPath == null) return false;
+        Path base = pluginsDir.resolve(pluginId).resolve("data").toAbsolutePath().normalize();
+        return PluginPathSandbox.isUnderPluginData(absPath, base);
+    }
+
+    private static boolean isSafeLaunchArg(String arg) {
+        return isSafePluginJvmArg(arg);
+    }
+
+    /**
+     * Shared JVM-arg policy for LaunchHook contributions and SettingsApi custom args.
+     * Blocks agent / bootclasspath / OnError shell hooks and similar RCE vectors.
+     */
+    static boolean isSafePluginJvmArg(String arg) {
+        if (arg == null) return false;
+        String t = arg.trim();
+        if (t.isEmpty() || t.length() > 2048) return false;
+        for (int i = 0; i < t.length(); i++) {
+            char c = t.charAt(i);
+            if (c < 0x20 || c == 0x7f) return false;
+        }
+        String lower = t.toLowerCase(java.util.Locale.ROOT);
+        if (lower.startsWith("-javaagent")
+                || lower.startsWith("-agentpath")
+                || lower.startsWith("-agentlib")
+                || lower.startsWith("-xbootclasspath")
+                || lower.startsWith("-xx:onerror")
+                || lower.startsWith("-xx:onoutofmemoryerror")
+                || lower.startsWith("-xx:runpath")
+                || lower.contains("java.security.manager")
+                || lower.startsWith("-djava.class.path")
+                || lower.startsWith("-djava.library.path")
+                || lower.startsWith("-djava.home")
+                || lower.startsWith("-djava.agent")
+                || lower.startsWith("--module-path")
+                || lower.startsWith("--upgrade-module-path")
+                || lower.equals("-p")
+                || lower.startsWith("-p=")) {
+            return false;
+        }
+        return true;
     }
 
     // ==================== Descriptor Parsing ====================
@@ -785,8 +1402,9 @@ public final class PluginManager {
             try (InputStream is = jar.getInputStream(entry)) {
                 props.load(new java.io.InputStreamReader(is, java.nio.charset.StandardCharsets.UTF_8));
             }
-            // 签名通过 ≠ 信任：若配置了可信指纹，则必须命中；未配置时告警或严格拒绝
+            // 签名通过 ≠ 信任：必须命中可信指纹（或显式 allowAnySigner）
             if (isSigned) {
+                assertAllSignedEntries(jar, jarPath);
                 assertTrustedPluginSigner(entry, jarPath);
             }
 
@@ -848,6 +1466,17 @@ public final class PluginManager {
                             .map(String::trim)
                             .filter(s -> !s.isEmpty())
                             .collect(Collectors.toList());
+            for (String p : permissions) {
+                if (PluginPermission.parseOrNull(p) == null) {
+                    throw new IllegalArgumentException(
+                            "Unknown plugin permission '" + p + "' in " + jarPath
+                                    + ". Allowed: " + PluginPermission.names());
+                }
+            }
+            // Normalize to enum canonical names
+            permissions = permissions.stream()
+                    .map(p -> PluginPermission.parseOrNull(p).name())
+                    .collect(Collectors.toList());
 
             return new PluginInfo(id, name, version, author, description, apiVersion, mainClass,
                     dependencies, website, license, permissions);
@@ -869,8 +1498,9 @@ public final class PluginManager {
      *       （可选 {@code sha256:} 前缀）以及 {@code ~/.pmcl/plugins/trusted-signers.txt}
      *       （每行一个 SHA-256 十六进制指纹，{@code #} 注释）</li>
      *   <li>列表非空：必须命中，否则拒绝</li>
-     *   <li>列表为空：默认仅告警；{@code -Dpmcl.plugins.requireTrustedSigner=true} 则拒绝</li>
-     *   <li>{@code -Dpmcl.plugins.allowAnySigner=true}：跳过指纹校验（仍要求 JAR 签名）</li>
+     *   <li>列表为空：默认拒绝（防任意自签名）；
+     *       {@code -Dpmcl.plugins.allowAnySigner=true} 才放行（开发用）</li>
+     *   <li>{@code -Dpmcl.plugins.requireTrustedSigner=false}：兼容旧行为（仅告警）</li>
      * </ul>
      */
     private void assertTrustedPluginSigner(JarEntry entry, Path jarPath) throws Exception {
@@ -904,15 +1534,48 @@ public final class PluginManager {
             }
             return;
         }
-        if (Boolean.parseBoolean(System.getProperty("pmcl.plugins.requireTrustedSigner", "false"))) {
+        // 默认要求可信指纹；显式 requireTrustedSigner=false 才退回「仅告警」
+        boolean requireTrusted = Boolean.parseBoolean(
+                System.getProperty("pmcl.plugins.requireTrustedSigner", "true"));
+        if (requireTrusted) {
             throw new SecurityException("No trusted plugin signer fingerprints configured; refusing "
                     + jarPath + " (set -Dpmcl.plugins.trustedFingerprints=... or "
-                    + "-Dpmcl.plugins.allowAnySigner=true)");
+                    + "-Dpmcl.plugins.allowAnySigner=true for development)");
         }
         System.err.println("[PluginManager] WARNING: no trusted signer allowlist configured; "
                 + "accepting any valid signature for " + jarPath
-                + " (fingerprints=" + present + "). Pin with -Dpmcl.plugins.trustedFingerprints "
-                + "or set -Dpmcl.plugins.requireTrustedSigner=true.");
+                + " (fingerprints=" + present + "). Pin with -Dpmcl.plugins.trustedFingerprints.");
+    }
+
+    /**
+     * 已签名 JAR：完整读取非 META-INF entry 以触发摘要校验，
+     * 并要求 {@code .class} 与插件描述符均带 CodeSigner（防「只签描述符」）。
+     */
+    private static void assertAllSignedEntries(JarFile jar, Path jarPath) throws Exception {
+        final int maxEntries = 50_000;
+        int count = 0;
+        var entries = jar.entries();
+        while (entries.hasMoreElements()) {
+            JarEntry e = entries.nextElement();
+            if (e.isDirectory()) continue;
+            if (++count > maxEntries) {
+                throw new SecurityException("Plugin JAR entry count exceeds " + maxEntries + ": " + jarPath);
+            }
+            String name = e.getName();
+            if (name.startsWith("META-INF/")) continue;
+            try (InputStream in = jar.getInputStream(e)) {
+                in.transferTo(java.io.OutputStream.nullOutputStream());
+            }
+            boolean mustBeSigned = name.endsWith(".class")
+                    || name.equals(PluginInfo.PROPERTIES_PATH);
+            if (mustBeSigned) {
+                java.security.CodeSigner[] signers = e.getCodeSigners();
+                if (signers == null || signers.length == 0) {
+                    throw new SecurityException("Signed plugin JAR has unsigned entry: "
+                            + name + " in " + jarPath);
+                }
+            }
+        }
     }
 
     private Set<String> loadTrustedPluginFingerprints() {
@@ -1073,8 +1736,41 @@ public final class PluginManager {
             return delegate.beforeLaunch(versionId, accountName);
         }
         @Override
+        public String cancelReason() {
+            return delegate.cancelReason();
+        }
+        @Override
+        public List<String> contributeJvmArgs(String versionId, String accountName) {
+            return delegate.contributeJvmArgs(versionId, accountName);
+        }
+        @Override
+        public List<String> contributeGameArgs(String versionId, String accountName) {
+            return delegate.contributeGameArgs(versionId, accountName);
+        }
+        @Override
+        public Map<String, String> contributeEnv(String versionId, String accountName) {
+            return delegate.contributeEnv(versionId, accountName);
+        }
+        @Override
+        public List<String> contributeClasspathJars(String versionId, String accountName) {
+            return delegate.contributeClasspathJars(versionId, accountName);
+        }
+        @Override
+        public List<String> contributeJavaAgents(String versionId, String accountName) {
+            return delegate.contributeJavaAgents(versionId, accountName);
+        }
+        @Override
         public void afterLaunch(String versionId, int exitCode) {
             delegate.afterLaunch(versionId, exitCode);
+        }
+    }
+
+    private static class TrackedUrlRewriteHook {
+        final String pluginId;
+        final UrlRewriteHook delegate;
+        TrackedUrlRewriteHook(String pluginId, UrlRewriteHook delegate) {
+            this.pluginId = pluginId;
+            this.delegate = delegate;
         }
     }
 
@@ -1094,71 +1790,176 @@ public final class PluginManager {
         @Override
         @SuppressWarnings("unchecked")
         public <T> T getService(Class<T> type) {
-            // 权限校验：敏感服务要求插件声明对应权限
-            String requiredPermission = requiredPermissionFor(type);
-            if (requiredPermission != null) {
-                PluginEntry entry = manager.loadedPlugins.get(pluginId);
-                List<String> perms = (entry != null) ? entry.getInfo().getPermissions() : java.util.Collections.emptyList();
-                if (!perms.contains(requiredPermission)) {
-                    System.err.println("[PluginManager] SECURITY: plugin '" + pluginId
-                            + "' attempted to access " + type.getSimpleName()
-                            + " without declaring permission " + requiredPermission);
-                    throw new SecurityException(
-                            "Plugin '" + pluginId + "' lacks required permission '" + requiredPermission
-                            + "' to access " + type.getSimpleName()
-                            + ". Declare it via 'plugin.permissions=" + requiredPermission
-                            + "' in META-INF/pmcl-plugin.properties.");
-                }
-                // 审计日志：敏感服务访问记录
-                System.err.println("[PluginManager] AUDIT: plugin '" + pluginId
-                        + "' acquired " + type.getSimpleName()
-                        + " (permission=" + requiredPermission + ")");
+            if (type == null) return null;
+            // Core types are never exposed — typed plugin APIs only
+            if (type == LauncherCore.class || type.getName().startsWith("com.pmcl.core.")) {
+                throw new SecurityException(
+                        "Plugin '" + pluginId + "' cannot access " + type.getName()
+                                + " via getService; use typed plugin APIs (VersionsApi, AccountsApi, …).");
             }
-
-            if (type == LauncherCore.class) return (T) manager.core;
-            if (type == com.pmcl.core.preferences.Preferences.class) return (T) manager.core.getPreferences();
-            if (type == com.pmcl.core.version.VersionManager.class) return (T) manager.core.versions();
-            if (type == com.pmcl.core.download.DownloadManager.class) return (T) manager.core.downloads();
-            if (type == com.pmcl.core.launch.LaunchManager.class) return (T) manager.core.launch();
-            if (type == com.pmcl.core.multiplayer.MultiplayerManager.class) return (T) manager.core.multiplayer();
-            if (type == com.pmcl.core.auth.AuthService.class) return (T) manager.core.auth();
-            if (type == com.pmcl.core.install.VersionInstaller.class) return (T) manager.core.install();
-            if (type == com.pmcl.core.modloader.ModLoaderManager.class) return (T) manager.core.modLoaders();
-            if (type == com.pmcl.core.market.ModMarketManager.class) return (T) manager.core.modMarket();
-            if (type == com.pmcl.core.mods.ModManager.class) return (T) manager.core.modManager();
-            if (type == com.pmcl.core.news.NewsClient.class) return (T) manager.core.news();
-            if (type == com.pmcl.core.migration.MigrationManager.class) return (T) manager.core.migration();
-            if (type == com.pmcl.core.runtime.RuntimeManager.class) return (T) manager.core.runtime();
-            if (type == com.pmcl.core.runtime.JavaRuntimeDownloader.class) return (T) manager.core.javaDownloader();
-            if (type == com.pmcl.core.update.SelfUpdater.class) return (T) manager.core.selfUpdater();
-            if (type == com.pmcl.core.gamecontent.WorldManager.class) return (T) manager.core.worlds();
-            if (type == com.pmcl.core.gamecontent.ScreenshotManager.class) return (T) manager.core.screenshots();
-            if (type == com.pmcl.core.gamecontent.ResourcePackManager.class) return (T) manager.core.resourcePacks();
-            if (type == com.pmcl.core.gamecontent.ShaderPackManager.class) return (T) manager.core.shaderPacks();
-            if (type == com.pmcl.core.gamecontent.DatapackManager.class) return (T) manager.core.datapacks();
-            if (type == com.pmcl.core.install.IntegrityChecker.class) return (T) manager.core.integrity();
-            if (type == com.pmcl.core.launch.CrashAnalyzer.class) return (T) manager.core.crashAnalyzer();
-            if (type == com.pmcl.core.launch.ProcessMonitor.class) return (T) manager.core.processMonitor();
-            if (type == com.pmcl.core.launch.LaunchProfileBuilder.class) return (T) manager.core.profileBuilder();
+            if (type == VersionsApi.class) return (T) versions();
+            if (type == InstancesApi.class) return (T) instances();
+            if (type == AccountsApi.class) return (T) accounts();
+            if (type == LaunchApi.class) return (T) launch();
+            if (type == DownloadsApi.class) return (T) downloads();
+            if (type == com.pmcl.plugin.api.DownloadQueueApi.class) return (T) downloadQueue();
+            if (type == ModsApi.class) return (T) mods();
+            if (type == com.pmcl.plugin.api.ModMarketApi.class) return (T) modMarket();
+            if (type == SettingsApi.class) return (T) settings();
+            if (type == UiApi.class) return (T) ui();
+            if (type == NewsApi.class) return (T) news();
+            if (type == I18nApi.class) return (T) i18n();
+            if (type == ModpackApi.class) return (T) modpacks();
+            if (type == com.pmcl.plugin.api.GameContentApi.class) return (T) gameContent();
+            if (type == com.pmcl.plugin.api.RoomsApi.class) return (T) rooms();
+            if (type == com.pmcl.plugin.api.ServersApi.class) return (T) servers();
+            if (type == com.pmcl.plugin.api.JavaRuntimesApi.class) return (T) javaRuntimes();
+            if (type == com.pmcl.plugin.api.NbtApi.class) return (T) nbt();
+            if (type == com.pmcl.plugin.api.CrashLogsApi.class) return (T) crashLogs();
+            if (type == com.pmcl.plugin.api.MusicApi.class) return (T) music();
+            if (type == com.pmcl.plugin.api.StatsApi.class) return (T) stats();
+            if (type == FilesystemApi.class) return (T) filesystem();
+            if (type == SchedulerApi.class) return (T) scheduler();
+            if (type == PluginsApi.class) return (T) plugins();
+            if (type == HttpApi.class) return (T) http();
             return null;
         }
 
-        /**
-         * 返回访问给定服务类型所需的权限名称。返回 null 表示该服务无需特殊权限。
-         * 与 PluginPermission 枚举中的常量名匹配。
-         */
-        private static String requiredPermissionFor(Class<?> type) {
-            // 含 token / 账号凭据
-            if (type == com.pmcl.core.auth.AuthService.class) return "READ_ACCOUNTS";
-            // 可启动/停止 Minecraft 进程
-            if (type == com.pmcl.core.launch.LaunchManager.class) return "CONTROL_LAUNCH";
-            if (type == com.pmcl.core.launch.LaunchProfileBuilder.class) return "CONTROL_LAUNCH";
-            // 可杀死进程
-            if (type == com.pmcl.core.launch.ProcessMonitor.class) return "KILL_PROCESS";
-            // 可替换启动器 JAR
-            if (type == com.pmcl.core.update.SelfUpdater.class) return "SELF_UPDATE";
-            // 其他服务（Preferences/VersionManager/DownloadManager 等）默认开放
-            return null;
+        @Override
+        public VersionsApi versions() {
+            return PluginApiFacades.versions(manager.core, this::requirePermission);
+        }
+
+        @Override
+        public InstancesApi instances() {
+            return PluginApiFacades.instances(manager.core, manager, pluginId, this::requirePermission);
+        }
+
+        @Override
+        public AccountsApi accounts() {
+            return PluginApiFacades.accounts(manager.core, manager, this::requirePermission);
+        }
+
+        @Override
+        public LaunchApi launch() {
+            return PluginApiFacades.launch(manager.core, manager, this::requirePermission);
+        }
+
+        @Override
+        public DownloadsApi downloads() {
+            return PluginApiFacades.downloads(manager.core, manager, pluginId, getDataDir(), this::requirePermission);
+        }
+
+        @Override
+        public com.pmcl.plugin.api.DownloadQueueApi downloadQueue() {
+            return PluginApiFacades.downloadQueue(manager.core, this::requirePermission);
+        }
+
+        @Override
+        public ModsApi mods() {
+            return PluginApiFacades.mods(manager.core, manager, this::requirePermission);
+        }
+
+        @Override
+        public com.pmcl.plugin.api.ModMarketApi modMarket() {
+            return PluginApiFacades.modMarket(manager.core, this::requirePermission);
+        }
+
+        @Override
+        public ModpackApi modpacks() {
+            return PluginApiFacades.modpacks(manager.core, this::requirePermission);
+        }
+
+        @Override
+        public com.pmcl.plugin.api.GameContentApi gameContent() {
+            return PluginApiFacades.gameContent(manager.core, this::requirePermission);
+        }
+
+        @Override
+        public com.pmcl.plugin.api.RoomsApi rooms() {
+            return PluginApiFacades.rooms(manager.core, this::requirePermission);
+        }
+
+        @Override
+        public com.pmcl.plugin.api.ServersApi servers() {
+            return PluginApiFacades.servers(manager.core, this::requirePermission);
+        }
+
+        @Override
+        public com.pmcl.plugin.api.JavaRuntimesApi javaRuntimes() {
+            return PluginApiFacades.javaRuntimes(manager.core, this::requirePermission);
+        }
+
+        @Override
+        public com.pmcl.plugin.api.NbtApi nbt() {
+            return PluginApiFacades.nbt(manager.core, getDataDir(), this::requirePermission);
+        }
+
+        @Override
+        public com.pmcl.plugin.api.CrashLogsApi crashLogs() {
+            return PluginApiFacades.crashLogs(manager.core, this::requirePermission);
+        }
+
+        @Override
+        public com.pmcl.plugin.api.MusicApi music() {
+            return PluginApiFacades.music(manager, this::requirePermission);
+        }
+
+        @Override
+        public com.pmcl.plugin.api.StatsApi stats() {
+            return PluginApiFacades.stats(manager.core, this::requirePermission);
+        }
+
+        @Override
+        public NewsApi news() {
+            return PluginApiFacades.news(manager.core, this::requirePermission);
+        }
+
+        @Override
+        public I18nApi i18n() {
+            return PluginApiFacades.i18n(manager.core, manager, pluginId);
+        }
+
+        @Override
+        public SettingsApi settings() {
+            return PluginApiFacades.settings(manager.core, manager, pluginId, this::requirePermission);
+        }
+
+        @Override
+        public UiApi ui() {
+            return PluginApiFacades.ui(manager, pluginId);
+        }
+
+        @Override
+        public FilesystemApi filesystem() {
+            return PluginApiFacades.filesystem(manager.core, pluginId, getDataDir(), this::requirePermission);
+        }
+
+        @Override
+        public SchedulerApi scheduler() {
+            return PluginApiFacades.scheduler(manager, pluginId);
+        }
+
+        @Override
+        public PluginsApi plugins() {
+            return PluginApiFacades.plugins(manager, this::requirePermission);
+        }
+
+        @Override
+        public HttpApi http() {
+            return PluginApiFacades.http(manager.core, manager, this::requirePermission);
+        }
+
+        private void requirePermission(String requiredPermission) {
+            PluginEntry entry = manager.loadedPlugins.get(pluginId);
+            List<String> perms = (entry != null) ? entry.getInfo().getPermissions() : Collections.emptyList();
+            if (!perms.contains(requiredPermission)) {
+                System.err.println("[PluginManager] SECURITY: plugin '" + pluginId
+                        + "' lacks permission " + requiredPermission);
+                throw new SecurityException(
+                        "Plugin '" + pluginId + "' lacks required permission '" + requiredPermission
+                                + "'. Declare it via 'plugin.permissions=...' in the descriptor.");
+            }
         }
 
         @Override
@@ -1276,7 +2077,143 @@ public final class PluginManager {
                 }
                 RegisteredPage page = new RegisteredPage(pluginId, id, title, content);
                 manager.customPages.computeIfAbsent(pluginId, k -> new ArrayList<>()).add(page);
+                manager.bumpRevision();
             }
+        }
+
+        @Override
+        public void registerSettingsSection(String id, String title, ComposableContent content) {
+            if (id == null || id.isBlank()) {
+                throw new IllegalArgumentException("Settings section id must not be blank (plugin: " + pluginId + ")");
+            }
+            if (!PluginInfo.isValidCommandName(id)) {
+                throw new IllegalArgumentException(
+                        "Invalid settings section id '" + id + "' in plugin '" + pluginId + "'");
+            }
+            if (title == null || title.isBlank()) {
+                throw new IllegalArgumentException(
+                        "Settings section title must not be blank (section: " + id + ", plugin: " + pluginId + ")");
+            }
+            if (content == null) {
+                throw new NullPointerException("Settings section content must not be null");
+            }
+            synchronized (manager) {
+                List<RegisteredPage> existing = manager.customSettingsSections.get(pluginId);
+                if (existing != null) {
+                    for (RegisteredPage p : existing) {
+                        if (p.id.equals(id)) {
+                            throw new IllegalStateException(
+                                    "Duplicate settings section id '" + id + "' in plugin '" + pluginId + "'");
+                        }
+                    }
+                }
+                RegisteredPage section = new RegisteredPage(pluginId, id, title, content);
+                manager.customSettingsSections.computeIfAbsent(pluginId, k -> new ArrayList<>()).add(section);
+                manager.bumpRevision();
+            }
+        }
+
+        @Override
+        public void registerMenuAction(String id, String title, String description, ActionHandler handler) {
+            if (id == null || id.isBlank()) {
+                throw new IllegalArgumentException("Menu action id must not be blank (plugin: " + pluginId + ")");
+            }
+            if (!PluginInfo.isValidCommandName(id)) {
+                throw new IllegalArgumentException("Invalid menu action id '" + id + "' in plugin '" + pluginId + "'");
+            }
+            if (title == null || title.isBlank()) {
+                throw new IllegalArgumentException("Menu action title must not be blank");
+            }
+            if (handler == null) {
+                throw new NullPointerException("Menu action handler must not be null");
+            }
+            synchronized (manager) {
+                List<PluginMenuAction> existing = manager.customMenuActions.get(pluginId);
+                if (existing != null) {
+                    for (PluginMenuAction a : existing) {
+                        if (a.getId().equals(id)) {
+                            throw new IllegalStateException(
+                                    "Duplicate menu action id '" + id + "' in plugin '" + pluginId + "'");
+                        }
+                    }
+                }
+                PluginMenuAction action = new PluginMenuAction(
+                        pluginId, id, title,
+                        description != null ? description : "",
+                        handler);
+                manager.customMenuActions.computeIfAbsent(pluginId, k -> new ArrayList<>()).add(action);
+                manager.bumpRevision();
+            }
+        }
+
+        @Override
+        public void registerStatusBarAction(String id, String title, String description, ActionHandler handler) {
+            if (id == null || id.isBlank()) {
+                throw new IllegalArgumentException("Status bar action id must not be blank (plugin: " + pluginId + ")");
+            }
+            if (!PluginInfo.isValidCommandName(id)) {
+                throw new IllegalArgumentException("Invalid status bar action id '" + id + "' in plugin '" + pluginId + "'");
+            }
+            if (title == null || title.isBlank()) {
+                throw new IllegalArgumentException("Status bar action title must not be blank");
+            }
+            if (handler == null) {
+                throw new NullPointerException("Status bar action handler must not be null");
+            }
+            synchronized (manager) {
+                List<PluginStatusBarAction> existing = manager.customStatusBarActions.get(pluginId);
+                if (existing != null) {
+                    for (PluginStatusBarAction a : existing) {
+                        if (a.getId().equals(id)) {
+                            throw new IllegalStateException(
+                                    "Duplicate status bar action id '" + id + "' in plugin '" + pluginId + "'");
+                        }
+                    }
+                }
+                PluginStatusBarAction action = new PluginStatusBarAction(
+                        pluginId, id, title,
+                        description != null ? description : "",
+                        handler);
+                manager.customStatusBarActions.computeIfAbsent(pluginId, k -> new ArrayList<>()).add(action);
+                manager.bumpRevision();
+            }
+        }
+
+        @Override
+        public void registerHomeCard(HomeCard card) {
+            if (card == null) throw new NullPointerException("HomeCard must not be null");
+            if (card.getId() == null || card.getId().isBlank()) {
+                throw new IllegalArgumentException("HomeCard.id must not be blank");
+            }
+            if (!PluginInfo.isValidCommandName(card.getId())) {
+                throw new IllegalArgumentException("Invalid HomeCard id '" + card.getId() + "'");
+            }
+            if (card.getTitle() == null || card.getTitle().isBlank()) {
+                throw new IllegalArgumentException("HomeCard.title must not be blank");
+            }
+            if (card.getContent() == null) {
+                throw new NullPointerException("HomeCard.content must not be null");
+            }
+            synchronized (manager) {
+                List<HomeCard> existing = manager.customHomeCards.get(pluginId);
+                if (existing != null) {
+                    for (HomeCard c : existing) {
+                        if (c.getId().equals(card.getId())) {
+                            throw new IllegalStateException(
+                                    "Duplicate home card id '" + card.getId() + "' in plugin '" + pluginId + "'");
+                        }
+                    }
+                }
+                manager.customHomeCards.computeIfAbsent(pluginId, k -> new ArrayList<>()).add(card);
+                manager.bumpRevision();
+            }
+        }
+
+        @Override
+        public void registerUrlRewriteHook(UrlRewriteHook hook) {
+            requirePermission("NETWORK");
+            if (hook == null) throw new NullPointerException("UrlRewriteHook must not be null");
+            manager.urlRewriteHooks.add(new TrackedUrlRewriteHook(pluginId, hook));
         }
 
         @Override
@@ -1299,6 +2236,8 @@ public final class PluginManager {
 
         @Override
         public void registerLaunchHook(LaunchHook hook) {
+            requirePermission("CONTROL_LAUNCH");
+            if (hook == null) throw new NullPointerException("LaunchHook must not be null");
             manager.launchHooks.add(new TrackedLaunchHook(pluginId, hook));
         }
 

@@ -2,6 +2,7 @@ package com.pmcl.core.modloader;
 
 import com.pmcl.core.LauncherConfig;
 import com.pmcl.core.download.DownloadManager;
+import com.pmcl.core.install.VersionInstaller;
 
 import java.util.EnumMap;
 import java.util.Map;
@@ -13,9 +14,10 @@ public final class ModLoaderManager {
 
     private final Map<ModLoader, ModLoaderInstaller> installers = new EnumMap<>(ModLoader.class);
 
-    public ModLoaderManager(LauncherConfig config, DownloadManager downloads) {
-        installers.put(ModLoader.FABRIC, new FabricInstaller(config, downloads));
-        installers.put(ModLoader.QUILT, new QuiltInstaller(config, downloads));
+    public ModLoaderManager(LauncherConfig config, DownloadManager downloads,
+                            VersionInstaller versionInstaller) {
+        installers.put(ModLoader.FABRIC, new FabricInstaller(config, downloads, versionInstaller));
+        installers.put(ModLoader.QUILT, new QuiltInstaller(config, downloads, versionInstaller));
         installers.put(ModLoader.FORGE, new ForgeInstaller(config, downloads, false));
         installers.put(ModLoader.NEOFORGE, new ForgeInstaller(config, downloads, true));
         installers.put(ModLoader.OPTIFINE, new OptiFineInstaller(config, downloads));

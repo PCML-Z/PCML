@@ -176,7 +176,8 @@ public final class ModDependencyResolver {
 
                 // 3. 递归处理依赖（仅在此处调用一次 getInstalledModIds，递归内增量更新集合）
                 Set<String> installedModIds = getInstalledModIds(versionId, gameVersion);
-                resolveDependencies(deps, gameVersion, versionId, processing,
+                List<String> preferredLoaders = modFile.getLoaders();
+                resolveDependencies(deps, gameVersion, versionId, preferredLoaders, processing,
                         installed, skippedInstalled, skippedSystem, failed, notFound,
                         onStatus, 0, installedModIds);
 
@@ -205,7 +206,7 @@ public final class ModDependencyResolver {
      * @param installedModIds  已安装 mod 的 modId 集合（可变，递归过程中增量更新）
      */
     private void resolveDependencies(List<String> deps, String gameVersion, String versionId,
-                                     Set<String> processing,
+                                     List<String> preferredLoaders, Set<String> processing,
                                      List<String> installed, List<String> skippedInstalled,
                                      List<String> skippedSystem, List<String> failed,
                                      List<String> notFound, Consumer<String> onStatus,
@@ -245,8 +246,8 @@ public final class ModDependencyResolver {
                     onStatus.accept("查找依赖: " + depId);
                 }
 
-                // 在 Modrinth 上搜索依赖（用 modId 作为 slug）
-                ModFile depFile = findCompatibleMod(depId, gameVersion);
+                // 在 Modrinth 上搜索依赖（用 modId 作为 slug），并按父模组 loader 过滤
+                ModFile depFile = findCompatibleMod(depId, gameVersion, preferredLoaders);
                 if (depFile == null) {
                     notFound.add(depId);
                     processing.remove(depId);
@@ -261,13 +262,16 @@ public final class ModDependencyResolver {
                 installed.add(depId);
                 installedModIds.add(depId); // 更新已安装集合
 
-                // 递归解析依赖的依赖
+                // 递归解析依赖的依赖（沿用父侧 preferredLoaders）
                 Path depJarPath = resolveModsDir(versionId, gameVersion).resolve(depFile.getFileName());
                 if (Files.exists(depJarPath)) {
                     ModMeta depMeta = ModScanner.parseJar(depJarPath);
                     if (depMeta != null && depMeta.getDepends() != null && !depMeta.getDepends().isEmpty()) {
+                        List<String> nextLoaders = (depFile.getLoaders() != null
+                                && !depFile.getLoaders().isEmpty())
+                                ? depFile.getLoaders() : preferredLoaders;
                         resolveDependencies(depMeta.getDepends(), gameVersion, versionId,
-                                processing, installed, skippedInstalled, skippedSystem,
+                                nextLoaders, processing, installed, skippedInstalled, skippedSystem,
                                 failed, notFound, onStatus, depth + 1, installedModIds);
                     }
                 }
@@ -281,16 +285,19 @@ public final class ModDependencyResolver {
 
     /**
      * 在 Modrinth 上查找兼容的模组文件。
-     * 用 modId 作为 slug 直接调用 listFiles，按 gameVersion 过滤取首个。
+     * 用 modId 作为 slug 直接调用 listFiles，按 gameVersion + loader 过滤取首个。
      *
-     * @param modId       依赖 modId
-     * @param gameVersion 目标 MC 版本
+     * @param modId            依赖 modId
+     * @param gameVersion      目标 MC 版本
+     * @param preferredLoaders 父模组加载器列表（可空；非空时要求显式匹配）
      * @return 兼容的 ModFile，未找到返回 null
      */
-    private ModFile findCompatibleMod(String modId, String gameVersion) {
+    private ModFile findCompatibleMod(String modId, String gameVersion,
+                                      List<String> preferredLoaders) {
         // 通过 ModMarketManager 的客户端列表查询
         try {
             List<com.pmcl.core.market.ModMarketClient> clients = marketManager.getClients();
+            boolean requireLoader = preferredLoaders != null && !preferredLoaders.isEmpty();
 
             for (com.pmcl.core.market.ModMarketClient client : clients) {
                 try {
@@ -298,12 +305,29 @@ public final class ModDependencyResolver {
                     List<ModFile> files = client.listFiles(modId).join();
                     if (files == null || files.isEmpty()) continue;
 
-                    // 按 gameVersion 过滤，取第一个兼容文件
+                    // 按 gameVersion + loader 过滤，取第一个兼容文件
                     for (ModFile file : files) {
-                        if (gameVersion == null || gameVersion.isEmpty()
-                                || file.getGameVersions().contains(gameVersion)) {
-                            return file;
+                        boolean gvOk = gameVersion == null || gameVersion.isEmpty()
+                                || (file.getGameVersions() != null
+                                && file.getGameVersions().contains(gameVersion));
+                        if (!gvOk) continue;
+                        if (requireLoader) {
+                            List<String> fl = file.getLoaders();
+                            if (fl == null || fl.isEmpty()) continue;
+                            boolean loaderOk = false;
+                            for (String want : preferredLoaders) {
+                                if (want == null || want.isBlank()) continue;
+                                for (String have : fl) {
+                                    if (have != null && have.equalsIgnoreCase(want)) {
+                                        loaderOk = true;
+                                        break;
+                                    }
+                                }
+                                if (loaderOk) break;
+                            }
+                            if (!loaderOk) continue;
                         }
+                        return file;
                     }
                 } catch (Throwable ignored) {
                     // 该客户端查询失败，尝试下一个

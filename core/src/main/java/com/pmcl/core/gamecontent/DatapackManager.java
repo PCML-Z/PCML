@@ -147,7 +147,8 @@ public final class DatapackManager {
             if (entry == null) return new Datapack(name, zipPath, 0, "", true, disabled);
             String meta;
             try (var in = zip.getInputStream(entry)) {
-                meta = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+                meta = new String(com.pmcl.core.util.SafeZipExtractor.readLimited(in, MAX_MCMETA_BYTES),
+                        java.nio.charset.StandardCharsets.UTF_8);
             }
             return build(name, zipPath, meta, true, disabled);
         } catch (Throwable e) {
@@ -163,11 +164,19 @@ public final class DatapackManager {
                 : dir.getFileName().toString();
         if (!Files.exists(meta)) return new Datapack(name, dir, 0, "", false, disabled);
         try {
-            return build(name, dir, Files.readString(meta, java.nio.charset.StandardCharsets.UTF_8), false, disabled);
+            if (Files.size(meta) > MAX_MCMETA_BYTES) return null;
+            String content;
+            try (var in = Files.newInputStream(meta)) {
+                content = new String(com.pmcl.core.util.SafeZipExtractor.readLimited(in, MAX_MCMETA_BYTES),
+                        java.nio.charset.StandardCharsets.UTF_8);
+            }
+            return build(name, dir, content, false, disabled);
         } catch (Throwable e) {
             return null;
         }
     }
+
+    private static final long MAX_MCMETA_BYTES = 1L * 1024 * 1024;
 
     private Datapack build(String name, Path path, String mcmeta, boolean isZip, boolean disabled) {
         int packFormat = 0;

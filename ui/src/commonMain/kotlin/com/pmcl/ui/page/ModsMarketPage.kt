@@ -4,7 +4,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -598,6 +597,7 @@ private fun PopularCard(
     val displaySummary = if (translateEnabled) translationCache[project.getSummary()] ?: project.getSummary() else project.getSummary()
 
     Surface(
+        onClick = onClick,
         color = MaterialTheme.colorScheme.surfaceVariant,
         shape = RoundedCornerShape(10.dp),
         modifier = Modifier
@@ -605,7 +605,6 @@ private fun PopularCard(
             .onGloballyPositioned { coords ->
                 onPositioned?.invoke(coords.boundsInWindow())
             }
-            .clickable(onClick = onClick)
     ) {
         Column(Modifier.padding(10.dp)) {
             // 图标
@@ -979,6 +978,7 @@ private fun SearchResultCard(
     val displaySummary = if (translateEnabled) translationCache[project.getSummary()] ?: project.getSummary() else project.getSummary()
 
     Surface(
+        onClick = onClick,
         color = MaterialTheme.colorScheme.surfaceVariant,
         shape = RoundedCornerShape(8.dp),
         modifier = Modifier
@@ -986,7 +986,6 @@ private fun SearchResultCard(
             .onGloballyPositioned { coords ->
                 onPositioned?.invoke(coords.boundsInWindow())
             }
-            .clickable(onClick = onClick)
     ) {
         Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
             // 小图标

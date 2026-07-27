@@ -31,6 +31,10 @@ import androidx.compose.ui.window.rememberWindowState
 import com.pmcl.ui.page.PerfHudWindow
 import com.pmcl.ui.page.TopBarSearchField
 import com.pmcl.ui.viewmodel.LauncherViewModel
+import com.pmcl.ui.viewmodel.playNextMusic
+import com.pmcl.ui.viewmodel.playPreviousMusic
+import com.pmcl.ui.viewmodel.stopMusic
+import com.pmcl.ui.viewmodel.toggleMusicPlayPause
 import java.awt.Frame
 import java.awt.MouseInfo
 import java.awt.Point
@@ -191,16 +195,31 @@ fun main() = application {
                 frame.dropTarget = null
             }
         }
-        // Ctrl+K 全局快捷键：聚焦搜索框
+        // Ctrl+K 全局快捷键 + 系统媒体键（窗口焦点内）
         Box(
             Modifier.fillMaxSize().onPreviewKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown &&
-                    event.key == Key.K &&
-                    (event.isCtrlPressed || event.isMetaPressed)
-                ) {
-                    searchFocusRequester.requestFocus()
-                    true
-                } else false
+                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                when {
+                    event.key == Key.K && (event.isCtrlPressed || event.isMetaPressed) -> {
+                        searchFocusRequester.requestFocus()
+                        true
+                    }
+                    event.key == Key.MediaPlayPause ||
+                    event.key == Key.MediaPlay ||
+                    event.key == Key.MediaPause -> {
+                        vm.toggleMusicPlayPause(); true
+                    }
+                    event.key == Key.MediaNext -> {
+                        vm.playNextMusic(); true
+                    }
+                    event.key == Key.MediaPrevious -> {
+                        vm.playPreviousMusic(); true
+                    }
+                    event.key == Key.MediaStop -> {
+                        vm.stopMusic(); true
+                    }
+                    else -> false
+                }
             }
         ) {
             // 最大化状态：提前声明，供 parallaxBg / borderless 两个块共享

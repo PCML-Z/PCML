@@ -147,6 +147,18 @@ fun LaunchPage(vm: LauncherViewModel) {
         }
     }
 
+    // 插件主页卡片（随 plugin revision 刷新）
+    var pluginRev by remember { mutableStateOf(0L) }
+    LaunchedEffect("plugin-home-cards") {
+        while (true) {
+            kotlinx.coroutines.delay(1000)
+            pluginRev = try { vm.core.plugins().revision } catch (_: Throwable) { 0L }
+        }
+    }
+    val homeCards = remember(pluginRev) {
+        try { vm.core.plugins().customHomeCards } catch (_: Throwable) { emptyList() }
+    }
+
     // 远程版本分类筛选状态（提到 LazyColumn 外，供 items() 引用 filtered 列表）
     var versionCategory by remember { mutableStateOf(1) }
     var searchQuery by remember { mutableStateOf("") }
@@ -205,6 +217,36 @@ fun LaunchPage(vm: LauncherViewModel) {
                 Text(I18n.t("launch.installed_count", localInfos.size),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
+            }
+
+            // ===== 插件主页卡片 =====
+            if (homeCards.isNotEmpty()) {
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        for (card in homeCards) {
+                            Surface(
+                                shape = MaterialTheme.shapes.medium,
+                                tonalElevation = 1.dp,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(Modifier.padding(12.dp)) {
+                                    Text(card.title, style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.SemiBold)
+                                    if (card.subtitle.isNotBlank()) {
+                                        Text(
+                                            card.subtitle,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.outline
+                                        )
+                                    }
+                                    Spacer(Modifier.height(6.dp))
+                                    // Compose 不允许 try/catch 包裹 @Composable；异常由宿主 SafePluginPage 同类策略承接
+                                    card.content.invoke()
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             // ===== 扫描进度/结果反馈 =====
@@ -650,7 +692,7 @@ fun LaunchPage(vm: LauncherViewModel) {
             Button(
                 onClick = {
                     if (isDownloadMode) {
-                        selected?.let { vm.enqueueVersionInstall(it) }
+                        selected?.let { vm.installVersion(it) }
                     } else {
                         vm.launch()
                     }

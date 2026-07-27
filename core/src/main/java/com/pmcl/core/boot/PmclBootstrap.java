@@ -10,18 +10,16 @@ import java.util.List;
 /**
  * 旧版本启动入口类：解决 LaunchWrapper 在 Java 9+ 上的 URLClassLoader 兼容问题。
  * <p>
- * LaunchWrapper（Forge 1.6-1.12.2 使用）的 Launch.<init> 执行：
- *   ((URLClassLoader) ClassLoader.getSystemClassLoader()).getURLs()
- * Java 9+ 的 AppClassLoader 不再继承 URLClassLoader，强转失败。
+ * LaunchWrapper 1.12 的 Launch.&lt;init&gt; 执行：
+ *   ((URLClassLoader) getClass().getClassLoader()).getURLs()
  * <p>
- * 此问题在架构层面无法绕过（Java 9+ 模块系统限制），只能：
- * 1. 用 Java 8 启动（推荐）
- * 2. 跳过 LaunchWrapper，直接调用 Minecraft 主类（仅原版/非 Forge 版本可用）
+ * 注意：不能把 AppClassLoader 当作 parent。游戏 jar 已在 {@code -cp} 上时，
+ * parent-first 会让 Launch 被 AppClassLoader 加载，{@code getClassLoader()} 仍不是
+ * URLClassLoader，强转失败。因此 parent 使用 PlatformClassLoader，由本 URLClassLoader
+ * 亲自加载 LaunchWrapper / 游戏类。
  * <p>
- * 本类作为入口点，用 URLClassLoader 加载游戏类，并尝试：
- * - 直接调用原主类的 main 方法
- * - 如果原主类是 LaunchWrapper 且强转失败，回退到直接调用 Minecraft 主类
- *   （跳过 Forge mod 加载，原版可玩，Forge 整合包需 Java 8）
+ * 更稳妥的做法是同时替换为 Java 9+ LaunchWrapper（见 {@code RetroWrapperSupport}），
+ * 本类作为双保险保留。
  */
 public class PmclBootstrap {
 
@@ -34,11 +32,13 @@ public class PmclBootstrap {
 
     public static void main(String[] args) throws Exception {
         URL[] urls = parseClasspath();
-        ClassLoader sysLoader = ClassLoader.getSystemClassLoader();
-        URLClassLoader gameLoader = new URLClassLoader(urls, sysLoader);
+        // Platform parent: java.* 仍可用，但不会抢先加载 classpath 上的游戏/LaunchWrapper 类
+        ClassLoader parent = ClassLoader.getPlatformClassLoader();
+        URLClassLoader gameLoader = new URLClassLoader(urls, parent);
         Thread.currentThread().setContextClassLoader(gameLoader);
 
-        System.err.println("[PmclBootstrap] URLClassLoader 已创建 (urls=" + urls.length + ")");
+        System.err.println("[PmclBootstrap] URLClassLoader 已创建 (urls=" + urls.length
+                + ", parent=platform)");
 
         String mainClassName = System.getProperty("pmcl.launch.mainclass",
                 "net.minecraft.launchwrapper.Launch");
@@ -53,9 +53,21 @@ public class PmclBootstrap {
             if (cause instanceof ClassCastException
                     && cause.getMessage() != null
                     && cause.getMessage().contains("URLClassLoader")) {
-                // LaunchWrapper 强转失败，尝试直接调用 Minecraft 主类
+                boolean hasTweaker = false;
+                for (String a : args) {
+                    if ("--tweakClass".equals(a)) {
+                        hasTweaker = true;
+                        break;
+                    }
+                }
                 System.err.println("[PmclBootstrap] LaunchWrapper URLClassLoader 强转失败");
-                System.err.println("[PmclBootstrap] 尝试直接调用 Minecraft 主类（跳过 Forge）");
+                if (hasTweaker) {
+                    throw new RuntimeException(
+                            "[PmclBootstrap] LaunchWrapper 无法在当前 Java 上运行，且存在 --tweakClass"
+                                    + "（如 OptiFine/Forge），不能跳过。请改用 Java 8，或确保已注入 Java 9+ LaunchWrapper。",
+                            cause);
+                }
+                System.err.println("[PmclBootstrap] 尝试直接调用 Minecraft 主类（跳过 Forge/OptiFine）");
                 tryDirectMinecraftLaunch(args, gameLoader);
             } else {
                 throw e;

@@ -135,7 +135,7 @@ public final class LauncherCore {
         this.runtimeManager = new RuntimeManager();
         this.launchManager = new LaunchManager(config, preferences);
         this.versionInstaller = new VersionInstaller(config, versionManager, downloadManager);
-        this.modLoaderManager = new ModLoaderManager(config, downloadManager);
+        this.modLoaderManager = new ModLoaderManager(config, downloadManager, versionInstaller);
         this.modMarketManager = new ModMarketManager(config, downloadManager);
         this.modManager = new ModManager(config.getWorkDir().resolve("mods"));
         this.modpackManager = new ModpackManager(config, downloadManager, versionInstaller,
@@ -200,6 +200,12 @@ public final class LauncherCore {
         // Inject plugin manager into launch manager for hooks/events
         if (this.pluginManager != null) {
             this.launchManager.setPluginManager(this.pluginManager);
+            if (this.multiplayerManager != null) {
+                this.multiplayerManager.setPluginManager(this.pluginManager);
+            }
+            if (this.downloadQueue != null) {
+                this.downloadQueue.setPluginManager(this.pluginManager);
+            }
         }
 
         // 应用持久化的语言偏好（失败不中断）
@@ -387,4 +393,52 @@ public final class LauncherCore {
     public PluginManager plugins() { return pluginManager; }
 
     public InstanceManager instances() { return instanceManager; }
+
+    /**
+     * 统一关闭内核子系统（下载队列、网络、启动、鉴权、模组检查等）。
+     * 幂等；供 UI / Companion / 测试入口在退出前调用，避免孤儿线程与连接泄漏。
+     */
+    public void shutdown() {
+        safeShutdown("multiplayer", () -> {
+            if (multiplayerManager != null) multiplayerManager.leaveRoom();
+        });
+        safeShutdown("friend", () -> {
+            if (friendManager != null) friendManager.close();
+        });
+        safeShutdown("githubSync", () -> {
+            if (githubSync != null) githubSync.close();
+        });
+        safeShutdown("downloadQueue", () -> {
+            if (downloadQueue != null) downloadQueue.shutdown();
+        });
+        safeShutdown("launch", () -> {
+            if (launchManager != null) launchManager.shutdown();
+        });
+        safeShutdown("modUpdateChecker", () -> {
+            if (modUpdateChecker != null) modUpdateChecker.shutdown();
+        });
+        safeShutdown("modDependencyResolver", () -> {
+            if (modDependencyResolver != null) modDependencyResolver.shutdown();
+        });
+        safeShutdown("downloads", () -> {
+            if (downloadManager != null) downloadManager.shutdown();
+        });
+        safeShutdown("auth", () -> {
+            if (authService != null) authService.shutdown();
+        });
+        safeShutdown("preferences", () -> {
+            if (preferences != null) preferences.shutdown();
+        });
+        safeShutdown("plugins", () -> {
+            if (pluginManager != null) pluginManager.close();
+        });
+    }
+
+    private static void safeShutdown(String name, Runnable action) {
+        try {
+            action.run();
+        } catch (Throwable e) {
+            System.err.println("[LauncherCore] shutdown " + name + " 失败: " + e.getMessage());
+        }
+    }
 }

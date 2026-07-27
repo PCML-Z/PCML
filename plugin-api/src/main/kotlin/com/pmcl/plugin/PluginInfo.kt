@@ -24,7 +24,7 @@ package com.pmcl.plugin
  * | `plugin.version`     | Semantic version `X.Y.Z` or `X.Y.Z-prerelease`        |
  * | `plugin.author`      | 1-64 chars, non-blank                                  |
  * | `plugin.description` | 1-256 chars, non-blank                                 |
- * | `plugin.api-version` | Must equal `1.0` (the current API version)             |
+ * | `plugin.api-version` | Must be `1.0`–`1.5`                                      |
  * | `plugin.main-class`  | Valid Java FQN, e.g. `com.example.MyPlugin`            |
  *
  * ### Optional Fields
@@ -107,7 +107,10 @@ data class PluginInfo(
     val permissions: List<String> = emptyList()
 ) {
     companion object {
-        const val SUPPORTED_API_VERSION = "1.0"
+        const val SUPPORTED_API_VERSION = "1.6"
+
+        /** Accepted API versions (additive; newer hosts accept older plugins). */
+        val SUPPORTED_API_VERSIONS: Set<String> = setOf("1.0", "1.1", "1.2", "1.3", "1.4", "1.5", "1.6")
         const val PROPERTIES_PATH = "META-INF/pmcl-plugin.properties"
 
         // ==================== Property Keys ====================
@@ -239,8 +242,8 @@ data class PluginInfo(
         }
 
         // --- API Version ---
-        require(apiVersion == SUPPORTED_API_VERSION) {
-            "plugin.api-version must be '$SUPPORTED_API_VERSION' (got '$apiVersion'). " +
+        require(apiVersion in SUPPORTED_API_VERSIONS) {
+            "plugin.api-version must be one of $SUPPORTED_API_VERSIONS (got '$apiVersion'). " +
             "This plugin was built for a different PMCL plugin API version."
         }
 

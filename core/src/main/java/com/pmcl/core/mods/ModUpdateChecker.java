@@ -27,7 +27,7 @@ import java.util.function.Consumer;
  *   <li>用 modId 作为 slug 直接调用 Modrinth {@code /project/{slug}/version}（多数 fabric mod 的 modId 即 slug）</li>
  *   <li>失败则用 {@code search(modId)} 搜索，取 slug 完全匹配或首个结果</li>
  *   <li>按 gameVersion + loader 过滤版本列表，取首个（API 默认按日期倒序）</li>
- *   <li>比较市场最新文件 fileName 与本地 jar 文件名，不同则认为有更新</li>
+ *   <li>比较本地 mod 版本号与远程文件名中的版本提示；无可靠版本则不提示更新</li>
  * </ol>
  * <p>
  * 一键更新：删除旧 jar 文件 + 下载新 jar（复用 {@link ModMarketManager#installMod}）。
@@ -195,16 +195,16 @@ public final class ModUpdateChecker {
                     normalizeLoader(mod.getLoader()), 5).join();
             if (results == null || results.isEmpty()) return null;
 
-            // 优先找 slug == modId 的项目
+            // 仅接受 slug/id 精确匹配，禁止「取第一个」误更新为无关模组
             for (ModProject p : results) {
                 if (modId.equalsIgnoreCase(p.getSlug()) || modId.equalsIgnoreCase(p.getId())) {
                     project = p;
                     break;
                 }
             }
-            // fallback 取第一个
             if (project == null) {
-                project = results.get(0);
+                return new UpdateInfo(mod, null, null, source, false,
+                        "未找到与 modId 匹配的项目（已拒绝模糊匹配）");
             }
             files = client.listFiles(project.getId()).join();
         }
@@ -219,9 +219,9 @@ public final class ModUpdateChecker {
         for (ModFile f : files) {
             boolean gvMatch = gameVersion == null || gameVersion.isEmpty()
                     || f.getGameVersions().contains(gameVersion);
+            // 要求显式 loader 匹配；空 loaders 不再视为通配（避免 Forge jar 推给 Fabric）
             boolean loaderMatch = loader == null || loader.isEmpty()
-                    || f.getLoaders().contains(loader)
-                    || f.getLoaders().isEmpty(); // 部分文件无 loader 标记
+                    || (f.getLoaders() != null && f.getLoaders().contains(loader));
             if (gvMatch && loaderMatch) {
                 compatible.add(f);
             }
@@ -235,16 +235,51 @@ public final class ModUpdateChecker {
         // 步骤4：取最新文件（列表通常按日期倒序，取第一个）
         ModFile latest = compatible.get(0);
 
-        // 步骤5：比较文件名判断是否有更新
-        String localJar = mod.getJarFile();
-        String remoteName = latest.getFileName();
-        boolean hasUpdate = !localJar.equalsIgnoreCase(remoteName);
-
-        String reason = hasUpdate
-                ? "新版本: " + remoteName
-                : "已是最新";
+        // 步骤5：优先用版本号判断；禁止仅凭文件名不同就判定有更新（重命名误报）
+        String localJar = mod.getJarFile() != null ? mod.getJarFile() : "";
+        String remoteName = latest.getFileName() != null ? latest.getFileName() : "";
+        String localVer = mod.getVersion();
+        boolean hasUpdate;
+        String reason;
+        if (!localJar.isEmpty() && localJar.equalsIgnoreCase(remoteName)) {
+            hasUpdate = false;
+            reason = "已是最新";
+        } else if (localVer != null && !localVer.isBlank()
+                && !"unknown".equalsIgnoreCase(localVer)) {
+            String remoteVer = extractVersionHint(remoteName);
+            if (remoteVer != null && localVer.equalsIgnoreCase(remoteVer)) {
+                hasUpdate = false;
+                reason = "已是最新 (v" + localVer + ")";
+            } else if (remoteVer != null) {
+                hasUpdate = true;
+                reason = "新版本: " + remoteVer + " (" + remoteName + ")";
+            } else {
+                // 远程文件名无法解析版本：不因文件名不同而 fail-open
+                hasUpdate = false;
+                reason = "无法从远程文件名解析版本，跳过更新提示";
+            }
+        } else {
+            hasUpdate = false;
+            reason = "本地无可靠版本号，跳过文件名比对";
+        }
 
         return new UpdateInfo(mod, project, latest, source, hasUpdate, reason);
+    }
+
+    /** 从 jar 文件名提取版本提示：取最后一个以数字开头的 `-` 分段。 */
+    private static String extractVersionHint(String fileName) {
+        if (fileName == null || fileName.isBlank()) return null;
+        String base = fileName;
+        int dot = base.lastIndexOf('.');
+        if (dot > 0) base = base.substring(0, dot);
+        String[] parts = base.split("[-_]");
+        for (int i = parts.length - 1; i >= 0; i--) {
+            String p = parts[i];
+            if (p.isEmpty()) continue;
+            char c = p.charAt(0);
+            if (c >= '0' && c <= '9') return p;
+        }
+        return null;
     }
 
     /**

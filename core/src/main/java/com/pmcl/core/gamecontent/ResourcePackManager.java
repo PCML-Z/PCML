@@ -187,7 +187,11 @@ public final class ResourcePackManager {
             return new Pack(display, dir, 0, "", false, disabled, null);
         }
         try {
-            String content = Files.readString(meta, java.nio.charset.StandardCharsets.UTF_8);
+            if (Files.size(meta) > MAX_MCMETA_BYTES) return null;
+            String content;
+            try (var in = Files.newInputStream(meta)) {
+                content = readAll(in);
+            }
             return buildPack(display, dir, content, false, disabled);
         } catch (Throwable e) {
             return null;
@@ -221,7 +225,10 @@ public final class ResourcePackManager {
         return s.toLowerCase(java.util.Locale.ROOT).endsWith(".zip") ? s.substring(0, s.length() - 4) : s;
     }
 
+    private static final long MAX_MCMETA_BYTES = 1L * 1024 * 1024;
+
     private static String readAll(InputStream in) throws IOException {
-        return new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        return new String(com.pmcl.core.util.SafeZipExtractor.readLimited(in, MAX_MCMETA_BYTES),
+                java.nio.charset.StandardCharsets.UTF_8);
     }
 }

@@ -5,6 +5,8 @@ import java.util.Base64;
 import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -40,6 +42,7 @@ public final class MultiplayerManager {
     private final EasyTierManager easyTier;
     private final ConnectXManager connectX;
     private final TerracottaManager terracotta;
+    private volatile com.pmcl.core.plugin.PluginManager pluginManager;
     private volatile Backend backend = Backend.TERRACOTTA;
     private volatile State state = State.IDLE;
     private volatile String virtualIp = "";
@@ -56,11 +59,39 @@ public final class MultiplayerManager {
     private volatile String connectxBinaryPath = "";
     private volatile String connectxServerAddress = "";
     private volatile int connectxServerPort = 3535;
+    /** ConnectX CONNECTING 看门狗代数：CONNECTED/FAILED/leave 时递增作废 */
+    private final AtomicLong connectingWatchGen = new AtomicLong(0);
+    private static final long CONNECTX_CONNECTING_TIMEOUT_MS = 90_000L;
 
     public MultiplayerManager() {
         this.easyTier = new EasyTierManager();
         this.connectX = new ConnectXManager();
         this.terracotta = new TerracottaManager();
+    }
+
+    /** Optional plugin event bus (set by LauncherCore after PluginManager init). */
+    public void setPluginManager(com.pmcl.core.plugin.PluginManager pluginManager) {
+        this.pluginManager = pluginManager;
+    }
+
+    private void fireRoomCreated(String roomCode, String virtualIp) {
+        com.pmcl.core.plugin.PluginManager pm = pluginManager;
+        if (pm == null) return;
+        try {
+            pm.fireEvent(new com.pmcl.plugin.RoomCreatedEvent(
+                    roomCode != null ? roomCode : "",
+                    virtualIp != null ? virtualIp : ""));
+        } catch (Throwable ignored) {}
+    }
+
+    private void fireRoomJoined(String roomCode, String virtualIp) {
+        com.pmcl.core.plugin.PluginManager pm = pluginManager;
+        if (pm == null) return;
+        try {
+            pm.fireEvent(new com.pmcl.plugin.RoomJoinedEvent(
+                    roomCode != null ? roomCode : "",
+                    virtualIp != null ? virtualIp : ""));
+        } catch (Throwable ignored) {}
     }
 
     /** 同步 ConnectX 二进制与服务器配置（偏好变更时调用） */
@@ -152,8 +183,29 @@ public final class MultiplayerManager {
         return startEasyTier(onProgress);
     }
 
+    /** ConnectX 进入 CONNECTING 后若迟迟未解析到 CONNECTED，超时失败避免永久 busy */
+    private void armConnectXConnectingWatchdog() {
+        final long gen = connectingWatchGen.incrementAndGet();
+        CompletableFuture.delayedExecutor(CONNECTX_CONNECTING_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                .execute(() -> {
+                    synchronized (MultiplayerManager.this) {
+                        if (gen != connectingWatchGen.get()) return;
+                        if (state == State.CONNECTING && backend == Backend.CONNECTX) {
+                            state = State.FAILED;
+                            lastError = "ConnectX 连接超时：未确认房间就绪，请重试或检查网络";
+                            try { connectX.stop(); } catch (Throwable ignored) {}
+                        }
+                    }
+                });
+    }
+
+    private void cancelConnectingWatchdog() {
+        connectingWatchGen.incrementAndGet();
+    }
+
     /** 离开当前房间 */
     public synchronized void leaveRoom() {
+        cancelConnectingWatchdog();
         boolean cleanupOk = true;
         String cleanupError = "";
         if (backend == Backend.TERRACOTTA) {
@@ -240,6 +292,7 @@ public final class MultiplayerManager {
                     // 从状态 JSON 提取房间码
                     currentRoomCode = extractField(json, "room");
                     state = State.CONNECTED;
+                    fireRoomCreated(currentRoomCode, localMcAddr);
                     if (onProgress != null) onProgress.accept("✓ 房间已创建，房间码：" + currentRoomCode
                         + "\n⚠ 重要提示："
                         + "\n1. 请保持 PMCL 运行，不要点击「离开房间」"
@@ -276,6 +329,7 @@ public final class MultiplayerManager {
                     // 从状态 JSON 提取本地 MC 地址（如 127.0.0.1:25565）
                     localMcAddr = extractField(json, "url");
                     state = State.CONNECTED;
+                    fireRoomJoined(currentRoomCode, localMcAddr);
                     if (onProgress != null) onProgress.accept("✓ 已加入房间，MC 地址：" + localMcAddr);
                 })
                 .exceptionally(e -> {
@@ -318,6 +372,7 @@ public final class MultiplayerManager {
         lastError = "";
         virtualIp = "";
         currentRoomShortId = "";
+        armConnectXConnectingWatchdog();
         return connectX.start(binaryPath, serverAddr, serverPort, line -> {
                     if (onProgress != null) onProgress.accept(line);
                     parseConnectXOutput(line);
@@ -331,6 +386,7 @@ public final class MultiplayerManager {
                     state = State.CONNECTING;
                 })
                 .exceptionally(e -> {
+                    cancelConnectingWatchdog();
                     state = State.FAILED;
                     lastError = e.getCause() != null ? e.getCause().getMessage() : e.getMessage();
                     try { connectX.stop(); } catch (Throwable ignored) {}
@@ -371,6 +427,7 @@ public final class MultiplayerManager {
             lastError = "";
             virtualIp = "";
             currentRoomShortId = shortId;
+            armConnectXConnectingWatchdog();
             return connectX.start(binaryPath, addr, port, line -> {
                         if (onProgress != null) onProgress.accept(line);
                         parseConnectXOutput(line);
@@ -380,6 +437,7 @@ public final class MultiplayerManager {
                         return connectX.joinRoom(shortId, "");
                     })
                     .exceptionally(e -> {
+                        cancelConnectingWatchdog();
                         state = State.FAILED;
                         lastError = e.getCause() != null ? e.getCause().getMessage() : e.getMessage();
                         try { connectX.stop(); } catch (Throwable ignored) {}
@@ -455,6 +513,9 @@ public final class MultiplayerManager {
                             if (!ip.isEmpty()) {
                                 virtualIp = ip;
                                 state = State.CONNECTED;
+                                String code = !currentRoomCode.isEmpty() ? currentRoomCode
+                                        : (!currentNetworkName.isEmpty() ? currentNetworkName : "easytier");
+                                fireRoomCreated(code, virtualIp);
                                 if (onProgress != null) onProgress.accept("✓ 虚拟 IP：" + ip);
                                 break;
                             }
@@ -520,13 +581,22 @@ public final class MultiplayerManager {
             currentRoomShortId = connectX.getRoomShortId();
             if (!currentRoomShortId.isEmpty()) {
                 state = State.CONNECTED;
+                cancelConnectingWatchdog();
+                if (lower.contains("create")) {
+                    fireRoomCreated(currentRoomShortId, virtualIp);
+                } else {
+                    fireRoomJoined(currentRoomShortId, virtualIp);
+                }
             }
         }
         // 虚拟 IP
         String ip = connectX.getVirtualIp();
         if (!ip.isEmpty()) {
             virtualIp = ip;
-            if (state == State.CONNECTING) state = State.CONNECTED;
+            if (state == State.CONNECTING) {
+                state = State.CONNECTED;
+                cancelConnectingWatchdog();
+            }
         }
         // 错误
         if (lower.contains("error") || lower.contains("failed")) {

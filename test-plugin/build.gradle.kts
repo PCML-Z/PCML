@@ -1,5 +1,6 @@
 plugins {
     alias(libs.plugins.kotlin.jvm)
+    alias(libs.plugins.compose.compiler)
 }
 
 java {
@@ -14,8 +15,11 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
 dependencies {
     // Plugin API (compileOnly — provided by PMCL at runtime)
     compileOnly(project(":plugin-api"))
-    // Core (compileOnly — only needed if the plugin accesses LauncherCore)
-    compileOnly(project(":core"))
+    // Compose for plugin pages / settings sections (provided by host)
+    compileOnly("org.jetbrains.compose.runtime:runtime:${libs.versions.compose.multiplatform.get()}")
+    compileOnly("org.jetbrains.compose.foundation:foundation:${libs.versions.compose.multiplatform.get()}")
+    compileOnly("org.jetbrains.compose.material3:material3:${libs.versions.compose.multiplatform.get()}")
+    compileOnly("org.jetbrains.compose.ui:ui:${libs.versions.compose.multiplatform.get()}")
 }
 
 tasks.jar {

@@ -165,7 +165,7 @@ fun LockscreenLaunchPage(
                         Button(
                             onClick = {
                                 if (isDownloadMode) {
-                                    selectedVersion?.let { vm.enqueueVersionInstall(it) }
+                                    selectedVersion?.let { vm.installVersion(it) }
                                 } else {
                                     vm.launch()
                                 }

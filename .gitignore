@@ -39,6 +39,8 @@ out/
 !gradle/wrapper/gradle-wrapper.jar
 !**/lib/*.jar
 !**/src/**/*.jar
+# Bundled RetroWrapper translation deps
+!core/src/main/resources/com/pmcl/core/retrowrapper/*.jar
 
 # Compose Desktop packaging
 ui/compose/

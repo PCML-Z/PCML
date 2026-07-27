@@ -47,6 +47,8 @@ fun LauncherViewModel.checkModUpdates() {
             } else {
                 I18n.t("status.mod_updates_all_latest")
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Throwable) {
             _status.value = I18n.t("status.check_mod_updates_failed", e.message ?: I18n.t("common.unknown"))
         } finally {
@@ -83,6 +85,8 @@ fun LauncherViewModel.updateMod(info: ModUpdateChecker.UpdateInfo) {
             _status.value = I18n.t("status.mod_update_complete", info.displayName())
             // 刷新已安装模组列表
             refreshInstalledMods()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Throwable) {
             _status.value = I18n.t("status.mod_update_failed", e.message ?: I18n.t("common.unknown"))
         } finally {
@@ -116,6 +120,8 @@ fun LauncherViewModel.updateAllMods() {
             refreshInstalledMods()
             // 重新检测一次
             checkModUpdates()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Throwable) {
             _status.value = I18n.t("status.batch_update_failed", e.message ?: I18n.t("common.unknown"))
         } finally {

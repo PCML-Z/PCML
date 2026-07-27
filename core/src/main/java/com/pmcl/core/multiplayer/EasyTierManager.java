@@ -113,7 +113,12 @@ public final class EasyTierManager {
                 String githubPath = "EasyTier/EasyTier/releases/download/" + info.version + "/" + assetName;
                 Path zip = binaryDir.resolve(assetName);
                 if (progress != null) progress.accept("正在下载 " + assetName);
-                downloadFile(githubPath, zip, progress);
+                Long expectedSize = info.assetSizes.get(assetName);
+                // 流式上限：有元数据用 expected+1MB 余量；否则硬顶 256MB，避免校验前写满磁盘
+                long maxDownload = (expectedSize != null && expectedSize > 0)
+                        ? expectedSize + 1024L * 1024
+                        : 256L * 1024 * 1024;
+                downloadFile(githubPath, zip, progress, maxDownload);
                 // 完整性校验：easytier-core 二进制会访问虚拟网卡所有流量，
                 // 若被镜像投毒可窃取凭据/横向移动，必须校验 size 与 SHA-256 digest（缺一不可）。
                 verifyDownloadIntegrity(zip, assetName, info, progress);
@@ -609,7 +614,8 @@ public final class EasyTierManager {
      * @param target     目标文件路径
      * @param progress   进度回调（可空）
      */
-    private void downloadFile(String githubPath, Path target, Consumer<String> progress) throws IOException {
+    private void downloadFile(String githubPath, Path target, Consumer<String> progress,
+                              long maxBytes) throws IOException {
         Files.createDirectories(target.getParent());
         IOException lastError = null;
         for (int mi = 0; mi < MIRROR_TEMPLATES.size(); mi++) {
@@ -635,8 +641,23 @@ public final class EasyTierManager {
                             throw new IOException("HTTP " + resp.code());
                         }
                         if (resp.body() == null) throw new IOException("响应体为空");
-                        try (InputStream in = resp.body().byteStream()) {
-                            Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
+                        long cl = resp.body().contentLength();
+                        if (cl > maxBytes) {
+                            throw new IOException("下载过大 (" + cl + " > " + maxBytes + ")");
+                        }
+                        Path tmp = target.resolveSibling(target.getFileName() + ".dl-tmp");
+                        try {
+                            try (InputStream in = resp.body().byteStream()) {
+                                com.pmcl.core.util.SafeZipExtractor.copyLimited(in, tmp, maxBytes);
+                            }
+                            try {
+                                Files.move(tmp, target, StandardCopyOption.ATOMIC_MOVE,
+                                        StandardCopyOption.REPLACE_EXISTING);
+                            } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                                Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
+                            }
+                        } finally {
+                            try { Files.deleteIfExists(tmp); } catch (IOException ignored) {}
                         }
                     }
                     // 校验下载内容是有效 zip（魔数 PK\x03\x04），避免镜像返回 200 但内容是 HTML 错误页

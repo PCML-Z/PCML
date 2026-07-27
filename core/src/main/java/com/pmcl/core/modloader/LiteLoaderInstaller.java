@@ -6,7 +6,10 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.pmcl.core.LauncherConfig;
 import com.pmcl.core.download.DownloadManager;
+import com.pmcl.core.install.InstallInterruptedException;
 import com.pmcl.core.install.InstallProgress;
+import com.pmcl.core.install.VersionStaging;
+import com.pmcl.core.util.Exceptions;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -139,19 +142,28 @@ public final class LiteLoaderInstaller implements ModLoaderInstaller {
                 JsonObject versionJson = buildVersionJson(gameVersion, loaderVersion,
                         versionId, artefact, versionNode, isSnapshot);
 
-                // 3. 写入 versions/{id}/{id}.json
-                Path versionDir = config.getVersionsDir().resolve(versionId);
-                Files.createDirectories(versionDir);
-                Files.writeString(versionDir.resolve(versionId + ".json"),
-                        versionJson.toString(), java.nio.charset.StandardCharsets.UTF_8);
+                // 3. 写入 staging 再原子提升
+                Path staging = VersionStaging.writeVersionJson(
+                        config.getVersionsDir(), versionId, versionJson.toString());
+                VersionStaging.promote(config.getVersionsDir(), versionId, staging);
 
                 if (onProgress != null) onProgress.accept(new InstallProgress(
                         InstallProgress.Stage.DONE, 1, 1,
                         "LiteLoader 安装完成: " + versionId));
-            } catch (IOException e) {
+            } catch (Exception e) {
+                String id = "LiteLoader-" + loaderVersion;
+                if (!InstallInterruptedException.isInterrupted(e)) {
+                    VersionStaging.discard(config.getVersionsDir(), id);
+                }
+                String detail = Exceptions.rootMessage(e);
                 if (onProgress != null) onProgress.accept(new InstallProgress(
-                        InstallProgress.Stage.FAILED, 0, 0, e.getMessage()));
-                throw new RuntimeException("LiteLoader 安装失败", e);
+                        InstallProgress.Stage.FAILED, 0, 0, detail));
+                if (InstallInterruptedException.isInterrupted(e)) {
+                    throw e instanceof RuntimeException
+                            ? (RuntimeException) e
+                            : new InstallInterruptedException("LiteLoader 安装已中断", e);
+                }
+                throw new RuntimeException("LiteLoader 安装失败: " + detail, e);
             }
         });
     }

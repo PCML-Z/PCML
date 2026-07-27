@@ -30,6 +30,19 @@ public final class CurlFallback {
 
     private CurlFallback() {}
 
+    /** 读取流到缓冲区，超过 maxBytes 则中止（防 OOM）。 */
+    private static void readLimited(InputStream in, ByteArrayOutputStream out, int maxBytes)
+            throws IOException {
+        byte[] buf = new byte[64 * 1024];
+        int n;
+        while ((n = in.read(buf)) != -1) {
+            if (out.size() + n > maxBytes) {
+                throw new IOException("curl 响应超过上限 " + maxBytes + " bytes");
+            }
+            out.write(buf, 0, n);
+        }
+    }
+
     /** 跟随重定向但限制协议与跳数，降低 -L 造成的 SSRF / 协议降级风险 */
     private static void addSafeRedirectFlags(List<String> cmd) {
         cmd.add("-L");
@@ -147,15 +160,11 @@ public final class CurlFallback {
             }
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             try (InputStream in = p.getInputStream()) {
-                byte[] buf = new byte[64 * 1024];
-                int n;
-                while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
+                readLimited(in, out, MAX_STRING_SIZE);
             }
             ByteArrayOutputStream err = new ByteArrayOutputStream();
             try (InputStream in = p.getErrorStream()) {
-                byte[] buf = new byte[4096];
-                int n;
-                while ((n = in.read(buf)) != -1) err.write(buf, 0, n);
+                readLimited(in, err, 256 * 1024);
             }
             boolean done = p.waitFor(TIMEOUT_SEC + 5, TimeUnit.SECONDS);
             if (!done) {
@@ -240,15 +249,11 @@ public final class CurlFallback {
             }
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             try (InputStream in = p.getInputStream()) {
-                byte[] buf = new byte[64 * 1024];
-                int n;
-                while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
+                readLimited(in, out, MAX_STRING_SIZE);
             }
             ByteArrayOutputStream err = new ByteArrayOutputStream();
             try (InputStream in = p.getErrorStream()) {
-                byte[] buf = new byte[4096];
-                int n;
-                while ((n = in.read(buf)) != -1) err.write(buf, 0, n);
+                readLimited(in, err, 256 * 1024);
             }
             boolean done = p.waitFor(TIMEOUT_SEC + 5, TimeUnit.SECONDS);
             if (!done) {
@@ -312,15 +317,11 @@ public final class CurlFallback {
         try {
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             try (InputStream in = p.getInputStream()) {
-                byte[] buf = new byte[64 * 1024];
-                int n;
-                while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
+                readLimited(in, out, MAX_STRING_SIZE);
             }
             ByteArrayOutputStream err = new ByteArrayOutputStream();
             try (InputStream in = p.getErrorStream()) {
-                byte[] buf = new byte[4096];
-                int n;
-                while ((n = in.read(buf)) != -1) err.write(buf, 0, n);
+                readLimited(in, err, 256 * 1024);
             }
             boolean done = p.waitFor(timeoutSec + 5, TimeUnit.SECONDS);
             if (!done) {
@@ -372,16 +373,12 @@ public final class CurlFallback {
         try {
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             try (InputStream in = p.getInputStream()) {
-                byte[] buf = new byte[64 * 1024];
-                int n;
-                while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
+                readLimited(in, out, MAX_STRING_SIZE);
             }
             // 读取 stderr 用于错误诊断
             ByteArrayOutputStream err = new ByteArrayOutputStream();
             try (InputStream in = p.getErrorStream()) {
-                byte[] buf = new byte[4096];
-                int n;
-                while ((n = in.read(buf)) != -1) err.write(buf, 0, n);
+                readLimited(in, err, 256 * 1024);
             }
             boolean done = p.waitFor(TIMEOUT_SEC + 5, TimeUnit.SECONDS);
             if (!done) {
@@ -427,9 +424,7 @@ public final class CurlFallback {
         try {
             ByteArrayOutputStream err = new ByteArrayOutputStream();
             try (InputStream in = p.getErrorStream()) {
-                byte[] buf = new byte[4096];
-                int n;
-                while ((n = in.read(buf)) != -1) err.write(buf, 0, n);
+                readLimited(in, err, 256 * 1024);
             }
             boolean done = p.waitFor(TIMEOUT_SEC * 3 + 10, TimeUnit.SECONDS);
             if (!done) {
@@ -476,9 +471,7 @@ public final class CurlFallback {
             try {
                 ByteArrayOutputStream out = new ByteArrayOutputStream();
                 try (InputStream in = p.getInputStream()) {
-                    byte[] buf = new byte[4096];
-                    int n;
-                    while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
+                    readLimited(in, out, 256 * 1024);
                 }
                 boolean done = p.waitFor(15, TimeUnit.SECONDS);
                 if (!done) {

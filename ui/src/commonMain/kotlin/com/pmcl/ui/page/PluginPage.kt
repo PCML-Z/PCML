@@ -110,6 +110,36 @@ fun PluginPage(vm: LauncherViewModel) {
             }
         }
 
+        // Plugin-contributed menu actions
+        val menuActions = remember(revision) { pm.getCustomMenuActions() }
+        if (menuActions.isNotEmpty()) {
+            Spacer(Modifier.height(12.dp))
+            Text("Plugin Actions", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(8.dp))
+            for (action in menuActions) {
+                OutlinedButton(
+                    onClick = {
+                        try {
+                            action.handler?.run()
+                            statusMessage = "Ran: ${action.title}"
+                        } catch (e: Throwable) {
+                            statusMessage = "Action failed: ${e.message}"
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        if (action.description.isNotBlank()) {
+                            "${action.title} — ${action.description}"
+                        } else {
+                            action.title
+                        }
+                    )
+                }
+                Spacer(Modifier.height(6.dp))
+            }
+        }
+
         Spacer(Modifier.height(16.dp))
 
         if (plugins.isEmpty()) {
@@ -331,6 +361,19 @@ private fun PluginCard(
 
                 Text("ID: ${info.id}", style = MaterialTheme.typography.bodySmall)
                 Text("API: ${info.apiVersion}", style = MaterialTheme.typography.bodySmall)
+                if (info.permissions.isNotEmpty()) {
+                    Text(
+                        "Permissions: ${info.permissions.joinToString(", ")}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.tertiary
+                    )
+                } else {
+                    Text(
+                        "Permissions: (none)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
                 if (info.dependencies.isNotEmpty()) {
                     Text("Dependencies: ${info.dependencies.joinToString(", ")}",
                         style = MaterialTheme.typography.bodySmall)
@@ -364,6 +407,21 @@ private fun PluginCard(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                    }
+                }
+
+                val actions = pm.getCustomMenuActions().filter { it.pluginId == info.id }
+                if (actions.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    Text("Actions:", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    actions.forEach { a ->
+                        TextButton(
+                            onClick = {
+                                try { a.handler?.run() } catch (_: Throwable) {}
+                            }
+                        ) {
+                            Text(a.title)
+                        }
                     }
                 }
             }

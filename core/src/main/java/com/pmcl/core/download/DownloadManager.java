@@ -14,6 +14,7 @@ import okhttp3.Route;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InterruptedIOException;
 import java.io.RandomAccessFile;
 import java.net.InetSocketAddress;
 import java.net.Proxy;
@@ -68,6 +69,8 @@ public final class DownloadManager {
 
     private final LauncherConfig config;
     private final MirrorManager mirror = new MirrorManager();
+    /** Optional plugin URL rewrite chain (after built-in mirror). */
+    private volatile java.util.function.Function<String, String> pluginUrlRewriter;
     private volatile OkHttpClient http;
     private final ExecutorService pool;
     /** 分片下载专用线程池：避免与批量下载竞争线程，大文件分片可独立并行 */
@@ -224,13 +227,34 @@ public final class DownloadManager {
     public void shutdown() {
         if (http != null) {
             try {
+                http.dispatcher().cancelAll();
                 http.connectionPool().evictAll();
-                http.dispatcher().executorService().shutdown();
+                http.dispatcher().executorService().shutdownNow();
             } catch (Throwable ignored) {}
         }
-        pool.shutdown();
-        chunkedPool.shutdown();
-        verifyPool.shutdown();
+        pool.shutdownNow();
+        chunkedPool.shutdownNow();
+        verifyPool.shutdownNow();
+        awaitPool(pool, "download");
+        awaitPool(chunkedPool, "chunked");
+        awaitPool(verifyPool, "verify");
+    }
+
+    private static void awaitPool(ExecutorService es, String name) {
+        try {
+            if (!es.awaitTermination(3, TimeUnit.SECONDS)) {
+                System.err.println("[DownloadManager] " + name + " 线程池未能在 3s 内退出");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    /** 下载循环中检查中断；被暂停/取消时立即抛出。 */
+    private static void throwIfInterrupted() throws InterruptedIOException {
+        if (Thread.currentThread().isInterrupted()) {
+            throw new InterruptedIOException("下载已中断");
+        }
     }
 
     /**
@@ -248,13 +272,23 @@ public final class DownloadManager {
     public MirrorManager mirror() { return mirror; }
 
     /**
+     * Optional post-mirror URL rewriter (used by PluginManager UrlRewriteHook chain).
+     * May be null. Exceptions from the rewriter are swallowed; original URL kept.
+     */
+    public void setPluginUrlRewriter(java.util.function.Function<String, String> rewriter) {
+        this.pluginUrlRewriter = rewriter;
+    }
+
+    /**
      * 暴露内部 OkHttpClient，供其他模块（NewsClient 等）复用，
      * 自动应用代理配置。
      */
     public OkHttpClient httpClient() { return http; }
 
-    /** 应用镜像重写 */
-    private String rewrite(String url) { return mirror.rewrite(url); }
+    /** 应用镜像重写。插件 UrlRewriteHook 不进入宿主下载管线。 */
+    private String rewrite(String url) {
+        return mirror.rewrite(url);
+    }
 
     /**
      * 批量下载，progress 接收已完成字节数 / 总字节数。
@@ -269,17 +303,25 @@ public final class DownloadManager {
         AtomicLong completed = new AtomicLong(0);
         // 实时进度节流：用 AtomicLong 避免多线程 check-then-act 竞态
         final AtomicLong lastNotifyTime = new AtomicLong(0);
+        final java.util.concurrent.atomic.AtomicBoolean aborted =
+                new java.util.concurrent.atomic.AtomicBoolean(false);
 
         CompletableFuture<?>[] futures = tasks.stream()
                 .map(t -> {
                     // 阶段1：下载（持有 semaphore）
                     CompletableFuture<Path> downloadFuture = CompletableFuture.supplyAsync(() -> {
+                        if (aborted.get() || Thread.currentThread().isInterrupted()) {
+                            throw new RuntimeException(new InterruptedIOException("批量下载已中止"));
+                        }
                         try {
                             downloadLimiter.acquire();
                             try {
+                                if (aborted.get()) {
+                                    throw new InterruptedIOException("批量下载已中止");
+                                }
                                 return downloadOneWithRetry(t, deltaBytes -> {
                                     // 实时回调：下载过程中也通知进度
-                                    if (onBytes != null) {
+                                    if (onBytes != null && !aborted.get()) {
                                         long now = completed.addAndGet(deltaBytes);
                                         long t2 = System.currentTimeMillis();
                                         if (t2 - lastNotifyTime.get() >= PROGRESS_THROTTLE_MS) {
@@ -300,6 +342,13 @@ public final class DownloadManager {
                     }, pool);
                     // 阶段2：SHA1 校验 + 重命名（异步链式，不阻塞下载线程）
                     return downloadFuture.thenCompose(partFile -> {
+                        if (aborted.get()) {
+                            if (partFile != null) {
+                                try { Files.deleteIfExists(partFile); } catch (IOException ignored) {}
+                            }
+                            return CompletableFuture.failedFuture(
+                                    new InterruptedIOException("批量下载已中止"));
+                        }
                         if (partFile == null) {
                             // 文件已存在且跳过
                             completed.addAndGet(t.getSize());
@@ -308,7 +357,8 @@ public final class DownloadManager {
                             return CompletableFuture.completedFuture(null);
                         }
                         // M61: 校验在 verifyPool 异步执行，下载线程释放处理下一个任务
-                        return verifyAndRename(t, partFile).thenRun(() -> {
+                        return verifyAndRename(t, partFile, aborted).thenRun(() -> {
+                            if (aborted.get()) return;
                             if (onBytes != null) onBytes.accept(completed.get());
                             if (onFileDone != null) onFileDone.accept(t.getRelativePath());
                         });
@@ -316,10 +366,19 @@ public final class DownloadManager {
                 })
                 .toArray(CompletableFuture[]::new);
 
-        return CompletableFuture.allOf(futures)
-                .thenRun(() -> {
-                    if (onBytes != null) onBytes.accept(total);
-                });
+        CompletableFuture<Void> all = CompletableFuture.allOf(futures);
+        // 任一失败则中止兄弟任务，避免失败后仍校验/落盘
+        all.whenComplete((ok, err) -> {
+            if (err != null) {
+                aborted.set(true);
+                for (CompletableFuture<?> f : futures) {
+                    f.cancel(true);
+                }
+            }
+        });
+        return all.thenRun(() -> {
+            if (onBytes != null) onBytes.accept(total);
+        });
     }
 
     /**
@@ -332,6 +391,8 @@ public final class DownloadManager {
         for (int i = 0; i <= retryCount; i++) {
             try {
                 return downloadOne(task, onDeltaBytes);
+            } catch (InterruptedIOException e) {
+                throw e;
             } catch (IOException e) {
                 last = e;
                 // 指数退避 + 随机抖动：避免高并发下所有失败任务同步重试（thundering herd）
@@ -339,7 +400,7 @@ public final class DownloadManager {
                 long jitter = ThreadLocalRandom.current().nextLong(200);
                 try { Thread.sleep(base + jitter); } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
-                    throw e;
+                    throw new InterruptedIOException("下载已中断");
                 }
             }
         }
@@ -351,6 +412,11 @@ public final class DownloadManager {
      * <p>M61 修复：返回 CompletableFuture，校验在 verifyPool 异步执行，不阻塞下载线程。
      */
     private CompletableFuture<Void> verifyAndRename(DownloadTask task, Path partFile) {
+        return verifyAndRename(task, partFile, null);
+    }
+
+    private CompletableFuture<Void> verifyAndRename(DownloadTask task, Path partFile,
+                                                    java.util.concurrent.atomic.AtomicBoolean aborted) {
         Path target = config.getWorkDir().resolve(task.getRelativePath());
         if (task.getSha1() == null || task.getSha1().isEmpty()) {
             // 无哈希：拒绝落盘（防供应链投毒 / 错误页当资源）
@@ -362,22 +428,42 @@ public final class DownloadManager {
         }
         String expected = task.getSha1();
         return sha1Async(partFile).thenAcceptAsync(actual -> {
+            if (aborted != null && aborted.get()) {
+                // 批次已中止：不落最终文件，并让 future 失败以免兄弟任务被当成成功
+                throw new RuntimeException(new InterruptedIOException(
+                        "批量下载已中止: " + task.getRelativePath()));
+            }
             if (!actual.equalsIgnoreCase(expected)) {
                 try { Files.deleteIfExists(partFile); } catch (IOException ignored) {}
                 throw new RuntimeException(new IOException("SHA1 校验失败: " + task.getRelativePath() +
                         " 期望=" + expected + " 实际=" + actual));
             }
-            movePartFile(partFile, target);
+            synchronized (DownloadManager.this) {
+                if (aborted != null && aborted.get()) {
+                    throw new RuntimeException(new InterruptedIOException(
+                            "批量下载已中止: " + task.getRelativePath()));
+                }
+                movePartFile(partFile, target);
+            }
         }, pool);
     }
 
     /** 原子移动 .part 文件到目标路径 */
     private void movePartFile(Path partFile, Path target) {
         try {
+            // 并发同路径下载时，另一任务可能已完成重命名并删掉 .part
+            if (!Files.exists(partFile)) {
+                if (Files.exists(target)) return;
+                throw new java.nio.file.NoSuchFileException(partFile + " -> " + target);
+            }
             Files.move(partFile, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
         } catch (java.nio.file.AtomicMoveNotSupportedException e) {
             try { Files.move(partFile, target, StandardCopyOption.REPLACE_EXISTING); }
             catch (IOException e2) { throw new RuntimeException(e2); }
+        } catch (java.nio.file.NoSuchFileException e) {
+            // 竞态：peer 已把 .part 挪走；目标已存在则视为成功
+            if (Files.exists(target)) return;
+            throw new RuntimeException(e);
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
@@ -389,7 +475,19 @@ public final class DownloadManager {
      * onDeltaBytes 回调下载过程中的增量字节数（用于实时进度）。
      */
     private Path downloadOne(DownloadTask task, Consumer<Long> onDeltaBytes) throws IOException {
-        Path target = config.getWorkDir().resolve(task.getRelativePath());
+        String rel = task.getRelativePath();
+        if (rel == null || rel.isBlank()
+                || rel.contains("..")
+                || rel.startsWith("/")
+                || rel.startsWith("\\")
+                || rel.indexOf('\0') >= 0) {
+            throw new IOException("非法下载相对路径: " + rel);
+        }
+        Path workAbs = config.getWorkDir().toAbsolutePath().normalize();
+        Path target = workAbs.resolve(rel).normalize();
+        if (!target.startsWith(workAbs)) {
+            throw new IOException("下载路径越界: " + rel);
+        }
         Files.createDirectories(target.getParent());
 
         // 已存在且 SHA1 匹配则跳过
@@ -440,6 +538,7 @@ public final class DownloadManager {
                 long bytesInWindow = 0;
                 int n;
                 while ((n = in.read(buf)) != -1) {
+                    throwIfInterrupted();
                     raf.write(buf, 0, n);
                     bytesInWindow += n;
                     // 实时进度回调
@@ -453,8 +552,11 @@ public final class DownloadManager {
                             long allowed = (speedLimitBytesPerSec * elapsed) / 1000L;
                             if (bytesInWindow > allowed) {
                                 long sleepMs = (bytesInWindow - allowed) * 1000L / speedLimitBytesPerSec;
-                                try { Thread.sleep(sleepMs); } catch (InterruptedException ie) {
+                                try {
+                                    Thread.sleep(sleepMs);
+                                } catch (InterruptedException ie) {
                                     Thread.currentThread().interrupt();
+                                    throw new InterruptedIOException("下载已中断");
                                 }
                             }
                             lastThrottleTime = System.currentTimeMillis();
@@ -469,9 +571,12 @@ public final class DownloadManager {
         return partFile;
     }
 
+    /** 文本下载上限（与 CurlFallback.MAX_STRING_SIZE 对齐），防 OOM */
+    private static final long MAX_STRING_BYTES = 16L * 1024 * 1024;
+
     /**
      * 直接下载文本（用于版本 JSON 等），应用镜像重写。
-     * SSL 失败时自动 fallback 到 curl。
+     * SSL 失败时自动 fallback 到 curl。响应体超过 {@link #MAX_STRING_BYTES} 拒绝。
      */
     public String downloadString(String url) throws IOException {
         String rewritten = rewrite(url);
@@ -483,7 +588,15 @@ public final class DownloadManager {
                     throw new IOException("下载失败 code=" + resp.code() + " url=" + url);
                 }
                 if (resp.body() == null) throw new IOException("响应体为空: " + url);
-                return resp.body().string();
+                long cl = resp.body().contentLength();
+                if (cl > MAX_STRING_BYTES) {
+                    throw new IOException("响应体过大 (" + cl + " > " + MAX_STRING_BYTES + "): " + url);
+                }
+                byte[] bytes = resp.body().bytes();
+                if (bytes.length > MAX_STRING_BYTES) {
+                    throw new IOException("响应体过大 (" + bytes.length + " > " + MAX_STRING_BYTES + "): " + url);
+                }
+                return new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
             } catch (IOException e) {
                 last = e;
                 // SSL 握手失败：立即 fallback 到 curl（不重试 OkHttp）
@@ -501,6 +614,43 @@ public final class DownloadManager {
             return CurlFallback.getString(rewritten);
         }
         throw last;
+    }
+
+    /**
+     * 带 SSRF 防护的文本下载：初始 URL 与每一次重定向均校验。
+     * 不走镜像 rewrite；供插件 DownloadsApi 使用。
+     */
+    public String downloadStringSsrfChecked(String url) throws IOException {
+        String err = com.pmcl.core.util.SsrfChecker.validate(url);
+        if (err != null) {
+            throw new IOException("SSRF blocked: " + err);
+        }
+        OkHttpClient safe = http.newBuilder()
+                .addNetworkInterceptor(chain -> {
+                    String hop = chain.request().url().toString();
+                    String hopErr = com.pmcl.core.util.SsrfChecker.validate(hop);
+                    if (hopErr != null) {
+                        throw new IOException("SSRF redirect blocked: " + hopErr);
+                    }
+                    return chain.proceed(chain.request());
+                })
+                .build();
+        Request req = new Request.Builder().url(url).get().build();
+        try (Response resp = safe.newCall(req).execute()) {
+            if (!resp.isSuccessful()) {
+                throw new IOException("下载失败 code=" + resp.code() + " url=" + url);
+            }
+            if (resp.body() == null) throw new IOException("响应体为空: " + url);
+            long cl = resp.body().contentLength();
+            if (cl > MAX_STRING_BYTES) {
+                throw new IOException("响应体过大 (" + cl + " > " + MAX_STRING_BYTES + "): " + url);
+            }
+            byte[] bytes = resp.body().bytes();
+            if (bytes.length > MAX_STRING_BYTES) {
+                throw new IOException("响应体过大 (" + bytes.length + " > " + MAX_STRING_BYTES + "): " + url);
+            }
+            return new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+        }
     }
 
     /**
@@ -542,13 +692,31 @@ public final class DownloadManager {
     }
 
     /**
-     * 下载后按 SHA-512（优先）或 SHA-1 校验；二者皆无时仅警告（兼容无哈希源）。
-     * 校验失败删除目标文件并抛错。
+     * 下载后按 SHA-512（优先）或 SHA-1 校验；二者皆无时拒绝。
+     * <p>
+     * 先落到临时文件并完成校验，再原子提升为最终路径，避免「坏文件已出现在目标路径」的窗口。
      */
     public void downloadToVerified(String url, Path target, String sha1, String sha512)
             throws IOException {
-        downloadTo(url, target);
-        verifyHashesOrWarn(target, sha1, sha512);
+        if ((sha1 == null || sha1.isBlank()) && (sha512 == null || sha512.isBlank())) {
+            throw new IOException("拒绝无哈希校验的下载: " + url);
+        }
+        Files.createDirectories(target.getParent());
+        Path verifiedTmp = target.resolveSibling(target.getFileName() + ".verified-tmp");
+        Files.deleteIfExists(verifiedTmp);
+        try {
+            downloadTo(url, verifiedTmp);
+            verifyHashesOrWarn(verifiedTmp, sha1, sha512);
+            try {
+                Files.move(verifiedTmp, target,
+                        StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                Files.move(verifiedTmp, target, StandardCopyOption.REPLACE_EXISTING);
+            }
+        } catch (IOException e) {
+            try { Files.deleteIfExists(verifiedTmp); } catch (IOException ignored) {}
+            throw e;
+        }
     }
 
     /** 校验已下载文件；有期望哈希则 fail-closed，二者皆无则删除文件并抛错。 */
@@ -575,13 +743,24 @@ public final class DownloadManager {
         throw new IOException("拒绝无哈希校验的下载: " + file.getFileName());
     }
 
+    /** 用户可控 URL（插件等）下载上限，防恶意端点占满磁盘 */
+    private static final long MAX_SSRF_DOWNLOAD_BYTES = 100L * 1024 * 1024;
+
     /**
      * 带 SSRF 防护的下载：初始 URL 与每一次重定向跳转均校验，拒绝内网/回环目标。
      * 用于插件等用户可控 URL；普通游戏资源下载请用 {@link #downloadTo}（允许自定义镜像等）。
      * <p>
      * 使用独立 OkHttpClient（不改写共享 {@code http}），避免并发下载竞态。
+     * 响应体超过 {@link #MAX_SSRF_DOWNLOAD_BYTES} 拒绝。
      */
     public void downloadToSsrfChecked(String url, Path target) throws IOException {
+        downloadToSsrfChecked(url, target, null);
+    }
+
+    /**
+     * Same as {@link #downloadToSsrfChecked(String, Path)} with optional byte progress.
+     */
+    public void downloadToSsrfChecked(String url, Path target, Consumer<Long> onProgress) throws IOException {
         String err = com.pmcl.core.util.SsrfChecker.validate(url);
         if (err != null) {
             throw new IOException("SSRF blocked: " + err);
@@ -602,14 +781,37 @@ public final class DownloadManager {
             if (!resp.isSuccessful() || resp.body() == null) {
                 throw new IOException("HTTP " + resp.code() + " downloading " + url);
             }
-            Path tmp = target.resolveSibling(target.getFileName() + ".ssrf-tmp");
-            try (InputStream in = resp.body().byteStream()) {
-                Files.copy(in, tmp, StandardCopyOption.REPLACE_EXISTING);
+            long cl = resp.body().contentLength();
+            if (cl > MAX_SSRF_DOWNLOAD_BYTES) {
+                throw new IOException("下载过大 (" + cl + " > " + MAX_SSRF_DOWNLOAD_BYTES + "): " + url);
             }
+            Path tmp = target.resolveSibling(target.getFileName() + ".ssrf-tmp-"
+                    + java.util.UUID.randomUUID());
             try {
-                Files.move(tmp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-            } catch (java.nio.file.AtomicMoveNotSupportedException e) {
-                Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
+                try (InputStream in = resp.body().byteStream();
+                     java.io.OutputStream out = Files.newOutputStream(tmp,
+                             java.nio.file.StandardOpenOption.CREATE,
+                             java.nio.file.StandardOpenOption.TRUNCATE_EXISTING,
+                             java.nio.file.StandardOpenOption.WRITE)) {
+                    byte[] buf = new byte[8192];
+                    long total = 0;
+                    int n;
+                    while ((n = in.read(buf)) > 0) {
+                        total += n;
+                        if (total > MAX_SSRF_DOWNLOAD_BYTES) {
+                            throw new IOException("下载过大 (>" + MAX_SSRF_DOWNLOAD_BYTES + "): " + url);
+                        }
+                        out.write(buf, 0, n);
+                        if (onProgress != null) onProgress.accept(total);
+                    }
+                }
+                try {
+                    Files.move(tmp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+                } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                    Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
+                }
+            } finally {
+                try { Files.deleteIfExists(tmp); } catch (IOException ignored) {}
             }
         }
     }
@@ -666,6 +868,7 @@ public final class DownloadManager {
                         long total = startPos;
                         int n;
                         while ((n = in.read(buf)) != -1) {
+                            throwIfInterrupted();
                             raf.write(buf, 0, n);
                             total += n;
                             bytesInWindow += n;
@@ -678,8 +881,11 @@ public final class DownloadManager {
                                     long allowed = (speedLimitBytesPerSec * elapsed) / 1000L;
                                     if (bytesInWindow > allowed) {
                                         long sleepMs = (bytesInWindow - allowed) * 1000L / speedLimitBytesPerSec;
-                                        try { Thread.sleep(sleepMs); } catch (InterruptedException ie) {
+                                        try {
+                                            Thread.sleep(sleepMs);
+                                        } catch (InterruptedException ie) {
                                             Thread.currentThread().interrupt();
+                                            throw new InterruptedIOException("下载已中断");
                                         }
                                     }
                                     lastThrottleTime = System.currentTimeMillis();
@@ -706,28 +912,40 @@ public final class DownloadManager {
                     Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
                 }
                 return;
+            } catch (InterruptedIOException e) {
+                throw e;
             } catch (IOException e) {
                 last = e;
                 // 更新已下载大小用于下次重试续传
                 if (enableResume && Files.exists(tmp)) {
                     try { existingSize = Files.size(tmp); } catch (Exception ignored) {}
                 }
-                // SSL 握手失败：立即 fallback 到 curl（不重试 OkHttp）
+                // SSL 握手失败：立即 fallback 到 curl（写入 .download 临时文件，再原子提升）
                 if (CurlFallback.isSslHandshakeFailure(e) && CurlFallback.isAvailable()) {
-                    CurlFallback.downloadFile(rewritten, target);
+                    CurlFallback.downloadFile(rewritten, tmp);
+                    try {
+                        Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+                    } catch (java.nio.file.AtomicMoveNotSupportedException ame) {
+                        Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
+                    }
                     return;
                 }
                 long base = 500L * (1L << i);
                 long jitter = ThreadLocalRandom.current().nextLong(200);
                 try { Thread.sleep(base + jitter); } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
-                    throw e;
+                    throw new InterruptedIOException("下载已中断");
                 }
             }
         }
         // 所有重试失败后，最后尝试 curl
         if (CurlFallback.isAvailable()) {
-            CurlFallback.downloadFile(rewritten, target);
+            CurlFallback.downloadFile(rewritten, tmp);
+            try {
+                Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (java.nio.file.AtomicMoveNotSupportedException ame) {
+                Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
+            }
             return;
         }
         throw last;

@@ -159,11 +159,15 @@ public final class IntegrityChecker {
                     continue;
                 }
                 String hash = obj.get("hash").getAsString();
-                if (hash.length() < 2) {
+                if (hash == null || !hash.matches("[0-9a-fA-F]{40}")) {
                     result.getUnverifiable().add("assets object " + e.getKey() + " (非法 hash)");
                     continue;
                 }
-                Path file = objectsDir.resolve(hash.substring(0, 2)).resolve(hash);
+                Path file = objectsDir.resolve(hash.substring(0, 2)).resolve(hash).normalize();
+                if (!file.startsWith(objectsDir.toAbsolutePath().normalize())) {
+                    result.getHashMismatch().add("assets object " + e.getKey() + " (路径越界)");
+                    continue;
+                }
                 verifyFile(file, hash, result);
             }
         } catch (Exception ex) {

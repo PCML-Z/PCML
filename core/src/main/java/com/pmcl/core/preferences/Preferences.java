@@ -64,6 +64,11 @@ public final class Preferences {
     private String javaPath = "";  // 用户指定的 Java 路径，空则自动查找
     // 每版本独立 Java 路径映射：versionId → javaPath，优先级高于全局 javaPath
     private java.util.Map<String, String> versionJavaPaths = new java.util.concurrent.ConcurrentHashMap<>();
+    /**
+     * Legacy translation mode for old Minecraft on modern Java (RetroWrapper).
+     * OFF = never; ON = always for legacy versions; AUTO = Java 17+/Apple Silicon arm64.
+     */
+    private String legacyTranslationMode = "AUTO";
 
     // 游戏通用行为
     private int gameWindowWidth = 854;       // 窗口初始宽度（--width）
@@ -364,6 +369,23 @@ public final class Preferences {
 
     public synchronized String getJavaPath() { return javaPath; }
     public synchronized void setJavaPath(String v) { javaPath = v == null ? "" : v; scheduleSave(); }
+
+    public synchronized String getLegacyTranslationMode() {
+        return legacyTranslationMode == null || legacyTranslationMode.isBlank() ? "AUTO" : legacyTranslationMode;
+    }
+
+    public synchronized void setLegacyTranslationMode(String v) {
+        String m = v == null ? "AUTO" : v.trim().toUpperCase(java.util.Locale.ROOT);
+        if (!m.equals("OFF") && !m.equals("ON") && !m.equals("AUTO")) m = "AUTO";
+        legacyTranslationMode = m;
+        scheduleSave();
+    }
+
+    /** Prefer modern Java + RetroWrapper for legacy versions (ON or AUTO). */
+    public synchronized boolean preferLegacyTranslation() {
+        String m = getLegacyTranslationMode();
+        return "ON".equals(m) || "AUTO".equals(m);
+    }
 
     /** 获取指定版本的独立 Java 路径，未配置返回空字符串 */
     public synchronized String getVersionJavaPath(String versionId) {
@@ -870,6 +892,7 @@ public final class Preferences {
             customJvmArgs = loadString(o, "customJvmArgs", "");
             gcType = loadString(o, "gcType", "G1GC");
             javaPath = loadString(o, "javaPath", "");
+            legacyTranslationMode = loadString(o, "legacyTranslationMode", "AUTO");
             gameServerHost = loadString(o, "gameServerHost", "");
             gameRenderer = loadString(o, "gameRenderer", "AUTO");
             windowIconPath = loadString(o, "windowIconPath", "");
@@ -1069,7 +1092,10 @@ public final class Preferences {
             dirty = false;
             snapshot = buildJson();
         }
-        boolean ok = writeSnapshot(snapshot);
+        boolean ok;
+        synchronized (diskWriteLock) {
+            ok = writeSnapshot(snapshot);
+        }
         // 写盘失败：重新标记 dirty 并稍后重试，避免静默丢设置
         synchronized (this) {
             if (!ok) dirty = true;
@@ -1132,6 +1158,7 @@ public final class Preferences {
         o.addProperty("minMemoryMb", minMemoryMb);
         o.addProperty("maxMemoryMb", maxMemoryMb);
         o.addProperty("javaPath", javaPath);
+        o.addProperty("legacyTranslationMode", getLegacyTranslationMode());
         JsonObject vjp = new JsonObject();
         for (var entry : versionJavaPaths.entrySet()) {
             vjp.addProperty(entry.getKey(), entry.getValue());
@@ -1219,15 +1246,19 @@ public final class Preferences {
      * 将 JSON 快照写入磁盘（tmp + ATOMIC_MOVE 原子写入）。
      * M13 修复：提取为独立方法，在锁外执行磁盘 IO，不阻塞 getter/setter。
      */
+    /** 串行化磁盘写入，避免 save/flush/doSave 争用同一 .tmp */
+    private final Object diskWriteLock = new Object();
+
     /** @return true 写入成功；失败时调用方应重新标记 dirty 并重试 */
     private boolean writeSnapshot(JsonObject snapshot) {
         java.nio.file.Path tmp = null;
         try {
             java.nio.file.Path parent = file.getParent();
             if (parent != null) Files.createDirectories(parent);
+            String tmpName = file.getFileName() + ".tmp." + java.util.UUID.randomUUID();
             tmp = parent == null
-                    ? java.nio.file.Paths.get(file.getFileName() + ".tmp")
-                    : parent.resolve(file.getFileName() + ".tmp");
+                    ? java.nio.file.Paths.get(tmpName)
+                    : parent.resolve(tmpName);
             Files.writeString(tmp, gson.toJson(snapshot), java.nio.charset.StandardCharsets.UTF_8);
             try {
                 Files.move(tmp, file,
@@ -1260,7 +1291,11 @@ public final class Preferences {
             dirty = false;
             snapshot = buildJson();
         }
-        if (!writeSnapshot(snapshot)) {
+        boolean ok;
+        synchronized (diskWriteLock) {
+            ok = writeSnapshot(snapshot);
+        }
+        if (!ok) {
             synchronized (this) {
                 dirty = true;
             }

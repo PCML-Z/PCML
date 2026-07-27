@@ -103,6 +103,11 @@ public final class Library {
         ARCH_OVERRIDE.remove();
     }
 
+    /** Current architecture override for native selection, or null. */
+    public static String getArchOverride() {
+        return ARCH_OVERRIDE.get();
+    }
+
     /**
      * 判断当前架构（或覆盖架构）是否为 ARM64。
      */
@@ -270,11 +275,21 @@ public final class Library {
     private static String mavenPath(String coords, String classifier) {
         String[] parts = coords.split(":");
         if (parts.length < 3) return coords;
-        String groupPath = parts[0].replace('.', '/');
+        String group = parts[0];
         String artifactId = parts[1];
         String version = parts[2];
+        // 拒绝路径穿越式坐标（MITM / 恶意 version.json）
+        if (containsPathEscape(group) || containsPathEscape(artifactId)
+                || containsPathEscape(version)
+                || (classifier != null && containsPathEscape(classifier))) {
+            throw new IllegalArgumentException("非法 maven 坐标（含路径穿越）: " + coords);
+        }
+        String groupPath = group.replace('.', '/');
         // 第四段（若存在）作为默认 classifier，可被参数覆盖
         String defaultCls = parts.length >= 4 ? parts[3] : null;
+        if (defaultCls != null && containsPathEscape(defaultCls)) {
+            throw new IllegalArgumentException("非法 maven classifier: " + coords);
+        }
         String cls = classifier != null ? classifier : defaultCls;
         StringBuilder sb = new StringBuilder()
                 .append(groupPath).append('/')
@@ -286,6 +301,14 @@ public final class Library {
         }
         sb.append(".jar");
         return sb.toString();
+    }
+
+    private static boolean containsPathEscape(String s) {
+        if (s == null || s.isEmpty()) return false;
+        return s.indexOf('\0') >= 0
+                || s.contains("..")
+                || s.contains("/")
+                || s.contains("\\");
     }
 
     /** 暴露 rules（给 installer 使用） */

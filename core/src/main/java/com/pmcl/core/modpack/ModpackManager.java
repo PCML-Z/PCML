@@ -6,12 +6,14 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.pmcl.core.LauncherConfig;
 import com.pmcl.core.download.DownloadManager;
+import com.pmcl.core.install.InstallInterruptedException;
 import com.pmcl.core.install.InstallProgress;
 import com.pmcl.core.install.VersionInstaller;
 import com.pmcl.core.market.ModMarketManager;
 import com.pmcl.core.modloader.ModLoader;
 import com.pmcl.core.modloader.ModLoaderManager;
 import com.pmcl.core.preferences.Preferences;
+import com.pmcl.core.util.Exceptions;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -252,50 +254,33 @@ public final class ModpackManager {
             }
         }
 
-        // 4. 下载 mods
+        // 4. 下载 mods（任一下载失败则整体失败，避免「导入成功但零模组」）
         if (progress != null) progress.accept(new InstallProgress(
                 InstallProgress.Stage.DOWNLOAD_ASSETS, 0, manifest.files.size(),
                 "正在下载模组 (0/" + manifest.files.size() + ")..."));
 
         AtomicInteger completed = new AtomicInteger(0);
+        AtomicInteger failCount = new AtomicInteger(0);
+        List<String> failSamples = java.util.Collections.synchronizedList(new ArrayList<>());
         ExecutorService pool = Executors.newFixedThreadPool(
-                Math.min(16, Math.max(2, manifest.files.size())));
-        final Path instanceDirFinal = instanceDir;
+                Math.min(16, Math.max(2, Math.max(1, manifest.files.size()))));
+        final Path instanceDirFinal = instanceDir.toAbsolutePath().normalize();
         try {
             List<CompletableFuture<Void>> futures = new ArrayList<>();
             for (ModpackFile mf : manifest.files) {
                 futures.add(CompletableFuture.runAsync(() -> {
-                    String url = mf.downloadUrl;
-                    // S12: CF 整合包 manifest 不含 downloadUrl，需通过 API 查询
-                    // 否则所有模组被静默跳过，导入零模组
-                    if ((url == null || url.isEmpty()) && mf.projectId != null
-                            && !mf.projectId.isEmpty() && mf.fileId != null && !mf.fileId.isEmpty()) {
-                        try {
-                            url = resolveCurseForgeDownloadUrl(mf.projectId, mf.fileId);
-                        } catch (Exception e) {
-                            System.err.println("[ModpackManager] CF 模组 URL 查询失败: "
-                                    + mf.projectId + "/" + mf.fileId + " - " + e.getMessage());
+                    try {
+                        downloadModpackFile(mf, instanceDirFinal);
+                    } catch (Throwable e) {
+                        if (InstallInterruptedException.isInterrupted(e)) {
+                            throw e instanceof RuntimeException
+                                    ? (RuntimeException) e
+                                    : new InstallInterruptedException("整合包模组下载已中断", e);
                         }
-                    }
-                    if (url != null && !url.isEmpty()) {
-                        Path target = instanceDirFinal.resolve(mf.path).normalize();
-                        if (!target.startsWith(instanceDirFinal)) {
-                            System.err.println("[ModpackManager] 跳过非法路径: " + mf.path);
-                            return;
-                        }
-                        try {
-                            Files.createDirectories(target.getParent());
-                            String sha1 = mf.hash != null ? mf.hash : "";
-                            if (sha1.isBlank()) {
-                                throw new IOException("整合包条目缺少 SHA-1，拒绝下载: " + mf.path);
-                            }
-                            downloads.downloadToVerified(url, target, sha1, null);
-                        } catch (Exception e) {
-                            // 单个 mod 下载失败不中断整体导入
-                            System.err.println("[ModpackManager] 模组下载失败: " + mf.path + " - " + e.getMessage());
-                        }
-                    } else {
-                        System.err.println("[ModpackManager] 模组无下载 URL，跳过: " + mf.path);
+                        failCount.incrementAndGet();
+                        String detail = mf.path + ": " + Exceptions.rootMessage(e);
+                        if (failSamples.size() < 5) failSamples.add(detail);
+                        System.err.println("[ModpackManager] 模组下载失败: " + detail);
                     }
                     int done = completed.incrementAndGet();
                     if (progress != null) progress.accept(new InstallProgress(
@@ -303,9 +288,30 @@ public final class ModpackManager {
                             "正在下载模组 (" + done + "/" + manifest.files.size() + ")..."));
                 }, pool));
             }
-            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+            try {
+                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+            } catch (java.util.concurrent.CompletionException ce) {
+                Throwable c = ce.getCause() != null ? ce.getCause() : ce;
+                if (InstallInterruptedException.isInterrupted(c)) {
+                    throw c instanceof RuntimeException
+                            ? (RuntimeException) c
+                            : new InstallInterruptedException("整合包导入已中断", c);
+                }
+                throw ce;
+            }
         } finally {
-            pool.shutdown();
+            pool.shutdownNow();
+            try {
+                pool.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        if (!manifest.files.isEmpty() && failCount.get() > 0) {
+            String preview = String.join("; ", failSamples);
+            throw new IOException("整合包模组下载失败 " + failCount.get() + "/"
+                    + manifest.files.size() + " 个（示例: " + preview + "）");
         }
 
         // 5. 解压 overrides
@@ -323,26 +329,69 @@ public final class ModpackManager {
                 "整合包 '" + manifest.name + "' 导入完成"));
     }
 
+    /** 下载单个整合包模组文件（含 CF URL/SHA 解析）。 */
+    private void downloadModpackFile(ModpackFile mf, Path instanceDirAbs) throws IOException {
+        String url = mf.downloadUrl;
+        String sha1 = mf.hash != null ? mf.hash : "";
+        // S12: CF 整合包 manifest 不含 downloadUrl/hash，需通过 API 查询
+        if ((url == null || url.isEmpty() || sha1.isBlank())
+                && mf.projectId != null && !mf.projectId.isEmpty()
+                && mf.fileId != null && !mf.fileId.isEmpty()) {
+            CfResolved resolved = resolveCurseForgeFile(mf.projectId, mf.fileId);
+            if (url == null || url.isEmpty()) url = resolved.url;
+            if (sha1.isBlank()) sha1 = resolved.sha1;
+        }
+        if (url == null || url.isEmpty()) {
+            throw new IOException("无下载 URL");
+        }
+        Path target = instanceDirAbs.resolve(mf.path).normalize();
+        if (!target.startsWith(instanceDirAbs)) {
+            throw new IOException("非法路径: " + mf.path);
+        }
+        Files.createDirectories(target.getParent());
+        if (sha1 == null || sha1.isBlank()) {
+            // 最后手段：无哈希则下载后拒绝过小文件
+            downloads.downloadTo(url, target);
+            if (Files.size(target) < 32) {
+                Files.deleteIfExists(target);
+                throw new IOException("下载文件过小且无 SHA-1");
+            }
+            return;
+        }
+        downloads.downloadToVerified(url, target, sha1, null);
+    }
+
     /**
-     * S12: 通过 CurseForge API 查询模组文件的下载 URL。
-     * CF 整合包 manifest 只含 projectID/fileID，不含 downloadUrl，
-     * 必须调用 API 获取，否则模组被静默跳过。
-     * 无 CF API key 或查询失败时返回空字符串（调用方跳过下载）。
+     * S12: 通过 CurseForge API 查询模组文件的下载 URL 与 SHA-1。
+     * CF 整合包 manifest 只含 projectID/fileID。
      */
-    private String resolveCurseForgeDownloadUrl(String projectId, String fileId) {
+    private CfResolved resolveCurseForgeFile(String projectId, String fileId) {
         try {
             for (com.pmcl.core.market.ModMarketClient c : modMarketManager.getClients()) {
                 if (!"curseforge".equals(c.source())) continue;
                 var files = c.listFiles(projectId).join();
                 for (var f : files) {
                     if (fileId.equals(f.getFileId())) {
-                        return f.getDownloadUrl() != null ? f.getDownloadUrl() : "";
+                        String u = f.getDownloadUrl() != null ? f.getDownloadUrl() : "";
+                        String s = f.getSha1() != null ? f.getSha1() : "";
+                        return new CfResolved(u, s);
                     }
                 }
             }
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            System.err.println("[ModpackManager] CF 模组查询失败: "
+                    + projectId + "/" + fileId + " - " + e.getMessage());
         }
-        return "";
+        return new CfResolved("", "");
+    }
+
+    private static final class CfResolved {
+        final String url;
+        final String sha1;
+        CfResolved(String url, String sha1) {
+            this.url = url == null ? "" : url;
+            this.sha1 = sha1 == null ? "" : sha1;
+        }
     }
 
     // ===== 导出 =====
@@ -955,10 +1004,13 @@ public final class ModpackManager {
         }
     }
 
+    private static final long MAX_MANIFEST_BYTES = 8L * 1024 * 1024;
+
     private ParsedManifest parseModrinthManifest(ZipFile zf, ZipEntry entry) throws IOException {
         String json;
         try (InputStream in = zf.getInputStream(entry)) {
-            json = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            json = new String(com.pmcl.core.util.SafeZipExtractor.readLimited(in, MAX_MANIFEST_BYTES),
+                    java.nio.charset.StandardCharsets.UTF_8);
         }
         JsonObject root = JsonParser.parseString(json).getAsJsonObject();
 
@@ -1015,7 +1067,8 @@ public final class ModpackManager {
     private ParsedManifest parseCurseForgeManifest(ZipFile zf, ZipEntry entry) throws IOException {
         String json;
         try (InputStream in = zf.getInputStream(entry)) {
-            json = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            json = new String(com.pmcl.core.util.SafeZipExtractor.readLimited(in, MAX_MANIFEST_BYTES),
+                    java.nio.charset.StandardCharsets.UTF_8);
         }
         JsonObject root = JsonParser.parseString(json).getAsJsonObject();
 
@@ -1086,7 +1139,8 @@ public final class ModpackManager {
     private ParsedManifest parseFtbManifest(ZipFile zf, ZipEntry entry) throws IOException {
         String json;
         try (InputStream in = zf.getInputStream(entry)) {
-            json = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            json = new String(com.pmcl.core.util.SafeZipExtractor.readLimited(in, MAX_MANIFEST_BYTES),
+                    java.nio.charset.StandardCharsets.UTF_8);
         }
         JsonObject root = JsonParser.parseString(json).getAsJsonObject();
 
@@ -1152,9 +1206,11 @@ public final class ModpackManager {
             prefixes = List.of("overrides/");
         }
 
-        // S22 安全修复：ZipBomb 防护阈值
+        // S22 安全修复：ZipBomb 防护阈值（含单 entry + 压缩比）
         final long MAX_TOTAL = com.pmcl.core.util.SafeZipExtractor.DEFAULT_MAX_TOTAL_SIZE;
+        final long MAX_ENTRY = com.pmcl.core.util.SafeZipExtractor.DEFAULT_MAX_ENTRY_SIZE;
         final int MAX_ENTRIES = com.pmcl.core.util.SafeZipExtractor.DEFAULT_MAX_ENTRIES;
+        final int MAX_RATIO = com.pmcl.core.util.SafeZipExtractor.DEFAULT_MAX_RATIO;
         long totalSize = 0;
         int entryCount = 0;
 
@@ -1182,22 +1238,18 @@ public final class ModpackManager {
                 if (!target.startsWith(instanceDir)) continue;
 
                 Files.createDirectories(target.getParent());
-                // S22 安全修复：流式写入并累计字节数，防止超大 entry 导致 OOM
-                try (InputStream in = zf.getInputStream(entry);
-                     java.io.OutputStream out = Files.newOutputStream(target,
-                             StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING,
-                             StandardOpenOption.WRITE)) {
-                    byte[] buf = new byte[8192];
-                    int n;
-                    long entrySize = 0;
-                    while ((n = in.read(buf)) > 0) {
-                        entrySize += n;
-                        totalSize += n;
-                        if (totalSize > MAX_TOTAL) {
-                            throw new IOException("ZipBomb detected: total extracted size exceeds "
-                                    + MAX_TOTAL + " bytes in " + file);
-                        }
-                        out.write(buf, 0, n);
+                long compressed = entry.getCompressedSize();
+                try (InputStream in = zf.getInputStream(entry)) {
+                    long entrySize = com.pmcl.core.util.SafeZipExtractor.copyLimited(in, target, MAX_ENTRY);
+                    totalSize += entrySize;
+                    if (totalSize > MAX_TOTAL) {
+                        throw new IOException("ZipBomb detected: total extracted size exceeds "
+                                + MAX_TOTAL + " bytes in " + file);
+                    }
+                    if (compressed > 0 && entrySize > compressed * (long) MAX_RATIO) {
+                        try { Files.deleteIfExists(target); } catch (IOException ignored) {}
+                        throw new IOException("ZipBomb detected: compression ratio exceeds "
+                                + MAX_RATIO + ":1 for " + name);
                     }
                 }
             }

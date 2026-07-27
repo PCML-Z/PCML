@@ -4,6 +4,7 @@ import com.pmcl.core.auth.Account
 import com.pmcl.core.auth.AccountStore
 import com.pmcl.core.i18n.I18n
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -52,11 +53,15 @@ internal fun LauncherViewModel.saveStore(store: AccountStore) {
             }
         }
     }
+    // 串行落盘，且在锁内读取最新内存快照，避免快速切换时旧快照覆盖新状态
     scope.launch {
         accountSaveMutex.withLock {
             try {
+                val latest = synchronized(accountLock) {
+                    AccountStore(_accounts.value, _account.value?.getUuid())
+                }
                 withContext(Dispatchers.IO) {
-                    core.auth().saveStore(store, accountFile)
+                    core.auth().saveStore(latest, accountFile)
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -67,18 +72,53 @@ internal fun LauncherViewModel.saveStore(store: AccountStore) {
     }
 }
 
+/** 可取消等待 CompletableFuture（设备码轮询）；取消时 complete 掉 future 以停止调度 */
+private suspend fun <T> awaitCancellableFuture(future: java.util.concurrent.CompletableFuture<T>): T {
+    return withContext(Dispatchers.IO) {
+        try {
+            while (!future.isDone) {
+                try {
+                    return@withContext future.get(300, java.util.concurrent.TimeUnit.MILLISECONDS)
+                } catch (_: java.util.concurrent.TimeoutException) {
+                    ensureActive()
+                }
+            }
+            future.get()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            future.cancel(true)
+            future.completeExceptionally(e)
+            throw e
+        } catch (e: java.util.concurrent.ExecutionException) {
+            val cause = e.cause
+            if (cause is kotlinx.coroutines.CancellationException) throw cause
+            throw (cause ?: e)
+        }
+    }
+}
+
 /** 向账号集合添加新账号（或更新已有），并设为选中 */
 @PublishedApi
 internal fun LauncherViewModel.upsertAccount(acc: Account) = synchronized(accountLock) {
     val current = AccountStore(_accounts.value, _account.value?.getUuid())
     saveStore(current.upsert(acc))
+    invalidatePreheatForAccountChange()
 }
 
 /** 切换当前选中账号 */
 fun LauncherViewModel.switchAccount(uuid: String) = synchronized(accountLock) {
     val current = AccountStore(_accounts.value, _account.value?.getUuid())
     saveStore(current.select(uuid))
+    invalidatePreheatForAccountChange()
     _status.value = I18n.t("status.account_switched", _account.value?.getUsername() ?: "")
+    val selected = _account.value
+    if (selected != null) {
+        try {
+            core.plugins().fireEvent(
+                com.pmcl.plugin.AccountSelectedEvent(selected.getUuid(), selected.getUsername())
+            )
+        } catch (_: Throwable) {
+        }
+    }
 }
 
 /** 删除指定账号 */
@@ -249,14 +289,20 @@ fun LauncherViewModel.startMicrosoftLogin() {
             val dc = withContext(Dispatchers.IO) { core.auth().requestDeviceCode() }
             _deviceCode.value = dc
             _status.value = I18n.t("status.open_verification_url", dc.getVerificationUri(), dc.getUserCode())
-            val account = withContext(Dispatchers.IO) {
-                core.auth().loginMicrosoftAsync(dc) { msg -> _status.value = msg }.join()
+            val future = core.auth().loginMicrosoftAsync(dc) { msg -> _status.value = msg }
+            val account = try {
+                awaitCancellableFuture(future)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                future.cancel(true)
+                future.completeExceptionally(e)
+                throw e
             }
             _account.value = account
             upsertAccount(account)
             _status.value = I18n.t("status.logged_in_microsoft", account.getUsername())
             _deviceCode.value = null
         } catch (e: kotlinx.coroutines.CancellationException) {
+            _deviceCode.value = null
             throw e
         } catch (e: Throwable) {
             _deviceCode.value = null
@@ -287,16 +333,22 @@ fun LauncherViewModel.startGitHubLogin() {
             _deviceCode.value = dc
             _status.value = I18n.t("status.open_verification_url", dc.getVerificationUri(), dc.getUserCode())
 
-            val account = withContext(Dispatchers.IO) {
-                core.auth().loginGitHubAsync(dc) { msg ->
-                    _status.value = msg
-                }.join()
+            val future = core.auth().loginGitHubAsync(dc) { msg ->
+                _status.value = msg
+            }
+            val account = try {
+                awaitCancellableFuture(future)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                future.cancel(true)
+                future.completeExceptionally(e)
+                throw e
             }
             _account.value = account
             upsertAccount(account)
             _status.value = I18n.t("status.logged_in_github", account.getUsername())
             _deviceCode.value = null
         } catch (e: kotlinx.coroutines.CancellationException) {
+            _deviceCode.value = null
             throw e
         } catch (e: Throwable) {
             _status.value = I18n.t("status.github_login_failed", e.message ?: I18n.t("common.unknown"))

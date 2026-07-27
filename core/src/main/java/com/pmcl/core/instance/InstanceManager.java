@@ -237,11 +237,33 @@ public final class InstanceManager {
         if (info == null) return;
         String iconPath = info.getIconPath();
         if (iconPath != null && !iconPath.isEmpty()) {
-            Path iconFile = instanceDir.resolve(iconPath);
-            Files.deleteIfExists(iconFile);
+            Path iconFile = resolveSafeIconPath(instanceDir, iconPath);
+            if (iconFile != null) {
+                Files.deleteIfExists(iconFile);
+            }
             info.setIconPath("");
             saveInstanceInfo(info);
         }
+    }
+
+    /**
+     * 解析实例图标路径：仅允许实例目录内的简单文件名（如 icon.png），拒绝穿越。
+     * @return 安全路径；非法则 null
+     */
+    static Path resolveSafeIconPath(Path instanceDir, String iconPath) {
+        if (iconPath == null || iconPath.isBlank()) return null;
+        if (iconPath.contains("..") || iconPath.contains("/") || iconPath.contains("\\")
+                || iconPath.indexOf('\0') >= 0) {
+            System.err.println("[InstanceManager] 拒绝非法 iconPath: " + iconPath);
+            return null;
+        }
+        Path base = instanceDir.toAbsolutePath().normalize();
+        Path iconFile = base.resolve(iconPath).normalize();
+        if (!iconFile.startsWith(base)) {
+            System.err.println("[InstanceManager] iconPath 越界: " + iconPath);
+            return null;
+        }
+        return iconFile;
     }
 
     /** 删除实例（递归删除整个目录） */
