@@ -39,11 +39,9 @@
 - **全英文界面** — 命令历史 (↑/↓)、彩色输出、自动滚动
 - **GUI 终端** — 内嵌在侧边栏的完整终端体验
 
-### HMCL 嵌入插件
-- **JavaFX in Compose** — 通过 JFXPanel + SwingPanel 将 HMCL JavaFX UI 嵌入 Compose Desktop
+### JavaFX UI 嵌入插件
+- **JavaFX in Compose** — 通过 JFXPanel + SwingPanel 将 JavaFX UI 嵌入 Compose Desktop
 - **Scene Stealing** — 反射调用 `Launcher.start(stage)`，拦截 `show()` 窃取 Scene
-- **PMCL 品牌注入** — 标题栏显示 PMCL 图标，游戏启动参数标识 "by PMCL"
-- **免责声明** — 首次启动弹窗提醒第三方软件风险
 
 ## 项目结构
 
@@ -73,8 +71,8 @@ PMCL/
 │       ├── PmclPlugin.kt    # 插件接口
 │       ├── PluginContext.kt # 插件上下文 (注册命令/页面/钩子)
 │       └── PluginPackageParser.kt  # .ppk 解析器 (13 条规则)
-├── hmcl-plugin/             # HMCL 嵌入插件
-│   ├── lib/                 # HMCL-3.15.2.jar + JavaFX 25 jars
+├── hmcl-plugin/             # 嵌入插件
+│   ├── lib/                 # JavaFX 25 jars
 │   └── src/main/kotlin/com/pmcl/hmcl/
 │       ├── HmclEmbedder.kt  # JavaFX 初始化 + Scene 窃取
 │       └── HmclPageContent.kt  # Compose UI + SwingPanel
@@ -124,7 +122,6 @@ PMCL/
 ### 构建插件
 
 ```bash
-# HMCL 嵌入插件
 ./gradlew :hmcl-plugin:ppk
 # 输出: hmcl-plugin/build/distributions/hmcl-embed-1.0.0.ppk
 
@@ -269,11 +266,8 @@ gh release create v1.0.1 ui/build/libs/pmcl-1.0.0-all.jar \
 
 Minecraft 是 Mojang Studios 的商标。请确保您拥有合法的 Minecraft 副本。
 
-HMCL (Hello Minecraft! Launcher) 版权归 huanghongxun 及贡献者所有。PMCL 仅作为嵌入式宿主运行 HMCL，不对 HMCL 的功能或行为承担责任。
-
 ## 致谢
 
-- [HMCL](https://github.com/huanghongxun/HMCL) — Hello Minecraft! Launcher
 - [Compose Multiplatform](https://github.com/JetBrains/compose-multiplatform) — JetBrains
 - [Modrinth](https://modrinth.com) — 模组市场 API
 - [CurseForge](https://www.curseforge.com) — 模组市场 API
