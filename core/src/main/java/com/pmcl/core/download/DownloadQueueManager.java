@@ -25,6 +25,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
@@ -366,6 +368,14 @@ public final class DownloadQueueManager {
         Future<?> f = runningFutures.get(taskId);
         if (f != null) {
             f.cancel(true);
+            // 等待工作线程退出后再清理 staging 目录，避免工作线程仍在写入时删除导致竞态
+            try {
+                f.get(3, TimeUnit.SECONDS);
+            } catch (TimeoutException te) {
+                // 工作线程未在限时内退出，强制清理
+            } catch (Throwable ignored) {
+                // 任务因中断/取消而终止，属于预期行为
+            }
         }
         discardCancelledArtifacts(task);
         task.status = TaskStatus.CANCELLED;

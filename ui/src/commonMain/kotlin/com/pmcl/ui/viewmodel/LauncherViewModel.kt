@@ -2052,8 +2052,10 @@ class LauncherViewModel {
 
     /** 取消任务 */
     fun cancelQueueTask(taskId: String) {
-        core.downloadQueue().cancel(taskId)
-        refreshQueue()
+        scope.launch {
+            withContext(Dispatchers.IO) { core.downloadQueue().cancel(taskId) }
+            refreshQueue()
+        }
     }
 
     /** 暂停所有 */
@@ -2070,8 +2072,10 @@ class LauncherViewModel {
 
     /** 取消所有 */
     fun cancelAllQueue() {
-        core.downloadQueue().cancelAll()
-        refreshQueue()
+        scope.launch {
+            withContext(Dispatchers.IO) { core.downloadQueue().cancelAll() }
+            refreshQueue()
+        }
     }
 
     /** 清除已完成/已取消/已失败的任务记录 */
@@ -2082,8 +2086,10 @@ class LauncherViewModel {
 
     /** 移除任务记录 */
     fun removeQueueTask(taskId: String) {
-        core.downloadQueue().remove(taskId)
-        refreshQueue()
+        scope.launch {
+            withContext(Dispatchers.IO) { core.downloadQueue().remove(taskId) }
+            refreshQueue()
+        }
     }
 
     // ============ Java 运行时管理 ============

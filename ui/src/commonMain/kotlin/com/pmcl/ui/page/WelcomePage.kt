@@ -108,7 +108,19 @@ private fun MigrationCard(
     progress: String,
     onMigrate: () -> Unit
 ) {
-    var migrated by remember { mutableStateOf(false) }
+    // 跟踪用户是否点击了此卡片的迁移按钮
+    var migrateClicked by remember { mutableStateOf(false) }
+    // 迁移结果：null=未完成, true=成功, false=失败
+    var migrateResult by remember { mutableStateOf<Boolean?>(null) }
+
+    // 监听 migrating 状态变化：当从 true->false 且本卡片曾点击过迁移时，判定结果
+    LaunchedEffect(migrating) {
+        if (migrateClicked && !migrating && migrateResult == null) {
+            // 通过 progress 文本判断成功/失败
+            migrateResult = !progress.contains("失败")
+        }
+    }
+
     Card(Modifier.fillMaxWidth().glassCardBorder(12.dp), shape = RoundedCornerShape(12.dp), colors = glassCardColors(), elevation = glassCardElevation()) {
         Column(Modifier.padding(16.dp)) {
             Text(I18n.t("migration.from", source.getName()),
@@ -126,24 +138,38 @@ private fun MigrationCard(
 
             Spacer(Modifier.height(12.dp))
 
-            if (migrated) {
-                Text("已完成迁移",
-                     style = MaterialTheme.typography.bodySmall,
-                     color = MaterialTheme.colorScheme.primary,
-                     fontWeight = FontWeight.Medium)
-            } else if (migrating) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
-                    Spacer(Modifier.width(8.dp))
-                    Text(progress.ifEmpty { I18n.t("migration.processing") },
+            when {
+                migrateResult == true -> {
+                    Text("已完成迁移",
                          style = MaterialTheme.typography.bodySmall,
-                         modifier = Modifier.weight(1f))
+                         color = MaterialTheme.colorScheme.primary,
+                         fontWeight = FontWeight.Medium)
                 }
-            } else {
-                Button(onClick = { onMigrate(); migrated = true }) {
-                    Icon(Icons.Filled.Refresh, null, Modifier.size(14.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(I18n.t("migration.title"))
+                migrateResult == false -> {
+                    Text("迁移失败：$progress",
+                         style = MaterialTheme.typography.bodySmall,
+                         color = MaterialTheme.colorScheme.error,
+                         fontWeight = FontWeight.Medium)
+                }
+                migrateClicked && migrating -> {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Text(progress.ifEmpty { I18n.t("migration.processing") },
+                             style = MaterialTheme.typography.bodySmall,
+                             modifier = Modifier.weight(1f))
+                    }
+                }
+                else -> {
+                    // 未点击迁移，或正在迁移其他来源（按钮禁用）
+                    Button(
+                        onClick = { migrateClicked = true; migrateResult = null; onMigrate() },
+                        enabled = !migrating
+                    ) {
+                        Icon(Icons.Filled.Refresh, null, Modifier.size(14.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(I18n.t("migration.title"))
+                    }
                 }
             }
         }

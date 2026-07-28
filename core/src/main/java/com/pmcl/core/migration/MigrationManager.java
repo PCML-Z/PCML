@@ -235,6 +235,10 @@ public final class MigrationManager {
         Files.walkFileTree(srcRoot, new SimpleFileVisitor<Path>() {
             @Override
             public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
+                // 跳过符号链接目录：walkFileTree 默认不跟随链接，但防御性检查
+                if (Files.isSymbolicLink(dir)) {
+                    return FileVisitResult.SKIP_SUBTREE;
+                }
                 Path relative = srcRoot.relativize(dir);
                 Path target = dstRoot.resolve(relative).normalize();
                 // 校验 target 未逃逸出 dstRoot
@@ -247,6 +251,10 @@ public final class MigrationManager {
 
             @Override
             public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                // 跳过符号链接文件：防止恶意 modpack 植入指向 ~/.ssh/id_rsa 等敏感文件的符号链接
+                if (Files.isSymbolicLink(file)) {
+                    return FileVisitResult.CONTINUE;
+                }
                 Path relative = srcRoot.relativize(file);
                 Path target = dstRoot.resolve(relative).normalize();
                 // 校验 target 未逃逸出 dstRoot

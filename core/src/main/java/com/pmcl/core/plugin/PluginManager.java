@@ -747,7 +747,7 @@ public final class PluginManager {
         Map<String, java.util.concurrent.ScheduledFuture<?>> map = scheduledTasks.get(pluginId);
         if (map == null) return;
         java.util.concurrent.ScheduledFuture<?> f = map.remove(taskId);
-        if (f != null) f.cancel(false);
+        if (f != null) f.cancel(true);
         if (map.isEmpty()) scheduledTasks.remove(pluginId);
     }
 
@@ -755,7 +755,7 @@ public final class PluginManager {
         Map<String, java.util.concurrent.ScheduledFuture<?>> map = scheduledTasks.remove(pluginId);
         if (map == null) return;
         for (java.util.concurrent.ScheduledFuture<?> f : map.values()) {
-            f.cancel(false);
+            f.cancel(true);
         }
     }
 
