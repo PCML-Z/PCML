@@ -167,7 +167,7 @@ public final class FriendStore {
         }
     }
 
-    /** 原子写入：先写临时文件，再原子移动覆盖目标文件 */
+    /** 原子写入：先写临时文件，再原子移动覆盖目标文件。移动后加固权限为 0600。 */
     private void atomicWrite(Path target, String content) throws IOException {
         Path tmp = target.resolveSibling(target.getFileName() + ".tmp");
         Files.writeString(tmp, content, StandardCharsets.UTF_8);
@@ -176,6 +176,8 @@ public final class FriendStore {
         } catch (java.nio.file.AtomicMoveNotSupportedException e) {
             Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
         }
+        // 加固权限：好友数据/聊天记录含隐私信息，限制为 0600
+        com.pmcl.core.auth.TokenEncryptor.hardenFilePermissions(target);
     }
 
     // ---------------------------------------------------------------------------

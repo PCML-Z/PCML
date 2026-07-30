@@ -212,6 +212,12 @@ public final class TokenEncryptor {
         }
     }
 
+    /** POSIX 0600；Windows 用 icacls 去掉继承并仅授予当前用户完全控制。
+     *  public 供 AuthService/Preferences/FriendStore/PlayTimeTracker 等持久化点复用。 */
+    public static void hardenFilePermissions(Path file) {
+        hardenKeyFilePermissions(file);
+    }
+
     /** POSIX 0600；Windows 用 icacls 去掉继承并仅授予当前用户完全控制 */
     private static void hardenKeyFilePermissions(Path keyFile) {
         try {

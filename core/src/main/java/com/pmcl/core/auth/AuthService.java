@@ -386,6 +386,8 @@ public final class AuthService {
                 } catch (java.nio.file.AtomicMoveNotSupportedException e) {
                     Files.move(tmp, file, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
                 }
+                // 加固文件权限：accounts.json 含加密 token 及用户信息，限制为 0600
+                TokenEncryptor.hardenFilePermissions(file);
                 tmp = null;
             } finally {
                 if (tmp != null) {

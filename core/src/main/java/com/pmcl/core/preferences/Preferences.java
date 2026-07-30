@@ -1268,6 +1268,8 @@ public final class Preferences {
                 Files.move(tmp, file,
                         java.nio.file.StandardCopyOption.REPLACE_EXISTING);
             }
+            // 加固文件权限：preferences.json 含代理凭据等敏感信息，限制为 0600
+            com.pmcl.core.auth.TokenEncryptor.hardenFilePermissions(file);
             tmp = null;
             return true;
         } catch (Exception e) {

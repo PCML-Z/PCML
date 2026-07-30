@@ -81,6 +81,9 @@ public final class DownloadManager {
     private final Semaphore downloadLimiter;
     /** 分片下载器（复用线程池，避免每次创建） */
     private volatile ChunkedDownloader chunked;
+    /** per-file 锁：防止并发下载同一文件导致 .part 数据竞争 */
+    private final java.util.concurrent.ConcurrentMap<Path, Object> fileLocks =
+            new java.util.concurrent.ConcurrentHashMap<>();
 
     // 网络参数（由 reconfigure 设置，跨线程可见）
     private volatile long speedLimitBytesPerSec = 0;     // 0 = 不限速

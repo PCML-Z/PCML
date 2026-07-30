@@ -181,8 +181,29 @@ public final class PluginManager {
         this.stateFile = pluginsDir.resolve(STATE_FILE);
         ensurePluginsDir();
         loadState();
+        // 安装 URL 协议处理器门禁工厂，防止恶意插件通过 URL.setURLStreamHandlerFactory
+        // 劫持全局 HTTP/HTTPS 流量（包括宿主 DownloadManager 的下载请求）。
+        // 工厂返回 null 让 JDK 使用默认处理器，仅占用槽位阻止后续覆盖。
+        installUrlStreamHandlerGuard();
         // URL rewrite hooks are applied only on plugin-initiated DownloadsApi/HttpApi
         // paths — never wired into the host DownloadManager pipeline.
+    }
+
+    /** 门禁标志：确保只安装一次 URLStreamHandlerFactory */
+    private static volatile boolean urlGuardInstalled = false;
+
+    private static void installUrlStreamHandlerGuard() {
+        if (urlGuardInstalled) return;
+        synchronized (PluginManager.class) {
+            if (urlGuardInstalled) return;
+            try {
+                java.net.URL.setURLStreamHandlerFactory(protocol -> null);
+                urlGuardInstalled = true;
+            } catch (Error alreadySet) {
+                // 已被其他模块或 JVM 设置：无需处理，只要不是插件设置即可
+                urlGuardInstalled = true;
+            }
+        }
     }
 
     private void ensurePluginsDir() {
@@ -832,7 +853,8 @@ public final class PluginManager {
         if (task == null) return;
         PluginEntry entry = loadedPlugins.get(pluginId);
         if (entry == null || entry.threads().isDestroyed()) {
-            task.run();
+            // 插件已卸载：丢弃任务而非内联执行，避免 use-after-unload 和错误 CCL
+            System.err.println("[PluginManager] Dropping task for unloaded plugin: " + pluginId);
             return;
         }
         entry.threads().run(task);
@@ -842,13 +864,8 @@ public final class PluginManager {
         if (task == null) throw new NullPointerException("task");
         PluginEntry entry = loadedPlugins.get(pluginId);
         if (entry == null || entry.threads().isDestroyed()) {
-            try {
-                return task.call();
-            } catch (RuntimeException | Error e) {
-                throw e;
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            }
+            // 插件已卸载：拒绝执行而非内联调用
+            throw new IllegalStateException("Plugin unloaded: " + pluginId);
         }
         return entry.threads().call(task);
     }

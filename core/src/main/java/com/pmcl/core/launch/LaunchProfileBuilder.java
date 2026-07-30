@@ -1760,6 +1760,12 @@ public final class LaunchProfileBuilder {
             if (!client.has("file")) return null;
             JsonObject file = client.getAsJsonObject("file");
             String fileId = file.has("id") && !file.get("id").isJsonNull() ? file.get("id").getAsString() : "";
+            // 路径穿越校验：与 versionId/assetIndex.id 保持一致，防止恶意版本 JSON 写入任意位置
+            if (fileId.contains("..") || fileId.contains("/") || fileId.contains("\\")
+                    || fileId.indexOf('\0') >= 0) {
+                System.err.println("[LaunchProfileBuilder] log4j fileId 非法，跳过: " + fileId);
+                return null;
+            }
             String url = file.has("url") && !file.get("url").isJsonNull() ? file.get("url").getAsString() : "";
             String sha1 = file.has("sha1") && !file.get("sha1").isJsonNull() ? file.get("sha1").getAsString() : "";
             if (url == null || url.isBlank()) return null;

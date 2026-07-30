@@ -635,15 +635,31 @@ public final class VideoCallSession {
         System.out.println("[VideoCall] 启动视频接收线程 callId=" + callId);
         // 设置接收超时，让循环能定期检查 capturing 标志，防止线程永久阻塞
         try { socket.setSoTimeout(2000); } catch (java.net.SocketException ignored) {}
+        // 限制只接收预期对端的数据包，防止第三方注入伪造视频帧
+        final java.net.InetAddress expectedRemote = pendingIceRemote != null ? pendingIceRemote.getAddress() : null;
+        final int expectedPort = pendingIceRemote != null ? pendingIceRemote.getPort() : -1;
         receiveThread = new Thread(() -> {
             byte[] buffer = new byte[MAX_PACKET_SIZE];
             long receivedCount = 0;
             long lastLogTime = System.currentTimeMillis();
+            long rejectedCount = 0;
             while (capturing.get() && !Thread.currentThread().isInterrupted()) {
                 try {
                     DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
                     socket.receive(packet);
                     if (packet.getLength() == 0) continue;
+
+                    // 来源校验：拒绝非预期对端的 UDP 包，防止第三方注入
+                    if (expectedRemote != null
+                            && (!packet.getAddress().equals(expectedRemote)
+                                || (expectedPort > 0 && packet.getPort() != expectedPort))) {
+                        rejectedCount++;
+                        if (rejectedCount == 1 || rejectedCount % 100 == 0) {
+                            System.err.println("[VideoCall] 拒绝非预期来源的视频包: " + packet.getSocketAddress()
+                                    + " (已拒绝 " + rejectedCount + " 个)");
+                        }
+                        continue;
+                    }
 
                     // JPEG 解压
                     byte[] data = new byte[packet.getLength()];

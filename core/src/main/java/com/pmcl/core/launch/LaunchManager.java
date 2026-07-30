@@ -182,6 +182,7 @@ public final class LaunchManager {
                 new java.util.concurrent.ArrayBlockingQueue<>(LOG_QUEUE_CAPACITY);
         java.util.concurrent.atomic.AtomicInteger droppedUiLogs =
                 new java.util.concurrent.atomic.AtomicInteger();
+        final Process p = process;
         Thread dispatcher = new Thread(() -> {
             try {
                 while (true) {
@@ -203,7 +204,7 @@ public final class LaunchManager {
         Thread reader = new Thread(() -> {
             // H14: reader 只读管道入队，dispatcher 消费 onLog，避免管道死锁
             try (BufferedReader r = new BufferedReader(
-                    new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+                    new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
                 String line;
                 while ((line = r.readLine()) != null) {
                     if (logger != null) logger.append(line);

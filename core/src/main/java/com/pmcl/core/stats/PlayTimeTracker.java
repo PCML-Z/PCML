@@ -221,6 +221,8 @@ public final class PlayTimeTracker {
         ctx.instanceId = instanceId != null ? instanceId : "";
         ctx.modIds = modIds != null ? new ArrayList<>(modIds) : Collections.emptyList();
         activeContexts.put(versionId, ctx);
+        // 立即持久化活跃会话，防止崩溃时丢失当前进行中的游戏时长
+        saveActiveSessions();
     }
 
     /**
@@ -614,6 +616,28 @@ public final class PlayTimeTracker {
                     }
                 }
             }
+            // 加载崩溃前未结束的活跃会话
+            if (root.has("active") && root.get("active").isJsonObject()) {
+                JsonObject active = root.getAsJsonObject("active");
+                for (var entry : active.entrySet()) {
+                    String versionId = entry.getKey();
+                    JsonObject a = entry.getValue().getAsJsonObject();
+                    long start = a.has("start") ? a.get("start").getAsLong() : 0;
+                    if (start > 0) {
+                        activeStarts.put(versionId, start);
+                        SessionContext ctx = new SessionContext();
+                        ctx.instanceId = safeStr(a, "instanceId");
+                        ctx.server = safeStr(a, "server");
+                        ctx.worldName = safeStr(a, "worldName");
+                        if (a.has("modIds") && a.get("modIds").isJsonArray()) {
+                            for (com.google.gson.JsonElement me : a.getAsJsonArray("modIds")) {
+                                if (me.isJsonPrimitive()) ctx.modIds.add(me.getAsString());
+                            }
+                        }
+                        activeContexts.put(versionId, ctx);
+                    }
+                }
+            }
         } catch (Throwable t) {
             // 加载失败不阻断启动，但必须可观测
             System.err.println("[PlayTimeTracker] 加载 playtime 数据失败: " + t.getMessage());
@@ -628,6 +652,8 @@ public final class PlayTimeTracker {
                 System.err.println("[PlayTimeTracker] 备份损坏文件失败: " + bakErr.getMessage());
             }
         }
+        // 恢复崩溃前未结束的会话（补记时长，防止数据丢失）
+        recoverCrashedSessions();
     }
 
     private synchronized void save() {
@@ -656,6 +682,27 @@ public final class PlayTimeTracker {
                 arr.add(o);
             }
             root.add("sessions", arr);
+            // 同时持久化活跃会话（用于崩溃恢复）
+            if (!activeStarts.isEmpty()) {
+                JsonObject active = new JsonObject();
+                for (var entry : activeStarts.entrySet()) {
+                    JsonObject a = new JsonObject();
+                    a.addProperty("start", entry.getValue());
+                    SessionContext ctx = activeContexts.get(entry.getKey());
+                    if (ctx != null) {
+                        if (!ctx.instanceId.isEmpty()) a.addProperty("instanceId", ctx.instanceId);
+                        if (!ctx.server.isEmpty()) a.addProperty("server", ctx.server);
+                        if (!ctx.worldName.isEmpty()) a.addProperty("worldName", ctx.worldName);
+                        if (!ctx.modIds.isEmpty()) {
+                            com.google.gson.JsonArray modArr = new com.google.gson.JsonArray();
+                            for (String modId : ctx.modIds) modArr.add(modId);
+                            a.add("modIds", modArr);
+                        }
+                    }
+                    active.add(entry.getKey(), a);
+                }
+                root.add("active", active);
+            }
             // 原子写入：先写临时文件再 move，防止并发写损坏或 JVM 崩溃截断
             Path tmp = dataFile.resolveSibling(dataFile.getFileName() + ".tmp");
             Files.write(tmp, gson.toJson(root).getBytes(StandardCharsets.UTF_8));
@@ -665,8 +712,52 @@ public final class PlayTimeTracker {
             } catch (java.nio.file.AtomicMoveNotSupportedException e) {
                 Files.move(tmp, dataFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
             }
+            // 加固文件权限
+            com.pmcl.core.auth.TokenEncryptor.hardenFilePermissions(dataFile);
         } catch (IOException e) {
             System.err.println("[PlayTimeTracker] 保存失败: " + e.getMessage());
+        }
+    }
+
+    /** 仅持久化活跃会话（轻量级，recordStart 时调用） */
+    private void saveActiveSessions() {
+        save();
+    }
+
+    /** 启动时恢复崩溃前未结束的会话 */
+    private void recoverCrashedSessions() {
+        if (activeStarts.isEmpty()) return;
+        long now = System.currentTimeMillis();
+        List<Session> recovered = new ArrayList<>();
+        for (var entry : activeStarts.entrySet()) {
+            long start = entry.getValue();
+            long duration = now - start;
+            // 仅恢复 1 秒到 24 小时之间的会话（过滤时钟异常）
+            if (duration < 1000) continue;
+            if (duration > 24L * 3600_000L) {
+                System.err.println("[PlayTimeTracker] 崩溃恢复: 会话时长 " + duration
+                        + "ms 超过 24h，截断（可能系统时间被篡改）");
+                duration = 24L * 3600_000L;
+            }
+            SessionContext ctx = activeContexts.get(entry.getKey());
+            Session session;
+            if (ctx != null) {
+                session = new Session(entry.getKey(), start, now, duration,
+                        ctx.instanceId, ctx.server, ctx.worldName, ctx.modIds);
+            } else {
+                session = new Session(entry.getKey(), start, now, duration);
+            }
+            recovered.add(session);
+            System.err.println("[PlayTimeTracker] 崩溃恢复: 补记会话 " + entry.getKey()
+                    + " 时长 " + (duration / 1000) + "s");
+        }
+        if (!recovered.isEmpty()) {
+            synchronized (sessions) {
+                sessions.addAll(recovered);
+            }
+            activeStarts.clear();
+            activeContexts.clear();
+            save();
         }
     }
 

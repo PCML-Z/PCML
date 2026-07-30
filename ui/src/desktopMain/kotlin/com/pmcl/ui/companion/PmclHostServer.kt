@@ -172,6 +172,16 @@ class PmclHostServer(
 
     private suspend fun handlePair(call: ApplicationCall) {
         try {
+            // Host 头校验：防止跨域 CSRF 攻击（恶意网页通过 fetch 调用本机配对接口）
+            val hostHeader = call.request.headers["Host"] ?: ""
+            if (!isAllowedHost(hostHeader)) {
+                call.respondText(
+                    """{"error":"forbidden","message":"host not allowed"}""",
+                    io.ktor.http.ContentType.Application.Json,
+                    io.ktor.http.HttpStatusCode.Forbidden
+                )
+                return
+            }
             val body = call.receiveText()
             val obj = JsonParser.parseString(body).asJsonObject
             val code = obj.get("code")?.asString ?: ""
@@ -200,6 +210,24 @@ class PmclHostServer(
                 io.ktor.http.HttpStatusCode.BadRequest
             )
         }
+    }
+
+    /** 允许的 Host 头：localhost / 127.0.0.1 / LAN 内网 IP，防止跨域请求 */
+    private fun isAllowedHost(host: String): Boolean {
+        if (host.isBlank()) return false
+        // 去掉端口
+        val h = host.substringBefore(":").lowercase()
+        if (h == "localhost" || h == "127.0.0.1" || h == "::1") return true
+        // LAN 内网：192.168.x.x / 10.x.x.x / 172.16-31.x.x
+        if (h.startsWith("192.168.") || h.startsWith("10.")) return true
+        if (h.startsWith("172.")) {
+            val parts = h.split(".")
+            if (parts.size >= 2) {
+                val second = parts[1].toIntOrNull() ?: return false
+                if (second in 16..31) return true
+            }
+        }
+        return false
     }
 
     // ================================================================
