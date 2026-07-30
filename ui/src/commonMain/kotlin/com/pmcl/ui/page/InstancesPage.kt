@@ -19,6 +19,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
 import com.pmcl.core.instance.InstanceInfo
+import com.pmcl.ui.theme.glassCardBorder
+import com.pmcl.ui.theme.glassCardColors
+import com.pmcl.ui.theme.glassCardElevation
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import java.awt.Desktop
 import java.awt.FileDialog
@@ -331,8 +334,10 @@ private fun InstanceCard(
     onExport: () -> Unit
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp)
+        modifier = Modifier.fillMaxWidth().glassCardBorder(),
+        shape = RoundedCornerShape(12.dp),
+        colors = glassCardColors(),
+        elevation = glassCardElevation()
     ) {
         Row(
             modifier = Modifier.padding(12.dp),

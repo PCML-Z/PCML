@@ -89,7 +89,8 @@ public final class AudioCache {
                 rb.header(e.getKey(), e.getValue());
             }
         }
-        Path tmp = cacheDir.resolve(key + ".tmp");
+        // 安全修复：每次下载使用唯一临时文件名，防止并发下载同 key 时互相覆盖写损坏缓存
+        Path tmp = cacheDir.resolve(key + ".tmp." + java.util.UUID.randomUUID());
         try (Response resp = client.newCall(rb.build()).execute()) {
             if (!resp.isSuccessful()) {
                 throw new IOException("cache download HTTP " + resp.code());

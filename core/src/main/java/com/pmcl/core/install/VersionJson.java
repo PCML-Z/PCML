@@ -138,9 +138,25 @@ public final class VersionJson {
 
     /**
      * 解析游戏参数（旧格式 game 字符串 或 新格式 arguments.game 数组）。
-     * 支持带规则的复杂参数（如 demo/resolution 条件参数）。
+     * 不启用 demo / 自定义分辨率条件规则（与历史行为一致）。
      */
     public List<String> getGameArgs() {
+        return getGameArgs(false, false, 0, 0);
+    }
+
+    /**
+     * 解析游戏参数，并按启动器偏好评估 feature 规则。
+     *
+     * @param demoUser          对应 features.is_demo_user
+     * @param customResolution  对应 features.has_custom_resolution
+     * @param resolutionWidth   替换 ${resolution_width}
+     * @param resolutionHeight  替换 ${resolution_height}
+     */
+    public List<String> getGameArgs(boolean demoUser, boolean customResolution,
+                                    int resolutionWidth, int resolutionHeight) {
+        java.util.Map<String, Boolean> features = new java.util.HashMap<>();
+        features.put("is_demo_user", demoUser);
+        features.put("has_custom_resolution", customResolution);
         List<String> result = new ArrayList<>();
         if (rawJson.has("arguments")) {
             JsonObject args = rawJson.getAsJsonObject("arguments");
@@ -149,8 +165,20 @@ public final class VersionJson {
                     if (e.isJsonPrimitive()) {
                         result.add(e.getAsString());
                     } else if (e.isJsonObject()) {
-                        // 复杂参数：带 rules（如 is_demo_user/has_custom_resolution）
-                        // 这些 feature 规则默认不匹配，跳过
+                        JsonObject obj = e.getAsJsonObject();
+                        if (obj.has("rules") && obj.has("value")
+                                && matchesRules(obj.getAsJsonArray("rules"), features)) {
+                            JsonElement val = obj.get("value");
+                            if (val.isJsonArray()) {
+                                for (JsonElement v : val.getAsJsonArray()) {
+                                    result.add(replaceResolutionPlaceholders(
+                                            v.getAsString(), resolutionWidth, resolutionHeight));
+                                }
+                            } else if (val.isJsonPrimitive()) {
+                                result.add(replaceResolutionPlaceholders(
+                                        val.getAsString(), resolutionWidth, resolutionHeight));
+                            }
+                        }
                     }
                 }
             }
@@ -162,17 +190,35 @@ public final class VersionJson {
         return result;
     }
 
+    private static String replaceResolutionPlaceholders(String arg, int width, int height) {
+        if (arg == null) return "";
+        return arg
+                .replace("${resolution_width}", Integer.toString(Math.max(1, width)))
+                .replace("${resolution_height}", Integer.toString(Math.max(1, height)));
+    }
+
     /**
-     * 判断 rules 数组是否匹配当前系统。
-     * rules 为空返回 true；多个 rule 时取最后一个匹配的 action。
+     * 判断 rules 数组是否匹配当前系统（无 feature 条件）。
+     * rules 为空返回 true；多条匹配时取最后一条的 action。
      */
     private boolean matchesRules(JsonArray rules) {
+        return matchesRules(rules, Collections.emptyMap());
+    }
+
+    /**
+     * 判断 rules 是否匹配：OS + features。
+     * 无 rules → true；有 rules 时默认 disallow，按顺序应用每条匹配 rule 的 action（取最后匹配），
+     * 与 {@link Library#appliesToCurrentOs()} / Mojang 客户端语义一致。
+     */
+    private boolean matchesRules(JsonArray rules, java.util.Map<String, Boolean> features) {
         if (rules == null || rules.size() == 0) return true;
         String osName = currentOsName();
         // 优先使用游戏 Java 进程的架构（可能在 Rosetta 下与启动器架构不同），
         // 未设置时回退到启动器 os.arch
         String osArch = (gameJavaArch != null && !gameJavaArch.isEmpty())
                 ? gameJavaArch.toLowerCase() : System.getProperty("os.arch", "").toLowerCase();
+        java.util.Map<String, Boolean> feats = features != null ? features : Collections.emptyMap();
+        boolean allowed = false;
         for (JsonElement e : rules) {
             JsonObject rule = e.getAsJsonObject();
             String action = rule.has("action") && !rule.get("action").isJsonNull()
@@ -191,9 +237,22 @@ public final class VersionJson {
                     if (!archMatch) continue;
                 }
             }
-            return "allow".equals(action);
+            if (rule.has("features") && rule.get("features").isJsonObject()) {
+                JsonObject want = rule.getAsJsonObject("features");
+                boolean featuresMatch = true;
+                for (java.util.Map.Entry<String, JsonElement> fe : want.entrySet()) {
+                    boolean expected = !fe.getValue().isJsonNull() && fe.getValue().getAsBoolean();
+                    boolean actual = Boolean.TRUE.equals(feats.get(fe.getKey()));
+                    if (expected != actual) {
+                        featuresMatch = false;
+                        break;
+                    }
+                }
+                if (!featuresMatch) continue;
+            }
+            allowed = "allow".equals(action);
         }
-        return false;
+        return allowed;
     }
 
     private static String currentOsName() {

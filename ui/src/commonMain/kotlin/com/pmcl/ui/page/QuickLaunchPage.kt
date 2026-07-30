@@ -11,11 +11,19 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pmcl.core.i18n.I18n
+import com.pmcl.ui.theme.LocalThemeState
+import com.pmcl.ui.theme.ParallaxBackground
+import com.pmcl.ui.theme.glassCardBorder
+import com.pmcl.ui.theme.glassCardColors
+import com.pmcl.ui.theme.glassCardElevation
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import com.pmcl.ui.viewmodel.launch
 
@@ -28,6 +36,7 @@ fun QuickLaunchPage(
     vm: LauncherViewModel,
     onEnterMain: () -> Unit
 ) {
+    val themeState = LocalThemeState.current
     val selectedVersion by vm.selectedVersion.collectAsState()
     val localInfos by vm.localVersionInfos.collectAsState()
     val account by vm.account.collectAsState()
@@ -42,16 +51,28 @@ fun QuickLaunchPage(
     val isDownloadMode = selectedVersion != null && !isInstalled
     val buttonEnabled = selectedVersion != null && !gameRunning && !installing
 
-    Row(
-        Modifier.fillMaxSize().background(
-            Brush.verticalGradient(
-                listOf(
-                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
-                    MaterialTheme.colorScheme.surface
+    Box(Modifier.fillMaxSize()) {
+        // 自定义/视差背景时保持透明透出壁纸，避免不透明 surface 渐变盖住背景形成实色块
+        when {
+            themeState.customBackground -> Unit
+            themeState.parallaxBackground -> {
+                ParallaxBackground(modifier = Modifier.fillMaxSize(), useDark = themeState.useDark)
+            }
+            else -> {
+                Box(
+                    Modifier.fillMaxSize().background(
+                        Brush.verticalGradient(
+                            listOf(
+                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
+                                MaterialTheme.colorScheme.surface
+                            )
+                        )
+                    )
                 )
-            )
-        )
-    ) {
+            }
+        }
+
+    Row(Modifier.fillMaxSize()) {
         // ===== 左侧：欢迎语 =====
         Box(
             Modifier
@@ -98,24 +119,48 @@ fun QuickLaunchPage(
 
             Spacer(Modifier.height(16.dp))
 
-            // === 选中版本卡片 ===
+            // === 选中版本卡片（仅改容器透明度，内部文案布局不变） ===
             val sv = selectedVersion
             if (sv != null) {
-                Card(
-                    Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Column(Modifier.padding(16.dp)) {
-                        Text(sv,
-                             style = MaterialTheme.typography.titleMedium,
-                             fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            if (isInstalled) I18n.t("launch.installed") else I18n.t("launch.not_installed"),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (isInstalled) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.tertiary
+                // 壁纸/玻璃背景下用分层毛玻璃：底层模糊着色 + 上层透明承载文字
+                // 避免 Material Card 实色底在壁纸上变成整块色块
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    // 毛玻璃层仅在玻璃主题开启时绘制，避免关开关后仍像玻璃
+                    if (themeState.glassTheme) {
+                        Box(
+                            Modifier
+                                .matchParentSize()
+                                .clip(RoundedCornerShape(12.dp))
+                                .blur(18.dp)
+                                .background(
+                                    MaterialTheme.colorScheme.surface.copy(alpha = 0.42f),
+                                    RoundedCornerShape(12.dp)
+                                )
                         )
+                    }
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (themeState.glassTheme) {
+                            Color.Transparent
+                        } else {
+                            MaterialTheme.colorScheme.surface
+                        },
+                        tonalElevation = 0.dp,
+                        shadowElevation = 0.dp
+                    ) {
+                        Column(Modifier.padding(16.dp)) {
+                            Text(sv,
+                                 style = MaterialTheme.typography.titleMedium,
+                                 fontWeight = FontWeight.Bold)
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                if (isInstalled) I18n.t("launch.installed") else I18n.t("launch.not_installed"),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (isInstalled) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.tertiary
+                            )
+                        }
                     }
                 }
             }
@@ -208,6 +253,7 @@ fun QuickLaunchPage(
             }
         }
     }
+    } // Box
 
     // ===== 兼容性选项对话框 =====
     if (compatOptions.isNotEmpty()) {
@@ -217,11 +263,14 @@ fun QuickLaunchPage(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     compatOptions.forEach { option ->
-                        Surface(
-                            onClick = { option.action() },
+                        Card(
+                            onClick = { vm.invokeCompatOption(option) },
                             shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                            modifier = Modifier.fillMaxWidth()
+                            colors = glassCardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant
+                            ),
+                            elevation = glassCardElevation(),
+                            modifier = Modifier.fillMaxWidth().glassCardBorder()
                         ) {
                             Column(Modifier.padding(12.dp)) {
                                 Text(option.title, style = MaterialTheme.typography.titleSmall,
@@ -240,6 +289,24 @@ fun QuickLaunchPage(
                     Text(I18n.t("common.cancel"))
                 }
             }
+        )
+    }
+
+    val javaDownloading by vm.javaDownloading.collectAsState()
+    val javaDownloadStatus by vm.javaDownloadStatus.collectAsState()
+    if (javaDownloading) {
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text("正在下载 Java 运行时") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    Text(javaDownloadStatus.ifBlank { "准备中…" },
+                        style = MaterialTheme.typography.bodyMedium)
+                }
+            },
+            confirmButton = {},
+            dismissButton = {}
         )
     }
 }

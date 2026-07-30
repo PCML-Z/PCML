@@ -31,6 +31,10 @@ import java.util.Set;
  */
 public final class LaunchProfileBuilder {
 
+    /** 匹配 ${...} 占位符，用于单次扫描替换防止注入 */
+    private static final java.util.regex.Pattern PLACEHOLDER_PATTERN =
+            java.util.regex.Pattern.compile("\\$\\{[^}]+\\}");
+
     private final LauncherConfig config;
     private final Preferences preferences;
     private final DownloadManager downloadManager;
@@ -275,6 +279,10 @@ public final class LaunchProfileBuilder {
                     throw new IOException("账号 " + account.getUsername() + "（" + at
                             + "）的 accessToken 为空，请重新登录");
                 }
+            } else if (at == Account.AccountType.OFFLINE || at == Account.AccountType.GITHUB) {
+                System.err.println("[LaunchProfileBuilder] 账号类型=" + at
+                        + "（" + account.getUsername() + "）：无法通过正版/联机会话校验；"
+                        + "多人 online-mode / Realms / enforce-secure-profile 将失败，请改用微软账号。");
             }
         }
         VersionJson vj = loadVersionJson(versionId);
@@ -473,6 +481,25 @@ public final class LaunchProfileBuilder {
         // 让 VersionJson 用游戏 Java 架构匹配 arch-specific 的 JVM 参数 rules，
         // 避免启动器架构（arm64）与游戏 Java 架构（x86_64 Rosetta）不一致时选错参数
         vj.setGameJavaArch(effectiveArch);
+
+        // MC 1.13–1.16：用 LWJGL 3.3.3 的 GLFW 覆盖旧版，修复 Apple Silicon /
+        // 新 macOS 上 “Failed to find service port for display”；
+        // 并注入 javaagent 跳过 glfwSetWindowIcon（否则会报 65548）。
+        if (MacOsGlfwFix.shouldApply(versionId) && !useCustomNatives) {
+            try {
+                Path glfw = MacOsGlfwFix.ensure(
+                        nativesDir, config.getWorkDir(), downloadManager, effectiveArch);
+                if (glfw != null) {
+                    profile.addJvmArg("-Dorg.lwjgl.glfw.libname=" + glfw.toAbsolutePath());
+                }
+                Path agent = MacOsGlfwFix.ensureIconFixAgent(config.getWorkDir());
+                profile.addJavaAgent(agent.toAbsolutePath().toString(), null);
+            } catch (Exception e) {
+                System.err.println("[PMCL] 现代 GLFW / icon-fix 注入失败（窗口可能无法创建）: "
+                        + e.getMessage());
+            }
+        }
+
         int requiredJava = vj.getJavaVersion();
         if (requiredJava <= 0 && !vj.getRawJson().has("arguments")) requiredJava = 8;
         boolean useTranslation = RetroWrapperSupport.shouldApply(
@@ -518,7 +545,7 @@ public final class LaunchProfileBuilder {
         // Log4j2 配置：MC 1.13+ 的版本 JSON 有 logging.client 字段，
         // 指定 log4j2-xml 配置文件（如 client-1.12.xml），需要下载并通过 -Dlog4j.configurationFile 传入。
         // 不设置的话 Log4j 不初始化，所有日志（含崩溃堆栈）被丢弃。
-        Path log4jXml = resolveLog4jConfig(vj, versionsDir, versionId);
+        Path log4jXml = resolveLog4jConfig(vj, versionsDir, versionId, gameDir);
         // alpha/beta/1.6-1.12.2 无 logging.client 字段，但 LaunchWrapper 的 LogWrapper 引用 log4j
         // 类（ensureLog4jForLaunchWrapper 已注入 jar）；不注入配置则 log4j 不初始化，崩溃堆栈被丢弃。
         if (log4jXml == null && usesLaunchWrapper) {
@@ -526,13 +553,12 @@ public final class LaunchProfileBuilder {
         }
         if (log4jXml != null) {
             profile.addJvmArg("-Dlog4j.configurationFile=" + log4jXml.toString());
-            // Log4j 配置中 fileName="logs/latest.log" 是相对路径，
-            // 需确保 gameDir/logs 目录存在且可写，否则 FileAppender 创建失败导致整个日志系统瘫痪。
+            // Log4j 配置中 fileName 已改写为 gameDir/logs 绝对路径，目录必须存在且可写。
             try {
-                java.nio.file.Files.createDirectories(mcRoot.resolve("logs"));
+                java.nio.file.Files.createDirectories(gameDir.resolve("logs"));
             } catch (IOException e) {
                 System.err.println("[LaunchProfile] 无法创建 logs 目录（Log4j FileAppender 可能失效）: "
-                        + mcRoot.resolve("logs") + " — " + e.getMessage());
+                        + gameDir.resolve("logs") + " — " + e.getMessage());
             }
         }
         // LWJGL debug 默认关闭（噪音/性能）；需要时加 JVM 属性 -Dpmcl.lwjgl.debug=true
@@ -644,7 +670,8 @@ public final class LaunchProfileBuilder {
             if (lwjgl2Era && "-XstartOnFirstThread".equals(arg.trim())) {
                 continue;
             }
-            profile.addJvmArg(replacePlaceholders(arg, versionId, mcRoot, librariesDir, assetsDir, versionsDir, gameDir, account, vj.getAssets()));
+            profile.addJvmArg(replacePlaceholders(arg, versionId, mcRoot, librariesDir, assetsDir,
+                    versionsDir, gameDir, nativesDir, account, vj.getAssets()));
         }
 
         // 用户自定义 JVM 参数（最后追加，可覆盖前面）
@@ -659,21 +686,31 @@ public final class LaunchProfileBuilder {
             }
         }
 
-        // 游戏参数
-        for (String arg : vj.getGameArgs()) {
-            profile.addGameArg(replacePlaceholders(arg, versionId, mcRoot, librariesDir, assetsDir, versionsDir, gameDir, account, vj.getAssets()));
+        // 游戏参数（含 is_demo_user / has_custom_resolution 条件规则）
+        int prefW = preferences.getGameWindowWidth();
+        int prefH = preferences.getGameWindowHeight();
+        boolean customResolution = prefW > 0 && prefH > 0;
+        List<String> gameArgsFromJson = vj.getGameArgs(
+                preferences.isGameDemo(), customResolution, prefW, prefH);
+        boolean jsonHasWidth = false;
+        boolean jsonHasDemo = false;
+        for (String arg : gameArgsFromJson) {
+            if ("--width".equals(arg)) jsonHasWidth = true;
+            if ("--demo".equals(arg)) jsonHasDemo = true;
+            profile.addGameArg(replacePlaceholders(arg, versionId, mcRoot, librariesDir, assetsDir,
+                    versionsDir, gameDir, nativesDir, account, vj.getAssets()));
         }
 
         // === 游戏通用行为（用户偏好） ===
         // Applet 时代（<1.6）不认现代 --width/--renderer 等；乱注入可能干扰 RetroWrapper
         boolean appletEra = RetroWrapperSupport.needsRetroTweaker(versionId);
         if (!appletEra) {
-            // 窗口分辨率
-            if (preferences.getGameWindowWidth() > 0 && preferences.getGameWindowHeight() > 0) {
+            // 窗口分辨率（JSON 条件参数未展开时再注入，避免重复 --width）
+            if (customResolution && !jsonHasWidth) {
                 profile.addGameArg("--width");
-                profile.addGameArg(Integer.toString(preferences.getGameWindowWidth()));
+                profile.addGameArg(Integer.toString(prefW));
                 profile.addGameArg("--height");
-                profile.addGameArg(Integer.toString(preferences.getGameWindowHeight()));
+                profile.addGameArg(Integer.toString(prefH));
             }
             // 渲染器（MC 1.21+ 支持；OPENGL/VULKAN 注入 --renderer，AUTO 不注入）
             String renderer = preferences.getGameRenderer();
@@ -686,7 +723,7 @@ public final class LaunchProfileBuilder {
                 profile.addGameArg("--fullscreen");
             }
             // 演示模式
-            if (preferences.isGameDemo()) {
+            if (preferences.isGameDemo() && !jsonHasDemo) {
                 profile.addGameArg("--demo");
             }
             // 自动连接服务器
@@ -875,11 +912,10 @@ public final class LaunchProfileBuilder {
     /**
      * 自动检测 mods 目录中是否有使用 Kotlin 的 mod，若有则下载 kotlin-stdlib 并加入 classpath。
      * <p>
-     * 检测方式：扫描 mods/ 下所有 .jar，检查是否含 {@code kotlin/} 包前缀的 class 文件
-     * 或 {@code META-INF/kotlin-} 文件（Kotlin 编译器生成的元数据）。
-     * <p>
-     * 若检测到 Kotlin mod 且 classpath 中尚未包含 kotlin-stdlib（通过 seen 集合判断），
-     * 则从 Maven Central 下载 kotlin-stdlib JAR 到 libraries 目录并加入 classpath。
+     * 仅在「需要 Kotlin 运行时、但尚未由 KotlinForForge / fabric-language-kotlin /
+     * 已 shade 的 kotlin 包提供」时注入。KotlinForForge 的 {@code -all} jar 已 shade
+     * {@code kotlin.*}；若再注入独立 {@code kotlin-stdlib}，JPMS 会因重复导出
+     * {@code kotlin.ranges} 等包而在 Forge 上直接 {@code ResolutionException}。
      *
      * @param profile      启动配置
      * @param seen         已加入 classpath 的路径集合（去重用）
@@ -891,9 +927,9 @@ public final class LaunchProfileBuilder {
         Path modsDir = gameDir.resolve("mods");
         if (!java.nio.file.Files.isDirectory(modsDir)) return;
 
-        // 1. 递归扫描 mods 目录（深度 4，覆盖 Forge 的 mods/<version>/ 子目录），
-        //    检测是否有 Kotlin mod
-        boolean hasKotlinMod = false;
+        // 1. 递归扫描 mods 目录（深度 4，覆盖 Forge 的 mods/<version>/ 子目录）
+        boolean needsStdlib = false;
+        boolean runtimeAlreadyProvided = false;
         int scanned = 0;
         try (var stream = java.nio.file.Files.walk(modsDir, 4)) {
             var jars = stream
@@ -905,9 +941,13 @@ public final class LaunchProfileBuilder {
                     .toList();
             for (Path jar : jars) {
                 scanned++;
-                if (isKotlinJar(jar)) {
-                    hasKotlinMod = true;
+                KotlinJarKind kind = classifyKotlinJar(jar);
+                if (kind == KotlinJarKind.PROVIDES_RUNTIME) {
+                    runtimeAlreadyProvided = true;
                     break;
+                }
+                if (kind == KotlinJarKind.NEEDS_STDLIB) {
+                    needsStdlib = true;
                 }
             }
         } catch (IOException e) {
@@ -915,16 +955,23 @@ public final class LaunchProfileBuilder {
             System.err.println("[LaunchProfileBuilder] 扫描 mods 目录失败: " + e.getMessage());
             return;
         }
-        if (!hasKotlinMod) {
-            System.err.println("[LaunchProfileBuilder] 未检测到 Kotlin mod（扫描 " + scanned + " 个 jar）");
+        if (runtimeAlreadyProvided) {
+            System.err.println("[LaunchProfileBuilder] 已由 KotlinForForge/shade 提供 Kotlin 运行时，"
+                    + "跳过 kotlin-stdlib 注入（扫描 " + scanned + " 个 jar）");
             return;
         }
-        System.err.println("[LaunchProfileBuilder] 检测到 Kotlin mod（扫描 " + scanned + " 个 jar）");
+        if (!needsStdlib) {
+            System.err.println("[LaunchProfileBuilder] 未检测到需要 kotlin-stdlib 的 mod（扫描 "
+                    + scanned + " 个 jar）");
+            return;
+        }
+        System.err.println("[LaunchProfileBuilder] 检测到 Kotlin mod，需要注入 kotlin-stdlib（扫描 "
+                + scanned + " 个 jar）");
 
         // 2. 检查 classpath 是否已包含 kotlin-stdlib（可能是 fabric-language-kotlin 等已自带）
         for (String s : seen) {
             if (s.contains("kotlin-stdlib") || s.contains("fabric-language-kotlin")
-                    || s.contains("KotlinLanguageAdapter")) {
+                    || s.contains("KotlinLanguageAdapter") || s.contains("kotlinforforge")) {
                 System.err.println("[LaunchProfileBuilder] classpath 已含 Kotlin 运行时: " + s);
                 return; // 已有 Kotlin 运行时
             }
@@ -1010,49 +1057,68 @@ public final class LaunchProfileBuilder {
         }
     }
 
+    /** mods 目录中 JAR 与 Kotlin 运行时的关系。 */
+    private enum KotlinJarKind {
+        /** 非 Kotlin / 与 Kotlin 无关 */
+        NONE,
+        /** 使用 Kotlin 编译，但自身未提供 stdlib，需要启动器注入 */
+        NEEDS_STDLIB,
+        /** KotlinForForge 或已 shade {@code kotlin.*}，禁止再注入独立 kotlin-stdlib */
+        PROVIDES_RUNTIME
+    }
+
     /**
-     * 检查 JAR 文件是否为 Kotlin 编译或依赖 Kotlin 运行时。
+     * 分类 JAR 与 Kotlin 运行时的关系。
      * <p>
-     * 检测方式（任一命中即返回 true）：
-     * <ul>
-     *   <li>META-INF/kotlin-*.kotlin_module 元数据文件（Kotlin 编译器生成）</li>
-     *   <li>kotlin/ 包前缀的 class 文件（shade 了 kotlin-stdlib 的 mod，如 KotlinForForge）</li>
-     *   <li>MANIFEST.MF 声明了 KotlinForForge 或引用了 kotlinforforge（Java 编写但依赖 Kotlin 运行时）</li>
-     * </ul>
+     * KotlinForForge（或任何 shade 了 {@code kotlin/} 的 jar）视为已提供运行时；
+     * 仅含 {@code META-INF/kotlin-*.kotlin_module} 的 jar 才需要注入 stdlib。
      */
-    private boolean isKotlinJar(Path jarPath) {
+    private KotlinJarKind classifyKotlinJar(Path jarPath) {
+        String fileName = jarPath.getFileName().toString().toLowerCase(java.util.Locale.ROOT);
+        if (fileName.contains("kotlinforforge") || fileName.contains("kotlin-for-forge")) {
+            return KotlinJarKind.PROVIDES_RUNTIME;
+        }
         try (var zip = new java.util.zip.ZipFile(jarPath.toFile())) {
-            // 1. 优先检查 MANIFEST.MF（快速路径，单文件读取）
             var manifestEntry = zip.getEntry("META-INF/MANIFEST.MF");
             if (manifestEntry != null) {
                 try (var in = zip.getInputStream(manifestEntry)) {
                     String manifest = new String(in.readAllBytes(),
                             java.nio.charset.StandardCharsets.UTF_8);
-                    // KotlinForForge 会在 manifest 中声明，或 mod 依赖了 kotlinforforge
                     if (manifest.contains("KotlinForForge") || manifest.contains("kotlinforforge")
-                            || manifest.contains("kotlin-for-forge")) {
-                        return true;
+                            || manifest.contains("kotlin-for-forge")
+                            || manifest.contains("thedarkcolour.kotlinforforge")) {
+                        return KotlinJarKind.PROVIDES_RUNTIME;
                     }
                 }
             }
-            // 2. 检查 kotlin_module 元数据和 kotlin/ 包 class
+            boolean hasKotlinModule = false;
+            boolean shadesKotlinStdlib = false;
             var entries = zip.entries();
             while (entries.hasMoreElements()) {
                 var entry = entries.nextElement();
                 String name = entry.getName();
-                // Kotlin 元数据文件
                 if (name.startsWith("META-INF/kotlin-") && name.endsWith(".kotlin_module")) {
-                    return true;
+                    hasKotlinModule = true;
                 }
-                // Kotlin class 文件（kotlin/ 包前缀，如 shade 了 stdlib 的 KotlinForForge）
+                // shade 了 stdlib 的典型路径；勿把普通 mod 里偶然的 kotlin/ 依赖 jar 误判——
+                // 顶层 kotlin/ranges 等包是 KFF -all 的特征
                 if (name.startsWith("kotlin/") && name.endsWith(".class")) {
-                    return true;
+                    shadesKotlinStdlib = true;
                 }
+                if (hasKotlinModule && shadesKotlinStdlib) {
+                    break;
+                }
+            }
+            if (shadesKotlinStdlib) {
+                return KotlinJarKind.PROVIDES_RUNTIME;
+            }
+            if (hasKotlinModule) {
+                return KotlinJarKind.NEEDS_STDLIB;
             }
         } catch (IOException e) {
             // 读取失败不算 Kotlin mod
         }
-        return false;
+        return KotlinJarKind.NONE;
     }
 
     /**
@@ -1331,20 +1397,74 @@ public final class LaunchProfileBuilder {
         }
     }
 
-    /** 需要提取的 jar 非空时，natives 目录须至少含一个本地库文件。 */
+    /**
+     * 需要提取的 jar 非空时，natives 目录须至少含一个本地库文件；
+     * 并拒绝 LWJGL2/3 混用（历史转译曾把 FrankenLWJGL2 写进 1.13+ 目录，会导致 JNI SIGSEGV）。
+     */
     private static boolean nativesDirLooksHealthy(Path nativesDir, java.util.List<Path> jars) {
         if (jars == null || jars.isEmpty()) return true;
         if (!java.nio.file.Files.isDirectory(nativesDir)) return false;
+        boolean hasNativeFile = false;
+        boolean hasGlfw = false;
+        boolean hasLwjglOpengl = false;
+        boolean hasJinput = false;
+        long lwjglDylibSize = -1L;
         try (var stream = java.nio.file.Files.list(nativesDir)) {
-            return stream.anyMatch(p -> {
-                if (!java.nio.file.Files.isRegularFile(p)) return false;
+            for (Path p : (Iterable<Path>) stream::iterator) {
+                if (!java.nio.file.Files.isRegularFile(p)) continue;
                 String n = p.getFileName().toString().toLowerCase(java.util.Locale.ROOT);
-                return n.endsWith(".dll") || n.endsWith(".so")
-                        || n.endsWith(".dylib") || n.endsWith(".jnilib");
-            });
+                if (n.endsWith(".dll") || n.endsWith(".so")
+                        || n.endsWith(".dylib") || n.endsWith(".jnilib")) {
+                    hasNativeFile = true;
+                }
+                if (n.equals("libglfw.dylib") || n.equals("glfw.dll") || n.equals("libglfw.so")) {
+                    hasGlfw = true;
+                }
+                if (n.startsWith("liblwjgl_opengl") || n.startsWith("lwjgl_opengl")) {
+                    hasLwjglOpengl = true;
+                }
+                if (n.startsWith("libjinput") || n.startsWith("jinput")) {
+                    hasJinput = true;
+                }
+                if (n.equals("liblwjgl.dylib") || n.equals("lwjgl.dll") || n.equals("liblwjgl.so")) {
+                    try {
+                        lwjglDylibSize = java.nio.file.Files.size(p);
+                    } catch (IOException ignored) {}
+                }
+            }
         } catch (IOException e) {
             return false;
         }
+        if (!hasNativeFile) return false;
+
+        boolean jarsLookLwjgl3 = jars.stream().anyMatch(LaunchProfileBuilder::jarLooksLikeLwjgl3Native);
+        // LWJGL3 特征：glfw / lwjgl_opengl；与 LWJGL2 的 jinput 不应共存
+        boolean dirLooksLwjgl3 = jarsLookLwjgl3 || hasGlfw || hasLwjglOpengl;
+        if (dirLooksLwjgl3 && hasJinput) {
+            System.err.println("[LaunchProfileBuilder] natives 目录混入 LWJGL2 jinput，强制重解压: "
+                    + nativesDir);
+            return false;
+        }
+        // FrankenLWJGL2 的 liblwjgl.dylib ≈ 950KB；LWJGL 3.1.x 的约为 150KB
+        if (dirLooksLwjgl3 && lwjglDylibSize > 400_000L) {
+            System.err.println("[LaunchProfileBuilder] natives 中 liblwjgl 体积异常（疑似 FrankenLWJGL2 污染），"
+                    + "强制重解压: " + nativesDir + " size=" + lwjglDylibSize);
+            return false;
+        }
+        return true;
+    }
+
+    /** 粗判 native jar 是否属于 LWJGL 3.x（1.13+）。 */
+    private static boolean jarLooksLikeLwjgl3Native(Path jar) {
+        if (jar == null) return false;
+        String s = jar.getFileName().toString().toLowerCase(java.util.Locale.ROOT);
+        if (!s.contains("lwjgl")) return false;
+        // LWJGL2: lwjgl-platform-2.x.x-natives-osx.jar
+        if (s.contains("lwjgl-platform") || s.contains("lwjgl_util")) return false;
+        if (s.contains("-2.") || s.contains("_2.")) return false;
+        // LWJGL3: lwjgl-3.x.x-natives-macos.jar / natives-macos-arm64
+        return s.contains("3.") || s.contains("natives-macos") || s.contains("natives-windows")
+                || s.contains("natives-linux");
     }
 
     /**
@@ -1630,7 +1750,7 @@ public final class LaunchProfileBuilder {
      * （gameDir 变化时旧路径残留）。改为保留原始文件（.orig 后缀），
      * 每次基于原始内容生成改写副本，避免污染源文件。
      */
-    private Path resolveLog4jConfig(VersionJson vj, Path versionsDir, String versionId) {
+    private Path resolveLog4jConfig(VersionJson vj, Path versionsDir, String versionId, Path gameDir) {
         try {
             com.google.gson.JsonObject raw = vj.getRawJson();
             if (!raw.has("logging")) return null;
@@ -1690,11 +1810,10 @@ public final class LaunchProfileBuilder {
                     }
                 }
             }
-            // 改写配置文件中的相对路径为绝对路径（基于 gameDir）
+            // 改写配置文件中的相对路径为绝对路径（基于 gameDir，适配实例/整合包隔离）
             // client-1.12.xml 中 fileName="logs/latest.log" 和 filePattern="logs/..."
-            // 需要改为绝对路径，否则 macOS 权限问题导致 FileAppender 创建失败
-            Path mcRoot = resolveMcRoot(versionId);
-            Path absLogs = mcRoot.resolve("logs").toAbsolutePath();
+            Path logsBase = (gameDir != null ? gameDir : resolveMcRoot(versionId)).resolve("logs");
+            Path absLogs = logsBase.toAbsolutePath();
             String content = java.nio.file.Files.readString(origPath, java.nio.charset.StandardCharsets.UTF_8);
             // 简单替换：把 "logs/latest.log" 和 "logs/" 改为绝对路径
             content = content.replace("fileName=\"logs/latest.log\"",
@@ -1883,7 +2002,7 @@ public final class LaunchProfileBuilder {
     private String replacePlaceholders(String arg, String versionId,
                                        Path mcRoot, Path librariesDir,
                                        Path assetsDir, Path versionsDir,
-                                       Path gameDir,
+                                       Path gameDir, Path nativesDir,
                                        Account account,
                                        String assetsIndex) {
         // assetsIndex 为空（旧版本 JSON 无 assets 字段）时回退到 versionId
@@ -1892,50 +2011,72 @@ public final class LaunchProfileBuilder {
         // S9: account 或其 getter 返回 null 时 String.replace 抛 NPE，离线/未登录账号启动崩溃
         String username = account != null ? account.getUsername() : "";
         String uuid = account != null ? account.getUuid() : "";
-        // GITHUB 账户的 accessToken 是 GitHub OAuth token（gho_ 开头），不能用于 MC 认证；
-        // 传入会导致 Mojang API 401（无法获取 profile key pair），连接启用 enforce-secure-profile 的服务器时被踢。
-        // 降级为空 token（等价离线模式），保留 UUID 作为玩家标识。
+        // GITHUB / OFFLINE 不能用于 Mojang 在线认证：accessToken 置空，避免 401 / Realms Invalid session。
+        // 保留 UUID 作为玩家标识（离线服 / 局域网）。
         String accessToken = "";
-        if (account != null && account.getType() != Account.AccountType.GITHUB) {
+        if (account != null
+                && account.getType() != Account.AccountType.GITHUB
+                && account.getType() != Account.AccountType.OFFLINE) {
             accessToken = account.getAccessToken();
         }
         if (username == null) username = "";
         if (uuid == null) uuid = "";
         if (accessToken == null) accessToken = "";
-        return arg
-                .replace("${natives_directory}",
-                        versionsDir.resolve(versionId).resolve("natives").toString())
-                .replace("${launcher_name}", "PMCL")
-                .replace("${launcher_version}", "1.0.0")
-                .replace("${classpath_separator}",
-                        System.getProperty("path.separator"))
-                .replace("${library_directory}",
-                        librariesDir.toString())
-                .replace("${game_directory}",
-                        gameDir.toString())
-                .replace("${version_name}", versionId)
-                .replace("${assets_root}",
-                        assetsDir.toString())
-                .replace("${assets_index_name}", effectiveAssetsIndex)
-                .replace("${user_type}", "msa")
-                .replace("${auth_player_name}", username)
-                // OptiFine/LiteLoader 安装器的 fallback 模板使用非标准 ${auth_name}（Mojang 标准为 ${auth_player_name}）
-                .replace("${auth_name}", username)
-                .replace("${auth_uuid}", uuid)
-                .replace("${auth_access_token}", accessToken)
-                .replace("${auth_session}", accessToken)
-                // alpha/beta 的 minecraftArguments 使用 ${session_id}（而非 ${auth_session}）
-                // 不替换会传入字面量占位符导致会话参数无效，游戏启动后立即崩溃
-                .replace("${session_id}", accessToken)
-                // 1.7.10 及更早版本可能引用 ${user_properties}，传空 JSON 数组
-                .replace("${user_properties}", "{}")
-                // 极旧版本可能引用 ${game_assets}，指向 assets 目录
-                .replace("${game_assets}", assetsDir.toString())
-                .replace("${clientid}", "")
-                // auth_xuid：微软账号的 Xbox Live userHash（uhs），连接 Realms 或需
-                // Xbox Live 验证的服务器时必需；离线/GitHub 账号为空字符串。
-                .replace("${auth_xuid}", account != null && account.getXuid() != null ? account.getXuid() : "")
-                .replace("${version_type}", "PMCL");
+        Path effectiveNatives = nativesDir != null
+                ? nativesDir
+                : versionsDir.resolve(versionId).resolve("natives");
+        // 安全修复：单次扫描替换，防止恶意用户名（如 ${auth_access_token}）被链式
+        // .replace 展开导致 access_token 泄露到进程命令行/日志。
+        java.util.Map<String, String> placeholders = new java.util.HashMap<>();
+        placeholders.put("${natives_directory}", effectiveNatives.toString());
+        placeholders.put("${launcher_name}", "PMCL");
+        placeholders.put("${launcher_version}", "1.0.0");
+        placeholders.put("${classpath_separator}", System.getProperty("path.separator"));
+        placeholders.put("${library_directory}", librariesDir.toString());
+        placeholders.put("${game_directory}", gameDir.toString());
+        placeholders.put("${version_name}", versionId);
+        placeholders.put("${assets_root}", assetsDir.toString());
+        placeholders.put("${assets_index_name}", effectiveAssetsIndex);
+        placeholders.put("${user_type}", userTypeFor(account));
+        placeholders.put("${auth_player_name}", username);
+        // OptiFine/LiteLoader 安装器的 fallback 模板使用非标准 ${auth_name}（Mojang 标准为 ${auth_player_name}）
+        placeholders.put("${auth_name}", username);
+        placeholders.put("${auth_uuid}", uuid);
+        placeholders.put("${auth_access_token}", accessToken);
+        placeholders.put("${auth_session}", accessToken);
+        // alpha/beta 的 minecraftArguments 使用 ${session_id}（而非 ${auth_session}）
+        placeholders.put("${session_id}", accessToken);
+        // 1.7.10 及更早版本可能引用 ${user_properties}，传空 JSON 数组
+        placeholders.put("${user_properties}", "{}");
+        // 极旧版本可能引用 ${game_assets}，指向 assets 目录
+        placeholders.put("${game_assets}", assetsDir.toString());
+        placeholders.put("${clientid}", "");
+        // auth_xuid：微软账号的 Xbox Live userHash（uhs）
+        placeholders.put("${auth_xuid}", account != null && account.getXuid() != null ? account.getXuid() : "");
+        placeholders.put("${version_type}", "PMCL");
+
+        java.util.regex.Matcher pm = PLACEHOLDER_PATTERN.matcher(arg);
+        StringBuilder sb = new StringBuilder(arg.length() + 64);
+        while (pm.find()) {
+            String key = pm.group();
+            String val = placeholders.get(key);
+            pm.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(val != null ? val : key));
+        }
+        pm.appendTail(sb);
+        return sb.toString();
+    }
+
+    /**
+     * Mojang 会话 user_type：离线/GitHub → legacy；微软 → msa；皮肤站 → mojang。
+     * 恒传 msa 会导致部分服务端/模组按在线会话处理离线玩家。
+     */
+    private static String userTypeFor(Account account) {
+        if (account == null) return "legacy";
+        return switch (account.getType()) {
+            case MICROSOFT -> "msa";
+            case YGGDRASIL -> "mojang";
+            case OFFLINE, GITHUB -> "legacy";
+        };
     }
 
     /**

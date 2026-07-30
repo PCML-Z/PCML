@@ -195,6 +195,20 @@ public final class SsrfChecker {
      * </ul>
      */
     public static boolean isInternalAddress(InetAddress addr) {
+        // 安全修复：检测 IPv4-mapped IPv6 地址（::ffff:x.x.x.x），对内嵌 IPv4 应用相同检查
+        byte[] bytes = addr.getAddress();
+        if (bytes.length == 16
+                && bytes[0] == 0 && bytes[1] == 0 && bytes[2] == 0 && bytes[3] == 0
+                && bytes[4] == 0 && bytes[5] == 0 && bytes[6] == 0 && bytes[7] == 0
+                && bytes[8] == 0 && bytes[9] == 0 && bytes[10] == (byte) 0xFF && bytes[11] == (byte) 0xFF) {
+            // IPv4-mapped IPv6：提取内嵌的 IPv4 地址重新检查
+            try {
+                InetAddress ipv4 = InetAddress.getByAddress(new byte[]{bytes[12], bytes[13], bytes[14], bytes[15]});
+                return isInternalAddress(ipv4);
+            } catch (java.net.UnknownHostException e) {
+                return true; // 不应发生，fail-closed
+            }
+        }
         return addr.isLoopbackAddress()
                 || addr.isAnyLocalAddress()
                 || addr.isLinkLocalAddress()

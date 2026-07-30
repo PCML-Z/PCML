@@ -62,6 +62,7 @@ import com.pmcl.ui.theme.LocalThemeState
 import com.pmcl.ui.theme.glassCardBorder
 import com.pmcl.ui.theme.glassCardColors
 import com.pmcl.ui.theme.glassCardElevation
+import com.pmcl.ui.theme.glassSurfaceVariantColor
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import com.pmcl.ui.viewmodel.cancelPreheat
 import com.pmcl.ui.viewmodel.clearGameLogs
@@ -291,7 +292,7 @@ fun LaunchPage(vm: LauncherViewModel) {
             if (pinned.isEmpty()) {
                 item {
                     Surface(
-                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        color = glassSurfaceVariantColor(),
                         shape = RoundedCornerShape(8.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -524,7 +525,7 @@ fun LaunchPage(vm: LauncherViewModel) {
                 val hasVersionJava = versionJava.isNotEmpty()
 
                 Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                    color = glassSurfaceVariantColor(glassAlpha = 0.4f),
                     shape = RoundedCornerShape(8.dp),
                     modifier = Modifier.fillMaxWidth().clickable { javaExpanded = !javaExpanded }
                 ) {
@@ -617,7 +618,7 @@ fun LaunchPage(vm: LauncherViewModel) {
             val serverEnabled = serverHost.isNotEmpty()
 
             Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                color = glassSurfaceVariantColor(glassAlpha = 0.4f),
                 shape = RoundedCornerShape(8.dp),
                 modifier = Modifier.fillMaxWidth().clickable { serverExpanded = !serverExpanded }
             ) {
@@ -1008,7 +1009,7 @@ fun LaunchPage(vm: LauncherViewModel) {
                                  color = MaterialTheme.colorScheme.outline)
                             Spacer(Modifier.height(8.dp))
                             Surface(
-                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                color = glassSurfaceVariantColor(),
                                 shape = RoundedCornerShape(4.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
@@ -1048,7 +1049,7 @@ fun LaunchPage(vm: LauncherViewModel) {
             Spacer(Modifier.height(4.dp))
 
             Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant,
+                color = glassSurfaceVariantColor(),
                 shape = RoundedCornerShape(8.dp),
                 // 在 verticalScroll 的 Column 内，子组件 max height = Infinity
                 // GameLogPanel 内部是 LazyColumn，Infinity 约束会导致测量崩溃
@@ -1119,11 +1120,14 @@ fun LaunchPage(vm: LauncherViewModel) {
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     compatOptions.forEach { option ->
-                        Surface(
-                            onClick = { option.action() },
+                        Card(
+                            onClick = { vm.invokeCompatOption(option) },
                             shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                            modifier = Modifier.fillMaxWidth()
+                            colors = glassCardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant
+                            ),
+                            elevation = glassCardElevation(),
+                            modifier = Modifier.fillMaxWidth().glassCardBorder()
                         ) {
                             Column(Modifier.padding(12.dp)) {
                                 Text(option.title, style = MaterialTheme.typography.titleSmall,
@@ -1142,6 +1146,25 @@ fun LaunchPage(vm: LauncherViewModel) {
                     Text(I18n.t("common.cancel"))
                 }
             }
+        )
+    }
+
+    // ===== Java 运行时下载进度（兼容性自动下载等） =====
+    val javaDownloading by vm.javaDownloading.collectAsState()
+    val javaDownloadStatus by vm.javaDownloadStatus.collectAsState()
+    if (javaDownloading) {
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text("正在下载 Java 运行时") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    Text(javaDownloadStatus.ifBlank { "准备中…" },
+                        style = MaterialTheme.typography.bodyMedium)
+                }
+            },
+            confirmButton = {},
+            dismissButton = {}
         )
     }
 }
@@ -1285,7 +1308,7 @@ private fun CrashReportDialog(
                          fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(4.dp))
                     Surface(
-                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        color = glassSurfaceVariantColor(),
                         shape = RoundedCornerShape(6.dp),
                         modifier = Modifier.fillMaxWidth().heightIn(max = 180.dp)
                     ) {
@@ -1744,7 +1767,7 @@ private fun RecentVersionRow(
     val canLaunch = hasAccount
     Surface(
         onClick = onClick,
-        color = MaterialTheme.colorScheme.surfaceVariant,
+        color = glassSurfaceVariantColor(),
         shape = RoundedCornerShape(8.dp),
         modifier = Modifier.fillMaxWidth()
     ) {

@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pmcl.core.i18n.I18n
 import com.pmcl.core.news.NewsItem
+import com.pmcl.ui.theme.glassSurfaceVariantColor
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import com.pmcl.ui.viewmodel.refreshNews
 import com.pmcl.ui.viewmodel.loadArticle
@@ -590,7 +591,7 @@ private fun NewsCard(
 
     Surface(
         onClick = onClick,
-        color = MaterialTheme.colorScheme.surfaceVariant,
+        color = glassSurfaceVariantColor(),
         shape = RoundedCornerShape(10.dp),
         modifier = Modifier.fillMaxWidth()
     ) {

@@ -95,6 +95,18 @@ interface PluginContext {
     fun warn(message: String)
     fun error(message: String, throwable: Throwable? = null)
 
+    // ==================== Threading ====================
+
+    /**
+     * Create a daemon thread in this plugin's [ThreadGroup].
+     * Prefer this (or [threadFactory]) over raw `Thread(...)` so unload can interrupt
+     * the thread when the plugin is disabled.
+     */
+    fun newThread(name: String = "", task: Runnable): Thread
+
+    /** ThreadFactory that always creates threads in this plugin's [ThreadGroup]. */
+    fun threadFactory(): java.util.concurrent.ThreadFactory
+
     // ==================== Registration ====================
 
     /**

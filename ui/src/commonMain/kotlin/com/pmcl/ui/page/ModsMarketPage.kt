@@ -46,6 +46,8 @@ import androidx.compose.ui.unit.lerp as lerpDp
 import com.pmcl.core.i18n.I18n
 import com.pmcl.core.market.ModProject
 import com.pmcl.ui.animation.MotionTokens
+import com.pmcl.ui.theme.glassContainerColor
+import com.pmcl.ui.theme.glassSurfaceVariantColor
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import com.pmcl.ui.viewmodel.searchMods
 import com.pmcl.ui.viewmodel.loadPopularMods
@@ -381,7 +383,7 @@ fun ModsMarketPage(vm: LauncherViewModel) {
                     Spacer(Modifier.height(8.dp))
                     if (categoryResults.isEmpty() && !categoryLoading) {
                         Surface(
-                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            color = glassSurfaceVariantColor(),
                             shape = RoundedCornerShape(8.dp),
                             modifier = Modifier.fillMaxWidth().weight(1f)
                         ) {
@@ -432,7 +434,7 @@ fun ModsMarketPage(vm: LauncherViewModel) {
                     Spacer(Modifier.height(8.dp))
                     if (popularMods.isEmpty() && !popularLoading) {
                         Surface(
-                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            color = glassSurfaceVariantColor(),
                             shape = RoundedCornerShape(8.dp),
                             modifier = Modifier.fillMaxWidth().weight(1f)
                         ) {
@@ -598,7 +600,7 @@ private fun PopularCard(
 
     Surface(
         onClick = onClick,
-        color = MaterialTheme.colorScheme.surfaceVariant,
+        color = glassSurfaceVariantColor(),
         shape = RoundedCornerShape(10.dp),
         modifier = Modifier
             .fillMaxWidth()
@@ -717,7 +719,7 @@ private fun ColumnScope.ModDetailView(
             TextButton(onClick = onBack) { Text(I18n.t("market.back_to_popular")) }
 
             Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant,
+                color = glassSurfaceVariantColor(),
                 shape = RoundedCornerShape(10.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -783,7 +785,7 @@ private fun ColumnScope.ModDetailView(
             }
 
             Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                color = glassContainerColor(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
                 shape = RoundedCornerShape(8.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -905,7 +907,7 @@ private fun ColumnScope.ModDetailView(
             when {
                 files.isEmpty() -> {
                     Surface(
-                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        color = glassSurfaceVariantColor(),
                         shape = RoundedCornerShape(6.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
@@ -916,7 +918,7 @@ private fun ColumnScope.ModDetailView(
                 }
                 compatibleFiles.isEmpty() -> {
                     Surface(
-                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        color = glassSurfaceVariantColor(),
                         shape = RoundedCornerShape(6.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
@@ -979,7 +981,7 @@ private fun SearchResultCard(
 
     Surface(
         onClick = onClick,
-        color = MaterialTheme.colorScheme.surfaceVariant,
+        color = glassSurfaceVariantColor(),
         shape = RoundedCornerShape(8.dp),
         modifier = Modifier
             .fillMaxWidth()
@@ -1144,7 +1146,7 @@ private fun FileRow(
     // 追踪卡片在窗口中的位置（供飞入动画使用）
     var cardRect by remember { mutableStateOf<com.pmcl.ui.animation.Rect?>(null) }
     Surface(
-        color = MaterialTheme.colorScheme.surface,
+        color = glassContainerColor(MaterialTheme.colorScheme.surface),
         shape = RoundedCornerShape(6.dp),
         modifier = Modifier.fillMaxWidth()
             .onGloballyPositioned { coords ->

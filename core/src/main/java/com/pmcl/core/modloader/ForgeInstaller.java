@@ -9,6 +9,7 @@ import com.pmcl.core.download.DownloadManager;
 import com.pmcl.core.download.DownloadTask;
 import com.pmcl.core.install.InstallInterruptedException;
 import com.pmcl.core.install.InstallProgress;
+import com.pmcl.core.install.VersionInstaller;
 import com.pmcl.core.install.VersionStaging;
 import com.pmcl.core.launch.JavaRuntimeFinder;
 import com.pmcl.core.util.Exceptions;
@@ -50,11 +51,18 @@ public final class ForgeInstaller implements ModLoaderInstaller {
     private final LauncherConfig config;
     private final DownloadManager downloads;
     private final boolean neoForge;
+    private final VersionInstaller versionInstaller;
 
     public ForgeInstaller(LauncherConfig config, DownloadManager downloads, boolean neoForge) {
+        this(config, downloads, neoForge, null);
+    }
+
+    public ForgeInstaller(LauncherConfig config, DownloadManager downloads, boolean neoForge,
+                          VersionInstaller versionInstaller) {
         this.config = config;
         this.downloads = downloads;
         this.neoForge = neoForge;
+        this.versionInstaller = versionInstaller;
     }
 
     @Override
@@ -152,15 +160,23 @@ public final class ForgeInstaller implements ModLoaderInstaller {
                 }
 
                 // 5. 执行 client processors（1.13+ 必需；旧版无 processors 则跳过）
+                boolean processorsRan = false;
                 if (profile.has("processors") && profile.get("processors").isJsonArray()
                         && profile.getAsJsonArray("processors").size() > 0) {
+                    String mcVer = profile.has("minecraft") && !profile.get("minecraft").isJsonNull()
+                            ? profile.get("minecraft").getAsString() : gameVersion;
+                    if (mcVer == null || mcVer.isBlank()) mcVer = gameVersion;
+                    ensureParentInstalled(mcVer, onProgress);
+
                     Path clientJar = config.getVersionsDir()
                             .resolve(gameVersion).resolve(gameVersion + ".jar");
                     if (!Files.isRegularFile(clientJar)) {
                         // 兼容 profile.minecraft 与请求的 gameVersion 不一致
-                        String mc = profile.has("minecraft") && !profile.get("minecraft").isJsonNull()
-                                ? profile.get("minecraft").getAsString() : gameVersion;
-                        clientJar = config.getVersionsDir().resolve(mc).resolve(mc + ".jar");
+                        clientJar = config.getVersionsDir().resolve(mcVer).resolve(mcVer + ".jar");
+                    }
+                    if (!Files.isRegularFile(clientJar) || Files.size(clientJar) < 1024) {
+                        throw new IOException(loaderName + " processors 需要原版 client.jar，"
+                                + "但未找到可用文件（已尝试 " + gameVersion + " / " + mcVer + "）");
                     }
                     String java = JavaRuntimeFinder.findJavaExecutable(config.getRuntimesDir());
                     if (java == null || java.isBlank()) {
@@ -170,11 +186,12 @@ public final class ForgeInstaller implements ModLoaderInstaller {
                             config.getWorkDir(), config.getLibrariesDir(), config.getVersionsDir(),
                             installerJar, clientJar, java);
                     runner.runClient(profile, onProgress);
+                    processorsRan = true;
                 }
 
                 // 6. 校验版本 JSON 库 + processor 产物
                 assertVersionLibrariesPresent(versionJson);
-                assertProcessorOutputs(profile, loaderName);
+                assertProcessorOutputs(profile, loaderName, processorsRan);
 
                 // 7. 原子提升
                 VersionStaging.promote(config.getVersionsDir(), versionId, stagingDir);
@@ -660,11 +677,42 @@ public final class ForgeInstaller implements ModLoaderInstaller {
     }
 
     /**
-     * 不执行 processors，但对能解析出的产物路径做存在性检查。
-     * 若 processors 声明了 outputs 且解析后文件缺失 → 失败关闭，避免“装完不能玩”。
-     * 若无法解析任何产物路径 → 仅警告（镜像常已提供预构建 jar）。
+     * 确保原版父版本（client.jar + json）存在；缺失时自动安装。
+     * processors 依赖原版 jar，与 Fabric ensureParentInstalled 对齐。
      */
-    private void assertProcessorOutputs(JsonObject profile, String loaderName) throws IOException {
+    private void ensureParentInstalled(String parentId, Consumer<InstallProgress> onProgress)
+            throws IOException {
+        VersionStaging.assertSafeVersionId(parentId);
+        Path parentDir = config.getVersionsDir().resolve(parentId);
+        Path parentJson = parentDir.resolve(parentId + ".json");
+        Path parentJar = parentDir.resolve(parentId + ".jar");
+        if (Files.isRegularFile(parentJson) && Files.isRegularFile(parentJar)
+                && Files.size(parentJar) > 1024) {
+            return;
+        }
+        if (versionInstaller == null) {
+            throw new IOException("缺少原版父版本 " + parentId + "，请先安装 Minecraft " + parentId);
+        }
+        if (onProgress != null) onProgress.accept(new InstallProgress(
+                InstallProgress.Stage.DOWNLOAD_VERSION_JSON, 0, 1,
+                "安装原版父版本 " + parentId));
+        try {
+            versionInstaller.install(parentId, onProgress).join();
+        } catch (java.util.concurrent.CompletionException ce) {
+            Throwable c = ce.getCause() != null ? ce.getCause() : ce;
+            if (c instanceof IOException) throw (IOException) c;
+            if (c instanceof RuntimeException) throw (RuntimeException) c;
+            throw new IOException("安装原版父版本失败: " + parentId, c);
+        }
+    }
+
+    /**
+     * 校验 processors 声明的产物路径是否存在。
+     * processors 已执行时：缺失 → 明确报生成失败；齐全 → 校验通过日志。
+     * 无法解析任何产物路径时仅警告（镜像可能已提供预构建 jar）。
+     */
+    private void assertProcessorOutputs(JsonObject profile, String loaderName,
+                                        boolean processorsRan) throws IOException {
         if (!profile.has("processors") || !profile.get("processors").isJsonArray()) return;
         JsonArray processors = profile.getAsJsonArray("processors");
         if (processors.size() == 0) return;
@@ -692,15 +740,22 @@ public final class ForgeInstaller implements ModLoaderInstaller {
 
         if (!missing.isEmpty()) {
             String preview = String.join(", ", missing.subList(0, Math.min(3, missing.size())));
+            if (processorsRan) {
+                throw new IOException(loaderName + " processors 执行后产物仍缺失: "
+                        + preview + "。请重试安装或改用官方 installer / HMCL。");
+            }
             throw new IOException(loaderName + " installer 需要 processors 产物，但以下文件缺失: "
-                    + preview + "。当前不支持执行 processors，请换用已预构建版本或 HMCL/官方 installer。");
+                    + preview + "。请先确保原版游戏已安装，或换用已预构建版本。");
         }
         if (resolved == 0) {
             System.err.println("[ForgeInstaller] " + loaderName
-                    + " install_profile 含 processors，但无法解析产物路径；已跳过 processor 执行");
+                    + " install_profile 含 processors，但无法解析产物路径；已跳过产物校验");
+        } else if (processorsRan) {
+            System.err.println("[ForgeInstaller] " + loaderName
+                    + " processors 产物校验通过（" + resolved + " 项）");
         } else {
             System.err.println("[ForgeInstaller] " + loaderName
-                    + " processors 产物已就绪（解析 " + resolved + " 项），跳过执行");
+                    + " processors 产物已就绪（解析 " + resolved + " 项）");
         }
     }
 

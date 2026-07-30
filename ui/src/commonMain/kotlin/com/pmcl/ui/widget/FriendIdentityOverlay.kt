@@ -30,6 +30,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pmcl.core.friend.FriendIdentityManager
 import com.pmcl.core.i18n.I18n
+import com.pmcl.ui.theme.glassCardBorder
+import com.pmcl.ui.theme.glassCardColors
+import com.pmcl.ui.theme.glassCardElevation
 import org.jetbrains.skia.Image as SkiaImage
 
 /**
@@ -90,9 +93,11 @@ fun IdentityCard(
     Card(
         modifier = modifier
             .clipToBounds()
-            .clip(RoundedCornerShape(16.dp)),
+            .clip(RoundedCornerShape(16.dp))
+            .glassCardBorder(),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.Transparent)
+        colors = glassCardColors(containerColor = Color.Transparent),
+        elevation = glassCardElevation()
     ) {
         Box(Modifier.fillMaxSize()) {
             // 背景层（使用 matchParentSize 跟随 Box 实际尺寸，不影响测量）

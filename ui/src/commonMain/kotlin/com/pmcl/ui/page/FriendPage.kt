@@ -37,6 +37,9 @@ import com.pmcl.core.friend.FriendIdentityManager
 import com.pmcl.core.friend.FriendManager
 import com.pmcl.core.friend.FriendStore
 import com.pmcl.core.i18n.I18n
+import com.pmcl.ui.theme.glassCardBorder
+import com.pmcl.ui.theme.glassCardColors
+import com.pmcl.ui.theme.glassCardElevation
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import com.pmcl.ui.widget.IdentityCard
 import kotlinx.coroutines.Dispatchers
@@ -686,8 +689,9 @@ private fun FriendRequestCard(
     onReject: () -> Unit
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp).glassCardBorder(),
+        colors = glassCardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+        elevation = glassCardElevation(),
         shape = RoundedCornerShape(10.dp)
     ) {
         Row(Modifier.padding(horizontal = 10.dp, vertical = 8.dp),

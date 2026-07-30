@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pmcl.core.i18n.I18n
 import com.pmcl.core.nbt.NbtTag
+import com.pmcl.ui.theme.glassSurfaceVariantColor
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import com.pmcl.ui.viewmodel.addNbtArrayElement
 import com.pmcl.ui.viewmodel.addNbtChild
@@ -884,7 +885,7 @@ private fun SnbtPreviewDialog(
                 Text(I18n.t("nbt.snbt_exported"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.height(8.dp))
                 Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    color = glassSurfaceVariantColor(),
                     shape = RoundedCornerShape(8.dp),
                     modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp)
                 ) {

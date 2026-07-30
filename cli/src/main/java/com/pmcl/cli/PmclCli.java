@@ -513,9 +513,11 @@ public final class PmclCli {
                 System.err.println("Please install the corresponding Java version, or configure Java path in PMCL settings.");
                 return;
             }
-            System.out.println("Using Java: " + javaPath);
+            Integer actualMajor = JavaRuntimeFinder.getMajorVersion(javaPath);
+            int javaMajor = actualMajor != null ? actualMajor : requiredJava;
+            System.out.println("Using Java: " + javaPath + " (major=" + javaMajor + ")");
 
-            LaunchProfile profile = core.profileBuilder().build(versionId, currentAccount, requiredJava);
+            LaunchProfile profile = core.profileBuilder().build(versionId, currentAccount, javaMajor);
             System.out.println(SEP);
             System.out.println("Launching Minecraft " + versionId + " ...");
             System.out.println(SEP);
@@ -1592,7 +1594,19 @@ public final class PmclCli {
             return;
         }
         String url = rest[0];
-        Path target = Paths.get(rest[1]);
+        // 安全修复：校验 URL 协议，拒绝 file:// 等非 HTTP(S) 协议
+        String lowerUrl = url.toLowerCase(java.util.Locale.ROOT);
+        if (!lowerUrl.startsWith("http://") && !lowerUrl.startsWith("https://")) {
+            System.err.println("Error: URL must be http:// or https://");
+            return;
+        }
+        // 安全修复：校验目标路径在工作目录内，防止路径穿越覆盖任意文件
+        Path target = Paths.get(rest[1]).toAbsolutePath().normalize();
+        Path workDir = core.getConfig().getWorkDir().toAbsolutePath().normalize();
+        if (!target.startsWith(workDir)) {
+            System.err.println("Error: target path must be inside the launcher work directory: " + workDir);
+            return;
+        }
         System.out.println("Downloading: " + url);
         System.out.println("Target: " + target);
         try {

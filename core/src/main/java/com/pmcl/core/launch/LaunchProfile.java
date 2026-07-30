@@ -90,7 +90,13 @@ public final class LaunchProfile {
         return this;
     }
 
-    /** 直接追加已格式化的 -javaagent:… 参数（插件贡献用） */
+    /**
+     * Append a pre-formatted {@code -javaagent:…} argument.
+     * <p>
+     * <b>Host-only.</b> Must not be called from plugin LaunchHook contributions —
+     * {@link com.pmcl.core.plugin.PluginManager#applyLaunchContributions} rejects
+     * plugin javaagents to preserve the isolating class-loader sandbox.
+     */
     public LaunchProfile addJavaAgentRaw(String agentArg) {
         if (agentArg != null && !agentArg.isBlank()) {
             String t = agentArg.trim();
@@ -179,8 +185,10 @@ public final class LaunchProfile {
 
     /**
      * H2: 将超长 classpath 写入临时 argfile。
-     * argfile 格式：每行一个参数，JVM 自动展开 @file。
-     * 文件写入工作目录的 .pmcl/argfiles/ 下，按 versionId 命名，启动后可保留供调试。
+     * <p>
+     * 调用方已追加 {@code -cp}，再传 {@code @file}；因此文件内容只能是 classpath 本体。
+     * 若文件再写 {@code -cp …}，展开后会变成双重 {@code -cp}，JVM 启动失败。
+     * 路径含空白时按 JVM argfile 规则加双引号。
      */
     private Path writeClasspathArgFile(String classpath) {
         try {
@@ -188,10 +196,11 @@ public final class LaunchProfile {
             Files.createDirectories(argDir);
             String name = (versionId != null ? versionId : "mc") + "-" + System.currentTimeMillis() + ".cp";
             Path file = argDir.resolve(name);
-            // argfile 内容：-cp <classpath>，JVM 读取时按行解析
-            // 用引用包裹 classpath 防止路径含空格被截断
-            Files.writeString(file, "-cp \"" + classpath + "\"",
-                    java.nio.charset.StandardCharsets.UTF_8);
+            String body = classpath;
+            if (body.indexOf(' ') >= 0 || body.indexOf('\t') >= 0) {
+                body = "\"" + body.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
+            }
+            Files.writeString(file, body, java.nio.charset.StandardCharsets.UTF_8);
             return file;
         } catch (IOException e) {
             System.err.println("[LaunchProfile] 写入 classpath argfile 失败，回退到直接传参: " + e.getMessage());

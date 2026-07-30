@@ -60,6 +60,8 @@ import com.pmcl.core.mods.ModMeta
 import com.pmcl.core.mods.ModUpdateChecker
 import com.pmcl.ui.animation.AnimatedSegmentedSelector
 import com.pmcl.ui.animation.StaggeredAppear
+import com.pmcl.ui.theme.glassContainerColor
+import com.pmcl.ui.theme.glassSurfaceVariantColor
 import com.pmcl.ui.util.decodeSampledBitmap
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import com.pmcl.ui.viewmodel.refreshInstalledMods
@@ -553,7 +555,7 @@ fun ModsPage(vm: LauncherViewModel) {
         // === 已安装列表 ===
         if (processedMods.isEmpty()) {
             Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant,
+                color = glassSurfaceVariantColor(),
                 shape = RoundedCornerShape(8.dp),
                 modifier = Modifier.fillMaxWidth().weight(1f)
             ) {
@@ -717,8 +719,8 @@ private fun ModRow(
     val jarKey = m.getJarFile()
     Surface(
         onClick = { if (selectionMode) onToggleSelect() else onShowDetail() },
-        color = if (m.isDisabled()) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-                else MaterialTheme.colorScheme.surfaceVariant,
+        color = if (m.isDisabled()) glassContainerColor(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                else glassSurfaceVariantColor(),
         shape = shape,
         modifier = Modifier
             .fillMaxWidth()
@@ -1065,7 +1067,7 @@ private fun ConflictCard(result: ModConflictChecker.Result) {
     val hasErrors = result.getErrors().isNotEmpty()
     val colors = if (hasErrors) MaterialTheme.colorScheme.errorContainer
                  else MaterialTheme.colorScheme.tertiaryContainer
-    Surface(color = colors, shape = RoundedCornerShape(8.dp),
+    Surface(color = glassContainerColor(colors), shape = RoundedCornerShape(8.dp),
             modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp)) {
             Text(

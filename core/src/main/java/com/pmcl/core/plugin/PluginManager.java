@@ -247,7 +247,7 @@ public final class PluginManager {
      * Scan the plugins directory and load all plugin JARs and .ppk packages.
      * Already-loaded plugins are skipped. Disabled plugins are loaded but not enabled.
      */
-    public synchronized void discoverAndLoadAll() {
+    public void discoverAndLoadAll() {
         ensurePluginsDir();
         File[] files = pluginsDir.toFile().listFiles((dir, name) ->
                 (name.toLowerCase(java.util.Locale.ROOT).endsWith(".jar") || name.toLowerCase(java.util.Locale.ROOT).endsWith(".ppk")) && !name.equals(STATE_FILE));
@@ -263,10 +263,21 @@ public final class PluginManager {
                 System.err.println("[PluginManager] Failed to load " + file.getName() + ": " + e.getMessage());
             }
         }
-        // Auto-enable plugins that were previously enabled
-        for (PluginEntry entry : new ArrayList<>(loadedPlugins.values())) {
-            if (entry.getState() == PluginState.LOADED && isEnabled(entry.getInfo().getId())) {
-                enablePlugin(entry.getInfo().getId());
+        // Auto-enable outside any PluginManager monitor so onEnable ThreadGroup
+        // workers can re-enter registration APIs without deadlock.
+        List<String> toEnable = new ArrayList<>();
+        synchronized (this) {
+            for (PluginEntry entry : loadedPlugins.values()) {
+                if (entry.getState() == PluginState.LOADED && isEnabled(entry.getInfo().getId())) {
+                    toEnable.add(entry.getInfo().getId());
+                }
+            }
+        }
+        for (String id : toEnable) {
+            try {
+                enablePlugin(id);
+            } catch (Exception e) {
+                System.err.println("[PluginManager] Failed to enable " + id + ": " + e.getMessage());
             }
         }
     }
@@ -276,7 +287,7 @@ public final class PluginManager {
      * @return the PluginInfo of the loaded plugin
      * @throws Exception if loading fails
      */
-    public synchronized PluginInfo loadPlugin(Path jarPath) throws Exception {
+    public PluginInfo loadPlugin(Path jarPath) throws Exception {
         // M25 修复：校验 jarPath 必须在 pluginsDir 下。
         // 防止插件或未来代码被诱导加载任意路径（如系统目录、临时目录）的 JAR，
         // 规避"插件从非受控位置加载"的安全风险。
@@ -291,63 +302,70 @@ public final class PluginManager {
                     ". Use installFromPath() to install from external locations.");
         }
 
-        // Parse descriptor
-        PluginInfo info = parseDescriptor(jarPath);
-        info.validate();
+        final PluginInfo info;
+        final PmclPlugin plugin;
+        synchronized (this) {
+            // Parse descriptor
+            info = parseDescriptor(jarPath);
+            info.validate();
 
-        // Check for duplicate
-        if (loadedPlugins.containsKey(info.getId())) {
-            throw new IllegalStateException("Plugin already loaded: " + info.getId());
-        }
-
-        // Check dependencies — all must be loaded before this plugin can load
-        for (String dep : info.getDependencies()) {
-            if (!loadedPlugins.containsKey(dep)) {
-                throw new IllegalStateException(
-                        "Plugin '" + info.getId() + "' requires dependency '" + dep +
-                        "' which is not loaded. Install/load it first.");
+            // Check for duplicate
+            if (loadedPlugins.containsKey(info.getId())) {
+                throw new IllegalStateException("Plugin already loaded: " + info.getId());
             }
-        }
 
-        // Create classloader with PMCL classloader as parent — 使用隔离 ClassLoader
-        // 阻止插件直接加载 com.pmcl.core.* 内部类，强制走 getService
-        URL[] urls = {jarPath.toUri().toURL()};
-        PluginIsolatingClassLoader classLoader = new PluginIsolatingClassLoader(
-                info.getId(), urls, getClass().getClassLoader());
-
-        // Load main class — 异常路径关闭 classLoader 防止 jar 句柄泄漏
-        PmclPlugin plugin;
-        try {
-            Class<?> mainClass = classLoader.loadClass(info.getMainClass());
-            if (!PmclPlugin.class.isAssignableFrom(mainClass)) {
-                classLoader.close();
-                throw new ClassCastException("Main class " + info.getMainClass() +
-                        " does not implement PmclPlugin");
+            // Check dependencies — all must be loaded before this plugin can load
+            for (String dep : info.getDependencies()) {
+                if (!loadedPlugins.containsKey(dep)) {
+                    throw new IllegalStateException(
+                            "Plugin '" + info.getId() + "' requires dependency '" + dep +
+                            "' which is not loaded. Install/load it first.");
+                }
             }
-            plugin = (PmclPlugin) mainClass.getDeclaredConstructor().newInstance();
-        } catch (Throwable t) {
-            try { classLoader.close(); } catch (Exception ignored) {}
-            throw t;
+
+            // Create classloader with PMCL classloader as parent — 使用隔离 ClassLoader
+            // 阻止插件直接加载 com.pmcl.core.* 内部类，强制走 getService
+            URL[] urls = {jarPath.toUri().toURL()};
+            PluginIsolatingClassLoader classLoader = new PluginIsolatingClassLoader(
+                    info.getId(), urls, getClass().getClassLoader());
+
+            // Load main class — 异常路径关闭 classLoader 防止 jar 句柄泄漏
+            PmclPlugin instance;
+            try {
+                Class<?> mainClass = classLoader.loadClass(info.getMainClass());
+                if (!PmclPlugin.class.isAssignableFrom(mainClass)) {
+                    classLoader.close();
+                    throw new ClassCastException("Main class " + info.getMainClass() +
+                            " does not implement PmclPlugin");
+                }
+                instance = (PmclPlugin) mainClass.getDeclaredConstructor().newInstance();
+            } catch (Throwable t) {
+                try { classLoader.close(); } catch (Exception ignored) {}
+                throw t;
+            }
+
+            PluginContextImpl ctx = new PluginContextImpl(this, info.getId());
+            PluginEntry entry = new PluginEntry(info, instance, ctx, classLoader, jarPath);
+            entry.setState(PluginState.LOADED);
+            loadedPlugins.put(info.getId(), entry);
+            plugin = instance;
+
+            System.out.println("[PluginManager] Loaded plugin: " + info.getId() + " v" + info.getVersion());
+            bumpRevision();
         }
 
-        // Create context
-        PluginContextImpl ctx = new PluginContextImpl(this, info.getId());
-
-        PluginEntry entry = new PluginEntry(info, plugin, ctx, classLoader, jarPath);
-        entry.setState(PluginState.LOADED);
-        loadedPlugins.put(info.getId(), entry);
-
-        // Call onLoad
+        // onLoad outside the monitor: runs in plugin ThreadGroup (spawn+join) and may
+        // re-enter PluginManager via registration APIs.
         try {
-            plugin.onLoad();
+            runInPlugin(info.getId(), plugin::onLoad);
         } catch (Exception e) {
             System.err.println("[PluginManager] onLoad failed for " + info.getId() + ": " + e.getMessage());
-            entry.setState(PluginState.FAILED);
+            synchronized (this) {
+                PluginEntry entry = loadedPlugins.get(info.getId());
+                if (entry != null) entry.setState(PluginState.FAILED);
+            }
             fireEvent(new PluginErrorEvent(info.getId(), e));
         }
-
-        System.out.println("[PluginManager] Loaded plugin: " + info.getId() + " v" + info.getVersion());
-        bumpRevision();
         fireEvent(new PluginLoadedEvent(info.getId()));
         return info;
     }
@@ -355,74 +373,113 @@ public final class PluginManager {
     /**
      * Enable a loaded plugin (calls onEnable).
      */
-    public synchronized void enablePlugin(String pluginId) {
-        PluginEntry entry = loadedPlugins.get(pluginId);
-        if (entry == null) throw new IllegalStateException("Plugin not loaded: " + pluginId);
-        if (entry.getState() == PluginState.ENABLED) return;
-        if (entry.getState() != PluginState.LOADED && entry.getState() != PluginState.DISABLED)
-            throw new IllegalStateException("Plugin not in loadable state: " + pluginId + " (" + entry.getState() + ")");
+    public void enablePlugin(String pluginId) {
+        final PluginEntry entry;
+        synchronized (this) {
+            entry = loadedPlugins.get(pluginId);
+            if (entry == null) throw new IllegalStateException("Plugin not loaded: " + pluginId);
+            if (entry.getState() == PluginState.ENABLED) return;
+            if (entry.getState() != PluginState.LOADED && entry.getState() != PluginState.DISABLED)
+                throw new IllegalStateException("Plugin not in loadable state: " + pluginId + " (" + entry.getState() + ")");
+        }
 
         try {
-            entry.getPlugin().onEnable(entry.getContext());
+            runInPlugin(pluginId, () -> entry.getPlugin().onEnable(entry.getContext()));
+        } catch (Exception e) {
+            System.err.println("[PluginManager] Failed to enable " + pluginId + ": " + e.getMessage());
+            synchronized (this) {
+                entry.setState(PluginState.FAILED);
+            }
+            fireEvent(new PluginErrorEvent(pluginId, e));
+            return;
+        }
+
+        synchronized (this) {
+            if (loadedPlugins.get(pluginId) != entry) return;
             entry.setState(PluginState.ENABLED);
             enabledState.put(pluginId, true);
             saveState();
-            System.out.println("[PluginManager] Enabled plugin: " + pluginId);
             bumpRevision();
-            fireEvent(new PluginEnabledEvent(pluginId));
-        } catch (Exception e) {
-            System.err.println("[PluginManager] Failed to enable " + pluginId + ": " + e.getMessage());
-            entry.setState(PluginState.FAILED);
-            fireEvent(new PluginErrorEvent(pluginId, e));
         }
+        System.out.println("[PluginManager] Enabled plugin: " + pluginId);
+        fireEvent(new PluginEnabledEvent(pluginId));
     }
 
     /**
      * Disable an enabled plugin (calls onDisable).
      */
-    public synchronized void disablePlugin(String pluginId) {
-        PluginEntry entry = loadedPlugins.get(pluginId);
-        if (entry == null) return;
-        if (entry.getState() != PluginState.ENABLED) return;
+    public void disablePlugin(String pluginId) {
+        final PluginEntry entry;
+        synchronized (this) {
+            entry = loadedPlugins.get(pluginId);
+            if (entry == null) return;
+            if (entry.getState() != PluginState.ENABLED) return;
+        }
 
         try {
-            entry.getPlugin().onDisable();
+            runInPlugin(pluginId, () -> entry.getPlugin().onDisable());
         } catch (Exception e) {
             System.err.println("[PluginManager] onDisable failed for " + pluginId + ": " + e.getMessage());
         }
 
-        // Unregister extensions
-        customCommands.remove(pluginId);
-        customPages.remove(pluginId);
-        customSettingsSections.remove(pluginId);
-        customMenuActions.remove(pluginId);
-        customStatusBarActions.remove(pluginId);
-        customHomeCards.remove(pluginId);
-        customThemePacks.remove(pluginId);
-        navBadges.remove(pluginId);
-        hiddenBuiltinNav.remove(pluginId);
-        clearPluginStrings(pluginId, "");
-        cancelAllPluginTasks(pluginId);
-        eventListeners.removeIf(l -> l instanceof TrackedEventListener &&
-                ((TrackedEventListener) l).pluginId.equals(pluginId));
-        launchHooks.removeIf(h -> h instanceof TrackedLaunchHook &&
-                ((TrackedLaunchHook) h).pluginId.equals(pluginId));
-        urlRewriteHooks.removeIf(h -> h.pluginId.equals(pluginId));
+        synchronized (this) {
+            if (loadedPlugins.get(pluginId) != entry) return;
+            // Unregister extensions
+            customCommands.remove(pluginId);
+            customPages.remove(pluginId);
+            customSettingsSections.remove(pluginId);
+            customMenuActions.remove(pluginId);
+            customStatusBarActions.remove(pluginId);
+            customHomeCards.remove(pluginId);
+            customThemePacks.remove(pluginId);
+            navBadges.remove(pluginId);
+            hiddenBuiltinNav.remove(pluginId);
+            clearPluginStrings(pluginId, "");
+            cancelAllPluginTasks(pluginId);
+            eventListeners.removeIf(l -> l instanceof TrackedEventListener &&
+                    ((TrackedEventListener) l).pluginId.equals(pluginId));
+            launchHooks.removeIf(h -> h instanceof TrackedLaunchHook &&
+                    ((TrackedLaunchHook) h).pluginId.equals(pluginId));
+            urlRewriteHooks.removeIf(h -> h.pluginId.equals(pluginId));
 
-        entry.setState(PluginState.DISABLED);
-        enabledState.put(pluginId, false);
-        saveState();
+            shutdownPluginThreads(entry);
+
+            entry.setState(PluginState.DISABLED);
+            enabledState.put(pluginId, false);
+            saveState();
+            bumpRevision();
+        }
         System.out.println("[PluginManager] Disabled plugin: " + pluginId);
-        bumpRevision();
         fireEvent(new PluginDisabledEvent(pluginId));
     }
 
     /**
      * Unload a plugin completely (disable + remove from memory).
      */
-    public synchronized void unloadPlugin(String pluginId) {
+    public void unloadPlugin(String pluginId) {
         disablePlugin(pluginId);
-        PluginEntry entry = loadedPlugins.remove(pluginId);
+        PluginEntry entry;
+        synchronized (this) {
+            entry = loadedPlugins.remove(pluginId);
+            if (entry != null) {
+                // Ensure threads are torn down even if already DISABLED
+                // (disablePlugin only runs the ENABLED → DISABLED path).
+                shutdownPluginThreads(entry);
+            }
+            customCommands.remove(pluginId);
+            customPages.remove(pluginId);
+            customSettingsSections.remove(pluginId);
+            customMenuActions.remove(pluginId);
+            customStatusBarActions.remove(pluginId);
+            customHomeCards.remove(pluginId);
+            customThemePacks.remove(pluginId);
+            navBadges.remove(pluginId);
+            hiddenBuiltinNav.remove(pluginId);
+            clearPluginStrings(pluginId, "");
+            cancelAllPluginTasks(pluginId);
+            urlRewriteHooks.removeIf(h -> h.pluginId.equals(pluginId));
+            bumpRevision();
+        }
         if (entry != null) {
             try {
                 entry.getClassLoader().close();
@@ -430,27 +487,17 @@ public final class PluginManager {
                 System.err.println("[PluginManager] Failed to close classloader for " + pluginId);
             }
         }
-        customCommands.remove(pluginId);
-        customPages.remove(pluginId);
-        customSettingsSections.remove(pluginId);
-        customMenuActions.remove(pluginId);
-        customStatusBarActions.remove(pluginId);
-        customHomeCards.remove(pluginId);
-        customThemePacks.remove(pluginId);
-        navBadges.remove(pluginId);
-        hiddenBuiltinNav.remove(pluginId);
-        clearPluginStrings(pluginId, "");
-        cancelAllPluginTasks(pluginId);
-        urlRewriteHooks.removeIf(h -> h.pluginId.equals(pluginId));
         System.out.println("[PluginManager] Unloaded plugin: " + pluginId);
-        bumpRevision();
     }
 
     /**
      * Disable all plugins and shut down the event executor. Idempotent.
      */
-    public synchronized void close() {
-        List<String> ids = new ArrayList<>(loadedPlugins.keySet());
+    public void close() {
+        List<String> ids;
+        synchronized (this) {
+            ids = new ArrayList<>(loadedPlugins.keySet());
+        }
         for (String id : ids) {
             try {
                 unloadPlugin(id);
@@ -458,23 +505,25 @@ public final class PluginManager {
                 System.err.println("[PluginManager] unload on close failed for " + id + ": " + e.getMessage());
             }
         }
-        try {
-            eventExecutor.shutdownNow();
-        } catch (Throwable ignored) {}
-        try {
-            pluginScheduler.shutdownNow();
-        } catch (Throwable ignored) {}
-        notifications.clear();
-        dialogRequests.clear();
-        filePickerRequests.clear();
-        progressUpdates.clear();
-        inputDialogRequests.clear();
-        navigationHandler = null;
-        launchRequestHandler = null;
-        clipboardHandler = null;
-        openUrlHandler = null;
-        musicBridge = null;
-        bumpRevision();
+        synchronized (this) {
+            try {
+                eventExecutor.shutdownNow();
+            } catch (Throwable ignored) {}
+            try {
+                pluginScheduler.shutdownNow();
+            } catch (Throwable ignored) {}
+            notifications.clear();
+            dialogRequests.clear();
+            filePickerRequests.clear();
+            progressUpdates.clear();
+            inputDialogRequests.clear();
+            navigationHandler = null;
+            launchRequestHandler = null;
+            clipboardHandler = null;
+            openUrlHandler = null;
+            musicBridge = null;
+            bumpRevision();
+        }
     }
 
     public void setNavigationHandler(Consumer<String> handler) {
@@ -727,7 +776,7 @@ public final class PluginManager {
         String id = java.util.UUID.randomUUID().toString();
         Runnable wrapped = () -> {
             try {
-                task.run();
+                runInPlugin(pluginId, task);
             } catch (Throwable t) {
                 System.err.println("[Plugin:" + pluginId + "] scheduled task error: " + t.getMessage());
             }
@@ -772,6 +821,61 @@ public final class PluginManager {
         synchronized (this) {
             pluginConfigs.computeIfAbsent(pluginId, k -> new HashMap<>()).put(key, value);
             saveState();
+        }
+    }
+
+    /**
+     * Execute plugin code on a worker belonging to the plugin's {@link ThreadGroup}
+     * so {@code new Thread(...)} inherits that group and can be interrupted on unload.
+     */
+    void runInPlugin(String pluginId, Runnable task) {
+        if (task == null) return;
+        PluginEntry entry = loadedPlugins.get(pluginId);
+        if (entry == null || entry.threads().isDestroyed()) {
+            task.run();
+            return;
+        }
+        entry.threads().run(task);
+    }
+
+    <T> T callInPlugin(String pluginId, java.util.concurrent.Callable<T> task) {
+        if (task == null) throw new NullPointerException("task");
+        PluginEntry entry = loadedPlugins.get(pluginId);
+        if (entry == null || entry.threads().isDestroyed()) {
+            try {
+                return task.call();
+            } catch (RuntimeException | Error e) {
+                throw e;
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        }
+        return entry.threads().call(task);
+    }
+
+    Thread newPluginThread(String pluginId, String name, Runnable task) {
+        PluginEntry entry = loadedPlugins.get(pluginId);
+        if (entry == null || entry.threads().isDestroyed()) {
+            throw new IllegalStateException("Plugin not loaded or thread group destroyed: " + pluginId);
+        }
+        return entry.threads().newThread(name, task);
+    }
+
+    java.util.concurrent.ThreadFactory pluginThreadFactory(String pluginId) {
+        PluginEntry entry = loadedPlugins.get(pluginId);
+        if (entry == null || entry.threads().isDestroyed()) {
+            throw new IllegalStateException("Plugin not loaded or thread group destroyed: " + pluginId);
+        }
+        return entry.threads().threadFactory("pmcl-plugin-" + pluginId + "-");
+    }
+
+    private void shutdownPluginThreads(PluginEntry entry) {
+        if (entry == null) return;
+        try {
+            entry.threads().shutdown(PLUGIN_THREAD_SHUTDOWN_WAIT_MS);
+        } catch (Throwable t) {
+            System.err.println("[PluginManager] Failed to shut down threads for "
+                    + entry.getInfo().getId() + ": " + t.getMessage());
         }
     }
 
@@ -849,7 +953,7 @@ public final class PluginManager {
      * @return the PluginInfo of the loaded plugin
      * @throws Exception if loading fails
      */
-    public synchronized PluginInfo loadPluginPackage(Path ppkPath) throws Exception {
+    public PluginInfo loadPluginPackage(Path ppkPath) throws Exception {
         // .ppk 尚无签名清单：默认拒绝执行；开发/受信任源显式放行
         boolean allowUnsignedPkg = Boolean.parseBoolean(
                 System.getProperty("pmcl.plugins.allowUnsignedPackages", "false"));
@@ -860,71 +964,77 @@ public final class PluginManager {
         System.err.println("[PluginManager] WARNING: loading unsigned .ppk package ("
                 + ppkPath + ") — no publisher authenticity check.");
 
-        // Parse and validate the package manifest
-        PluginPackage pkg = PluginPackageParser.parse(ppkPath);
-        PluginInfo info = pkg.getInfo();
-        // info is already validated inside PluginPackageParser.parseDocument
+        final PluginInfo info;
+        final PmclPlugin plugin;
+        final int ktCount;
+        final int javaCount;
+        synchronized (this) {
+            // Parse and validate the package manifest
+            PluginPackage pkg = PluginPackageParser.parse(ppkPath);
+            info = pkg.getInfo();
+            ktCount = pkg.getKotlinSources().size();
+            javaCount = pkg.getJavaSources().size();
 
-        // Check for duplicate
-        if (loadedPlugins.containsKey(info.getId())) {
-            throw new IllegalStateException("Plugin already loaded: " + info.getId());
-        }
-
-        // Check dependencies
-        for (String dep : info.getDependencies()) {
-            if (!loadedPlugins.containsKey(dep)) {
-                throw new IllegalStateException(
-                        "Plugin '" + info.getId() + "' requires dependency '" + dep +
-                        "' which is not loaded. Install/load it first.");
+            // Check for duplicate
+            if (loadedPlugins.containsKey(info.getId())) {
+                throw new IllegalStateException("Plugin already loaded: " + info.getId());
             }
-        }
 
-        // Extract the package to a per-plugin directory
-        Path packageDir = PluginPackageBuilder.getPackageDir(pluginsDir, info.getId());
-        PluginPackageBuilder.extract(ppkPath, packageDir);
-
-        // Validate runtime structure (must have classes/)
-        PluginPackageBuilder.validateRuntimeStructure(packageDir);
-
-        // Create classloader from classes/ + lib/*.jar — 使用隔离 ClassLoader
-        // 阻止插件直接加载 com.pmcl.core.* 内部类，强制走 getService
-        PluginIsolatingClassLoader classLoader = PluginPackageBuilder.createClassLoader(
-                packageDir, pkg, getClass().getClassLoader());
-
-        // Load + instantiate — 异常路径关闭 classLoader 防止句柄泄漏
-        PmclPlugin plugin;
-        try {
-            Class<?> mainClass = classLoader.loadClass(info.getMainClass());
-            if (!PmclPlugin.class.isAssignableFrom(mainClass)) {
-                classLoader.close();
-                throw new ClassCastException("Main class " + info.getMainClass() +
-                        " does not implement PmclPlugin");
+            // Check dependencies
+            for (String dep : info.getDependencies()) {
+                if (!loadedPlugins.containsKey(dep)) {
+                    throw new IllegalStateException(
+                            "Plugin '" + info.getId() + "' requires dependency '" + dep +
+                            "' which is not loaded. Install/load it first.");
+                }
             }
-            plugin = (PmclPlugin) mainClass.getDeclaredConstructor().newInstance();
-        } catch (Throwable t) {
-            try { classLoader.close(); } catch (Exception ignored) {}
-            throw t;
+
+            // Extract the package to a per-plugin directory
+            Path packageDir = PluginPackageBuilder.getPackageDir(pluginsDir, info.getId());
+            PluginPackageBuilder.extract(ppkPath, packageDir);
+
+            // Validate runtime structure (must have classes/)
+            PluginPackageBuilder.validateRuntimeStructure(packageDir);
+
+            // Create classloader from classes/ + lib/*.jar — 使用隔离 ClassLoader
+            PluginIsolatingClassLoader classLoader = PluginPackageBuilder.createClassLoader(
+                    packageDir, pkg, getClass().getClassLoader());
+
+            PmclPlugin instance;
+            try {
+                Class<?> mainClass = classLoader.loadClass(info.getMainClass());
+                if (!PmclPlugin.class.isAssignableFrom(mainClass)) {
+                    classLoader.close();
+                    throw new ClassCastException("Main class " + info.getMainClass() +
+                            " does not implement PmclPlugin");
+                }
+                instance = (PmclPlugin) mainClass.getDeclaredConstructor().newInstance();
+            } catch (Throwable t) {
+                try { classLoader.close(); } catch (Exception ignored) {}
+                throw t;
+            }
+
+            PluginContextImpl ctx = new PluginContextImpl(this, info.getId());
+            PluginEntry entry = new PluginEntry(info, instance, ctx, classLoader, ppkPath, true);
+            entry.setState(PluginState.LOADED);
+            loadedPlugins.put(info.getId(), entry);
+            plugin = instance;
+
+            System.out.println("[PluginManager] Loaded plugin package: " + info.getId() + " v" + info.getVersion() +
+                    " (" + ktCount + " kt, " + javaCount + " java files)");
+            bumpRevision();
         }
 
-        // Create context
-        PluginContextImpl ctx = new PluginContextImpl(this, info.getId());
-
-        PluginEntry entry = new PluginEntry(info, plugin, ctx, classLoader, ppkPath, true);
-        entry.setState(PluginState.LOADED);
-        loadedPlugins.put(info.getId(), entry);
-
-        // Call onLoad
         try {
-            plugin.onLoad();
+            runInPlugin(info.getId(), plugin::onLoad);
         } catch (Exception e) {
             System.err.println("[PluginManager] onLoad failed for " + info.getId() + ": " + e.getMessage());
-            entry.setState(PluginState.FAILED);
+            synchronized (this) {
+                PluginEntry entry = loadedPlugins.get(info.getId());
+                if (entry != null) entry.setState(PluginState.FAILED);
+            }
             fireEvent(new PluginErrorEvent(info.getId(), e));
         }
-
-        System.out.println("[PluginManager] Loaded plugin package: " + info.getId() + " v" + info.getVersion() +
-                " (" + pkg.getKotlinSources().size() + " kt, " + pkg.getJavaSources().size() + " java files)");
-        bumpRevision();
         fireEvent(new PluginLoadedEvent(info.getId()));
         return info;
     }
@@ -1137,7 +1247,11 @@ public final class PluginManager {
             try {
                 eventExecutor.submit(() -> {
                     try {
-                        listener.onEvent(event);
+                        if (listener instanceof TrackedEventListener tracked) {
+                            runInPlugin(tracked.pluginId, () -> tracked.delegate.onEvent(event));
+                        } else {
+                            listener.onEvent(event);
+                        }
                     } catch (Exception e) {
                         System.err.println("[PluginManager] Event listener error: " + e.getMessage());
                     }
@@ -1248,27 +1362,16 @@ public final class PluginManager {
                 System.err.println("[PluginManager] contributeClasspathJars error: " + e.getMessage());
             }
             try {
+                // SECURITY: Java agents receive Instrumentation and bypass plugin classloader
+                // isolation. Never apply contributeJavaAgents — same policy as blocking
+                // -javaagent in plugin JVM args (isSafePluginJvmArg).
                 List<String> agents = hook.contributeJavaAgents(versionId, accountName);
-                if (agents != null) {
+                if (agents != null && !agents.isEmpty()) {
                     String ownerId = (hook instanceof TrackedLaunchHook)
-                            ? ((TrackedLaunchHook) hook).pluginId : null;
-                    for (String agent : agents) {
-                        if (agent == null || agent.isBlank()) continue;
-                        String a = agent.trim();
-                        if (a.contains("\n") || a.contains("\r") || a.contains("`") || a.contains("\0")) continue;
-                        // agent may be "path" or "path=options" — validate path portion
-                        String pathPart = a;
-                        int eq = a.indexOf('=');
-                        if (eq > 0) pathPart = a.substring(0, eq);
-                        Path p = Paths.get(pathPart.trim()).toAbsolutePath().normalize();
-                        if (Files.isSymbolicLink(p)
-                                || !Files.isRegularFile(p, java.nio.file.LinkOption.NOFOLLOW_LINKS)
-                                || !isPathUnderPluginData(ownerId, p)) {
-                            System.err.println("[PluginManager] Rejected javaagent outside plugin data: " + a);
-                            continue;
-                        }
-                        profile.addJavaAgentRaw(a);
-                    }
+                            ? ((TrackedLaunchHook) hook).pluginId : "?";
+                    System.err.println("[PluginManager] SECURITY: rejected "
+                            + agents.size() + " javaagent contribution(s) from plugin '"
+                            + ownerId + "' (agents are not allowed — would bypass sandbox)");
                 }
             } catch (Exception e) {
                 System.err.println("[PluginManager] contributeJavaAgents error: " + e.getMessage());
@@ -1639,6 +1742,8 @@ public final class PluginManager {
         LOADED, ENABLED, DISABLED, FAILED
     }
 
+    private static final long PLUGIN_THREAD_SHUTDOWN_WAIT_MS = 2_000L;
+
     /** A loaded plugin entry.
      *  M19 修复：所有字段 private，仅通过 getter 暴露只读视图；
      *  state 转换通过包级 setState 方法，强制走 PluginManager 的状态机。 */
@@ -1650,6 +1755,7 @@ public final class PluginManager {
         private final Path jarPath;
         /** Whether this plugin was loaded from a .ppk package (true) or a single .jar (false). */
         private final boolean isPackage;
+        private final PluginThreadTracker threads;
         private volatile PluginState state;
 
         PluginEntry(PluginInfo info, PmclPlugin plugin, PluginContextImpl context,
@@ -1665,6 +1771,8 @@ public final class PluginManager {
             this.classLoader = classLoader;
             this.jarPath = jarPath;
             this.isPackage = isPackage;
+            this.threads = new PluginThreadTracker(info.getId());
+            this.threads.setContextClassLoader(classLoader);
             this.state = PluginState.LOADED;
         }
 
@@ -1675,6 +1783,7 @@ public final class PluginManager {
         public Path getJarPath() { return jarPath; }
         public boolean isPackage() { return isPackage; }
         public PluginState getState() { return state; }
+        PluginThreadTracker threads() { return threads; }
 
         /** 包级状态转换方法：仅 PluginManager 可调用，确保状态机一致性 */
         void setState(PluginState newState) {
@@ -1721,47 +1830,52 @@ public final class PluginManager {
             this.delegate = delegate;
         }
         @Override
-        public void onEvent(PmclEvent event) { delegate.onEvent(event); }
+        public void onEvent(PmclEvent event) {
+            // Prefer fireEvent path (already runInPlugin); direct calls still go through group.
+            delegate.onEvent(event);
+        }
     }
 
     private static class TrackedLaunchHook implements LaunchHook {
         final String pluginId;
         private final LaunchHook delegate;
-        TrackedLaunchHook(String pluginId, LaunchHook delegate) {
+        private final PluginManager manager;
+        TrackedLaunchHook(PluginManager manager, String pluginId, LaunchHook delegate) {
+            this.manager = manager;
             this.pluginId = pluginId;
             this.delegate = delegate;
         }
         @Override
         public boolean beforeLaunch(String versionId, String accountName) {
-            return delegate.beforeLaunch(versionId, accountName);
+            return manager.callInPlugin(pluginId, () -> delegate.beforeLaunch(versionId, accountName));
         }
         @Override
         public String cancelReason() {
-            return delegate.cancelReason();
+            return manager.callInPlugin(pluginId, delegate::cancelReason);
         }
         @Override
         public List<String> contributeJvmArgs(String versionId, String accountName) {
-            return delegate.contributeJvmArgs(versionId, accountName);
+            return manager.callInPlugin(pluginId, () -> delegate.contributeJvmArgs(versionId, accountName));
         }
         @Override
         public List<String> contributeGameArgs(String versionId, String accountName) {
-            return delegate.contributeGameArgs(versionId, accountName);
+            return manager.callInPlugin(pluginId, () -> delegate.contributeGameArgs(versionId, accountName));
         }
         @Override
         public Map<String, String> contributeEnv(String versionId, String accountName) {
-            return delegate.contributeEnv(versionId, accountName);
+            return manager.callInPlugin(pluginId, () -> delegate.contributeEnv(versionId, accountName));
         }
         @Override
         public List<String> contributeClasspathJars(String versionId, String accountName) {
-            return delegate.contributeClasspathJars(versionId, accountName);
+            return manager.callInPlugin(pluginId, () -> delegate.contributeClasspathJars(versionId, accountName));
         }
         @Override
         public List<String> contributeJavaAgents(String versionId, String accountName) {
-            return delegate.contributeJavaAgents(versionId, accountName);
+            return manager.callInPlugin(pluginId, () -> delegate.contributeJavaAgents(versionId, accountName));
         }
         @Override
         public void afterLaunch(String versionId, int exitCode) {
-            delegate.afterLaunch(versionId, exitCode);
+            manager.runInPlugin(pluginId, () -> delegate.afterLaunch(versionId, exitCode));
         }
     }
 
@@ -2006,6 +2120,17 @@ public final class PluginManager {
         }
 
         @Override
+        public Thread newThread(String name, Runnable task) {
+            if (task == null) throw new NullPointerException("task");
+            return manager.newPluginThread(pluginId, name != null ? name : "", task);
+        }
+
+        @Override
+        public java.util.concurrent.ThreadFactory threadFactory() {
+            return manager.pluginThreadFactory(pluginId);
+        }
+
+        @Override
         public void registerCommand(String name, String description, CommandHandler handler) {
             // Strict validation
             if (name == null || name.isBlank()) {
@@ -2040,7 +2165,8 @@ public final class PluginManager {
                         }
                     }
                 }
-                RegisteredCommand cmd = new RegisteredCommand(pluginId, name, description, handler);
+                CommandHandler gated = args -> manager.callInPlugin(pluginId, () -> handler.execute(args));
+                RegisteredCommand cmd = new RegisteredCommand(pluginId, name, description, gated);
                 manager.customCommands.computeIfAbsent(pluginId, k -> new ArrayList<>()).add(cmd);
             }
         }
@@ -2137,10 +2263,11 @@ public final class PluginManager {
                         }
                     }
                 }
+                ActionHandler gated = () -> manager.runInPlugin(pluginId, handler::run);
                 PluginMenuAction action = new PluginMenuAction(
                         pluginId, id, title,
                         description != null ? description : "",
-                        handler);
+                        gated);
                 manager.customMenuActions.computeIfAbsent(pluginId, k -> new ArrayList<>()).add(action);
                 manager.bumpRevision();
             }
@@ -2170,10 +2297,11 @@ public final class PluginManager {
                         }
                     }
                 }
+                ActionHandler gated = () -> manager.runInPlugin(pluginId, handler::run);
                 PluginStatusBarAction action = new PluginStatusBarAction(
                         pluginId, id, title,
                         description != null ? description : "",
-                        handler);
+                        gated);
                 manager.customStatusBarActions.computeIfAbsent(pluginId, k -> new ArrayList<>()).add(action);
                 manager.bumpRevision();
             }
@@ -2238,7 +2366,7 @@ public final class PluginManager {
         public void registerLaunchHook(LaunchHook hook) {
             requirePermission("CONTROL_LAUNCH");
             if (hook == null) throw new NullPointerException("LaunchHook must not be null");
-            manager.launchHooks.add(new TrackedLaunchHook(pluginId, hook));
+            manager.launchHooks.add(new TrackedLaunchHook(manager, pluginId, hook));
         }
 
         @Override

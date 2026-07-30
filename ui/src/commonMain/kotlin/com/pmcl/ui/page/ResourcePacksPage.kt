@@ -28,6 +28,8 @@ import androidx.compose.ui.unit.dp
 import com.pmcl.core.gamecontent.ResourcePackManager
 import com.pmcl.core.i18n.I18n
 import com.pmcl.ui.animation.StaggeredAppear
+import com.pmcl.ui.theme.glassContainerColor
+import com.pmcl.ui.theme.glassSurfaceVariantColor
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import com.pmcl.ui.viewmodel.batchDeleteResourcePacks
 import com.pmcl.ui.viewmodel.batchDisableResourcePacks
@@ -194,7 +196,7 @@ fun ResourcePacksPage(vm: LauncherViewModel) {
 
         if (filtered.isEmpty()) {
             Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant,
+                color = glassSurfaceVariantColor(),
                 shape = RoundedCornerShape(8.dp),
                 modifier = Modifier.fillMaxWidth().weight(1f)
             ) {
@@ -284,8 +286,8 @@ private fun ResourcePackRow(
     var showDeleteDialog by remember { mutableStateOf(false) }
 
     Surface(
-        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
-                else MaterialTheme.colorScheme.surfaceVariant,
+        color = if (isSelected) glassContainerColor(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f))
+                else glassSurfaceVariantColor(),
         shape = RoundedCornerShape(8.dp),
         modifier = Modifier.fillMaxWidth().alpha(if (pack.isDisabled) 0.5f else 1f)
     ) {

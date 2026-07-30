@@ -29,6 +29,8 @@ import com.pmcl.music.lyrics.LyricsLine
 import com.pmcl.music.lyrics.LyricsParser
 import com.pmcl.music.player.PlaybackState
 import com.pmcl.music.source.LocalAudioSource
+import com.pmcl.ui.theme.glassContainerColor
+import com.pmcl.ui.theme.glassSurfaceVariantColor
 import com.pmcl.ui.util.decodeSampledBitmap
 import com.pmcl.ui.viewmodel.*
 import kotlinx.coroutines.Dispatchers
@@ -229,7 +231,7 @@ fun MusicPage(vm: LauncherViewModel) {
         ) {
             Surface(
                 shape = RoundedCornerShape(10.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                color = glassSurfaceVariantColor(),
                 modifier = Modifier.weight(1f)
             ) {
                 Row(
@@ -421,7 +423,7 @@ private fun NowPlayingCard(
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        color = glassSurfaceVariantColor(),
         tonalElevation = 1.dp
     ) {
         Column(Modifier.padding(16.dp)) {
@@ -624,8 +626,8 @@ private fun PlaylistRow(
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),
-        color = if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
-                else MaterialTheme.colorScheme.surface,
+        color = if (isCurrent) glassContainerColor(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
+                else glassContainerColor(MaterialTheme.colorScheme.surface),
         tonalElevation = if (isCurrent) 0.dp else 1.dp
     ) {
         Row(
@@ -712,7 +714,7 @@ private fun HistoryRow(
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.surface,
+        color = glassContainerColor(MaterialTheme.colorScheme.surface),
         tonalElevation = 1.dp
     ) {
         Row(
@@ -770,7 +772,7 @@ private fun PlayerControls(
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+        color = glassSurfaceVariantColor(glassAlpha = 0.4f),
         tonalElevation = 1.dp
     ) {
         Column(Modifier.padding(12.dp)) {
@@ -889,7 +891,7 @@ private fun CoverThumbnail(coverUrl: String, size: androidx.compose.ui.unit.Dp) 
     Surface(
         modifier = Modifier.size(size),
         shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant
+        color = glassSurfaceVariantColor()
     ) {
         Box(contentAlignment = Alignment.Center) {
             if (bmp != null) {

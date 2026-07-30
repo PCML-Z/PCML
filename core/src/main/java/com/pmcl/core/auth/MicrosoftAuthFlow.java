@@ -388,6 +388,47 @@ public final class MicrosoftAuthFlow {
      *   <li>无 license：账号未购买 Minecraft Java 版</li>
      * </ul>
      */
+    /**
+     * 轻量校验 MC accessToken 是否仍被 minecraftservices 接受。
+     * <p>
+     * {@code expiresAt} 只反映本地过期时间；服务端可能提前吊销（改密、登出设备、会话轮换）。
+     * 启动前应用此检查，避免把已死的 token 塞进游戏导致 401 / Realms Invalid session。
+     *
+     * @return true=可用；false=401/403；网络等其它错误抛 IOException（调用方可选择跳过校验）
+     */
+    public boolean isMcAccessTokenValid(String mcAccessToken) throws IOException {
+        if (mcAccessToken == null || mcAccessToken.isEmpty()) return false;
+        try {
+            Request req = new Request.Builder()
+                    .url(MC_PROFILE_URL)
+                    .header("Authorization", "Bearer " + mcAccessToken)
+                    .get().build();
+            try (Response resp = http.newCall(req).execute()) {
+                int code = resp.code();
+                if (code == 401 || code == 403) return false;
+                // 2xx / 404（有 token 但无档案）都说明 token 被接受
+                if (resp.isSuccessful() || code == 404) return true;
+                throw new IOException("校验 MC token 失败 code=" + code);
+            }
+        } catch (IOException e) {
+            if (CurlFallback.isSslHandshakeFailure(e) && CurlFallback.isAvailable()) {
+                try {
+                    List<String> headers = new ArrayList<>();
+                    headers.add("Authorization: Bearer " + mcAccessToken);
+                    CurlFallback.getBytes(MC_PROFILE_URL, "GET", headers);
+                    return true;
+                } catch (IOException curlEx) {
+                    String msg = curlEx.getMessage() != null ? curlEx.getMessage() : "";
+                    if (msg.contains("401") || msg.contains("403") || msg.contains("Unauthorized")) {
+                        return false;
+                    }
+                    throw curlEx;
+                }
+            }
+            throw e;
+        }
+    }
+
     public String[] fetchProfile(String mcAccessToken) throws IOException {
         String profileJson;
         try {

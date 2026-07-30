@@ -160,9 +160,9 @@ public final class FriendIdentityManager {
     public String deriveSecret() {
         if (identity == null) return null;
         try {
-            // 基于 identity + 机器 keyfile 派生 secret
-            String machineSecret = com.pmcl.core.auth.TokenEncryptor.getSecondarySecret();
-            String seed = identity.toString() + "|" + machineSecret;
+            // 基于 identity + 机器 keyfile 派生 secret（不直接暴露 keyfile 原文）
+            String purposeKey = com.pmcl.core.auth.TokenEncryptor.derivePurposeKey("friend-identity");
+            String seed = identity.toString() + "|" + purposeKey;
             MessageDigest md = MessageDigest.getInstance("SHA-256");
             byte[] hash = md.digest(seed.getBytes(StandardCharsets.UTF_8));
             StringBuilder sb = new StringBuilder(hash.length * 2);

@@ -37,6 +37,7 @@ import com.pmcl.ui.theme.LocalThemeState
 import com.pmcl.ui.theme.glassCardBorder
 import com.pmcl.ui.theme.glassCardColors
 import com.pmcl.ui.theme.glassCardElevation
+import com.pmcl.ui.theme.glassContainerColor
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import com.pmcl.ui.viewmodel.lastOfflineUsername
 import com.pmcl.ui.viewmodel.loginOffline
@@ -517,7 +518,7 @@ private fun DeviceCodeDialog(
     androidx.compose.ui.window.Dialog(onDismissRequest = {}) {
         Surface(
             shape = RoundedCornerShape(12.dp),
-            color = MaterialTheme.colorScheme.surface,
+            color = glassContainerColor(MaterialTheme.colorScheme.surface),
             tonalElevation = 6.dp
         ) {
             Column(Modifier.padding(20.dp).widthIn(min = 320.dp, max = 420.dp)) {
@@ -639,7 +640,7 @@ private fun AccountRow(
     val containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer
                         else MaterialTheme.colorScheme.surfaceVariant
     Surface(
-        color = containerColor,
+        color = glassContainerColor(containerColor),
         shape = RoundedCornerShape(10.dp),
         modifier = Modifier.fillMaxWidth()
     ) {

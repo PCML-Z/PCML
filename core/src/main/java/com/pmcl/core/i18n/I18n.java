@@ -1504,7 +1504,9 @@ public final class I18n {
         ZH.put("agreement.license_desc", "本软件的版权授权条款（中文为权威版本）");
         ZH.put("agreement.decline", "不同意，退出");
         ZH.put("agreement.continue", "同意并继续");
-        ZH.put("agreement.warning", "请勾选同意全部三项协议后方可继续");
+        ZH.put("agreement.docs_heading", "请阅读以下协议");
+        ZH.put("agreement.accept_all", "我已阅读并同意《用户协议》《免责协议》和《软件技术许可证》");
+        ZH.put("agreement.warning", "请勾选同意后方可继续");
         ZH.put("agreement.doc_not_found", "文档未找到：{0}");
         ZH.put("agreement.load_failed", "加载失败：{0}");
         ZH.put("agreement.agreed", "已同意");
@@ -1825,6 +1827,9 @@ public final class I18n {
         ZH.put("status.game_exited_with_version", "{0} 已退出");
         ZH.put("status.game_exited", "游戏已退出");
         ZH.put("status.launch_failed", "启动失败：{0}");
+        ZH.put("status.large_pack_splash_hint",
+                "[提示] 大型整合包加载常需 1–3 分钟。Mojang 红屏进度条可能长时间几乎不动，请勿关闭窗口；进主菜单后即正常。");
+        ZH.put("status.large_pack_loading", "正在加载资源（大型整合包可能需数分钟，红屏属正常）…");
         ZH.put("status.launching_with_specific_java", "正在使用指定 Java 启动…");
         ZH.put("status.launching_with_external_launcher", "正在通过外部启动器启动…");
         ZH.put("status.external_launcher_opened", "已打开外部启动器：{0}");
@@ -3464,7 +3469,9 @@ public final class I18n {
         EN.put("agreement.license_desc", "Copyright licensing terms for this software (Chinese version is authoritative)");
         EN.put("agreement.decline", "Decline & Exit");
         EN.put("agreement.continue", "Agree & Continue");
-        EN.put("agreement.warning", "Please check all three agreements to continue");
+        EN.put("agreement.docs_heading", "Please read the following");
+        EN.put("agreement.accept_all", "I have read and agree to the User Agreement, Disclaimer, and Software Technical License");
+        EN.put("agreement.warning", "Please check the box to continue");
         EN.put("agreement.doc_not_found", "Document not found: {0}");
         EN.put("agreement.load_failed", "Failed to load: {0}");
         EN.put("agreement.agreed", "Agreed");
@@ -3755,6 +3762,9 @@ public final class I18n {
         EN.put("status.game_exited_with_version", "{0} exited");
         EN.put("status.game_exited", "Game exited");
         EN.put("status.launch_failed", "Launch failed: {0}");
+        EN.put("status.large_pack_splash_hint",
+                "[Tip] Large modpacks often take 1–3 minutes. The Mojang splash bar may barely move — don’t close the window; the title screen means it’s ready.");
+        EN.put("status.large_pack_loading", "Loading resources (large packs can take minutes; red splash is normal)…");
         EN.put("status.launching_with_specific_java", "Launching with specified Java…");
         EN.put("status.launching_with_external_launcher", "Launching via external launcher…");
         EN.put("status.external_launcher_opened", "Opened external launcher: {0}");
@@ -5365,7 +5375,9 @@ public final class I18n {
         JA.put("agreement.license_desc", "本ソフトウェアの著作権ライセンス条項（中国語版が権威）");
         JA.put("agreement.decline", "同意せず終了");
         JA.put("agreement.continue", "同意して続行");
-        JA.put("agreement.warning", "続行するには 3 つの規約すべてに同意してください");
+        JA.put("agreement.docs_heading", "以下の規約をお読みください");
+        JA.put("agreement.accept_all", "ユーザー規約・免責事項・ソフトウェア技術ライセンスを読み、同意します");
+        JA.put("agreement.warning", "続行するには同意にチェックしてください");
         JA.put("agreement.doc_not_found", "ドキュメントが見つかりません：{0}");
         JA.put("agreement.load_failed", "読み込み失敗：{0}");
         JA.put("agreement.agreed", "同意済み");
@@ -5686,6 +5698,9 @@ public final class I18n {
         JA.put("status.game_exited_with_version", "{0} が終了");
         JA.put("status.game_exited", "ゲームが終了");
         JA.put("status.launch_failed", "起動失敗：{0}");
+        JA.put("status.large_pack_splash_hint",
+                "[ヒント] 大型統合パックの読み込みには 1〜3 分かかることがあります。Mojang の赤い画面の進捗がほぼ動かなくても閉じないでください。タイトル画面が出れば完了です。");
+        JA.put("status.large_pack_loading", "リソース読み込み中（大型パックは数分かかることがあります。赤い画面は正常です）…");
         JA.put("status.launching_with_specific_java", "指定 Java で起動中…");
         JA.put("status.launching_with_external_launcher", "外部ランチャーで起動中…");
         JA.put("status.external_launcher_opened", "外部ランチャーを開く：{0}");

@@ -39,21 +39,32 @@ public class LocalAudioSource implements AudioSource {
     @Override
     public AudioStreamInfo resolve(String url) throws IOException {
         Path path = toPath(url);
-        if (!Files.isRegularFile(path)) {
+        // 安全修复：规范化路径并拒绝符号链接，防止路径穿越读取敏感文件
+        Path realPath;
+        try {
+            realPath = path.toRealPath();
+        } catch (java.nio.file.NoSuchFileException e) {
             throw new IOException("本地文件不存在: " + path);
         }
-        String name = path.getFileName().toString();
+        if (!Files.isRegularFile(realPath)) {
+            throw new IOException("本地文件不存在: " + path);
+        }
+        // 必须有音频扩展名，防止通过播放列表注入任意文件路径
+        if (!hasAudioExt(realPath.getFileName().toString())) {
+            throw new IOException("不支持的文件类型: " + realPath.getFileName());
+        }
+        String name = realPath.getFileName().toString();
         String title = stripExt(name);
         return new AudioStreamInfo(
                 title,
                 "",
                 0L,
-                path.toAbsolutePath().toString(),
+                realPath.toAbsolutePath().toString(),
                 "",
                 TYPE,
-                path.toAbsolutePath().toString(),
+                realPath.toAbsolutePath().toString(),
                 Map.of(),
-                path.toAbsolutePath().toString()
+                realPath.toAbsolutePath().toString()
         );
     }
 

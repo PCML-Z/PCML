@@ -297,11 +297,14 @@ fun LockscreenLaunchPage(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     compatOptions.forEach { option ->
-                        Surface(
-                            onClick = { option.action() },
+                        Card(
+                            onClick = { vm.invokeCompatOption(option) },
                             shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                            modifier = Modifier.fillMaxWidth()
+                            colors = glassCardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant
+                            ),
+                            elevation = glassCardElevation(),
+                            modifier = Modifier.fillMaxWidth().glassCardBorder()
                         ) {
                             Column(Modifier.padding(12.dp)) {
                                 Text(option.title, style = MaterialTheme.typography.titleSmall,
@@ -320,6 +323,24 @@ fun LockscreenLaunchPage(
                     Text(I18n.t("common.cancel"))
                 }
             }
+        )
+    }
+
+    val javaDownloading by vm.javaDownloading.collectAsState()
+    val javaDownloadStatus by vm.javaDownloadStatus.collectAsState()
+    if (javaDownloading) {
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text("正在下载 Java 运行时") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    Text(javaDownloadStatus.ifBlank { "准备中…" },
+                        style = MaterialTheme.typography.bodyMedium)
+                }
+            },
+            confirmButton = {},
+            dismissButton = {}
         )
     }
 }

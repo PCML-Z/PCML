@@ -18,6 +18,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pmcl.core.i18n.I18n
+import com.pmcl.ui.theme.glassCardBorder
+import com.pmcl.ui.theme.glassCardColors
+import com.pmcl.ui.theme.glassCardElevation
 import com.pmcl.video.VideoCallSession
 import kotlinx.coroutines.delay
 import org.jetbrains.skia.Image as SkiaImage
@@ -257,11 +260,12 @@ fun IncomingCallCard(
     modifier: Modifier = Modifier
 ) {
     Card(
-        modifier = modifier,
+        modifier = modifier.glassCardBorder(),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
+        colors = glassCardColors(
             containerColor = MaterialTheme.colorScheme.surface
-        )
+        ),
+        elevation = glassCardElevation()
     ) {
         Column(
             modifier = Modifier.padding(20.dp),

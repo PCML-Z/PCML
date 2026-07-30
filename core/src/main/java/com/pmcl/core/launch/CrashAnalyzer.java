@@ -222,6 +222,19 @@ public final class CrashAnalyzer {
                     "校验版本完整性", "重新下载缺失或损坏的 native 库文件"));
         }
 
+        // 旧 GLFW + Apple Silicon / 新 macOS
+        if (lower.contains("failed to find service port for display")
+                || lower.contains("glfw error 65544")
+                || lower.contains("glfw error 65548")
+                || lower.contains("regular windows do not have icons")
+                || (lower.contains("cocoa") && lower.contains("service port"))) {
+            causes.add("macOS GLFW 兼容问题（无法创建窗口 / 窗口图标）");
+            suggestions.add("PMCL 会为 1.13–1.16 自动注入现代 GLFW + icon-fix agent；请更新后重试");
+            suggestions.add("删除该版本 natives 目录与 ~/.pmcl/boot/pmcl-glfw-icon-agent.jar 后重试");
+            actions.add(new RecoveryAction(RecoveryType.CHECK_INTEGRITY,
+                    "校验并修复版本", "重新提取 native 库并应用 GLFW 修复"));
+        }
+
         // 文件未找到
         if (lower.contains("filenotfoundexception") && lower.contains(".jar")) {
             causes.add("库文件缺失 (FileNotFoundException)");

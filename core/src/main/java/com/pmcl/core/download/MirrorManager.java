@@ -33,6 +33,8 @@ public final class MirrorManager {
         BMCLAPI_MAP.put("piston-meta.mojang.com", "bmclapi2.bangbang93.com");
         BMCLAPI_MAP.put("launchermeta.mojang.com", "bmclapi2.bangbang93.com");
         BMCLAPI_MAP.put("launcher.mojang.com", "bmclapi2.bangbang93.com");
+        // Java runtime 文件对象（Mojang 分文件 JRE）
+        BMCLAPI_MAP.put("piston-data.mojang.com", "bmclapi2.bangbang93.com");
         // 库
         BMCLAPI_MAP.put("libraries.minecraft.net", "bmclapi2.bangbang93.com/maven");
         // 资产

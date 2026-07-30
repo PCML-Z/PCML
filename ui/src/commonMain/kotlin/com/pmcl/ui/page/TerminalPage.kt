@@ -13,6 +13,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.*
@@ -23,6 +25,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pmcl.cli.PmclCli
 import com.pmcl.core.i18n.I18n
+import com.pmcl.ui.theme.LocalThemeState
+import com.pmcl.ui.theme.glassContainerColor
+import com.pmcl.ui.theme.glassSurfaceVariantColor
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -36,9 +41,14 @@ import java.awt.datatransfer.StringSelection
  * 终端页面：嵌入式 Shell，复用 [PmclCli]。
  *
  * 能力：搜索过滤、复制、字号、Tab 补全、取消执行、自动滚动暂停、语义着色、i18n。
+ * 玻璃/壁纸主题下输出区与输入条使用半透明毛玻璃底，避免实色色块。
  */
 @Composable
 fun TerminalPage(vm: LauncherViewModel) {
+    val themeState = LocalThemeState.current
+    // 毛玻璃仅跟玻璃主题开关；壁纸存在时仍让页面透明透出背景
+    val glassOn = themeState.glassTheme
+    val wallpaperOn = themeState.customBackground || themeState.parallaxBackground
     val lines = remember { mutableStateListOf<TerminalLine>() }
     val seqCounter = remember { java.util.concurrent.atomic.AtomicLong(0) }
     fun nextSeq() = seqCounter.incrementAndGet()
@@ -57,9 +67,6 @@ fun TerminalPage(vm: LauncherViewModel) {
     val scope = rememberCoroutineScope()
     val scrollState = rememberLazyListState()
 
-    val bg = MaterialTheme.colorScheme.background
-    val surface = MaterialTheme.colorScheme.surface
-    val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
     val primary = MaterialTheme.colorScheme.primary
     val secondary = MaterialTheme.colorScheme.secondary
     val tertiary = MaterialTheme.colorScheme.tertiary
@@ -67,6 +74,9 @@ fun TerminalPage(vm: LauncherViewModel) {
     val onSurface = MaterialTheme.colorScheme.onSurface
     val outline = MaterialTheme.colorScheme.outline
     val warnColor = MaterialTheme.colorScheme.tertiary
+    val pageBg = if (glassOn || wallpaperOn) Color.Transparent else MaterialTheme.colorScheme.background
+    val outputBg = glassContainerColor()
+    val inputBg = glassSurfaceVariantColor()
 
     LaunchedEffect(Unit) {
         lines.add(TerminalLine(nextSeq(), "", LineType.EMPTY))
@@ -156,7 +166,7 @@ fun TerminalPage(vm: LauncherViewModel) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(bg)
+            .background(pageBg)
             .padding(8.dp)
     ) {
         Row(
@@ -263,35 +273,59 @@ fun TerminalPage(vm: LauncherViewModel) {
                 }
             },
             singleLine = true,
-            textStyle = TextStyle(fontSize = 13.sp, fontFamily = FontFamily.Monospace)
+            textStyle = TextStyle(fontSize = 13.sp, fontFamily = FontFamily.Monospace),
+            colors = if (glassOn) {
+                OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = outputBg,
+                    unfocusedContainerColor = outputBg,
+                    disabledContainerColor = outputBg
+                )
+            } else {
+                OutlinedTextFieldDefaults.colors()
+            }
         )
 
         Spacer(Modifier.height(4.dp))
 
-        LazyColumn(
+        Box(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .background(surface, RoundedCornerShape(6.dp))
-                .padding(12.dp),
-            state = scrollState
         ) {
-            items(filteredLines, key = { it.seq }) { line ->
-                when (line.type) {
-                    LineType.EMPTY -> Spacer(Modifier.height(2.dp))
-                    else -> Text(
-                        line.text,
-                        color = lineColor(line, primary, secondary, tertiary, error, onSurface, warnColor),
-                        fontSize = fontSp.sp,
-                        fontFamily = FontFamily.Monospace,
-                        maxLines = 8,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
+            if (glassOn) {
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .clip(RoundedCornerShape(6.dp))
+                        .blur(16.dp)
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.40f))
+                )
             }
-            if (executing) {
-                item(key = "cursor") {
-                    Text("_", color = tertiary, fontSize = fontSp.sp, fontFamily = FontFamily.Monospace)
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(if (glassOn) Color.Transparent else outputBg, RoundedCornerShape(6.dp))
+                    .padding(12.dp),
+                state = scrollState
+            ) {
+                items(filteredLines, key = { it.seq }) { line ->
+                    when (line.type) {
+                        LineType.EMPTY -> Spacer(Modifier.height(2.dp))
+                        else -> Text(
+                            line.text,
+                            color = lineColor(line, primary, secondary, tertiary, error, onSurface, warnColor),
+                            fontSize = fontSp.sp,
+                            fontFamily = FontFamily.Monospace,
+                            maxLines = 8,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+                if (executing) {
+                    item(key = "cursor") {
+                        Text("_", color = tertiary, fontSize = fontSp.sp, fontFamily = FontFamily.Monospace)
+                    }
                 }
             }
         }
@@ -310,75 +344,87 @@ fun TerminalPage(vm: LauncherViewModel) {
 
         Spacer(Modifier.height(8.dp))
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(surfaceVariant, RoundedCornerShape(6.dp))
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                "pmcl> ",
-                color = secondary,
-                fontSize = (fontSp + 1).sp,
-                fontFamily = FontFamily.Monospace
-            )
-            BasicTextField(
-                value = input,
-                onValueChange = {
-                    input = it
-                    suggestions = emptyList()
-                },
+        Box(modifier = Modifier.fillMaxWidth()) {
+            if (glassOn) {
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .clip(RoundedCornerShape(6.dp))
+                        .blur(14.dp)
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.40f))
+                )
+            }
+            Row(
                 modifier = Modifier
-                    .weight(1f)
-                    .onKeyEvent { event ->
-                        when {
-                            event.key == Key.Tab && event.type == KeyEventType.KeyDown -> {
-                                completeTab()
-                                true
-                            }
-                            event.key == Key.Enter && event.type == KeyEventType.KeyUp -> {
-                                if (input.isNotBlank() && !executing) {
-                                    val cmd = input.trim()
-                                    input = ""
-                                    runCommand(cmd)
-                                }
-                                true
-                            }
-                            event.key == Key.DirectionUp && event.type == KeyEventType.KeyUp -> {
-                                if (history.isNotEmpty()) {
-                                    historyIndex = if (historyIndex < 0) history.lastIndex
-                                    else (historyIndex - 1).coerceAtLeast(0)
-                                    input = history[historyIndex]
-                                }
-                                true
-                            }
-                            event.key == Key.DirectionDown && event.type == KeyEventType.KeyUp -> {
-                                if (history.isNotEmpty() && historyIndex >= 0) {
-                                    historyIndex += 1
-                                    input = if (historyIndex >= history.size) {
-                                        historyIndex = -1
-                                        ""
-                                    } else history[historyIndex]
-                                }
-                                true
-                            }
-                            event.key == Key.Escape && event.type == KeyEventType.KeyUp -> {
-                                suggestions = emptyList()
-                                true
-                            }
-                            else -> false
-                        }
-                    },
-                textStyle = TextStyle(
-                    color = onSurface,
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(if (glassOn) Color.Transparent else inputBg, RoundedCornerShape(6.dp))
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "pmcl> ",
+                    color = secondary,
                     fontSize = (fontSp + 1).sp,
                     fontFamily = FontFamily.Monospace
-                ),
-                cursorBrush = SolidColor(secondary),
-                singleLine = true,
-                enabled = !executing
-            )
+                )
+                BasicTextField(
+                    value = input,
+                    onValueChange = {
+                        input = it
+                        suggestions = emptyList()
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .onKeyEvent { event ->
+                            when {
+                                event.key == Key.Tab && event.type == KeyEventType.KeyDown -> {
+                                    completeTab()
+                                    true
+                                }
+                                event.key == Key.Enter && event.type == KeyEventType.KeyUp -> {
+                                    if (input.isNotBlank() && !executing) {
+                                        val cmd = input.trim()
+                                        input = ""
+                                        runCommand(cmd)
+                                    }
+                                    true
+                                }
+                                event.key == Key.DirectionUp && event.type == KeyEventType.KeyUp -> {
+                                    if (history.isNotEmpty()) {
+                                        historyIndex = if (historyIndex < 0) history.lastIndex
+                                        else (historyIndex - 1).coerceAtLeast(0)
+                                        input = history[historyIndex]
+                                    }
+                                    true
+                                }
+                                event.key == Key.DirectionDown && event.type == KeyEventType.KeyUp -> {
+                                    if (history.isNotEmpty() && historyIndex >= 0) {
+                                        historyIndex += 1
+                                        input = if (historyIndex >= history.size) {
+                                            historyIndex = -1
+                                            ""
+                                        } else history[historyIndex]
+                                    }
+                                    true
+                                }
+                                event.key == Key.Escape && event.type == KeyEventType.KeyUp -> {
+                                    suggestions = emptyList()
+                                    true
+                                }
+                                else -> false
+                            }
+                        },
+                    textStyle = TextStyle(
+                        color = onSurface,
+                        fontSize = (fontSp + 1).sp,
+                        fontFamily = FontFamily.Monospace
+                    ),
+                    cursorBrush = SolidColor(secondary),
+                    singleLine = true,
+                    enabled = !executing
+                )
+            }
         }
     }
 }

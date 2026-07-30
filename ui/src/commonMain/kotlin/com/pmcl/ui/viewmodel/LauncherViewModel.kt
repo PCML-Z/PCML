@@ -216,6 +216,7 @@ class LauncherViewModel {
             preheatedJavaMajor = 0
             preheatedVersionId = ""
             preheatedAccountUuid = ""
+            preheatedAccessToken = ""
         } catch (_: Throwable) {}
         try {
             instanceLoggers.values.forEach { logger ->
@@ -998,6 +999,8 @@ class LauncherViewModel {
     @PublishedApi @Volatile internal var preheatedVersionId: String = ""
     /** 预热时绑定的账号 UUID；切换账号后不得复用旧 token profile */
     @PublishedApi @Volatile internal var preheatedAccountUuid: String = ""
+    /** 预热时写入 gameArgs 的 accessToken；刷新令牌后不得复用 */
+    @PublishedApi @Volatile internal var preheatedAccessToken: String = ""
     /** 预热协程句柄：离开启动页时取消，避免晚到写入覆盖 */
     @PublishedApi @Volatile internal var preheatJob: kotlinx.coroutines.Job? = null
     /** 预热代数：cancel / 新一轮预热时递增，完成写入前校验 */
@@ -1032,6 +1035,72 @@ class LauncherViewModel {
     @PublishedApi internal val _compatTitle = MutableStateFlow("")
     val compatTitle: StateFlow<String> = _compatTitle.asStateFlow()
     fun dismissCompatOptions() { _compatOptions.value = emptyList() }
+
+    /** 选中兼容性选项：先关对话框再执行，避免点击无反馈、进度被挡住。 */
+    fun invokeCompatOption(option: CompatOption) {
+        dismissCompatOptions()
+        try {
+            option.action()
+        } catch (e: Throwable) {
+            _status.value = e.message ?: I18n.t("common.unknown")
+        }
+    }
+
+    /**
+     * 兼容性对话框：下载 x86_64 Java 8（Apple Silicon 强制 amd64）并启动指定版本。
+     */
+    fun downloadX86Java8AndLaunch(versionId: String) {
+        if (_javaDownloading.value) return
+        dismissCompatOptions()
+        scope.launch {
+            _javaDownloading.value = true
+            _javaDownloadStatus.value = "正在拉取 x86_64 Java 8 清单…"
+            _status.value = "正在下载 x86_64 Java 8（Rosetta）…"
+            try {
+                val type = com.pmcl.core.runtime.JavaRuntimeDownloader.RuntimeType.JAVA_8
+                val entries = withContext(Dispatchers.IO) {
+                    core.javaDownloader().listRuntimes(type).join()
+                }
+                if (entries.isNullOrEmpty()) {
+                    _javaDownloadStatus.value = "未找到可用的 Java 8 运行时"
+                    _status.value = "自动下载 Java 8 失败：清单为空"
+                    return@launch
+                }
+                val entry = entries[0]
+                _javaDownloadStatus.value = "准备下载：${entry.version}（${entry.size / 1024 / 1024} MB）"
+                withContext(Dispatchers.IO) {
+                    core.javaDownloader().install(type, entry) { msg ->
+                        _javaDownloadStatus.value = msg
+                        _status.value = msg
+                    }.join()
+                }
+                val found = withContext(Dispatchers.IO) {
+                    JavaRuntimeFinder.findJavaExecutable(config.getRuntimesDir(), 8, false)
+                }
+                if (found.isNullOrEmpty()) {
+                    _javaDownloadStatus.value = "已下载，但未检测到 x86_64 Java 8"
+                    _status.value = "Java 8 已下载，但未检测到 x86_64 可执行文件"
+                    return@launch
+                }
+                val maj = withContext(Dispatchers.IO) {
+                    JavaRuntimeFinder.getMajorVersion(found) ?: 8
+                }
+                _javaDownloadStatus.value = "完成：$found"
+                _javaDownloading.value = false
+                launchWithSpecificJava(versionId, found, maj, "x86_64")
+            } catch (e: Throwable) {
+                val cause = e.cause?.message
+                val detail = when {
+                    !cause.isNullOrBlank() && cause != e.message -> "${e.message}（$cause）"
+                    else -> e.message ?: "未知错误"
+                }
+                _javaDownloadStatus.value = "失败：$detail"
+                _status.value = "自动下载 Java 8 失败：$detail"
+            } finally {
+                _javaDownloading.value = false
+            }
+        }
+    }
 
     // ===== Java 运行时下载 =====
     private val _javaDownloading = MutableStateFlow(false)

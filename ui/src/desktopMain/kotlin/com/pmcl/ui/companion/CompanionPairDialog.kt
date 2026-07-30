@@ -39,6 +39,7 @@ import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.WindowScope
 import androidx.compose.ui.window.rememberWindowState
 import com.pmcl.ui.theme.ParallaxBackground
+import com.pmcl.ui.theme.glassSurfaceVariantColor
 import java.awt.MouseInfo
 import java.awt.Point
 import java.awt.event.ComponentAdapter
@@ -216,7 +217,7 @@ fun CompanionPairDialog(
                     val pairedName = devices.firstOrNull()?.deviceName
                     Surface(
                         shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                        color = glassSurfaceVariantColor(glassAlpha = 0.4f)
                     ) {
                         Box(
                             Modifier.size(300.dp),
@@ -281,7 +282,7 @@ fun CompanionPairDialog(
                     // 已配对设备时同样模糊
                     Surface(
                         shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                        color = glassSurfaceVariantColor(glassAlpha = 0.4f)
                     ) {
                         Box(
                             Modifier.width(320.dp).height(80.dp),
@@ -430,7 +431,7 @@ fun CompanionPairDialog(
                         devices.forEach { device ->
                             Surface(
                                 shape = RoundedCornerShape(8.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                color = glassSurfaceVariantColor(glassAlpha = 0.4f)
                             ) {
                                 Row(
                                     Modifier.fillMaxWidth().padding(12.dp),

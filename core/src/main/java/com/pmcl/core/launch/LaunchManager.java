@@ -170,6 +170,13 @@ public final class LaunchManager {
         pb.redirectErrorStream(true);
         Process process = pb.start();
         activeProcesses.add(process);
+        // 关闭 stdin：Redirect.DISCARD 只能用于 stdout/stderr（type=WRITE），
+        // 用于 redirectInput 会抛 “Redirect invalid for reading: WRITE”。
+        // 关闭管道写端等于向子进程送 EOF，避免无人写入的 PIPE 被误读阻塞。
+        try {
+            process.getOutputStream().close();
+        } catch (IOException ignored) {
+        }
 
         java.util.concurrent.BlockingQueue<String> logQueue =
                 new java.util.concurrent.ArrayBlockingQueue<>(LOG_QUEUE_CAPACITY);
@@ -331,12 +338,19 @@ public final class LaunchManager {
 
                 int code = process.waitFor();
                 activeProcesses.remove(process);
+                // 安全修复：进程退出后关闭其 stdout/stderr 流，强制 reader 线程收到 EOF，
+                // 防止子进程继承管道的 descendants 持有读端导致 readLine() 永久阻塞
+                try { process.getInputStream().close(); } catch (Exception ignored) {}
+                try { process.getErrorStream().close(); } catch (Exception ignored) {}
                 // 等待读取线程读完剩余输出，避免丢失进程退出前的最后几行日志
                 if (readerHolder[0] != null) {
                     try {
                         readerHolder[0].join(2000);
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
+                    }
+                    if (readerHolder[0].isAlive()) {
+                        readerHolder[0].interrupt();
                     }
                 }
                 if (readerHolder[1] != null) {

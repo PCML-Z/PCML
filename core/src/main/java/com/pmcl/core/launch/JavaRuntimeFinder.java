@@ -176,6 +176,21 @@ public final class JavaRuntimeFinder {
     }
 
     /**
+     * 判断指定 Java 是否满足版本 JSON 的最低要求。
+     * <ul>
+     *   <li>required ≥ 11（如 16/17/21）：必须 major ≥ required，且 &lt; 28</li>
+     *   <li>required &lt; 11 或未指定：任意 8–27 均可（旧版由兼容层/转译处理）</li>
+     * </ul>
+     */
+    public static boolean meetsRequirement(String javaExe, int requiredMajorVersion) {
+        if (javaExe == null || javaExe.isBlank()) return false;
+        Integer ver = getMajorVersion(javaExe);
+        if (ver == null || ver < 8 || ver >= 28) return false;
+        if (requiredMajorVersion >= 11) return ver >= requiredMajorVersion;
+        return true;
+    }
+
+    /**
      * 从候选 java 路径中按目标版本选最佳。
      * @param requiredMajorVersion 0=未指定（默认策略：优先 21，其次 17）
      *                             非 0（如 8）：优先精确匹配目标版本，其次按默认策略
@@ -260,25 +275,36 @@ public final class JavaRuntimeFinder {
                     return exe;
                 }
             }
-            // Apple Silicon 上未找到 x86_64 Java：关闭转译模式时老版本将无法启动
+            // Apple Silicon 上未找到 x86_64 Java：关闭转译模式时不得回退到 arm64 现代 Java，
+            // 否则会挡住后续「自动下载 macos-amd64 Java 8」路径，并在启动时 UnsatisfiedLinkError。
             if (isAppleSilicon && !preferLegacyTranslation) {
-                System.err.println("[JavaRuntimeFinder] 警告: Apple Silicon 上未找到 x86_64 Java，"
-                        + "老版本 native 库为 x86_64，arm64 Java 将导致 UnsatisfiedLinkError。"
-                        + "建议开启转译模式或安装 x86_64 Java 8（通过 Rosetta 2 运行）。");
+                System.err.println("[JavaRuntimeFinder] Apple Silicon: 未找到 x86_64 Java（required="
+                        + requiredMajorVersion + "），返回 null 以触发 Rosetta Java 8 下载/提示。"
+                        + "也可开启转译模式（Classic～1.12）或手动安装 x86_64 Java 8。");
+                return null;
             }
         }
-        // 新版本（17/21）或未指定：优先 21，其次 17，避免 28+ 等过新版本
-        String j21 = null, j17 = null, other = null;
+        // 新版本（required ≥ 11，如 16/17/21）或未指定 / 旧版回退：
+        // 有明确现代要求时，严禁回退到低于 required 的 Java（否则会挡住自动下载并直接启动失败）。
+        // 未指定或旧版回退：优先 21，其次 17，再其他 8–27。
+        int minMajor = requiredMajorVersion >= 11 ? requiredMajorVersion : 0;
+        String j21 = null, j17 = null, otherOk = null;
         for (String exe : candidates) {
             Integer ver = getMajorVersion(exe);
-            if (ver == null) continue;
+            if (ver == null || ver < 8 || ver >= 28) continue;
+            if (minMajor > 0 && ver < minMajor) continue;
             if (ver == 21 && j21 == null) j21 = exe;
             else if (ver == 17 && j17 == null) j17 = exe;
-            else if (ver >= 8 && ver < 28 && other == null) other = exe;
+            else if (otherOk == null) otherOk = exe;
         }
         if (j21 != null) return j21;
         if (j17 != null) return j17;
-        return other;
+        if (otherOk != null) return otherOk;
+        if (minMajor > 0) {
+            System.err.println("[JavaRuntimeFinder] 未找到满足 Java " + minMajor
+                    + "+ 的运行时，返回 null 以触发自动下载。");
+        }
+        return null;
     }
 
     /**
@@ -466,15 +492,13 @@ public final class JavaRuntimeFinder {
 
     private static String resolveJava(String home) {
         Path p = Paths.get(home);
-        if (!Files.isDirectory(p)) return null;
-        String os = System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT);
-        // macOS: JDK 目录结构是 xxx.jdk/Contents/Home/bin/java
-        if (os.contains("mac")) {
-            Path contentsHome = p.resolve("Contents/Home");
-            if (Files.isDirectory(contentsHome)) p = contentsHome;
+        Path exe = com.pmcl.core.runtime.JavaRuntimeDownloader.findJavaBinary(p);
+        if (exe == null) return null;
+        // 优先要求可执行；若仅缺 +x 则仍返回路径（安装阶段应已 chmod）
+        if (Files.isExecutable(exe) || Files.isRegularFile(exe)) {
+            return exe.toString();
         }
-        Path exe = os.contains("win") ? p.resolve("bin/java.exe") : p.resolve("bin/java");
-        return Files.isExecutable(exe) ? exe.toString() : null;
+        return null;
     }
 
     /**

@@ -32,6 +32,8 @@ import androidx.compose.ui.unit.dp
 import com.pmcl.core.gamecontent.ShaderPackManager
 import com.pmcl.core.i18n.I18n
 import com.pmcl.ui.animation.StaggeredAppear
+import com.pmcl.ui.theme.glassContainerColor
+import com.pmcl.ui.theme.glassSurfaceVariantColor
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import com.pmcl.ui.viewmodel.batchDeleteShaderPacks
 import com.pmcl.ui.viewmodel.batchDisableShaderPacks
@@ -200,7 +202,7 @@ fun ShaderPacksPage(vm: LauncherViewModel) {
 
         if (filtered.isEmpty()) {
             Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant,
+                color = glassSurfaceVariantColor(),
                 shape = RoundedCornerShape(8.dp),
                 modifier = Modifier.fillMaxWidth().weight(1f)
             ) {
@@ -283,9 +285,9 @@ private fun ShaderPackRow(
     var showDetail by remember { mutableStateOf(false) }
 
     Surface(
-        color = if (isActive) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
-                else if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                else MaterialTheme.colorScheme.surfaceVariant,
+        color = if (isActive) glassContainerColor(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f))
+                else if (isSelected) glassContainerColor(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
+                else glassSurfaceVariantColor(),
         shape = RoundedCornerShape(8.dp),
         modifier = Modifier.fillMaxWidth()
             .alpha(if (pack.isDisabled) 0.5f else 1f)

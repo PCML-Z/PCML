@@ -139,11 +139,21 @@ public final class TokenEncryptor {
     }
 
     /**
-     * H9: 获取辅助密钥（机器绑定），用于好友身份密钥派生。
-     * 仅供 FriendIdentityManager.deriveSecret() 调用。
+     * H9: 基于辅助密钥派生用途特定密钥，用于好友身份密钥派生。
+     * 不直接暴露原始 keyfile 内容，防止泄露后可解密所有 token。
+     *
+     * @param purpose 用途标识（如 "friend-identity"），不同用途派生不同密钥
      */
-    public static String getSecondarySecret() {
-        return loadOrCreateSecondarySecret();
+    public static String derivePurposeKey(String purpose) {
+        String secret = loadOrCreateSecondarySecret();
+        String material = purpose + "|" + secret;
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+            return Base64.getEncoder().encodeToString(md.digest(
+                    material.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (Exception e) {
+            return "";
+        }
     }
 
     /**
@@ -192,7 +202,12 @@ public final class TokenEncryptor {
                 return Base64.getEncoder().encodeToString(newKey);
             } catch (Exception e) {
                 System.err.println("[TokenEncryptor] 辅助密钥文件创建失败: " + e.getMessage());
-                return machineFallbackSecret();
+                // 安全修复：fail-closed，不再回退到可从公开环境变量推导的弱密钥
+                // 返回随机临时密钥（每次进程启动不同），加密的 token 无法跨进程解密，
+                // 用户需重新登录。这比用公开信息推导的密钥更安全。
+                byte[] emergency = new byte[32];
+                RNG.nextBytes(emergency);
+                return Base64.getEncoder().encodeToString(emergency);
             }
         }
     }

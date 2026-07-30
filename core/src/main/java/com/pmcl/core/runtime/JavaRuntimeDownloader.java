@@ -21,8 +21,8 @@ import java.util.function.Consumer;
 /**
  * 自动下载 Java 运行时（Mojang 官方 Java runtime 元数据）。
  * <p>
- * 数据源：piston-meta.mojang.com/v1/products/java-runtime/manifest.json
- * 镜像：BMCLAPI 自动重写（由 DownloadManager 完成）。
+ * 数据源：{@code launchermeta.mojang.com/v1/products/java-runtime/.../all.json}
+ * （包内是分文件清单，不是单一 zip）。镜像：BMCLAPI 自动重写（由 DownloadManager 完成）。
  * <p>
  * 龙芯 LoongArch64 架构 Mojang 清单不支持，回退到 Dragonwell (Alibaba) 官方
  * 维护的 LoongArch64 JDK 构建（GitHub Releases），覆盖 Java 8/11/17。
@@ -31,8 +31,10 @@ import java.util.function.Consumer;
  */
 public final class JavaRuntimeDownloader {
 
+    /** Mojang Java runtime 产品清单（hash 为当前稳定 all.json）。 */
     private static final String MANIFEST_URL =
-            "https://piston-meta.mojang.com/v1/products/java-runtime/manifest.json";
+            "https://launchermeta.mojang.com/v1/products/java-runtime/"
+                    + "2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json";
 
     /** 龙芯 LoongArch64 JDK 源：Dragonwell 官方维护，GitHub Releases API */
     private static final String LOONGSON_JDK_RELEASES_API =
@@ -64,9 +66,13 @@ public final class JavaRuntimeDownloader {
         this.downloadManager = downloadManager;
     }
 
-    /** Java 运行时类型：Mojang 提供 java-runtime-alpha (8) / gamma (17) / delta (21) */
+    /**
+     * Java 运行时类型 → Mojang 产品 ID。
+     * <p>
+     * 注意：{@code java-runtime-alpha} 是 Java 16，不是 8；Java 8 对应 {@code jre-legacy}。
+     */
     public enum RuntimeType {
-        JAVA_8("java-runtime-alpha", "Java 8"),
+        JAVA_8("jre-legacy", "Java 8"),
         JAVA_17("java-runtime-gamma", "Java 17"),
         JAVA_21("java-runtime-delta", "Java 21");
 
@@ -131,9 +137,10 @@ public final class JavaRuntimeDownloader {
                     JsonObject o = e.getAsJsonObject();
                     JsonObject man = o.getAsJsonObject("manifest");
                     if (man == null) continue;
+                    String versionName = parseRuntimeVersionName(o, type);
                     RuntimeEntry entry = new RuntimeEntry(
-                            o.has("version") ? o.get("version").getAsString() : type.name(),
-                            o.has("version") ? o.get("version").getAsString() : "?",
+                            versionName,
+                            versionName,
                             man.has("url") ? man.get("url").getAsString() : "",
                             man.has("sha1") ? man.get("sha1").getAsString() : "",
                             man.has("size") ? man.get("size").getAsLong() : 0L);
@@ -141,9 +148,31 @@ public final class JavaRuntimeDownloader {
                 }
                 return result;
             } catch (Throwable e) {
-                throw new RuntimeException("拉取 Java 运行时清单失败", e);
+                String detail = e.getMessage();
+                if (e.getCause() != null && e.getCause().getMessage() != null) {
+                    detail = detail + ": " + e.getCause().getMessage();
+                }
+                throw new RuntimeException("拉取 Java 运行时清单失败" + (detail != null ? "：" + detail : ""), e);
             }
         });
+    }
+
+    /** Mojang all.json 中 version 多为对象 {@code {name, released}}，少数为字符串。 */
+    private static String parseRuntimeVersionName(JsonObject o, RuntimeType type) {
+        if (!o.has("version") || o.get("version").isJsonNull()) {
+            return type.name();
+        }
+        JsonElement v = o.get("version");
+        if (v.isJsonPrimitive()) {
+            return v.getAsString();
+        }
+        if (v.isJsonObject()) {
+            JsonObject vo = v.getAsJsonObject();
+            if (vo.has("name") && !vo.get("name").isJsonNull()) {
+                return vo.get("name").getAsString();
+            }
+        }
+        return type.name();
     }
 
     /**
@@ -244,11 +273,10 @@ public final class JavaRuntimeDownloader {
                                            Consumer<String> onStatus) {
         return CompletableFuture.runAsync(() -> {
             Path stagingDir = null;
-            Path archive = null;
             try {
                 String arch = resolveArch(type);
                 if (arch == null) {
-                    throw new RuntimeException("当前架构不支持自动下载 Java（Mojang 清单无对应包），请手动安装对应架构的 JDK");
+                    throw new IOException("当前架构不支持自动下载 Java（Mojang 清单无对应包），请手动安装对应架构的 JDK");
                 }
                 Path runtimesDir = config.getRuntimesDir();
                 Path archDir = runtimesDir.toAbsolutePath().normalize().resolve(arch).normalize();
@@ -271,35 +299,16 @@ public final class JavaRuntimeDownloader {
                 FileUtils.deleteRecursively(stagingDir);
 
                 String url = entry.getUrl();
-                String ext = url.endsWith(".zip") ? ".zip" : ".tar.gz";
-                archive = assertUnder(archDir, archDir.resolve(dirName + ext));
-                if (onStatus != null) onStatus.accept("下载: " + url);
-                String expectedSha1 = entry.getSha1();
-                // 龙芯 Dragonwell / RISC-V Adoptium / 龙芯 MIPS FTP 源不提供 SHA-1，
-                // 改为跳过校验直接下载（HTTPS 已提供传输完整性保障）。
-                if (expectedSha1 != null && !expectedSha1.isBlank()) {
-                    downloadManager.downloadToVerified(url, archive, expectedSha1, null);
-                    if (onStatus != null) onStatus.accept("SHA-1 校验通过");
+                Files.createDirectories(stagingDir);
+
+                if (isArchiveUrl(url)) {
+                    installFromArchive(type, entry, arch, stagingDir, archDir, dirName, onStatus);
                 } else {
-                    boolean skipSha1 = "linux-loongarch64".equals(arch)
-                            || "linux-riscv64".equals(arch)
-                            || "linux-mips64el".equals(arch);
-                    if (skipSha1) {
-                        if (onStatus != null) onStatus.accept("国产架构 JDK：第三方源无 SHA-1，跳过校验");
-                        downloadManager.downloadTo(url, archive);
-                    } else {
-                        throw new IOException("运行时清单未提供 SHA-1，拒绝安装未校验的 Java 归档");
-                    }
+                    installFromMojangPackage(entry, stagingDir, onStatus);
                 }
 
-                Files.createDirectories(stagingDir);
-                if (onStatus != null) onStatus.accept("解压到: " + stagingDir);
-                extractArchive(archive, stagingDir);
-                Files.deleteIfExists(archive);
-                archive = null;
-
                 if (!hasJavaBin(stagingDir)) {
-                    throw new IOException("解压后未找到可用 java 可执行文件: " + stagingDir);
+                    throw new IOException("安装后未找到可用 java 可执行文件: " + stagingDir);
                 }
                 Files.writeString(stagingDir.resolve(READY_MARKER), "ok");
 
@@ -317,15 +326,131 @@ public final class JavaRuntimeDownloader {
                 stagingDir = null;
                 if (onStatus != null) onStatus.accept("完成: " + targetDir);
             } catch (IOException e) {
-                if (archive != null) {
-                    try { Files.deleteIfExists(archive); } catch (IOException ignored) {}
-                }
                 if (stagingDir != null) {
                     FileUtils.deleteRecursively(stagingDir);
                 }
-                throw new RuntimeException("Java 运行时安装失败", e);
+                throw new RuntimeException("Java 运行时安装失败: " + e.getMessage(), e);
             }
         });
+    }
+
+    private static boolean isArchiveUrl(String url) {
+        if (url == null) return false;
+        String lower = url.toLowerCase(java.util.Locale.ROOT);
+        int q = lower.indexOf('?');
+        if (q >= 0) lower = lower.substring(0, q);
+        return lower.endsWith(".zip") || lower.endsWith(".tar.gz") || lower.endsWith(".tgz");
+    }
+
+    /**
+     * Mojang 包：manifest.url 指向含 {@code files} 的 JSON，需逐文件下载 raw 对象。
+     */
+    private void installFromMojangPackage(RuntimeEntry entry, Path stagingDir,
+                                          Consumer<String> onStatus) throws IOException {
+        String url = entry.getUrl();
+        if (url == null || url.isBlank()) {
+            throw new IOException("运行时包清单 URL 为空");
+        }
+        if (onStatus != null) onStatus.accept("拉取包清单: " + url);
+        String packageJson;
+        String expectedSha1 = entry.getSha1();
+        if (expectedSha1 != null && !expectedSha1.isBlank()) {
+            packageJson = downloadManager.downloadStringVerified(url, expectedSha1);
+        } else {
+            throw new IOException("运行时包清单未提供 SHA-1，拒绝安装");
+        }
+        JsonObject root = JsonParser.parseString(packageJson).getAsJsonObject();
+        if (!root.has("files") || !root.get("files").isJsonObject()) {
+            throw new IOException("无效的 Mojang Java 运行时包清单（缺少 files）");
+        }
+        JsonObject files = root.getAsJsonObject("files");
+        int total = 0;
+        for (String ignored : files.keySet()) total++;
+        int done = 0;
+        boolean win = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("win");
+        for (java.util.Map.Entry<String, JsonElement> fe : files.entrySet()) {
+            String rel = fe.getKey();
+            if (!(fe.getValue() instanceof JsonObject)) continue;
+            JsonObject meta = fe.getValue().getAsJsonObject();
+            String type = meta.has("type") && !meta.get("type").isJsonNull()
+                    ? meta.get("type").getAsString() : "file";
+            Path dest = assertUnder(stagingDir, stagingDir.resolve(rel));
+            if ("directory".equals(type)) {
+                Files.createDirectories(dest);
+                done++;
+                continue;
+            }
+            if ("link".equals(type)) {
+                // 安全起见跳过符号链接条目（部分平台清单会带 target）
+                done++;
+                continue;
+            }
+            if (!"file".equals(type)) {
+                done++;
+                continue;
+            }
+            JsonObject downloads = meta.has("downloads") ? meta.getAsJsonObject("downloads") : null;
+            if (downloads == null || !downloads.has("raw")) {
+                throw new IOException("运行时文件缺少 raw 下载项: " + rel);
+            }
+            JsonObject raw = downloads.getAsJsonObject("raw");
+            String fileUrl = raw.has("url") ? raw.get("url").getAsString() : "";
+            String fileSha1 = raw.has("sha1") ? raw.get("sha1").getAsString() : "";
+            if (fileUrl.isBlank() || fileSha1.isBlank()) {
+                throw new IOException("运行时文件缺少 url/sha1: " + rel);
+            }
+            Files.createDirectories(dest.getParent());
+            done++;
+            if (onStatus != null && (done == 1 || done == total || done % 20 == 0)) {
+                onStatus.accept("下载运行时文件 " + done + "/" + total);
+            }
+            downloadManager.downloadToVerified(fileUrl, dest, fileSha1, null);
+            boolean executable = meta.has("executable") && meta.get("executable").getAsBoolean();
+            if (executable && !win) {
+                try {
+                    java.util.Set<java.nio.file.attribute.PosixFilePermission> perms =
+                            new java.util.HashSet<>(Files.getPosixFilePermissions(dest));
+                    perms.add(java.nio.file.attribute.PosixFilePermission.OWNER_EXECUTE);
+                    perms.add(java.nio.file.attribute.PosixFilePermission.GROUP_EXECUTE);
+                    perms.add(java.nio.file.attribute.PosixFilePermission.OTHERS_EXECUTE);
+                    Files.setPosixFilePermissions(dest, perms);
+                } catch (UnsupportedOperationException ignored) {
+                    // 非 POSIX 文件系统
+                }
+            }
+        }
+        if (onStatus != null) onStatus.accept("运行时文件下载完成（" + total + "）");
+    }
+
+    /** Dragonwell / Adoptium / 龙芯 FTP：单一归档解压。 */
+    private void installFromArchive(RuntimeType type, RuntimeEntry entry, String arch,
+                                    Path stagingDir, Path archDir, String dirName,
+                                    Consumer<String> onStatus) throws IOException {
+        String url = entry.getUrl();
+        String ext = url.toLowerCase(java.util.Locale.ROOT).endsWith(".zip") ? ".zip" : ".tar.gz";
+        Path archive = assertUnder(archDir, archDir.resolve(dirName + ext));
+        try {
+            if (onStatus != null) onStatus.accept("下载: " + url);
+            String expectedSha1 = entry.getSha1();
+            if (expectedSha1 != null && !expectedSha1.isBlank()) {
+                downloadManager.downloadToVerified(url, archive, expectedSha1, null);
+                if (onStatus != null) onStatus.accept("SHA-1 校验通过");
+            } else {
+                boolean skipSha1 = "linux-loongarch64".equals(arch)
+                        || "linux-riscv64".equals(arch)
+                        || "linux-mips64el".equals(arch);
+                if (skipSha1) {
+                    if (onStatus != null) onStatus.accept("国产架构 JDK：第三方源无 SHA-1，跳过校验");
+                    downloadManager.downloadTo(url, archive);
+                } else {
+                    throw new IOException("运行时清单未提供 SHA-1，拒绝安装未校验的 Java 归档");
+                }
+            }
+            if (onStatus != null) onStatus.accept("解压到: " + stagingDir);
+            extractArchive(archive, stagingDir);
+        } finally {
+            try { Files.deleteIfExists(archive); } catch (IOException ignored) {}
+        }
     }
 
     private static boolean isRuntimeReady(Path targetDir) {
@@ -334,22 +459,36 @@ public final class JavaRuntimeDownloader {
     }
 
     private static boolean hasJavaBin(Path jvmDir) {
+        return findJavaBinary(jvmDir) != null;
+    }
+
+    /** 在运行时根目录下定位 java（含 macOS jre.bundle/Contents/Home）。 */
+    public static Path findJavaBinary(Path jvmDir) {
+        if (jvmDir == null || !Files.isDirectory(jvmDir)) return null;
         String os = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT);
         boolean win = os.contains("win");
-        // Mojang 包可能多一层目录（如 jre / jdk-*）
+        String javaName = win ? "java.exe" : "java";
         Path[] candidates = {
-                jvmDir.resolve("bin").resolve(win ? "java.exe" : "java"),
-                jvmDir.resolve("jre").resolve("bin").resolve(win ? "java.exe" : "java")
+                jvmDir.resolve("bin").resolve(javaName),
+                jvmDir.resolve("jre").resolve("bin").resolve(javaName),
+                jvmDir.resolve("Contents").resolve("Home").resolve("bin").resolve(javaName),
+                jvmDir.resolve("jre.bundle").resolve("Contents").resolve("Home").resolve("bin").resolve(javaName)
         };
         for (Path c : candidates) {
-            if (Files.isRegularFile(c)) return true;
+            if (Files.isRegularFile(c)) return c;
         }
-        try (var stream = Files.list(jvmDir)) {
-            return stream.filter(Files::isDirectory)
-                    .anyMatch(child -> Files.isRegularFile(
-                            child.resolve("bin").resolve(win ? "java.exe" : "java")));
+        try (var walk = Files.walk(jvmDir, 6)) {
+            return walk.filter(Files::isRegularFile)
+                    .filter(p -> {
+                        String name = p.getFileName().toString();
+                        if (!javaName.equals(name)) return false;
+                        Path parent = p.getParent();
+                        return parent != null && "bin".equals(parent.getFileName().toString());
+                    })
+                    .findFirst()
+                    .orElse(null);
         } catch (IOException e) {
-            return false;
+            return null;
         }
     }
 
@@ -424,8 +563,15 @@ public final class JavaRuntimeDownloader {
         if (version == null || version.isBlank()) {
             throw new IOException("运行时版本号为空");
         }
-        String v = version.trim();
-        if (v.length() > 64 || !v.matches("[A-Za-z0-9._-]+") || v.contains("..")) {
+        String v = version.trim()
+                .replace(' ', '-')
+                .replace('/', '-')
+                .replace('\\', '-');
+        v = v.replaceAll("[^A-Za-z0-9._-]+", "-");
+        while (v.contains("--")) v = v.replace("--", "-");
+        if (v.startsWith("-")) v = v.substring(1);
+        if (v.endsWith("-")) v = v.substring(0, v.length() - 1);
+        if (v.isEmpty() || v.length() > 64 || v.contains("..")) {
             throw new IOException("非法运行时版本号: " + version);
         }
         return v;
@@ -564,16 +710,18 @@ public final class JavaRuntimeDownloader {
     }
 
     /**
-     * 解析下载目标架构。
+     * 解析下载目标架构（与 Mojang all.json 顶层 key 对齐）。
      * <p>
      * Apple Silicon Mac 上，老版本 Minecraft（1.12.2 及更早）的 LWJGL 2.x 原生库
      * 只有 x86_64 版本，必须通过 Rosetta 2 运行 x86_64 Java 8。
-     * 因此 Java 8 在 Apple Silicon 上强制下载 macos-amd64 版本。
+     * Mojang 在 {@code mac-os-arm64} 下不提供 {@code jre-legacy}，因此 Java 8
+     * 在 Apple Silicon 上强制使用 {@code mac-os}（x86_64）。
      * <p>
      * 龙芯 LoongArch64：Mojang 清单无对应包，但仍返回 "linux-loongarch64"，
      * 由 {@link #listRuntimes} 和 {@link #install} 改走 Dragonwell 源。
      * 龙芯旧版 MIPS64el：龙芯开源社区 FTP 提供 JDK 8，返回 "linux-mips64el"。
      * RISC-V 64：Adoptium Temurin 提供 JDK 17/21，返回 "linux-riscv64"。
+     * Linux aarch64：Mojang 无包，返回 null。
      */
     private static String resolveArch(RuntimeType type) {
         // 龙芯 LoongArch64：返回架构标识，由 listRuntimes/install 改走 Dragonwell
@@ -589,22 +737,32 @@ public final class JavaRuntimeDownloader {
             return "linux-riscv64";
         }
         String arch = currentArch();
-        if (type == RuntimeType.JAVA_8 && "macos-arm64".equals(arch)) {
-            return "macos-amd64"; // Rosetta 2
+        if (arch == null) return null;
+        // Apple Silicon：Java 8 仅有 mac-os（x86）的 jre-legacy，走 Rosetta 2
+        if (type == RuntimeType.JAVA_8 && "mac-os-arm64".equals(arch)) {
+            return "mac-os";
         }
         return arch;
     }
 
-    /** Mojang Java runtime 清单使用的架构标识 */
+    /**
+     * Mojang Java runtime 清单使用的架构标识。
+     * @return 平台 key，或 {@code null} 表示当前架构无 Mojang/第三方自动源
+     */
     private static String currentArch() {
         String os = System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT);
         String arch = System.getProperty("os.arch").toLowerCase(java.util.Locale.ROOT);
         if (os.contains("mac")) {
             return arch.contains("aarch64") || arch.contains("arm64")
-                    ? "macos-arm64" : "macos-amd64";
+                    ? "mac-os-arm64" : "mac-os";
         } else if (os.contains("win")) {
-            return arch.contains("aarch64") || arch.contains("arm64")
-                    ? "windows-arm64" : "windows-x64";
+            if (arch.contains("aarch64") || arch.contains("arm64")) {
+                return "windows-arm64";
+            }
+            if (arch.equals("x86") || arch.equals("i386") || arch.equals("i686")) {
+                return "windows-x86";
+            }
+            return "windows-x64";
         } else {
             // 龙芯 LoongArch64
             if (arch.contains("loongarch64") || arch.contains("la64") || arch.contains("la464")) {
@@ -618,8 +776,14 @@ public final class JavaRuntimeDownloader {
             if (arch.contains("riscv64") || arch.contains("risc-v64") || arch.contains("rv64")) {
                 return "linux-riscv64";
             }
-            return arch.contains("aarch64") || arch.contains("arm64")
-                    ? "linux-arm64" : "linux-x64";
+            // Mojang 仅提供 linux（x86_64）与 linux-i386，无 aarch64
+            if (arch.contains("aarch64") || arch.contains("arm64")) {
+                return null;
+            }
+            if (arch.equals("x86") || arch.equals("i386") || arch.equals("i686")) {
+                return "linux-i386";
+            }
+            return "linux";
         }
     }
 }

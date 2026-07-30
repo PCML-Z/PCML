@@ -49,7 +49,11 @@ interface LaunchHook {
 
     /**
      * Extra Java agents as `jarPath` or `jarPath=options`.
-     * Injected before other JVM args.
+     *
+     * **Ignored by the host for security.** Java agents receive
+     * [java.lang.instrument.Instrumentation] and would bypass the plugin
+     * isolating class loader. Prefer [contributeJvmArgs] / [contributeClasspathJars]
+     * (classpath jars are still sandboxed under the plugin data directory).
      */
     fun contributeJavaAgents(versionId: String, accountName: String): List<String> = emptyList()
 

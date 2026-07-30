@@ -21,6 +21,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
 import com.pmcl.core.download.DownloadQueueManager
+import com.pmcl.ui.theme.glassCardBorder
+import com.pmcl.ui.theme.glassCardColors
+import com.pmcl.ui.theme.glassCardElevation
 import com.pmcl.ui.viewmodel.LauncherViewModel
 
 /**
@@ -90,11 +93,12 @@ private fun QueueSummaryCard(
     onClearFinished: () -> Unit
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().glassCardBorder(),
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(
+        colors = glassCardColors(
             containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-        )
+        ),
+        elevation = glassCardElevation()
     ) {
         Column(Modifier.padding(16.dp)) {
             Row(
@@ -180,8 +184,10 @@ private fun QueueTaskCard(
     onRemove: () -> Unit
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(10.dp)
+        modifier = Modifier.fillMaxWidth().glassCardBorder(),
+        shape = RoundedCornerShape(10.dp),
+        colors = glassCardColors(),
+        elevation = glassCardElevation()
     ) {
         Column(Modifier.padding(12.dp)) {
             Row(

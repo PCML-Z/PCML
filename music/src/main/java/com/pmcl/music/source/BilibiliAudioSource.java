@@ -162,6 +162,21 @@ public class BilibiliAudioSource implements AudioSource {
     }
 
     private String resolveShortUrl(String shortUrl) throws IOException {
+        // 安全修复：校验 host 确实为 b23.tv，防止 contains("b23.tv") 误匹配攻击者 URL
+        java.net.URL parsed;
+        try {
+            parsed = new java.net.URL(shortUrl);
+        } catch (java.net.MalformedURLException e) {
+            throw new IOException("无效的短链 URL: " + shortUrl);
+        }
+        if (!"b23.tv".equalsIgnoreCase(parsed.getHost())) {
+            throw new IOException("非 b23.tv 短链，拒绝解析: " + parsed.getHost());
+        }
+        // SSRF 校验
+        String ssrf = com.pmcl.core.util.SsrfChecker.validate(shortUrl);
+        if (ssrf != null) {
+            throw new IOException("短链 SSRF 拒绝: " + ssrf);
+        }
         Request req = new Request.Builder()
                 .url(shortUrl)
                 .header("User-Agent", USER_AGENT)
@@ -169,6 +184,11 @@ public class BilibiliAudioSource implements AudioSource {
         try (Response resp = client.newCall(req).execute()) {
             String location = resp.header("Location");
             if (location != null && !location.isBlank()) {
+                // 校验重定向目标
+                String redirectSsrf = com.pmcl.core.util.SsrfChecker.validate(location);
+                if (redirectSsrf != null) {
+                    throw new IOException("短链重定向 SSRF 拒绝: " + redirectSsrf);
+                }
                 return location;
             }
             return resp.request().url().toString();

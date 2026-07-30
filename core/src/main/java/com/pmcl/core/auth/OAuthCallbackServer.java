@@ -72,16 +72,27 @@ public final class OAuthCallbackServer implements AutoCloseable {
             return;
         }
 
+        // 安全修复：所有回调类型都必须校验 state，防止本地攻击者伪造 error 回调中断登录
+        if (!expectedState.equals(state)) {
+            String responseHtml = htmlPage("授权失败", "#F44336",
+                    "OAuth state 校验失败，请返回 PMCL 重试。");
+            if (completed.compareAndSet(false, true)) {
+                codeFuture.completeExceptionally(
+                        new RuntimeException("OAuth state mismatch（可能的回调伪造）"));
+            }
+            byte[] respBytes = responseHtml.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "text/html; charset=UTF-8");
+            exchange.sendResponseHeaders(200, respBytes.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(respBytes);
+            }
+            return;
+        }
+
         String responseHtml;
         if (code != null) {
-            if (!expectedState.equals(state)) {
-                responseHtml = htmlPage("授权失败", "#F44336",
-                        "OAuth state 校验失败，请返回 PMCL 重试。");
-                if (completed.compareAndSet(false, true)) {
-                    codeFuture.completeExceptionally(
-                            new RuntimeException("OAuth state mismatch（可能的回调伪造）"));
-                }
-            } else if (completed.compareAndSet(false, true)) {
+            // state 已在上方统一校验通过
+            if (completed.compareAndSet(false, true)) {
                 responseHtml = htmlPage("授权成功", "#4CAF50",
                         "请返回 PMCL 启动器，登录即将完成。");
                 codeFuture.complete(code);

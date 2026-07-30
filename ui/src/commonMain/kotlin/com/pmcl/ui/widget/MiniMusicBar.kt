@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
 import com.pmcl.music.player.PlaybackState
 import com.pmcl.ui.page.MusicCoverThumbnail
+import com.pmcl.ui.theme.glassSurfaceVariantColor
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import com.pmcl.ui.viewmodel.playNextMusic
 import com.pmcl.ui.viewmodel.playPreviousMusic
@@ -41,7 +42,7 @@ fun MiniMusicBar(vm: LauncherViewModel, onOpenMusic: () -> Unit = {}) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
+        color = glassSurfaceVariantColor(),
         tonalElevation = 2.dp
     ) {
         Row(

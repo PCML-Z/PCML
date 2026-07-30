@@ -418,6 +418,12 @@ public final class RetroWrapperSupport {
     private static void applyAppleSiliconNatives(Path nativesDir, DownloadManager downloads, Path libRoot)
             throws IOException {
         if (nativesDir == null) return;
+        // 防御：切勿把 FrankenLWJGL2 写入已有 LWJGL3（glfw / lwjgl_opengl）的目录
+        if (Files.isRegularFile(nativesDir.resolve("libglfw.dylib"))
+                || Files.isRegularFile(nativesDir.resolve("liblwjgl_opengl.dylib"))) {
+            System.err.println("[PMCL 转译] 跳过 Franken natives：目标目录已是 LWJGL3 → " + nativesDir);
+            return;
+        }
         Files.createDirectories(nativesDir);
         Path franken = ensureLocal(libRoot.resolve("lwjgl-platform-franken-osx.jar"),
                 "lwjgl-platform-franken-osx.jar", FRANKEN_LWJGL_URL, downloads);

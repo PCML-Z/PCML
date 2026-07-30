@@ -40,6 +40,7 @@ import com.pmcl.ui.theme.LocalThemeState
 import com.pmcl.ui.theme.glassCardBorder
 import com.pmcl.ui.theme.glassCardColors
 import com.pmcl.ui.theme.glassCardElevation
+import com.pmcl.ui.theme.glassSurfaceVariantColor
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import kotlinx.coroutines.launch
 
@@ -1020,7 +1021,7 @@ private fun TechStackTable() {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+        color = glassSurfaceVariantColor(glassAlpha = 0.3f),
         tonalElevation = 1.dp
     ) {
         Column {
@@ -1087,7 +1088,7 @@ private fun LaunchPresetCard(
 
     LaunchedEffect(Unit) { vm.refreshLaunchPresets() }
 
-    Card(Modifier.fillMaxWidth()) {
+    Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Filled.Bookmarks, null, Modifier.size(20.dp),
@@ -1108,7 +1109,7 @@ private fun LaunchPresetCard(
                 Spacer(Modifier.height(12.dp))
                 presets.forEach { p ->
                     Surface(
-                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        color = glassSurfaceVariantColor(),
                         shape = RoundedCornerShape(8.dp),
                         modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)
                     ) {
@@ -1195,7 +1196,7 @@ private fun MioModeCard(pref: com.pmcl.core.preferences.Preferences) {
     var l2Crazy by remember { mutableStateOf(pref.isMioModeCrazyPriority()) }
     var l3System by remember { mutableStateOf(pref.isMioModeSystemPower()) }
 
-    Card(Modifier.fillMaxWidth()) {
+    Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(I18n.t("settings.perf.mei_mode"), style = MaterialTheme.typography.titleSmall,
@@ -1529,7 +1530,7 @@ private fun GameBehaviorCard(pref: com.pmcl.core.preferences.Preferences) {
     var customNativesPath by remember { mutableStateOf(pref.getCustomNativesPath()) }
     var versionIsolation by remember { mutableStateOf(pref.isVersionIsolation()) }
 
-    Card(Modifier.fillMaxWidth()) {
+    Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
         Column(Modifier.padding(16.dp)) {
             Text(I18n.t("settings.game_general_behavior"), style = MaterialTheme.typography.titleSmall,
                  fontWeight = FontWeight.SemiBold)
@@ -1807,7 +1808,7 @@ private fun NetworkConfigCard(vm: LauncherViewModel, pref: com.pmcl.core.prefere
     var enableResume by remember { mutableStateOf(pref.isEnableResume()) }
     var chunkedThreads by remember { mutableStateOf(pref.getChunkedDownloadThreads().toString()) }
 
-    Card(Modifier.fillMaxWidth()) {
+    Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
         Column(Modifier.padding(16.dp)) {
             Text(I18n.t("settings.network"), style = MaterialTheme.typography.titleSmall,
                  fontWeight = FontWeight.SemiBold)
@@ -1954,7 +1955,7 @@ private fun JavaRuntimeCard(vm: LauncherViewModel, pref: com.pmcl.core.preferenc
     val detectedPath = remember { vm.detectJavaPath() }
     val modifier = Modifier
 
-    Card(Modifier.fillMaxWidth()) {
+    Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
         Column(Modifier.padding(16.dp)) {
             Text(I18n.t("settings.java_runtime"), style = MaterialTheme.typography.titleSmall,
                  fontWeight = FontWeight.SemiBold)
@@ -2428,7 +2429,7 @@ private fun LicenseViewerDialog(onDismiss: () -> Unit) {
 
                 // 许可证正文（可滚动）
                 Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    color = glassSurfaceVariantColor(),
                     shape = RoundedCornerShape(8.dp),
                     modifier = Modifier.fillMaxWidth().height(420.dp)
                 ) {
@@ -2517,7 +2518,7 @@ private fun DocumentViewerDialog(
                 Spacer(Modifier.height(4.dp))
 
                 Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    color = glassSurfaceVariantColor(),
                     shape = RoundedCornerShape(8.dp),
                     modifier = Modifier.fillMaxWidth().height(440.dp)
                 ) {

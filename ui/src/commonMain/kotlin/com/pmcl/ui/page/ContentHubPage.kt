@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
+import com.pmcl.ui.theme.glassContainerColor
 import com.pmcl.ui.viewmodel.LauncherViewModel
 
 /**
@@ -77,7 +78,7 @@ fun ContentHubPage(vm: LauncherViewModel) {
     Column(Modifier.fillMaxSize()) {
         // 折叠态：单行当前分类 + 下拉切换 + 展开完整菜单
         Surface(
-            color = MaterialTheme.colorScheme.surface,
+            color = glassContainerColor(MaterialTheme.colorScheme.surface),
             tonalElevation = 1.dp
         ) {
             Row(

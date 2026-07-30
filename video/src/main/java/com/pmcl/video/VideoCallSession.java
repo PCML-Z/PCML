@@ -83,11 +83,11 @@ public final class VideoCallSession {
             new java.util.concurrent.atomic.AtomicReference<>(State.RINGING);
     private volatile Agent iceAgent;
 
-    // 摄像头采集
-    private FFmpegFrameGrabber grabber;
-    private Java2DFrameConverter frameConverter;
-    private Thread captureThread;
-    private Thread receiveThread;
+    // 摄像头采集（volatile：由采集线程写入，end() 在其他线程读取）
+    private volatile FFmpegFrameGrabber grabber;
+    private volatile Java2DFrameConverter frameConverter;
+    private volatile Thread captureThread;
+    private volatile Thread receiveThread;
     private final AtomicBoolean capturing = new AtomicBoolean(false);
     private volatile boolean cameraEnabled = true;
     private volatile boolean muted = false;
@@ -116,7 +116,7 @@ public final class VideoCallSession {
     };
 
     // 视频传输 socket（独立于 ICE）
-    private DatagramSocket videoSocket;
+    private volatile DatagramSocket videoSocket;
     private volatile boolean localPortReady = false;
 
     // ---------------------------------------------------------------------------
@@ -708,11 +708,30 @@ public final class VideoCallSession {
         }
     }
 
-    /** JPEG 解压 */
+    /** JPEG 解压（带解码炸弹防护：限制最大解码尺寸） */
     private BufferedImage decompressJpeg(byte[] data) {
         try {
             ByteArrayInputStream bais = new ByteArrayInputStream(data);
-            return javax.imageio.ImageIO.read(bais);
+            // 使用 ImageReader 预检尺寸，防止声明巨大尺寸的 JPEG 导致 OOM
+            java.util.Iterator<javax.imageio.ImageReader> readers =
+                    javax.imageio.ImageIO.getImageReadersByFormatName("jpg");
+            if (!readers.hasNext()) {
+                return javax.imageio.ImageIO.read(bais);
+            }
+            javax.imageio.ImageReader reader = readers.next();
+            try (javax.imageio.stream.ImageInputStream iis =
+                         javax.imageio.ImageIO.createImageInputStream(bais)) {
+                reader.setInput(iis);
+                int w = reader.getWidth(0);
+                int h = reader.getHeight(0);
+                // 拒绝超过 4 倍目标分辨率的帧（防止解压炸弹）
+                if (w > VIDEO_WIDTH * 4 || h > VIDEO_HEIGHT * 4 || w <= 0 || h <= 0) {
+                    return null;
+                }
+                return reader.read(0);
+            } finally {
+                reader.dispose();
+            }
         } catch (Exception e) {
             return null;
         }

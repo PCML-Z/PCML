@@ -93,11 +93,14 @@ public final class QuiltInstaller implements ModLoaderInstaller {
 
                 Path staging = VersionStaging.writeVersionJson(
                         config.getVersionsDir(), id, profileJson);
+                int libCount = ModLoaderProfileLibraries.downloadMissing(
+                        downloads, config.getLibrariesDir(), profileJson, "Quilt", onProgress);
                 VersionStaging.promote(config.getVersionsDir(), id, staging);
 
                 if (onProgress != null) onProgress.accept(new InstallProgress(
                         InstallProgress.Stage.DONE, 1, 1,
-                        "Quilt 安装完成: " + id));
+                        "Quilt 安装完成: " + id
+                                + (libCount > 0 ? "（依赖库 " + libCount + "）" : "")));
             } catch (Exception e) {
                 if (!InstallInterruptedException.isInterrupted(e) && id != null && !id.isBlank()) {
                     VersionStaging.discard(config.getVersionsDir(), id);

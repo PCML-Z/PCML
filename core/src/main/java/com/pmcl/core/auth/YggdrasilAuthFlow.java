@@ -79,6 +79,29 @@ public final class YggdrasilAuthFlow {
         if (ssrf != null) {
             throw new IOException("皮肤站地址被拒绝（SSRF 防护）: " + ssrf);
         }
+        // 安全修复：对非 HTTPS URL 校验目标是否为本地/回环，防止密码明文发送到远程 HTTP 服务器
+        if (lower.startsWith("http://") && !lower.startsWith("http://localhost")
+                && !lower.startsWith("http://127.")) {
+            // 解析 host 并校验是否为回环/私有地址
+            try {
+                java.net.URL parsed = new java.net.URL(url);
+                String host = parsed.getHost();
+                java.net.InetAddress[] addrs = java.net.InetAddress.getAllByName(host);
+                boolean isLocal = false;
+                for (java.net.InetAddress addr : addrs) {
+                    if (addr.isLoopbackAddress() || addr.isSiteLocalAddress()) {
+                        isLocal = true;
+                        break;
+                    }
+                }
+                if (!isLocal) {
+                    throw new IOException("非本地 HTTP 皮肤站地址不安全：密码将通过明文传输。"
+                            + "请使用 HTTPS 或本地地址。如需继续，请在皮肤站启用 HTTPS。");
+                }
+            } catch (java.net.UnknownHostException e) {
+                throw new IOException("无法解析皮肤站地址: " + e.getMessage());
+            }
+        }
     }
 
     /**

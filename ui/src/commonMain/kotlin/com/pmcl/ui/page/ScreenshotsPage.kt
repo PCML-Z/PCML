@@ -52,6 +52,7 @@ import com.pmcl.core.i18n.I18n
 import com.pmcl.ui.theme.glassCardBorder
 import com.pmcl.ui.theme.glassCardColors
 import com.pmcl.ui.theme.glassCardElevation
+import com.pmcl.ui.theme.glassContainerColor
 import com.pmcl.ui.util.decodeSampledBitmap
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import com.pmcl.ui.viewmodel.copyScreenshotToClipboard
@@ -242,7 +243,7 @@ fun ScreenshotsPage(vm: LauncherViewModel) {
             Spacer(Modifier.height(8.dp))
             Surface(
                 shape = RoundedCornerShape(10.dp),
-                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
+                color = glassContainerColor(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f))
             ) {
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),

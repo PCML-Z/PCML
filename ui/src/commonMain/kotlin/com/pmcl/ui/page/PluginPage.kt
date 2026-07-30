@@ -13,6 +13,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.plugin.PluginManager
+import com.pmcl.ui.theme.glassCardBorder
+import com.pmcl.ui.theme.glassCardColors
+import com.pmcl.ui.theme.glassCardElevation
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -97,10 +100,11 @@ fun PluginPage(vm: LauncherViewModel) {
         statusMessage?.let {
             Spacer(Modifier.height(8.dp))
             Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
+                modifier = Modifier.fillMaxWidth().glassCardBorder(),
+                colors = glassCardColors(
                     containerColor = MaterialTheme.colorScheme.secondaryContainer
-                )
+                ),
+                elevation = glassCardElevation()
             ) {
                 Text(
                     it,
@@ -299,14 +303,15 @@ private fun PluginCard(
     }
 
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().glassCardBorder(),
         onClick = onClick,
-        colors = CardDefaults.cardColors(
+        colors = glassCardColors(
             containerColor = if (isSelected)
                 MaterialTheme.colorScheme.primaryContainer
             else
                 MaterialTheme.colorScheme.surfaceVariant
         ),
+        elevation = glassCardElevation(),
         shape = RoundedCornerShape(12.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {

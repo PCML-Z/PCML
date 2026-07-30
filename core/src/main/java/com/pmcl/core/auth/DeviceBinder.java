@@ -726,9 +726,11 @@ public final class DeviceBinder {
     }
 
     public static boolean verifyOnLaunch(String _lic, String _pub) {
-        if (_lic == null || _lic.isEmpty() || _pub == null || _pub.isEmpty()) return true;
-        if (!_chk_prefix(_lic, LICENSE_PREFIX)) return true;
-        if (!isLicenseEnabled(_lic)) return true;
+        // 安全修复：fail-closed。许可证/公钥缺失或格式错误时拒绝启动，
+        // 防止用户删除许可证字段绕过设备绑定。
+        if (_lic == null || _lic.isEmpty() || _pub == null || _pub.isEmpty()) return false;
+        if (!_chk_prefix(_lic, LICENSE_PREFIX)) return false;
+        if (!isLicenseEnabled(_lic)) return false;
         try {
             PublicKey _pk = loadPublicKey(fromBase64(_pub));
             String _dc = getDeviceCode();

@@ -37,6 +37,8 @@ import androidx.compose.ui.unit.dp
 import com.pmcl.core.gamecontent.WorldManager
 import com.pmcl.core.i18n.I18n
 import com.pmcl.ui.animation.StaggeredAppear
+import com.pmcl.ui.theme.glassContainerColor
+import com.pmcl.ui.theme.glassSurfaceVariantColor
 import com.pmcl.ui.util.decodeSampledBitmap
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import com.pmcl.ui.viewmodel.backupWorld
@@ -187,7 +189,7 @@ fun WorldsPage(vm: LauncherViewModel) {
 
         if (processedWorlds.isEmpty()) {
             Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant,
+                color = glassSurfaceVariantColor(),
                 shape = RoundedCornerShape(8.dp),
                 modifier = Modifier.fillMaxWidth().weight(1f)
             ) {
@@ -269,7 +271,7 @@ private fun WorldRow(
     }
 
     Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant,
+        color = glassSurfaceVariantColor(),
         shape = RoundedCornerShape(8.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -470,7 +472,7 @@ private fun WorldRow(
                             backups.forEach { zip ->
                                 val fileName = zip.fileName.toString()
                                 Surface(
-                                    color = MaterialTheme.colorScheme.surface,
+                                    color = glassContainerColor(MaterialTheme.colorScheme.surface),
                                     shape = RoundedCornerShape(6.dp),
                                     modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
                                 ) {

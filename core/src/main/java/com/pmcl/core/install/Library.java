@@ -166,25 +166,42 @@ public final class Library {
     }
 
     /**
-     * 根据当前 OS 判断是否允许加载该库。
+     * 根据当前 OS（及 arch 规则）判断是否允许加载该库。
+     * 语义与 Mojang：有 rules 时默认 disallow，按顺序应用每条匹配 rule 的 action（取最后匹配）。
      */
     public boolean appliesToCurrentOs() {
-        if (rules == null) return true;
+        if (rules == null || rules.size() == 0) return true;
         boolean allowed = false;
         String osName = currentOsName();
+        String osArch = effectiveArch().toLowerCase();
         for (JsonElement e : rules) {
             JsonObject rule = e.getAsJsonObject();
             String action = rule.has("action") && !rule.get("action").isJsonNull()
                     ? rule.get("action").getAsString() : "";
             if (rule.has("os") && !rule.get("os").isJsonNull()) {
                 JsonObject osObj = rule.getAsJsonObject("os");
-                if (!osObj.has("name") || osObj.get("name").isJsonNull()) continue;
-                String ruleOs = osObj.get("name").getAsString();
-                if (!ruleOs.equals(osName)) continue;
+                if (osObj.has("name") && !osObj.get("name").isJsonNull()) {
+                    String ruleOs = osObj.get("name").getAsString();
+                    if (!ruleOs.equals(osName)) continue;
+                }
+                if (osObj.has("arch") && !osObj.get("arch").isJsonNull()) {
+                    String ruleArch = osObj.get("arch").getAsString();
+                    boolean archMatch = ruleArch.equals("x86")
+                            && (osArch.contains("x86") || osArch.contains("amd64"))
+                            || ruleArch.equals("arm64")
+                            && (osArch.contains("aarch64") || osArch.contains("arm64"));
+                    if (!archMatch) continue;
+                }
             }
             allowed = "allow".equals(action);
         }
         return allowed;
+    }
+
+    private static String effectiveArch() {
+        String override = ARCH_OVERRIDE.get();
+        return (override != null && !override.isEmpty())
+                ? override : System.getProperty("os.arch", "");
     }
 
     /**
@@ -231,8 +248,13 @@ public final class Library {
             if (arm64Cls != null && classifiers.containsKey(arm64Cls)) {
                 return arm64Cls;
             }
-            // arm64 classifier 不存在（如 LWJGL 2.x / alpha/beta），回退到 x86_64
-            // 此时游戏 Java 必须也是 x86_64（通过 Rosetta 2），否则 native 加载会失败
+            // 游戏 Java 为 arm64 且无 arm64 natives：不得回退提取 x86 dylib（必炸 UnsatisfiedLinkError）。
+            // Rosetta 路径会通过 setArchOverride(x86_64) 使 isArm64()=false，从而选用下方 x86 classifier。
+            if (!classifiers.isEmpty()) {
+                System.err.println("[Library] arm64 下缺少 " + arm64Cls
+                        + "，跳过 x86 natives 回退（name=" + name + "）");
+            }
+            return null;
         }
         return classifier.replace("${arch}", "64");
     }

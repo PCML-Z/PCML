@@ -109,6 +109,7 @@ fun LauncherViewModel.predictAndPreheat() {
             preheatedJavaMajor = javaMajor
             preheatedVersionId = versionId
             preheatedAccountUuid = account.uuid
+            preheatedAccessToken = account.accessToken.orEmpty()
             _predictiveState.value = LauncherViewModel.PredictiveState.Ready(versionId, result.confidence)
 
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -123,14 +124,27 @@ fun LauncherViewModel.predictAndPreheat() {
 
 /**
  * Java 路径解析辅助（与 launch() 内的逻辑保持一致）。
+ * 版本/全局自定义路径若不满足 requiredJavaVer 最低要求则忽略，回退自动检测。
  */
 @PublishedApi
 internal suspend fun LauncherViewModel.resolveJavaExe(versionId: String, requiredJavaVer: Int): String {
     return withContext(Dispatchers.IO) {
         val versionPath = preferences.getVersionJavaPath(versionId)
-        if (versionPath.isNotEmpty()) return@withContext versionPath
+        if (versionPath.isNotEmpty()) {
+            if (JavaRuntimeFinder.meetsRequirement(versionPath, requiredJavaVer)) {
+                return@withContext versionPath
+            }
+            System.err.println("[PMCL] 版本 Java 路径不满足要求（需要 Java "
+                    + requiredJavaVer + "+），已忽略: $versionPath")
+        }
         val globalPath = preferences.getJavaPath()
-        if (globalPath.isNotEmpty()) return@withContext globalPath
+        if (globalPath.isNotEmpty()) {
+            if (JavaRuntimeFinder.meetsRequirement(globalPath, requiredJavaVer)) {
+                return@withContext globalPath
+            }
+            System.err.println("[PMCL] 全局 Java 路径不满足要求（需要 Java "
+                    + requiredJavaVer + "+），已忽略: $globalPath")
+        }
         try {
             val preferTranslation = preferences.preferLegacyTranslation()
                     && requiredJavaVer in 1..10
@@ -158,6 +172,7 @@ fun LauncherViewModel.cancelPreheat() {
     preheatedJavaMajor = 0
     preheatedVersionId = ""
     preheatedAccountUuid = ""
+    preheatedAccessToken = ""
     if (hadWork) {
         _predictiveState.value = LauncherViewModel.PredictiveState.Aborted
         // 静默取消：不更新 _status，避免在 UI 暴露预加载信息
@@ -190,13 +205,18 @@ internal fun LauncherViewModel.tryAdoptPreheated(
 ): Pair<com.pmcl.core.launch.LaunchProfile, String>? {
     val profile = preheatedProfile ?: return null
     val preheatedVer = preheatedVersionId
-    val currentUuid = (_launchAccountOverride ?: _account.value)?.uuid.orEmpty()
+    val current = _launchAccountOverride ?: _account.value
+    val currentUuid = current?.uuid.orEmpty()
+    val currentToken = current?.accessToken.orEmpty()
     val javaMismatch = preheatedJavaMajor > 0 && javaMajorVer > 0 && preheatedJavaMajor != javaMajorVer
     // 旧预热（javaMajor=0）可能跳过了 PmclBootstrap，Java 9+ 上不可复用
     val staleCompat = preheatedJavaMajor <= 0 && javaMajorVer >= 9
+    // gameArgs 已固化 accessToken；刷新后必须重建，否则游戏收到 401
+    val tokenMismatch = preheatedAccessToken.isEmpty() || preheatedAccessToken != currentToken
     if (preheatedVer != versionId
         || preheatedAccountUuid.isEmpty()
         || preheatedAccountUuid != currentUuid
+        || tokenMismatch
         || javaMismatch
         || staleCompat
     ) {
@@ -205,6 +225,7 @@ internal fun LauncherViewModel.tryAdoptPreheated(
         preheatedJavaMajor = 0
         preheatedVersionId = ""
         preheatedAccountUuid = ""
+        preheatedAccessToken = ""
         _predictiveState.value = LauncherViewModel.PredictiveState.Aborted
         return null
     }
@@ -214,12 +235,15 @@ internal fun LauncherViewModel.tryAdoptPreheated(
     preheatedJavaMajor = 0
     preheatedVersionId = ""
     preheatedAccountUuid = ""
+    preheatedAccessToken = ""
     _predictiveState.value = LauncherViewModel.PredictiveState.Adopted
     return Pair(profile, javaExe)
 }
 
 /**
- * 启动前确保在线账号令牌可用：微软临近过期则 refresh；Yggdrasil 先 validate 再 refresh。
+ * 启动前确保在线账号令牌可用：
+ * - 微软：本地临近过期，或远端校验 401/403 → refresh（避免 expiresAt 未到但会话已被吊销）
+ * - Yggdrasil：先 validate 再 refresh
  */
 @PublishedApi
 internal suspend fun LauncherViewModel.ensureLaunchAccount(
@@ -227,7 +251,23 @@ internal suspend fun LauncherViewModel.ensureLaunchAccount(
 ): com.pmcl.core.auth.Account {
     return when (account.type) {
         com.pmcl.core.auth.Account.AccountType.MICROSOFT -> {
-            if (!account.needsMicrosoftRefresh()) return account
+            if (account.msRefreshToken.isEmpty()) return account
+            var mustRefresh = account.needsMicrosoftRefresh()
+            if (!mustRefresh) {
+                // expiresAt 仍有效时，向 minecraftservices 探测一次，捕获服务端提前吊销
+                mustRefresh = try {
+                    val valid = withContext(Dispatchers.IO) {
+                        core.auth().isMicrosoftAccessTokenValid(account)
+                    }
+                    !valid
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (_: Throwable) {
+                    // 网络抖动时不阻断启动，沿用本地 token
+                    false
+                }
+            }
+            if (!mustRefresh) return account
             _status.value = I18n.t("status.refreshing_microsoft_token")
             try {
                 val refreshed = withContext(Dispatchers.IO) {
@@ -236,6 +276,10 @@ internal suspend fun LauncherViewModel.ensureLaunchAccount(
                 upsertAccount(refreshed)
                 if (_launchAccountOverride?.uuid == account.uuid) {
                     _launchAccountOverride = refreshed
+                }
+                // 预热 profile 已把旧 accessToken 写进 gameArgs，必须作废
+                if (refreshed.accessToken != account.accessToken) {
+                    invalidatePreheatForAccountChange()
                 }
                 refreshed
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -322,38 +366,24 @@ fun LauncherViewModel.launch() {
             val requiredJavaVer = withContext(Dispatchers.IO) {
                 core.profileBuilder().getRequiredJavaVersion(versionId)
             }
-            var javaExe = withContext(Dispatchers.IO) {
-                // 优先级：版本独立 Java > 全局 Java > 自动检测
-                val versionPath = preferences.getVersionJavaPath(versionId)
-                if (versionPath.isNotEmpty()) versionPath
-                else {
-                    val customPath = preferences.getJavaPath()
-                    if (customPath.isNotEmpty()) customPath
-                    else {
-                        val preferTranslation = preferences.preferLegacyTranslation()
-                                && requiredJavaVer in 1..10
-                                && com.pmcl.core.launch.RetroWrapperSupport.isTranslationEligible(versionId)
-                        JavaRuntimeFinder.findJavaExecutable(
-                            config.getRuntimesDir(), requiredJavaVer, preferTranslation
-                        ) ?: ""
-                    }
-                }
-            }
+            var javaExe = resolveJavaExe(versionId, requiredJavaVer)
             if (javaExe.isEmpty()) {
                 // 自动下载缺失的 Java 运行时，避免用户手动安装
                 // 老版本（1.12.2-）且开启了转译模式 → 下载 Java 21（RetroWrapper 兼容层自动处理）
                 // 老版本未开启转译 → 下载 Java 8（原生兼容）
-                // 新版本 → 下载 Java 21
+                // 1.17–1.20.4（required 16/17）→ Java 17；1.20.5+ → Java 21
                 val preferTranslation = preferences.preferLegacyTranslation()
                         && requiredJavaVer in 1..10
                         && com.pmcl.core.launch.RetroWrapperSupport.isTranslationEligible(versionId)
                 val downloadVer = when {
                     requiredJavaVer in 1..10 && preferTranslation -> 21
                     requiredJavaVer in 1..10 -> 8
+                    requiredJavaVer in 11..17 -> 17
                     else -> 21
                 }
                 val runtimeType = when (downloadVer) {
                     8 -> com.pmcl.core.runtime.JavaRuntimeDownloader.RuntimeType.JAVA_8
+                    17 -> com.pmcl.core.runtime.JavaRuntimeDownloader.RuntimeType.JAVA_17
                     else -> com.pmcl.core.runtime.JavaRuntimeDownloader.RuntimeType.JAVA_21
                 }
                 _status.value = "未找到 Java 运行时，正在自动下载 Java $downloadVer…"
@@ -509,7 +539,8 @@ fun LauncherViewModel.launch() {
                     && JavaRuntimeFinder.isAppleSiliconMac()
             if (isArchMismatch) {
                 val translationOn = preferences.preferLegacyTranslation()
-                if (translationEligible && translationOn && javaMajorVer >= 17) {
+                // RetroWrapper shouldApply：arm64 Java ≥9 即可；不必死等 17
+                if (translationEligible && translationOn && javaMajorVer >= 9) {
                     // Classic～1.12 + AUTO/ON：RetroWrapper / FrankenLWJGL
                     _status.value = "转译运行：Java $javaMajorVer (arm64) + RetroWrapper"
                 } else {
@@ -558,6 +589,14 @@ fun LauncherViewModel.launch() {
                     ))
                 }
 
+                // 应用内下载 Mojang 清单中的 mac-os（x86_64）Java 8（Apple Silicon 强制 Rosetta）
+                options.add(0, LauncherViewModel.CompatOption(
+                    title = "自动下载 x86_64 Java 8（Rosetta）",
+                    description = "通过 PMCL 下载官方清单中的 macOS x86_64 Java 8，\n"
+                            + "并用现代 GLFW 修复后以 Rosetta 启动（适合 1.13–1.16）",
+                    action = { downloadX86Java8AndLaunch(versionId) }
+                ))
+
                 for (launcher in externalLaunchers) {
                     options.add(LauncherViewModel.CompatOption(
                         title = "用 ${launcher.name} 启动",
@@ -567,7 +606,7 @@ fun LauncherViewModel.launch() {
                 }
 
                 options.add(LauncherViewModel.CompatOption(
-                    title = "安装 x86_64 Java 8",
+                    title = "浏览器安装 x86_64 Java 8",
                     description = "打开浏览器下载 x86_64 版本的 Java 8\n安装后 PMCL 会自动检测并使用（Apple Silicon 需 Rosetta）",
                     action = {
                         try {
@@ -577,6 +616,7 @@ fun LauncherViewModel.launch() {
                             } else {
                                 java.awt.Desktop.getDesktop().browse(java.net.URI(url))
                             }
+                            _status.value = "已打开浏览器，请下载并安装 x86_64 Java 8"
                         } catch (e: Throwable) {
                             _status.value = I18n.t("status.cannot_open_browser", e.message ?: I18n.t("common.unknown"))
                         }
@@ -663,6 +703,15 @@ fun LauncherViewModel.launch() {
             _gameRunning.value = true
             _status.value = I18n.t("status.launching", javaExe, javaMajorVer, javaArch, versionId) +
                     if (usingCompatLayer) I18n.t("status.compat_layer_suffix") else ""
+            // Better MC 等大型整合包会在 Mojang 红屏停 1–3 分钟，进度条几乎不动——不是卡死
+            val modsHintCount = try {
+                profile.gameDir.resolve("mods").toFile().listFiles()
+                    ?.count { it.isFile && it.name.endsWith(".jar", ignoreCase = true) } ?: 0
+            } catch (_: Throwable) { 0 }
+            if (modsHintCount >= 80) {
+                appendGameLog(I18n.t("status.large_pack_splash_hint"))
+                _status.value = I18n.t("status.large_pack_loading")
+            }
 
             // 记录启动前的崩溃报告快照（用于退出后对比新增）
             val crashDirBefore = withContext(Dispatchers.IO) {
@@ -699,6 +748,11 @@ fun LauncherViewModel.launch() {
                     }
                     // 解析游戏日志，更新会话上下文（服务器地址 / 世界名）用于细分统计
                     try {
+                        if (line.contains("Sound engine started") || line.contains("Game took")) {
+                            _status.value = I18n.t("launch.game_running")
+                        } else if (line.contains("Reloading ResourceManager")) {
+                            _status.value = I18n.t("status.large_pack_loading")
+                        }
                         if (line.contains("Connecting to")) {
                             // 例：[Render thread/INFO]: Connecting to mc.example.com, 25565
                             val m = Regex("""Connecting to\s+([^,\s]+)(?:[,\s]+(\d+))?""").find(line)

@@ -10,12 +10,20 @@ import java.util.regex.Pattern;
 public final class LyricsParser {
 
     private static final Pattern TIME_TAG = Pattern.compile("\\[(\\d{1,3}):(\\d{2})(?:\\.(\\d{1,3}))?]");
+    /** 最大输入长度 1MB，防止恶意歌词导致 OOM */
+    private static final int MAX_INPUT_LENGTH = 1024 * 1024;
+    /** 最大解析行数 */
+    private static final int MAX_LINES = 10000;
 
     private LyricsParser() {}
 
     public static List<LyricsLine> parse(String content) {
         List<LyricsLine> lines = new ArrayList<>();
         if (content == null || content.isBlank()) return lines;
+        if (content.length() > MAX_INPUT_LENGTH) {
+            // 截断而非拒绝，保留前 1MB 内容
+            content = content.substring(0, MAX_INPUT_LENGTH);
+        }
         for (String raw : content.split("\\R")) {
             String line = raw.trim();
             if (line.isEmpty()) continue;
@@ -31,8 +39,10 @@ public final class LyricsParser {
             // 去掉行内增强标签 <mm:ss.xx>
             text = text.replaceAll("<\\d{1,3}:\\d{2}(?:\\.\\d{1,3})?>", "").trim();
             for (Long t : times) {
+                if (lines.size() >= MAX_LINES) break;
                 lines.add(new LyricsLine(t, text));
             }
+            if (lines.size() >= MAX_LINES) break;
         }
         lines.sort(Comparator.comparingLong(a -> a.timeMs));
         return lines;

@@ -42,11 +42,15 @@ public final class AuthService {
 
     /**
      * 创建离线账号。
+     * <p>
+     * UUID 使用 Bukkit/Paper 兼容前缀 {@code OfflinePlayer:}（非历史 {@code Offline:}），
+     * 以便与主流离线服 / 皮肤站工具对齐。
      */
     public Account offline(String username) {
         String uuid = UUID.nameUUIDFromBytes(
-                ("Offline:" + username).getBytes(StandardCharsets.UTF_8)).toString();
-        return new Account(username, uuid, uuid, Account.AccountType.OFFLINE);
+                ("OfflinePlayer:" + username).getBytes(StandardCharsets.UTF_8)).toString();
+        // accessToken 置空：离线会话不能用于 Mojang API；用 uuid 充数会触发 401 噪音
+        return new Account(username, uuid, "", Account.AccountType.OFFLINE);
     }
 
     /**
@@ -88,21 +92,29 @@ public final class AuthService {
 
     /**
      * 异步等待用户完成登录，并完成剩余流程，最终返回 Account。
+     * 安全修复：捕获 flow 引用到局部变量，防止 setAzureClientId 在登录过程中
+     * 替换 flow 导致 completeLogin 在新 flow 上执行或 old.shutdown 杀死轮询。
      */
     public CompletableFuture<Account> loginMicrosoftAsync(DeviceCode dc,
                                                           Consumer<String> onPending) {
-        return flow.pollForMsOAuthToken(dc, onPending)
+        final MicrosoftAuthFlow currentFlow = this.flow;
+        return currentFlow.pollForMsOAuthToken(dc, onPending)
                 .thenApplyAsync(token -> {
                     try {
-                        return flow.completeLogin(token);
+                        return currentFlow.completeLogin(token);
                     } catch (IOException e) {
                         throw new RuntimeException("微软登录失败: " + e.getMessage(), e);
                     }
                 });
     }
 
+    /** 每账号刷新锁，防止并发刷新同一 refresh_token 导致 token 失效 */
+    private final java.util.concurrent.ConcurrentHashMap<String, Object> refreshLocks =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
     /**
      * 启动前刷新微软账号 MC token（需已持久化 refresh_token）。
+     * 使用 per-account 锁防止并发刷新同一 refresh_token 导致 token 轮换竞态。
      */
     public Account refreshMicrosoftAccount(Account account) throws IOException {
         if (account == null || account.getType() != Account.AccountType.MICROSOFT) {
@@ -111,15 +123,29 @@ public final class AuthService {
         if (account.getMsRefreshToken().isEmpty()) {
             throw new IOException("无 refresh_token，请重新登录微软账号");
         }
-        Account refreshed = flow.refreshLogin(account.getMsRefreshToken());
-        // 若 refresh 后 UUID 变化（极少见），仍采用刷新结果；否则保留皮肤站字段等
-        if (account.getUuid().equals(refreshed.getUuid())) {
-            return account.withMicrosoftSession(
-                    refreshed.getAccessToken(),
-                    refreshed.getMsRefreshToken(),
-                    refreshed.getExpiresAt());
+        Object lock = refreshLocks.computeIfAbsent(account.getUuid(), k -> new Object());
+        synchronized (lock) {
+            Account refreshed = flow.refreshLogin(account.getMsRefreshToken());
+            // 若 refresh 后 UUID 变化（极少见），仍采用刷新结果；否则保留皮肤站字段等
+            if (account.getUuid().equals(refreshed.getUuid())) {
+                return account.withMicrosoftSession(
+                        refreshed.getAccessToken(),
+                        refreshed.getMsRefreshToken(),
+                        refreshed.getExpiresAt());
+            }
+            return refreshed;
         }
-        return refreshed;
+    }
+
+    /**
+     * 校验微软账号当前 MC accessToken 是否仍有效（GET minecraft/profile）。
+     * 网络失败时抛 IOException；401/403 返回 false。
+     */
+    public boolean isMicrosoftAccessTokenValid(Account account) throws IOException {
+        if (account == null || account.getType() != Account.AccountType.MICROSOFT) {
+            return false;
+        }
+        return flow.isMcAccessTokenValid(account.getAccessToken());
     }
 
     /**
@@ -154,12 +180,14 @@ public final class AuthService {
 
     /**
      * 异步等待用户完成 GitHub 授权，并获取用户信息，最终返回 Account。
+     * 安全修复：捕获 githubFlow 引用到局部变量，防止登录过程中被替换。
      */
     public CompletableFuture<Account> loginGitHubAsync(DeviceCode dc, Consumer<String> onPending) {
-        return githubFlow.pollForAccessToken(dc, onPending)
+        final GitHubAuthFlow currentFlow = this.githubFlow;
+        return currentFlow.pollForAccessToken(dc, onPending)
                 .thenApplyAsync(token -> {
                     try {
-                        return githubFlow.completeLogin(token);
+                        return currentFlow.completeLogin(token);
                     } catch (IOException e) {
                         throw new RuntimeException("GitHub登录失败: " + e.getMessage(), e);
                     }
