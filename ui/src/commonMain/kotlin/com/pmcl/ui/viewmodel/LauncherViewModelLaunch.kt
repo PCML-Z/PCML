@@ -779,7 +779,8 @@ fun LauncherViewModel.launch() {
             )
             // 进程已提交启动：释放准备锁，允许再开另一实例
             launchPreparing.set(false)
-            val exitCode = withContext(Dispatchers.IO) { future.join() }
+            // 使用可取消等待替代 future.join()（join 不可中断，协程取消时线程持续阻塞）
+            val exitCode = awaitCancellableFuture(future)
             if (exitCode == com.pmcl.core.launch.LaunchManager.EXIT_CANCELLED) {
                 _status.value = I18n.t("status.launch_cancelled")
                 appendGameLog(I18n.t("status.launch_cancelled"))

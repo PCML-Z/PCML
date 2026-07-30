@@ -29,13 +29,21 @@ fun decodeSampledBitmap(bytes: ByteArray, maxDimension: Int = 0): ImageBitmap? {
     val targetH = (h * ratio).toInt().coerceAtLeast(1)
     // 创建小尺寸 Bitmap，用 Canvas 绘制缩放后的图像
     val bitmap = Bitmap()
-    bitmap.allocN32Pixels(targetW, targetH, false)
     val canvas = Canvas(bitmap)
-    canvas.drawImageRect(
-        image,
-        Rect.makeWH(w.toFloat(), h.toFloat()),
-        Rect.makeWH(targetW.toFloat(), targetH.toFloat()),
-        null
-    )
-    return SkiaImage.makeFromBitmap(bitmap).toComposeImageBitmap()
+    try {
+        bitmap.allocN32Pixels(targetW, targetH, false)
+        canvas.drawImageRect(
+            image,
+            Rect.makeWH(w.toFloat(), h.toFloat()),
+            Rect.makeWH(targetW.toFloat(), targetH.toFloat()),
+            null
+        )
+        // makeFromBitmap 对 mutable bitmap 会拷贝像素数据，因此可安全关闭 bitmap/canvas
+        return SkiaImage.makeFromBitmap(bitmap).toComposeImageBitmap()
+    } finally {
+        // 释放中间原生资源：canvas、bitmap、以及全尺寸源图像
+        canvas.close()
+        bitmap.close()
+        image.close()
+    }
 }

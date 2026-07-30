@@ -906,6 +906,7 @@ fun LaunchPage(vm: LauncherViewModel) {
                 }
                 if (showExportDialog) {
                     val exportState = remember { mutableStateOf<Boolean?>(null) }
+                    val exportScope = androidx.compose.runtime.rememberCoroutineScope()
                     AlertDialog(
                         onDismissRequest = {
                             if (exportState.value != null) showExportDialog = false
@@ -928,7 +929,7 @@ fun LaunchPage(vm: LauncherViewModel) {
                                         fd.isVisible = true
                                         if (fd.file != null) {
                                             val p = java.io.File(fd.directory, fd.file).absolutePath
-                                            kotlinx.coroutines.MainScope().launch {
+                                            exportScope.launch {
                                                 exportState.value = vm.exportLogs(p)
                                                 if (exportState.value == true) showExportDialog = false
                                             }

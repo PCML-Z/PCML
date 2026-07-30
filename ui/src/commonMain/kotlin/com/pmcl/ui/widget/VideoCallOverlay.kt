@@ -28,10 +28,28 @@ import java.awt.image.BufferedImage
 import java.io.ByteArrayOutputStream
 import javax.imageio.ImageIO
 
-/** 将 BufferedImage 转为 Compose ImageBitmap */
+/**
+ * 将 BufferedImage 转为 Compose ImageBitmap（JPEG 编码，避免 PNG 编解码往返）。
+ *
+ * 旧实现每帧执行 BufferedImage→PNG 编码→Skia 解码，30fps 下 CPU 与内存开销极高。
+ * JPEG 编码比 PNG 快 10-20 倍，视频帧无需无损/alpha 通道。
+ * SkiaImage 由 GC 终结器回收（与原实现及 ImageDecoder.kt 模式一致）。
+ */
 private fun BufferedImage.toImageBitmap(): androidx.compose.ui.graphics.ImageBitmap {
     val baos = ByteArrayOutputStream()
-    ImageIO.write(this, "png", baos)
+    // JPEG 不支持 alpha，需先转为 RGB
+    if (type == BufferedImage.TYPE_INT_RGB) {
+        ImageIO.write(this, "jpg", baos)
+    } else {
+        val rgb = BufferedImage(width, height, BufferedImage.TYPE_INT_RGB)
+        val g = rgb.createGraphics()
+        try {
+            g.drawImage(this, 0, 0, null)
+        } finally {
+            g.dispose()
+        }
+        ImageIO.write(rgb, "jpg", baos)
+    }
     return SkiaImage.makeFromEncoded(baos.toByteArray()).toComposeImageBitmap()
 }
 
@@ -54,11 +72,15 @@ fun VideoCallOverlay(
     // 视频帧状态（通过 CallListener 回调更新）
     var remoteFrame by remember { mutableStateOf<BufferedImage?>(null) }
     var localFrame by remember { mutableStateOf<BufferedImage?>(null) }
+    // session.state 非可观察属性，需镜像到 Compose State 才能驱动重组
+    var callState by remember { mutableStateOf(session.state) }
 
     // 注册 CallListener
     DisposableEffect(session) {
         val listener = object : VideoCallSession.CallListener {
-            override fun onStateChanged(state: VideoCallSession.State) {}
+            override fun onStateChanged(state: VideoCallSession.State) {
+                callState = state
+            }
             override fun onLocalCandidate(candidateSdp: String, ufrag: String, pwd: String) {}
             override fun onRemoteFrame(frame: BufferedImage?) {
                 remoteFrame = frame
@@ -70,14 +92,20 @@ fun VideoCallOverlay(
             override fun onError(message: String) {}
         }
         session.addListener(listener)
-        onDispose { session.removeListener(listener) }
+        onDispose {
+            session.removeListener(listener)
+            // 防御性清理：离开组合时若会话未结束，强制结束以释放 socket/线程/编解码器
+            if (callState != VideoCallSession.State.ENDED) {
+                runCatching { session.end() }
+            }
+        }
     }
 
-    // 通话计时
-    LaunchedEffect(session.state) {
-        if (session.state == VideoCallSession.State.IN_CALL) {
+    // 通话计时：以 callState 为 key，状态变化时重启
+    LaunchedEffect(callState) {
+        if (callState == VideoCallSession.State.IN_CALL) {
             callDuration = 0
-            while (session.state == VideoCallSession.State.IN_CALL) {
+            while (callState == VideoCallSession.State.IN_CALL) {
                 delay(1000)
                 callDuration++
             }
@@ -112,7 +140,7 @@ fun VideoCallOverlay(
                     )
                     Spacer(Modifier.height(12.dp))
                     Text(
-                        when (session.state) {
+                        when (callState) {
                             VideoCallSession.State.RINGING -> if (session.isInitiator) I18n.t("call.waiting_for_answer") else I18n.t("call.incoming_call")
                             VideoCallSession.State.NEGOTIATING -> I18n.t("call.connecting")
                             VideoCallSession.State.IN_CALL -> I18n.t("call.waiting_for_video")
@@ -165,7 +193,7 @@ fun VideoCallOverlay(
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = when (session.state) {
+                    text = when (callState) {
                         VideoCallSession.State.RINGING -> if (session.isInitiator) I18n.t("call.calling") else I18n.t("call.incoming_call")
                         VideoCallSession.State.NEGOTIATING -> I18n.t("call.connecting")
                         VideoCallSession.State.IN_CALL -> formatDuration(callDuration)
@@ -186,7 +214,7 @@ fun VideoCallOverlay(
             horizontalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterHorizontally)
         ) {
             // 静音按钮
-            if (session.state == VideoCallSession.State.IN_CALL) {
+            if (callState == VideoCallSession.State.IN_CALL) {
                 CallControlButton(
                     icon = if (isMuted) Icons.Filled.MicOff else Icons.Filled.Mic,
                     label = if (isMuted) I18n.t("call.unmute") else I18n.t("call.mute"),

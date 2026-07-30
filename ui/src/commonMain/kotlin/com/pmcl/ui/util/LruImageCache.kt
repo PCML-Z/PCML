@@ -8,14 +8,18 @@ import java.util.concurrent.ConcurrentHashMap
  * 按字节预算淘汰的 LRU 图片缓存。
  *
  * 之前按条目数（64）淘汰，全尺寸位图下 64 张峰值可达数百 MB，OOM 风险。
- * 现改为按字节预算淘汰，默认 maxBytes = JVM 最大堆的 1/8。
+ * 现改为按字节预算淘汰。
+ *
+ * 注意：项目中存在多个独立 LruImageCache 实例（music/news/launch/mods/accounts），
+ * 若每个都用 maxMemory/8，合并预算达堆的 62.5%，存在 OOM 风险。
+ * 因此默认预算改为 maxMemory/40，5 个实例合计约 12.5% 堆，留出充足余量。
  *
  * 线程安全：内部用 synchronized 包裹 LinkedHashMap（需要 accessOrder）。
  *
- * @param maxBytes 最大字节预算，默认为 JVM 最大堆的 1/8
+ * @param maxBytes 最大字节预算，默认为 JVM 最大堆的 1/40
  */
 class LruImageCache(
-    private val maxBytes: Long = Runtime.getRuntime().maxMemory() / 8
+    private val maxBytes: Long = Runtime.getRuntime().maxMemory() / 40
 ) {
     private var currentBytes: Long = 0L
 

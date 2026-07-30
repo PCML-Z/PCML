@@ -2370,9 +2370,9 @@ private fun LicenseViewerDialog(onDismiss: () -> Unit) {
     var isEnglish by remember { mutableStateOf(false) }
     val clipboardManager = LocalClipboardManager.current
 
-    // 懒加载许可证文本
-    val licenseText by remember(isEnglish) {
-        mutableStateOf(
+    // 异步加载许可证文本（避免在组合期同步 IO 阻塞主线程）
+    val licenseText by androidx.compose.runtime.produceState(I18n.t("common.loading"), isEnglish) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             runCatching {
                 val resName = if (isEnglish) "LICENSE.en.txt" else "LICENSE.zh.txt"
                 Thread.currentThread().contextClassLoader
@@ -2381,7 +2381,7 @@ private fun LicenseViewerDialog(onDismiss: () -> Unit) {
                     ?.use { it.readText() }
                     ?: I18n.t("settings.license_not_found")
             }.getOrElse { I18n.t("settings.license_load_failed", it.message ?: "") }
-        )
+        }
     }
 
     val scrollState = rememberScrollState()
@@ -2477,8 +2477,8 @@ private fun DocumentViewerDialog(
 ) {
     val clipboardManager = LocalClipboardManager.current
 
-    val docText by remember(resourceName) {
-        mutableStateOf(
+    val docText by androidx.compose.runtime.produceState(I18n.t("common.loading"), resourceName) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             runCatching {
                 Thread.currentThread().contextClassLoader
                     ?.getResourceAsStream(resourceName)
@@ -2486,7 +2486,7 @@ private fun DocumentViewerDialog(
                     ?.use { it.readText() }
                     ?: I18n.t("settings.doc_not_found", resourceName)
             }.getOrElse { I18n.t("settings.doc_load_failed", it.message ?: "") }
-        )
+        }
     }
 
     val scrollState = rememberScrollState()

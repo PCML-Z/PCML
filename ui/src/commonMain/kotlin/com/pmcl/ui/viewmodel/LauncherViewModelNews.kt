@@ -55,6 +55,8 @@ fun LauncherViewModel.refreshNews() {
                         fetchNewsCoverImages(list)
                         DataCache.save("news_list", list)
                         _status.value = if (list.isEmpty()) I18n.t("status.no_news") else I18n.t("status.news_loaded", list.size)
+                    } catch (_: kotlinx.coroutines.CancellationException) {
+                        throw kotlinx.coroutines.CancellationException()
                     } catch (_: Throwable) {
                         // 静默失败，保留缓存数据
                     }
@@ -75,6 +77,8 @@ fun LauncherViewModel.refreshNews() {
             fetchNewsCoverImages(list)
             _status.value = if (list.isEmpty()) I18n.t("status.no_news") else I18n.t("status.news_loaded", list.size)
             DataCache.save("news_list", list)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Throwable) {
             _status.value = I18n.t("status.news_load_failed", e.message ?: I18n.t("common.unknown"))
         } finally {

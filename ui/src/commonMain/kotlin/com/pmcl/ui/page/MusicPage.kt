@@ -303,7 +303,7 @@ fun MusicPage(vm: LauncherViewModel) {
                 if (playlist.isEmpty()) {
                     item(key = "playlist-empty") { EmptyState() }
                 } else {
-                    itemsIndexed(playlist, key = { _, t -> "p-${t.sourceUrl}" }) { index, track ->
+                    itemsIndexed(playlist, key = { i, t -> "p-$i-${t.sourceUrl}" }) { index, track ->
                         PlaylistRow(
                             index = index,
                             track = track,
@@ -318,7 +318,7 @@ fun MusicPage(vm: LauncherViewModel) {
                 if (history.isEmpty()) {
                     item(key = "history-empty") { HistoryEmptyState() }
                 } else {
-                    itemsIndexed(history, key = { _, t -> "h-${t.sourceUrl}" }) { index, track ->
+                    itemsIndexed(history, key = { i, t -> "h-$i-${t.sourceUrl}" }) { index, track ->
                         HistoryRow(
                             track = track,
                             onPlay = { vm.playMusicFromHistory(track) },

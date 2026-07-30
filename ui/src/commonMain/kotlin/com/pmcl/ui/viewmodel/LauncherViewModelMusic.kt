@@ -49,6 +49,8 @@ fun LauncherViewModel.resolveAndAddMusicTrack(url: String) {
             _musicPlaylist.update { it + track }
             persistMusicPlaylist()
             _status.value = I18n.t("music.resolve_success", track.title)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Throwable) {
             _status.value = I18n.t("music.resolve_failed", e.message ?: "?")
         } finally {
@@ -78,6 +80,8 @@ fun LauncherViewModel.addLocalMusicFiles(paths: List<String>) {
                 )
                 _musicPlaylist.update { it + track }
                 added++
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Throwable) {
                 System.err.println("[Music] skip local $p: ${e.message}")
             }
@@ -136,6 +140,8 @@ fun LauncherViewModel.playMusicAt(index: Int) {
             }
             recordMusicHistory(track)
             loadMusicLyrics(track)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Throwable) {
             _musicPlaybackState.value = PlaybackState.ERROR
             _status.value = I18n.t("music.error_load", e.message ?: "?")

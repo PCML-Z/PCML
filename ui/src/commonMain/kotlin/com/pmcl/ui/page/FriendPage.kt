@@ -220,6 +220,17 @@ fun FriendPage(vm: LauncherViewModel) {
         onDispose { friendManager.removeListener(listener) }
     }
 
+    // 视频通话会话生命周期清理：离开页面时强制结束未挂断的通话，
+    // 释放 DatagramSocket、ICE 线程、视频编解码线程等原生资源
+    DisposableEffect(activeCallSession) {
+        val session = activeCallSession
+        onDispose {
+            if (session != null && session.state != com.pmcl.video.VideoCallSession.State.ENDED) {
+                runCatching { session.end() }
+            }
+        }
+    }
+
     // 默认启动本地网络（进入好友页时自动启动，start() 幂等可安全重复调用）
     LaunchedEffect(Unit) {
         if (friendSystemState != FriendManager.State.RUNNING) {

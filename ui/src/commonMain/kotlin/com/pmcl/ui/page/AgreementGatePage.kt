@@ -228,8 +228,8 @@ private fun AgreementDocumentDialog(
     onDismiss: () -> Unit
 ) {
     val clipboardManager = LocalClipboardManager.current
-    val docText by remember(resourceName) {
-        mutableStateOf(
+    val docText by produceState(I18n.t("common.loading"), resourceName) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             runCatching {
                 Thread.currentThread().contextClassLoader
                     ?.getResourceAsStream(resourceName)
@@ -237,7 +237,7 @@ private fun AgreementDocumentDialog(
                     ?.use { it.readText() }
                     ?: I18n.t("agreement.doc_not_found", resourceName)
             }.getOrElse { I18n.t("agreement.load_failed", it.message ?: "") }
-        )
+        }
     }
     val scrollState = rememberScrollState()
 

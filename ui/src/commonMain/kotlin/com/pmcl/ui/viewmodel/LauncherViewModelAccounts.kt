@@ -83,8 +83,10 @@ internal fun LauncherViewModel.saveStore(store: AccountStore) {
     }
 }
 
-/** 可取消等待 CompletableFuture（设备码轮询）；取消时 complete 掉 future 以停止调度 */
-private suspend fun <T> awaitCancellableFuture(future: java.util.concurrent.CompletableFuture<T>): T {
+/** 可取消等待 CompletableFuture；取消时 complete 掉 future 以停止调度。
+ *  CompletableFuture.join() 不可中断，直接 await 会导致协程取消时线程持续阻塞。
+ *  使用轮询 + ensureActive() 模式实现可取消等待。 */
+internal suspend fun <T> awaitCancellableFuture(future: java.util.concurrent.CompletableFuture<T>): T {
     return withContext(Dispatchers.IO) {
         try {
             while (!future.isDone) {

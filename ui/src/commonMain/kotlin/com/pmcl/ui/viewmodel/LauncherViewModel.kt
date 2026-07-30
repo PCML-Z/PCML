@@ -96,6 +96,10 @@ class LauncherViewModel {
 
     /** 同步监听器引用（用于 start/stop 时 add/remove） */
     private var syncListener: GitHubReleaseSyncChecker.Listener? = null
+    /** 音乐播放器监听器引用（shutdown 时移除，避免回调写入已废弃 StateFlow） */
+    private var musicListener: com.pmcl.music.player.MusicPlayerListener? = null
+    /** 下载队列监听器引用（shutdown 时移除） */
+    private var queueListener: java.util.function.Consumer<List<com.pmcl.core.download.DownloadQueueManager.QueueTask>>? = null
 
     init {
         // 注入 video 模块的主菜单背景视频处理器（JavaCV 实现）
@@ -224,6 +228,10 @@ class LauncherViewModel {
             }
             instanceLoggers.clear()
         } catch (_: Throwable) {}
+        // 先移除监听器，避免 core.shutdown() 触发的回调写入已废弃的 StateFlow
+        try { syncListener?.let { core.githubSync()?.removeListener(it) } } catch (_: Throwable) {}
+        try { musicListener?.let { musicPlayer.removeListener(it) } } catch (_: Throwable) {}
+        try { queueListener?.let { core.downloadQueue().removeListener(it) } } catch (_: Throwable) {}
         try { core.shutdown() } catch (_: Throwable) {}
         try { stopMusic() } catch (_: Throwable) {}
         scope.cancel()
@@ -1341,7 +1349,7 @@ class LauncherViewModel {
         // warmupConnections 延迟到首次下载时由 DownloadManager 内部触发）
 
         // ===== 音乐播放器监听器 =====
-        musicPlayer.addListener(object : MusicPlayerListener {
+        val mListener = object : MusicPlayerListener {
             override fun onStateChanged(state: PlaybackState) {
                 _musicPlaybackState.value = state
                 if (state == PlaybackState.ENDED) {
@@ -1362,7 +1370,9 @@ class LauncherViewModel {
                 _status.value = I18n.t("music.error_play", message)
             }
             override fun onTrackEnded() {}
-        })
+        }
+        musicPlayer.addListener(mListener)
+        musicListener = mListener
 
         // 加载播放列表 / 偏好 / 历史
         loadMusicPersistedState()
@@ -1820,6 +1830,9 @@ class LauncherViewModel {
                     }
                 }
                 refreshLocalVersions()
+            } catch (_: kotlinx.coroutines.CancellationException) {
+                // 协程取消需正确传播，不能被 catch(Throwable) 吞掉
+                throw kotlinx.coroutines.CancellationException()
             } catch (_: Throwable) {
                 // 刷新失败不影响队列本身
             }
@@ -2066,11 +2079,13 @@ class LauncherViewModel {
             return
         }
         queueListenerRegistered = true
-        core.downloadQueue().addListener { tasks ->
+        val qListener = java.util.function.Consumer<List<com.pmcl.core.download.DownloadQueueManager.QueueTask>> { tasks ->
             // 在 IO 线程回调，直接更新 StateFlow（Compose 快照系统线程安全）
             _queueTasks.value = tasks
             _queueSummary.value = core.downloadQueue().summary
         }
+        core.downloadQueue().addListener(qListener)
+        queueListener = qListener
         refreshQueue()
     }
 
