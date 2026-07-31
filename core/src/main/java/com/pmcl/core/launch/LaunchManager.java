@@ -290,13 +290,6 @@ public final class LaunchManager {
             // P2-4: readerHolder 声明在 try 块之前，确保 catch 块也能访问以 join 线程
             Thread[] readerHolder = new Thread[2];
             try {
-                // 澪模式 L3：系统电源策略（启动前，需 sudo 授权）
-                if (preferences != null && preferences.isMioModeEnabled() && preferences.isMioModeSystemPower()) {
-                    tuner = new ProcessTuner();
-                    boolean ok = tuner.applySystemPowerPolicy();
-                    if (ok && logger != null) logger.append("[PMCL] 澪模式 L3：已关闭系统低电量模式");
-                }
-
                 // 与同步 launch() 共用门禁（设备绑定 + 插件 beforeLaunch）
                 String deny = verifyBeforeLaunch(profile, onLog, logger);
                 if (deny != null) {
@@ -311,18 +304,48 @@ public final class LaunchManager {
                 process = launch(profile, javaExecutable, tracedOnLog, logger, readerHolder);
                 if (tracer != null) tracer.mark("process_started");
 
-                // 澪模式 L2：进程级调优（启动后，无需 sudo）
-                if (preferences != null && preferences.isMioModeEnabled() && preferences.isMioModeProcess()) {
-                    if (tuner == null) tuner = new ProcessTuner();
-                    tuner.applyProcessTuning(process.pid());
-                    if (logger != null) logger.append("[PMCL] 澪模式 L2：已应用进程级性能调优");
-                }
+                // 澪模式：游戏进程已启动后再做提权调优，避免启动前卡在管理员密码框
+                if (preferences != null && preferences.isMioModeEnabled()) {
+                    tuner = new ProcessTuner();
 
-                // 澪模式 L2+：疯狂优先级（拉到系统极限，macOS 需 sudo 授权，可能卡顿）
-                if (preferences != null && preferences.isMioModeEnabled() && preferences.isMioModeCrazyPriority()) {
-                    if (tuner == null) tuner = new ProcessTuner();
-                    tuner.applyCrazyPriority(process.pid());
-                    if (logger != null) logger.append("[PMCL] 澪模式 L2+：已应用疯狂调度优先级");
+                    // L3：系统电源策略（需管理员密码）
+                    if (preferences.isMioModeSystemPower()) {
+                        boolean ok = tuner.applySystemPowerPolicy();
+                        if (ok) {
+                            if (logger != null) logger.append("[PMCL] 澪模式 L3：已关闭系统低电量模式");
+                        } else {
+                            // 用户拒绝授权 → 自动关闭，避免每次启动都弹密码框
+                            preferences.setMioModeSystemPower(false);
+                            if (logger != null) {
+                                logger.append("[PMCL] 澪模式 L3：未获得管理员授权，已自动关闭「系统电源策略」");
+                            }
+                            if (onLog != null) {
+                                onLog.accept("[PMCL] 澪模式 L3 已自动关闭（未授权）");
+                            }
+                        }
+                    }
+
+                    // L2：进程级调优（无需 sudo）
+                    if (preferences.isMioModeProcess()) {
+                        tuner.applyProcessTuning(process.pid());
+                        if (logger != null) logger.append("[PMCL] 澪模式 L2：已应用进程级性能调优");
+                    }
+
+                    // L2+：疯狂优先级（macOS 需管理员密码）
+                    if (preferences.isMioModeCrazyPriority()) {
+                        boolean ok = tuner.applyCrazyPriority(process.pid());
+                        if (ok) {
+                            if (logger != null) logger.append("[PMCL] 澪模式 L2+：已应用疯狂调度优先级");
+                        } else {
+                            preferences.setMioModeCrazyPriority(false);
+                            if (logger != null) {
+                                logger.append("[PMCL] 澪模式 L2+：未获得管理员授权，已自动关闭「疯狂优先级」");
+                            }
+                            if (onLog != null) {
+                                onLog.accept("[PMCL] 澪模式「疯狂优先级」已自动关闭（未授权）");
+                            }
+                        }
+                    }
                 }
 
                 // Fire GameLaunchedEvent

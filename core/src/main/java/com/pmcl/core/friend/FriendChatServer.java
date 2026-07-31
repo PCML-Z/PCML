@@ -1,38 +1,31 @@
 package com.pmcl.core.friend;
 
-import java.io.*;
+import java.io.IOException;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.nio.charset.StandardCharsets;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 import java.util.function.Predicate;
 
 /**
- * TCP 聊天服务器：监听虚拟 IP 上的随机端口，接收来自好友的消息。
+ * TCP 聊天服务器：每条连接先完成 {@link FriendSecureChannel} 握手，再分发加密消息行。
  * <p>
- * 每条消息是 JSON 行（以 {@code \n} 分隔），最大 {@link FriendProtocol#MAX_MESSAGE_LENGTH} 字节。
- * <p>
- * <b>安全模型（S3 修复）：</b>
- * <ul>
- *   <li>每条连接必须以 {@code auth} 握手开头：{@code {"type":"auth","identity":"XXXXX-...-XXXXX"}}}</li>
- *   <li>服务器通过 {@link #setIdentityValidator(Predicate)} 校验 identity 是否为已知好友</li>
- *   <li>握手必须在 5 秒内完成，否则连接被关闭</li>
- *   <li>未通过握手的连接不会触发任何 {@link MessageListener}</li>
- *   <li>已通过握手的连接的后续消息才会被分发</li>
- * </ul>
+ * Bind address: system property {@code pmcl.friend.bindAddress} (e.g. {@code 127.0.0.1}
+ * for loopback testing, or an EasyTier/virtual IP). Default {@code 0.0.0.0} for LAN;
+ * only authenticated secure-channel peers proceed past handshake.
  */
 public final class FriendChatServer implements AutoCloseable {
 
-    /** 握手超时（毫秒） */
-    private static final int AUTH_TIMEOUT_MS = 5000;
-    /** 握手后正常读超时（毫秒） */
-    private static final int READ_TIMEOUT_MS = 60000;
-    /** H9: 握手时间戳容许窗口（毫秒），防重放攻击 */
-    private static final long AUTH_TIMESTAMP_WINDOW_MS = 60_000L;
+    private static final int AUTH_TIMEOUT_MS = 10_000;
+    private static final int READ_TIMEOUT_MS = 60_000;
+    /** Optional bind override: {@code -Dpmcl.friend.bindAddress=127.0.0.1} */
+    public static final String BIND_ADDRESS_PROPERTY = "pmcl.friend.bindAddress";
 
     private ServerSocket serverSocket;
     private final AtomicBoolean running = new AtomicBoolean(false);
@@ -40,200 +33,146 @@ public final class FriendChatServer implements AutoCloseable {
     private int port = 0;
 
     private final CopyOnWriteArrayList<MessageListener> listeners = new CopyOnWriteArrayList<>();
-
     private final AtomicInteger connectionCount = new AtomicInteger(0);
     private static final int MAX_CONNECTIONS = 50;
-    /** 活跃客户端 socket，close() 时一并关闭，避免 accept 中断后 handler 悬挂 */
     private final Set<Socket> clientSockets = ConcurrentHashMap.newKeySet();
 
-    /** 身份校验器：返回 true 表示该 identity 是已知好友，允许握手通过。
-     *  默认拒绝所有连接（安全默认），必须由 FriendManager 设置。 */
     private volatile Predicate<String> identityValidator = id -> false;
+    private volatile Function<String, FriendSecureChannel.PeerStaticKeys> peerKeyLookup = id -> null;
+    private volatile FriendSecureChannel.LocalIdentity localIdentity;
+    /** Optional: called after handshake to persist introduce keys / open friend_req path */
+    private volatile java.util.function.BiConsumer<String, FriendSecureChannel> onChannelEstablished;
 
-    /**
-     * H9: 密钥提供器：根据 identity 返回对应的 HMAC secret。
-     * secret 从 identity 派生（确定性算法），客户端和服务器用相同算法派生，
-     * 无需在好友间交换 secret。
-     */
-    private volatile java.util.function.Function<String, String> secretProvider = id -> null;
+    public int getPort() { return port; }
+    public boolean isRunning() { return running.get(); }
 
-    // ---------------------------------------------------------------------------
-    // 公共 API
-    // ---------------------------------------------------------------------------
-
-    /** 获取监听端口（0 表示未启动或使用随机端口） */
-    public int getPort() {
-        return port;
-    }
-
-    /** 是否正在运行 */
-    public boolean isRunning() {
-        return running.get();
-    }
-
-    /**
-     * 设置身份校验器。每条新连接会发送一条 {@code auth} 握手消息，
-     * 服务器调用此校验器判断 identity 是否为已知好友。
-     * <p>
-     * 必须在 {@link #start()} 之前设置；未设置时默认拒绝所有连接。
-     *
-     * @param validator 返回 true 表示允许该 identity 通过握手
-     */
     public void setIdentityValidator(Predicate<String> validator) {
         this.identityValidator = (validator != null) ? validator : (id -> false);
     }
 
-    /**
-     * H9: 设置密钥提供器，用于校验握手 HMAC 签名。
-     * 提供器根据 identity 返回对应的 secret，secret 由确定性算法派生，
-     * 客户端发送握手时用相同算法派生 secret 并签名。
-     */
-    public void setSecretProvider(java.util.function.Function<String, String> provider) {
-        this.secretProvider = (provider != null) ? provider : (id -> null);
+    /** @deprecated HMAC secret provider removed; secure channel replaces it. */
+    @Deprecated
+    public void setSecretProvider(Function<String, String> provider) { /* no-op */ }
+
+    public void setLocalIdentity(FriendSecureChannel.LocalIdentity local) {
+        this.localIdentity = local;
     }
 
-    /** 启动服务器（随机端口） */
-    public void start() throws IOException {
-        start(0);
+    public void setPeerKeyLookup(Function<String, FriendSecureChannel.PeerStaticKeys> lookup) {
+        this.peerKeyLookup = (lookup != null) ? lookup : (id -> null);
     }
 
-    /** 启动服务器（指定端口） */
+    public void setOnChannelEstablished(java.util.function.BiConsumer<String, FriendSecureChannel> cb) {
+        this.onChannelEstablished = cb;
+    }
+
+    public void start() throws IOException { start(0); }
+
     public void start(int listenPort) throws IOException {
         if (running.get()) return;
-
-        // 安全权衡：绑定到所有接口（0.0.0.0）是必要的，因为 LAN 内的对等节点通过组播发现后
-        // 需要能 TCP 连接到本服务器。这会暴露端口给同 LAN 的任何主机，
-        // 但鉴权由 auth 握手（HMAC 签名 + 时间戳防重放）提供，而非 IP 限制，
-        // 未通过握手的连接不会触发任何 MessageListener。
-        serverSocket = new ServerSocket(listenPort);
+        if (localIdentity == null) {
+            throw new IOException("FriendChatServer local identity keys not set");
+        }
+        InetAddress bindAddr = resolveBindAddress();
+        serverSocket = new ServerSocket();
+        serverSocket.setReuseAddress(true);
+        serverSocket.bind(new InetSocketAddress(bindAddr, listenPort));
         this.port = serverSocket.getLocalPort();
+        System.out.println("[FriendChatServer] listening on " + bindAddr.getHostAddress() + ":" + port);
         running.set(true);
-
         acceptThread = new Thread(this::acceptLoop, "FriendChat-Accept");
         acceptThread.setDaemon(true);
         acceptThread.start();
     }
 
-    /** 停止服务器 */
+    /**
+     * Prefer {@code -Dpmcl.friend.bindAddress=...}; otherwise all interfaces (0.0.0.0)
+     * so LAN / virtual-network peers can connect. Auth is enforced by secure channel.
+     */
+    static InetAddress resolveBindAddress() throws IOException {
+        String prop = System.getProperty(BIND_ADDRESS_PROPERTY);
+        if (prop != null && !prop.isBlank()) {
+            return InetAddress.getByName(prop.trim());
+        }
+        return InetAddress.getByName("0.0.0.0");
+    }
+
     @Override
     public void close() {
         running.set(false);
         try {
-            if (serverSocket != null && !serverSocket.isClosed()) {
-                serverSocket.close();
-            }
-        } catch (IOException ignored) {
-        }
+            if (serverSocket != null && !serverSocket.isClosed()) serverSocket.close();
+        } catch (IOException ignored) {}
         for (Socket s : clientSockets) {
             try { s.close(); } catch (IOException ignored) {}
         }
         clientSockets.clear();
         if (acceptThread != null) {
             acceptThread.interrupt();
+            acceptThread = null;
         }
     }
 
-    /** 添加消息监听器 */
     public void addListener(MessageListener listener) {
-        listeners.add(listener);
+        if (listener != null) listeners.add(listener);
     }
 
-    /** 移除消息监听器 */
     public void removeListener(MessageListener listener) {
         listeners.remove(listener);
     }
 
-    // ---------------------------------------------------------------------------
-    // 内部实现
-    // ---------------------------------------------------------------------------
-
     private void acceptLoop() {
         while (running.get()) {
             try {
-                Socket client = serverSocket.accept();
+                Socket socket = serverSocket.accept();
                 if (connectionCount.get() >= MAX_CONNECTIONS) {
-                    try { client.close(); } catch (IOException ignored) {}
+                    try { socket.close(); } catch (IOException ignored) {}
                     continue;
                 }
-                clientSockets.add(client);
-                Thread handle = new Thread(() -> {
-                    connectionCount.incrementAndGet();
+                connectionCount.incrementAndGet();
+                clientSockets.add(socket);
+                Thread t = new Thread(() -> {
                     try {
-                        handleClient(client);
+                        handleClient(socket);
                     } finally {
+                        clientSockets.remove(socket);
                         connectionCount.decrementAndGet();
-                        clientSockets.remove(client);
-                        try { if (!client.isClosed()) client.close(); } catch (IOException ignored) {}
                     }
-                }, "FriendChat-Handler");
-                handle.setDaemon(true);
-                handle.start();
+                }, "FriendChat-Client-" + socket.getInetAddress().getHostAddress());
+                t.setDaemon(true);
+                t.start();
             } catch (IOException e) {
                 if (running.get()) {
-                    System.err.println("[FriendChatServer] Accept 错误: " + e.getMessage());
-                    try {
-                        Thread.sleep(1000);
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        break;
-                    }
+                    System.err.println("[FriendChatServer] accept 失败: " + e.getMessage());
                 }
             }
         }
     }
 
     private void handleClient(Socket socket) {
+        FriendSecureChannel channel = null;
         try (socket) {
-            InputStream in = socket.getInputStream();
-            // 阶段 1：握手——5 秒内必须收到 auth 消息，否则关闭连接
             socket.setSoTimeout(AUTH_TIMEOUT_MS);
             String remoteAddr = socket.getInetAddress().getHostAddress();
-            String authLine;
-            try {
-                authLine = FriendProtocol.readLineBounded(in, FriendProtocol.MAX_MESSAGE_LENGTH);
-            } catch (IOException e) {
-                System.err.println("[FriendChatServer] 拒绝连接: 握手行过长 from " + remoteAddr);
-                return;
-            }
-            if (authLine == null) {
-                // 客户端连接后立即断开
-                return;
-            }
-            // H9: 解析握手消息，校验 identity + 时间戳 + HMAC 签名
-            AuthInfo authInfo = parseAuthInfo(authLine);
-            if (authInfo == null) {
-                System.err.println("[FriendChatServer] 拒绝连接: 无效握手 from " + remoteAddr);
-                return;
-            }
-            // 时间戳防重放：必须是 ±60s 内的时间
-            long now = System.currentTimeMillis();
-            if (Math.abs(now - authInfo.timestamp) > AUTH_TIMESTAMP_WINDOW_MS) {
-                System.err.println("[FriendChatServer] 拒绝连接: 握手时间戳超窗 " + authInfo.identity
-                        + " from " + remoteAddr + " (ts=" + authInfo.timestamp + ", now=" + now + ")");
-                return;
-            }
-            // H9: HMAC 强制校验——无共享密钥则拒绝（须通过好友请求交换 authSecret）
-            String expectedSig = computeAuthSignature(authInfo.identity, authInfo.timestamp);
-            if (expectedSig == null) {
-                System.err.println("[FriendChatServer] 拒绝连接: 缺少共享 HMAC 密钥 "
-                        + authInfo.identity + " from " + remoteAddr
-                        + "（请重新发送/接受好友请求以交换密钥）");
-                return;
-            }
-            if (!expectedSig.equalsIgnoreCase(authInfo.signature)) {
-                System.err.println("[FriendChatServer] 拒绝连接: HMAC 签名无效 "
-                        + authInfo.identity + " from " + remoteAddr);
-                return;
-            }
-            if (!identityValidator.test(authInfo.identity)) {
-                System.err.println("[FriendChatServer] 拒绝连接: 未知身份 " + authInfo.identity + " from " + remoteAddr);
-                return;
+            channel = FriendSecureChannel.serverHandshake(socket, localIdentity, peerId -> {
+                FriendSecureChannel.PeerStaticKeys pinned = peerKeyLookup.apply(peerId);
+                if (pinned != null) return pinned;
+                // Unknown peer: allow introduce (friend request) — keys self-authenticated via Ed25519
+                return null;
+            });
+            String identity = channel.getPeerIdentity();
+            boolean known = identityValidator.test(identity);
+            // Allow unknown peers through for friend_req; known peers always OK
+            if (!known) {
+                System.out.println("[FriendChatServer] introduce handshake from unknown "
+                        + identity + " @ " + remoteAddr);
             }
 
-            String identity = authInfo.identity;
-            // 握手成功——切换到正常读超时
             socket.setSoTimeout(READ_TIMEOUT_MS);
-            // 通过 onAuthenticated 通知监听器（让上层能记录在线状态）
+            java.util.function.BiConsumer<String, FriendSecureChannel> established = onChannelEstablished;
+            if (established != null) {
+                try { established.accept(identity, channel); } catch (Exception ignored) {}
+            }
             for (MessageListener listener : listeners) {
                 try {
                     listener.onAuthenticated(remoteAddr, identity);
@@ -242,18 +181,18 @@ public final class FriendChatServer implements AutoCloseable {
                 }
             }
 
-            // 阶段 2：分发后续消息
             while (running.get()) {
-                String line;
-                try {
-                    line = FriendProtocol.readLineBounded(in, FriendProtocol.MAX_MESSAGE_LENGTH);
-                } catch (IOException e) {
-                    System.err.println("[FriendChatServer] 消息过长，关闭连接 "
-                            + identity + " from " + remoteAddr);
-                    break;
-                }
+                String line = channel.readLine(FriendProtocol.MAX_MESSAGE_LENGTH);
                 if (line == null) break;
-
+                // Unknown peers: only accept friend_req / friend_ack until befriended
+                if (!identityValidator.test(identity)) {
+                    String type = FriendProtocol.peekType(line);
+                    if (!"friend_req".equals(type) && !"friend_ack".equals(type)) {
+                        System.err.println("[FriendChatServer] 拒绝未知身份的非好友请求消息: "
+                                + type + " from " + identity);
+                        continue;
+                    }
+                }
                 for (MessageListener listener : listeners) {
                     try {
                         listener.onMessage(remoteAddr, identity, line);
@@ -263,87 +202,18 @@ public final class FriendChatServer implements AutoCloseable {
                 }
             }
         } catch (java.net.SocketTimeoutException e) {
-            // 握手超时或读超时，关闭空闲连接
+            // handshake / idle timeout
         } catch (IOException e) {
-            // 客户端断开连接或服务器已关闭
+            // disconnect
+        } finally {
+            if (channel != null) {
+                try { channel.close(); } catch (Exception ignored) {}
+            }
         }
     }
 
-    /** H9: 握手信息（identity + 时间戳 + HMAC 签名） */
-    private static final class AuthInfo {
-        final String identity;
-        final long timestamp;
-        final String signature;
-        AuthInfo(String identity, long timestamp, String signature) {
-            this.identity = identity;
-            this.timestamp = timestamp;
-            this.signature = signature;
-        }
-    }
-
-    /**
-     * H9: 从 auth 握手行中解析 identity、时间戳和签名。
-     * 兼容旧格式（无 ts/sig 字段时拒绝，强制升级）。
-     */
-    private static AuthInfo parseAuthInfo(String line) {
-        try {
-            com.google.gson.JsonObject obj = com.google.gson.JsonParser.parseString(line).getAsJsonObject();
-            if (!"auth".equals(obj.get("type").getAsString())) return null;
-            String id = obj.get("identity").getAsString();
-            if (id == null || id.isBlank()) return null;
-            if (!obj.has("ts") || !obj.has("sig")) return null;
-            long ts = obj.get("ts").getAsLong();
-            String sig = obj.get("sig").getAsString();
-            return new AuthInfo(id, ts, sig);
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    /**
-     * H9: 计算握手签名 HMAC-SHA256(secret, identity | timestamp)。
-     * secret 由 secretProvider 提供（基于身份派生，服务器和客户端用相同算法）。
-     */
-    private String computeAuthSignature(String identity, long timestamp) {
-        java.util.function.Function<String, String> provider = secretProvider;
-        if (provider == null) return null;
-        String secret = provider.apply(identity);
-        if (secret == null || secret.isEmpty()) return null;
-        try {
-            javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
-            byte[] secretBytes = secret.getBytes(StandardCharsets.UTF_8);
-            mac.init(new javax.crypto.spec.SecretKeySpec(secretBytes, "HmacSHA256"));
-            String payload = identity + "|" + timestamp;
-            byte[] sig = mac.doFinal(payload.getBytes(StandardCharsets.UTF_8));
-            StringBuilder sb = new StringBuilder(sig.length * 2);
-            for (byte b : sig) sb.append(String.format("%02x", b & 0xff));
-            return sb.toString();
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    // ---------------------------------------------------------------------------
-    // 内部类型
-    // ---------------------------------------------------------------------------
-
-    /** 消息监听器 */
     public interface MessageListener {
-        /**
-         * 连接通过握手时调用。可用于记录好友在线状态。
-         *
-         * @param remoteIp 远端 IP
-         * @param identity 通过握手的好友身份 ID
-         */
-        default void onAuthenticated(String remoteIp, String identity) {}
-
-        /**
-         * 收到一条完整 JSON 消息行（在握手通过后才会被调用）。
-         *
-         * @param remoteIp   远端 IP
-         * @param identity   发送方身份 ID（已通过握手校验）
-         * @param jsonLine   消息内容
-         */
-        void onMessage(String remoteIp, String identity, String jsonLine);
+        void onAuthenticated(String remoteAddr, String identity);
+        void onMessage(String remoteAddr, String identity, String jsonLine);
     }
 }

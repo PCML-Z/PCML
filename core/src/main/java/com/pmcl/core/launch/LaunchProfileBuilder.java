@@ -674,6 +674,10 @@ public final class LaunchProfileBuilder {
                     versionsDir, gameDir, nativesDir, account, vj.getAssets()));
         }
 
+        // NilLoader / Java Agent：pmclAgents + versions/{id}/agents/*.jar
+        com.pmcl.core.modloader.AgentLaunchSupport.inject(
+                profile, vj, versionsDir, versionId, librariesDir, downloadManager);
+
         // 用户自定义 JVM 参数（最后追加，可覆盖前面）
         String custom = preferences.getCustomJvmArgs();
         if (custom != null && !custom.trim().isEmpty()) {

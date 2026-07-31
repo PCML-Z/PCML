@@ -26,6 +26,9 @@ import com.pmcl.ui.viewmodel.LauncherViewModel
 import java.awt.Desktop
 import java.awt.FileDialog
 import java.io.File
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 
 /**
  * 独立实例管理页面（Prism/MultiMC 风格）。
@@ -49,6 +52,7 @@ fun InstancesPage(vm: LauncherViewModel) {
     var accountTarget by remember { mutableStateOf<InstanceInfo?>(null) }
     var importResult by remember { mutableStateOf<com.pmcl.core.instance.InstanceImporter.ImportResult?>(null) }
     val accounts by vm.accounts.collectAsState()
+    val scope = rememberCoroutineScope()
 
     // 首次进入加载实例列表
     LaunchedEffect(Unit) { vm.loadInstances() }
@@ -75,7 +79,10 @@ fun InstancesPage(vm: LauncherViewModel) {
                     val selectedDir = fd.directory
                     if (selectedFile != null && selectedDir != null) {
                         val path = java.nio.file.Paths.get(selectedDir, selectedFile)
-                        importResult = kotlinx.coroutines.runBlocking { vm.importInstance(path) }
+                        // C10: 勿在 EDT 上 runBlocking；大整合包导入会卡死 UI
+                        scope.launch {
+                            importResult = vm.importInstance(path)
+                        }
                     }
                 },
                 modifier = Modifier.padding(start = 8.dp)
@@ -344,29 +351,24 @@ private fun InstanceCard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             // 图标：优先显示自定义图标，无则按类型显示 Material 图标
-            val iconFile = remember(info) { vm.getInstanceIconFile(info) }
-            if (iconFile != null) {
-                val bitmap = remember(iconFile) {
+            // H43: 文件存在性检查与位图解码移出 composition，避免同步 IO 卡顿
+            var iconBitmap by remember(info) { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
+            LaunchedEffect(info) {
+                iconBitmap = null
+                iconBitmap = withContext(Dispatchers.IO) {
                     try {
+                        val iconFile = vm.getInstanceIconFile(info) ?: return@withContext null
                         iconFile.toFile().inputStream().use { loadImageBitmap(it) }
                     } catch (_: Throwable) { null }
                 }
-                if (bitmap != null) {
-                    Image(
-                        bitmap = bitmap,
-                        contentDescription = null,
-                        modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)),
-                        contentScale = ContentScale.Crop
-                    )
-                } else {
-                    Icon(
-                        imageVector = if (info.getType() == InstanceInfo.Type.MODPACK)
-                            Icons.Filled.Inventory2 else Icons.Filled.Dashboard,
-                        contentDescription = null,
-                        modifier = Modifier.size(40.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                }
+            }
+            if (iconBitmap != null) {
+                Image(
+                    bitmap = iconBitmap!!,
+                    contentDescription = null,
+                    modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)),
+                    contentScale = ContentScale.Crop
+                )
             } else {
                 Icon(
                     imageVector = if (info.getType() == InstanceInfo.Type.MODPACK)

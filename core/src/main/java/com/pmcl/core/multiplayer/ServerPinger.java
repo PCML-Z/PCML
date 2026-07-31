@@ -50,6 +50,10 @@ public final class ServerPinger {
         if (host == null || host.isEmpty() || port <= 0 || port > 65535 || timeout <= 0) {
             return UNREACHABLE;
         }
+        String ssrf = com.pmcl.core.util.SsrfChecker.validateHostAllowingPrivateLan(host);
+        if (ssrf != null) {
+            return UNREACHABLE;
+        }
         long start = System.currentTimeMillis();
         try (Socket socket = new Socket()) {
             socket.connect(new InetSocketAddress(host, port), timeout);
@@ -166,6 +170,10 @@ public final class ServerPinger {
     public static ServerStatus pingFull(String host, int port, int timeout) {
         if (host == null || host.isEmpty() || port <= 0 || port > 65535 || timeout <= 0) {
             return new ServerStatus(UNREACHABLE, "", 0, 0, "", 0, null, "Invalid host/port");
+        }
+        String ssrf = com.pmcl.core.util.SsrfChecker.validateHostAllowingPrivateLan(host);
+        if (ssrf != null) {
+            return new ServerStatus(UNREACHABLE, "", 0, 0, "", 0, null, ssrf);
         }
         long start = System.currentTimeMillis();
         try (Socket socket = new Socket()) {

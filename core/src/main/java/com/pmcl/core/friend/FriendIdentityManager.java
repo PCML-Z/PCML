@@ -53,6 +53,11 @@ public final class FriendIdentityManager {
     /** 版本号：displayName/backgroundPath 变化时递增，供 Compose 观察 */
     private final AtomicLong version = new AtomicLong(0);
 
+    private volatile byte[] ed25519Private;
+    private volatile byte[] ed25519Public;
+    private volatile byte[] x25519Private;
+    private volatile byte[] x25519Public;
+
     public FriendIdentityManager(Path dataDir) {
         this.dataDir = dataDir;
     }
@@ -72,8 +77,23 @@ public final class FriendIdentityManager {
             generateNewIdentity();
             saveIdentity();
         }
-
+        ensureKeypairs();
         generateQrCode();
+    }
+
+    public byte[] getEd25519Public() { return ed25519Public != null ? ed25519Public.clone() : null; }
+    public byte[] getX25519Public() { return x25519Public != null ? x25519Public.clone() : null; }
+    byte[] getEd25519Private() { return ed25519Private; }
+    byte[] getX25519Private() { return x25519Private; }
+
+    public FriendSecureChannel.LocalIdentity asLocalIdentity() {
+        return new FriendSecureChannel.LocalIdentity() {
+            @Override public String identity() { return FriendIdentityManager.this.identity.toString(); }
+            @Override public byte[] edPrivate() { return ed25519Private; }
+            @Override public byte[] edPublic() { return ed25519Public; }
+            @Override public byte[] xPrivate() { return x25519Private; }
+            @Override public byte[] xPublic() { return x25519Public; }
+        };
     }
 
     /** 我的身份 ID */
@@ -106,6 +126,11 @@ public final class FriendIdentityManager {
 
         this.identity = newIdentity;
         if (displayName != null) this.displayName = displayName;
+        if (identityChanged) {
+            generateKeypairs();
+        } else {
+            ensureKeypairs();
+        }
         saveIdentity();
         generateQrCode();
         version.incrementAndGet();
@@ -144,23 +169,12 @@ public final class FriendIdentityManager {
     }
 
     /**
-     * H9: 派生身份密钥（HMAC secret）。
-     * <p>
-     * 基于 identity 字符串 + 机器绑定 keyfile（TokenEncryptor 的辅助密钥）派生。
-     * 同一机器上同一 identity 派生相同 secret；不同机器派生不同 secret。
-     * <p>
-     * 用途：好友握手时，客户端用此 secret 计算 HMAC 签名，
-     * 服务器用相同算法派生 secret 校验签名，防止 identity 被冒充。
-     * <p>
-     * 局限：服务器需要知道好友的 secret——但由于 secret 是机器绑定的，
-     * 跨机器无法派生相同 secret。实际使用中，服务器只校验"自己的 secret 派生"
-     * 用于回环连接（同机器多实例），跨机器连接由虚拟网络 IP 隔离保护。
-     * 对于已知好友，服务器从好友数据中读取 secret（邀请时交换）。
+     * @deprecated 机器绑定 HMAC 已废弃；跨设备认证改用 Ed25519/X25519（见 {@link FriendSecureChannel}）。
      */
+    @Deprecated
     public String deriveSecret() {
         if (identity == null) return null;
         try {
-            // 基于 identity + 机器 keyfile 派生 secret（不直接暴露 keyfile 原文）
             String purposeKey = com.pmcl.core.auth.TokenEncryptor.derivePurposeKey("friend-identity");
             String seed = identity.toString() + "|" + purposeKey;
             MessageDigest md = MessageDigest.getInstance("SHA-256");
@@ -174,13 +188,20 @@ public final class FriendIdentityManager {
         }
     }
 
-    /** 分享文本：用于生成二维码，"pmcl-friend:" 协议 */
+    /**
+     * 分享文本 / 二维码：{@code pmcl-friend:ID:name:edPub:xPub}
+     * 公钥经带外分发，用于端到端认证与 ECDH（C9）。
+     */
     public String getShareText() {
         if (identity == null) return "";
-        return "pmcl-friend:" + identity.toString() + ":" + urlEncode(displayName);
+        ensureKeypairs();
+        return "pmcl-friend:" + identity.toString()
+                + ":" + urlEncode(displayName)
+                + ":" + FriendCrypto.b64(ed25519Public)
+                + ":" + FriendCrypto.b64(x25519Public);
     }
 
-    /** 从邀请文本解析好友身份 */
+    /** 从邀请文本解析好友身份（含可选公钥） */
     public static IdentityInfo parseInvite(String invite) {
         if (invite == null || invite.isEmpty()) return null;
         String content;
@@ -189,12 +210,23 @@ public final class FriendIdentityManager {
         } else {
             content = invite;
         }
-        String[] parts = content.split(":", 2);
+        String[] parts = content.split(":", 4);
         String idStr = parts[0].trim();
         if (!FriendIdentity.isValid(idStr)) return null;
         FriendIdentity id = FriendIdentity.parse(idStr);
         String name = parts.length > 1 ? urlDecode(parts[1].trim()) : id.toString().replace("-", "").substring(0, 8);
-        return new IdentityInfo(id, name);
+        byte[] ed = null;
+        byte[] x = null;
+        if (parts.length >= 4) {
+            try {
+                ed = FriendCrypto.b64d(parts[2].trim());
+                x = FriendCrypto.b64d(parts[3].trim());
+            } catch (Exception ignored) {
+                ed = null;
+                x = null;
+            }
+        }
+        return new IdentityInfo(id, name, ed, x);
     }
 
     /** 从分享文本解析好友身份（便捷方法） */
@@ -256,6 +288,24 @@ public final class FriendIdentityManager {
             this.identity = FriendIdentity.fallback(seed);
         }
         this.displayName = System.getProperty("user.name", "Player");
+        generateKeypairs();
+    }
+
+    private void ensureKeypairs() {
+        if (ed25519Private != null && ed25519Public != null
+                && x25519Private != null && x25519Public != null) {
+            return;
+        }
+        generateKeypairs();
+        saveIdentity();
+    }
+
+    private void generateKeypairs() {
+        FriendCrypto.KeyBundle kb = FriendCrypto.generateKeyBundle();
+        this.ed25519Private = kb.ed25519PrivatePkcs8;
+        this.ed25519Public = kb.ed25519PublicSpki;
+        this.x25519Private = kb.x25519PrivatePkcs8;
+        this.x25519Public = kb.x25519PublicSpki;
     }
 
     private void loadIdentity(Path file) {
@@ -271,8 +321,30 @@ public final class FriendIdentityManager {
             this.identity = FriendIdentity.parse(idStr);
             this.displayName = data.getOrDefault("name", System.getProperty("user.name", "Player"));
             this.backgroundPath = data.getOrDefault("bg", null);
+            loadKeysFromMap(data);
         } catch (Exception e) {
             generateNewIdentity();
+        }
+    }
+
+    private void loadKeysFromMap(Map<String, String> data) {
+        try {
+            String edPrivEnc = data.get("ed25519Priv");
+            String edPub = data.get("ed25519Pub");
+            String xPrivEnc = data.get("x25519Priv");
+            String xPub = data.get("x25519Pub");
+            if (edPrivEnc == null || edPub == null || xPrivEnc == null || xPub == null) {
+                return;
+            }
+            String edPrivPlain = com.pmcl.core.auth.TokenEncryptor.decrypt(edPrivEnc);
+            String xPrivPlain = com.pmcl.core.auth.TokenEncryptor.decrypt(xPrivEnc);
+            if (edPrivPlain == null || xPrivPlain == null) return;
+            this.ed25519Private = FriendCrypto.b64d(edPrivPlain);
+            this.ed25519Public = FriendCrypto.b64d(edPub);
+            this.x25519Private = FriendCrypto.b64d(xPrivPlain);
+            this.x25519Public = FriendCrypto.b64d(xPub);
+        } catch (Exception e) {
+            System.err.println("[FriendIdentity] 加载密钥对失败，将重新生成: " + e.getMessage());
         }
     }
 
@@ -283,6 +355,18 @@ public final class FriendIdentityManager {
             data.put("name", displayName);
             if (backgroundPath != null && !backgroundPath.isEmpty()) {
                 data.put("bg", backgroundPath);
+            }
+            if (ed25519Private != null && ed25519Public != null
+                    && x25519Private != null && x25519Public != null) {
+                String edPrivEnc = com.pmcl.core.auth.TokenEncryptor.encrypt(FriendCrypto.b64(ed25519Private));
+                String xPrivEnc = com.pmcl.core.auth.TokenEncryptor.encrypt(FriendCrypto.b64(x25519Private));
+                if (edPrivEnc == null || xPrivEnc == null) {
+                    throw new IOException("私钥加密失败，拒绝明文落盘");
+                }
+                data.put("ed25519Priv", edPrivEnc);
+                data.put("ed25519Pub", FriendCrypto.b64(ed25519Public));
+                data.put("x25519Priv", xPrivEnc);
+                data.put("x25519Pub", FriendCrypto.b64(x25519Public));
             }
             String json = GSON.toJson(data);
             Path target = dataDir.resolve("identity.json");
@@ -367,14 +451,27 @@ public final class FriendIdentityManager {
     // 内部类型
     // ---------------------------------------------------------------------------
 
-    /** 从分享文本解析出的好友信息 */
+    /** 从分享文本解析出的好友信息（含可选长期公钥） */
     public static final class IdentityInfo {
         public final FriendIdentity identity;
         public final String displayName;
+        public final byte[] ed25519Public;
+        public final byte[] x25519Public;
 
         IdentityInfo(FriendIdentity identity, String displayName) {
+            this(identity, displayName, null, null);
+        }
+
+        IdentityInfo(FriendIdentity identity, String displayName, byte[] ed25519Public, byte[] x25519Public) {
             this.identity = identity;
             this.displayName = displayName;
+            this.ed25519Public = ed25519Public;
+            this.x25519Public = x25519Public;
+        }
+
+        public boolean hasPublicKeys() {
+            return ed25519Public != null && x25519Public != null
+                    && ed25519Public.length > 0 && x25519Public.length > 0;
         }
     }
 }

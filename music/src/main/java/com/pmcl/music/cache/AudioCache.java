@@ -23,6 +23,7 @@ import java.util.concurrent.TimeUnit;
 public final class AudioCache {
 
     private static final long DEFAULT_TTL_MS = 2L * 60L * 60L * 1000L; // 2h（对齐 B站流时效）
+    private static final int MAX_REDIRECTS = 5;
 
     private final Path cacheDir;
     private final OkHttpClient client;
@@ -35,10 +36,12 @@ public final class AudioCache {
     public AudioCache(Path cacheDir, long ttlMs) {
         this.cacheDir = cacheDir;
         this.ttlMs = ttlMs;
+        // H48: 不自动跟随重定向（避免跳转到内网）；手工跟随并复检 SSRF
         this.client = new OkHttpClient.Builder()
                 .connectTimeout(15, TimeUnit.SECONDS)
                 .readTimeout(120, TimeUnit.SECONDS)
-                .followRedirects(true)
+                .followRedirects(false)
+                .followSslRedirects(false)
                 .build();
     }
 
@@ -62,10 +65,8 @@ public final class AudioCache {
             return audioUrl;
         }
 
-        if (audioUrl.startsWith("http://") || audioUrl.startsWith("https://")) {
-            String err = com.pmcl.core.util.SsrfChecker.validate(audioUrl);
-            if (err != null) throw new IOException("Unsafe audio URL: " + err);
-        }
+        String err = com.pmcl.core.util.SsrfChecker.validate(audioUrl);
+        if (err != null) throw new IOException("Unsafe audio URL: " + err);
 
         Files.createDirectories(cacheDir);
         String key = cacheKey(sourceType, originalId, audioUrl);
@@ -83,17 +84,48 @@ public final class AudioCache {
             }
         }
 
-        Request.Builder rb = new Request.Builder().url(audioUrl);
+        // 安全修复：每次下载使用唯一临时文件名，防止并发下载同 key 时互相覆盖写损坏缓存
+        Path tmp = cacheDir.resolve(key + ".tmp." + java.util.UUID.randomUUID());
+        downloadWithSsrfRedirects(audioUrl, headers, tmp, 0);
+        Files.move(tmp, data, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        Files.writeString(meta, Long.toString(System.currentTimeMillis()));
+        return data.toAbsolutePath().toString();
+    }
+
+    private void downloadWithSsrfRedirects(String url, Map<String, String> headers,
+                                           Path tmp, int depth) throws IOException {
+        if (depth > MAX_REDIRECTS) {
+            throw new IOException("Too many redirects");
+        }
+        String ssrf = com.pmcl.core.util.SsrfChecker.validate(url);
+        if (ssrf != null) throw new IOException("Unsafe audio URL: " + ssrf);
+
+        Request.Builder rb = new Request.Builder().url(url);
         if (headers != null) {
             for (Map.Entry<String, String> e : headers.entrySet()) {
                 rb.header(e.getKey(), e.getValue());
             }
         }
-        // 安全修复：每次下载使用唯一临时文件名，防止并发下载同 key 时互相覆盖写损坏缓存
-        Path tmp = cacheDir.resolve(key + ".tmp." + java.util.UUID.randomUUID());
         try (Response resp = client.newCall(rb.build()).execute()) {
+            int code = resp.code();
+            if (code >= 301 && code <= 308) {
+                String loc = resp.header("Location");
+                if (loc == null || loc.isBlank()) {
+                    throw new IOException("Redirect without Location: " + code);
+                }
+                String next;
+                if (loc.startsWith("/")) {
+                    okhttp3.HttpUrl base = okhttp3.HttpUrl.parse(url);
+                    if (base == null) throw new IOException("Bad redirect base: " + url);
+                    next = base.resolve(loc) != null ? base.resolve(loc).toString() : loc;
+                } else {
+                    next = loc;
+                }
+                downloadWithSsrfRedirects(next, headers, tmp, depth + 1);
+                return;
+            }
             if (!resp.isSuccessful()) {
-                throw new IOException("cache download HTTP " + resp.code());
+                throw new IOException("cache download HTTP " + code);
             }
             ResponseBody body = resp.body();
             if (body == null) throw new IOException("empty body");
@@ -114,9 +146,6 @@ public final class AudioCache {
                 }
             }
         }
-        Files.move(tmp, data, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-        Files.writeString(meta, Long.toString(System.currentTimeMillis()));
-        return data.toAbsolutePath().toString();
     }
 
     public void clear() throws IOException {

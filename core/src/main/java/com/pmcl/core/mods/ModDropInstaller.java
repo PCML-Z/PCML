@@ -4,6 +4,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.pmcl.core.LauncherConfig;
+import com.pmcl.core.instance.InstanceManager;
 import com.pmcl.core.market.ModrinthClient;
 import com.pmcl.core.preferences.Preferences;
 
@@ -165,15 +166,40 @@ public final class ModDropInstaller {
         Path modsDir;
         if (preferences != null && preferences.isVersionIsolation()
                 && versionId != null && !versionId.isEmpty()) {
-            modsDir = config.getWorkDir().resolve("instances").resolve(versionId).resolve("mods");
+            // H22: versionId / 目标路径校验
+            InstanceManager.requireSafeInstanceId(versionId);
+            Path instancesRoot = config.getWorkDir().resolve("instances").toAbsolutePath().normalize();
+            Path instanceDir = instancesRoot.resolve(versionId).normalize();
+            if (!instanceDir.startsWith(instancesRoot)) {
+                throw new IOException("versionId path escapes instances dir: " + versionId);
+            }
+            modsDir = instanceDir.resolve("mods");
         } else {
             modsDir = config.getWorkDir().resolve("mods");
             if (gameVersion != null && !gameVersion.isEmpty()) {
-                modsDir = modsDir.resolve(gameVersion);
+                InstanceManager.requireSafeInstanceId(gameVersion);
+                Path modsRoot = modsDir.toAbsolutePath().normalize();
+                modsDir = modsRoot.resolve(gameVersion).normalize();
+                if (!modsDir.startsWith(modsRoot)) {
+                    throw new IOException("gameVersion path escapes mods dir: " + gameVersion);
+                }
             }
         }
-        Files.createDirectories(modsDir);
-        Path target = modsDir.resolve(info.getJarPath().getFileName());
+        Path modsAbs = modsDir.toAbsolutePath().normalize();
+        Files.createDirectories(modsAbs);
+        Path jarName = info.getJarPath().getFileName();
+        if (jarName == null) {
+            throw new IOException("非法模组文件名");
+        }
+        String fileName = jarName.toString();
+        if (fileName.isBlank() || fileName.contains("..") || fileName.contains("/")
+                || fileName.contains("\\") || fileName.indexOf('\0') >= 0) {
+            throw new IOException("非法模组文件名: " + fileName);
+        }
+        Path target = modsAbs.resolve(fileName).normalize();
+        if (!target.startsWith(modsAbs)) {
+            throw new IOException("模组路径越界: " + fileName);
+        }
         Files.copy(info.getJarPath(), target, StandardCopyOption.REPLACE_EXISTING);
         return target;
     }

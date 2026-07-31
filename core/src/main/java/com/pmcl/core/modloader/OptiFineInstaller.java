@@ -213,12 +213,13 @@ public final class OptiFineInstaller implements ModLoaderInstaller {
                 throw new InstallInterruptedException("OptiFine 安装包下载已中断");
             }
             try {
+                // H37: 必须有 SHA-1 才下载并执行 installer jar
                 String sha1 = tryDownloadSha1(url + ".sha1");
-                if (sha1 != null && !sha1.isBlank()) {
-                    downloads.downloadToVerified(url, target, sha1, null);
-                    return;
+                if (sha1 == null || sha1.isBlank()) {
+                    last = new IOException("缺少 SHA-1: " + url + ".sha1");
+                    continue;
                 }
-                downloads.downloadTo(url, target);
+                downloads.downloadToVerified(url, target, sha1, null);
                 if (Files.size(target) > 1024 && looksLikeZip(target)) return;
                 Files.deleteIfExists(target);
                 throw new IOException("下载内容无效（过小或非 zip）");
@@ -231,7 +232,7 @@ public final class OptiFineInstaller implements ModLoaderInstaller {
                 last = e;
             }
         }
-        throw new IOException("OptiFine 安装包下载失败，已尝试 " + urls.size() + " 个源"
+        throw new IOException("OptiFine 安装包下载失败（需可用 SHA-1），已尝试 " + urls.size() + " 个源"
                 + (last != null ? (" — " + Exceptions.rootMessage(last)) : ""), last);
     }
 

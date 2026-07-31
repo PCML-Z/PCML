@@ -123,19 +123,20 @@ public final class InstanceExporter {
         zos.closeEntry();
     }
 
-    /** 递归将目录添加到 zip */
+    /** 递归将目录添加到 zip。H25: 深度上限 + 不跟随符号链接。 */
     private static void addDirectoryToZip(ZipOutputStream zos, Path dir, String zipPrefix) throws IOException {
-        try (Stream<Path> stream = Files.walk(dir)) {
+        try (Stream<Path> stream = Files.walk(dir, 32)) {
             stream.forEach(p -> {
                 try {
+                    if (Files.isSymbolicLink(p)) return;
                     String relative = dir.relativize(p).toString().replace(FileSystems.getDefault().getSeparator(), "/");
                     String zipPath = zipPrefix + relative;
-                    if (Files.isDirectory(p)) {
+                    if (Files.isDirectory(p, LinkOption.NOFOLLOW_LINKS)) {
                         if (!zipPath.endsWith("/")) zipPath += "/";
                         ZipEntry entry = new ZipEntry(zipPath);
                         zos.putNextEntry(entry);
                         zos.closeEntry();
-                    } else {
+                    } else if (Files.isRegularFile(p, LinkOption.NOFOLLOW_LINKS)) {
                         ZipEntry entry = new ZipEntry(zipPath);
                         zos.putNextEntry(entry);
                         Files.copy(p, zos);

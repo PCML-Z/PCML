@@ -145,7 +145,7 @@ public final class LauncherCore {
         this.modUpdateChecker = new ModUpdateChecker(config, modMarketManager, preferences);
         this.modDependencyResolver = new ModDependencyResolver(config, modMarketManager, preferences);
         this.metalRenderInstaller = new MetalRenderInstaller(
-                config, modMarketManager.getModrinthClient(), downloadManager);
+                config, preferences, modMarketManager.getModrinthClient(), downloadManager);
         this.modTagStore = new com.pmcl.core.mods.ModTagStore(
                 Paths.get(System.getProperty("user.home"), ".pmcl", "mod_tags.json"));
         this.playTimeTracker = new PlayTimeTracker(

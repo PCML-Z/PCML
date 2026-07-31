@@ -172,11 +172,20 @@ class PmclHostServer(
 
     private suspend fun handlePair(call: ApplicationCall) {
         try {
-            // Host 头校验：防止跨域 CSRF 攻击（恶意网页通过 fetch 调用本机配对接口）
+            // Host / Origin 头校验：防止跨域 CSRF（恶意网页调用本机配对接口）
             val hostHeader = call.request.headers["Host"] ?: ""
             if (!isAllowedHost(hostHeader)) {
                 call.respondText(
                     """{"error":"forbidden","message":"host not allowed"}""",
+                    io.ktor.http.ContentType.Application.Json,
+                    io.ktor.http.HttpStatusCode.Forbidden
+                )
+                return
+            }
+            val origin = call.request.headers["Origin"]
+            if (!isAllowedOrigin(origin)) {
+                call.respondText(
+                    """{"error":"forbidden","message":"origin not allowed"}""",
                     io.ktor.http.ContentType.Application.Json,
                     io.ktor.http.HttpStatusCode.Forbidden
                 )
@@ -217,7 +226,11 @@ class PmclHostServer(
         if (host.isBlank()) return false
         // 去掉端口
         val h = host.substringBefore(":").lowercase()
-        if (h == "localhost" || h == "127.0.0.1" || h == "::1") return true
+        if (h == "localhost" || h == "127.0.0.1" || h == "::1" || h == "[::1]") return true
+        // Extra hosts from -Dpmcl.companion.allowedHosts=a,b
+        val extra = System.getProperty("pmcl.companion.allowedHosts", "")
+            .split(',').map { it.trim().lowercase() }.filter { it.isNotEmpty() }
+        if (h in extra) return true
         // LAN 内网：192.168.x.x / 10.x.x.x / 172.16-31.x.x
         if (h.startsWith("192.168.") || h.startsWith("10.")) return true
         if (h.startsWith("172.")) {
@@ -230,11 +243,48 @@ class PmclHostServer(
         return false
     }
 
+    /**
+     * WebSocket / pair Origin allowlist.
+     * Null/blank Origin is allowed (native clients); browser Origins must match localhost /
+     * 127.0.0.1 / ::1 or hosts listed in {@code pmcl.companion.allowedOrigins}.
+     */
+    private fun isAllowedOrigin(origin: String?): Boolean {
+        if (origin.isNullOrBlank()) return true // non-browser / same-origin tooling
+        val o = origin.trim().lowercase()
+        val allowedPrefixes = listOf(
+            "http://localhost",
+            "https://localhost",
+            "http://127.0.0.1",
+            "https://127.0.0.1",
+            "http://[::1]",
+            "https://[::1]",
+            "http://::1",
+            "https://::1"
+        )
+        if (allowedPrefixes.any { o == it || o.startsWith("$it:") || o.startsWith("$it/") }) {
+            return true
+        }
+        // Exact match against configured allowlist (full origins, comma-separated)
+        val configured = System.getProperty("pmcl.companion.allowedOrigins", "")
+            .split(',')
+            .map { it.trim().lowercase() }
+            .filter { it.isNotEmpty() }
+        if (o in configured) return true
+        return false
+    }
+
     // ================================================================
     //  WebSocket 主循环
     // ================================================================
 
     private suspend fun handleWebSocket(ws: WebSocketServerSession) {
+        // H17: Origin allowlist before auth (browsers always send Origin)
+        val origin = ws.call.request.headers["Origin"]
+        if (!isAllowedOrigin(origin)) {
+            ws.close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "origin not allowed"))
+            return
+        }
+
         // 鉴权：从 Authorization header 获取 token
         val authHeader = ws.call.request.headers["Authorization"]
         val token = authHeader?.removePrefix("Bearer ")?.trim()

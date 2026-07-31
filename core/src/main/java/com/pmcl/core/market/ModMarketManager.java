@@ -2,6 +2,7 @@ package com.pmcl.core.market;
 
 import com.pmcl.core.LauncherConfig;
 import com.pmcl.core.download.DownloadManager;
+import com.pmcl.core.instance.InstanceManager;
 import com.pmcl.core.preferences.Preferences;
 import okhttp3.OkHttpClient;
 
@@ -228,12 +229,24 @@ public final class ModMarketManager {
                 Path modsDir;
                 if (preferences != null && preferences.isVersionIsolation()
                         && versionId != null && !versionId.isEmpty()) {
+                    // H20: versionId path traversal 防护
+                    InstanceManager.requireSafeInstanceId(versionId);
+                    Path instancesRoot = config.getWorkDir().resolve("instances").toAbsolutePath().normalize();
+                    Path instanceDir = instancesRoot.resolve(versionId).normalize();
+                    if (!instanceDir.startsWith(instancesRoot)) {
+                        throw new IOException("versionId path escapes instances dir: " + versionId);
+                    }
                     // 版本隔离：安装到 instances/<versionId>/mods/
-                    modsDir = config.getWorkDir().resolve("instances").resolve(versionId).resolve("mods");
+                    modsDir = instanceDir.resolve("mods");
                 } else {
                     modsDir = config.getWorkDir().resolve("mods");
                     if (gameVersion != null && !gameVersion.isEmpty()) {
-                        modsDir = modsDir.resolve(gameVersion);
+                        InstanceManager.requireSafeInstanceId(gameVersion);
+                        Path modsRoot = modsDir.toAbsolutePath().normalize();
+                        modsDir = modsRoot.resolve(gameVersion).normalize();
+                        if (!modsDir.startsWith(modsRoot)) {
+                            throw new IOException("gameVersion path escapes mods dir: " + gameVersion);
+                        }
                     }
                 }
                 String fileName = file.getFileName();

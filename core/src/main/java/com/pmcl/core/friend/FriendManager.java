@@ -50,20 +50,30 @@ public final class FriendManager implements AutoCloseable {
         public final String ip;
         public final int port;
         public final long receivedAt;
-        /** 发起方提议的共享握手密钥 */
+        /** @deprecated 不再经网络传递 */
+        @Deprecated
         public final String authSecret;
+        public final byte[] ed25519Pub;
+        public final byte[] x25519Pub;
 
         PendingRequest(FriendIdentity identity, String displayName, String ip, int port) {
-            this(identity, displayName, ip, port, null);
+            this(identity, displayName, ip, port, null, null, null);
         }
 
         PendingRequest(FriendIdentity identity, String displayName, String ip, int port, String authSecret) {
+            this(identity, displayName, ip, port, authSecret, null, null);
+        }
+
+        PendingRequest(FriendIdentity identity, String displayName, String ip, int port,
+                       String authSecret, byte[] ed25519Pub, byte[] x25519Pub) {
             this.identity = identity;
             this.displayName = displayName;
             this.ip = ip;
             this.port = port;
             this.receivedAt = System.currentTimeMillis();
             this.authSecret = authSecret;
+            this.ed25519Pub = ed25519Pub;
+            this.x25519Pub = x25519Pub;
         }
     }
 
@@ -134,8 +144,7 @@ public final class FriendManager implements AutoCloseable {
         store.load();
         store.resetAllOnline(); // 启动时重置在线状态
 
-        // S3 安全修复：设置身份校验器——只允许已知好友通过握手
-        // 同时允许自己的身份（同机器多实例回环连接）
+        // S3: 身份校验——已知好友或本机身份
         chatServer.setIdentityValidator(identity -> {
             if (identity == null || identity.isBlank()) return false;
             if (identityManager.getIdentity() != null
@@ -144,23 +153,31 @@ public final class FriendManager implements AutoCloseable {
             }
             return store.isFriend(identity);
         });
-        // H9: 设置密钥提供器——服务器用相同算法派生 secret 校验客户端签名
-        // secret 基于对方 identity + 本机 keyfile 派生，仅同机器可校验（回环/多实例）
-        chatServer.setSecretProvider(identity -> {
-            // 对自己的 identity 派生 secret（回环连接场景）
-            if (identityManager.getIdentity() != null
-                    && identity.equals(identityManager.getIdentity().toString())) {
-                return identityManager.deriveSecret();
+        chatServer.setLocalIdentity(identityManager.asLocalIdentity());
+        chatServer.setPeerKeyLookup(store::getPeerStaticKeys);
+        chatServer.setOnChannelEstablished((peerId, ch) -> {
+            // Persist peer long-term keys learned during handshake
+            try {
+                store.setPeerPublicKeys(peerId, ch.getPeerEdPub(), ch.getPeerXPub());
+                byte[] myX = identityManager.getX25519Private();
+                if (myX != null) {
+                    String secret = FriendCrypto.deriveSharedSecretHex(myX, ch.getPeerXPub());
+                    store.setAuthSecret(peerId, secret);
+                }
+            } catch (Exception e) {
+                System.err.println("[FriendManager] 保存对端公钥失败: " + e.getMessage());
             }
-            // 好友共享密钥（好友请求时交换）；旧好友无密钥时返回 null，仅靠虚拟网隔离
-            return store.getAuthSecret(identity);
         });
 
         // 监听聊天服务器消息
         chatServer.addListener(new FriendChatServer.MessageListener() {
             @Override
+            public void onAuthenticated(String remoteAddr, String identity) {
+                // no-op; online status updated via client path / discovery
+            }
+
+            @Override
             public void onMessage(String remoteIp, String identity, String jsonLine) {
-                // 服务器路径下 identity 已通过握手校验，直接作为发送者标识传入
                 handleIncomingMessage(identity, jsonLine);
             }
         });
@@ -259,6 +276,8 @@ public final class FriendManager implements AutoCloseable {
         if (state != State.READY && state != State.STOPPED) return;
 
         try {
+            chatServer.setLocalIdentity(identityManager.asLocalIdentity());
+            chatServer.setPeerKeyLookup(store::getPeerStaticKeys);
             chatServer.start();
             System.out.println("[FriendManager] 聊天服务器已启动, 端口=" + chatServer.getPort());
         } catch (IOException e) {
@@ -266,6 +285,9 @@ public final class FriendManager implements AutoCloseable {
         }
 
         try {
+            discovery.setSigningKeys(
+                    identityManager.getEd25519Private(),
+                    identityManager.getEd25519Public());
             discovery.start(
                     identityManager.getIdentity().toString(),
                     identityManager.getDisplayName(),
@@ -385,42 +407,48 @@ public final class FriendManager implements AutoCloseable {
         }
     }
 
-    /** 发送好友请求到指定 IP + port */
+    /** 发送好友请求到指定 IP + port（密钥经 ECDH 派生，不再明文交换 authSecret） */
     public void sendFriendRequest(String identity, String displayName, String ip, int port) {
-        // 先添加到本地存储，并生成/复用共享握手密钥
+        sendFriendRequest(identity, displayName, ip, port, null, null);
+    }
+
+    public void sendFriendRequest(String identity, String displayName, String ip, int port,
+                                  byte[] ed25519Pub, byte[] x25519Pub) {
         store.addFriend(identity, displayName, ip, port);
-        String sharedSecret = store.getAuthSecret(identity);
-        if (sharedSecret == null) {
-            sharedSecret = generateSharedAuthSecret();
-            store.setAuthSecret(identity, sharedSecret);
+        if (ed25519Pub != null && x25519Pub != null) {
+            store.setPeerPublicKeys(identity, ed25519Pub, x25519Pub);
+            try {
+                String secret = FriendCrypto.deriveSharedSecretHex(
+                        identityManager.getX25519Private(), x25519Pub);
+                store.setAuthSecret(identity, secret);
+            } catch (Exception e) {
+                System.err.println("[FriendManager] ECDH 派生共享密钥失败: " + e.getMessage());
+            }
         }
-        final String secretToSend = sharedSecret;
         fireEvent(FriendEvent.Type.FRIEND_ADDED, store.getFriend(identity));
 
         if (ip != null && !ip.isEmpty() && port > 0) {
-            // 有地址，尝试连接并发送
             FriendChatClient client = getOrCreateClient(identity, ip, port);
             if (client != null && client.isConnected()) {
-                client.sendFriendRequest(secretToSend);
+                client.sendFriendRequest();
             } else if (client != null) {
-                enqueuePending(identity, () -> client.sendFriendRequest(secretToSend));
+                enqueuePending(identity, client::sendFriendRequest);
             }
         } else {
-            // 无地址，先检查是否已有连通的 TCP 客户端（peer 发现可能已在连接），直接发送
             FriendChatClient existing = activeClients.get(identity);
             if (existing != null && existing.isConnected()) {
-                existing.sendFriendRequest(secretToSend);
+                existing.sendFriendRequest();
             } else {
-                // 排队等待连接建立后自动发送
                 enqueuePending(identity, () -> {
                     FriendChatClient c = activeClients.get(identity);
-                    if (c != null) c.sendFriendRequest(secretToSend);
+                    if (c != null) c.sendFriendRequest();
                 });
             }
         }
     }
 
-    /** 生成双方共享的握手密钥（32 字节 hex） */
+    /** @deprecated 使用 ECDH；保留方法签名兼容 */
+    @Deprecated
     private static String generateSharedAuthSecret() {
         byte[] raw = new byte[32];
         new java.security.SecureRandom().nextBytes(raw);
@@ -467,24 +495,21 @@ public final class FriendManager implements AutoCloseable {
     public void acceptFriendRequest(PendingRequest request) {
         String peerId = request.identity.toString();
         store.addFriend(peerId, request.displayName, request.ip, request.port);
-        String shared = request.authSecret;
-        if (shared == null || shared.isBlank()) {
-            shared = store.getAuthSecret(peerId);
+        if (request.ed25519Pub != null && request.x25519Pub != null) {
+            store.setPeerPublicKeys(peerId, request.ed25519Pub, request.x25519Pub);
+            try {
+                store.setAuthSecret(peerId, FriendCrypto.deriveSharedSecretHex(
+                        identityManager.getX25519Private(), request.x25519Pub));
+            } catch (Exception ignored) {}
         }
-        if (shared == null || shared.isBlank()) {
-            shared = generateSharedAuthSecret();
-        }
-        store.setAuthSecret(peerId, shared);
-        final String secretToAck = shared;
         fireEvent(FriendEvent.Type.FRIEND_ADDED, store.getFriend(peerId));
 
-        // 发送接受应答（回显共享密钥）
         if (request.ip != null && !request.ip.isEmpty() && request.port > 0) {
             FriendChatClient client = getOrCreateClient(peerId, request.ip, request.port);
             if (client != null && client.isConnected()) {
-                client.sendFriendAck(peerId, true, secretToAck);
+                client.sendFriendAck(peerId, true);
             } else if (client != null) {
-                enqueuePending(peerId, () -> client.sendFriendAck(peerId, true, secretToAck));
+                enqueuePending(peerId, () -> client.sendFriendAck(peerId, true));
             }
         }
     }
@@ -642,149 +667,150 @@ public final class FriendManager implements AutoCloseable {
     // 内部实现
     // ---------------------------------------------------------------------------
 
-    private void handleIncomingMessage(String remoteIp, String jsonLine) {
+    /**
+     * @param channelIdentity authenticated peer identity from secure-channel handshake
+     *                        (never trust JSON {@code from} for attribution)
+     */
+    private void handleIncomingMessage(String channelIdentity, String jsonLine) {
         String type = FriendProtocol.peekType(jsonLine);
         if (type == null) return;
+        if (channelIdentity == null || channelIdentity.isBlank()) return;
 
         String myId = identityManager.getIdentity().toString();
-
-        // 判断 remoteIp 是 IP 地址还是 identity
-        // 客户端路径传的是 identity，服务器路径传的是 IP
-        boolean isIdentity = store.isFriend(remoteIp);
-        String actualIp = isIdentity ? null : remoteIp;
+        // H12: always attribute to handshake identity; ignore spoofable JSON "from"
+        if (channelIdentity.equals(myId)) return;
 
         switch (type) {
             case "msg" -> {
                 FriendProtocol.ChatMessage msg = FriendProtocol.ChatMessage.fromJson(jsonLine);
-                if (msg.text != null && msg.id != null) {
-                    // 忽略来自自己的消息（回环）
-                    if (msg.from != null && msg.from.equals(myId)) return;
-                    // 优先使用消息中的 from 字段识别发送者
-                    String senderId;
-                    if (msg.from != null && FriendIdentity.isValid(msg.from)) {
-                        senderId = FriendIdentity.parse(msg.from).toString();
-                    } else if (isIdentity) {
-                        senderId = remoteIp;
-                    } else {
-                        senderId = findIdentityByIp(remoteIp);
-                    }
-                    if (senderId != null && store.isFriend(senderId)) {
-                        store.addMessage(senderId, msg.id, msg.text, msg.timestamp, false);
-                        fireEvent(FriendEvent.Type.MESSAGE_RECEIVED, msg);
-                    }
+                if (msg.text != null && msg.id != null && store.isFriend(channelIdentity)) {
+                    msg.from = channelIdentity;
+                    store.addMessage(channelIdentity, msg.id, msg.text, msg.timestamp, false);
+                    fireEvent(FriendEvent.Type.MESSAGE_RECEIVED, msg);
                 }
             }
             case "friend_req" -> {
                 FriendProtocol.FriendRequest req = FriendProtocol.FriendRequest.fromJson(jsonLine);
-                if (req.identity != null && !req.identity.equals(myId)) {
-                    if (store.isFriend(req.identity)) {
-                        // 已是好友，自动应答 accepted 并更新地址 / 共享密钥
-                        String ackIp = actualIp != null ? actualIp : "";
-                        int ackPort = req.port > 0 ? req.port : 0;
-                        store.addFriend(req.identity,
-                                req.name != null ? req.name : req.identity, ackIp, ackPort);
-                        String shared = store.getAuthSecret(req.identity);
-                        if (shared == null && req.authSecret != null && !req.authSecret.isBlank()) {
-                            store.setAuthSecret(req.identity, req.authSecret);
-                            shared = req.authSecret;
-                        }
-                        final String secretToAck = shared;
-                        FriendChatClient client = getOrCreateClient(req.identity, ackIp, ackPort);
-                        if (client != null && client.isConnected()) {
-                            client.sendFriendAck(req.identity, true, secretToAck);
-                        } else if (client != null) {
-                            enqueuePending(req.identity,
-                                    () -> client.sendFriendAck(req.identity, true, secretToAck));
-                        }
-                    } else {
-                        // 新好友请求
-                        FriendIdentity peerId = FriendIdentity.parse(req.identity);
-                        String reqIp = actualIp != null ? actualIp : "";
-                        int peerPort = req.port > 0 ? req.port : 0;
-                        PendingRequest pending = new PendingRequest(peerId,
-                                req.name != null ? req.name : req.identity,
-                                reqIp, peerPort, req.authSecret);
-                        fireEvent(FriendEvent.Type.FRIEND_REQUEST_RECEIVED, pending);
+                // Claimed identity in payload must match authenticated channel peer
+                if (req.identity == null || !req.identity.equals(channelIdentity)) {
+                    System.err.println("[FriendManager] friend_req identity mismatch channel="
+                            + channelIdentity + " claim=" + req.identity);
+                    return;
+                }
+                byte[] ed = null;
+                byte[] x = null;
+                try {
+                    if (req.ed25519Pub != null && !req.ed25519Pub.isBlank())
+                        ed = FriendCrypto.b64d(req.ed25519Pub);
+                    if (req.x25519Pub != null && !req.x25519Pub.isBlank())
+                        x = FriendCrypto.b64d(req.x25519Pub);
+                } catch (Exception ignored) {}
+                if (ed != null && x != null) {
+                    store.setPeerPublicKeys(channelIdentity, ed, x);
+                    try {
+                        store.setAuthSecret(channelIdentity, FriendCrypto.deriveSharedSecretHex(
+                                identityManager.getX25519Private(), x));
+                    } catch (Exception ignored) {}
+                }
+                if (store.isFriend(channelIdentity)) {
+                    int ackPort = req.port > 0 ? req.port : 0;
+                    FriendStore.FriendEntry existing = store.getFriend(channelIdentity);
+                    String ackIp = existing != null && existing.lastIp != null ? existing.lastIp : "";
+                    store.addFriend(channelIdentity,
+                            req.name != null ? req.name : channelIdentity, ackIp, ackPort);
+                    FriendChatClient client = getOrCreateClient(channelIdentity, ackIp, ackPort);
+                    if (client != null && client.isConnected()) {
+                        client.sendFriendAck(channelIdentity, true);
+                    } else if (client != null) {
+                        enqueuePending(channelIdentity,
+                                () -> client.sendFriendAck(channelIdentity, true));
                     }
+                } else {
+                    FriendIdentity peerId = FriendIdentity.parse(channelIdentity);
+                    FriendStore.FriendEntry existing = store.getFriend(channelIdentity);
+                    String reqIp = existing != null && existing.lastIp != null ? existing.lastIp : "";
+                    int peerPort = req.port > 0 ? req.port : 0;
+                    PendingRequest pending = new PendingRequest(peerId,
+                            req.name != null ? req.name : channelIdentity,
+                            reqIp, peerPort, null, ed, x);
+                    fireEvent(FriendEvent.Type.FRIEND_REQUEST_RECEIVED, pending);
                 }
             }
             case "friend_ack" -> {
                 FriendProtocol.FriendAck ack = FriendProtocol.FriendAck.fromJson(jsonLine);
-                if (ack.identity != null && !ack.identity.equals(myId)) {
-                    if (ack.accepted) {
-                        String ackIp = actualIp != null ? actualIp : "";
-                        int ackPort = ack.port > 0 ? ack.port : 0;
-                        store.addFriend(ack.identity, ack.name != null ? ack.name : ack.identity,
-                                ackIp, ackPort);
-                        if (ack.authSecret != null && !ack.authSecret.isBlank()) {
-                            store.setAuthSecret(ack.identity, ack.authSecret);
+                // Ack is from the peer on this channel (the one accepting/rejecting our request)
+                if (ack.accepted) {
+                    FriendStore.FriendEntry existing = store.getFriend(channelIdentity);
+                    String ackIp = existing != null && existing.lastIp != null ? existing.lastIp : "";
+                    int ackPort = ack.port > 0 ? ack.port : (existing != null ? existing.lastPort : 0);
+                    String name = ack.name != null ? ack.name
+                            : (existing != null ? existing.displayName : channelIdentity);
+                    store.addFriend(channelIdentity, name, ackIp, ackPort);
+                    try {
+                        if (ack.ed25519Pub != null && ack.x25519Pub != null) {
+                            byte[] ed = FriendCrypto.b64d(ack.ed25519Pub);
+                            byte[] x = FriendCrypto.b64d(ack.x25519Pub);
+                            store.setPeerPublicKeys(channelIdentity, ed, x);
+                            store.setAuthSecret(channelIdentity, FriendCrypto.deriveSharedSecretHex(
+                                    identityManager.getX25519Private(), x));
                         }
-                        fireEvent(FriendEvent.Type.FRIEND_ADDED, store.getFriend(ack.identity));
-                    } else {
-                        // 好友请求被拒绝
-                        System.err.println("[FriendManager] 好友请求被拒绝 (" + ack.identity + ")");
-                    }
+                    } catch (Exception ignored) {}
+                    fireEvent(FriendEvent.Type.FRIEND_ADDED, store.getFriend(channelIdentity));
+                } else {
+                    System.err.println("[FriendManager] 好友请求被拒绝 (" + channelIdentity + ")");
                 }
             }
             case "status" -> {
                 FriendProtocol.StatusMessage status = FriendProtocol.StatusMessage.fromJson(jsonLine);
-                // 识别发送者：优先用 from 字段，其次用 remoteIp（客户端路径）
-                String statusSenderId = null;
-                if (status.from != null && FriendIdentity.isValid(status.from)) {
-                    statusSenderId = FriendIdentity.parse(status.from).toString();
-                } else if (isIdentity) {
-                    statusSenderId = remoteIp;
-                }
-                if (statusSenderId != null && store.isFriend(statusSenderId)) {
-                    FriendStore.FriendEntry entry = store.getFriend(statusSenderId);
+                if (store.isFriend(channelIdentity)) {
+                    FriendStore.FriendEntry entry = store.getFriend(channelIdentity);
                     if (entry != null) {
-                        boolean changed = store.updateOnlineStatus(statusSenderId, status.online,
+                        boolean changed = store.updateOnlineStatus(channelIdentity, status.online,
                                 entry.lastIp, entry.lastPort);
                         if (changed) {
-                            fireEvent(status.online ? FriendEvent.Type.FRIEND_ONLINE : FriendEvent.Type.FRIEND_OFFLINE, entry);
+                            fireEvent(status.online ? FriendEvent.Type.FRIEND_ONLINE
+                                    : FriendEvent.Type.FRIEND_OFFLINE, entry);
                         }
                     }
                 }
             }
             case "call_invite" -> {
                 FriendProtocol.CallInvite invite = FriendProtocol.CallInvite.fromJson(jsonLine);
-                // 忽略来自自己的消息（回环）
-                if (invite.from != null && !invite.from.equals(myId)) {
-                    fireEvent(FriendEvent.Type.CALL_INVITE_RECEIVED, invite);
-                }
+                invite.from = channelIdentity;
+                fireEvent(FriendEvent.Type.CALL_INVITE_RECEIVED, invite);
             }
             case "call_accept" -> {
                 FriendProtocol.CallAccept accept = FriendProtocol.CallAccept.fromJson(jsonLine);
-                if (accept.from != null && !accept.from.equals(myId)) {
-                    fireEvent(FriendEvent.Type.CALL_ACCEPTED, accept);
-                }
+                accept.from = channelIdentity;
+                fireEvent(FriendEvent.Type.CALL_ACCEPTED, accept);
             }
             case "call_reject" -> {
                 FriendProtocol.CallReject reject = FriendProtocol.CallReject.fromJson(jsonLine);
-                if (reject.from != null && !reject.from.equals(myId)) {
-                    fireEvent(FriendEvent.Type.CALL_REJECTED, reject);
-                }
+                reject.from = channelIdentity;
+                fireEvent(FriendEvent.Type.CALL_REJECTED, reject);
             }
             case "call_end" -> {
                 FriendProtocol.CallEnd end = FriendProtocol.CallEnd.fromJson(jsonLine);
-                if (end.from != null && !end.from.equals(myId)) {
-                    fireEvent(FriendEvent.Type.CALL_ENDED, end);
-                }
+                end.from = channelIdentity;
+                fireEvent(FriendEvent.Type.CALL_ENDED, end);
             }
             case "call_ice" -> {
                 FriendProtocol.CallIceCandidate ice = FriendProtocol.CallIceCandidate.fromJson(jsonLine);
-                if (ice.from != null && !ice.from.equals(myId)) {
-                    fireEvent(FriendEvent.Type.CALL_ICE_CANDIDATE, ice);
-                }
+                ice.from = channelIdentity;
+                fireEvent(FriendEvent.Type.CALL_ICE_CANDIDATE, ice);
             }
         }
     }
 
-    private String findIdentityByIp(String ip) {
-        for (FriendStore.FriendEntry friend : store.getAllFriends()) {
-            if (ip.equals(friend.lastIp)) return friend.identity;
+    /**
+     * Derive AES-GCM media key for a video call with a friend (SRTP-like).
+     */
+    public byte[] deriveMediaKey(String peerIdentity, String callId) {
+        FriendSecureChannel.PeerStaticKeys peer = store.getPeerStaticKeys(peerIdentity);
+        if (peer == null || identityManager.getX25519Private() == null) {
+            throw new IllegalStateException("missing peer/local X25519 keys for media encryption");
         }
-        return null;
+        return FriendCrypto.deriveMediaKey(identityManager.getX25519Private(), peer.xPublic, callId);
     }
 
     private FriendChatClient getOrCreateClient(String identity, String ip, int port) {
@@ -812,9 +838,7 @@ public final class FriendManager implements AutoCloseable {
                     identityManager.getIdentity().toString(),
                     identityManager.getDisplayName());
             client.setMyChatPort(chatServer.getPort());
-            // 优先使用与好友交换的共享密钥；否则回退本机派生（回环/旧好友）
-            String shared = store.getAuthSecret(identity);
-            client.setAuthSecret(shared != null ? shared : identityManager.deriveSecret());
+            client.setCrypto(identityManager.asLocalIdentity(), store.getPeerStaticKeys(identity));
             setupClient(identity, client);
             activeClients.put(identity, client);
             result = client;

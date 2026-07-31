@@ -378,6 +378,13 @@ class LauncherViewModel {
     // ===== 模组加载器 =====
     private val _modLoaderVersions = MutableStateFlow<List<ModLoaderVersion>>(emptyList())
     val modLoaderVersions: StateFlow<List<ModLoaderVersion>> = _modLoaderVersions.asStateFlow()
+    private val _modLoaderVersionsLoading = MutableStateFlow(false)
+    val modLoaderVersionsLoading: StateFlow<Boolean> = _modLoaderVersionsLoading.asStateFlow()
+
+    fun clearModLoaderVersions() {
+        _modLoaderVersions.value = emptyList()
+        _modLoaderVersionsLoading.value = false
+    }
 
     // ===== 模组市场 / 已安装 =====
     // M29：方法见 LauncherViewModelMods.kt
@@ -588,6 +595,11 @@ class LauncherViewModel {
 
     @PublishedApi internal val _musicActivePlaylistId = MutableStateFlow("default")
     val musicActivePlaylistId: StateFlow<String> = _musicActivePlaylistId.asStateFlow()
+
+    /** H46: 播放列表加载代次，快速切换时丢弃过期结果 */
+    @PublishedApi internal val musicPlaylistLoadGen = java.util.concurrent.atomic.AtomicLong(0)
+    /** H46: 当前 playMusicAt 协程，切歌时取消上一次 */
+    @PublishedApi @Volatile internal var musicPlayJob: Job? = null
 
     fun setPerfHudVisible(v: Boolean) {
         preferences.setShowPerfHud(v)
@@ -1859,24 +1871,27 @@ class LauncherViewModel {
     fun listModLoaderVersions(loader: ModLoader, gameVersion: String) {
         val cacheKey = "modloader_${loader}_${gameVersion}"
         scope.launch {
-            // 先读缓存
-            val cached = withContext(Dispatchers.IO) {
-                DataCache.loadWithTimestamp(cacheKey, object : TypeToken<List<ModLoaderVersion>>() {})
-            }
-            if (cached != null) {
-                @Suppress("UNCHECKED_CAST")
-                val data = cached[0] as? List<ModLoaderVersion> ?: return@launch
-                val savedAt = cached[1] as? Long ?: return@launch
-                // 缓存存在且未过期（24h）：直接使用，不发起网络请求
-                if (!DataCache.isExpired(savedAt, 24 * 60 * 60 * 1000L)) {
-                    _modLoaderVersions.value = data
-                    _status.value = I18n.t("status.loader_versions_loaded_cache", data.size, loader)
-                    return@launch
-                }
-            }
-            // 缓存不存在/已过期：网络请求
-            _status.value = I18n.t("status.fetching_loader_versions", loader)
+            _modLoaderVersions.value = emptyList()
+            _modLoaderVersionsLoading.value = true
             try {
+                // 先读缓存
+                val cached = withContext(Dispatchers.IO) {
+                    DataCache.loadWithTimestamp(cacheKey, object : TypeToken<List<ModLoaderVersion>>() {})
+                }
+                if (cached != null) {
+                    @Suppress("UNCHECKED_CAST")
+                    val data = cached[0] as? List<ModLoaderVersion>
+                    val savedAt = cached[1] as? Long
+                    if (data != null && savedAt != null
+                        && !DataCache.isExpired(savedAt, 24 * 60 * 60 * 1000L)
+                    ) {
+                        _modLoaderVersions.value = data
+                        _status.value = I18n.t("status.loader_versions_loaded_cache", data.size, loader)
+                        return@launch
+                    }
+                }
+                // 缓存不存在/已过期：网络请求
+                _status.value = I18n.t("status.fetching_loader_versions", loader)
                 val list = withContext(Dispatchers.IO) {
                     core.modLoaders().get(loader).listVersions(gameVersion).join()
                 }
@@ -1884,7 +1899,10 @@ class LauncherViewModel {
                 _status.value = I18n.t("status.loader_versions_loaded", list.size, loader)
                 DataCache.save(cacheKey, list)
             } catch (e: Throwable) {
+                _modLoaderVersions.value = emptyList()
                 _status.value = I18n.t("status.fetch_failed", e.message ?: I18n.t("common.unknown"))
+            } finally {
+                _modLoaderVersionsLoading.value = false
             }
         }
     }
@@ -2559,39 +2577,63 @@ class LauncherViewModel {
         return com.pmcl.core.metal.MetalRenderInstaller.isAppleSiliconMac()
     }
 
-    /** 检查 MetalRender mod 是否已安装 */
+    /** 检查 MetalRender mod 是否已安装到当前选中版本的 mods 目录 */
     fun isMetalRenderInstalled(): Boolean {
-        return try { core.metalRender().isInstalled } catch (e: Throwable) { false }
+        return try {
+            val versionId = _selectedVersion.value
+            val lvi = _localVersionInfos.value.firstOrNull { it.getId() == versionId }
+            val gv = deriveGameVersion(lvi).ifBlank { null }
+            core.metalRender().isInstalled(versionId, gv)
+        } catch (e: Throwable) {
+            false
+        }
+    }
+
+    /** MetalRender 当前公开支持的 MC 版本（供设置页展示） */
+    fun metalRenderSupportedVersions(): List<String> {
+        return try {
+            core.metalRender().supportedGameVersions()
+        } catch (e: Throwable) {
+            listOf("1.21.8", "1.21.9", "1.21.10")
+        }
     }
 
     /**
      * 切换 Metal 渲染开关。
-     * - 开启：从 Modrinth 下载 MetalRender + Sodium + Fabric API + ModMenu 到 mods 目录
-     * - 关闭：从 mods 目录删除上述 mod
+     * - 开启：从 Modrinth 下载 MetalRender + Sodium + Fabric API + ModMenu
+     *   到当前选中版本对应的 mods 目录（与启动 gameDir/mods 对齐）
+     * - 关闭：仅卸载 MetalRender 本体（保留 Sodium 等整合包原有依赖）
      *
      * 使用乐观更新：先更新 UI 状态，安装/卸载成功后持久化到 preferences；
      * 失败时回滚 UI 状态，不修改 preferences，避免 UI 与持久化状态不一致。
      *
-     * @param gameVersion 目标 MC 版本（从当前选中版本取）
-     * @param loader      加载器（默认 fabric）
+     * @param versionIdHint 选中的本地版本 ID（非 MC 版本号）；实际 MC 版本与 loader 由 inheritsFrom 推导
      */
-    fun toggleMetalRender(gameVersion: String?, loader: String = "fabric") {
+    fun toggleMetalRender(versionIdHint: String? = null, loader: String = "fabric") {
         val enable = !preferences.isMetalRenderEnabled()
         // 乐观更新 UI 状态
         _metalRenderEnabled.value = enable
         scope.launch {
             try {
+                val versionId = versionIdHint ?: _selectedVersion.value
+                val lvi = _localVersionInfos.value.firstOrNull { it.getId() == versionId }
+                val gv = deriveGameVersion(lvi).ifBlank { null }
+                val resolvedLoader = deriveLoader(lvi).ifBlank { "" }
+
                 if (enable) {
-                    val gv = gameVersion ?: _selectedVersion.value
-                    if (gv.isNullOrEmpty()) {
+                    if (versionId.isNullOrEmpty() || gv.isNullOrEmpty()) {
                         _status.value = I18n.t("metal.no_version_selected")
-                        // 无版本选择也算失败，回滚
+                        _metalRenderEnabled.value = !enable
+                        return@launch
+                    }
+                    if (!resolvedLoader.equals("fabric", ignoreCase = true)) {
+                        _status.value = I18n.t("metal.need_fabric", resolvedLoader.ifBlank { I18n.t("common.unknown") })
                         _metalRenderEnabled.value = !enable
                         return@launch
                     }
                     _status.value = I18n.t("metal.installing")
                     withContext(Dispatchers.IO) {
-                        core.metalRender().install(gv, loader) { progress ->
+                        core.metalRender().install(versionId, gv, "fabric") { progress ->
                             _status.value = I18n.t("metal.downloading", progress)
                         }
                     }
@@ -2599,7 +2641,9 @@ class LauncherViewModel {
                     _status.value = I18n.t("metal.install_success")
                 } else {
                     _status.value = I18n.t("metal.uninstalling")
-                    val deleted = withContext(Dispatchers.IO) { core.metalRender().uninstall() }
+                    val deleted = withContext(Dispatchers.IO) {
+                        core.metalRender().uninstall(versionId, gv)
+                    }
                     preferences.setMetalRenderEnabled(false)
                     _status.value = I18n.t("metal.uninstall_success", deleted.size)
                 }

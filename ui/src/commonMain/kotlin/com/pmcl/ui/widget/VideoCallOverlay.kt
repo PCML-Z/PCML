@@ -22,7 +22,9 @@ import com.pmcl.ui.theme.glassCardBorder
 import com.pmcl.ui.theme.glassCardColors
 import com.pmcl.ui.theme.glassCardElevation
 import com.pmcl.video.VideoCallSession
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import org.jetbrains.skia.Image as SkiaImage
 import java.awt.image.BufferedImage
 import java.io.ByteArrayOutputStream
@@ -55,7 +57,7 @@ private fun BufferedImage.toImageBitmap(): androidx.compose.ui.graphics.ImageBit
 
 /**
  * 视频通话浮层：显示远端/本地视频画面、通话状态、控制按钮。
- * 视频渲染使用 Compose Image 直接绘制 BufferedImage。
+ * H52: ImageBitmap 在后台转换并缓存，避免 composition 每帧重复编码。
  */
 @Composable
 fun VideoCallOverlay(
@@ -72,6 +74,9 @@ fun VideoCallOverlay(
     // 视频帧状态（通过 CallListener 回调更新）
     var remoteFrame by remember { mutableStateOf<BufferedImage?>(null) }
     var localFrame by remember { mutableStateOf<BufferedImage?>(null) }
+    // H52: 缓存转换结果，composition 直接绘制
+    var remoteBitmap by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
+    var localBitmap by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
     // session.state 非可观察属性，需镜像到 Compose State 才能驱动重组
     var callState by remember { mutableStateOf(session.state) }
 
@@ -101,6 +106,24 @@ fun VideoCallOverlay(
         }
     }
 
+    // H52: 新帧到达时在 Default 调度器转换一次，避免主线程/composition 重复编码
+    LaunchedEffect(remoteFrame) {
+        val img = remoteFrame
+        if (img == null) {
+            remoteBitmap = null
+        } else {
+            remoteBitmap = withContext(Dispatchers.Default) { img.toImageBitmap() }
+        }
+    }
+    LaunchedEffect(localFrame) {
+        val img = localFrame
+        if (img == null) {
+            localBitmap = null
+        } else {
+            localBitmap = withContext(Dispatchers.Default) { img.toImageBitmap() }
+        }
+    }
+
     // 通话计时：以 callState 为 key，状态变化时重启
     LaunchedEffect(callState) {
         if (callState == VideoCallSession.State.IN_CALL) {
@@ -118,8 +141,7 @@ fun VideoCallOverlay(
             .background(Color.Black)
     ) {
         // 远端视频画面（全屏）
-        remoteFrame?.let { img ->
-            val bitmap = remember(img) { img.toImageBitmap() }
+        remoteBitmap?.let { bitmap ->
             androidx.compose.foundation.Image(
                 bitmap = bitmap,
                 contentDescription = null,
@@ -155,8 +177,7 @@ fun VideoCallOverlay(
 
         // 本地视频预览（右上角小窗）
         if (isCameraOn) {
-            localFrame?.let { img ->
-                val bitmap = remember(img) { img.toImageBitmap() }
+            localBitmap?.let { bitmap ->
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)

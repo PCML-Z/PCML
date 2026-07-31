@@ -30,15 +30,15 @@ public final class Preferences {
     private boolean dynamicColor = false; // 莫奈取色：主题颜色跟随桌面壁纸
     private int customAccentColor = -1;   // 自定义强调色 ARGB，-1 表示未设置（使用默认配色）
     private int monetSeedColor = -1;      // 莫奈取色最后成功的种子色，启动时立即应用避免截图污染
-    private boolean borderlessWindow = false; // 无边框窗口模式（自定义标题栏）
+    private boolean borderlessWindow = true; // 无边框窗口模式（自定义标题栏）
     private boolean showPerfHud = false;      // 是否显示性能 HUD 浮窗（半透明置顶小窗）
     private String perfHudMetrics = "CPU,MEM,GPU,FPS"; // HUD 显示的指标，逗号分隔
     private float uiScale = 1.0f;             // UI 缩放系数（0.8~1.5），1.0 = 默认大小
-    private boolean parallaxBackground = false; // 视差背景主题：多层鼠标视差背景图
+    private boolean parallaxBackground = true; // 视差背景主题：多层鼠标视差背景图
     private String launcherBgType = "none";     // 启动器自定义背景：none/image/video（优先级高于视差背景）
     private String launcherBgImagePath = "";    // 自定义背景图片路径
     private String launcherBgVideoPath = "";    // 自定义背景视频路径
-    private boolean glassTheme = false;         // 玻璃主题：卡片毛玻璃效果
+    private boolean glassTheme = true;          // 玻璃主题：卡片毛玻璃效果
     private boolean lockscreenLaunchTheme = false; // 锁屏启动页主题：Origin OS2 风格方形卡片启动页
     private String themePreset = "default";        // 主题色彩预设：default/ocean/forest/sunset/lavender/sakura/midnight
     private String colorMode = "normal";           // 色彩模式：normal/amoled/high_contrast/soft
@@ -825,13 +825,13 @@ public final class Preferences {
             useDarkTheme = loadBool(o, "useDarkTheme", false);
             dynamicColor = loadBool(o, "dynamicColor", false);
             predictiveLaunch = loadBool(o, "predictiveLaunch", true);
-            borderlessWindow = loadBool(o, "borderlessWindow", false);
+            borderlessWindow = loadBool(o, "borderlessWindow", true);
             showPerfHud = loadBool(o, "showPerfHud", false);
-            parallaxBackground = loadBool(o, "parallaxBackground", false);
+            parallaxBackground = loadBool(o, "parallaxBackground", true);
             launcherBgType = loadString(o, "launcherBgType", "none");
             launcherBgImagePath = loadString(o, "launcherBgImagePath", "");
             launcherBgVideoPath = loadString(o, "launcherBgVideoPath", "");
-            glassTheme = loadBool(o, "glassTheme", false);
+            glassTheme = loadBool(o, "glassTheme", true);
             lockscreenLaunchTheme = loadBool(o, "lockscreenLaunchTheme", false);
             themePreset = loadString(o, "themePreset", "default");
             colorMode = loadString(o, "colorMode", "normal");
@@ -1075,16 +1075,20 @@ public final class Preferences {
      */
     protected synchronized void scheduleSave() {
         dirty = true;
-        // 若有待执行或正在执行的防抖任务，不重复调度；
-        // doSave 完成后会重新检查 dirty 并在需要时再次调度，避免漏写。
+        // 若仅有已完成的任务，或尚无任务，则调度；正在执行的 doSave 结束后会再检查 dirty。
         if (pendingSave == null || pendingSave.isDone()) {
-            pendingSave = saveExecutor.schedule(this::doSave, SAVE_DEBOUNCE_MS, java.util.concurrent.TimeUnit.MILLISECONDS);
+            try {
+                pendingSave = saveExecutor.schedule(this::doSave, SAVE_DEBOUNCE_MS, java.util.concurrent.TimeUnit.MILLISECONDS);
+            } catch (java.util.concurrent.RejectedExecutionException e) {
+                // H29: shutdown 期间忽略，flush/shutdown 会落盘
+            }
         }
     }
 
     /** 后台线程执行的实际写盘操作，在 synchronized 块内构建 JSON 快照后异步写盘。
      *  采用 tmp + ATOMIC_MOVE 原子写入，防止崩溃导致配置文件损坏。
-     *  M13 修复：磁盘写入通过 writeSnapshot() 在锁外执行，不阻塞 getter/setter。 */
+     *  M13 修复：磁盘写入通过 writeSnapshot() 在锁外执行，不阻塞 getter/setter。
+     *  C14：写盘期间 setter 置 dirty 时，结束后无条件再调度一轮，避免 pendingSave 未 done 导致漏写。 */
     private void doSave() {
         JsonObject snapshot;
         synchronized (this) {
@@ -1096,11 +1100,16 @@ public final class Preferences {
         synchronized (diskWriteLock) {
             ok = writeSnapshot(snapshot);
         }
-        // 写盘失败：重新标记 dirty 并稍后重试，避免静默丢设置
         synchronized (this) {
             if (!ok) dirty = true;
-            if (dirty && (pendingSave == null || pendingSave.isDone())) {
-                pendingSave = saveExecutor.schedule(this::doSave, SAVE_DEBOUNCE_MS, java.util.concurrent.TimeUnit.MILLISECONDS);
+            // C14: 无论 pendingSave 是否仍指向本任务，只要 dirty 就再调度
+            if (dirty) {
+                try {
+                    pendingSave = saveExecutor.schedule(this::doSave, SAVE_DEBOUNCE_MS,
+                            java.util.concurrent.TimeUnit.MILLISECONDS);
+                } catch (java.util.concurrent.RejectedExecutionException e) {
+                    // shutdown 中：留给 flush
+                }
             }
         }
     }
@@ -1322,7 +1331,11 @@ public final class Preferences {
      * 调用前会先 flush 确保所有待写入数据落盘。
      */
     public void shutdown() {
-        flush();
+        try {
+            flush();
+        } catch (Throwable t) {
+            System.err.println("[Preferences] flush during shutdown failed: " + t.getMessage());
+        }
         saveExecutor.shutdown();
         try {
             if (!saveExecutor.awaitTermination(3, java.util.concurrent.TimeUnit.SECONDS)) {
@@ -1331,6 +1344,8 @@ public final class Preferences {
         } catch (InterruptedException e) {
             saveExecutor.shutdownNow();
             Thread.currentThread().interrupt();
+        } catch (java.util.concurrent.RejectedExecutionException e) {
+            // H29: already shutting down
         }
     }
 

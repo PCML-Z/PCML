@@ -265,35 +265,13 @@ public final class GitHubReleaseSyncChecker implements AutoCloseable {
                     + name + "），SelfUpdater 将拒绝安装。请在 GitHub Release 启用 asset digests。");
             return null;
         }
-        return new SelfUpdater.UpdateInfo(version, url, "", sha256, size, notes);
+        return new SelfUpdater.UpdateInfo(version, url, "", sha256, size, notes, null,
+                SelfUpdater.TrustedChannel.GITHUB_RELEASE);
     }
 
-    /**
-     * 简单的版本比较：按点分段比较数字大小。
-     * 例: "1.0.1" > "1.0.0", "1.1.0" > "1.0.9"
-     */
+    /** @see UpdateVersions#isNewer */
     private static boolean isNewer(String remote, String current) {
-        if (remote.equals(current)) return false;
-        String[] r = remote.split("\\.");
-        String[] c = current.split("\\.");
-        int len = Math.max(r.length, c.length);
-        for (int i = 0; i < len; i++) {
-            int ri = i < r.length ? parseIntSafe(r[i]) : 0;
-            int ci = i < c.length ? parseIntSafe(c[i]) : 0;
-            if (ri > ci) return true;
-            if (ri < ci) return false;
-        }
-        return false; // 完全相等
-    }
-
-    private static int parseIntSafe(String s) {
-        try {
-            // 去掉可能的后缀（如 1.0.0-beta → 0）
-            String num = s.replaceAll("[^0-9].*$", "");
-            return num.isEmpty() ? 0 : Integer.parseInt(num);
-        } catch (NumberFormatException e) {
-            return 0;
-        }
+        return UpdateVersions.isNewer(remote, current);
     }
 
     // -------------------------------------------------------------------------

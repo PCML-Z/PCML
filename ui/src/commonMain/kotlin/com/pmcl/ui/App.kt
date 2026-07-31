@@ -833,7 +833,7 @@ private fun MainWindowContent(vm: LauncherViewModel) {
     // 放在全局层级，无论用户在哪个页面安装游戏都会触发弹窗，且避免多页面重复弹窗
     val preInstallEvent by vm.preInstallEvent.collectAsState()
     preInstallEvent?.let { ev ->
-        com.pmcl.ui.page.ModLoaderInstallPromptDialog(
+        com.pmcl.ui.modloader.ModLoaderInstallPromptDialog(
             versionId = ev.versionId,
             vm = vm,
             onDismiss = { vm.clearPreInstallEvent() }

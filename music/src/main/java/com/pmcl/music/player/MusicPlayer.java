@@ -49,6 +49,11 @@ public class MusicPlayer {
     private volatile boolean seekRequested;
     private volatile long seekTargetMs;
 
+    /** H51: 播放代次，stop/play 竞态时旧线程不得更新状态或写音频 */
+    private final java.util.concurrent.atomic.AtomicLong playGeneration =
+            new java.util.concurrent.atomic.AtomicLong(0);
+    private final Object playLock = new Object();
+
     /** 进度通知限频：上次通知的墙钟时间戳（ms） */
     private volatile long lastNotifyWallMs;
 
@@ -102,29 +107,33 @@ public class MusicPlayer {
      * @param durationMs 时长（ms），未知传 0
      */
     public void play(String url, Map<String, String> headers, long durationMs) {
-        // 先清理旧播放
-        stop();
+        final long gen;
+        synchronized (playLock) {
+            // 先清理旧播放
+            stopUnlocked();
+            gen = playGeneration.incrementAndGet();
 
-        // 远程 URL 禁止打内网；本地路径允许（FFmpeg 本地文件）
-        if (url != null && (url.startsWith("http://") || url.startsWith("https://"))) {
-            String err = SsrfChecker.validate(url);
-            if (err != null) {
-                setState(PlaybackState.ERROR);
-                notifyError("Unsafe audio URL: " + err);
-                return;
+            // 远程 URL 禁止打内网；本地路径允许（FFmpeg 本地文件）
+            if (url != null && (url.startsWith("http://") || url.startsWith("https://"))) {
+                String err = SsrfChecker.validate(url);
+                if (err != null) {
+                    setState(PlaybackState.ERROR);
+                    notifyError("Unsafe audio URL: " + err);
+                    return;
+                }
             }
+
+            setState(PlaybackState.LOADING);
+            currentUrl = url;
+            currentHeaders = headers;
+            this.durationMs = durationMs;
+            lastNotifyWallMs = 0L;
+
+            Thread t = new Thread(() -> playbackLoop(gen), "MusicPlayer-Play");
+            t.setDaemon(true);
+            t.start();
+            playThread = t;
         }
-
-        setState(PlaybackState.LOADING);
-        currentUrl = url;
-        currentHeaders = headers;
-        this.durationMs = durationMs;
-        lastNotifyWallMs = 0L;
-
-        Thread t = new Thread(this::playbackLoop, "MusicPlayer-Play");
-        t.setDaemon(true);
-        t.start();
-        playThread = t;
     }
 
     public void pause() {
@@ -148,6 +157,13 @@ public class MusicPlayer {
     }
 
     public void stop() {
+        synchronized (playLock) {
+            stopUnlocked();
+        }
+    }
+
+    private void stopUnlocked() {
+        playGeneration.incrementAndGet();
         Thread t = playThread;
         state = PlaybackState.STOPPED;
         if (t != null) {
@@ -173,7 +189,8 @@ public class MusicPlayer {
     // 播放循环（运行在播放线程中）
     // ---------------------------------------------------------------------------
 
-    private void playbackLoop() {
+    private void playbackLoop(long gen) {
+        if (gen != playGeneration.get()) return;
         String url = currentUrl;
         Map<String, String> headers = currentHeaders;
         try {
@@ -183,6 +200,11 @@ public class MusicPlayer {
                 if (headers != null && !headers.isEmpty()) {
                     g.setOption("headers", buildHeaderString(headers));
                 }
+                // H49: 禁止 FFmpeg 跟随重定向到未校验地址（SSRF）
+                if (url != null && (url.startsWith("http://") || url.startsWith("https://"))) {
+                    g.setOption("http_max_redirects", "0");
+                    g.setOption("protocol_whitelist", "file,http,https,tcp,tls,crypto");
+                }
                 // 网络重连 / 优化参数
                 g.setOption("reconnect", "1");
                 g.setOption("reconnect_streamed", "1");
@@ -191,6 +213,11 @@ public class MusicPlayer {
                 // 强制 16-bit PCM 输出
                 g.setSampleFormat(avutil.AV_SAMPLE_FMT_S16);
                 g.start();
+                if (gen != playGeneration.get()) {
+                    try { g.stop(); } catch (Throwable ignored) {}
+                    try { g.close(); } catch (Throwable ignored) {}
+                    return;
+                }
                 grabber = g;
             } catch (Throwable e) {
                 try { g.stop(); } catch (Throwable ignored) {}
@@ -209,12 +236,17 @@ public class MusicPlayer {
             int bufferSize = 4096 * channels * 2;
             l.open(format, bufferSize);
             l.start();
+            if (gen != playGeneration.get()) {
+                try { l.stop(); l.close(); } catch (Throwable ignored) {}
+                return;
+            }
             line = l;
 
             setState(PlaybackState.PLAYING);
 
             // 主播放循环
             while (!Thread.currentThread().isInterrupted() && state != PlaybackState.STOPPED
+                   && gen == playGeneration.get()
                    && Thread.currentThread() == playThread) {
                 // seek 处理
                 if (seekRequested) {
@@ -254,17 +286,20 @@ public class MusicPlayer {
             }
 
             // 正常结束
-            if (state != PlaybackState.STOPPED && state != PlaybackState.ERROR) {
+            if (gen == playGeneration.get()
+                    && state != PlaybackState.STOPPED && state != PlaybackState.ERROR) {
                 setState(PlaybackState.ENDED);
                 notifyEnded();
             }
         } catch (Throwable e) {
-            if (state != PlaybackState.STOPPED) {
+            if (gen == playGeneration.get() && state != PlaybackState.STOPPED) {
                 setState(PlaybackState.ERROR);
                 notifyError(e.getMessage() != null ? e.getMessage() : e.toString());
             }
         } finally {
-            cleanup();
+            if (gen == playGeneration.get()) {
+                cleanup();
+            }
         }
     }
 

@@ -42,9 +42,34 @@ public final class InstanceManager {
         return config.getWorkDir().resolve("instances");
     }
 
-    /** 获取指定实例的目录路径 */
+    /** 获取指定实例的目录路径（校验 instanceId，防路径穿越） */
     public Path getInstanceDir(String instanceId) {
-        return getInstancesDir().resolve(instanceId);
+        return resolveSafeInstanceDir(instanceId);
+    }
+
+    /**
+     * 校验并解析实例目录：仅允许单层安全 ID，拒绝 {@code ..} / 分隔符 / 越界。
+     */
+    public Path resolveSafeInstanceDir(String instanceId) {
+        requireSafeInstanceId(instanceId);
+        Path base = getInstancesDir().toAbsolutePath().normalize();
+        Path dir = base.resolve(instanceId).normalize();
+        if (!dir.startsWith(base)) {
+            throw new IllegalArgumentException("instance path escapes instances dir: " + instanceId);
+        }
+        return dir;
+    }
+
+    /** @throws IllegalArgumentException 若 instanceId 非法 */
+    public static void requireSafeInstanceId(String instanceId) {
+        if (instanceId == null || instanceId.isBlank()) {
+            throw new IllegalArgumentException("instanceId is blank");
+        }
+        if (instanceId.contains("..") || instanceId.contains("/") || instanceId.contains("\\")
+                || instanceId.indexOf('\0') >= 0
+                || !instanceId.matches("[A-Za-z0-9._\\-]{1,128}")) {
+            throw new IllegalArgumentException("illegal instanceId: " + instanceId);
+        }
     }
 
     /**

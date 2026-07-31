@@ -22,7 +22,9 @@ import java.util.regex.Pattern;
  * <p>
  * 邀请码格式：
  * <ul>
- *   <li>EasyTier: {@code pmcl-<Base64URL(networkName|networkSecret|peer)>}</li>
+ *   <li>EasyTier v2: {@code pmcl2-<Base64URL(networkName|inviteToken|peer)>}
+ *       — network secret is HKDF-derived from the token (raw secret not embedded)</li>
+ *   <li>EasyTier legacy: {@code pmcl-<Base64URL(networkName|networkSecret|peer)>}</li>
  *   <li>ConnectX: {@code connectx-<Base64URL(serverAddr|port|roomShortId)>}</li>
  * </ul>
  * 状态机：{@code IDLE → DOWNLOADING → CONNECTING → CONNECTED}，任意状态可回到 {@code DISCONNECTED}。
@@ -34,7 +36,13 @@ public final class MultiplayerManager {
 
     /** 邀请码前缀 */
     private static final String INVITE_PREFIX_EASYTIER = "pmcl-";
+    /** EasyTier v2：invite 携带 HKDF 输入 token，不嵌入明文 network_secret */
+    private static final String INVITE_PREFIX_EASYTIER_V2 = "pmcl2-";
     private static final String INVITE_PREFIX_CONNECTX = "connectx-";
+    private static final byte[] EASYTIER_INVITE_SALT =
+            "pmcl-easytier-invite-v1".getBytes(StandardCharsets.UTF_8);
+    private static final byte[] EASYTIER_INVITE_INFO =
+            "network-secret".getBytes(StandardCharsets.UTF_8);
     /** 从 easytier-core 日志中提取虚拟 IPv4 的正则 */
     private static final Pattern IPV4_PATTERN =
             Pattern.compile("(\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3})");
@@ -48,6 +56,8 @@ public final class MultiplayerManager {
     private volatile String virtualIp = "";
     private volatile String currentNetworkName = "";
     private volatile String currentNetworkSecret = "";
+    /** Opaque invite token (v2); secret is HKDF(token). Empty for legacy joins. */
+    private volatile String currentInviteToken = "";
     private volatile String currentPeer = "";
     private volatile String currentRoomShortId = "";
     /** Terracotta 房间码 U/XXXX-XXXX-XXXX-XXXX */
@@ -145,7 +155,11 @@ public final class MultiplayerManager {
             return CompletableFuture.failedFuture(new IllegalStateException("已在房间中或正在连接，请先离开"));
         }
         currentNetworkName = "pmcl-" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
-        currentNetworkSecret = UUID.randomUUID().toString().replace("-", "").substring(0, 24);
+        // H16: room secret derived via HKDF from a random invite token (token goes in share code)
+        byte[] token = new byte[32];
+        new java.security.SecureRandom().nextBytes(token);
+        currentInviteToken = Base64.getUrlEncoder().withoutPadding().encodeToString(token);
+        currentNetworkSecret = deriveEasyTierSecret(token);
         currentPeer = EasyTierManager.PUBLIC_PEER;
         return startEasyTier(onProgress);
     }
@@ -176,6 +190,7 @@ public final class MultiplayerManager {
             currentNetworkName = parts[0];
             currentNetworkSecret = parts[1];
             currentPeer = parts[2];
+            currentInviteToken = parts.length >= 4 ? parts[3] : "";
             if (currentPeer.isEmpty()) currentPeer = EasyTierManager.PUBLIC_PEER;
         } catch (Exception e) {
             return CompletableFuture.failedFuture(new IllegalArgumentException("邀请码格式无效：" + e.getMessage(), e));
@@ -238,6 +253,7 @@ public final class MultiplayerManager {
         currentRoomShortId = "";
         currentRoomCode = "";
         localMcAddr = "";
+        currentInviteToken = "";
         if (cleanupOk) {
             state = State.DISCONNECTED;
             lastError = "";
@@ -267,10 +283,25 @@ public final class MultiplayerManager {
         if (currentNetworkName.isEmpty() || currentNetworkSecret.isEmpty()) {
             return "";
         }
+        // Prefer v2: share token only; peers derive network_secret via HKDF
+        if (currentInviteToken != null && !currentInviteToken.isEmpty()) {
+            String raw = currentNetworkName + "|" + currentInviteToken + "|" + currentPeer;
+            String b64 = Base64.getUrlEncoder().withoutPadding()
+                    .encodeToString(raw.getBytes(StandardCharsets.UTF_8));
+            return INVITE_PREFIX_EASYTIER_V2 + b64;
+        }
+        // Legacy fallback (joined via old invite): still emit v1 so peers can join
         String raw = currentNetworkName + "|" + currentNetworkSecret + "|" + currentPeer;
         String b64 = Base64.getUrlEncoder().withoutPadding()
                 .encodeToString(raw.getBytes(StandardCharsets.UTF_8));
         return INVITE_PREFIX_EASYTIER + b64;
+    }
+
+    /** HKDF-SHA256 → Base64URL network secret for EasyTier. */
+    static String deriveEasyTierSecret(byte[] inviteToken) {
+        byte[] okm = com.pmcl.core.friend.FriendCrypto.hkdf(
+                inviteToken, EASYTIER_INVITE_SALT, EASYTIER_INVITE_INFO, 32);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(okm);
     }
 
     // ============ Terracotta 后端 ============
@@ -300,10 +331,22 @@ public final class MultiplayerManager {
                         + "\n3. 让朋友在另一台设备上输入此房间码加入");
                 })
                 .exceptionally(e -> {
+                    Throwable root = e;
+                    boolean scanningTimeout = false;
+                    for (Throwable t = e; t != null; t = t.getCause()) {
+                        root = t;
+                        if (t instanceof TerracottaManager.HostScanningTimeoutException) {
+                            scanningTimeout = true;
+                            break;
+                        }
+                    }
                     state = State.FAILED;
-                    lastError = e.getCause() != null ? e.getCause().getMessage() : e.getMessage();
-                    try { terracotta.stop(); } catch (Throwable ignored) {}
-                    return failFuture(e);
+                    lastError = root.getMessage() != null ? root.getMessage() : root.toString();
+                    // host-scanning 超时：保留 daemon 继续扫，方便用户开局域网后重试续等
+                    if (!scanningTimeout) {
+                        try { terracotta.stop(); } catch (Throwable ignored) {}
+                    }
+                    return failFuture(root);
                 });
     }
 
@@ -604,12 +647,20 @@ public final class MultiplayerManager {
         }
     }
 
-    /** 解析 EasyTier 邀请码为 [networkName, networkSecret, peer] */
+    /**
+     * 解析 EasyTier 邀请码为 [networkName, networkSecret, peer, inviteToken?].
+     * v2 ({@code pmcl2-}) embeds an opaque token; secret is HKDF-derived.
+     * Legacy ({@code pmcl-}) still embeds plaintext secret for compatibility.
+     */
     public static String[] parseEasyTierInvitation(String code) {
         if (code == null) throw new IllegalArgumentException("邀请码为空");
         String trimmed = code.trim();
         String b64;
-        if (trimmed.startsWith(INVITE_PREFIX_EASYTIER)) {
+        boolean v2 = false;
+        if (trimmed.startsWith(INVITE_PREFIX_EASYTIER_V2)) {
+            b64 = trimmed.substring(INVITE_PREFIX_EASYTIER_V2.length());
+            v2 = true;
+        } else if (trimmed.startsWith(INVITE_PREFIX_EASYTIER)) {
             b64 = trimmed.substring(INVITE_PREFIX_EASYTIER.length());
         } else if (trimmed.startsWith(INVITE_PREFIX_CONNECTX)) {
             return parseConnectXInvitation(trimmed);
@@ -628,12 +679,24 @@ public final class MultiplayerManager {
             throw new IllegalArgumentException("邀请码内容不完整");
         }
         String name = parts[0];
-        String secret = parts[1];
         String peer = parts.length >= 3 ? parts[2] : "";
-        if (name.isEmpty() || secret.isEmpty()) {
+        if (name.isEmpty()) {
+            throw new IllegalArgumentException("网络名为空");
+        }
+        if (v2) {
+            String tokenB64 = parts[1];
+            if (tokenB64.isEmpty()) {
+                throw new IllegalArgumentException("邀请令牌为空");
+            }
+            byte[] token = Base64.getUrlDecoder().decode(tokenB64);
+            String secret = deriveEasyTierSecret(token);
+            return new String[]{name, secret, peer, tokenB64};
+        }
+        String secret = parts[1];
+        if (secret.isEmpty()) {
             throw new IllegalArgumentException("网络名或密钥为空");
         }
-        return new String[]{name, secret, peer};
+        return new String[]{name, secret, peer, ""};
     }
 
     /** 兼容旧 API */

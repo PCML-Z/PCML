@@ -51,7 +51,9 @@ fun AnimatedSegmentedSelector(
     if (items.isEmpty()) return
 
     val density = LocalDensity.current
-    val safeIndex = selectedIndex.coerceIn(0, items.lastIndex)
+    // selectedIndex < 0 表示未选中（避免 coerce 成 0 造成「看起来已选但实际未选」）
+    val hasSelection = selectedIndex in items.indices
+    val safeIndex = if (hasSelection) selectedIndex else 0
     val itemWidths = remember(items.size) { mutableStateListOf<Float>().apply { repeat(items.size) { add(0f) } } }
     var containerWidth by remember { mutableStateOf(0f) }
     val scrollState = rememberScrollState()
@@ -62,7 +64,10 @@ fun AnimatedSegmentedSelector(
     // 计算选中项的 x 偏移和宽度
     val targetOffset: Float
     val targetWidth: Float
-    if (fillWidth && containerWidth > 0f) {
+    if (!hasSelection) {
+        targetOffset = 0f
+        targetWidth = 0f
+    } else if (fillWidth && containerWidth > 0f) {
         val perWidth = containerWidth / items.size
         targetOffset = perWidth * safeIndex + padPx
         targetWidth = perWidth - padPx * 2
@@ -117,7 +122,7 @@ fun AnimatedSegmentedSelector(
         }
         Row(modifier = rowModifier) {
             items.forEachIndexed { i, label ->
-                val isSelected = i == safeIndex
+                val isSelected = hasSelection && i == safeIndex
                 // 自适应模式下不能用 weight(0f)（会抛异常），改用 wrapContentWidth
                 val itemModifier = if (fillWidth && !scrollable) {
                     Modifier.weight(1f)

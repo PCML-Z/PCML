@@ -443,6 +443,11 @@ public final class ChunkedDownloader {
                 if (resp.code() != 206) {
                     throw new IOException("降级下载分片 " + i + " code=" + resp.code());
                 }
+                String contentRange = resp.header("Content-Range");
+                if (!DownloadManager.contentRangeMatches(contentRange, resumeFrom)) {
+                    throw new IOException("降级分片 " + i + " Content-Range 不匹配: " + contentRange
+                            + " (expected start=" + resumeFrom + ")");
+                }
                 if (resp.body() == null) throw new IOException("响应体为空: " + url);
                 try (var in = resp.body().byteStream();
                      RandomAccessFile raf = new RandomAccessFile(partFile.toFile(), "rw")) {
@@ -509,6 +514,11 @@ public final class ChunkedDownloader {
             }
             if (resp.code() != 206) {
                 throw new IOException("分片 " + idx + " code=" + resp.code());
+            }
+            String contentRange = resp.header("Content-Range");
+            if (!DownloadManager.contentRangeMatches(contentRange, start)) {
+                throw new IOException("分片 " + idx + " Content-Range 不匹配: " + contentRange
+                        + " (expected start=" + start + ")");
             }
             if (resp.body() == null) throw new IOException("响应体为空: " + url);
             long expected = end - start + 1;

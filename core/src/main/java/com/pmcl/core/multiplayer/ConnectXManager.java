@@ -9,7 +9,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.UUID;
+import java.security.MessageDigest;
+import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
@@ -33,6 +34,12 @@ public final class ConnectXManager {
 
     /** 默认 ConnectX 服务器端口 */
     public static final int DEFAULT_PORT = 3535;
+
+    /**
+     * Expected SHA-256 of ConnectX.ClientConsole (lowercase hex).
+     * Set via {@code -Dpmcl.connectx.sha256=<hex>} or a sidecar {@code <binary>.sha256} file.
+     */
+    public static final String SHA256_PROPERTY = "pmcl.connectx.sha256";
 
     /** 从日志中提取 IPv4 的正则 */
     private static final Pattern IPV4_PATTERN =
@@ -96,6 +103,12 @@ public final class ConnectXManager {
         } catch (IOException e) {
             return CompletableFuture.failedFuture(
                     new IllegalStateException("ConnectX 二进制权限加固失败：" + e.getMessage(), e));
+        }
+        try {
+            verifyBinarySha256(bin);
+        } catch (IOException e) {
+            return CompletableFuture.failedFuture(
+                    new IllegalStateException("ConnectX 二进制完整性校验失败：" + e.getMessage(), e));
         }
 
         return CompletableFuture.supplyAsync(() -> {
@@ -275,6 +288,85 @@ public final class ConnectXManager {
     }
 
     // ============ 内部 ============
+
+    /**
+     * Verify binary SHA-256 before execute.
+     * Expected digest from {@link #SHA256_PROPERTY} or {@code <path>.sha256} sidecar
+     * (first whitespace-delimited token, lowercase hex). If neither is set, pin the hash
+     * under {@code ~/.pmcl/connectx/} and refuse silent replacement on later starts.
+     */
+    void verifyBinarySha256(Path bin) throws IOException {
+        String expected = System.getProperty(SHA256_PROPERTY);
+        if (expected == null || expected.isBlank()) {
+            Path sidecar = Paths.get(bin.toString() + ".sha256");
+            if (Files.isRegularFile(sidecar)) {
+                String line = Files.readString(sidecar, StandardCharsets.UTF_8).trim();
+                if (!line.isEmpty()) {
+                    expected = line.split("\\s+")[0];
+                }
+            }
+        }
+        String actual = sha256Hex(bin);
+        if (expected != null && !expected.isBlank()) {
+            expected = expected.trim().toLowerCase(Locale.ROOT);
+            if (expected.startsWith("sha256:")) {
+                expected = expected.substring("sha256:".length());
+            }
+            if (!expected.equalsIgnoreCase(actual)) {
+                throw new IOException("SHA-256 mismatch: expected " + expected + ", got " + actual);
+            }
+            return;
+        }
+        // No external expected hash: pin this path's digest so later swaps are detected
+        Files.createDirectories(workDir);
+        String pathKey = sha256HexOfBytes(bin.toAbsolutePath().normalize().toString()
+                .getBytes(StandardCharsets.UTF_8));
+        Path pin = workDir.resolve("integrity-" + pathKey + ".sha256");
+        if (Files.isRegularFile(pin)) {
+            String pinned = Files.readString(pin, StandardCharsets.UTF_8).trim().split("\\s+")[0];
+            if (!pinned.equalsIgnoreCase(actual)) {
+                throw new IOException(
+                        "ConnectX binary SHA-256 changed since last run (pinned " + pinned
+                                + ", now " + actual
+                                + "). Replace rejected; delete " + pin.getFileName()
+                                + " or set -D" + SHA256_PROPERTY + "=<hex> to re-pin.");
+            }
+        } else {
+            Files.writeString(pin, actual + "\n", StandardCharsets.UTF_8);
+        }
+    }
+
+    private static String sha256Hex(Path file) throws IOException {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            try (var in = Files.newInputStream(file)) {
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) > 0) {
+                    md.update(buf, 0, n);
+                }
+            }
+            return toHex(md.digest());
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IOException("SHA-256 unavailable", e);
+        }
+    }
+
+    private static String sha256HexOfBytes(byte[] data) throws IOException {
+        try {
+            return toHex(MessageDigest.getInstance("SHA-256").digest(data));
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IOException("SHA-256 unavailable", e);
+        }
+    }
+
+    private static String toHex(byte[] dig) {
+        StringBuilder sb = new StringBuilder(dig.length * 2);
+        for (byte b : dig) {
+            sb.append(String.format("%02x", b & 0xff));
+        }
+        return sb.toString();
+    }
 
     /** 发送命令到 REPL stdin */
     private CompletableFuture<Void> sendCommand(String cmd) {

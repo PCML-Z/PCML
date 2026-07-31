@@ -701,6 +701,7 @@ public final class I18n {
         ZH.put("mp.advanced", "联机方式 / 高级");
         ZH.put("mp.hub.room", "房间联机");
         ZH.put("mp.idle_hint", "创建房间后把房间码发给好友；或粘贴对方的房间码加入。");
+        ZH.put("mp.terracotta_create_tip", "陶瓦联机：点创建房间后进入扫描；请在等待期间于 Minecraft 中「对局域网开放」，扫到后才会出房间码。");
         ZH.put("mp.terracotta_official", "Terracotta（官方）");
         ZH.put("mp.current_room", "当前房间");
         ZH.put("mp.room_code", "房间码（发送给朋友加入）");
@@ -981,7 +982,16 @@ public final class I18n {
         ZH.put("launch.view_log", "查看日志");
         ZH.put("launch.select_loader_version", "选择 {0} 版本");
         ZH.put("launch.install_modloader_prompt", "安装 Minecraft - 是否安装模组加载器？");
-        ZH.put("launch.install_modloader_hint", "即将安装 Minecraft {0}。\n可选择同时安装模组加载器（安装游戏后自动继续），或跳过仅安装原版。");
+        ZH.put("launch.vanilla_only", "仅原版");
+        ZH.put("launch.vanilla_only_hint", "将只安装原版 Minecraft，不附带模组加载器。");
+        ZH.put("launch.loaders", "加载器");
+        ZH.put("launch.show_more", "显示更多");
+        ZH.put("launch.show_less", "显示更少");
+        ZH.put("launch.pick_loader_first", "请先在左侧选择加载器");
+        ZH.put("launch.loader_not_supported", "该加载器暂不支持一键安装");
+        ZH.put("launch.no_loader_versions", "当前游戏版本 {0} 没有可用的加载器版本");
+        ZH.put("launch.java_agent_blank", "空白 Agent（仅 agents 目录）");
+        ZH.put("launch.install_modloader_hint", "即将安装 Minecraft {0}。\n左侧选择加载器，右侧选择版本；也可选「仅原版」。");
         ZH.put("launch.available_versions", "可用版本（{0}）");
         ZH.put("launch.stable", "稳定版");
         ZH.put("launch.unstable", "不稳定");
@@ -1014,7 +1024,7 @@ public final class I18n {
         ZH.put("settings.theme_persisted", "主题偏好已持久化到 ~/.pmcl/preferences.json，重启后保留");
         ZH.put("settings.monet_color", "莫奈取色");
         ZH.put("settings.reextract", "重新提取");
-        ZH.put("settings.monet_color_desc", "开启后主题颜色自动从桌面壁纸提取，实现 Material You 动态配色。切换壁纸后点「重新提取」立即生效");
+        ZH.put("settings.monet_color_desc", "开启后主题颜色自动从桌面壁纸文件提取，实现 Material You 动态配色（macOS 不截屏，无需录屏权限）。切换壁纸后点「重新提取」立即生效");
         ZH.put("settings.custom_accent", "自定义强调色");
         ZH.put("settings.custom_accent_desc", "手动选择主题强调色，关闭莫奈取色后生效。选择后自动生成协调的完整配色方案");
         ZH.put("settings.language_label", "语言 / Language / 言語 / uʍop-ǝpᴉsdn");
@@ -1056,10 +1066,11 @@ public final class I18n {
         ZH.put("settings.perf.l2_process_hint", "无需 sudo，游戏退出自动清理 caffeinate 子进程");
         ZH.put("settings.perf.l2_crazy_priority", "L2+ 疯狂调度优先级");
         ZH.put("settings.perf.l2_crazy_priority_desc", "macOS: taskpolicy -P high + renice -20；Windows: REALTIME；Linux: renice -20");
-        ZH.put("settings.perf.l2_crazy_priority_warning", "拉到系统调度优先级极限。macOS/Linux 需 sudo 授权，Windows 用 REALTIME 可能导致鼠标键盘卡顿");
+        ZH.put("settings.perf.l2_crazy_priority_warning", "拉到系统调度优先级极限。开启后每次启动会弹 macOS 管理员密码框；点「不允许」会自动关闭本选项。Windows REALTIME 可能导致鼠标键盘卡顿");
         ZH.put("settings.perf.l3_system_power", "L3 系统电源策略");
-        ZH.put("settings.perf.l3_system_power_desc", "关闭 macOS 低电量模式，游戏退出后自动恢复");
-        ZH.put("settings.perf.l3_system_power_warning", "启动时会弹原生授权框请求管理员密码，影响整机电源策略");
+        ZH.put("settings.perf.l3_system_power_desc", "关闭 macOS 低电量模式，游戏退出后尝试恢复");
+        ZH.put("settings.perf.l3_system_power_warning", "开启后每次启动会弹 macOS 管理员密码框（MainKt 脚本授权）。不需要可保持关闭；点「不允许」会自动关闭本选项");
+        ZH.put("settings.perf.admin_auth_confirm", "此选项需要 macOS 管理员权限。开启后，启动游戏时系统会弹出密码框（显示为由 MainKt 启动的脚本）。若不想每次输入密码，请点取消。");
         ZH.put("settings.game_general_behavior", "游戏通用行为");
         ZH.put("settings.game_general_behavior_desc", "应用于所有版本的启动参数，留空使用游戏默认值");
         ZH.put("settings.version_isolation_full_desc", "各版本使用独立的 mods/saves/config 目录（~/.pmcl/instances/<版本>/）");
@@ -1852,7 +1863,7 @@ public final class I18n {
 
         // ===== Metal 渲染（Apple Silicon Mac 专用）=====
         ZH.put("metal.title", "Metal 渲染加速");
-        ZH.put("metal.description", "使用 Apple Metal API 替换 OpenGL 渲染后端，提升 macOS 上的游戏帧率。仅支持 Apple Silicon (M1+) + Fabric + Sodium。");
+        ZH.put("metal.description", "使用 Apple Metal API 替换 OpenGL 渲染后端，提升 macOS 上的游戏帧率。仅支持 Apple Silicon (M1+) + Fabric + Sodium。请先选中已安装 Fabric 的兼容版本再开启。");
         ZH.put("metal.enable", "启用 Metal 渲染");
         ZH.put("metal.installing", "正在安装 MetalRender 及依赖…");
         ZH.put("metal.downloading", "正在下载: {0}");
@@ -1860,7 +1871,9 @@ public final class I18n {
         ZH.put("metal.uninstalling", "正在卸载 MetalRender…");
         ZH.put("metal.uninstall_success", "已卸载 {0} 个 mod 文件");
         ZH.put("metal.install_failed", "MetalRender 安装失败：{0}");
-        ZH.put("metal.no_version_selected", "请先选择一个游戏版本");
+        ZH.put("metal.no_version_selected", "请先选择一个已安装 Fabric 的兼容游戏版本后再开启 Metal 渲染");
+        ZH.put("metal.need_fabric", "MetalRender 仅支持 Fabric，当前为 {0}。请先安装 Fabric 后再开启。");
+        ZH.put("metal.supported_versions", "当前支持的 Minecraft 版本：{0}");
         ZH.put("metal.not_supported", "仅 Apple Silicon Mac 支持此功能");
         ZH.put("metal.warning", "MetalRender 为第三方实验性 mod，可能存在兼容性问题。如遇崩溃请在设置中关闭。");
 
@@ -2672,6 +2685,7 @@ public final class I18n {
         EN.put("mp.advanced", "Connection / Advanced");
         EN.put("mp.hub.room", "Room");
         EN.put("mp.idle_hint", "Create a room and share the code, or paste a code to join.");
+        EN.put("mp.terracotta_create_tip", "Terracotta: after Create Room it scans for LAN; open Minecraft to LAN while waiting, then the room code appears.");
         EN.put("mp.terracotta_official", "Terracotta (Official)");
         EN.put("mp.current_room", "Current room");
         EN.put("mp.room_code", "Room code (share with friends)");
@@ -2946,7 +2960,16 @@ public final class I18n {
         EN.put("launch.view_log", "View Log");
         EN.put("launch.select_loader_version", "Select {0} Version");
         EN.put("launch.install_modloader_prompt", "Install Minecraft - Install a mod loader?");
-        EN.put("launch.install_modloader_hint", "About to install Minecraft {0}.\nYou can choose to also install a mod loader (will continue automatically after the game is installed), or skip to install vanilla only.");
+        EN.put("launch.vanilla_only", "Vanilla only");
+        EN.put("launch.vanilla_only_hint", "Install vanilla Minecraft without a mod loader.");
+        EN.put("launch.loaders", "Loaders");
+        EN.put("launch.show_more", "Show more");
+        EN.put("launch.show_less", "Show less");
+        EN.put("launch.pick_loader_first", "Select a loader on the left first");
+        EN.put("launch.loader_not_supported", "This loader does not support one-click install yet");
+        EN.put("launch.no_loader_versions", "No loader versions available for Minecraft {0}");
+        EN.put("launch.java_agent_blank", "Blank agent (agents folder only)");
+        EN.put("launch.install_modloader_hint", "About to install Minecraft {0}.\nPick a loader on the left and a version on the right, or choose Vanilla only.");
         EN.put("launch.available_versions", "Available Versions ({0})");
         EN.put("launch.stable", "Stable");
         EN.put("launch.unstable", "Unstable");
@@ -3021,10 +3044,11 @@ public final class I18n {
         EN.put("settings.perf.l2_process_hint", "No sudo required, caffeinate child process auto-cleaned on game exit");
         EN.put("settings.perf.l2_crazy_priority", "L2+ Crazy Scheduling Priority");
         EN.put("settings.perf.l2_crazy_priority_desc", "macOS: taskpolicy -P high + renice -20; Windows: REALTIME; Linux: renice -20");
-        EN.put("settings.perf.l2_crazy_priority_warning", "Pushes to system scheduling priority limit. macOS/Linux requires sudo, Windows REALTIME may cause mouse/keyboard stutter");
+        EN.put("settings.perf.l2_crazy_priority_warning", "Pushes to system scheduling priority limit. macOS will ask for admin password on each launch; choosing Don't Allow auto-disables this. Windows REALTIME may cause mouse/keyboard stutter");
         EN.put("settings.perf.l3_system_power", "L3 System Power Policy");
-        EN.put("settings.perf.l3_system_power_desc", "Disables macOS low power mode, auto-restores on game exit");
-        EN.put("settings.perf.l3_system_power_warning", "Shows native authorization prompt for admin password on launch, affects system-wide power policy");
+        EN.put("settings.perf.l3_system_power_desc", "Disables macOS low power mode; attempts to restore on game exit");
+        EN.put("settings.perf.l3_system_power_warning", "macOS will ask for admin password on each launch (MainKt script). Leave off if you don't need it; Don't Allow auto-disables this option");
+        EN.put("settings.perf.admin_auth_confirm", "This option needs macOS administrator privileges. After enabling, launching the game will show a system password prompt (script started by MainKt). Cancel if you don't want that.");
         EN.put("settings.game_general_behavior", "General Game Behavior");
         EN.put("settings.game_general_behavior_desc", "Applies to all versions' launch parameters, leave empty for game defaults");
         EN.put("settings.version_isolation_full_desc", "Each version uses independent mods/saves/config directories (~/.pmcl/instances/<version>/)");
@@ -3783,7 +3807,7 @@ public final class I18n {
 
         // ===== Metal rendering (Apple Silicon Mac only) =====
         EN.put("metal.title", "Metal Rendering");
-        EN.put("metal.description", "Replaces OpenGL with Apple Metal API for better FPS on macOS. Requires Apple Silicon (M1+) + Fabric + Sodium.");
+        EN.put("metal.description", "Replaces OpenGL with Apple Metal API for better FPS on macOS. Requires Apple Silicon (M1+) + Fabric + Sodium. Select a compatible Fabric instance first.");
         EN.put("metal.enable", "Enable Metal Rendering");
         EN.put("metal.installing", "Installing MetalRender and dependencies…");
         EN.put("metal.downloading", "Downloading: {0}");
@@ -3791,7 +3815,9 @@ public final class I18n {
         EN.put("metal.uninstalling", "Uninstalling MetalRender…");
         EN.put("metal.uninstall_success", "Removed {0} mod file(s)");
         EN.put("metal.install_failed", "MetalRender installation failed: {0}");
-        EN.put("metal.no_version_selected", "Please select a game version first");
+        EN.put("metal.no_version_selected", "Select a Fabric-compatible game version before enabling Metal rendering");
+        EN.put("metal.need_fabric", "MetalRender requires Fabric; current loader is {0}. Install Fabric first.");
+        EN.put("metal.supported_versions", "Supported Minecraft versions: {0}");
         EN.put("metal.not_supported", "Only available on Apple Silicon Mac");
         EN.put("metal.warning", "MetalRender is a third-party experimental mod. May cause compatibility issues. Disable in settings if crashing.");
 
@@ -4578,6 +4604,7 @@ public final class I18n {
         JA.put("mp.advanced", "接続方式 / 詳細");
         JA.put("mp.hub.room", "ルーム");
         JA.put("mp.idle_hint", "ルームを作成してコードを共有するか、コードを貼り付けて参加します。");
+        JA.put("mp.terracotta_create_tip", "Terracotta: ルーム作成後にスキャンします。待機中に Minecraft で「LANに公開」するとルームコードが出ます。");
         JA.put("mp.terracotta_official", "Terracotta（公式）");
         JA.put("mp.current_room", "現在のルーム");
         JA.put("mp.room_code", "ルームコード（友達に共有）");
@@ -4852,7 +4879,16 @@ public final class I18n {
         JA.put("launch.view_log", "ログを表示");
         JA.put("launch.select_loader_version", "{0} バージョンを選択");
         JA.put("launch.install_modloader_prompt", "Minecraft をインストール - モッドローダーをインストールしますか？");
-        JA.put("launch.install_modloader_hint", "Minecraft {0} をインストールしようとしています。\nモッドローダーを同時にインストール（ゲームインストール後に自動的に続行）するか、スキップしてバニラのみをインストールできます。");
+        JA.put("launch.vanilla_only", "バニラのみ");
+        JA.put("launch.vanilla_only_hint", "モッドローダーなしでバニラ Minecraft のみをインストールします。");
+        JA.put("launch.loaders", "ローダー");
+        JA.put("launch.show_more", "さらに表示");
+        JA.put("launch.show_less", "表示を減らす");
+        JA.put("launch.pick_loader_first", "先に左側でローダーを選択してください");
+        JA.put("launch.loader_not_supported", "このローダーはまだワンクリックインストールに対応していません");
+        JA.put("launch.no_loader_versions", "Minecraft {0} 向けのローダーバージョンがありません");
+        JA.put("launch.java_agent_blank", "空の Agent（agents フォルダのみ）");
+        JA.put("launch.install_modloader_hint", "Minecraft {0} をインストールします。\n左でローダー、右でバージョンを選ぶか、「バニラのみ」を選択してください。");
         JA.put("launch.available_versions", "利用可能なバージョン（{0}）");
         JA.put("launch.stable", "安定版");
         JA.put("launch.unstable", "不安定");
@@ -4927,10 +4963,11 @@ public final class I18n {
         JA.put("settings.perf.l2_process_hint", "sudo 不要、ゲーム終了で caffeinate 子プロセスを自動クリーンアップ");
         JA.put("settings.perf.l2_crazy_priority", "L2+ 狂スケジューリング優先度");
         JA.put("settings.perf.l2_crazy_priority_desc", "macOS: taskpolicy -P high + renice -20; Windows: REALTIME; Linux: renice -20");
-        JA.put("settings.perf.l2_crazy_priority_warning", "システムスケジューリング優先度の限界まで引く。macOS/Linux は sudo 認証必要、Windows の REALTIME はマウス・キーボードの卡りを引き起こす可能性");
+        JA.put("settings.perf.l2_crazy_priority_warning", "システムスケジューリング優先度の限界まで引く。有効化後は起動ごとに macOS 管理者パスワードが要求されます。「許可しない」で自動オフ。Windows の REALTIME はマウス・キーボードの卡りを引き起こす可能性");
         JA.put("settings.perf.l3_system_power", "L3 システム電源ポリシー");
-        JA.put("settings.perf.l3_system_power_desc", "macOS 低電力モードを無効化、ゲーム終了後に自動復元");
-        JA.put("settings.perf.l3_system_power_warning", "起動時にネイティブ認証ダイアログで管理者パスワードを要求、システム全体の電源ポリシーに影響");
+        JA.put("settings.perf.l3_system_power_desc", "macOS 低電力モードを無効化、ゲーム終了後に復元を試行");
+        JA.put("settings.perf.l3_system_power_warning", "有効化後は起動ごとに macOS 管理者パスワード（MainKt スクリプト）が要求されます。不要ならオフのままに。「許可しない」で自動オフ");
+        JA.put("settings.perf.admin_auth_confirm", "このオプションには macOS 管理者権限が必要です。有効化すると、ゲーム起動時にシステムがパスワード入力を求めます（MainKt が起動したスクリプト）。毎回パスワードを入力したくない場合はキャンセルしてください。");
         JA.put("settings.game_general_behavior", "ゲーム全般動作");
         JA.put("settings.game_general_behavior_desc", "全バージョンの起動パラメータに適用、空欄でゲームデフォルト");
         JA.put("settings.version_isolation_full_desc", "各バージョンは独立した mods/saves/config ディレクトリを使用（~/.pmcl/instances/<バージョン>/）");
@@ -5723,7 +5760,7 @@ public final class I18n {
 
         // ===== Metal レンダリング（Apple Silicon Mac 専用）=====
         JA.put("metal.title", "Metal レンダリング");
-        JA.put("metal.description", "OpenGL を Apple Metal API に置き換え、macOS でより高い FPS を実現します。Apple Silicon (M1+) + Fabric + Sodium が必要です。");
+        JA.put("metal.description", "OpenGL を Apple Metal API に置き換え、macOS でより高い FPS を実現します。Apple Silicon (M1+) + Fabric + Sodium が必要です。互換性のある Fabric バージョンを先に選択してください。");
         JA.put("metal.enable", "Metal レンダリングを有効化");
         JA.put("metal.installing", "MetalRender と依存関係をインストール中…");
         JA.put("metal.downloading", "ダウンロード中: {0}");
@@ -5731,7 +5768,9 @@ public final class I18n {
         JA.put("metal.uninstalling", "MetalRender をアンインストール中…");
         JA.put("metal.uninstall_success", "{0} 個の mod ファイルを削除しました");
         JA.put("metal.install_failed", "MetalRender のインストール失敗：{0}");
-        JA.put("metal.no_version_selected", "ゲームバージョンを選択してください");
+        JA.put("metal.no_version_selected", "Metal レンダリングを有効にする前に、互換性のある Fabric バージョンを選択してください");
+        JA.put("metal.need_fabric", "MetalRender は Fabric 専用です。現在のローダーは {0} です。先に Fabric をインストールしてください。");
+        JA.put("metal.supported_versions", "対応 Minecraft バージョン：{0}");
         JA.put("metal.not_supported", "Apple Silicon Mac でのみ利用可能です");
         JA.put("metal.warning", "MetalRender はサードパーティの実験的 mod です。互換性の問題が発生する可能性があります。クラッシュする場合は設定で無効化してください。");
 

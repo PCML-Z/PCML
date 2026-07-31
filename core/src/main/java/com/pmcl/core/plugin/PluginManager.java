@@ -108,6 +108,14 @@ public final class PluginManager {
     private final Path pluginsDir;
     private final Path stateFile;
     private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
+    /** Frozen at construction — plugins cannot downgrade via System.setProperty (C3). */
+    private final PluginSecurityPolicy securityPolicy;
+
+    /** Simple sliding-window rate limit for plugin HttpApi (global across plugins). */
+    private final Object httpRateLock = new Object();
+    private long httpRateWindowStartMs = 0L;
+    private int httpRateWindowCount = 0;
+    private static final int HTTP_RATE_LIMIT_PER_MINUTE = 60;
 
     // Revision counter — incremented on any structural change (load/unload/enable/disable).
     // GUI polls this to detect when plugin pages need refreshing.
@@ -115,6 +123,8 @@ public final class PluginManager {
 
     // Loaded plugin entries (pluginId -> entry)
     private final Map<String, PluginEntry> loadedPlugins = new LinkedHashMap<>();
+    /** Last discoverAndLoadAll() per-file failures (cleared at start of each scan). */
+    private final List<String> lastDiscoveryErrors = new ArrayList<>();
     // Registered custom commands (pluginId -> list of commands)
     private final Map<String, List<RegisteredCommand>> customCommands = new HashMap<>();
     // Registered pages (pluginId -> list of pages)
@@ -179,14 +189,32 @@ public final class PluginManager {
         this.core = core;
         this.pluginsDir = core.getConfig().getWorkDir().resolve(PLUGINS_DIR_NAME);
         this.stateFile = pluginsDir.resolve(STATE_FILE);
+        // Capture before any plugin code runs; later System.setProperty cannot weaken this.
+        this.securityPolicy = PluginSecurityPolicy.captureAtStartup();
         ensurePluginsDir();
         loadState();
         // 安装 URL 协议处理器门禁工厂，防止恶意插件通过 URL.setURLStreamHandlerFactory
         // 劫持全局 HTTP/HTTPS 流量（包括宿主 DownloadManager 的下载请求）。
         // 工厂返回 null 让 JDK 使用默认处理器，仅占用槽位阻止后续覆盖。
+        // 限制：特权反射仍可清空/替换 URL.factory；每次加载插件前会 best-effort 复查。
         installUrlStreamHandlerGuard();
         // URL rewrite hooks are applied only on plugin-initiated DownloadsApi/HttpApi
         // paths — never wired into the host DownloadManager pipeline.
+    }
+
+    /**
+     * Occupies {@link java.net.URL#setURLStreamHandlerFactory} so plugins cannot install
+     * a hostile factory. Returns {@code null} handlers → JDK built-ins.
+     * <p>
+     * <b>Limit:</b> without a SecurityManager, privileged reflection can still null/replace
+     * the private {@code URL.factory} field. We re-assert our guard before plugin loads.
+     */
+    private static final class UrlStreamHandlerGuard implements java.net.URLStreamHandlerFactory {
+        static final UrlStreamHandlerGuard INSTANCE = new UrlStreamHandlerGuard();
+        @Override
+        public java.net.URLStreamHandler createURLStreamHandler(String protocol) {
+            return null;
+        }
     }
 
     /** 门禁标志：确保只安装一次 URLStreamHandlerFactory */
@@ -197,12 +225,52 @@ public final class PluginManager {
         synchronized (PluginManager.class) {
             if (urlGuardInstalled) return;
             try {
-                java.net.URL.setURLStreamHandlerFactory(protocol -> null);
+                try {
+                    java.net.URL.setURLStreamHandlerFactory(UrlStreamHandlerGuard.INSTANCE);
+                } catch (Error alreadySet) {
+                    // 已被其他模块设置：尝试确认/恢复我们的门禁
+                    reassertUrlStreamHandlerGuardLocked();
+                }
                 urlGuardInstalled = true;
-            } catch (Error alreadySet) {
-                // 已被其他模块或 JVM 设置：无需处理，只要不是插件设置即可
-                urlGuardInstalled = true;
+            } catch (Exception e) {
+                System.err.println("[PluginManager] URL stream handler guard install failed: "
+                        + e.getMessage());
+                urlGuardInstalled = true; // avoid retry storms
             }
+        }
+    }
+
+    /** Best-effort: if reflection cleared {@code URL.factory}, put our guard back. */
+    private static void ensureUrlStreamHandlerGuard() {
+        installUrlStreamHandlerGuard();
+        synchronized (PluginManager.class) {
+            reassertUrlStreamHandlerGuardLocked();
+        }
+    }
+
+    private static void reassertUrlStreamHandlerGuardLocked() {
+        try {
+            java.lang.reflect.Field factoryField = java.net.URL.class.getDeclaredField("factory");
+            factoryField.setAccessible(true);
+            Object current = factoryField.get(null);
+            if (current == UrlStreamHandlerGuard.INSTANCE) {
+                return;
+            }
+            if (current == null) {
+                // factory was cleared via reflection — restore our guard without going through
+                // setURLStreamHandlerFactory (which throws if it believes factory was set).
+                factoryField.set(null, UrlStreamHandlerGuard.INSTANCE);
+                System.err.println("[PluginManager] SECURITY: restored URLStreamHandlerFactory guard "
+                        + "(field had been cleared)");
+                return;
+            }
+            if (!(current instanceof UrlStreamHandlerGuard)) {
+                System.err.println("[PluginManager] SECURITY: URLStreamHandlerFactory is not PMCL guard ("
+                        + current.getClass().getName() + "); cannot safely replace — "
+                        + "privileged reflection may have hijacked URL handling");
+            }
+        } catch (Exception e) {
+            // Module / access restrictions: documented limit — cannot harden further here.
         }
     }
 
@@ -270,6 +338,9 @@ public final class PluginManager {
      */
     public void discoverAndLoadAll() {
         ensurePluginsDir();
+        synchronized (this) {
+            lastDiscoveryErrors.clear();
+        }
         File[] files = pluginsDir.toFile().listFiles((dir, name) ->
                 (name.toLowerCase(java.util.Locale.ROOT).endsWith(".jar") || name.toLowerCase(java.util.Locale.ROOT).endsWith(".ppk")) && !name.equals(STATE_FILE));
         if (files == null) return;
@@ -281,6 +352,10 @@ public final class PluginManager {
                     loadPlugin(file.toPath());
                 }
             } catch (Exception e) {
+                String detail = e.getClass().getSimpleName() + ": " + e.getMessage();
+                synchronized (this) {
+                    lastDiscoveryErrors.add(file.getName() + " — " + detail);
+                }
                 System.err.println("[PluginManager] Failed to load " + file.getName() + ": " + e.getMessage());
             }
         }
@@ -298,6 +373,9 @@ public final class PluginManager {
             try {
                 enablePlugin(id);
             } catch (Exception e) {
+                synchronized (this) {
+                    lastDiscoveryErrors.add(id + " (enable) — " + e.getMessage());
+                }
                 System.err.println("[PluginManager] Failed to enable " + id + ": " + e.getMessage());
             }
         }
@@ -971,15 +1049,8 @@ public final class PluginManager {
      * @throws Exception if loading fails
      */
     public PluginInfo loadPluginPackage(Path ppkPath) throws Exception {
-        // .ppk 尚无签名清单：默认拒绝执行；开发/受信任源显式放行
-        boolean allowUnsignedPkg = Boolean.parseBoolean(
-                System.getProperty("pmcl.plugins.allowUnsignedPackages", "false"));
-        if (!allowUnsignedPkg) {
-            throw new SecurityException("Unsigned .ppk packages are blocked by default: " + ppkPath
-                    + " (set -Dpmcl.plugins.allowUnsignedPackages=true to allow)");
-        }
-        System.err.println("[PluginManager] WARNING: loading unsigned .ppk package ("
-                + ppkPath + ") — no publisher authenticity check.");
+        // C2: .ppk 与 JAR 相同——必须 jarsigner 验签 + 可信指纹；禁止「仅解压即入 classpath」
+        verifyPluginArchive(ppkPath, true);
 
         final PluginInfo info;
         final PmclPlugin plugin;
@@ -1164,6 +1235,11 @@ public final class PluginManager {
 
     public synchronized List<PluginEntry> getLoadedPlugins() {
         return Collections.unmodifiableList(new ArrayList<>(loadedPlugins.values()));
+    }
+
+    /** Failures from the most recent {@link #discoverAndLoadAll()} (empty if none). */
+    public synchronized List<String> getLastDiscoveryErrors() {
+        return Collections.unmodifiableList(new ArrayList<>(lastDiscoveryErrors));
     }
 
     public synchronized PluginEntry getPlugin(String pluginId) {
@@ -1366,10 +1442,22 @@ public final class PluginManager {
                             ? ((TrackedLaunchHook) hook).pluginId : null;
                     for (String jar : jars) {
                         if (jar == null || jar.isBlank()) continue;
-                        Path p = Paths.get(jar.trim()).toAbsolutePath().normalize();
+                        String raw = jar.trim();
+                        // Reject obvious traversal / UNC / absolute escapes before resolve
+                        if (raw.indexOf('\0') >= 0 || raw.contains("..")) {
+                            System.err.println("[PluginManager] Rejected classpath jar (path traversal): " + raw);
+                            continue;
+                        }
+                        Path p;
+                        try {
+                            p = Paths.get(raw).toAbsolutePath().normalize();
+                        } catch (Exception ex) {
+                            System.err.println("[PluginManager] Rejected classpath jar (bad path): " + raw);
+                            continue;
+                        }
                         if (!Files.isRegularFile(p, java.nio.file.LinkOption.NOFOLLOW_LINKS)) continue;
-                        if (Files.isSymbolicLink(p) || !isPathUnderPluginData(ownerId, p)) {
-                            System.err.println("[PluginManager] Rejected classpath jar outside plugin data: " + p);
+                        if (Files.isSymbolicLink(p) || !isPathUnderPluginDir(ownerId, p)) {
+                            System.err.println("[PluginManager] Rejected classpath jar outside plugin dir: " + p);
                             continue;
                         }
                         profile.addClasspath(p);
@@ -1428,9 +1516,48 @@ public final class PluginManager {
         return current;
     }
 
-    private boolean isPathUnderPluginData(String pluginId, Path absPath) {
+    /**
+     * SSRF + optional host allowlist ({@code -Dpmcl.plugins.httpAllowHosts}) for HttpApi.
+     * @return error message, or null if allowed
+     */
+    String validatePluginHttpUrl(String url) {
+        String ssrf = com.pmcl.core.util.SsrfChecker.validate(url);
+        if (ssrf != null) return ssrf;
+        Set<String> allow = securityPolicy.httpAllowHosts;
+        if (allow == null || allow.isEmpty()) return null;
+        try {
+            String host = new java.net.URL(url).getHost();
+            if (host == null || host.isBlank()) return "URL host is missing";
+            String h = host.trim().toLowerCase(java.util.Locale.ROOT);
+            if (!allow.contains(h)) {
+                return "Host '" + h + "' not in -Dpmcl.plugins.httpAllowHosts allowlist";
+            }
+        } catch (Exception e) {
+            return "Malformed URL: " + e.getMessage();
+        }
+        return null;
+    }
+
+    /** Throws if plugin HTTP rate limit (60/min) is exceeded. */
+    void acquirePluginHttpPermit() {
+        long now = System.currentTimeMillis();
+        synchronized (httpRateLock) {
+            if (httpRateWindowStartMs == 0L || now - httpRateWindowStartMs >= 60_000L) {
+                httpRateWindowStartMs = now;
+                httpRateWindowCount = 0;
+            }
+            httpRateWindowCount++;
+            if (httpRateWindowCount > HTTP_RATE_LIMIT_PER_MINUTE) {
+                throw new RuntimeException("Plugin HTTP rate limit exceeded ("
+                        + HTTP_RATE_LIMIT_PER_MINUTE + "/min)");
+            }
+        }
+    }
+
+    private boolean isPathUnderPluginDir(String pluginId, Path absPath) {
         if (pluginId == null || pluginId.isBlank() || absPath == null) return false;
-        Path base = pluginsDir.resolve(pluginId).resolve("data").toAbsolutePath().normalize();
+        // Only allow jars under ~/.pmcl/plugins/<pluginId>/ (package + data); reject traversal.
+        Path base = pluginsDir.resolve(pluginId).toAbsolutePath().normalize();
         return PluginPathSandbox.isUnderPluginData(absPath, base);
     }
 
@@ -1458,13 +1585,35 @@ public final class PluginManager {
                 || lower.startsWith("-xx:onerror")
                 || lower.startsWith("-xx:onoutofmemoryerror")
                 || lower.startsWith("-xx:runpath")
+                || lower.startsWith("-xx:startflightrecording")
+                || lower.startsWith("-xx:+startflightrecording")
+                || lower.startsWith("-xx:flightrecorderoptions")
+                || lower.startsWith("-xx:+flightrecorder")
+                || lower.startsWith("-xx:-flightrecorder")
+                || lower.startsWith("-xx:vmoptionsfile")
+                || lower.startsWith("-xx:flags")
+                || lower.startsWith("-xx:errorfile")
+                || lower.startsWith("-xx:heapdumppath")
+                || lower.startsWith("-xx:+heapdumponoutofmemoryerror")
+                || lower.startsWith("-xx:logflags")
+                || lower.startsWith("-xx:replaydatafile")
+                || lower.startsWith("-xx:sharedarchivefile")
+                || lower.startsWith("-xx:archivesclassesatexit")
+                || lower.contains("startflightrecording")
                 || lower.contains("java.security.manager")
                 || lower.startsWith("-djava.class.path")
                 || lower.startsWith("-djava.library.path")
                 || lower.startsWith("-djava.home")
                 || lower.startsWith("-djava.agent")
+                || lower.startsWith("-dcom.sun.management")
+                || lower.startsWith("-djdk.attach")
+                || lower.startsWith("-djdk.instrument")
                 || lower.startsWith("--module-path")
                 || lower.startsWith("--upgrade-module-path")
+                || lower.startsWith("--add-opens")
+                || lower.startsWith("--add-exports")
+                || lower.startsWith("--add-modules")
+                || lower.startsWith("--patch-module")
                 || lower.equals("-p")
                 || lower.startsWith("-p=")) {
             return false;
@@ -1475,6 +1624,7 @@ public final class PluginManager {
     // ==================== Descriptor Parsing ====================
 
     private PluginInfo parseDescriptor(Path jarPath) throws Exception {
+        ensureUrlStreamHandlerGuard();
         // M28 修复：启用 JAR 签名校验。
         // - new JarFile(file, true) 开启验签：读取任何 signed entry 时自动校验
         //   若 JAR 被签名且 entry 被篡改 → getInputStream() 抛 SecurityException
@@ -1492,17 +1642,10 @@ public final class PluginManager {
                 });
             }
             if (!isSigned) {
-                // 默认要求签名；显式 -Dpmcl.plugins.allowUnsigned=true 才放行（兼容旧插件）
-                boolean allowUnsigned = Boolean.parseBoolean(
-                        System.getProperty("pmcl.plugins.allowUnsigned", "false"));
-                // 兼容旧开关：requireSigned=false 等价于允许未签名
-                String requireProp = System.getProperty("pmcl.plugins.requireSigned");
-                if (requireProp != null) {
-                    allowUnsigned = !Boolean.parseBoolean(requireProp);
-                }
-                if (!allowUnsigned) {
+                // 默认要求签名；仅启动时冻结的 allowUnsigned 可放行（C3：运行时 setProperty 无效）
+                if (!securityPolicy.allowUnsignedJars) {
                     throw new SecurityException("Plugin JAR is not signed: " + jarPath
-                            + " (set -Dpmcl.plugins.allowUnsigned=true to allow)");
+                            + " (start with -Dpmcl.plugins.allowUnsigned=true to allow)");
                 }
                 System.err.println("[PluginManager] WARNING: loading unsigned plugin JAR (" +
                         jarPath + ") — integrity cannot be verified against tampering.");
@@ -1522,10 +1665,9 @@ public final class PluginManager {
             try (InputStream is = jar.getInputStream(entry)) {
                 props.load(new java.io.InputStreamReader(is, java.nio.charset.StandardCharsets.UTF_8));
             }
-            // 签名通过 ≠ 信任：必须命中可信指纹（或显式 allowAnySigner）
+            // 签名通过 ≠ 信任：所有关键 entry（含全部 .class）的 CodeSigner 必须命中可信指纹
             if (isSigned) {
-                assertAllSignedEntries(jar, jarPath);
-                assertTrustedPluginSigner(entry, jarPath);
+                assertAllSignedEntries(jar, jarPath, false);
             }
 
             // Read required fields — must be present and non-blank
@@ -1614,22 +1756,25 @@ public final class PluginManager {
     /**
      * 签名完整性通过后，再校验签名者证书指纹是否在可信列表中。
      * <ul>
-     *   <li>可信列表：{@code -Dpmcl.plugins.trustedFingerprints=hex,hex}
-     *       （可选 {@code sha256:} 前缀）以及 {@code ~/.pmcl/plugins/trusted-signers.txt}
-     *       （每行一个 SHA-256 十六进制指纹，{@code #} 注释）</li>
+     *   <li>可信列表：启动时冻结的 {@code -Dpmcl.plugins.trustedFingerprints}
+     *       以及 {@code ~/.pmcl/plugins/trusted-signers.txt}</li>
      *   <li>列表非空：必须命中，否则拒绝</li>
-     *   <li>列表为空：默认拒绝（防任意自签名）；
-     *       {@code -Dpmcl.plugins.allowAnySigner=true} 才放行（开发用）</li>
-     *   <li>{@code -Dpmcl.plugins.requireTrustedSigner=false}：兼容旧行为（仅告警）</li>
+     *   <li>列表为空：默认拒绝；仅当启动时 {@code allowAnySigner=true} 才放行</li>
+     *   <li>运行时 {@code System.setProperty} 无法降级本策略（C3）</li>
      * </ul>
+     *
+     * @param warnIfEmptyAllowlist when true, log a one-shot warning if accepting any signer
+     * @return true if a empty-allowlist warning was emitted (so callers can suppress repeats)
      */
-    private void assertTrustedPluginSigner(JarEntry entry, Path jarPath) throws Exception {
-        if (Boolean.parseBoolean(System.getProperty("pmcl.plugins.allowAnySigner", "false"))) {
-            return;
+    private boolean assertTrustedPluginSigner(JarEntry entry, Path jarPath, boolean warnIfEmptyAllowlist)
+            throws Exception {
+        if (securityPolicy.allowAnySigner) {
+            return false;
         }
         java.security.CodeSigner[] signers = entry.getCodeSigners();
         if (signers == null || signers.length == 0) {
-            throw new SecurityException("Plugin JAR claims signature but entry has no CodeSigner: " + jarPath);
+            throw new SecurityException("Plugin JAR claims signature but entry has no CodeSigner: "
+                    + entry.getName() + " in " + jarPath);
         }
         Set<String> present = new java.util.LinkedHashSet<>();
         for (java.security.CodeSigner signer : signers) {
@@ -1639,41 +1784,83 @@ public final class PluginManager {
             }
         }
         if (present.isEmpty()) {
-            throw new SecurityException("Plugin JAR has CodeSigners but no certificates: " + jarPath);
+            throw new SecurityException("Plugin JAR has CodeSigners but no certificates: "
+                    + entry.getName() + " in " + jarPath);
         }
-        Set<String> trusted = loadTrustedPluginFingerprints();
+        Set<String> trusted = securityPolicy.loadTrustedFingerprints(pluginsDir);
         if (!trusted.isEmpty()) {
             boolean hit = false;
             for (String fp : present) {
                 if (trusted.contains(fp)) { hit = true; break; }
             }
             if (!hit) {
-                throw new SecurityException("Plugin signer not in trusted fingerprint list: " + jarPath
+                throw new SecurityException("Plugin signer not in trusted fingerprint list: "
+                        + entry.getName() + " in " + jarPath
                         + " (signers=" + present + "; configure -Dpmcl.plugins.trustedFingerprints=... "
-                        + "or ~/.pmcl/plugins/trusted-signers.txt)");
+                        + "or ~/.pmcl/plugins/trusted-signers.txt before launch)");
             }
-            return;
+            return false;
         }
-        // 默认要求可信指纹；显式 requireTrustedSigner=false 才退回「仅告警」
-        boolean requireTrusted = Boolean.parseBoolean(
-                System.getProperty("pmcl.plugins.requireTrustedSigner", "true"));
-        if (requireTrusted) {
+        if (securityPolicy.requireTrustedSigner) {
             throw new SecurityException("No trusted plugin signer fingerprints configured; refusing "
-                    + jarPath + " (set -Dpmcl.plugins.trustedFingerprints=... or "
+                    + jarPath + " (set -Dpmcl.plugins.trustedFingerprints=... before launch, or "
                     + "-Dpmcl.plugins.allowAnySigner=true for development)");
         }
-        System.err.println("[PluginManager] WARNING: no trusted signer allowlist configured; "
-                + "accepting any valid signature for " + jarPath
-                + " (fingerprints=" + present + "). Pin with -Dpmcl.plugins.trustedFingerprints.");
+        if (warnIfEmptyAllowlist) {
+            System.err.println("[PluginManager] WARNING: no trusted signer allowlist configured; "
+                    + "accepting any valid signature for " + jarPath
+                    + " (fingerprints=" + present + "). Pin with -Dpmcl.plugins.trustedFingerprints.");
+            return true;
+        }
+        return false;
     }
 
     /**
-     * 已签名 JAR：完整读取非 META-INF entry 以触发摘要校验，
-     * 并要求 {@code .class} 与插件描述符均带 CodeSigner（防「只签描述符」）。
+     * Verify a .ppk as a jarsigner-signed ZIP before extract/classpath use (C2).
+     * Requires signature blocks and CodeSigners on classes/**, lib/*.jar, plugin.xml, etc.
      */
-    private static void assertAllSignedEntries(JarFile jar, Path jarPath) throws Exception {
+    private void verifyPluginArchive(Path archivePath, boolean packageArchive) throws Exception {
+        ensureUrlStreamHandlerGuard();
+        try (JarFile jar = new JarFile(archivePath.toFile(), true)) {
+            boolean isSigned = false;
+            try (var entryStream = jar.stream()) {
+                isSigned = entryStream.anyMatch(e -> {
+                    String n = e.getName();
+                    return n.startsWith("META-INF/") &&
+                            (n.endsWith(".SF") || n.endsWith(".RSA") || n.endsWith(".DSA") || n.endsWith(".EC"));
+                });
+            }
+            if (!isSigned) {
+                if (packageArchive) {
+                    // C2: 无「allowUnsignedPackages 跳过验签」后门；.ppk 必须签名
+                    throw new SecurityException("Unsigned .ppk package blocked: " + archivePath
+                            + " (sign with jarsigner; cover classes/**, lib/*.jar, and plugin.xml)");
+                }
+                if (!securityPolicy.allowUnsignedJars) {
+                    throw new SecurityException("Unsigned plugin JAR blocked: " + archivePath
+                            + " (start with -Dpmcl.plugins.allowUnsigned=true to allow)");
+                }
+                System.err.println("[PluginManager] WARNING: loading unsigned JAR (" + archivePath
+                        + ") — no publisher authenticity check.");
+                return;
+            }
+            // Checks CodeSigners present AND trusted fingerprints on every critical entry
+            assertAllSignedEntries(jar, archivePath, packageArchive);
+        }
+    }
+
+    /**
+     * 已签名 JAR/.ppk：完整读取非 META-INF entry 以触发摘要校验，
+     * 并要求关键路径带 CodeSigner（防「只签描述符」或未签的 lib/*.jar）。
+     * 对每个必须签名的 entry 校验 CodeSigner 指纹命中可信列表（H1：不限于 descriptor）。
+     *
+     * @param packageArchive .ppk 时额外要求 plugin.xml、classes/**、lib/*.jar 均被签名
+     */
+    private void assertAllSignedEntries(JarFile jar, Path jarPath, boolean packageArchive)
+            throws Exception {
         final int maxEntries = 50_000;
         int count = 0;
+        boolean warnedEmpty = false;
         var entries = jar.entries();
         while (entries.hasMoreElements()) {
             JarEntry e = entries.nextElement();
@@ -1687,49 +1874,22 @@ public final class PluginManager {
                 in.transferTo(java.io.OutputStream.nullOutputStream());
             }
             boolean mustBeSigned = name.endsWith(".class")
-                    || name.equals(PluginInfo.PROPERTIES_PATH);
+                    || name.equals(PluginInfo.PROPERTIES_PATH)
+                    || name.equals("plugin.xml")
+                    || (packageArchive && name.startsWith("classes/"))
+                    || (packageArchive && name.startsWith("lib/") && name.endsWith(".jar"));
             if (mustBeSigned) {
                 java.security.CodeSigner[] signers = e.getCodeSigners();
                 if (signers == null || signers.length == 0) {
-                    throw new SecurityException("Signed plugin JAR has unsigned entry: "
+                    throw new SecurityException("Signed plugin archive has unsigned entry: "
                             + name + " in " + jarPath);
                 }
-            }
-        }
-    }
-
-    private Set<String> loadTrustedPluginFingerprints() {
-        Set<String> out = new java.util.LinkedHashSet<>();
-        String prop = System.getProperty("pmcl.plugins.trustedFingerprints", "");
-        if (prop != null && !prop.isBlank()) {
-            for (String part : prop.split("[,;\\s]+")) {
-                String n = normalizeFingerprint(part);
-                if (!n.isEmpty()) out.add(n);
-            }
-        }
-        Path file = pluginsDir.resolve("trusted-signers.txt");
-        if (Files.isRegularFile(file)) {
-            try {
-                for (String line : Files.readAllLines(file, java.nio.charset.StandardCharsets.UTF_8)) {
-                    String t = line.trim();
-                    if (t.isEmpty() || t.startsWith("#")) continue;
-                    String n = normalizeFingerprint(t);
-                    if (!n.isEmpty()) out.add(n);
+                // H1: every critical entry's CodeSigners must match trusted fingerprints
+                if (assertTrustedPluginSigner(e, jarPath, !warnedEmpty)) {
+                    warnedEmpty = true;
                 }
-            } catch (IOException e) {
-                System.err.println("[PluginManager] Failed to read trusted-signers.txt: " + e.getMessage());
             }
         }
-        return out;
-    }
-
-    private static String normalizeFingerprint(String raw) {
-        if (raw == null) return "";
-        String s = raw.trim().toLowerCase(java.util.Locale.ROOT);
-        if (s.startsWith("sha256:")) s = s.substring("sha256:".length());
-        s = s.replace(":", "").replace(" ", "");
-        if (!s.matches("[0-9a-f]{64}")) return "";
-        return s;
     }
 
     private static String sha256Fingerprint(byte[] encoded) throws Exception {

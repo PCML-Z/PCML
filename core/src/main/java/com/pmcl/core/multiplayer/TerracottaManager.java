@@ -89,7 +89,12 @@ public final class TerracottaManager {
             .build();
 
     private volatile Process process;
+    /** Published port: authenticated proxy (never Terracotta's raw port). */
     private volatile int httpPort = 0;
+    /** Upstream Terracotta daemon port (not exposed). */
+    private volatile int backendPort = 0;
+    private volatile TerracottaAuthProxy authProxy;
+    private volatile String apiToken = "";
     private volatile Thread outputThread;
     private volatile String lastStateJson = "";
     private volatile long lastIndex = -1;
@@ -107,6 +112,21 @@ public final class TerracottaManager {
 
     public boolean isRunning() {
         return process != null && process.isAlive();
+    }
+
+    /**
+     * Whether the authenticated HTTP API is reachable.
+     * On macOS, {@code --hmcl} secondary mode often exits after writing the port file,
+     * so {@link #isRunning()} is false even though the daemon + proxy are usable.
+     */
+    public boolean isApiReady() {
+        if (httpPort <= 0 || apiToken == null || apiToken.isEmpty()) return false;
+        try {
+            queryState();
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     public String getLastStateJson() { return lastStateJson; }
@@ -186,8 +206,11 @@ public final class TerracottaManager {
      * 这样切换房主/房客模式时，已运行的 daemon 会被复用，不会因重复启动而退出。
      */
     public CompletableFuture<Void> start(Consumer<String> progress) {
-        if (isRunning()) return CompletableFuture.completedFuture(null);
+        if (isApiReady()) return CompletableFuture.completedFuture(null);
+        if (isRunning() && httpPort > 0) return CompletableFuture.completedFuture(null);
         return ensureBinary(progress).thenApplyAsync(v -> {
+            // Another create/join may have finished starting while we waited on ensureBinary.
+            if (isApiReady()) return (Void) null;
             try {
                 // ===== 阶段 1：尝试 --hmcl 模式（连接已有 daemon） =====
                 if (progress != null) progress.accept("正在连接 Terracotta…");
@@ -222,10 +245,11 @@ public final class TerracottaManager {
                         String content = Files.readString(portFile, StandardCharsets.UTF_8).trim();
                         java.util.regex.Matcher m = PORT_PATTERN.matcher(content);
                         if (m.find()) {
-                            httpPort = Integer.parseInt(m.group(1));
+                            int rawPort = Integer.parseInt(m.group(1));
                             process = hmclProc; // --hmcl 进程可能已退出（secondary mode 正常行为）
                             Files.deleteIfExists(portFile);
-                            if (progress != null) progress.accept("已连接 Terracotta daemon，HTTP 端口 " + httpPort);
+                            installAuthProxy(rawPort);
+                            if (progress != null) progress.accept("已连接 Terracotta daemon（经认证代理 :" + httpPort + ")");
                             return (Void) null;
                         }
                     }
@@ -312,8 +336,9 @@ public final class TerracottaManager {
                                 String newContent = new String(newBytes, StandardCharsets.UTF_8);
                                 java.util.regex.Matcher m = LOG_URL_PATTERN.matcher(newContent);
                                 if (m.find()) {
-                                    httpPort = Integer.parseInt(m.group(1));
-                                    if (progress != null) progress.accept("Terracotta 已启动，HTTP 端口 " + httpPort);
+                                    int rawPort = Integer.parseInt(m.group(1));
+                                    installAuthProxy(rawPort);
+                                    if (progress != null) progress.accept("Terracotta 已启动（经认证代理 :" + httpPort + ")");
                                     return (Void) null;
                                 }
                             }
@@ -330,16 +355,18 @@ public final class TerracottaManager {
 
     /** 停止 Terracotta 进程 */
     public synchronized void stop() {
-        // 先尝试 HTTP /panic?peaceful=true 优雅关闭
-        if (httpPort > 0) {
+        // 先尝试 HTTP /panic?peaceful=true 优雅关闭（经认证代理）
+        if (httpPort > 0 && apiToken != null && !apiToken.isEmpty()) {
             try {
-                Request req = new Request.Builder()
-                        .url("http://127.0.0.1:" + httpPort + "/panic?peaceful=true")
-                        .get().build();
+                Request req = authedGet("/panic?peaceful=true");
                 try (Response resp = http.newCall(req).execute()) {
                     // 忽略响应
                 }
             } catch (IOException ignored) {}
+        }
+        if (authProxy != null) {
+            try { authProxy.close(); } catch (Exception ignored) {}
+            authProxy = null;
         }
         // 等待 1 秒后强杀
         try { Thread.sleep(1000); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
@@ -357,10 +384,48 @@ public final class TerracottaManager {
         }
         process = null;
         httpPort = 0;
+        backendPort = 0;
+        apiToken = "";
         if (outputThread != null) {
             outputThread.interrupt();
             outputThread = null;
         }
+    }
+
+    /** Build authenticated GET against the local auth proxy (C8). */
+    private Request authedGet(String pathAndQuery) {
+        String path = pathAndQuery.startsWith("/") ? pathAndQuery : "/" + pathAndQuery;
+        return new Request.Builder()
+                .url("http://127.0.0.1:" + httpPort + path)
+                .header(TerracottaAuthProxy.HEADER, "Bearer " + apiToken)
+                .get()
+                .build();
+    }
+
+    /**
+     * Publish Terracotta backend behind an authenticated loopback proxy.
+     * {@link #httpPort} becomes the proxy port; backend port stays private.
+     */
+    private void installAuthProxy(int terracottaPort) throws IOException {
+        if (authProxy != null) {
+            try { authProxy.close(); } catch (Exception ignored) {}
+            authProxy = null;
+        }
+        this.backendPort = terracottaPort;
+        // Dedicated client: never share dispatcher with callers of queryState/authedGet,
+        // otherwise nested OkHttp execute (caller → proxy → backend) can stall.
+        OkHttpClient proxyHttp = new OkHttpClient.Builder()
+                .connectTimeout(5, TimeUnit.SECONDS)
+                .readTimeout(30, TimeUnit.SECONDS)
+                .followRedirects(true)
+                .build();
+        TerracottaAuthProxy proxy = new TerracottaAuthProxy(terracottaPort, proxyHttp);
+        proxy.start();
+        this.authProxy = proxy;
+        this.apiToken = proxy.getToken();
+        this.httpPort = proxy.getListenPort();
+        System.out.println("[TerracottaManager] Auth proxy on 127.0.0.1:" + httpPort
+                + " → backend :" + backendPort + " (Bearer required)");
     }
 
     // ============ HTTP API ============
@@ -371,9 +436,7 @@ public final class TerracottaManager {
      */
     public String queryState() throws IOException {
         if (httpPort == 0) throw new IOException("Terracotta 未启动");
-        Request req = new Request.Builder()
-                .url("http://127.0.0.1:" + httpPort + "/state")
-                .get().build();
+        Request req = authedGet("/state");
         try (Response resp = http.newCall(req).execute()) {
             if (!resp.isSuccessful()) throw new IOException("HTTP " + resp.code());
             String body = resp.body() != null ? resp.body().string() : "{}";
@@ -396,6 +459,20 @@ public final class TerracottaManager {
     public CompletableFuture<String> createRoom(String playerName, Consumer<String> progress) {
         return start(progress).thenComposeAsync(v -> {
             try {
+                String current = extractJsonField(queryState(), "state");
+                // 已扫到 / 已建房：直接收成，避免 toIdle 拆掉现有房间
+                if ("host-ok".equals(current) || "host-starting".equals(current)) {
+                    if (progress != null) progress.accept("复用已有房主状态：" + current);
+                    return CompletableFuture.completedFuture(lastStateJson);
+                }
+                // 仍在扫描：用户超时后开放了局域网再点「创建」→ 只续等，勿 toIdle
+                if ("host-scanning".equals(current)) {
+                    if (progress != null) {
+                        progress.accept("继续扫描局域网世界…请确认 Minecraft 已「对局域网开放」");
+                    }
+                    return waitForState("host-ok", "host-starting", progress, 300000);
+                }
+
                 // 先重置到 idle 并等待确认，避免 daemon 仍处于上一次的 host/guest 状态
                 toIdle();
                 // 不传 public_nodes：Terracotta 内部会自动添加 4 个默认中继节点
@@ -404,17 +481,23 @@ public final class TerracottaManager {
                         "http://127.0.0.1:" + httpPort + "/state/scanning").newBuilder();
                 ub.addQueryParameter("player", playerName);
                 if (progress != null) progress.accept("正在创建房间…");
-                Request req = new Request.Builder().url(ub.build()).get().build();
+                Request req = new Request.Builder().url(ub.build())
+                        .header(TerracottaAuthProxy.HEADER, "Bearer " + apiToken)
+                        .get().build();
                 try (Response resp = http.newCall(req).execute()) {
                     if (!resp.isSuccessful()) {
                         String body = resp.body() != null ? resp.body().string() : "";
                         throw new IOException("HTTP " + resp.code() + ": " + body);
                     }
                 }
-                if (progress != null) progress.accept("请在 Minecraft 中打开一个世界，然后按 Esc → 「对局域网开放」");
+                if (progress != null) {
+                    progress.accept("正在扫描局域网世界…请在等待期间于 Minecraft 中 Esc →「对局域网开放」");
+                }
                 // 轮询状态直到 host-ok 或 host-starting（房间码在 host-starting 状态就可用）
                 // 超时 5 分钟，给用户足够时间启动 MC 并开放局域网
                 return waitForState("host-ok", "host-starting", progress, 300000);
+            } catch (HostScanningTimeoutException e) {
+                throw e;
             } catch (Exception e) {
                 throw new RuntimeException("创建房间失败：" + e.getMessage(), e);
             }
@@ -446,7 +529,9 @@ public final class TerracottaManager {
                 ub.addQueryParameter("room", roomCode);
                 ub.addQueryParameter("player", playerName);
                 if (progress != null) progress.accept("正在加入房间 " + roomCode + "…");
-                Request req = new Request.Builder().url(ub.build()).get().build();
+                Request req = new Request.Builder().url(ub.build())
+                        .header(TerracottaAuthProxy.HEADER, "Bearer " + apiToken)
+                        .get().build();
                 try (Response resp = http.newCall(req).execute()) {
                     if (!resp.isSuccessful()) {
                         String body = resp.body() != null ? resp.body().string() : "";
@@ -477,9 +562,7 @@ public final class TerracottaManager {
                 .reduce("toIdle() called from:", (a, b) -> a + "\n  -> " + b);
         System.out.println("[TerracottaManager] " + caller);
         try {
-            Request req = new Request.Builder()
-                    .url("http://127.0.0.1:" + httpPort + "/state/idle")
-                    .get().build();
+            Request req = authedGet("/state/idle");
             try (Response resp = http.newCall(req).execute()) {}
         } catch (IOException ignored) {}
         // 等待 daemon 真正回到 waiting 状态（最多 5 秒）
@@ -518,33 +601,74 @@ public final class TerracottaManager {
                         String reason = explainException(type);
                         throw new RuntimeException("Terracotta 异常：" + reason + "（type=" + type + "）");
                     }
-                    // 每 5 秒或状态变化时输出进度
+                    // 状态变化或周期性心跳时输出进度
                     if (progress != null && !state.equals(lastLoggedState)) {
                         lastLoggedState = state;
                         String msg = "当前状态：" + state;
-                        // 房间码在 host-starting 状态就已可用，提前显示
-                        if ("host-starting".equals(state)) {
+                        if ("host-scanning".equals(state)) {
+                            msg += " — 未检测到局域网世界，请在 Minecraft 中 Esc →「对局域网开放」";
+                        } else if ("host-starting".equals(state)) {
+                            // 房间码在 host-starting 状态就已可用，提前显示
                             String room = extractJsonField(json, "room");
                             if (room != null && !room.isEmpty()) {
                                 msg += "，房间码：" + room;
                             }
+                        } else if ("guesting".equals(state) || state.startsWith("guest-")) {
+                            msg += " — 正在建立 P2P，请稍候";
                         }
                         progress.accept(msg);
                     } else if (progress != null && pollCount % 20 == 0 && pollCount > 0) {
                         // 每 10 秒输出一次心跳
                         long remaining = (deadline - System.currentTimeMillis()) / 1000;
-                        progress.accept("仍在等待 " + targetState + "（当前：" + state + "，剩余 " + remaining + "s）");
+                        if ("host-scanning".equals(state)) {
+                            progress.accept("仍在扫描局域网（剩余 " + remaining
+                                    + "s）— 请确认游戏已对局域网开放；macOS 需允许「本地网络」");
+                        } else {
+                            progress.accept("仍在等待 " + targetState + "（当前：" + state
+                                    + "，剩余 " + remaining + "s）");
+                        }
                     }
                     pollCount++;
                     Thread.sleep(500);
                 }
-                throw new RuntimeException("等待状态 " + targetState + " 超时（最后状态：" + lastLoggedState + "）");
+                String msg = timeoutMessage(targetState, altState, lastLoggedState);
+                if ("host-scanning".equals(lastLoggedState)
+                        && ("host-ok".equals(targetState) || "host-starting".equals(altState))) {
+                    throw new HostScanningTimeoutException(msg);
+                }
+                throw new RuntimeException(msg);
             } catch (RuntimeException e) {
                 throw e;
             } catch (Exception e) {
                 throw new RuntimeException("轮询状态失败：" + e.getMessage(), e);
             }
         });
+    }
+
+    /**
+     * host-scanning 等到超时：daemon 仍在扫局域网，不应被 stop() 杀掉，
+     * 以便用户开放局域网后再次点「创建房间」可续等。
+     */
+    public static final class HostScanningTimeoutException extends RuntimeException {
+        public HostScanningTimeoutException(String message) {
+            super(message);
+        }
+    }
+
+    /** 超时失败时给出可操作的说明（host-scanning 最常见）。 */
+    private static String timeoutMessage(String targetState, String altState, String lastState) {
+        if ("host-scanning".equals(lastState)
+                && ("host-ok".equals(targetState) || "host-starting".equals(altState))) {
+            return "创建房间超时：未检测到 Minecraft 局域网世界（host-scanning）。"
+                    + "请现在游戏内 Esc →「对局域网开放」，然后再次点击「创建房间」继续等待。"
+                    + "若已开放仍失败，请检查 macOS「本地网络」权限是否允许 PMCL 与 Minecraft。";
+        }
+        if (lastState != null && lastState.startsWith("guest-") && "guest-ok".equals(targetState)) {
+            return "加入房间超时（最后状态：" + lastState + "）。"
+                    + "请确认房间码正确、房主仍在线，并检查本机网络 / 防火墙。";
+        }
+        String wanted = altState != null ? targetState + "/" + altState : targetState;
+        return "等待状态 " + wanted + " 超时（最后状态：" + lastState + "）";
     }
 
     /** 简单 JSON 字段提取（支持字符串和数字值） */

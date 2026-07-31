@@ -152,6 +152,8 @@ public final class FriendStore {
         e.addedAt = src.addedAt;
         e.lastSeen = src.lastSeen;
         e.authSecret = src.authSecret;
+        e.ed25519Pub = src.ed25519Pub;
+        e.x25519Pub = src.x25519Pub;
         return e;
     }
 
@@ -242,6 +244,32 @@ public final class FriendStore {
         return (s == null || s.isBlank()) ? null : s;
     }
 
+    /** 保存好友长期公钥（来自邀请 QR / 安全握手） */
+    public void setPeerPublicKeys(String identity, byte[] ed25519Pub, byte[] x25519Pub) {
+        if (identity == null || ed25519Pub == null || x25519Pub == null) return;
+        FriendEntry entry = friends.get(identity);
+        if (entry == null) return;
+        entry.ed25519Pub = FriendCrypto.b64(ed25519Pub);
+        entry.x25519Pub = FriendCrypto.b64(x25519Pub);
+        saveFriends();
+    }
+
+    public FriendSecureChannel.PeerStaticKeys getPeerStaticKeys(String identity) {
+        FriendEntry entry = friends.get(identity);
+        if (entry == null) return null;
+        if (entry.ed25519Pub == null || entry.x25519Pub == null
+                || entry.ed25519Pub.isBlank() || entry.x25519Pub.isBlank()) {
+            return null;
+        }
+        try {
+            return new FriendSecureChannel.PeerStaticKeys(
+                    FriendCrypto.b64d(entry.ed25519Pub),
+                    FriendCrypto.b64d(entry.x25519Pub));
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     /** 更新好友在线状态，返回状态是否实际变化 */
     public boolean updateOnlineStatus(String identity, boolean online, String ip, int port) {
         FriendEntry entry = friends.get(identity);
@@ -330,8 +358,12 @@ public final class FriendStore {
         public volatile boolean online;
         public volatile long addedAt;
         public volatile long lastSeen;
-        /** 与该好友共享的握手 HMAC 密钥（好友请求时交换） */
+        /** 与该好友共享的握手 HMAC 密钥（本地由 ECDH 派生，禁止明文上网传输） */
         public volatile String authSecret;
+        /** 好友 Ed25519 公钥（SPKI，Base64URL）——带外/邀请交换 */
+        public volatile String ed25519Pub;
+        /** 好友 X25519 公钥（SPKI，Base64URL）——带外/邀请交换 */
+        public volatile String x25519Pub;
     }
 
     /** 聊天消息 */

@@ -84,6 +84,7 @@ fun FriendPage(vm: LauncherViewModel) {
     var activeCallSession by remember { mutableStateOf<com.pmcl.video.VideoCallSession?>(null) }
     var incomingCall by remember { mutableStateOf<Pair<String, String>?>(null) } // (identity, name)
     var pendingCallerVideoPort by remember { mutableStateOf(0) } // 来电者的视频端口
+    var pendingIncomingCallId by remember { mutableStateOf("") }
 
     // 身份卡片状态
     var cardExpanded by remember { mutableStateOf(false) }
@@ -171,6 +172,7 @@ fun FriendPage(vm: LauncherViewModel) {
                             if (fromId.isNotEmpty()) {
                                 incomingCall = Pair(fromId, invite.fromName?.takeIf { it.isNotEmpty() } ?: fromId)
                                 pendingCallerVideoPort = invite.videoPort
+                                pendingIncomingCallId = invite.callId ?: ""
                             } else {
                                 System.err.println("[FriendPage] CALL_INVITE_RECEIVED 缺少 from")
                             }
@@ -376,17 +378,31 @@ fun FriendPage(vm: LauncherViewModel) {
                                 scope.launch {
                                     withContext(Dispatchers.IO) {
                                         com.pmcl.video.VideoCallManager.init()
-                                        val callId = java.util.UUID.randomUUID().toString()
                                         val friendEntry = selectedFriend
                                         
                                         // 创建视频 socket 并获取端口
                                         val videoSocket = java.net.DatagramSocket()
                                         val videoPort = videoSocket.localPort
                                         
+                                        val inviteResult = friendManager.sendCallInvite(activeFriendId, "video", videoPort)
+                                        if (inviteResult == null) {
+                                            System.err.println("[VideoCall] 无法发送通话邀请：好友无网络地址")
+                                            videoSocket.close()
+                                            return@withContext
+                                        }
+                                        val callId = inviteResult
                                         val session = com.pmcl.video.VideoCallSession(
                                             callId, activeFriendId, friendEntry?.displayName ?: "",
                                             true, com.pmcl.video.VideoCallSession.MediaType.AUDIO_VIDEO
                                         )
+                                        try {
+                                            session.setMediaKey(friendManager.deriveMediaKey(activeFriendId, callId))
+                                        } catch (e: Exception) {
+                                            System.err.println("[VideoCall] 媒体密钥派生失败: ${e.message}")
+                                            videoSocket.close()
+                                            session.end()
+                                            return@withContext
+                                        }
                                         session.addListener(object : com.pmcl.video.VideoCallSession.CallListener {
                                             override fun onStateChanged(state: com.pmcl.video.VideoCallSession.State) {
                                                 if (state == com.pmcl.video.VideoCallSession.State.ENDED) {
@@ -409,16 +425,7 @@ fun FriendPage(vm: LauncherViewModel) {
                                         activeCallSession?.end()
                                         activeCallSession = session
                                         session.attachVideoSocket(videoSocket)
-
-                                        val inviteResult = friendManager.sendCallInvite(activeFriendId, "video", videoPort)
-                                        if (inviteResult == null) {
-                                            System.err.println("[VideoCall] 无法发送通话邀请：好友无网络地址")
-                                            videoSocket.close()
-                                            session.end()
-                                            activeCallSession = null
-                                        } else {
-                                            System.out.println("[VideoCall] 通话邀请已发送 callId=$inviteResult -> $activeFriendId")
-                                        }
+                                        System.out.println("[VideoCall] 通话邀请已发送 callId=$callId -> $activeFriendId")
                                     }
                                 }
                             }
@@ -473,7 +480,9 @@ fun FriendPage(vm: LauncherViewModel) {
                         info.identity.toString(),
                         info.displayName,
                         "",
-                        0
+                        0,
+                        info.ed25519Public,
+                        info.x25519Public
                     )
                     addFriendCode = ""
                     addFriendError = null
@@ -576,13 +585,20 @@ fun FriendPage(vm: LauncherViewModel) {
                 onAccept = {
                     scope.launch(Dispatchers.IO) {
                         com.pmcl.video.VideoCallManager.init()
-                        val callId = java.util.UUID.randomUUID().toString()
+                        val callId = pendingIncomingCallId.ifEmpty { java.util.UUID.randomUUID().toString() }
                         val callerPort = pendingCallerVideoPort
                         
                         val session = com.pmcl.video.VideoCallSession(
                             callId, callerId, callerName,
                             false, com.pmcl.video.VideoCallSession.MediaType.AUDIO_VIDEO
                         )
+                        try {
+                            session.setMediaKey(friendManager.deriveMediaKey(callerId, callId))
+                        } catch (e: Exception) {
+                            System.err.println("[VideoCall] 媒体密钥派生失败: ${e.message}")
+                            incomingCall = null
+                            return@launch
+                        }
                         
                         // 创建视频 socket
                         val videoSocket = java.net.DatagramSocket()

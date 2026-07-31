@@ -62,6 +62,8 @@ public final class EasyTierManager {
 
     private volatile Process process;
     private volatile Thread outputThread;
+    /** Temp 0600 config used so network_secret is not on the process cmdline. */
+    private volatile Path runtimeConfigPath;
 
     public EasyTierManager() {
         this.binaryDir = Paths.get(System.getProperty("user.home"), ".pmcl", "easytier");
@@ -483,20 +485,30 @@ public final class EasyTierManager {
                     throw new RuntimeException("EasyTier 已在运行");
                 }
                 try {
+                    Path config = writeRuntimeConfig(networkName, networkSecret, peer);
+                    runtimeConfigPath = config;
+
                     List<String> cmd = new ArrayList<>();
                     cmd.add(binaryPath.toString());
-                    cmd.add("--network-name"); cmd.add(networkName);
-                    cmd.add("--network-secret"); cmd.add(networkSecret);
+                    // Prefer config file (0600) over --network-secret on argv (visible in ps).
+                    // Also set ET_NETWORK_SECRET for builds that prefer env over file contents.
+                    cmd.add("-c");
+                    cmd.add(config.toString());
                     cmd.add("-d");                   // DHCP 自动分配虚拟 IP
                     cmd.add("--multi-thread");
-                    cmd.add("--instance-name"); cmd.add("pmcl");
-                    if (peer != null && !peer.isEmpty()) {
-                        cmd.add("-p"); cmd.add(peer);
-                    }
-                    cmd.add("--console-log-level"); cmd.add("info");
+                    cmd.add("--instance-name");
+                    cmd.add("pmcl");
+                    cmd.add("--console-log-level");
+                    cmd.add("info");
 
                     ProcessBuilder pb = new ProcessBuilder(cmd)
                             .redirectErrorStream(true);
+                    if (networkSecret != null && !networkSecret.isEmpty()) {
+                        pb.environment().put("ET_NETWORK_SECRET", networkSecret);
+                    }
+                    if (networkName != null && !networkName.isEmpty()) {
+                        pb.environment().put("ET_NETWORK_NAME", networkName);
+                    }
                     process = pb.start();
 
                     // 异步读取输出
@@ -516,6 +528,7 @@ public final class EasyTierManager {
                     outputThread.start();
                 } catch (IOException e) {
                     process = null;
+                    deleteRuntimeConfig();
                     throw new RuntimeException("启动 EasyTier 失败：" + e.getMessage(), e);
                 }
             }
@@ -542,6 +555,51 @@ public final class EasyTierManager {
             outputThread.interrupt();
             outputThread = null;
         }
+        deleteRuntimeConfig();
+    }
+
+    /**
+     * Write a 0600 TOML config so {@code network_secret} is not passed on the process cmdline.
+     * EasyTier also accepts {@code ET_NETWORK_SECRET} env (set as belt-and-suspenders).
+     */
+    private Path writeRuntimeConfig(String networkName, String networkSecret, String peer)
+            throws IOException {
+        Files.createDirectories(binaryDir);
+        Path cfg = binaryDir.resolve("pmcl-runtime-" + ProcessHandle.current().pid() + ".toml");
+        StringBuilder sb = new StringBuilder();
+        sb.append("instance_name = \"pmcl\"\n");
+        sb.append("dhcp = true\n");
+        sb.append("\n[network_identity]\n");
+        sb.append("network_name = \"").append(tomlEscape(networkName)).append("\"\n");
+        sb.append("network_secret = \"").append(tomlEscape(networkSecret)).append("\"\n");
+        if (peer != null && !peer.isEmpty()) {
+            sb.append("\n[[peer]]\n");
+            sb.append("uri = \"").append(tomlEscape(peer)).append("\"\n");
+        }
+        Files.writeString(cfg, sb.toString(), StandardCharsets.UTF_8);
+        try {
+            // Best-effort owner-only permissions (no-op / ignored on some Windows FS)
+            java.util.Set<java.nio.file.attribute.PosixFilePermission> perms =
+                    java.util.EnumSet.of(
+                            java.nio.file.attribute.PosixFilePermission.OWNER_READ,
+                            java.nio.file.attribute.PosixFilePermission.OWNER_WRITE);
+            Files.setPosixFilePermissions(cfg, perms);
+        } catch (UnsupportedOperationException ignored) {
+        }
+        return cfg;
+    }
+
+    private void deleteRuntimeConfig() {
+        Path cfg = runtimeConfigPath;
+        runtimeConfigPath = null;
+        if (cfg != null) {
+            try { Files.deleteIfExists(cfg); } catch (IOException ignored) {}
+        }
+    }
+
+    private static String tomlEscape(String s) {
+        if (s == null) return "";
+        return s.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
     /** 进程是否在运行 */

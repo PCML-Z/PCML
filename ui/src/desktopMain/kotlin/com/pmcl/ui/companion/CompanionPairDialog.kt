@@ -39,7 +39,6 @@ import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.WindowScope
 import androidx.compose.ui.window.rememberWindowState
 import com.pmcl.ui.theme.ParallaxBackground
-import com.pmcl.ui.theme.glassSurfaceVariantColor
 import java.awt.MouseInfo
 import java.awt.Point
 import java.awt.event.ComponentAdapter
@@ -50,6 +49,17 @@ import java.net.NetworkInterface
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+/**
+ * 配对独立 Window 不在 [com.pmcl.ui.theme.LocalThemeState] 树内，
+ * 不能调用 glassSurfaceVariantColor()（会抛 ThemeState not provided）。
+ */
+@Composable
+private fun companionSurfaceVariant(glassOn: Boolean, glassAlpha: Float = 0.4f): Color {
+    val solid = MaterialTheme.colorScheme.surfaceVariant
+    if (!glassOn) return solid
+    return solid.copy(alpha = glassAlpha)
+}
 
 /**
  * iOS 伴随 App 配对对话框：左侧展示配对码的二维码与一维码，右侧展示配对码文字及已配对设备。
@@ -217,7 +227,7 @@ fun CompanionPairDialog(
                     val pairedName = devices.firstOrNull()?.deviceName
                     Surface(
                         shape = RoundedCornerShape(12.dp),
-                        color = glassSurfaceVariantColor(glassAlpha = 0.4f)
+                        color = companionSurfaceVariant(glassOn, glassAlpha = 0.4f)
                     ) {
                         Box(
                             Modifier.size(300.dp),
@@ -282,7 +292,7 @@ fun CompanionPairDialog(
                     // 已配对设备时同样模糊
                     Surface(
                         shape = RoundedCornerShape(12.dp),
-                        color = glassSurfaceVariantColor(glassAlpha = 0.4f)
+                        color = companionSurfaceVariant(glassOn, glassAlpha = 0.4f)
                     ) {
                         Box(
                             Modifier.width(320.dp).height(80.dp),
@@ -431,7 +441,7 @@ fun CompanionPairDialog(
                         devices.forEach { device ->
                             Surface(
                                 shape = RoundedCornerShape(8.dp),
-                                color = glassSurfaceVariantColor(glassAlpha = 0.4f)
+                                color = companionSurfaceVariant(glassOn, glassAlpha = 0.4f)
                             ) {
                                 Row(
                                     Modifier.fillMaxWidth().padding(12.dp),

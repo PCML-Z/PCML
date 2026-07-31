@@ -27,7 +27,6 @@ import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.rememberWindowState
 import com.pmcl.core.i18n.I18n
 import com.pmcl.core.mods.ModDropInfo
-import com.pmcl.ui.theme.glassContainerColor
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import java.awt.Dimension
 
@@ -67,7 +66,7 @@ fun ModDropDialog(
             Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                 Column(Modifier.fillMaxSize()) {
                     // 标题栏
-                    Surface(color = glassContainerColor(MaterialTheme.colorScheme.surface), tonalElevation = 2.dp) {
+                    Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp) {
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
@@ -133,7 +132,7 @@ fun ModDropDialog(
                                 }
                             }
                             // 底部按钮栏
-                            Surface(color = glassContainerColor(MaterialTheme.colorScheme.surface), tonalElevation = 2.dp) {
+                            Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
                                     verticalAlignment = Alignment.CenterVertically,
@@ -197,7 +196,7 @@ private fun ModDropCard(
     Surface(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         shape = RoundedCornerShape(10.dp),
-        color = glassContainerColor(MaterialTheme.colorScheme.surface),
+        color = MaterialTheme.colorScheme.surface,
         tonalElevation = 1.dp
     ) {
         Column(Modifier.padding(14.dp)) {

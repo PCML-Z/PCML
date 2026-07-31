@@ -541,6 +541,16 @@ public final class DownloadManager {
             // 如果服务端忽略 Range（返回 200），从头开始
             long startPos = rangeOk ? existingSize : 0L;
 
+            // H33: 206 时校验 Content-Range 起始字节与请求 Range 一致，防止错位续传污染 .part
+            if (rangeOk) {
+                String contentRange = resp.header("Content-Range");
+                if (!contentRangeMatches(contentRange, existingSize)) {
+                    Files.deleteIfExists(partFile);
+                    throw new IOException("Content-Range 与请求 Range 不匹配: " + contentRange
+                            + " (expected start=" + existingSize + ")");
+                }
+            }
+
             // 关键：全新下载时先删除旧 .part 文件，避免旧内容残留
             if (fullOk && Files.exists(partFile)) {
                 Files.deleteIfExists(partFile);
@@ -875,6 +885,16 @@ public final class DownloadManager {
                     throw new IOException("下载失败 code=" + code + " url=" + url);
                 }
                 long startPos = rangeOk ? existingSize : 0L;
+                if (rangeOk) {
+                    String contentRange = resp.header("Content-Range");
+                    if (!contentRangeMatches(contentRange, existingSize)) {
+                        long expectedStart = existingSize;
+                        Files.deleteIfExists(tmp);
+                        existingSize = 0;
+                        throw new IOException("Content-Range 与请求 Range 不匹配: " + contentRange
+                                + " (expected start=" + expectedStart + ")");
+                    }
+                }
                 if (fullOk && Files.exists(tmp)) {
                     Files.deleteIfExists(tmp);
                     existingSize = 0;
@@ -995,6 +1015,26 @@ public final class DownloadManager {
 
     private static String sha1(Path file) throws IOException {
         return digestHex(file, "SHA-1");
+    }
+
+    /**
+     * H33: 校验 Content-Range 起始偏移与请求的 Range 起点一致。
+     * 接受形式：{@code bytes START-END/TOTAL} 或 {@code bytes START-* /TOTAL}（星号表示未知结束）。
+     */
+    static boolean contentRangeMatches(String contentRange, long expectedStart) {
+        if (contentRange == null || contentRange.isBlank()) return false;
+        String s = contentRange.trim();
+        // "bytes 1234-5678/9999" or "bytes 1234-*/9999"
+        if (!s.regionMatches(true, 0, "bytes ", 0, 6)) return false;
+        String rest = s.substring(6).trim();
+        int dash = rest.indexOf('-');
+        if (dash <= 0) return false;
+        try {
+            long start = Long.parseLong(rest.substring(0, dash).trim());
+            return start == expectedStart;
+        } catch (NumberFormatException e) {
+            return false;
+        }
     }
 
     private static String sha512Hex(Path file) throws IOException {

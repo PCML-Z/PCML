@@ -861,11 +861,21 @@ public final class PmclCli {
     }
 
     private ModLoader parseLoader(String name) {
-        switch (name.toLowerCase()) {
+        switch (name.toLowerCase().replace(' ', '_').replace('-', '_')) {
             case "fabric": return ModLoader.FABRIC;
             case "forge": return ModLoader.FORGE;
             case "neoforge": case "neo": return ModLoader.NEOFORGE;
             case "quilt": return ModLoader.QUILT;
+            case "optifine": return ModLoader.OPTIFINE;
+            case "liteloader": return ModLoader.LITELOADER;
+            case "legacy_fabric": case "legacyfabric": return ModLoader.LEGACY_FABRIC;
+            case "babric": return ModLoader.BABRIC;
+            case "bta_babric": case "bta": return ModLoader.BTA_BABRIC;
+            case "ornithe": return ModLoader.ORNITHE;
+            case "rift": return ModLoader.RIFT;
+            case "nilloader": case "nil": return ModLoader.NILLOADER;
+            case "java_agent": case "javaagent": case "agent": return ModLoader.JAVA_AGENT;
+            case "risugami": case "modloader": return ModLoader.RISUGAMI;
             case "vanilla": return ModLoader.VANILLA;
             default: return null;
         }
@@ -1610,8 +1620,14 @@ public final class PmclCli {
         System.out.println("Downloading: " + url);
         System.out.println("Target: " + target);
         try {
+            // H50: SSRF 校验（含重定向目标）后再下载
+            String ssrf = com.pmcl.core.util.SsrfChecker.validate(url);
+            if (ssrf != null) {
+                System.err.println("Error: URL blocked by SSRF check: " + ssrf);
+                return;
+            }
             DownloadManager dm = core.downloads();
-            dm.downloadTo(url, target, bytes -> {
+            dm.downloadToSsrfChecked(url, target, bytes -> {
                 long mb = bytes / (1024 * 1024);
                 System.out.printf("\r  Downloaded: %d MB", mb);
             });

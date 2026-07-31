@@ -59,33 +59,31 @@ public final class ProcessTuner {
 
     /**
      * 疯狂优先级：跨平台拉到系统允许的调度优先级极限。
-     * <p>
-     * - macOS：taskpolicy -P high（进程 priority 提升至 high）+ renice -20（最高 nice，
-     *   需 sudo，用 osascript 弹授权框）
-     * - Windows：REALTIME_PRIORITY_CLASS (256)，抢占式实时优先级
-     * - Linux：renice -20（需 sudo，用 pkexec 或 osascript 无关，直接 sudo 调用）
-     * <p>
-     * 风险：可能导致系统响应性下降（鼠标/键盘卡顿），用户主动选择。
-     * 失败静默降级，不阻塞游戏运行。
+     *
+     * @return true 表示关键步骤成功（或本平台无需提权）；false 表示用户拒绝管理员授权或提权失败
      */
-    public void applyCrazyPriority(long pid) {
-        if (pid <= 0) return;
+    public boolean applyCrazyPriority(long pid) {
+        if (pid <= 0) return false;
         try {
             if (isMac) {
-                applyMacCrazy(pid);
+                return applyMacCrazy(pid);
             } else if (isWindows) {
                 applyWindowsRealtime(pid);
+                return true;
             } else if (isLinux) {
-                applyLinuxCrazy(pid);
+                return applyLinuxCrazy(pid);
             }
         } catch (Exception e) {
             System.err.println("[MioMode] 疯狂优先级应用失败，降级: " + e.getMessage());
         }
+        return false;
     }
 
     /**
-     * 应用 L3 系统电源策略（启动前调用，需 sudo）。
+     * 应用 L3 系统电源策略（需 sudo）。
      * 使用 osascript 弹原生授权框，用户拒绝则静默降级。
+     * <p>
+     * 应在游戏进程已启动之后调用，避免启动前卡住。
      *
      * @return true 表示成功应用，false 表示用户拒绝或失败
      */
@@ -94,10 +92,10 @@ public final class ProcessTuner {
         try {
             // 先记录原始 lowpowermode 状态用于恢复
             originalLowPowerMode = queryLowPowerMode();
-            // 用 osascript 弹原生授权框执行 sudo pmset
-            String script = String.format(
-                "do shell script \"pmset -a lowpowermode 0\" with administrator privileges");
-            runCommand("osascript", "-e", script);
+            // 用 osascript 弹原生授权框执行 sudo pmset（用户可能需要较长时间输入密码）
+            String script =
+                "do shell script \"pmset -a lowpowermode 0\" with administrator privileges";
+            runPrivilegedOsascript(script);
             System.out.println("[MioMode] L3 已关闭低电量模式（原值=" + originalLowPowerMode + "）");
             return true;
         } catch (Exception e) {
@@ -110,6 +108,8 @@ public final class ProcessTuner {
     /**
      * 清理所有调优状态（游戏退出后调用）。
      * 必须在 finally 块中调用以确保恢复。
+     * <p>
+     * L3 恢复若再次弹授权框且用户拒绝，只写入备份文件，不再阻塞。
      */
     public void cleanup() {
         // L2：终止 caffeinate 子进程
@@ -124,23 +124,24 @@ public final class ProcessTuner {
             }
             caffeinateProcess = null;
         }
-        // L3：恢复原始低电量模式
+        // L3：恢复原始低电量模式（可能再次弹授权；失败则写备份，避免反复打扰）
         if (originalLowPowerMode != null && isMac) {
+            Integer restore = originalLowPowerMode;
+            originalLowPowerMode = null;
             try {
                 String script = String.format(
                     "do shell script \"pmset -a lowpowermode %d\" with administrator privileges",
-                    originalLowPowerMode);
-                runCommand("osascript", "-e", script);
-                System.out.println("[MioMode] L3 已恢复低电量模式=" + originalLowPowerMode);
+                    restore);
+                runPrivilegedOsascript(script);
+                System.out.println("[MioMode] L3 已恢复低电量模式=" + restore);
             } catch (Exception e) {
                 System.err.println("[MioMode] L3 恢复低电量模式失败: " + e.getMessage());
-                // 恢复失败时写入备份文件，下次启动可尝试恢复
                 try {
                     Path backup = Paths.get(System.getProperty("user.home"), ".pmcl", "mio_pmset_backup.txt");
-                    Files.writeString(backup, String.valueOf(originalLowPowerMode));
+                    Files.createDirectories(backup.getParent());
+                    Files.writeString(backup, String.valueOf(restore));
                 } catch (Exception ignored) {}
             }
-            originalLowPowerMode = null;
         }
     }
 
@@ -191,7 +192,7 @@ public final class ProcessTuner {
 
     // ===== 疯狂优先级平台实现 =====
 
-    private void applyMacCrazy(long pid) throws IOException {
+    private boolean applyMacCrazy(long pid) throws IOException {
         // 1. taskpolicy -P high：进程 priority 提升至 high tier（与 -c user-active 互补）
         try {
             runCommand("taskpolicy", "-P", "high", "-p", String.valueOf(pid));
@@ -200,14 +201,16 @@ public final class ProcessTuner {
             System.err.println("[MioMode] taskpolicy -P high 失败: " + e.getMessage());
         }
         // 2. renice -20：最高 nice 优先级，需 sudo（普通用户无法设负值）
-        // 用 osascript 弹原生授权框执行 sudo renice
         try {
             String script = String.format(
                 "do shell script \"renice -20 -p %d\" with administrator privileges", pid);
-            runCommand("osascript", "-e", script);
+            runPrivilegedOsascript(script);
             System.out.println("[MioMode] 疯狂: macOS renice -20 已应用 pid=" + pid);
+            return true;
         } catch (Exception e) {
             System.err.println("[MioMode] renice -20 失败（用户拒绝授权或不可用）: " + e.getMessage());
+            // 提权被拒时返回 false，便于自动关闭该选项，避免下次启动再弹密码框
+            return false;
         }
     }
 
@@ -219,19 +222,21 @@ public final class ProcessTuner {
         System.out.println("[MioMode] 疯狂: Windows REALTIME 优先级已应用 pid=" + pid);
     }
 
-    private void applyLinuxCrazy(long pid) throws IOException {
+    /** @return true 提权 renice 成功 */
+    private boolean applyLinuxCrazy(long pid) throws IOException {
         // renice -20：最高 nice 优先级，需 root
-        // 尝试用 sudo（会提示密码），失败则尝试 pkexec（GUI 授权）
         try {
             runCommand("sudo", "-n", "renice", "-20", "-p", String.valueOf(pid));
             System.out.println("[MioMode] 疯狂: Linux renice -20 (sudo) 已应用 pid=" + pid);
+            return true;
         } catch (Exception e) {
-            // sudo -n 非交互模式失败，尝试 pkexec 弹 GUI 授权框
             try {
-                runCommand("pkexec", "renice", "-20", "-p", String.valueOf(pid));
+                runCommandLong(120, "pkexec", "renice", "-20", "-p", String.valueOf(pid));
                 System.out.println("[MioMode] 疯狂: Linux renice -20 (pkexec) 已应用 pid=" + pid);
+                return true;
             } catch (Exception e2) {
                 System.err.println("[MioMode] Linux renice -20 失败（需 root）: " + e2.getMessage());
+                return false;
             }
         }
     }
@@ -271,27 +276,38 @@ public final class ProcessTuner {
         return null;
     }
 
+    private void runPrivilegedOsascript(String appleScript) throws IOException {
+        runCommandInternal(120, "osascript", "-e", appleScript);
+    }
+
     private void runCommand(String... cmd) throws IOException {
-        // S8: transferTo 必须在 waitFor 之后，否则进程挂起时输入流永不 EOF，启动器永久卡死
-        // M78: try-finally 确保 Process 被销毁
+        runCommandInternal(5, cmd);
+    }
+
+    private void runCommandLong(int timeoutSec, String... cmd) throws IOException {
+        runCommandInternal(timeoutSec, cmd);
+    }
+
+    private void runCommandInternal(int timeoutSec, String... cmd) throws IOException {
         Process p = null;
         try {
             p = new ProcessBuilder(cmd).redirectErrorStream(true).start();
-            // 先等待进程退出（超时 5s），超时则强制销毁
-            boolean exited = p.waitFor(5, TimeUnit.SECONDS);
+            boolean exited = p.waitFor(timeoutSec, TimeUnit.SECONDS);
             if (!exited) {
-                // 超时不抛异常：调用方依赖 runCommand 静默降级语义
-                // destroyForcibly 后输入流会 EOF，transferTo 才能返回
                 p.destroyForcibly();
-                // 给被杀进程一点时间让管道关闭
                 try { p.waitFor(500, TimeUnit.MILLISECONDS); } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
                 }
+                throw new IOException("命令超时(" + timeoutSec + "s): " + String.join(" ", cmd));
             }
-            // 进程已退出（或被销毁），此时 transferTo 不会阻塞
+            int code = p.exitValue();
             p.getInputStream().transferTo(java.io.OutputStream.nullOutputStream());
+            if (code != 0) {
+                throw new IOException("命令失败 exit=" + code + ": " + String.join(" ", cmd));
+            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            throw new IOException("命令被中断: " + String.join(" ", cmd), e);
         } finally {
             if (p != null) p.destroyForcibly();
         }

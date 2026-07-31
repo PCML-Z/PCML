@@ -1,11 +1,15 @@
 package com.pmcl.core.theme;
 
+import javax.imageio.ImageIO;
 import java.awt.AWTException;
 import java.awt.Dimension;
 import java.awt.Rectangle;
 import java.awt.Robot;
 import java.awt.Toolkit;
 import java.awt.image.BufferedImage;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -13,11 +17,15 @@ import java.nio.file.StandardOpenOption;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 桌面壁纸取色器：获取系统壁纸并提取主色调（莫奈取色）。
  * <p>
- * 使用 java.awt.Robot 直接截取屏幕，无需外部进程，避免 macOS 权限问题。
+ * macOS：优先通过 AppleScript / sips 读取壁纸文件取色，<b>绝不</b>调用
+ * {@link Robot#createScreenCapture}（会反复弹出「录屏」权限，且未签名包每次重建 TCC 身份不同）。
+ * 其他平台：先尝试读取壁纸文件，失败再退回边缘截屏采样。
  * <p>
  * 提取算法：将图片缩放到 64x64 采样，把每个像素映射到量化色相桶（12 个色相 × 4 个明度档），
  * 统计出现频率最高的桶作为种子色，避开过于暗/灰/亮的像素。
@@ -26,9 +34,11 @@ public final class WallpaperColorProvider {
 
     private static volatile int cachedSeedColor = -1;
     private static volatile long cacheTime = 0;
-    private static final long CACHE_TTL_MS = 300_000; // 5 分钟缓存：避免窗口渲染后频繁采样被污染
+    private static final long CACHE_TTL_MS = 300_000; // 5 分钟缓存
 
-    /** 诊断日志路径 */
+    /** 本进程内若截屏被拒 / macOS 禁止截屏，则不再尝试 Robot */
+    private static final AtomicBoolean SCREEN_CAPTURE_DISABLED = new AtomicBoolean(false);
+
     private static final Path LOG_FILE = Paths.get(System.getProperty("user.home"), ".pmcl", "monet-diag.txt");
 
     private static void diag(String msg) {
@@ -42,7 +52,6 @@ public final class WallpaperColorProvider {
 
     /**
      * 获取当前桌面壁纸的种子色（RGB int，0xRRGGBB）。
-     * 5 分钟缓存，避免 PMCL 窗口渲染后频繁采样被污染。
      * @return 种子色，失败时返回 -1。
      */
     public static int fetchSeedColor() {
@@ -56,7 +65,6 @@ public final class WallpaperColorProvider {
 
     /**
      * 强制重新采样壁纸种子色，绕过缓存。
-     * 供用户手动刷新（如切换壁纸后）使用。
      */
     public static int fetchSeedColorForce() {
         diag("fetchSeedColorForce: start");
@@ -75,6 +83,29 @@ public final class WallpaperColorProvider {
     }
 
     private static int fetchSeedColorInternal() throws Exception {
+        BufferedImage wallpaper = tryLoadDesktopWallpaper();
+        if (wallpaper != null) {
+            diag("fetchSeedColorInternal: using wallpaper file "
+                    + wallpaper.getWidth() + "x" + wallpaper.getHeight());
+            return extractDominantColor(wallpaper);
+        }
+
+        // macOS：禁止 Robot 截屏，避免录屏弹窗循环
+        if (isMac()) {
+            diag("fetchSeedColorInternal: macOS wallpaper file unavailable, skip Robot");
+            SCREEN_CAPTURE_DISABLED.set(true);
+            return -1;
+        }
+
+        if (SCREEN_CAPTURE_DISABLED.get()) {
+            diag("fetchSeedColorInternal: screen capture disabled for this process");
+            return -1;
+        }
+
+        return fetchViaRobotEdges();
+    }
+
+    private static int fetchViaRobotEdges() {
         Dimension screenSize = Toolkit.getDefaultToolkit().getScreenSize();
         diag("screenSize=" + screenSize.width + "x" + screenSize.height);
         Robot robot;
@@ -82,77 +113,216 @@ public final class WallpaperColorProvider {
             robot = new Robot();
         } catch (AWTException e) {
             diag("Robot create failed: " + e.getMessage());
+            SCREEN_CAPTURE_DISABLED.set(true);
             return -1;
         }
 
         int w = screenSize.width;
         int h = screenSize.height;
-        int edgeW = w / 5;  // 边缘宽度 = 屏幕宽度的 20%
-        int edgeH = h / 5;  // 边缘高度 = 屏幕高度的 20%
+        int edgeW = w / 5;
+        int edgeH = h / 5;
+        int bottomInset = 48;
 
-        // macOS 系统元素避让：顶部菜单栏约 28px，底部 Dock 约 90px
-        // Windows 任务栏约 48px，这里统一用 macOS 的较大值保证安全
-        int topInset = isMac() ? 28 : 0;
-        int bottomInset = isMac() ? 90 : 48;
-
-        // 四个边缘区域（避开系统 UI 元素，避免截到菜单栏/Dock/任务栏）
         Rectangle[] regions = {
-            new Rectangle(0, topInset, w, edgeH),                          // 顶部条
-            new Rectangle(0, h - edgeH - bottomInset, w, edgeH),           // 底部条
-            new Rectangle(0, edgeH + topInset, edgeW, h - 2 * edgeH - topInset - bottomInset),     // 左侧条
-            new Rectangle(w - edgeW, edgeH + topInset, edgeW, h - 2 * edgeH - topInset - bottomInset) // 右侧条
+            new Rectangle(0, 0, w, edgeH),
+            new Rectangle(0, h - edgeH - bottomInset, w, edgeH),
+            new Rectangle(0, edgeH, edgeW, h - 2 * edgeH - bottomInset),
+            new Rectangle(w - edgeW, edgeH, edgeW, h - 2 * edgeH - bottomInset)
         };
 
-        // 合并边缘区域到一个图片
         int totalPixels = 0;
         Map<Integer, int[]> buckets = new HashMap<>();
-        for (Rectangle region : regions) {
-            if (region.width <= 0 || region.height <= 0) continue;
-            BufferedImage part = robot.createScreenCapture(region);
-            collectColorBuckets(part, buckets);
-            totalPixels += region.width * region.height;
+        try {
+            for (Rectangle region : regions) {
+                if (region.width <= 0 || region.height <= 0) continue;
+                BufferedImage part = robot.createScreenCapture(region);
+                collectColorBuckets(part, buckets);
+                totalPixels += region.width * region.height;
+            }
+        } catch (SecurityException se) {
+            diag("Robot capture denied: " + se.getMessage());
+            SCREEN_CAPTURE_DISABLED.set(true);
+            return -1;
+        } catch (Throwable t) {
+            diag("Robot capture failed: " + t.getClass().getName() + ": " + t.getMessage());
+            SCREEN_CAPTURE_DISABLED.set(true);
+            return -1;
         }
-        diag("fetchSeedColorInternal: edge capture done, totalPixels=" + totalPixels + " buckets=" + buckets.size());
+        diag("fetchViaRobotEdges: done, totalPixels=" + totalPixels + " buckets=" + buckets.size());
 
         if (buckets.isEmpty()) return -1;
 
-        // top-3 桶加权平均：取频率最高的 3 个桶，按 count 加权平均 RGB
-        // 比单一桶更稳定，避免多色壁纸时小幅采样差异导致主色跳变
         int[][] topBuckets = buckets.entrySet().stream()
             .sorted((a, b) -> Integer.compare(b.getValue()[3], a.getValue()[3]))
             .limit(3)
-            .map(e -> e.getValue())
+            .map(Map.Entry::getValue)
             .toArray(int[][]::new);
 
         long totalWeight = 0;
         long weightedR = 0, weightedG = 0, weightedB = 0;
-        StringBuilder bucketLog = new StringBuilder();
         for (int[] agg : topBuckets) {
             int count = agg[3];
-            int r = agg[0] / count;
-            int g = agg[1] / count;
-            int b = agg[2] / count;
-            weightedR += (long) r * count;
-            weightedG += (long) g * count;
-            weightedB += (long) b * count;
+            weightedR += (long) (agg[0] / count) * count;
+            weightedG += (long) (agg[1] / count) * count;
+            weightedB += (long) (agg[2] / count) * count;
             totalWeight += count;
-            if (bucketLog.length() > 0) bucketLog.append(", ");
-            bucketLog.append("count=").append(count).append("=#").append(Integer.toHexString((r << 16) | (g << 8) | b));
         }
         if (totalWeight == 0) return -1;
         int r = (int) (weightedR / totalWeight);
         int g = (int) (weightedG / totalWeight);
         int b = (int) (weightedB / totalWeight);
-        int result = (r << 16) | (g << 8) | b;
-        diag("fetchSeedColorInternal: top3 weighted [" + bucketLog + "] -> #" + Integer.toHexString(result));
-        return result;
+        return (r << 16) | (g << 8) | b;
     }
 
-    /** 收集图片像素到色桶 */
+    private static BufferedImage tryLoadDesktopWallpaper() {
+        try {
+            Path path = resolveDesktopWallpaperPath();
+            if (path == null) {
+                diag("wallpaper path: null");
+                return null;
+            }
+            diag("wallpaper path: " + path);
+            if (!Files.isRegularFile(path)) {
+                diag("wallpaper path not a file");
+                return null;
+            }
+            Path readable = path;
+            String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
+            if (name.endsWith(".heic") || name.endsWith(".heif") || name.endsWith(".tif")
+                    || name.endsWith(".tiff")) {
+                Path converted = convertWallpaperViaSips(path);
+                if (converted == null) return null;
+                readable = converted;
+            }
+            BufferedImage img = ImageIO.read(readable.toFile());
+            if (img == null) {
+                diag("ImageIO.read returned null for " + readable);
+            }
+            return img;
+        } catch (Throwable t) {
+            diag("tryLoadDesktopWallpaper failed: " + t.getClass().getName() + ": " + t.getMessage());
+            return null;
+        }
+    }
+
+    private static Path resolveDesktopWallpaperPath() {
+        if (isMac()) {
+            Path fromScript = macWallpaperPathViaOsascript();
+            if (fromScript != null) return fromScript;
+            return macWallpaperPathFromDefaults();
+        }
+        if (System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win")) {
+            return windowsWallpaperPath();
+        }
+        return null;
+    }
+
+    private static Path macWallpaperPathViaOsascript() {
+        String[] scripts = {
+            "tell application \"System Events\" to get picture of current desktop",
+            "tell application \"System Events\" to tell every desktop to get picture as text"
+        };
+        for (String script : scripts) {
+            String out = runCapture("osascript", "-e", script);
+            if (out == null || out.isBlank()) continue;
+            for (String line : out.split("\n")) {
+                String p = sanitizePath(line.trim());
+                if (p.isEmpty()) continue;
+                Path path = Paths.get(p);
+                if (Files.isRegularFile(path)) return path;
+            }
+        }
+        return null;
+    }
+
+    private static Path macWallpaperPathFromDefaults() {
+        String out = runCapture("defaults", "read", "com.apple.desktop", "Background");
+        if (out == null) return null;
+        int idx = out.indexOf("ImageFilePath");
+        if (idx < 0) idx = out.indexOf("LastName");
+        if (idx < 0) return null;
+        int q1 = out.indexOf('"', idx);
+        int q2 = q1 >= 0 ? out.indexOf('"', q1 + 1) : -1;
+        if (q1 < 0 || q2 < 0) return null;
+        Path path = Paths.get(out.substring(q1 + 1, q2));
+        return Files.isRegularFile(path) ? path : null;
+    }
+
+    private static Path windowsWallpaperPath() {
+        String out = runCapture("reg", "query",
+                "HKCU\\Control Panel\\Desktop", "/v", "WallPaper");
+        if (out == null) return null;
+        for (String line : out.split("\n")) {
+            String t = line.trim();
+            if (!t.contains("WallPaper")) continue;
+            int pos = t.toUpperCase(Locale.ROOT).lastIndexOf("REG_SZ");
+            if (pos < 0) continue;
+            String p = sanitizePath(t.substring(pos + 6).trim());
+            if (p.isEmpty()) continue;
+            Path path = Paths.get(p);
+            if (Files.isRegularFile(path)) return path;
+        }
+        return null;
+    }
+
+    private static Path convertWallpaperViaSips(Path src) {
+        try {
+            Path tmp = Paths.get(System.getProperty("java.io.tmpdir"), "pmcl-wallpaper-sample.jpg");
+            String out = runCapture("sips", "-s", "format", "jpeg",
+                    src.toAbsolutePath().toString(), "--out", tmp.toAbsolutePath().toString());
+            diag("sips convert: " + (out == null ? "null" : out.trim()));
+            if (Files.isRegularFile(tmp) && Files.size(tmp) > 64) return tmp;
+        } catch (Throwable t) {
+            diag("sips convert failed: " + t.getMessage());
+        }
+        return null;
+    }
+
+    private static String sanitizePath(String raw) {
+        if (raw == null) return "";
+        String p = raw.trim();
+        if (p.startsWith("file://")) p = p.substring(7);
+        if ((p.startsWith("\"") && p.endsWith("\"")) || (p.startsWith("'") && p.endsWith("'"))) {
+            p = p.substring(1, p.length() - 1);
+        }
+        return p;
+    }
+
+    private static String runCapture(String... cmd) {
+        try {
+            ProcessBuilder pb = new ProcessBuilder(cmd);
+            pb.redirectErrorStream(true);
+            Process p = pb.start();
+            StringBuilder sb = new StringBuilder();
+            try (BufferedReader br = new BufferedReader(
+                    new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = br.readLine()) != null) {
+                    if (sb.length() > 0) sb.append('\n');
+                    sb.append(line);
+                }
+            }
+            boolean finished = p.waitFor(8, TimeUnit.SECONDS);
+            if (!finished) {
+                p.destroyForcibly();
+                diag("cmd timeout: " + String.join(" ", cmd));
+                return null;
+            }
+            if (p.exitValue() != 0) {
+                diag("cmd exit " + p.exitValue() + ": " + String.join(" ", cmd) + " -> " + sb);
+                return null;
+            }
+            return sb.toString();
+        } catch (Throwable t) {
+            diag("cmd failed: " + String.join(" ", cmd) + " -> " + t.getMessage());
+            return null;
+        }
+    }
+
     private static void collectColorBuckets(BufferedImage img, Map<Integer, int[]> buckets) {
         int w = img.getWidth();
         int h = img.getHeight();
-        for (int y = 0; y < h; y += 2) {  // 隔行采样加速
+        for (int y = 0; y < h; y += 2) {
             for (int x = 0; x < w; x += 2) {
                 int rgb = img.getRGB(x, y);
                 int r = (rgb >> 16) & 0xFF;
@@ -177,10 +347,6 @@ public final class WallpaperColorProvider {
         return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("mac");
     }
 
-    /**
-     * 从图片中提取主导色。
-     * 算法：缩放到 64x64 → 量化每个像素到色相/明度桶 → 取频率最高且足够鲜艳的桶。
-     */
     private static int extractDominantColor(BufferedImage img) {
         int sampleSize = 64;
         BufferedImage scaled = scaleDown(img, sampleSize, sampleSize);
@@ -188,7 +354,6 @@ public final class WallpaperColorProvider {
         int h = scaled.getHeight();
         diag("extractDominantColor: scaled=" + w + "x" + h);
 
-        // 量化桶：色相(12档) × 明度(4档) = 48 个桶
         Map<Integer, int[]> buckets = new HashMap<>();
         int skipped = 0;
         for (int y = 0; y < h; y++) {
@@ -203,7 +368,6 @@ public final class WallpaperColorProvider {
                 float sat = hsl[1];
                 float lit = hsl[2];
 
-                // 跳过过暗/过亮/过灰的像素
                 if (lit < 0.15f || lit > 0.9f) { skipped++; continue; }
                 if (sat < 0.12f) { skipped++; continue; }
 
@@ -215,7 +379,7 @@ public final class WallpaperColorProvider {
                 agg[0] += r; agg[1] += g; agg[2] += b; agg[3]++;
             }
         }
-        diag("extractDominantColor: buckets=" + buckets.size() + " skipped=" + skipped + "/" + (w*h));
+        diag("extractDominantColor: buckets=" + buckets.size() + " skipped=" + skipped + "/" + (w * h));
 
         if (buckets.isEmpty()) {
             if (w > 0 && h > 0) {
@@ -223,7 +387,6 @@ public final class WallpaperColorProvider {
                 diag("extractDominantColor: all skipped, center=#" + Integer.toHexString(center));
                 return center;
             }
-            diag("extractDominantColor: all skipped, zero-size image");
             return 0;
         }
 
@@ -240,12 +403,9 @@ public final class WallpaperColorProvider {
         int r = agg[0] / agg[3];
         int g = agg[1] / agg[3];
         int b = agg[2] / agg[3];
-        int result = (r << 16) | (g << 8) | b;
-        diag("extractDominantColor: bestBucket=" + bestKey + " count=" + bestCount + " color=#" + Integer.toHexString(result));
-        return result;
+        return (r << 16) | (g << 8) | b;
     }
 
-    /** 简单的最近邻缩放 */
     private static BufferedImage scaleDown(BufferedImage src, int targetW, int targetH) {
         int srcW = src.getWidth();
         int srcH = src.getHeight();
@@ -261,7 +421,6 @@ public final class WallpaperColorProvider {
         return out;
     }
 
-    /** RGB → HSL，返回 [hue(0-360), sat(0-1), lit(0-1)] */
     private static float[] rgbToHsl(int r, int g, int b) {
         float rf = r / 255f, gf = g / 255f, bf = b / 255f;
         float max = Math.max(rf, Math.max(gf, bf));
@@ -284,7 +443,6 @@ public final class WallpaperColorProvider {
         return new float[]{h, s, l};
     }
 
-    /** HSL → RGB int (0xRRGGBB) */
     public static int hslToRgb(float h, float s, float l) {
         float c = (1 - Math.abs(2 * l - 1)) * s;
         float x = c * (1 - Math.abs((h / 60f) % 2 - 1));
@@ -302,12 +460,6 @@ public final class WallpaperColorProvider {
         return (ri << 16) | (gi << 8) | bi;
     }
 
-    /**
-     * 根据种子色生成 Material3 风格的调色板。
-     * @param seedRgb 种子色 (0xRRGGBB)
-     * @param dark 是否为暗色模式
-     * @return [primary, secondary, tertiary, background, surface] 的 RGB int 数组
-     */
     public static int[] generatePalette(int seedRgb, boolean dark) {
         float[] hsl = rgbToHsl(
                 (seedRgb >> 16) & 0xFF,
@@ -315,11 +467,9 @@ public final class WallpaperColorProvider {
                 seedRgb & 0xFF
         );
         float hue = hsl[0];
-        // 饱和度太低时提升到 0.5，确保有明显的色调；太高时限制到 0.7
         float sat = hsl[1];
         if (sat < 0.3f) sat = 0.5f;
         sat = Math.min(sat, 0.7f);
-        diag("generatePalette: seed=#" + Integer.toHexString(seedRgb) + " hsl=[" + hue + "," + hsl[1] + "," + hsl[2] + "] -> sat=" + sat + " dark=" + dark);
 
         int primary, secondary, tertiary, background, surface;
         if (dark) {
@@ -335,20 +485,9 @@ public final class WallpaperColorProvider {
             background = hslToRgb(hue, sat * 0.2f, 0.95f);
             surface    = hslToRgb(hue, sat * 0.15f, 0.98f);
         }
-        diag("generatePalette: primary=#" + Integer.toHexString(primary) +
-             " bg=#" + Integer.toHexString(background) +
-             " surface=#" + Integer.toHexString(surface));
         return new int[]{primary, secondary, tertiary, background, surface};
     }
 
-    /**
-     * 从种子色生成完整的 Material3 调色板（18 个颜色角色）。
-     * 用于自定义强调色和莫奈取色，确保所有颜色角色协调一致。
-     *
-     * @param seedRgb 种子色 RGB（不含 alpha）
-     * @param dark    是否为暗色模式
-     * @return 颜色角色 RGB int 数组，顺序对应 {@link FullPalette} 字段
-     */
     public static FullPalette generateFullPalette(int seedRgb, boolean dark) {
         float[] hsl = rgbToHsl(
                 (seedRgb >> 16) & 0xFF,
@@ -362,49 +501,45 @@ public final class WallpaperColorProvider {
 
         if (dark) {
             return new FullPalette(
-                hslToRgb(hue, sat, 0.70f),              // primary
-                hslToRgb(hue, sat * 0.3f, 0.10f),        // onPrimary
-                hslToRgb(hue, sat * 0.5f, 0.30f),        // primaryContainer
-                hslToRgb(hue, sat * 0.3f, 0.90f),        // onPrimaryContainer
-                hslToRgb(hue, sat * 0.85f, 0.60f),       // secondary
-                hslToRgb(hue, sat * 0.3f, 0.10f),        // onSecondary
-                hslToRgb((hue + 60) % 360, sat * 0.9f, 0.65f), // tertiary
-                hslToRgb(hue, sat * 0.25f, 0.10f),       // background
-                hslToRgb(hue, sat * 0.1f, 0.90f),        // onBackground
-                hslToRgb(hue, sat * 0.2f, 0.16f),        // surface
-                hslToRgb(hue, sat * 0.1f, 0.90f),        // onSurface
-                hslToRgb(hue, sat * 0.15f, 0.22f),       // surfaceVariant
-                hslToRgb(hue, sat * 0.1f, 0.70f),        // onSurfaceVariant
-                hslToRgb(hue, sat * 0.1f, 0.55f),        // outline
-                hslToRgb(0, 0.7f, 0.65f),                // error
-                hslToRgb(0, 0.3f, 0.10f)                 // onError
+                hslToRgb(hue, sat, 0.70f),
+                hslToRgb(hue, sat * 0.3f, 0.10f),
+                hslToRgb(hue, sat * 0.5f, 0.30f),
+                hslToRgb(hue, sat * 0.3f, 0.90f),
+                hslToRgb(hue, sat * 0.85f, 0.60f),
+                hslToRgb(hue, sat * 0.3f, 0.10f),
+                hslToRgb((hue + 60) % 360, sat * 0.9f, 0.65f),
+                hslToRgb(hue, sat * 0.25f, 0.10f),
+                hslToRgb(hue, sat * 0.1f, 0.90f),
+                hslToRgb(hue, sat * 0.2f, 0.16f),
+                hslToRgb(hue, sat * 0.1f, 0.90f),
+                hslToRgb(hue, sat * 0.15f, 0.22f),
+                hslToRgb(hue, sat * 0.1f, 0.70f),
+                hslToRgb(hue, sat * 0.1f, 0.55f),
+                hslToRgb(0, 0.7f, 0.65f),
+                hslToRgb(0, 0.3f, 0.10f)
             );
         } else {
             return new FullPalette(
-                hslToRgb(hue, sat, 0.42f),              // primary
-                0xFFFFFFFF,                               // onPrimary
-                hslToRgb(hue, sat * 0.7f, 0.90f),        // primaryContainer
-                hslToRgb(hue, sat * 0.5f, 0.20f),        // onPrimaryContainer
-                hslToRgb(hue, sat * 0.85f, 0.52f),       // secondary
-                0xFFFFFFFF,                               // onSecondary
-                hslToRgb((hue + 60) % 360, sat * 0.9f, 0.48f), // tertiary
-                hslToRgb(hue, sat * 0.2f, 0.95f),        // background
-                hslToRgb(hue, sat * 0.3f, 0.10f),        // onBackground
-                hslToRgb(hue, sat * 0.15f, 0.98f),       // surface
-                hslToRgb(hue, sat * 0.3f, 0.10f),        // onSurface
-                hslToRgb(hue, sat * 0.1f, 0.90f),        // surfaceVariant
-                hslToRgb(hue, sat * 0.2f, 0.30f),        // onSurfaceVariant
-                hslToRgb(hue, sat * 0.1f, 0.45f),        // outline
-                hslToRgb(0, 0.7f, 0.45f),                // error
-                0xFFFFFFFF                                // onError
+                hslToRgb(hue, sat, 0.42f),
+                0xFFFFFFFF,
+                hslToRgb(hue, sat * 0.7f, 0.90f),
+                hslToRgb(hue, sat * 0.5f, 0.20f),
+                hslToRgb(hue, sat * 0.85f, 0.52f),
+                0xFFFFFFFF,
+                hslToRgb((hue + 60) % 360, sat * 0.9f, 0.48f),
+                hslToRgb(hue, sat * 0.2f, 0.95f),
+                hslToRgb(hue, sat * 0.3f, 0.10f),
+                hslToRgb(hue, sat * 0.15f, 0.98f),
+                hslToRgb(hue, sat * 0.3f, 0.10f),
+                hslToRgb(hue, sat * 0.1f, 0.90f),
+                hslToRgb(hue, sat * 0.2f, 0.30f),
+                hslToRgb(hue, sat * 0.1f, 0.45f),
+                hslToRgb(0, 0.7f, 0.45f),
+                0xFFFFFFFF
             );
         }
     }
 
-    /**
-     * 完整调色板：16 个 Material3 颜色角色。
-     * 所有字段为 ARGB int（alpha=0xFF）。
-     */
     public static final class FullPalette {
         public final int primary, onPrimary, primaryContainer, onPrimaryContainer;
         public final int secondary, onSecondary, tertiary;
@@ -436,10 +571,8 @@ public final class WallpaperColorProvider {
         }
     }
 
-    /** 公共诊断日志方法 */
     public static void diagLog(String msg) { diag(msg); }
 
-    /** 强制清除缓存（切换壁纸后刷新用） */
     public static void clearCache() {
         cachedSeedColor = -1;
         cacheTime = 0;

@@ -146,6 +146,11 @@ public final class NbtWriter {
 
     private static void writeString(DataOutputStream dos, String s) throws IOException {
         byte[] bytes = s.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        // NBT 字符串长度字段为 unsigned short；超长时 writeShort 会静默截断但仍写出全部字节，
+        // 导致后续标签流损坏。与 NbtReader.MAX_STRING_LEN 对齐，前置拒绝。
+        if (bytes.length > 65535) {
+            throw new IOException("NBT string too long: " + bytes.length + " > 65535");
+        }
         dos.writeShort(bytes.length);
         dos.write(bytes);
     }

@@ -75,18 +75,22 @@ public final class YggdrasilAuthFlow {
         if (!lower.startsWith("https://") && !lower.startsWith("http://")) {
             throw new IOException("皮肤站地址必须是 http:// 或 https://");
         }
+        // H36: 优先 HTTPS — 对非本地 http 拒绝（密码明文）
         String ssrf = com.pmcl.core.util.SsrfChecker.validateAllowingPrivateLan(url);
         if (ssrf != null) {
             throw new IOException("皮肤站地址被拒绝（SSRF 防护）: " + ssrf);
         }
-        // 安全修复：对非 HTTPS URL 校验目标是否为本地/回环，防止密码明文发送到远程 HTTP 服务器
-        if (lower.startsWith("http://") && !lower.startsWith("http://localhost")
-                && !lower.startsWith("http://127.")) {
-            // 解析 host 并校验是否为回环/私有地址
-            try {
-                java.net.URL parsed = new java.net.URL(url);
-                String host = parsed.getHost();
-                java.net.InetAddress[] addrs = java.net.InetAddress.getAllByName(host);
+        // H36: DNS 解析后再二次校验，降低 DNS rebinding / 解析绕过风险
+        try {
+            java.net.URL parsed = new java.net.URL(url);
+            String host = parsed.getHost();
+            java.net.InetAddress[] addrs = java.net.InetAddress.getAllByName(host);
+            for (java.net.InetAddress addr : addrs) {
+                if (addr.isLinkLocalAddress() || addr.isMulticastAddress() || addr.isAnyLocalAddress()) {
+                    throw new IOException("皮肤站地址解析到受限地址: " + addr.getHostAddress());
+                }
+            }
+            if (lower.startsWith("http://")) {
                 boolean isLocal = false;
                 for (java.net.InetAddress addr : addrs) {
                     if (addr.isLoopbackAddress() || addr.isSiteLocalAddress()) {
@@ -96,12 +100,25 @@ public final class YggdrasilAuthFlow {
                 }
                 if (!isLocal) {
                     throw new IOException("非本地 HTTP 皮肤站地址不安全：密码将通过明文传输。"
-                            + "请使用 HTTPS 或本地地址。如需继续，请在皮肤站启用 HTTPS。");
+                            + "请使用 HTTPS 或本地地址。");
                 }
-            } catch (java.net.UnknownHostException e) {
-                throw new IOException("无法解析皮肤站地址: " + e.getMessage());
             }
+        } catch (java.net.UnknownHostException e) {
+            throw new IOException("无法解析皮肤站地址: " + e.getMessage());
         }
+    }
+
+    /** H36: 若用户输入 http://，尝试改写为 https://（本地回环除外）。 */
+    public static String preferHttps(String input) {
+        if (input == null || input.isBlank()) return input;
+        String t = input.trim();
+        String lower = t.toLowerCase(java.util.Locale.ROOT);
+        if (!lower.startsWith("http://")) return t;
+        if (lower.startsWith("http://localhost") || lower.startsWith("http://127.")
+                || lower.startsWith("http://[::1]")) {
+            return t;
+        }
+        return "https://" + t.substring("http://".length());
     }
 
     /**
@@ -114,10 +131,10 @@ public final class YggdrasilAuthFlow {
      * @throws IOException 网络错误或认证失败
      */
     public Account login(String apiUrl, String username, String password) throws IOException {
-        String normalizedUrl = normalizeApiUrl(apiUrl);
+        String normalizedUrl = normalizeApiUrl(preferHttps(apiUrl));
         assertHttpUrl(normalizedUrl);
 
-        // 构建登录请求体
+        // 构建登录请求体（勿将 password 写入日志）
         JsonObject agent = new JsonObject();
         agent.addProperty("name", "Minecraft");
         agent.addProperty("version", 1);
@@ -173,7 +190,7 @@ public final class YggdrasilAuthFlow {
     }
 
     public boolean validate(String apiUrl, String accessToken, String clientToken) {
-        String normalizedUrl = normalizeApiUrl(apiUrl);
+        String normalizedUrl = normalizeApiUrl(preferHttps(apiUrl));
         try { assertHttpUrl(normalizedUrl); } catch (IOException e) {
             System.err.println("[YggdrasilAuthFlow] validate: " + e.getMessage());
             return false;
@@ -209,7 +226,7 @@ public final class YggdrasilAuthFlow {
     }
 
     public String refresh(String apiUrl, String accessToken, String clientToken) {
-        String normalizedUrl = normalizeApiUrl(apiUrl);
+        String normalizedUrl = normalizeApiUrl(preferHttps(apiUrl));
         try { assertHttpUrl(normalizedUrl); } catch (IOException e) {
             System.err.println("[YggdrasilAuthFlow] refresh: " + e.getMessage());
             return null;
@@ -227,7 +244,7 @@ public final class YggdrasilAuthFlow {
         try (Response resp = http.newCall(req).execute()) {
             String body = resp.body() != null ? resp.body().string() : "";
             if (!resp.isSuccessful()) {
-                System.err.println("[YggdrasilAuthFlow] refresh 失败 (HTTP " + resp.code() + "): " + body);
+                System.err.println("[YggdrasilAuthFlow] refresh 失败 (HTTP " + resp.code() + ")");
                 return null;
             }
             JsonObject o = JsonParser.parseString(body).getAsJsonObject();
@@ -249,7 +266,7 @@ public final class YggdrasilAuthFlow {
     }
 
     public void invalidate(String apiUrl, String accessToken, String clientToken) {
-        String normalizedUrl = normalizeApiUrl(apiUrl);
+        String normalizedUrl = normalizeApiUrl(preferHttps(apiUrl));
         try { assertHttpUrl(normalizedUrl); } catch (IOException e) {
             System.err.println("[YggdrasilAuthFlow] invalidate: " + e.getMessage());
             return;

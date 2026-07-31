@@ -5,27 +5,52 @@ import com.google.gson.JsonParser;
 import com.pmcl.core.download.DownloadManager;
 
 import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.PosixFilePermission;
+import java.util.EnumSet;
+import java.util.Locale;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
 /**
- * 启动器自更新：从远程清单 JSON 检查最新版本并下载替换。
+ * 启动器自更新：从已签名的远程清单检查最新版本并下载替换。
  * <p>
- * 清单格式（由用户在设置中配置 URL）：
+ * 清单必须通过 HTTPS 获取，并包含 Ed25519 {@code signature}（对版本/URL/哈希等字段的
+ * 规范载荷签名；验签公钥随启动器带外分发，见 {@link UpdateSignatureVerifier}）。
+ * 仅校验清单内哈希而不验签不足以抵抗清单源被劫持。
+ * <p>
+ * 清单格式：
  * <pre>
- * { "version": "1.0.1", "url": "https://.../pmcl.jar", "sha1": "..." }
+ * {
+ *   "version": "1.0.1",
+ *   "url": "https://.../pmcl.jar",
+ *   "sha256": "...",
+ *   "sha1": "...",
+ *   "size": 12345,
+ *   "notes": "...",
+ *   "signature": "&lt;Base64 Ed25519&gt;"
+ * }
  * </pre>
  * <p>
- * 更新策略：下载到临时文件 → 校验 SHA1 → 在启动器退出时原子替换（写入 .new jar，
- * 由启动脚本在下次启动时完成替换；或直接覆盖当前 jar，需用户拥有写入权限）。
+ * GitHub Release 通道（{@link TrustedChannel#GITHUB_RELEASE}）依赖 GitHub HTTPS +
+ * asset digest，不走自定义清单验签。
  * <p>
- * 本实现仅完成「下载并验证」，不替换运行中的 jar。用户可在外部脚本中完成替换。
+ * 本实现仅完成「下载并验证」，不替换运行中的 jar。
  */
 public final class SelfUpdater {
+
+    /** 更新来源信任模型 */
+    public enum TrustedChannel {
+        /** 自定义清单：必须通过固定公钥 Ed25519 验签 */
+        SIGNED_MANIFEST,
+        /** GitHub Releases API + asset SHA-256 digest */
+        GITHUB_RELEASE
+    }
 
     private final DownloadManager downloadManager;
     private final String manifestUrl;
@@ -41,26 +66,40 @@ public final class SelfUpdater {
         private final String version;
         private final String url;
         private final String sha1;
-        private final String sha256;  // M54: 增加 SHA-256 校验（SHA-1 已不安全）
+        private final String sha256;
         private final long size;
         private final String notes;
+        private final String signature;
+        private final TrustedChannel channel;
 
         public UpdateInfo(String version, String url, String sha1, long size, String notes) {
-            this(version, url, sha1, null, size, notes);
+            this(version, url, sha1, null, size, notes, null, TrustedChannel.SIGNED_MANIFEST);
         }
 
         public UpdateInfo(String version, String url, String sha1, String sha256, long size, String notes) {
-            this.version = version; this.url = url;
-            this.sha1 = sha1; this.sha256 = sha256;
+            this(version, url, sha1, sha256, size, notes, null, TrustedChannel.SIGNED_MANIFEST);
+        }
+
+        public UpdateInfo(String version, String url, String sha1, String sha256, long size,
+                          String notes, String signature, TrustedChannel channel) {
+            this.version = version;
+            this.url = url;
+            this.sha1 = sha1;
+            this.sha256 = sha256;
             this.size = size;
             this.notes = notes;
+            this.signature = signature;
+            this.channel = channel == null ? TrustedChannel.SIGNED_MANIFEST : channel;
         }
+
         public String getVersion() { return version; }
         public String getUrl() { return url; }
         public String getSha1() { return sha1; }
         public String getSha256() { return sha256; }
         public long getSize() { return size; }
         public String getNotes() { return notes; }
+        public String getSignature() { return signature; }
+        public TrustedChannel getChannel() { return channel; }
     }
 
     /** 检查更新（若 manifestUrl 为空返回 null） */
@@ -70,66 +109,68 @@ public final class SelfUpdater {
         }
         return CompletableFuture.supplyAsync(() -> {
             try {
-                String json = downloadManager.downloadString(manifestUrl);
+                requireHttps(manifestUrl, "更新清单");
+                String json = downloadManager.downloadStringSsrfChecked(manifestUrl);
                 JsonObject o = JsonParser.parseString(json).getAsJsonObject();
-                String ver = o.has("version") && !o.get("version").isJsonNull() ? o.get("version").getAsString() : "";
-                if (ver.isEmpty() || ver.equals(currentVersion)) return null;
-                return new UpdateInfo(
-                        ver,
-                        o.has("url") && !o.get("url").isJsonNull() ? o.get("url").getAsString() : "",
-                        o.has("sha1") && !o.get("sha1").isJsonNull() ? o.get("sha1").getAsString() : "",
-                        o.has("sha256") && !o.get("sha256").isJsonNull() ? o.get("sha256").getAsString() : "",
-                        o.has("size") && !o.get("size").isJsonNull() ? o.get("size").getAsLong() : 0L,
-                        o.has("notes") && !o.get("notes").isJsonNull() ? o.get("notes").getAsString() : "");
+                String ver = text(o, "version");
+                if (ver.isEmpty() || !UpdateVersions.isNewer(ver, currentVersion)) {
+                    return null;
+                }
+                String url = text(o, "url");
+                String sha1 = text(o, "sha1");
+                String sha256 = text(o, "sha256");
+                long size = o.has("size") && !o.get("size").isJsonNull() ? o.get("size").getAsLong() : 0L;
+                String notes = text(o, "notes");
+                String signature = text(o, "signature");
+                requireHttps(url, "更新包");
+                UpdateSignatureVerifier.verifyOrThrow(ver, url, sha256, sha1, size, signature);
+                if ((sha256 == null || sha256.isEmpty()) && (sha1 == null || sha1.isEmpty())) {
+                    throw new IOException("更新清单未提供 SHA-256/SHA-1，拒绝安装未校验的更新包");
+                }
+                return new UpdateInfo(ver, url, sha1, sha256, size, notes, signature,
+                        TrustedChannel.SIGNED_MANIFEST);
             } catch (IOException e) {
                 throw new RuntimeException("检查更新失败: " + e.getMessage(), e);
             }
         });
     }
 
-    /** 下载更新到临时文件（不替换当前 jar） */
+    /** 下载更新到 {@code ~/.pmcl/updates/}（不替换当前 jar） */
     public CompletableFuture<Path> downloadUpdate(UpdateInfo info, Consumer<Long> onProgress) {
         return CompletableFuture.supplyAsync(() -> {
             Path tmp = null;
             try {
-                tmp = Files.createTempFile("pmcl-update-", ".jar");
-                Files.deleteIfExists(tmp);
-                String ssrf = com.pmcl.core.util.SsrfChecker.validate(info.getUrl());
-                if (ssrf != null) {
-                    throw new IOException("更新下载 URL 被 SSRF 防护拒绝: " + ssrf);
+                if (info == null) {
+                    throw new IOException("更新信息为空");
                 }
-                downloadManager.downloadTo(info.getUrl(), tmp);
-                // M54：优先 SHA-256，回退 SHA-1；二者皆无则拒绝安装（防供应链投毒）
-                String sha256 = info.getSha256();
-                String sha1 = info.getSha1();
-                if (sha256 != null && !sha256.isEmpty()) {
-                    String actual = sha256(tmp);
-                    if (!actual.equalsIgnoreCase(sha256)) {
-                        throw new IOException("更新文件 SHA-256 校验失败：期望 " + sha256 + " 实际 " + actual);
-                    }
-                } else if (sha1 != null && !sha1.isEmpty()) {
-                    String actual = sha1(tmp);
-                    if (!actual.equalsIgnoreCase(sha1)) {
-                        throw new IOException("更新文件 SHA1 校验失败");
-                    }
-                } else {
-                    throw new IOException("更新清单未提供 SHA-256/SHA-1，拒绝安装未校验的更新包");
-                }
-                // 复制到 ~/.pmcl/updates/pmcl-{version}.jar
+                requireHttps(info.getUrl(), "更新包");
+                assertChannelTrust(info);
+
+                Path updatesDir = Paths.get(System.getProperty("user.home"), ".pmcl", "updates")
+                        .toAbsolutePath().normalize();
+                Files.createDirectories(updatesDir);
+                // 私有目录下的临时文件；不先删再建，避免 /tmp TOCTOU / 符号链接竞态
+                tmp = Files.createTempFile(updatesDir, "pmcl-update-", ".jar.tmp");
+                trySetOwnerOnly(tmp);
+
+                downloadManager.downloadToSsrfChecked(info.getUrl(), tmp);
+
+                verifyHashes(info, tmp);
+                // 先验签载荷已在 checkUpdate / assertChannelTrust；此处对磁盘文件再验哈希即可
+
                 String ver = info.getVersion();
                 if (ver == null || !ver.matches("[A-Za-z0-9._+-]+")
                         || ver.contains("..")) {
                     throw new IOException("更新版本号非法（拒绝路径穿越）: " + ver);
                 }
-                Path updatesDir = Paths.get(System.getProperty("user.home"), ".pmcl", "updates")
-                        .toAbsolutePath().normalize();
-                Files.createDirectories(updatesDir);
                 Path target = updatesDir.resolve("pmcl-" + ver + ".jar").normalize();
                 if (!target.startsWith(updatesDir)) {
                     throw new IOException("更新目标路径越界: " + target);
                 }
                 Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
-                tmp = null; // 已移动，无需清理
+                tmp = null;
+                // move 后再核一次哈希，防止替换后内容与校验对象不一致
+                verifyHashes(info, target);
                 if (onProgress != null) onProgress.accept(info.getSize());
                 return target;
             } catch (IOException e) {
@@ -142,11 +183,87 @@ public final class SelfUpdater {
         });
     }
 
+    private static void assertChannelTrust(UpdateInfo info) throws IOException {
+        if (info.getChannel() == TrustedChannel.GITHUB_RELEASE) {
+            if (!isTrustedGitHubDownloadHost(info.getUrl())) {
+                throw new IOException("GitHub 更新通道的下载 URL 主机不受信任: " + info.getUrl());
+            }
+            String sha256 = info.getSha256();
+            if (sha256 == null || sha256.isEmpty()) {
+                throw new IOException("GitHub 更新缺少 SHA-256 digest，拒绝安装");
+            }
+            return;
+        }
+        UpdateSignatureVerifier.verifyOrThrow(
+                info.getVersion(), info.getUrl(), info.getSha256(), info.getSha1(),
+                info.getSize(), info.getSignature());
+    }
+
+    private static boolean isTrustedGitHubDownloadHost(String url) {
+        try {
+            String host = URI.create(url).getHost();
+            if (host == null) return false;
+            host = host.toLowerCase(Locale.ROOT);
+            return host.equals("github.com")
+                    || host.endsWith(".github.com")
+                    || host.equals("objects.githubusercontent.com")
+                    || host.equals("release-assets.githubusercontent.com")
+                    || host.endsWith(".githubusercontent.com");
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private static void requireHttps(String url, String what) throws IOException {
+        if (url == null || url.isBlank()) {
+            throw new IOException(what + " URL 为空");
+        }
+        try {
+            String scheme = URI.create(url.trim()).getScheme();
+            if (scheme == null || !"https".equalsIgnoreCase(scheme)) {
+                throw new IOException(what + " 必须使用 HTTPS，拒绝: " + url);
+            }
+        } catch (IllegalArgumentException e) {
+            throw new IOException(what + " URL 非法: " + url, e);
+        }
+    }
+
+    private static void verifyHashes(UpdateInfo info, Path file) throws IOException {
+        String sha256 = info.getSha256();
+        String sha1 = info.getSha1();
+        if (sha256 != null && !sha256.isEmpty()) {
+            String actual = sha256(file);
+            if (!actual.equalsIgnoreCase(sha256)) {
+                throw new IOException("更新文件 SHA-256 校验失败：期望 " + sha256 + " 实际 " + actual);
+            }
+        } else if (sha1 != null && !sha1.isEmpty()) {
+            String actual = sha1(file);
+            if (!actual.equalsIgnoreCase(sha1)) {
+                throw new IOException("更新文件 SHA1 校验失败");
+            }
+        } else {
+            throw new IOException("更新清单未提供 SHA-256/SHA-1，拒绝安装未校验的更新包");
+        }
+    }
+
+    private static void trySetOwnerOnly(Path file) {
+        try {
+            Set<PosixFilePermission> perms = EnumSet.of(
+                    PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE);
+            Files.setPosixFilePermissions(file, perms);
+        } catch (UnsupportedOperationException | IOException ignored) {
+            // Windows 等非 POSIX：忽略
+        }
+    }
+
+    private static String text(JsonObject o, String key) {
+        return o.has(key) && !o.get(key).isJsonNull() ? o.get(key).getAsString() : "";
+    }
+
     private static String sha1(Path file) throws IOException {
         return hash(file, "SHA-1");
     }
 
-    /** M54: SHA-256 计算，用于更强校验 */
     private static String sha256(Path file) throws IOException {
         return hash(file, "SHA-256");
     }
@@ -161,7 +278,6 @@ public final class SelfUpdater {
             }
             byte[] digest = md.digest();
             StringBuilder sb = new StringBuilder(digest.length * 2);
-            // H13: b & 0xff 防止 byte 符号扩展为 int 时产生 ffffffff 而非 ff
             for (byte b : digest) sb.append(String.format("%02x", b & 0xff));
             return sb.toString();
         } catch (Exception e) {

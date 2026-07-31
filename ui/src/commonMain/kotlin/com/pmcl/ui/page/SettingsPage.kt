@@ -1195,6 +1195,43 @@ private fun MioModeCard(pref: com.pmcl.core.preferences.Preferences) {
     var l2Process by remember { mutableStateOf(pref.isMioModeProcess()) }
     var l2Crazy by remember { mutableStateOf(pref.isMioModeCrazyPriority()) }
     var l3System by remember { mutableStateOf(pref.isMioModeSystemPower()) }
+    var confirmCrazy by remember { mutableStateOf(false) }
+    var confirmL3 by remember { mutableStateOf(false) }
+
+    if (confirmCrazy) {
+        AlertDialog(
+            onDismissRequest = { confirmCrazy = false },
+            title = { Text(I18n.t("settings.perf.l2_crazy_priority")) },
+            text = { Text(I18n.t("settings.perf.admin_auth_confirm")) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmCrazy = false
+                    l2Crazy = true
+                    pref.setMioModeCrazyPriority(true)
+                }) { Text(I18n.t("common.confirm")) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmCrazy = false }) { Text(I18n.t("common.cancel")) }
+            }
+        )
+    }
+    if (confirmL3) {
+        AlertDialog(
+            onDismissRequest = { confirmL3 = false },
+            title = { Text(I18n.t("settings.perf.l3_system_power")) },
+            text = { Text(I18n.t("settings.perf.admin_auth_confirm")) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmL3 = false
+                    l3System = true
+                    pref.setMioModeSystemPower(true)
+                }) { Text(I18n.t("common.confirm")) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmL3 = false }) { Text(I18n.t("common.cancel")) }
+            }
+        )
+    }
 
     Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
         Column(Modifier.padding(16.dp)) {
@@ -1376,11 +1413,17 @@ private fun MioModeCard(pref: com.pmcl.core.preferences.Preferences) {
 
                 Spacer(Modifier.height(12.dp))
 
-                // L2+：疯狂优先级
+                // L2+：疯狂优先级（开启后启动游戏会弹管理员密码框）
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Switch(
                         checked = l2Crazy,
-                        onCheckedChange = { v -> l2Crazy = v; pref.setMioModeCrazyPriority(v) }
+                        onCheckedChange = { v ->
+                            if (v) confirmCrazy = true
+                            else {
+                                l2Crazy = false
+                                pref.setMioModeCrazyPriority(false)
+                            }
+                        }
                     )
                     Spacer(Modifier.width(8.dp))
                     Column {
@@ -1397,11 +1440,17 @@ private fun MioModeCard(pref: com.pmcl.core.preferences.Preferences) {
 
                 Spacer(Modifier.height(12.dp))
 
-                // L3：系统电源策略
+                // L3：系统电源策略（开启后启动游戏会弹管理员密码框）
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Switch(
                         checked = l3System,
-                        onCheckedChange = { v -> l3System = v; pref.setMioModeSystemPower(v) }
+                        onCheckedChange = { v ->
+                            if (v) confirmL3 = true
+                            else {
+                                l3System = false
+                                pref.setMioModeSystemPower(false)
+                            }
+                        }
                     )
                     Spacer(Modifier.width(8.dp))
                     Column {
@@ -2545,6 +2594,10 @@ private fun MetalRenderCard(vm: LauncherViewModel, pref: com.pmcl.core.preferenc
     val enabled by vm.metalRenderEnabled.collectAsState()
     val status by vm.status.collectAsState()
     val selectedVersion by vm.selectedVersion.collectAsState()
+    val supported = remember { vm.metalRenderSupportedVersions().joinToString(", ") }
+    val showMetalStatus = status.contains("Metal", ignoreCase = true)
+        || status.contains("MetalRender", ignoreCase = true)
+        || status.contains("レンダリング")
 
     Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
         Column(Modifier.padding(16.dp)) {
@@ -2561,16 +2614,24 @@ private fun MetalRenderCard(vm: LauncherViewModel, pref: com.pmcl.core.preferenc
             Text(I18n.t("metal.description"),
                  style = MaterialTheme.typography.labelSmall,
                  color = MaterialTheme.colorScheme.outline)
+            Spacer(Modifier.height(4.dp))
+            Text(I18n.t("metal.supported_versions", supported),
+                 style = MaterialTheme.typography.labelSmall,
+                 color = MaterialTheme.colorScheme.outline)
             Spacer(Modifier.height(6.dp))
             Text(I18n.t("metal.warning"),
                  style = MaterialTheme.typography.labelSmall,
                  color = MaterialTheme.colorScheme.error)
-            if (enabled) {
+            // 安装中 / 成功 / 失败都显示（失败时开关已回滚，不能再依赖 enabled）
+            if (showMetalStatus) {
                 Spacer(Modifier.height(8.dp))
+                val err = status.contains("失败") || status.contains("failed", ignoreCase = true)
+                    || status.contains("失敗")
                 Text(status,
                      style = MaterialTheme.typography.labelSmall,
-                     color = MaterialTheme.colorScheme.primary,
-                     maxLines = 2,
+                     color = if (err) MaterialTheme.colorScheme.error
+                             else MaterialTheme.colorScheme.primary,
+                     maxLines = 3,
                      overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
             }
         }

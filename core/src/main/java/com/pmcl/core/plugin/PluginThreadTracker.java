@@ -16,6 +16,9 @@ final class PluginThreadTracker {
     /** Parent of all plugin groups (under the system group). */
     static final ThreadGroup ROOT = new ThreadGroup("pmcl-plugins");
 
+    /** Default host→plugin call timeout so a plugin cannot permanently block a host thread. */
+    static final long DEFAULT_CALL_TIMEOUT_MS = 30_000L;
+
     private static final AtomicLong WORKER_SEQ = new AtomicLong();
 
     private final String pluginId;
@@ -79,11 +82,17 @@ final class PluginThreadTracker {
     }
 
     <T> T call(Callable<T> task) {
+        return call(task, DEFAULT_CALL_TIMEOUT_MS);
+    }
+
+    <T> T call(Callable<T> task, long timeoutMs) {
         if (task == null) throw new NullPointerException("task");
         if (destroyed) {
             throw new IllegalStateException("Plugin '" + pluginId + "' thread group is destroyed");
         }
+        long limit = timeoutMs > 0 ? timeoutMs : DEFAULT_CALL_TIMEOUT_MS;
         if (belongsToThisGroup(Thread.currentThread())) {
+            // Nested plugin→plugin call: already on a timed host worker; run inline.
             ClassLoader old = Thread.currentThread().getContextClassLoader();
             ClassLoader cl = contextClassLoader;
             try {
@@ -111,11 +120,23 @@ final class PluginThreadTracker {
         });
         worker.start();
         try {
-            worker.join();
+            worker.join(limit);
         } catch (InterruptedException e) {
             worker.interrupt();
             Thread.currentThread().interrupt();
             throw new RuntimeException("Interrupted waiting for plugin '" + pluginId + "' work", e);
+        }
+        if (worker.isAlive()) {
+            worker.interrupt();
+            try {
+                worker.join(1_000L);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            if (worker.isAlive()) {
+                forceStopThread(worker, "call-timeout");
+            }
+            throw new RuntimeException("Plugin '" + pluginId + "' call timed out after " + limit + "ms");
         }
         Throwable err = error.get();
         if (err != null) {
@@ -128,7 +149,8 @@ final class PluginThreadTracker {
 
     /**
      * Interrupt all live threads in the group and wait briefly for them to exit.
-     * Safe to call multiple times.
+     * After the wait, forcibly stops any remaining threads so the plugin ClassLoader
+     * can become unreachable for GC. Safe to call multiple times.
      */
     void shutdown(long waitMs) {
         destroyed = true;
@@ -167,7 +189,7 @@ final class PluginThreadTracker {
         int remaining = activeAliveCount();
         if (remaining > 0) {
             System.err.println("[Plugin:" + pluginId + "] WARNING: " + remaining
-                    + " thread(s) still alive after ThreadGroup shutdown — interrupting again");
+                    + " thread(s) still alive after ThreadGroup shutdown — forcing stop");
             try {
                 group.interrupt();
             } catch (Throwable ignored) {}
@@ -175,13 +197,39 @@ final class PluginThreadTracker {
             int n = group.enumerate(threads, false);
             for (int i = 0; i < n; i++) {
                 Thread t = threads[i];
-                if (t != null && t.isAlive()) {
-                    System.err.println("[Plugin:" + pluginId + "]   alive: " + t.getName()
-                            + " state=" + t.getState());
+                if (t == null || !t.isAlive() || t == Thread.currentThread()) continue;
+                System.err.println("[Plugin:" + pluginId + "]   alive: " + t.getName()
+                        + " state=" + t.getState());
+                // Drop CCL so the plugin ClassLoader is not pinned by a stuck thread.
+                try {
+                    t.setContextClassLoader(null);
+                } catch (Throwable ignored) {}
+                t.interrupt();
+                try {
+                    t.join(200);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                if (t.isAlive()) {
+                    forceStopThread(t, "shutdown");
                 }
             }
-        } else {
-            // Leave the empty group in place; ThreadGroup.destroy() is deprecated for removal.
+        }
+    }
+
+    /**
+     * Last-resort {@link Thread#stop()} so a non-cooperative plugin thread releases
+     * the isolating ClassLoader. Deprecated and unsafe; only used after interrupt timeout.
+     */
+    @SuppressWarnings("deprecation")
+    private void forceStopThread(Thread t, String reason) {
+        try {
+            System.err.println("[Plugin:" + pluginId + "] Forcing Thread.stop on "
+                    + t.getName() + " (" + reason + ")");
+            t.stop();
+        } catch (Throwable err) {
+            System.err.println("[Plugin:" + pluginId + "] Thread.stop failed for "
+                    + t.getName() + ": " + err.getMessage());
         }
     }
 

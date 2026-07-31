@@ -304,13 +304,14 @@ public final class PlayTimeTracker {
         // 按总时长降序
         versionStats.sort((a, b) -> Long.compare(b.totalDuration, a.totalDuration));
 
-        // 按天聚合
+        // 按天聚合（H31: 使用本地时区，与 heatmap/records 一致，避免 UTC 日界错位）
         Map<String, long[]> dailyAgg = new LinkedHashMap<>(); // date → [duration, count]
         DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd");
-        LocalDate cutoff = recentDays > 0 ? LocalDate.now().minusDays(recentDays - 1) : null;
+        ZoneId zone = ZoneId.systemDefault();
+        LocalDate cutoff = recentDays > 0 ? LocalDate.now(zone).minusDays(recentDays - 1) : null;
 
         for (Session s : snapshot) {
-            LocalDate ld = LocalDate.ofEpochDay(s.start / 86400000);
+            LocalDate ld = LocalDate.ofInstant(java.time.Instant.ofEpochMilli(s.start), zone);
             if (cutoff != null && ld.isBefore(cutoff)) continue;
             String date = ld.format(fmt);
             long[] agg = dailyAgg.computeIfAbsent(date, k -> new long[]{0, 0});
@@ -596,23 +597,30 @@ public final class PlayTimeTracker {
             synchronized (sessions) {
                 sessions.clear();
                 for (int i = 0; i < arr.size(); i++) {
-                    JsonObject o = arr.get(i).getAsJsonObject();
-                    String version = safeStr(o, "version");
-                    long start = o.has("start") ? o.get("start").getAsLong() : 0;
-                    long end = o.has("end") ? o.get("end").getAsLong() : 0;
-                    long duration = o.has("duration") ? o.get("duration").getAsLong() : (end - start);
-                    String instanceId = safeStr(o, "instanceId");
-                    String server = safeStr(o, "server");
-                    String worldName = safeStr(o, "worldName");
-                    List<String> modIds = new ArrayList<>();
-                    if (o.has("modIds") && o.get("modIds").isJsonArray()) {
-                        for (com.google.gson.JsonElement me : o.getAsJsonArray("modIds")) {
-                            if (me.isJsonPrimitive()) modIds.add(me.getAsString());
+                    // H30: 单条损坏不中止整文件加载
+                    try {
+                        if (!arr.get(i).isJsonObject()) continue;
+                        JsonObject o = arr.get(i).getAsJsonObject();
+                        String version = safeStr(o, "version");
+                        long start = o.has("start") ? o.get("start").getAsLong() : 0;
+                        long end = o.has("end") ? o.get("end").getAsLong() : 0;
+                        long duration = o.has("duration") ? o.get("duration").getAsLong() : (end - start);
+                        String instanceId = safeStr(o, "instanceId");
+                        String server = safeStr(o, "server");
+                        String worldName = safeStr(o, "worldName");
+                        List<String> modIds = new ArrayList<>();
+                        if (o.has("modIds") && o.get("modIds").isJsonArray()) {
+                            for (com.google.gson.JsonElement me : o.getAsJsonArray("modIds")) {
+                                if (me.isJsonPrimitive()) modIds.add(me.getAsString());
+                            }
                         }
-                    }
-                    if (!version.isEmpty() && duration > 0) {
-                        sessions.add(new Session(version, start, end, duration,
-                                instanceId, server, worldName, modIds));
+                        if (!version.isEmpty() && duration > 0) {
+                            sessions.add(new Session(version, start, end, duration,
+                                    instanceId, server, worldName, modIds));
+                        }
+                    } catch (Throwable entryErr) {
+                        System.err.println("[PlayTimeTracker] 跳过损坏会话条目 #" + i
+                                + ": " + entryErr.getMessage());
                     }
                 }
             }
@@ -620,21 +628,29 @@ public final class PlayTimeTracker {
             if (root.has("active") && root.get("active").isJsonObject()) {
                 JsonObject active = root.getAsJsonObject("active");
                 for (var entry : active.entrySet()) {
-                    String versionId = entry.getKey();
-                    JsonObject a = entry.getValue().getAsJsonObject();
-                    long start = a.has("start") ? a.get("start").getAsLong() : 0;
-                    if (start > 0) {
-                        activeStarts.put(versionId, start);
-                        SessionContext ctx = new SessionContext();
-                        ctx.instanceId = safeStr(a, "instanceId");
-                        ctx.server = safeStr(a, "server");
-                        ctx.worldName = safeStr(a, "worldName");
-                        if (a.has("modIds") && a.get("modIds").isJsonArray()) {
-                            for (com.google.gson.JsonElement me : a.getAsJsonArray("modIds")) {
-                                if (me.isJsonPrimitive()) ctx.modIds.add(me.getAsString());
+                    try {
+                        String versionId = entry.getKey();
+                        if (!entry.getValue().isJsonObject()) continue;
+                        JsonObject a = entry.getValue().getAsJsonObject();
+                        long start = a.has("start") ? a.get("start").getAsLong() : 0;
+                        if (start > 0) {
+                            activeStarts.put(versionId, start);
+                            SessionContext ctx = new SessionContext();
+                            ctx.instanceId = safeStr(a, "instanceId");
+                            ctx.server = safeStr(a, "server");
+                            ctx.worldName = safeStr(a, "worldName");
+                            if (a.has("modIds") && a.get("modIds").isJsonArray()) {
+                                List<String> mods = new ArrayList<>();
+                                for (com.google.gson.JsonElement me : a.getAsJsonArray("modIds")) {
+                                    if (me.isJsonPrimitive()) mods.add(me.getAsString());
+                                }
+                                ctx.modIds = mods;
                             }
+                            activeContexts.put(versionId, ctx);
                         }
-                        activeContexts.put(versionId, ctx);
+                    } catch (Throwable activeErr) {
+                        System.err.println("[PlayTimeTracker] 跳过损坏活跃会话: "
+                                + activeErr.getMessage());
                     }
                 }
             }

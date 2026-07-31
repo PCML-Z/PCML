@@ -11,18 +11,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * P2P 对等发现：通过 UDP 组播在本地网络上发现附近的好友。
  * <p>
  * 使用组播组 {@code 239.254.10.10}，默认端口 {@code 25410}。
- * <p>
- * 组播相比广播的优势：
- * <ul>
- *   <li>同机器多实例：所有加入组播组的 socket 都能收到数据包（SO_REUSEADDR 即可）</li>
- *   <li>跨机器：局域网内组播通常可达</li>
- *   <li>不会像 SO_REUSEPORT 那样只分发到一个 socket</li>
- * </ul>
+ * Discover 报文经本地 Ed25519 私钥签名；接收端验证签名后才采纳，忽略未签名/无效报文。
  */
 public final class FriendPeerDiscovery implements AutoCloseable {
     public static final int DEFAULT_PORT = 25410;
     public static final String MULTICAST_GROUP = "239.254.10.10";
     public static final int MULTICAST_TTL = 1; // 本地网络
+    private static final long DISCOVER_WINDOW_MS = 120_000L;
 
     private final AtomicBoolean running = new AtomicBoolean(false);
     private MulticastSocket socket;
@@ -34,6 +29,8 @@ public final class FriendPeerDiscovery implements AutoCloseable {
     private String myIdentity;
     private String myName;
     private int myChatPort;
+    private volatile byte[] edPrivate;
+    private volatile byte[] edPublic;
 
     private final CopyOnWriteArrayList<PeerListener> listeners = new CopyOnWriteArrayList<>();
 
@@ -77,6 +74,15 @@ public final class FriendPeerDiscovery implements AutoCloseable {
     }
 
     /**
+     * Configure Ed25519 keys used to sign/verify discover messages.
+     * Must be called before {@link #start}.
+     */
+    public void setSigningKeys(byte[] ed25519PrivatePkcs8, byte[] ed25519PublicSpki) {
+        this.edPrivate = ed25519PrivatePkcs8;
+        this.edPublic = ed25519PublicSpki != null ? ed25519PublicSpki.clone() : null;
+    }
+
+    /**
      * 启动对等发现（使用默认端口和组播组）。
      *
      * @param myIdentity  我的身份 ID
@@ -85,6 +91,9 @@ public final class FriendPeerDiscovery implements AutoCloseable {
      */
     public void start(String myIdentity, String myName, int myChatPort) throws IOException {
         if (running.get()) return;
+        if (edPrivate == null || edPublic == null) {
+            throw new IOException("FriendPeerDiscovery signing keys not set");
+        }
 
         this.myIdentity = myIdentity;
         this.myName = myName;
@@ -163,6 +172,11 @@ public final class FriendPeerDiscovery implements AutoCloseable {
 
                 FriendProtocol.DiscoverMessage msg = FriendProtocol.DiscoverMessage.fromJson(json);
                 if (msg.identity == null || msg.identity.equals(myIdentity)) continue;
+                if (msg.port <= 0) continue;
+
+                if (!verifyDiscover(msg)) {
+                    continue;
+                }
 
                 FriendIdentity peerId;
                 try {
@@ -170,8 +184,6 @@ public final class FriendPeerDiscovery implements AutoCloseable {
                 } catch (IllegalArgumentException e) {
                     continue;
                 }
-
-                if (msg.port <= 0) continue;
 
                 DiscoveredPeer peer = new DiscoveredPeer(
                         peerId,
@@ -197,6 +209,23 @@ public final class FriendPeerDiscovery implements AutoCloseable {
         }
     }
 
+    private static boolean verifyDiscover(FriendProtocol.DiscoverMessage msg) {
+        if (msg.ed == null || msg.ed.isBlank() || msg.sig == null || msg.sig.isBlank() || msg.ts == 0L) {
+            return false; // unsigned / legacy → ignore
+        }
+        if (Math.abs(System.currentTimeMillis() - msg.ts) > DISCOVER_WINDOW_MS) {
+            return false;
+        }
+        try {
+            byte[] edPub = FriendCrypto.b64d(msg.ed);
+            byte[] payload = FriendProtocol.DiscoverMessage.signingPayload(
+                    msg.identity, msg.name, msg.port, msg.ts);
+            return FriendCrypto.verifyEd25519(edPub, payload, FriendCrypto.b64d(msg.sig));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     private void broadcastLoop() {
         while (running.get()) {
             broadcastIdentity();
@@ -211,11 +240,17 @@ public final class FriendPeerDiscovery implements AutoCloseable {
 
     private void broadcastIdentity() {
         if (socket == null || socket.isClosed() || myIdentity == null) return;
+        if (edPrivate == null || edPublic == null) return;
 
         FriendProtocol.DiscoverMessage msg = new FriendProtocol.DiscoverMessage();
         msg.identity = myIdentity;
         msg.name = myName;
         msg.port = myChatPort;
+        msg.ts = System.currentTimeMillis();
+        msg.ed = FriendCrypto.b64(edPublic);
+        byte[] payload = FriendProtocol.DiscoverMessage.signingPayload(
+                msg.identity, msg.name, msg.port, msg.ts);
+        msg.sig = FriendCrypto.b64(FriendCrypto.signEd25519(edPrivate, payload));
 
         byte[] data = msg.toJson().getBytes(StandardCharsets.UTF_8);
 

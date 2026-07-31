@@ -11,7 +11,8 @@ import java.util.UUID;
  * <p>
  * 编码表排除了易混淆字符 {@code 0, 1, O, I}，共 32 个可用字符（Base32 Compatible）。
  * <p>
- * 生成方式：SHA-256({@code username + randomUUID + salt}) → 取前 125 bits → 编码为 25 个字符。
+ * 显示 ID 可由种子派生；端到端认证依赖 {@link FriendIdentityManager} 中的
+ * Ed25519 / X25519 长期密钥对（私钥加密落盘，公钥经二维码带外分发），而非本字符串本身。
  */
 public final class FriendIdentity {
     /** 每个段 5 字符，共 5 段 = 25 字符 */

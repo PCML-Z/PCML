@@ -53,10 +53,9 @@ public final class JavaRuntimeDownloader {
     private static final java.util.Set<RuntimeType> ADOPTIUM_RISCV_SUPPORTED =
             java.util.Set.of(RuntimeType.JAVA_17, RuntimeType.JAVA_21);
 
-    /** 龙芯 MIPS64el JDK 源：龙芯开源社区 FTP，仅 JDK 8（JDK 17+ 已不再支持 MIPS64） */
+    /** 龙芯 MIPS64el JDK 源：龙芯开源社区（HTTPS）；无校验和则拒绝安装 */
     private static final String LOONGSON_MIPS_JDK8_URL =
-            "http://ftp.loongnix.org/toolchain/java/openjdk8/loongson_openjdk8.1.4-jdk8u242b08-linux-loongson3a.tar.gz";
-    private static final String LOONGSON_MIPS_JDK8_MD5 = "a3e4b7c9d1f2e3a4b5c6d7e8f9a0b1c2"; // 占位，实际由下载时跳过校验
+            "https://ftp.loongnix.org/toolchain/java/openjdk8/loongson_openjdk8.1.4-jdk8u242b08-linux-loongson3a.tar.gz";
 
     private final LauncherConfig config;
     private final DownloadManager downloadManager;
@@ -256,7 +255,7 @@ public final class JavaRuntimeDownloader {
             return new ArrayList<>();
         }
         List<RuntimeEntry> result = new ArrayList<>();
-        // 龙芯 FTP 源不提供 SHA-1，传空串跳过校验（HTTPS/FTP 传输完整性）
+        // H38: HTTPS 优先；SHA-1 在安装时从旁路 .sha1 拉取，缺失则拒绝
         result.add(new RuntimeEntry(
                 "Loongson-JDK8-mips64el",
                 "8u242", LOONGSON_MIPS_JDK8_URL, "", 0L));
@@ -436,14 +435,20 @@ public final class JavaRuntimeDownloader {
                 downloadManager.downloadToVerified(url, archive, expectedSha1, null);
                 if (onStatus != null) onStatus.accept("SHA-1 校验通过");
             } else {
-                boolean skipSha1 = "linux-loongarch64".equals(arch)
-                        || "linux-riscv64".equals(arch)
-                        || "linux-mips64el".equals(arch);
-                if (skipSha1) {
-                    if (onStatus != null) onStatus.accept("国产架构 JDK：第三方源无 SHA-1，跳过校验");
+                // H38: 无清单 SHA-1 时尝试旁路；明文 HTTP 必须有校验和
+                String sidecar = tryFetchSidecarSha1(url);
+                if (sidecar == null && url.startsWith("https://")) {
+                    sidecar = tryFetchSidecarSha1(url.replaceFirst("^https://", "http://"));
+                }
+                if (sidecar != null && !sidecar.isBlank()) {
+                    downloadManager.downloadToVerified(url, archive, sidecar, null);
+                    if (onStatus != null) onStatus.accept("SHA-1 旁路校验通过");
+                } else if (("linux-loongarch64".equals(arch) || "linux-riscv64".equals(arch))
+                        && url.startsWith("https://")) {
+                    if (onStatus != null) onStatus.accept("国产架构 JDK：HTTPS 源无 SHA-1，跳过校验");
                     downloadManager.downloadTo(url, archive);
                 } else {
-                    throw new IOException("运行时清单未提供 SHA-1，拒绝安装未校验的 Java 归档");
+                    throw new IOException("运行时未提供 SHA-1（HTTP 源必须校验）: " + url);
                 }
             }
             if (onStatus != null) onStatus.accept("解压到: " + stagingDir);
@@ -743,6 +748,31 @@ public final class JavaRuntimeDownloader {
             return "mac-os";
         }
         return arch;
+    }
+
+    /**
+     * Fetch a {@code .sha1} sidecar next to an archive URL (first whitespace-delimited token).
+     * Returns null if unavailable.
+     */
+    private String tryFetchSidecarSha1(String archiveUrl) {
+        if (archiveUrl == null || archiveUrl.isBlank()) return null;
+        String shaUrl = archiveUrl.endsWith(".sha1") ? archiveUrl : archiveUrl + ".sha1";
+        try {
+            String body = downloadManager.downloadString(shaUrl);
+            if (body == null || body.isBlank()) return null;
+            String token = body.trim().split("\\s+")[0].trim();
+            if (token.length() < 40) return null;
+            // Accept hex only
+            for (int i = 0; i < token.length(); i++) {
+                char c = token.charAt(i);
+                if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
+                    return null;
+                }
+            }
+            return token.toLowerCase(java.util.Locale.ROOT);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /**

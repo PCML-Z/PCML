@@ -7,20 +7,16 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * 好友系统消息协议：JSON-over-TCP/UDP。
+ * 好友系统消息协议：JSON 行，经 {@link FriendSecureChannel} AES-GCM 加密后传输。
  * <p>
  * 消息类型：
  * <ul>
- *   <li>{@code discover}    — UDP 广播：声明自己在线</li>
- *   <li>{@code msg}         — TCP 一对一聊天消息</li>
- *   <li>{@code friend_req}  — TCP 好友请求</li>
- *   <li>{@code friend_ack}  — TCP 好友请求应答</li>
- *   <li>{@code status}      — TCP 在线状态变更</li>
- *   <li>{@code call_invite} — TCP 通话邀请</li>
- *   <li>{@code call_accept} — TCP 接受通话</li>
- *   <li>{@code call_reject} — TCP 拒绝通话</li>
- *   <li>{@code call_end}    — TCP 结束通话</li>
- *   <li>{@code call_ice}    — TCP ICE 候选交换</li>
+ *   <li>{@code discover}    — UDP 广播：声明自己在线（仍为明文发现；连接后全部加密）</li>
+ *   <li>{@code msg}         — 一对一聊天消息</li>
+ *   <li>{@code friend_req}  — 好友请求（携带公钥，不含共享密钥）</li>
+ *   <li>{@code friend_ack}  — 好友请求应答</li>
+ *   <li>{@code status}      — 在线状态变更</li>
+ *   <li>{@code call_*}      — 通话信令</li>
  * </ul>
  */
 public final class FriendProtocol {
@@ -55,12 +51,18 @@ public final class FriendProtocol {
         return buf.toString(java.nio.charset.StandardCharsets.UTF_8);
     }
 
-    /** UDP 广播内容 */
+    /** UDP 广播内容（Ed25519 签名；未签名/验签失败的报文一律忽略） */
     public static final class DiscoverMessage {
         public String type = "discover";
         public String identity;
         public String name;
         public int port;
+        /** Ed25519 公钥 Base64URL (SPKI) */
+        public String ed;
+        /** 签名时间戳（毫秒） */
+        public long ts;
+        /** Ed25519 签名 Base64URL：PMCL-DISCOVER\\n id\\n name\\n port\\n ts */
+        public String sig;
 
         public static DiscoverMessage fromJson(String json) {
             return GSON.fromJson(json, DiscoverMessage.class);
@@ -68,6 +70,13 @@ public final class FriendProtocol {
 
         public String toJson() {
             return GSON.toJson(this);
+        }
+
+        /** Canonical bytes signed for discovery authenticity. */
+        public static byte[] signingPayload(String identity, String name, int port, long ts) {
+            String n = name != null ? name : "";
+            return ("PMCL-DISCOVER\n" + identity + "\n" + n + "\n" + port + "\n" + ts)
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8);
         }
     }
 
@@ -98,8 +107,15 @@ public final class FriendProtocol {
         public String name;
         /** 发送方的聊天服务器端口 */
         public int port;
-        /** 双方共享的握手 HMAC 密钥（跨机器校验；旧客户端可为空） */
+        /**
+         * @deprecated 禁止在明文/信道中传输共享密钥；保留字段仅为反序列化兼容，发送端必须为 null。
+         */
+        @Deprecated
         public String authSecret;
+        /** 发送方 Ed25519 公钥（Base64URL SPKI） */
+        public String ed25519Pub;
+        /** 发送方 X25519 公钥（Base64URL SPKI） */
+        public String x25519Pub;
 
         public static FriendRequest fromJson(String json) {
             return GSON.fromJson(json, FriendRequest.class);
@@ -118,8 +134,11 @@ public final class FriendProtocol {
         public boolean accepted;
         /** 发送方的聊天服务器端口 */
         public int port;
-        /** 回显/确认共享握手密钥 */
+        /** @deprecated 见 {@link FriendRequest#authSecret} */
+        @Deprecated
         public String authSecret;
+        public String ed25519Pub;
+        public String x25519Pub;
 
         public static FriendAck fromJson(String json) {
             return GSON.fromJson(json, FriendAck.class);

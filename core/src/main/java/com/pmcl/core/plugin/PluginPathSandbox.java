@@ -26,7 +26,31 @@ final class PluginPathSandbox {
             ".keyfile",
             "preferences.json",
             "preferences",
-            "plugins.json"
+            "plugins.json",
+            "friend-data",
+            "friends.json",
+            "identity.json",
+            "messages",
+            "tokens",
+            "tokens.json",
+            "auth",
+            "credentials",
+            "secrets",
+            "trusted-signers.txt"
+    );
+
+    private static final Set<String> DENIED_FILE_NAMES = Set.of(
+            "accounts.json",
+            ".keyfile",
+            "preferences.json",
+            "plugins.json",
+            "friends.json",
+            "identity.json",
+            "tokens.json",
+            "trusted-signers.txt",
+            "credentials.json",
+            "secrets.json",
+            "auth.json"
     );
 
     private PluginPathSandbox() {}
@@ -110,10 +134,30 @@ final class PluginPathSandbox {
         }
         String fileName = target.getFileName() != null
                 ? target.getFileName().toString().toLowerCase(Locale.ROOT) : "";
-        if (fileName.equals("accounts.json") || fileName.equals(".keyfile")
-                || fileName.equals("preferences.json") || fileName.equals("plugins.json")
-                || fileName.startsWith("preferences.")) {
+        if (DENIED_FILE_NAMES.contains(fileName)
+                || fileName.startsWith("preferences.")
+                || fileName.startsWith("accounts.")
+                || fileName.startsWith("identity.")
+                || fileName.startsWith("friends.")
+                || fileName.startsWith("tokens.")
+                || fileName.endsWith(".keyfile")
+                || fileName.endsWith(".pem")
+                || fileName.endsWith(".p12")
+                || fileName.endsWith(".jks")
+                || fileName.equals("id_rsa")
+                || fileName.equals("id_ed25519")
+                || fileName.endsWith("_ed25519")
+                || fileName.endsWith("_x25519")) {
             throw new SecurityException("Access to sensitive file denied: " + fileName);
+        }
+        // Nested sensitive dirs (e.g. friend-data/messages, any **/messages/** chat logs)
+        for (int i = 0; i < rel.getNameCount(); i++) {
+            String part = rel.getName(i).toString().toLowerCase(Locale.ROOT);
+            if (part.equals("friend-data") || part.equals("messages")
+                    || part.equals("tokens") || part.equals("secrets")
+                    || part.equals("credentials") || part.equals("auth")) {
+                throw new SecurityException("Access to sensitive path denied: " + part);
+            }
         }
     }
 

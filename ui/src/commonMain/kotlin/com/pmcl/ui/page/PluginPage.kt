@@ -47,11 +47,15 @@ fun PluginPage(vm: LauncherViewModel) {
                     pm.discoverAndLoadAll()
                 }
             } catch (e: Throwable) {
-                // Non-fatal
+                statusMessage = "Plugin scan failed: ${e.message}"
             }
         }
         plugins = pm.getLoadedPlugins()
         revision = pm.getRevision()
+        val errors = pm.getLastDiscoveryErrors()
+        if (errors.isNotEmpty() && statusMessage == null) {
+            statusMessage = "Scan: ${plugins.size} loaded, ${errors.size} failed — ${errors.first()}"
+        }
     }
 
     // Poll for changes
@@ -88,7 +92,12 @@ fun PluginPage(vm: LauncherViewModel) {
                         pm.discoverAndLoadAll()
                     }
                     plugins = pm.getLoadedPlugins()
-                    statusMessage = "Scan complete: ${plugins.size} plugin(s) loaded"
+                    val errors = pm.getLastDiscoveryErrors()
+                    statusMessage = if (errors.isEmpty()) {
+                        "Scan complete: ${plugins.size} plugin(s) loaded"
+                    } else {
+                        "Scan: ${plugins.size} loaded, ${errors.size} failed — ${errors.first()}"
+                    }
                 }
             }) {
                 Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -123,11 +132,16 @@ fun PluginPage(vm: LauncherViewModel) {
             for (action in menuActions) {
                 OutlinedButton(
                     onClick = {
-                        try {
-                            action.handler?.run()
-                            statusMessage = "Ran: ${action.title}"
-                        } catch (e: Throwable) {
-                            statusMessage = "Action failed: ${e.message}"
+                        // H44: 插件 handler 可能阻塞，派发到 IO
+                        scope.launch {
+                            try {
+                                withContext(Dispatchers.IO) {
+                                    action.handler?.run()
+                                }
+                                statusMessage = "Ran: ${action.title}"
+                            } catch (e: Throwable) {
+                                statusMessage = "Action failed: ${e.message}"
+                            }
                         }
                     },
                     modifier = Modifier.fillMaxWidth()
@@ -294,6 +308,7 @@ private fun PluginCard(
     pm: PluginManager
 ) {
     val info = entry.info
+    val cardScope = rememberCoroutineScope()
     val isEnabled = entry.state == PluginManager.PluginState.ENABLED
     val stateColor = when (entry.state) {
         PluginManager.PluginState.ENABLED -> MaterialTheme.colorScheme.primary
@@ -422,7 +437,11 @@ private fun PluginCard(
                     actions.forEach { a ->
                         TextButton(
                             onClick = {
-                                try { a.handler?.run() } catch (_: Throwable) {}
+                                cardScope.launch {
+                                    try {
+                                        withContext(Dispatchers.IO) { a.handler?.run() }
+                                    } catch (_: Throwable) {}
+                                }
                             }
                         ) {
                             Text(a.title)

@@ -78,14 +78,8 @@ actual fun WikiWebView(
             lastLoaded.set(url)
 
             Platform.runLater {
-                // 关键修复：JavaFX WebView 的 WebKit 网络栈读取 JVM 系统属性 http/https.proxyHost。
-                // LauncherCore.applyNetworkPreferences() 会把用户配置的代理（可能是失效的 127.0.0.1:12000）
-                // 写入这些系统属性，导致 WebView 无法加载任何网页（minecraft.wiki 直连本可达）。
-                // Wiki 浏览器走直连，不与下载器共享代理配置。
-                System.clearProperty("http.proxyHost")
-                System.clearProperty("http.proxyPort")
-                System.clearProperty("https.proxyHost")
-                System.clearProperty("https.proxyPort")
+                // C11: 临时旁路代理供 WebView 直连；属性在 DisposableEffect 中恢复，避免永久 clear。
+                WikiProxyBypass.enter()
 
                 val webView = WebView()
                 webView.isContextMenuEnabled = true
@@ -145,6 +139,19 @@ actual fun WikiWebView(
         }
     )
 
+    // H42 + C11: 释放 WebView，并恢复被旁路的全局代理属性
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onDispose {
+            Platform.runLater {
+                try {
+                    webViewRef.value?.engine?.load(null)
+                } catch (_: Throwable) {}
+                webViewRef.value = null
+                WikiProxyBypass.leave()
+            }
+        }
+    }
+
     LaunchedEffect(controller) {
         controller.goBack = {
             Platform.runLater {
@@ -165,5 +172,49 @@ actual fun WikiWebView(
                 webViewRef.value?.engine?.reload()
             }
         }
+    }
+}
+
+/** Reference-counted temporary clear of JVM proxy system properties for Wiki WebView. */
+private object WikiProxyBypass {
+    private var depth = 0
+    private var savedHttpHost: String? = null
+    private var savedHttpPort: String? = null
+    private var savedHttpsHost: String? = null
+    private var savedHttpsPort: String? = null
+
+    @Synchronized
+    fun enter() {
+        if (depth == 0) {
+            savedHttpHost = System.getProperty("http.proxyHost")
+            savedHttpPort = System.getProperty("http.proxyPort")
+            savedHttpsHost = System.getProperty("https.proxyHost")
+            savedHttpsPort = System.getProperty("https.proxyPort")
+            System.clearProperty("http.proxyHost")
+            System.clearProperty("http.proxyPort")
+            System.clearProperty("https.proxyHost")
+            System.clearProperty("https.proxyPort")
+        }
+        depth++
+    }
+
+    @Synchronized
+    fun leave() {
+        if (depth <= 0) return
+        depth--
+        if (depth == 0) {
+            restore("http.proxyHost", savedHttpHost)
+            restore("http.proxyPort", savedHttpPort)
+            restore("https.proxyHost", savedHttpsHost)
+            restore("https.proxyPort", savedHttpsPort)
+            savedHttpHost = null
+            savedHttpPort = null
+            savedHttpsHost = null
+            savedHttpsPort = null
+        }
+    }
+
+    private fun restore(key: String, value: String?) {
+        if (value == null) System.clearProperty(key) else System.setProperty(key, value)
     }
 }

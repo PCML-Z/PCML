@@ -417,8 +417,10 @@ public final class VersionInstaller {
                 + artifactId + "-" + version + "-" + classifier + ".jar";
         String url = LOONGARCH64_NATIVE_MAVEN + relPath;
         String targetPath = "libraries/" + lib.getPathForClassifier(classifier);
-        // SHA-1 可选：Maven Central 提供 .sha1 文件，但此处不强制校验以保持容错
-        return new DownloadTask(url, null, 0L, targetPath);
+        // H39: 必须有 SHA-1 才加入下载队列（避免无校验 natives 被 System.load）
+        String sha1 = tryFetchMavenSha1(url);
+        if (sha1 == null || sha1.isBlank()) return null;
+        return new DownloadTask(url, sha1, 0L, targetPath);
     }
 
     /**
@@ -442,7 +444,22 @@ public final class VersionInstaller {
                 + artifactId + "-" + version + "-" + classifier + ".jar";
         String url = LOONGARCH64_NATIVE_MAVEN + relPath;
         String targetPath = "libraries/" + lib.getPathForClassifier(classifier);
-        return new DownloadTask(url, null, 0L, targetPath);
+        // H39: 必须有 SHA-1
+        String sha1 = tryFetchMavenSha1(url);
+        if (sha1 == null || sha1.isBlank()) return null;
+        return new DownloadTask(url, sha1, 0L, targetPath);
+    }
+
+    /** Maven Central {@code .sha1} 旁路；失败返回 null。 */
+    private String tryFetchMavenSha1(String jarUrl) {
+        try {
+            String body = downloadManager.downloadString(jarUrl + ".sha1").trim();
+            if (body.isEmpty()) return null;
+            String hash = body.split("\\s+")[0].trim();
+            return hash.matches("[0-9a-fA-F]{40}") ? hash : null;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private McVersion findVersion(String versionId) throws IOException {

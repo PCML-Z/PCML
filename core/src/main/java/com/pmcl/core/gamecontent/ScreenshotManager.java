@@ -2,6 +2,7 @@ package com.pmcl.core.gamecontent;
 
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
@@ -13,9 +14,11 @@ import java.util.stream.Stream;
  */
 public final class ScreenshotManager {
 
+    private final Path workDir;
     private final Path screenshotsDir;
 
     public ScreenshotManager(Path workDir) {
+        this.workDir = workDir;
         this.screenshotsDir = workDir.resolve("screenshots");
     }
 
@@ -86,6 +89,19 @@ public final class ScreenshotManager {
         if (parent == null || parent.getFileName() == null
                 || !"screenshots".equalsIgnoreCase(parent.getFileName().toString())) {
             throw new IOException("拒绝删除：路径不在 screenshots 目录下: " + file);
+        }
+        // H23: normalize + startsWith；拒绝符号链接（弱父目录名校验不足以防穿越）
+        Path parentAbs = parent.toAbsolutePath().normalize();
+        if (!file.startsWith(parentAbs) || !parentAbs.equals(file.getParent())) {
+            throw new IOException("拒绝删除：路径越界: " + file);
+        }
+        // 工作目录内截图必须仍落在 workDir 下（防御路径规范化后的越界）
+        Path workAbs = workDir.toAbsolutePath().normalize();
+        if (parentAbs.startsWith(workAbs) && !file.startsWith(workAbs)) {
+            throw new IOException("拒绝删除：路径越出工作目录: " + file);
+        }
+        if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) {
+            throw new IOException("拒绝删除：不是普通图片文件: " + file);
         }
         if (!isImage(file.getFileName().toString())) {
             throw new IOException("拒绝删除：不是图片文件: " + file);

@@ -1985,8 +1985,9 @@ final class PluginApiFacades {
         return (method, url, headers, body, timeoutMs) -> {
             gate.require("NETWORK");
             if (url == null || url.isBlank()) throw new IllegalArgumentException("url is blank");
+            manager.acquirePluginHttpPermit();
             String safeUrl = manager.applyUrlRewrites(url);
-            String err = com.pmcl.core.util.SsrfChecker.validate(safeUrl);
+            String err = manager.validatePluginHttpUrl(safeUrl);
             if (err != null) throw new RuntimeException("SSRF blocked: " + err);
             String m = method != null ? method.trim().toUpperCase(java.util.Locale.ROOT) : "GET";
             long timeout = Math.max(1_000L, Math.min(timeoutMs > 0 ? timeoutMs : 30_000L, 120_000L));
@@ -1995,7 +1996,7 @@ final class PluginApiFacades {
                         .callTimeout(timeout, java.util.concurrent.TimeUnit.MILLISECONDS)
                         .addNetworkInterceptor(chain -> {
                             String hop = chain.request().url().toString();
-                            String hopErr = com.pmcl.core.util.SsrfChecker.validate(hop);
+                            String hopErr = manager.validatePluginHttpUrl(hop);
                             if (hopErr != null) throw new IOException("SSRF redirect blocked: " + hopErr);
                             return chain.proceed(chain.request());
                         })

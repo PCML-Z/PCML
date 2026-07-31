@@ -77,6 +77,8 @@ public final class PluginPackageBuilder {
     /**
      * Build a classpath URL array for an extracted plugin package.
      * Includes the classes/ directory and all .jar files in lib/.
+     * Nested {@code lib/*.jar} must themselves be jarsigner-signed (coordinates with
+     * {@code PluginManager.verifyPluginArchive}, which also requires signed lib entries in the .ppk).
      *
      * @param extractedDir The directory where the package was extracted
      * @param libraries    Library declarations from the manifest (for validation)
@@ -85,6 +87,7 @@ public final class PluginPackageBuilder {
      */
     public static URL[] buildClasspath(Path extractedDir, List<PluginPackageParser.LibraryRef> libraries) throws IOException {
         List<URL> urls = new ArrayList<>();
+        Path root = extractedDir.toAbsolutePath().normalize();
 
         // Add classes/ directory
         Path classesDir = extractedDir.resolve(CLASSES_DIR);
@@ -97,16 +100,25 @@ public final class PluginPackageBuilder {
                 "Source files in src/kt/ and src/java/ must be compiled before packaging.");
         }
 
-        // Add lib/*.jar
+        // Add lib/*.jar — stay under extractedDir; reject unsigned nested jars
         Path libDir = extractedDir.resolve("lib");
         if (Files.isDirectory(libDir)) {
+            Path libRoot = libDir.toAbsolutePath().normalize();
             List<Path> jars = new ArrayList<>();
             try (var stream = Files.walk(libDir)) {
                 stream.filter(p -> p.toString().toLowerCase(java.util.Locale.ROOT).endsWith(".jar"))
                     .forEach(jars::add);
             }
             for (Path jar : jars) {
-                urls.add(jar.toUri().toURL());
+                Path abs = jar.toAbsolutePath().normalize();
+                if (!abs.startsWith(libRoot) || !abs.startsWith(root)) {
+                    throw new IOException("Library jar escapes plugin dir: " + jar);
+                }
+                if (Files.isSymbolicLink(jar)) {
+                    throw new IOException("Library jar must not be a symlink: " + jar);
+                }
+                assertNestedJarSigned(abs);
+                urls.add(abs.toUri().toURL());
             }
         }
 
@@ -120,6 +132,9 @@ public final class PluginPackageBuilder {
                 throw new IOException(
                     "Declared library '" + lib.getPath() + "' not found in extracted package.");
             }
+            if (libPath.toString().toLowerCase(java.util.Locale.ROOT).endsWith(".jar")) {
+                assertNestedJarSigned(libPath.toAbsolutePath().normalize());
+            }
         }
 
         return urls.toArray(new URL[0]);
@@ -131,18 +146,19 @@ public final class PluginPackageBuilder {
      *
      * @param extractedDir The directory where the package was extracted
      * @param pkg          The parsed package manifest
-     * @param parent       The parent classloader (should be PMCL's classloader)
+     * @param host         PMCL application ClassLoader (bridged for API packages only; not used as parent)
      * @return A new PluginIsolatingClassLoader with classes/ + lib/*.jar on the classpath
      * @throws IOException if classpath construction fails
      */
-    public static PluginIsolatingClassLoader createClassLoader(Path extractedDir, PluginPackage pkg, ClassLoader parent) throws IOException {
+    public static PluginIsolatingClassLoader createClassLoader(Path extractedDir, PluginPackage pkg, ClassLoader host) throws IOException {
         URL[] urls = buildClasspath(extractedDir, pkg.getLibraries());
-        return new PluginIsolatingClassLoader(pkg.getInfo().getId(), urls, parent);
+        return new PluginIsolatingClassLoader(pkg.getInfo().getId(), urls, host);
     }
 
     /**
      * Validate that an extracted package has the required runtime structure.
      * Throws if classes/ is missing (source-only packages are not loadable).
+     * Also rejects unsigned nested {@code lib/*.jar} (same policy as .ppk entry signing).
      */
     public static void validateRuntimeStructure(Path extractedDir) throws IOException {
         Path classesDir = extractedDir.resolve(CLASSES_DIR);
@@ -162,6 +178,72 @@ public final class PluginPackageBuilder {
                     "Plugin package 'classes/' directory is empty. " +
                     "Compile the sources before packaging.");
             }
+        }
+        Path libDir = extractedDir.resolve("lib");
+        if (Files.isDirectory(libDir)) {
+            Path libRoot = libDir.toAbsolutePath().normalize();
+            try (var stream = Files.walk(libDir)) {
+                var jars = stream
+                        .filter(p -> p.toString().toLowerCase(java.util.Locale.ROOT).endsWith(".jar"))
+                        .toList();
+                for (Path jar : jars) {
+                    Path abs = jar.toAbsolutePath().normalize();
+                    if (!abs.startsWith(libRoot)) {
+                        throw new IOException("Library jar escapes lib/: " + jar);
+                    }
+                    assertNestedJarSigned(abs);
+                }
+            }
+        }
+    }
+
+    /**
+     * Require jarsigner signature blocks on a nested dependency JAR before classpath use.
+     * Complements outer .ppk entry signing: the nested archive must also be signed so
+     * URLClassLoader verification can enforce integrity of classes loaded from it.
+     */
+    static void assertNestedJarSigned(Path jarPath) throws IOException {
+        try (java.util.jar.JarFile jar = new java.util.jar.JarFile(jarPath.toFile(), true)) {
+            boolean isSigned = false;
+            try (var entryStream = jar.stream()) {
+                isSigned = entryStream.anyMatch(e -> {
+                    String n = e.getName();
+                    return n.startsWith("META-INF/") &&
+                            (n.endsWith(".SF") || n.endsWith(".RSA") || n.endsWith(".DSA") || n.endsWith(".EC"));
+                });
+            }
+            if (!isSigned) {
+                throw new SecurityException("Unsigned nested library JAR blocked: " + jarPath
+                        + " (sign lib/*.jar with jarsigner, or omit unsigned jars from the package)");
+            }
+            // Force digest verification and require CodeSigners on .class entries
+            var entries = jar.entries();
+            int count = 0;
+            while (entries.hasMoreElements()) {
+                java.util.jar.JarEntry e = entries.nextElement();
+                if (e.isDirectory()) continue;
+                if (++count > 50_000) {
+                    throw new SecurityException("Nested library JAR entry count exceeds limit: " + jarPath);
+                }
+                String name = e.getName();
+                if (name.startsWith("META-INF/")) continue;
+                try (java.io.InputStream in = jar.getInputStream(e)) {
+                    in.transferTo(java.io.OutputStream.nullOutputStream());
+                }
+                if (name.endsWith(".class")) {
+                    java.security.CodeSigner[] signers = e.getCodeSigners();
+                    if (signers == null || signers.length == 0) {
+                        throw new SecurityException("Nested library JAR has unsigned class entry: "
+                                + name + " in " + jarPath);
+                    }
+                }
+            }
+        } catch (SecurityException se) {
+            throw se;
+        } catch (IOException ioe) {
+            throw ioe;
+        } catch (Exception e) {
+            throw new IOException("Failed to verify nested library JAR: " + jarPath + " (" + e.getMessage() + ")", e);
         }
     }
 

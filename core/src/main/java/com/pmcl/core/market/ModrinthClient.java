@@ -394,7 +394,63 @@ public final class ModrinthClient implements ModMarketClient {
      * @param loader      加载器（如 "fabric"），可为空
      * @return 最新版本 JsonObject（含 id, version_number, files），无匹配返回 null
      */
+    /**
+     * 获取项目元数据（含 game_versions / loaders 等）。
+     *
+     * @param projectId 项目 slug 或 id
+     * @return 项目 JSON；不存在时返回 null
+     */
+    public JsonObject getProject(String projectId) {
+        if (projectId == null || projectId.isBlank()) return null;
+        Request req = new Request.Builder()
+                .url(BASE + "/project/" + projectId)
+                .header("User-Agent", "PMCL/1.0")
+                .get()
+                .build();
+        Exception last = null;
+        for (int attempt = 0; attempt <= RETRY; attempt++) {
+            long retryAfterMs = -1;
+            try (Response resp = http.newCall(req).execute()) {
+                String body = resp.body() != null ? resp.body().string() : "{}";
+                if (resp.code() == 404) return null;
+                if (!resp.isSuccessful()) {
+                    if (resp.code() == 429) {
+                        retryAfterMs = parseRetryAfterMs(resp.header("Retry-After"));
+                    }
+                    throw new IOException("HTTP " + resp.code() + ": " + body);
+                }
+                return JsonParser.parseString(body).getAsJsonObject();
+            } catch (Exception e) {
+                last = e;
+                if (attempt < RETRY) {
+                    long sleepMs = retryAfterMs > 0 ? retryAfterMs : RETRY_BASE_MS * (1L << attempt);
+                    try { Thread.sleep(sleepMs); }
+                    catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }
+                }
+            }
+        }
+        String msg = last != null ? last.getMessage() : "未知错误";
+        throw new RuntimeException("Modrinth 获取项目失败：" + friendlyError(msg), last);
+    }
+
     public JsonObject getLatestVersion(String projectId, String gameVersion, String loader) {
+        List<JsonObject> versions = listVersions(projectId, gameVersion, loader);
+        if (versions.isEmpty()) return null;
+        // 过滤 release 类型优先（除非只有 beta/alpha）
+        JsonObject latest = null;
+        for (JsonObject v : versions) {
+            String vt = v.has("version_type") ? v.get("version_type").getAsString() : "release";
+            if ("release".equals(vt)) return v;
+            if (latest == null) latest = v;
+        }
+        return latest != null ? latest : versions.get(0);
+    }
+
+    /**
+     * 列出项目在指定游戏版本 / 加载器下的全部版本（按 Modrinth 返回顺序，通常新→旧）。
+     * 项目不存在时返回空列表。
+     */
+    public List<JsonObject> listVersions(String projectId, String gameVersion, String loader) {
         StringBuilder url = new StringBuilder(BASE + "/project/").append(projectId).append("/version");
         List<String> params = new ArrayList<>();
         if (gameVersion != null && !gameVersion.isEmpty()) {
@@ -416,6 +472,7 @@ public final class ModrinthClient implements ModMarketClient {
             long retryAfterMs = -1;
             try (Response resp = http.newCall(req).execute()) {
                 String body = resp.body() != null ? resp.body().string() : "[]";
+                if (resp.code() == 404) return Collections.emptyList();
                 if (!resp.isSuccessful()) {
                     if (resp.code() == 429) {
                         retryAfterMs = parseRetryAfterMs(resp.header("Retry-After"));
@@ -423,16 +480,11 @@ public final class ModrinthClient implements ModMarketClient {
                     throw new IOException("HTTP " + resp.code() + ": " + body);
                 }
                 JsonArray versions = JsonParser.parseString(body).getAsJsonArray();
-                if (versions.isEmpty()) return null;
-                // 过滤 release 类型优先（除非只有 beta/alpha）
-                JsonObject latest = null;
+                List<JsonObject> out = new ArrayList<>();
                 for (JsonElement e : versions) {
-                    JsonObject v = e.getAsJsonObject();
-                    String vt = v.has("version_type") ? v.get("version_type").getAsString() : "release";
-                    if ("release".equals(vt)) { latest = v; break; }
-                    if (latest == null) latest = v;
+                    if (e != null && e.isJsonObject()) out.add(e.getAsJsonObject());
                 }
-                return latest != null ? latest : versions.get(0).getAsJsonObject();
+                return out;
             } catch (Exception e) {
                 last = e;
                 if (attempt < RETRY) {

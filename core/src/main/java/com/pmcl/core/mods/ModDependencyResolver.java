@@ -1,6 +1,7 @@
 package com.pmcl.core.mods;
 
 import com.pmcl.core.LauncherConfig;
+import com.pmcl.core.instance.InstanceManager;
 import com.pmcl.core.market.ModFile;
 import com.pmcl.core.market.ModMarketManager;
 import com.pmcl.core.market.ModProject;
@@ -359,14 +360,26 @@ public final class ModDependencyResolver {
 
     /**
      * 解析 mods 目录（与 ModMarketManager.installMod 逻辑一致）。
+     * H21: versionId / gameVersion path traversal 防护。
      */
     private Path resolveModsDir(String versionId, String gameVersion) {
         if (preferences.isVersionIsolation() && versionId != null && !versionId.isEmpty()) {
-            return config.getWorkDir().resolve("instances").resolve(versionId).resolve("mods");
+            InstanceManager.requireSafeInstanceId(versionId);
+            Path instancesRoot = config.getWorkDir().resolve("instances").toAbsolutePath().normalize();
+            Path instanceDir = instancesRoot.resolve(versionId).normalize();
+            if (!instanceDir.startsWith(instancesRoot)) {
+                throw new IllegalArgumentException("versionId path escapes instances dir: " + versionId);
+            }
+            return instanceDir.resolve("mods");
         }
         Path modsDir = config.getWorkDir().resolve("mods");
         if (gameVersion != null && !gameVersion.isEmpty()) {
-            modsDir = modsDir.resolve(gameVersion);
+            InstanceManager.requireSafeInstanceId(gameVersion);
+            Path modsRoot = modsDir.toAbsolutePath().normalize();
+            modsDir = modsRoot.resolve(gameVersion).normalize();
+            if (!modsDir.startsWith(modsRoot)) {
+                throw new IllegalArgumentException("gameVersion path escapes mods dir: " + gameVersion);
+            }
         }
         return modsDir;
     }

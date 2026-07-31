@@ -79,18 +79,23 @@ private val coroutinesErrorMachineryPreloaded: Boolean = run {
     true
 }
 
+/** 标题栏搜索框右侧点缀文案 */
+private const val TITLE_BAR_MOTTO = "「あのまばゆい光景は、私が決して忘れることのない唯一のものです。」"
+
 /**
  * 桌面端入口。
  *
  * 运行方式：./gradlew :ui:run
  */
 fun main() = application {
-    // JavaFX WebView 渲染管线优化（必须在 JavaFX toolkit 初始化前设置）：
+    // JavaFX WebView / HMCL 嵌入（必须在 JavaFX toolkit 初始化前设置）：
+    // - javafx.macosx.embed=true：Glass 以嵌入模式运行（JFXPanel 进 Compose SwingPanel）
     // - prism.order=es2：强制 OpenGL ES2 硬件加速管线（默认在 JFXPanel 嵌入场景可能回退到 sw 软件渲染，
     //   导致 WebView 滚动/重绘 FPS 极低，CPU 占用高）
     // - prism.native=true：优先使用 native GL 实现
     // - prism.verbose=true：启动时输出实际渲染管线到 stderr，便于诊断
     // - javafx.animation.fullspeed=false：保持 vsync 同步，避免撕裂但保证流畅
+    System.setProperty("javafx.macosx.embed", "true")
     System.setProperty("prism.order", "es2")
     System.setProperty("prism.native", "true")
     System.setProperty("prism.verbose", "true")
@@ -538,6 +543,17 @@ private fun FrameWindowScope.BorderlessTitleBar(
                 focusRequester = searchFocusRequester,
                 compact = true
             )
+            Text(
+                TITLE_BAR_MOTTO,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                modifier = Modifier
+                    .padding(start = 12.dp)
+                    .fillMaxHeight()
+                    .wrapContentHeight(Alignment.CenterVertically)
+                    .then(windowDragModifier(isDragging))
+            )
             Spacer(Modifier.weight(1f).fillMaxHeight().then(windowDragModifier(isDragging)))
             // iOS 伴随 App 配对按钮
             IconButton(onClick = onOpenCompanion, modifier = Modifier.size(32.dp)) {
@@ -609,6 +625,13 @@ private fun SlimSearchBar(
                     vm = vm,
                     focusRequester = searchFocusRequester,
                     compact = true
+                )
+                Text(
+                    TITLE_BAR_MOTTO,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    modifier = Modifier.padding(start = 12.dp)
                 )
                 Spacer(Modifier.weight(1f))
                 IconButton(onClick = onOpenCompanion, modifier = Modifier.size(32.dp)) {

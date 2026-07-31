@@ -708,7 +708,7 @@ private fun SkinImage(url: String, sizePx: Int) {
         withContext(Dispatchers.IO) {
             try {
                 if (url.isNullOrBlank()) return@withContext
-                val bytes = com.pmcl.ui.util.SafeUrlFetcher.fetchBytes(url, allowPrivateLan = true)
+                val bytes = com.pmcl.ui.util.SafeUrlFetcher.fetchBytes(url, allowPrivateLan = false)
                 val bmp = decodeSampledBitmap(bytes, 128) ?: throw IllegalStateException("decode failed")
                 skinImageCache.put(url, bmp)
                 image = bmp

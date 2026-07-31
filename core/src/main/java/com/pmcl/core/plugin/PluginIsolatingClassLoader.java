@@ -3,49 +3,38 @@ package com.pmcl.core.plugin;
 import java.io.IOException;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.util.Objects;
 
 /**
  * 插件隔离 ClassLoader。
  * <p>
- * 在标准 URLClassLoader 之上增加包名白名单过滤，阻止插件直接加载 PMCL 内部类
- * （如 AuthService、Preferences、LaunchManager 的私有实现），强制插件通过
- * {@code PluginContext.getService} 获取受控的服务引用。
+ * 父 ClassLoader 固定为 {@link ClassLoader#getPlatformClassLoader()}，
+ * <b>不</b>把应用 ClassLoader 设为 parent，从而阻止
+ * {@code getClass().getClassLoader().getParent().loadClass("com.pmcl.core...")}
+ * 绕过本加载器的包过滤（C1）。
  * <p>
- * 允许加载的包：
- * <ul>
- *   <li>{@code com.pmcl.plugin.*} — 插件 API 公共接口（必须可访问）</li>
- *   <li>{@code androidx.compose.*} — Compose 运行时（插件 UI 页面需要）</li>
- *   <li>{@code kotlin.*} / {@code kotlinx.*} — Kotlin 标准库与协程</li>
- *   <li>{@code java.*} / {@code javax.*} — JDK 公开 API（不含 sun.* / jdk.internal）</li>
- *   <li>插件自身的包（由 URLClassLoader 父类处理）</li>
- *   <li>第三方依赖包（org.jetbrains.annotations / org.intellij / com.google.gson 等公共 API）</li>
- * </ul>
+ * 允许的宿主类（{@code com.pmcl.plugin.*}、Compose/Kotlin/Gson 等）通过私有
+ * {@code hostClassLoader} 桥接加载；该引用不可经 {@link #getParent()} 取得。
  * <p>
- * 被阻止的包：
- * <ul>
- *   <li>{@code com.pmcl.core.auth.*} — 含 token / 账号凭据</li>
- *   <li>{@code com.pmcl.core.preferences.*} — 含代理密码等配置</li>
- *   <li>{@code com.pmcl.core.launch.*} — 含启动命令构造</li>
- *   <li>{@code com.pmcl.core.update.*} — 含自更新逻辑</li>
- *   <li>其他 {@code com.pmcl.core.*} 子包——必须通过 getService 获取</li>
- * </ul>
- * <p>
- * 例外：插件通过 getService 获取的服务实例本身可以被反射访问，这是受控的——
- * 我们在 getService 层做权限校验，而非依赖 ClassLoader 完全隔离。
- * <p>
- * 安全说明：这是深度防御层，不是进程级沙箱。恶意插件仍可能通过
- * Thread context ClassLoader、JNI 或 Runtime.exec 绕过。敏感能力必须以 typed API
- * + 权限声明为准；本 ClassLoader 主要阻止无意直连 com.pmcl.core.*。
+ * 安全说明：这是深度防御，不是进程级沙箱。反射读取本类私有字段、JNI 等仍可能绕过；
+ * {@code ProcessBuilder}/{@code Process*} 经 {@link #loadClass} 硬禁；敏感能力仍应以 typed API + 权限为准。
+ * {@code Runtime} 对 HMCL 等插件为必需，故允许从 platform 加载。
  */
 public final class PluginIsolatingClassLoader extends URLClassLoader {
 
-    /** 允许插件直接加载的 PMCL 包前缀。 */
+    /** 允许经宿主 ClassLoader 加载的 PMCL 包前缀。 */
     private static final String[] ALLOWED_PMCL_PREFIXES = {
-        "com.pmcl.plugin.",          // 插件 API 公共接口
+        "com.pmcl.plugin.",
     };
 
-    /** 允许插件直接加载的第三方包前缀（刻意排除 sun.* 与 jdk.internal，阻断 Unsafe 捷径）。 */
-    private static final String[] ALLOWED_THIRD_PARTY_PREFIXES = {
+    /**
+     * 允许经宿主 ClassLoader 加载的第三方前缀。
+     * 不含 {@code java.*}/{@code javax.*}——那些走 platform parent。
+     * <p>
+     * {@code javafx.*} 必须走宿主：插件自带 JavaFX 时，QuantumToolkit 会经插件 CL
+     * 解析 {@code java.lang.Runtime}，被安全策略拦截并表现为 “No toolkit found”。
+     */
+    private static final String[] ALLOWED_HOST_THIRD_PARTY_PREFIXES = {
         "androidx.compose.",
         "kotlin.",
         "kotlinx.",
@@ -53,8 +42,7 @@ public final class PluginIsolatingClassLoader extends URLClassLoader {
         "org.intellij.lang.annotations.",
         "com.google.gson.",
         "org.slf4j.",
-        "java.",
-        "javax.",
+        "javafx.",
     };
 
     /** 额外硬禁：即使双亲委派也不允许插件主动 loadClass 这些内部 API。 */
@@ -66,7 +54,23 @@ public final class PluginIsolatingClassLoader extends URLClassLoader {
         "com.sun.net.ssl.internal.",
     };
 
-    /** 完全禁止的 PMCL core 包前缀（即使通过反射也不允许）。 */
+    /**
+     * Exact JDK classes that enable process spawn / host escape.
+     * Matched before platform-parent delegation so {@code Class.forName} cannot load them.
+     * <p>
+     * Note: {@code java.lang.Runtime} is intentionally allowed — HMCL (and many plugins)
+     * need it for memory/CPU probes and download workers. {@code Runtime.exec} remains a
+     * residual risk for signed plugins; prefer blocking {@code ProcessBuilder} instead.
+     */
+    private static final String[] FORBIDDEN_JDK_EXACT = {
+        "java.lang.ProcessBuilder",
+        "java.lang.Process",
+        "java.lang.ProcessHandle",
+        "java.lang.ProcessImpl",
+        "java.lang.UNIXProcess",
+    };
+
+    /** 完全禁止的 PMCL core 包前缀。 */
     private static final String[] FORBIDDEN_PMCL_PREFIXES = {
         "com.pmcl.core.auth.",
         "com.pmcl.core.preferences.",
@@ -74,68 +78,124 @@ public final class PluginIsolatingClassLoader extends URLClassLoader {
     };
 
     private final String pluginId;
+    /** 应用 ClassLoader；仅用于白名单包，不作为 {@link #getParent()}。 */
+    private final ClassLoader hostClassLoader;
 
-    public PluginIsolatingClassLoader(String pluginId, URL[] urls, ClassLoader parent) {
-        super(urls, parent);
-        this.pluginId = pluginId;
+    public PluginIsolatingClassLoader(String pluginId, URL[] urls, ClassLoader host) {
+        super(urls, ClassLoader.getPlatformClassLoader());
+        this.pluginId = Objects.requireNonNull(pluginId, "pluginId");
+        // Wrap so reflected access to this field still cannot load com.pmcl.core.*
+        this.hostClassLoader = new FilteringHostClassLoader(Objects.requireNonNull(host, "host"));
     }
 
     @Override
     protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
-        // 0. 阻断 JDK 内部 API（Unsafe 等）
-        if (isForbiddenJdk(name)) {
-            throw new SecurityException("[Plugin:" + pluginId
-                    + "] 加载 JDK 内部类被禁止: " + name);
-        }
+        synchronized (getClassLoadingLock(name)) {
+            Class<?> loaded = findLoadedClass(name);
+            if (loaded != null) {
+                if (resolve) resolveClass(loaded);
+                return loaded;
+            }
 
-        // 1. 检查是否为禁止的敏感类
-        if (isForbidden(name)) {
-            throw new SecurityException("[Plugin:" + pluginId
-                    + "] 直接加载 PMCL 内部类被禁止: " + name
-                    + "（请通过 PluginContext.getService 获取受控引用）");
-        }
+            if (isForbiddenJdk(name)) {
+                throw new SecurityException("[Plugin:" + pluginId
+                        + "] 加载 JDK 内部类被禁止: " + name);
+            }
 
-        // 2. 允许的类走标准双亲委派
-        if (isAllowed(name)) {
-            return super.loadClass(name, resolve);
-        }
+            // Hard-ban sensitive host packages even if a plugin ships a same-named class.
+            if (isForbiddenPmcl(name)) {
+                throw new SecurityException("[Plugin:" + pluginId
+                        + "] 直接加载 PMCL 内部类被禁止: " + name
+                        + "（请通过 PluginContext.getService 获取受控引用）");
+            }
 
-        // 3. 其他 com.pmcl.* 类阻止（强制走 getService）
-        if (name.startsWith("com.pmcl.")) {
-            throw new SecurityException("[Plugin:" + pluginId
-                    + "] 直接加载 PMCL 内部类被禁止: " + name
-                    + "（请通过 PluginContext.getService 获取受控引用）");
-        }
+            Class<?> c;
+            if (loadFromHost(name)) {
+                // 宿主桥接：不经过 getParent()，避免插件沿 parent 链拿到 App CL
+                c = hostClassLoader.loadClass(name);
+            } else {
+                try {
+                    // Plugin-owned code may live under com.pmcl.* (e.g. com.pmcl.hmcl.*).
+                    // Only block falling through to the host/platform for non-API PMCL names.
+                    c = findClass(name);
+                } catch (ClassNotFoundException localMiss) {
+                    if (isBlockedPmcl(name)) {
+                        throw new SecurityException("[Plugin:" + pluginId
+                                + "] 直接加载 PMCL 内部类被禁止: " + name
+                                + "（请通过 PluginContext.getService 获取受控引用）");
+                    }
+                    // java.* / javax.* 等：仅委派 platform parent（无法加载 com.pmcl.core.*）
+                    try {
+                        c = getParent().loadClass(name);
+                    } catch (ClassNotFoundException parentMiss) {
+                        throw localMiss;
+                    }
+                }
+            }
 
-        // 4. 非 PMCL 类（插件自身 / 第三方依赖）正常加载
-        return super.loadClass(name, resolve);
+            if (resolve) resolveClass(c);
+            return c;
+        }
     }
 
-    /** 判断类是否为禁止的敏感类（即使整体阻止 com.pmcl.* 也单独标记，便于日志清晰）。 */
-    private boolean isForbidden(String name) {
+    private boolean loadFromHost(String name) {
+        for (String prefix : ALLOWED_PMCL_PREFIXES) {
+            if (name.startsWith(prefix)) return true;
+        }
+        for (String prefix : ALLOWED_HOST_THIRD_PARTY_PREFIXES) {
+            if (name.startsWith(prefix)) return true;
+        }
+        // JavaFX implementation packages live under com.sun.* — bridge from host
+        // so natives / toolkit share the same ClassLoader as WikiWebView.
+        return isJavaFxImplementation(name);
+    }
+
+    private boolean isForbiddenPmcl(String name) {
         for (String prefix : FORBIDDEN_PMCL_PREFIXES) {
             if (name.startsWith(prefix)) return true;
         }
         return false;
     }
 
+    /** 非 API 的 com.pmcl.*：禁止从宿主加载；插件自身 classpath 上的同名前缀仍可通过 findClass 加载。 */
+    private boolean isBlockedPmcl(String name) {
+        if (!name.startsWith("com.pmcl.")) return false;
+        for (String prefix : ALLOWED_PMCL_PREFIXES) {
+            if (name.startsWith(prefix)) return false;
+        }
+        return true;
+    }
+
     private boolean isForbiddenJdk(String name) {
+        for (String exact : FORBIDDEN_JDK_EXACT) {
+            if (name.equals(exact)) return true;
+        }
+        // Nested / impl types under Process* (ProcessHandle$Info, ProcessImpl, …)
+        if (name.startsWith("java.lang.Process")) {
+            return true;
+        }
         for (String prefix : FORBIDDEN_JDK_PREFIXES) {
             if (name.startsWith(prefix)) return true;
         }
-        // Block sun.* / jdk.* / com.sun.* internal surfaces (not in third-party allowlist).
-        return name.startsWith("sun.") || name.startsWith("jdk.") || name.startsWith("com.sun.");
+        // JavaFX implementation types (host-bridged) and JDK management APIs
+        // (e.g. com.sun.management.OperatingSystemMXBean used by HMCL SystemInfo).
+        if (isJavaFxImplementation(name) || name.startsWith("com.sun.management.")) {
+            return false;
+        }
+        // Ban remaining sun.*/jdk.internal.*/com.sun.* internals; do not blanket-ban
+        // all com.sun.* — that breaks legitimate JDK APIs HMCL needs at startup.
+        return name.startsWith("sun.")
+                || name.startsWith("jdk.internal.")
+                || name.startsWith("jdk.vm.");
     }
 
-    /** 判断类是否为允许直接加载的类。 */
-    private boolean isAllowed(String name) {
-        for (String prefix : ALLOWED_PMCL_PREFIXES) {
-            if (name.startsWith(prefix)) return true;
-        }
-        for (String prefix : ALLOWED_THIRD_PARTY_PREFIXES) {
-            if (name.startsWith(prefix)) return true;
-        }
-        return false;
+    private static boolean isJavaFxImplementation(String name) {
+        return name.startsWith("com.sun.javafx.")
+                || name.startsWith("com.sun.glass.")
+                || name.startsWith("com.sun.prism.")
+                || name.startsWith("com.sun.scenario.")
+                || name.startsWith("com.sun.openpisces.")
+                || name.equals("com.sun.util.PropertyHelper");
     }
 
     @Override

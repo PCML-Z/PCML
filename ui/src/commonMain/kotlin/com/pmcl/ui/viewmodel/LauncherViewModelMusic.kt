@@ -10,6 +10,7 @@ import com.pmcl.music.source.LocalAudioSource
 import com.pmcl.ui.page.MusicTrack
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.awt.Desktop
@@ -117,7 +118,8 @@ fun LauncherViewModel.playMusicAt(index: Int) {
     val track = list[index]
     _musicCurrentIndex.value = index
     _musicLyrics.value = emptyList()
-    scope.launch {
+    musicPlayJob?.cancel()
+    musicPlayJob = scope.launch {
         _musicPlaybackState.value = PlaybackState.LOADING
         try {
             val info = withContext(Dispatchers.IO) { audioResolver.resolve(track.sourceUrl) }
@@ -129,11 +131,11 @@ fun LauncherViewModel.playMusicAt(index: Int) {
                         info.audioUrl,
                         info.headers
                     )
-                } catch (e: Throwable) {
-                    System.err.println("[Music] cache miss, stream: ${e.message}")
+                } catch (_: Throwable) {
                     info.audioUrl
                 }
             }
+            if (!isActive) return@launch
             val headers = if (playUrl.startsWith("http")) info.headers else emptyMap()
             withContext(Dispatchers.IO) {
                 musicPlayer.play(playUrl, headers, info.durationMs.coerceAtLeast(track.durationMs))
@@ -174,6 +176,8 @@ fun LauncherViewModel.pauseMusic() { musicPlayer.pause() }
 fun LauncherViewModel.resumeMusic() { musicPlayer.resume() }
 
 fun LauncherViewModel.stopMusic() {
+    musicPlayJob?.cancel()
+    musicPlayJob = null
     musicPlayer.stop()
     _musicCurrentMs.value = 0
 }
@@ -375,6 +379,7 @@ fun LauncherViewModel.switchMusicPlaylist(id: String) {
     _musicLyrics.value = emptyList()
     _musicActivePlaylistId.value = id
     persistMusicPrefs()
+    val gen = musicPlaylistLoadGen.incrementAndGet()
     scope.launch {
         try {
             val list = withContext(Dispatchers.IO) {
@@ -385,8 +390,11 @@ fun LauncherViewModel.switchMusicPlaylist(id: String) {
                     gson.fromJson<List<MusicTrack>>(f.readText(), type) ?: emptyList()
                 }
             }
+            // H46: 丢弃过期加载结果
+            if (gen != musicPlaylistLoadGen.get() || id != _musicActivePlaylistId.value) return@launch
             _musicPlaylist.value = list
         } catch (t: Throwable) {
+            if (gen != musicPlaylistLoadGen.get()) return@launch
             _musicPlaylist.value = emptyList()
             System.err.println("[Music] load playlist $id: ${t.message}")
         }

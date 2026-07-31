@@ -68,6 +68,8 @@ object HmclEmbedder {
             panelRef.get() ?: run {
                 log("Creating JFXPanel (bootstraps JavaFX)...")
                 statusRef.set("Creating JavaFX panel...")
+                // Must be set before toolkit init when embedding into Swing/Compose.
+                System.setProperty("javafx.macosx.embed", "true")
                 val panel = JFXPanel()
                 panelRef.set(panel)
                 log("JFXPanel created, queuing HMCL init on JavaFX thread")
@@ -197,8 +199,63 @@ object HmclEmbedder {
             Thread.currentThread().uncaughtExceptionHandler = null
         }
 
+        // Launcher.start queues Controllers.initialize via Platform.runLater.
+        // Poll briefly so a silent CrashReporter failure does not leave the UI
+        // stuck on "Waiting for HMCL scene to build..." forever.
         statusRef.set("Waiting for HMCL scene to build...")
         log("Waiting for HMCL scene to build (stage.show listener will fire when ready)...")
+        Platform.runLater {
+            scheduleSceneWatchdog(panel, stage, 0)
+        }
+    }
+
+    /**
+     * If Controllers never builds a scene (config init / SecurityException swallowed
+     * by HMCL CrashReporter), surface the failure in the status chip.
+     */
+    private fun scheduleSceneWatchdog(panel: JFXPanel, stage: Stage, attempt: Int) {
+        if (sceneStolen || isEmbedded()) return
+        if (attempt >= 40) { // ~10s at 250ms
+            if (!sceneStolen) {
+                val detail = try {
+                    val controllers = Class.forName("org.jackhuang.hmcl.ui.Controllers")
+                    val scene = controllers.getMethod("getScene").invoke(null)
+                    val st = controllers.getMethod("getStage").invoke(null)
+                    "scene=$scene stage=$st showing=${stage.isShowing}"
+                } catch (e: Throwable) {
+                    e.message ?: e.toString()
+                }
+                error("HMCL scene not ready after timeout ($detail)")
+                statusRef.set("Error: HMCL UI failed to start — check console / ~/.hmcl logs")
+            }
+            return
+        }
+        Platform.runLater {
+            if (sceneStolen) return@runLater
+            try {
+                val controllers = Class.forName("org.jackhuang.hmcl.ui.Controllers")
+                val scene = controllers.getMethod("getScene").invoke(null) as? Scene
+                if (scene != null && !sceneStolen) {
+                    sceneStolen = true
+                    stage.scene = null
+                    stage.setOnCloseRequest { }
+                    panel.setScene(scene)
+                    statusRef.set("HMCL UI embedded successfully")
+                    log("Watchdog attached scene to JFXPanel")
+                    return@runLater
+                }
+            } catch (_: Throwable) {
+                // Controllers not ready yet
+            }
+            Thread({
+                try {
+                    Thread.sleep(250)
+                } catch (_: InterruptedException) {
+                    return@Thread
+                }
+                Platform.runLater { scheduleSceneWatchdog(panel, stage, attempt + 1) }
+            }, "hmcl-scene-watchdog").apply { isDaemon = true }.start()
+        }
     }
 
     /** Current initialization status, for display in the Compose UI. */

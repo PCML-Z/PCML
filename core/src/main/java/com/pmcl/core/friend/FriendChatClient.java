@@ -1,18 +1,15 @@
 package com.pmcl.core.friend;
 
-import java.io.*;
+import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
-import java.nio.charset.StandardCharsets;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * TCP 聊天客户端：连接到好友的虚拟 IP + 端口发送消息。
- * <p>
- * 使用写线程 + 阻塞队列实现异步发送，避免阻塞 UI 线程。
+ * TCP 聊天客户端：连接后先完成 {@link FriendSecureChannel} 握手，再收发 AES-GCM 加密行。
  */
 public final class FriendChatClient implements AutoCloseable {
 
@@ -21,11 +18,12 @@ public final class FriendChatClient implements AutoCloseable {
     private final String myIdentity;
     private final String myName;
     private int myChatPort;
-    /** H9: 身份密钥，用于计算握手 HMAC 签名 */
-    private String authSecret;
+
+    private volatile FriendSecureChannel.LocalIdentity localKeys;
+    private volatile FriendSecureChannel.PeerStaticKeys peerKeys;
 
     private volatile Socket socket;
-    private volatile PrintWriter writer;
+    private volatile FriendSecureChannel channel;
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicBoolean connecting = new AtomicBoolean(false);
     private Thread writeThread;
@@ -33,12 +31,7 @@ public final class FriendChatClient implements AutoCloseable {
 
     private final BlockingQueue<String> sendQueue = new LinkedBlockingQueue<>(1000);
 
-    // H12: callback 加 volatile，使 setCallback(null) 后异步线程立即可见，避免回调污染新 store
     private volatile MessageCallback callback;
-
-    // ---------------------------------------------------------------------------
-    // 公共 API
-    // ---------------------------------------------------------------------------
 
     public interface MessageCallback {
         void onMessageReceived(String jsonLine);
@@ -58,36 +51,36 @@ public final class FriendChatClient implements AutoCloseable {
         this.callback = callback;
     }
 
-    /** 设置我的聊天服务器端口（用于在好友请求/应答中携带） */
     public void setMyChatPort(int port) {
         this.myChatPort = port;
     }
 
-    /** H9: 设置身份密钥，用于计算握手 HMAC 签名 */
-    public void setAuthSecret(String secret) {
-        this.authSecret = secret;
+    /** 设置本机密钥与对端钉扎公钥（对端可为空——好友请求 introduce）。 */
+    public void setCrypto(FriendSecureChannel.LocalIdentity local,
+                          FriendSecureChannel.PeerStaticKeys peer) {
+        this.localKeys = local;
+        this.peerKeys = peer;
     }
+
+    /** @deprecated 已由安全信道替代；保留空实现以免旧调用崩溃 */
+    @Deprecated
+    public void setAuthSecret(String secret) { /* no-op */ }
 
     public boolean isConnected() {
-        return running.get() && socket != null && socket.isConnected() && !socket.isClosed();
+        return running.get() && socket != null && socket.isConnected() && !socket.isClosed()
+                && channel != null;
     }
 
-    /** 返回远程主机地址 */
-    public String getRemoteHost() {
-        return host;
-    }
+    public String getRemoteHost() { return host; }
+    public int getRemotePort() { return port; }
 
-    /** 返回远程主机端口 */
-    public int getRemotePort() {
-        return port;
-    }
+    public FriendSecureChannel getChannel() { return channel; }
 
     @Override
     public String toString() {
         return host + ":" + port;
     }
 
-    /** 异步连接 */
     public void connectAsync() {
         if (!connecting.compareAndSet(false, true)) return;
         if (running.get()) {
@@ -95,14 +88,12 @@ public final class FriendChatClient implements AutoCloseable {
             return;
         }
 
-        // H4: connect 线程必须 setDaemon(true)，否则会阻止 JVM 退出
         Thread t = new Thread(() -> {
             try {
                 connect();
                 connecting.set(false);
             } catch (Exception e) {
                 connecting.set(false);
-                // H5: connect 异常时 running 必须重置为 false，否则对象卡死无法重连
                 running.set(false);
                 if (callback != null) {
                     callback.onConnectFailed(e.getMessage());
@@ -113,84 +104,43 @@ public final class FriendChatClient implements AutoCloseable {
         t.start();
     }
 
-    /** 同步连接（阻塞） */
     public void connect() throws IOException {
+        if (localKeys == null) {
+            throw new IOException("missing local crypto keys");
+        }
         Socket s = new Socket();
         try {
             s.connect(new InetSocketAddress(host, port), 5000);
             socket = s;
-            writer = new PrintWriter(new OutputStreamWriter(s.getOutputStream(), StandardCharsets.UTF_8), true);
+            channel = FriendSecureChannel.clientHandshake(s, localKeys, peerKeys);
             running.set(true);
 
-            // S3 安全修复：连接建立后必须立即发送 auth 握手，否则服务器会在 5 秒后关闭连接
-            sendAuthHandshake();
-
-            // 启动读取线程
             readThread = new Thread(this::readLoop, "FriendChat-Read-" + host + ":" + port);
             readThread.setDaemon(true);
             readThread.start();
 
-            // 启动写入线程
             writeThread = new Thread(this::writeLoop, "FriendChat-Write-" + host + ":" + port);
             writeThread.setDaemon(true);
             writeThread.start();
 
             if (callback != null) callback.onConnected();
         } catch (IOException e) {
-            // H5: 异常时清理已建立的 socket，并重置 running 状态
             running.set(false);
             try { s.close(); } catch (IOException ignored) {}
+            if (channel != null) {
+                try { channel.close(); } catch (Exception ignored) {}
+                channel = null;
+            }
             throw e;
         }
     }
 
-    /**
-     * 发送 auth 握手：第一条消息必须是
-     * {"type":"auth","identity":"XXX-...-XXX","ts":<timestamp>,"sig":"<HMAC>"}。
-     * 服务器据此校验本客户端是否为已知好友，且签名防冒充。
-     * H9: 加入时间戳和 HMAC-SHA256 签名，防止 identity 被冒充。
-     */
-    private void sendAuthHandshake() {
-        if (myIdentity == null || myIdentity.isBlank()) return;
-        long ts = System.currentTimeMillis();
-        com.google.gson.JsonObject auth = new com.google.gson.JsonObject();
-        auth.addProperty("type", "auth");
-        auth.addProperty("identity", myIdentity);
-        auth.addProperty("ts", ts);
-        // H9: 计算 HMAC 签名（如果有 secret）
-        String sig = computeAuthSignature(myIdentity, ts);
-        auth.addProperty("sig", sig != null ? sig : "");
-        // 直接写入，不进队列：握手必须在所有其他消息之前发送
-        writer.write(auth.toString() + "\n");
-        writer.flush();
-    }
-
-    /** H9: 计算 HMAC-SHA256(secret, identity | timestamp) */
-    private String computeAuthSignature(String identity, long timestamp) {
-        String secret = authSecret;
-        if (secret == null || secret.isEmpty()) return null;
-        try {
-            javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
-            byte[] secretBytes = secret.getBytes(StandardCharsets.UTF_8);
-            mac.init(new javax.crypto.spec.SecretKeySpec(secretBytes, "HmacSHA256"));
-            String payload = identity + "|" + timestamp;
-            byte[] sig = mac.doFinal(payload.getBytes(StandardCharsets.UTF_8));
-            StringBuilder sb = new StringBuilder(sig.length * 2);
-            for (byte b : sig) sb.append(String.format("%02x", b & 0xff));
-            return sb.toString();
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    /** 发送消息（非阻塞，入队） */
     public void send(String jsonLine) {
         if (!sendQueue.offer(jsonLine)) {
-            System.err.println("[FriendChatClient] 发送队列已满，丢弃消息: " + jsonLine);
+            System.err.println("[FriendChatClient] 发送队列已满，丢弃消息");
         }
     }
 
-    /** 发送聊天文本 */
     public void sendText(String text) {
         FriendProtocol.ChatMessage msg = new FriendProtocol.ChatMessage();
         msg.id = java.util.UUID.randomUUID().toString();
@@ -201,38 +151,42 @@ public final class FriendChatClient implements AutoCloseable {
         send(msg.toJson());
     }
 
-    /** 发送好友请求 */
     public void sendFriendRequest() {
         sendFriendRequest(null);
     }
 
-    /** 发送好友请求（携带共享握手密钥） */
-    public void sendFriendRequest(String authSecret) {
+    /** authSecret 参数已忽略（禁止明文交换）；仅发送身份与端口。 */
+    public void sendFriendRequest(String ignoredAuthSecret) {
         FriendProtocol.FriendRequest req = new FriendProtocol.FriendRequest();
         req.identity = myIdentity;
         req.name = myName;
         req.port = myChatPort;
-        req.authSecret = authSecret;
+        req.authSecret = null;
+        if (localKeys != null) {
+            req.ed25519Pub = FriendCrypto.b64(localKeys.edPublic());
+            req.x25519Pub = FriendCrypto.b64(localKeys.xPublic());
+        }
         send(req.toJson());
     }
 
-    /** 发送好友请求应答 */
     public void sendFriendAck(String targetIdentity, boolean accepted) {
         sendFriendAck(targetIdentity, accepted, null);
     }
 
-    /** 发送好友请求应答（回显共享握手密钥） */
-    public void sendFriendAck(String targetIdentity, boolean accepted, String authSecret) {
+    public void sendFriendAck(String targetIdentity, boolean accepted, String ignoredAuthSecret) {
         FriendProtocol.FriendAck ack = new FriendProtocol.FriendAck();
         ack.identity = myIdentity;
         ack.name = myName;
         ack.accepted = accepted;
         ack.port = myChatPort;
-        ack.authSecret = authSecret;
+        ack.authSecret = null;
+        if (localKeys != null) {
+            ack.ed25519Pub = FriendCrypto.b64(localKeys.edPublic());
+            ack.x25519Pub = FriendCrypto.b64(localKeys.xPublic());
+        }
         send(ack.toJson());
     }
 
-    /** 发送在线状态 */
     public void sendStatus(boolean online) {
         FriendProtocol.StatusMessage status = new FriendProtocol.StatusMessage();
         status.online = online;
@@ -240,17 +194,14 @@ public final class FriendChatClient implements AutoCloseable {
         send(status.toJson());
     }
 
-    /** 断开连接 */
     @Override
     public void close() {
-        // 先发送离线状态，让对端立即感知
-        if (running.get() && writer != null && !writer.checkError()) {
+        if (running.get() && channel != null) {
             try {
                 FriendProtocol.StatusMessage offline = new FriendProtocol.StatusMessage();
                 offline.online = false;
                 offline.from = myIdentity;
-                writer.write(offline.toJson() + "\n");
-                writer.flush();
+                channel.writeLine(offline.toJson());
             } catch (Exception ignored) {}
         }
         running.set(false);
@@ -259,101 +210,67 @@ public final class FriendChatClient implements AutoCloseable {
         if (readThread != null) readThread.interrupt();
         writeThread = null;
         readThread = null;
-        try {
-            if (writer != null) writer.close();
-        } catch (Exception ignored) {}
+        if (channel != null) {
+            try { channel.close(); } catch (Exception ignored) {}
+            channel = null;
+        }
         try {
             if (socket != null && !socket.isClosed()) socket.close();
         } catch (IOException ignored) {}
     }
 
-    // ---------------------------------------------------------------------------
-    // 内部实现
-    // ---------------------------------------------------------------------------
-
     private void writeLoop() {
         while (running.get()) {
             try {
                 String msg = sendQueue.poll(15, TimeUnit.SECONDS);
-                if (msg != null && writer != null && !writer.checkError()) {
-                    // 用 write + 显式 flush：PrintWriter.print(String) 不触发 autoFlush
-                    // (autoFlush 仅对 println/printf/format 生效)，必须显式 flush 才能立即发送
-                    writer.write(msg + "\n");
-                    writer.flush();
-                    if (writer.checkError()) {
-                        handleDisconnect("写入失败");
-                        break;
-                    }
-                } else if (msg == null) {
-                    // 队列空 15 秒，发送心跳
-                    if (writer != null && !writer.checkError()) {
-                        FriendProtocol.StatusMessage heartbeat = new FriendProtocol.StatusMessage();
-                        heartbeat.online = true;
-                        heartbeat.from = myIdentity;
-                        writer.write(heartbeat.toJson() + "\n");
-                        writer.flush();
-                        if (writer.checkError()) {
-                            handleDisconnect("心跳写入失败");
-                            break;
-                        }
-                    }
+                FriendSecureChannel ch = channel;
+                if (ch == null) break;
+                if (msg != null) {
+                    ch.writeLine(msg);
+                } else {
+                    FriendProtocol.StatusMessage heartbeat = new FriendProtocol.StatusMessage();
+                    heartbeat.online = true;
+                    heartbeat.from = myIdentity;
+                    ch.writeLine(heartbeat.toJson());
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
+                break;
+            } catch (Exception e) {
+                handleDisconnect("写入失败: " + e.getMessage());
                 break;
             }
         }
     }
 
     private void readLoop() {
+        FriendSecureChannel ch = channel;
+        if (ch == null) return;
         try {
-            InputStream in = socket.getInputStream();
-            // 不设读超时：依赖 writeLoop 的心跳（15秒）检测连接活性
-            // 双向是两条独立 TCP 连接，对端不会通过本连接回发数据，短读超时会导致误断开
             while (running.get()) {
-                String line;
-                try {
-                    line = FriendProtocol.readLineBounded(in, FriendProtocol.MAX_MESSAGE_LENGTH);
-                } catch (IOException e) {
-                    if (running.get()) {
-                        handleDisconnect("消息过长或读取失败: " + e.getMessage());
-                    }
-                    return;
+                String line = ch.readLine(FriendProtocol.MAX_MESSAGE_LENGTH);
+                if (line == null) {
+                    handleDisconnect("连接关闭");
+                    break;
                 }
-                if (line == null) break;
-                if (callback != null) {
-                    try {
-                        callback.onMessageReceived(line);
-                    } catch (RuntimeException e) {
-                        System.err.println("[FriendChatClient] 回调处理异常: " + e.getMessage());
-                    }
-                }
+                MessageCallback cb = callback;
+                if (cb != null) cb.onMessageReceived(line);
             }
-            // null 表示对端正常关闭
+        } catch (Exception e) {
             if (running.get()) {
-                handleDisconnect("连接已关闭");
-            }
-        } catch (IOException e) {
-            if (running.get()) {
-                handleDisconnect("连接断开: " + e.getMessage());
+                handleDisconnect("读取失败: " + e.getMessage());
             }
         }
     }
 
     private void handleDisconnect(String reason) {
-        if (running.compareAndSet(true, false)) {
-            // H3: 关闭 socket 以解除 readThread 的 readLine 阻塞，避免 readThread 永久泄漏
-            // 原实现不关 socket，readLine 持续阻塞在 socket.getInputStream() 上
-            Socket s = socket;
-            if (s != null && !s.isClosed()) {
-                try { s.close(); } catch (IOException ignored) {}
-            }
-            // 中断读写线程，确保它们退出
-            if (readThread != null) readThread.interrupt();
-            if (writeThread != null) writeThread.interrupt();
-            if (callback != null) {
-                callback.onDisconnected(reason);
-            }
+        if (!running.getAndSet(false)) return;
+        MessageCallback cb = callback;
+        if (cb != null) {
+            try { cb.onDisconnected(reason); } catch (Exception ignored) {}
         }
+        try {
+            if (socket != null && !socket.isClosed()) socket.close();
+        } catch (IOException ignored) {}
     }
 }

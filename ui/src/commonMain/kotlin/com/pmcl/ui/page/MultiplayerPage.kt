@@ -183,6 +183,13 @@ fun MultiplayerPage(vm: LauncherViewModel) {
                     style = MaterialTheme.typography.titleSmall
                 )
             }
+            if (isTerracotta) {
+                Text(
+                    I18n.t("mp.terracotta_create_tip"),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.tertiary
+                )
+            }
 
             // 加入
             Row(

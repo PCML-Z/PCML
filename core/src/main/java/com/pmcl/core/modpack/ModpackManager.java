@@ -767,16 +767,14 @@ public final class ModpackManager {
     private void addOverrideDir(ZipOutputStream zos, Path gameDir, String dirName) throws IOException {
         Path dir = gameDir.resolve(dirName);
         if (!Files.isDirectory(dir)) return;
-        // M88: Files.walk 无深度限制时，恶意目录结构（或符号链接形成的深链）可导致
-        // StackOverflowError 或极长耗时。限制最大深度为 32（足够覆盖 config/shaderpacks
-        // 等正常目录结构），并跳过符号链接（避免循环）。
+        // M88 / H26: Files.walk 深度上限 + 跳过符号链接
         try (var stream = Files.walk(dir, 32)) {
             var it = stream.iterator();
             while (it.hasNext()) {
                 Path p = it.next();
                 // 跳过符号链接：避免链接到 gameDir 外部造成 zip 内容泄漏或循环
                 if (Files.isSymbolicLink(p)) continue;
-                if (Files.isDirectory(p)) continue;
+                if (!Files.isRegularFile(p, LinkOption.NOFOLLOW_LINKS)) continue;
                 String relative = gameDir.relativize(p).toString().replace('\\', '/');
                 String entryName = "overrides/" + relative;
                 // ZIP SLIP 防护
@@ -804,9 +802,68 @@ public final class ModpackManager {
      * CurseForge 使用变体 Murmur2：读取文件字节，UTF-8 解码后计算 Murmur2_32。
      * 算法参考：<a href="https://minecraft.wiki/w/CurseForge_fingerprint">Minecraft Wiki</a>
      */
+    /** H24: 流式计算 Murmur2，避免整 jar 读入内存。 */
     static long computeMurmur2(Path file) throws IOException {
-        byte[] bytes = Files.readAllBytes(file);
-        return murmur2(bytes);
+        long fileSize = Files.size(file);
+        if (fileSize > Integer.MAX_VALUE) {
+            throw new IOException("file too large for Murmur2: " + file);
+        }
+        int length = (int) fileSize;
+        int h = length != 0 ? length : 0;
+        try (InputStream in = new java.io.BufferedInputStream(Files.newInputStream(file))) {
+            byte[] buf = new byte[8192];
+            byte[] hold = new byte[4];
+            int holdLen = 0;
+            int n;
+            while ((n = in.read(buf)) != -1) {
+                int off = 0;
+                if (holdLen > 0) {
+                    while (holdLen < 4 && off < n) {
+                        hold[holdLen++] = buf[off++];
+                    }
+                    if (holdLen == 4) {
+                        int k = (hold[0] & 0xFF)
+                                | ((hold[1] & 0xFF) << 8)
+                                | ((hold[2] & 0xFF) << 16)
+                                | ((hold[3] & 0xFF) << 24);
+                        k *= 0x5bd1e995;
+                        k ^= (k >>> 24);
+                        k *= 0x5bd1e995;
+                        h *= 0x5bd1e995;
+                        h ^= k;
+                        holdLen = 0;
+                    }
+                }
+                while (off + 4 <= n) {
+                    int k = (buf[off] & 0xFF)
+                            | ((buf[off + 1] & 0xFF) << 8)
+                            | ((buf[off + 2] & 0xFF) << 16)
+                            | ((buf[off + 3] & 0xFF) << 24);
+                    k *= 0x5bd1e995;
+                    k ^= (k >>> 24);
+                    k *= 0x5bd1e995;
+                    h *= 0x5bd1e995;
+                    h ^= k;
+                    off += 4;
+                }
+                while (off < n) {
+                    hold[holdLen++] = buf[off++];
+                }
+            }
+            switch (holdLen) {
+                case 3:
+                    h ^= (hold[2] & 0xFF) << 16;
+                case 2:
+                    h ^= (hold[1] & 0xFF) << 8;
+                case 1:
+                    h ^= (hold[0] & 0xFF);
+                    h *= 0x5bd1e995;
+            }
+        }
+        h ^= (h >>> 13);
+        h *= 0x5bd1e995;
+        h ^= (h >>> 15);
+        return h & 0xFFFFFFFFL;
     }
 
     /**
@@ -985,17 +1042,20 @@ public final class ModpackManager {
 
     private void addMmcOverrideDir(ZipOutputStream zos, Path gameDir, String dirName) throws IOException {
         Path dir = gameDir.resolve(dirName);
-        if (!Files.isDirectory(dir)) return;
-        java.util.List<Path> files = new ArrayList<>();
-        try (var stream = Files.walk(dir)) {
-            stream.filter(Files::isRegularFile).forEach(files::add);
-        }
-        for (Path f : files) {
-            String rel = dir.getParent().relativize(f).toString().replace('\\', '/');
-            String entryName = ".minecraft/" + rel;
-            zos.putNextEntry(new ZipEntry(entryName));
-            Files.copy(f, zos);
-            zos.closeEntry();
+        if (!Files.isDirectory(dir, LinkOption.NOFOLLOW_LINKS)) return;
+        // H26: 深度上限 + 不跟随符号链接（与 addOverrideDir / InstanceExporter 一致）
+        try (var stream = Files.walk(dir, 32)) {
+            var it = stream.iterator();
+            while (it.hasNext()) {
+                Path f = it.next();
+                if (Files.isSymbolicLink(f)) continue;
+                if (!Files.isRegularFile(f, LinkOption.NOFOLLOW_LINKS)) continue;
+                String rel = dir.getParent().relativize(f).toString().replace('\\', '/');
+                String entryName = ".minecraft/" + rel;
+                zos.putNextEntry(new ZipEntry(entryName));
+                Files.copy(f, zos);
+                zos.closeEntry();
+            }
         }
     }
 
@@ -1071,16 +1131,19 @@ public final class ModpackManager {
 
     private void addServerPackDir(ZipOutputStream zos, Path gameDir, String dirName) throws IOException {
         Path dir = gameDir.resolve(dirName);
-        if (!Files.isDirectory(dir)) return;
-        java.util.List<Path> files = new ArrayList<>();
-        try (var stream = Files.walk(dir)) {
-            stream.filter(Files::isRegularFile).forEach(files::add);
-        }
-        for (Path f : files) {
-            String rel = dir.getParent().relativize(f).toString().replace('\\', '/');
-            zos.putNextEntry(new ZipEntry(rel));
-            Files.copy(f, zos);
-            zos.closeEntry();
+        if (!Files.isDirectory(dir, LinkOption.NOFOLLOW_LINKS)) return;
+        // H26: 深度上限 + 不跟随符号链接
+        try (var stream = Files.walk(dir, 32)) {
+            var it = stream.iterator();
+            while (it.hasNext()) {
+                Path f = it.next();
+                if (Files.isSymbolicLink(f)) continue;
+                if (!Files.isRegularFile(f, LinkOption.NOFOLLOW_LINKS)) continue;
+                String rel = dir.getParent().relativize(f).toString().replace('\\', '/');
+                zos.putNextEntry(new ZipEntry(rel));
+                Files.copy(f, zos);
+                zos.closeEntry();
+            }
         }
     }
 
@@ -1229,17 +1292,20 @@ public final class ModpackManager {
 
     private void addLsl3OverrideDir(ZipOutputStream zos, Path gameDir, String dirName) throws IOException {
         Path dir = gameDir.resolve(dirName);
-        if (!Files.isDirectory(dir)) return;
-        java.util.List<Path> files = new ArrayList<>();
-        try (var stream = Files.walk(dir)) {
-            stream.filter(Files::isRegularFile).forEach(files::add);
-        }
-        for (Path f : files) {
-            String rel = dir.getParent().relativize(f).toString().replace('\\', '/');
-            String entryName = "files/" + rel;
-            zos.putNextEntry(new ZipEntry(entryName));
-            Files.copy(f, zos);
-            zos.closeEntry();
+        if (!Files.isDirectory(dir, LinkOption.NOFOLLOW_LINKS)) return;
+        // H26: 深度上限 + 不跟随符号链接
+        try (var stream = Files.walk(dir, 32)) {
+            var it = stream.iterator();
+            while (it.hasNext()) {
+                Path f = it.next();
+                if (Files.isSymbolicLink(f)) continue;
+                if (!Files.isRegularFile(f, LinkOption.NOFOLLOW_LINKS)) continue;
+                String rel = dir.getParent().relativize(f).toString().replace('\\', '/');
+                String entryName = "files/" + rel;
+                zos.putNextEntry(new ZipEntry(entryName));
+                Files.copy(f, zos);
+                zos.closeEntry();
+            }
         }
     }
 
@@ -1417,7 +1483,17 @@ public final class ModpackManager {
      */
     public CompletableFuture<ModpackUpdateResult> checkForUpdates(String instanceName) {
         return CompletableFuture.supplyAsync(() -> {
-            Path instanceDir = config.getWorkDir().resolve("instances").resolve(instanceName);
+            // H19: 拒绝 path traversal；与 InstanceManager / deleteModpack 一致
+            if (instanceName == null || instanceName.isBlank()
+                    || instanceName.contains("..") || instanceName.contains("/")
+                    || instanceName.contains("\\") || instanceName.indexOf('\0') >= 0) {
+                throw new IllegalArgumentException("illegal instanceName: " + instanceName);
+            }
+            Path instancesRoot = config.getWorkDir().resolve("instances").toAbsolutePath().normalize();
+            Path instanceDir = instancesRoot.resolve(instanceName).normalize();
+            if (!instanceDir.startsWith(instancesRoot)) {
+                throw new IllegalArgumentException("instance path escapes instances dir: " + instanceName);
+            }
             Path sourceFile = instanceDir.resolve("source.json");
             if (!Files.isRegularFile(sourceFile)) {
                 return new ModpackUpdateResult(instanceName, new ArrayList<>(), 0,
@@ -1959,9 +2035,16 @@ public final class ModpackManager {
                 }
                 if (relative == null || relative.isEmpty()) continue;
 
-                // ZIP SLIP 防护
-                Path target = instanceDir.resolve(relative).normalize();
-                if (!target.startsWith(instanceDir)) continue;
+                // H27: ZipSlip 失败即中止（与 InstanceImporter 一致，禁止静默跳过）
+                if (relative.contains("..") || relative.startsWith("/") || relative.startsWith("\\")
+                        || relative.matches("^[A-Za-z]:[\\\\/].*")) {
+                    throw new IOException("ZipSlip: overrides 包含非法路径条目: " + name);
+                }
+                Path instanceDirAbs = instanceDir.toAbsolutePath().normalize();
+                Path target = instanceDirAbs.resolve(relative).normalize();
+                if (!target.startsWith(instanceDirAbs)) {
+                    throw new IOException("ZipSlip: overrides 路径越界: " + name);
+                }
 
                 Files.createDirectories(target.getParent());
                 long compressed = entry.getCompressedSize();

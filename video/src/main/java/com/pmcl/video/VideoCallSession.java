@@ -118,6 +118,8 @@ public final class VideoCallSession {
     // 视频传输 socket（独立于 ICE）
     private volatile DatagramSocket videoSocket;
     private volatile boolean localPortReady = false;
+    /** AES-GCM media cipher; required before frames are sent/accepted (C7). */
+    private volatile VideoMediaCipher mediaCipher;
 
     // ---------------------------------------------------------------------------
     // 构造
@@ -145,6 +147,16 @@ public final class VideoCallSession {
 
     public void addListener(CallListener listener) { listeners.add(listener); }
     public void removeListener(CallListener listener) { listeners.remove(listener); }
+
+    /**
+     * Install media encryption key (32-byte AES). Must be set before IN_CALL media flows.
+     * Derived via {@code FriendManager.deriveMediaKey(peer, callId)}.
+     */
+    public void setMediaKey(byte[] key) {
+        VideoMediaCipher old = mediaCipher;
+        mediaCipher = new VideoMediaCipher(key);
+        if (old != null) old.destroy();
+    }
 
     /**
      * 附加已绑定端口的视频 UDP socket（信令交换端口前由 UI 创建）。
@@ -584,9 +596,18 @@ public final class VideoCallSession {
                                     skippedCount.incrementAndGet();
                                     return;
                                 }
-                                // UDP 发送
+                                VideoMediaCipher cipher = mediaCipher;
+                                if (cipher == null) {
+                                    skippedCount.incrementAndGet();
+                                    return; // refuse plaintext video (C7)
+                                }
+                                byte[] wire = cipher.seal(jpegData);
+                                if (wire.length > MAX_PACKET_SIZE) {
+                                    skippedCount.incrementAndGet();
+                                    return;
+                                }
                                 try {
-                                    DatagramPacket packet = new DatagramPacket(jpegData, jpegData.length, remoteAddress);
+                                    DatagramPacket packet = new DatagramPacket(wire, wire.length, remoteAddress);
                                     socket.send(packet);
                                     sentCount.incrementAndGet();
                                 } catch (Exception e) {
@@ -661,9 +682,24 @@ public final class VideoCallSession {
                         continue;
                     }
 
-                    // JPEG 解压
+                    // JPEG 解压（先 AES-GCM 开封）
                     byte[] data = new byte[packet.getLength()];
                     System.arraycopy(packet.getData(), 0, data, 0, packet.getLength());
+                    VideoMediaCipher cipher = mediaCipher;
+                    if (cipher == null) {
+                        rejectedCount++;
+                        continue; // refuse plaintext video (C7)
+                    }
+                    try {
+                        data = cipher.open(data);
+                    } catch (Exception e) {
+                        rejectedCount++;
+                        if (rejectedCount == 1 || rejectedCount % 100 == 0) {
+                            System.err.println("[VideoCall] 媒体帧解密失败 (已拒绝 " + rejectedCount + "): "
+                                    + e.getMessage());
+                        }
+                        continue;
+                    }
                     BufferedImage img = decompressJpeg(data);
                     if (img == null) continue;
 
@@ -765,7 +801,11 @@ public final class VideoCallSession {
             if (current == State.ENDED) return; // 已结束，跳过
         } while (!stateRef.compareAndSet(current, State.ENDED));
 
-        capturing.set(false);
+                                        capturing.set(false);
+
+        VideoMediaCipher cipher = mediaCipher;
+        mediaCipher = null;
+        if (cipher != null) cipher.destroy();
 
         try {
             if (captureThread != null) {

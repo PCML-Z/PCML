@@ -174,7 +174,7 @@ public final class MicrosoftAuthFlow {
             String deviceCode = safeStr(o, "device_code");
             String userCode = safeStr(o, "user_code");
             if (deviceCode.isEmpty() || userCode.isEmpty() || verificationUri.isEmpty()) {
-                throw new IOException("设备码响应缺少必填字段 body=" + json);
+                throw new IOException("设备码响应缺少必填字段 (" + sanitizeForError(json) + ")");
             }
             return new DeviceCode(
                     deviceCode,
@@ -187,7 +187,8 @@ public final class MicrosoftAuthFlow {
         } catch (IOException e) {
             throw e;
         } catch (Throwable t) {
-            throw new IOException("解析设备码响应失败: " + t.getMessage() + " body=" + json, t);
+            throw new IOException("解析设备码响应失败: " + t.getMessage()
+                    + " (" + sanitizeForError(json) + ")", t);
         }
     }
 
@@ -270,7 +271,8 @@ public final class MicrosoftAuthFlow {
                 // 成功
                 String token = safeStr(o, "access_token");
                 if (token.isEmpty()) {
-                    future.completeExceptionally(new RuntimeException("token 响应中 access_token 为空: " + json));
+                    future.completeExceptionally(new RuntimeException(
+                            "token 响应中 access_token 为空 (" + sanitizeForError(json) + ")"));
                     return;
                 }
                 String refresh = safeStr(o, "refresh_token");
@@ -299,7 +301,8 @@ public final class MicrosoftAuthFlow {
                     return;
             }
         } catch (Throwable t) {
-            future.completeExceptionally(new RuntimeException("解析 token 响应失败: " + t.getMessage() + " body=" + json, t));
+            future.completeExceptionally(new RuntimeException("解析 token 响应失败: "
+                    + t.getMessage() + " (" + sanitizeForError(json) + ")", t));
             return;
         }
         // 间隔后重试（调度前再次检查，避免取消后仍发请求）
@@ -751,7 +754,7 @@ public final class MicrosoftAuthFlow {
             }
             String token = safeStr(o, "access_token");
             if (token.isEmpty()) {
-                throw new IOException("access_token 为空: " + json);
+                throw new IOException("access_token 为空 (" + sanitizeForError(json) + ")");
             }
             String refresh = safeStr(o, "refresh_token");
             int expiresIn = o.has("expires_in") && !o.get("expires_in").isJsonNull()
@@ -760,7 +763,8 @@ public final class MicrosoftAuthFlow {
         } catch (IOException e) {
             throw e;
         } catch (Throwable t) {
-            throw new IOException("解析 token 响应失败: " + t.getMessage() + " body=" + json, t);
+            throw new IOException("解析 token 响应失败: " + t.getMessage()
+                    + " (" + sanitizeForError(json) + ")", t);
         }
     }
 
@@ -776,7 +780,8 @@ public final class MicrosoftAuthFlow {
             try (Response resp = http.newCall(req).execute()) {
                 body = resp.body() != null ? resp.body().string() : "";
                 if (!resp.isSuccessful()) {
-                    throw new IOException("请求失败 " + url + " code=" + resp.code() + " body=" + body);
+                    throw new IOException("请求失败 " + url + " code=" + resp.code()
+                            + " (" + sanitizeForError(body) + ")");
                 }
             }
         } catch (IOException e) {
@@ -794,5 +799,16 @@ public final class MicrosoftAuthFlow {
 
     private static String safeStr(JsonObject o, String key) {
         return o.has(key) && !o.get(key).isJsonNull() ? o.get(key).getAsString() : "";
+    }
+
+    /**
+     * H32: 异常消息不得包含可能含 token 的响应体。
+     * 仅保留长度与是否 JSON 的粗粒度诊断信息。
+     */
+    private static String sanitizeForError(String body) {
+        if (body == null || body.isEmpty()) return "(empty)";
+        int len = body.length();
+        String kind = body.trim().startsWith("{") || body.trim().startsWith("[") ? "json" : "text";
+        return kind + ", len=" + len;
     }
 }

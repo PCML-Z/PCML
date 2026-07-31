@@ -43,6 +43,64 @@ public final class CurlFallback {
         }
     }
 
+    /**
+     * H34: 并发排空 stdout/stderr，避免管道缓冲区满造成父子进程互相等待死锁。
+     */
+    private static final class DrainedStreams {
+        final byte[] stdout;
+        final byte[] stderr;
+        DrainedStreams(byte[] stdout, byte[] stderr) {
+            this.stdout = stdout;
+            this.stderr = stderr;
+        }
+    }
+
+    private static DrainedStreams drainConcurrently(Process p, int maxStdout, int maxStderr)
+            throws InterruptedException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        ByteArrayOutputStream err = new ByteArrayOutputStream();
+        Thread outT = new Thread(() -> {
+            try (InputStream in = p.getInputStream()) {
+                readLimited(in, out, maxStdout);
+            } catch (IOException ignored) {}
+        }, "curl-stdout-drain");
+        Thread errT = new Thread(() -> {
+            try (InputStream in = p.getErrorStream()) {
+                readLimited(in, err, maxStderr);
+            } catch (IOException ignored) {}
+        }, "curl-stderr-drain");
+        outT.setDaemon(true);
+        errT.setDaemon(true);
+        outT.start();
+        errT.start();
+        outT.join();
+        errT.join();
+        return new DrainedStreams(out.toByteArray(), err.toByteArray());
+    }
+
+    /** 仅排空 stderr（stdout 已由 curl -o 写文件时使用）。 */
+    private static byte[] drainStderr(Process p, int maxStderr) throws InterruptedException {
+        ByteArrayOutputStream err = new ByteArrayOutputStream();
+        Thread errT = new Thread(() -> {
+            try (InputStream in = p.getErrorStream()) {
+                readLimited(in, err, maxStderr);
+            } catch (IOException ignored) {}
+        }, "curl-stderr-drain");
+        errT.setDaemon(true);
+        errT.start();
+        // 同时排空 stdout，防止 curl 意外写 stdout 时堵死
+        Thread outT = new Thread(() -> {
+            try (InputStream in = p.getInputStream()) {
+                in.transferTo(OutputStream.nullOutputStream());
+            } catch (IOException ignored) {}
+        }, "curl-stdout-discard");
+        outT.setDaemon(true);
+        outT.start();
+        outT.join();
+        errT.join();
+        return err.toByteArray();
+    }
+
     /** 跟随重定向但限制协议与跳数，降低 -L 造成的 SSRF / 协议降级风险 */
     private static void addSafeRedirectFlags(List<String> cmd) {
         cmd.add("-L");
@@ -159,26 +217,19 @@ public final class CurlFallback {
             try (OutputStream os = p.getOutputStream()) {
                 os.close();
             }
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-            try (InputStream in = p.getInputStream()) {
-                readLimited(in, out, MAX_STRING_SIZE);
-            }
-            ByteArrayOutputStream err = new ByteArrayOutputStream();
-            try (InputStream in = p.getErrorStream()) {
-                readLimited(in, err, 256 * 1024);
-            }
+            DrainedStreams drained = drainConcurrently(p, MAX_STRING_SIZE, 256 * 1024);
             boolean done = p.waitFor(TIMEOUT_SEC + 5, TimeUnit.SECONDS);
             if (!done) {
                 p.destroyForcibly();
                 throw new IOException("curl POST 超时: " + url);
             }
             int exit = p.exitValue();
-            String errMsg = err.toString(java.nio.charset.StandardCharsets.UTF_8).trim();
+            String errMsg = new String(drained.stderr, java.nio.charset.StandardCharsets.UTF_8).trim();
             // curl 退出码非 0 说明网络层错误（SSL/连接/超时）
             if (exit != 0) {
                 throw new IOException("curl POST 网络失败 exit=" + exit + ": " + errMsg + " url=" + url);
             }
-            String output = out.toString(java.nio.charset.StandardCharsets.UTF_8);
+            String output = new String(drained.stdout, java.nio.charset.StandardCharsets.UTF_8);
             // 解析 -w 追加的 HTTP 状态码
             int sepIdx = output.lastIndexOf("\n__HTTP_CODE__");
             if (sepIdx < 0) {
@@ -193,8 +244,9 @@ public final class CurlFallback {
                 return output;
             }
             if (httpCode < 200 || httpCode >= 300) {
-                // httpCode=0 表示未收到 HTTP 响应（网络层失败）；4xx/5xx 包含 body 便于诊断
-                throw new IOException("HTTP " + httpCode + " url=" + url + " body=" + responseBody);
+                // httpCode=0 表示未收到 HTTP 响应（网络层失败）；4xx/5xx 不附带完整 body（可能含 token）
+                throw new IOException("HTTP " + httpCode + " url=" + url
+                        + " bodyLen=" + responseBody.length());
             }
             return responseBody;
         } catch (InterruptedException e) {
@@ -249,25 +301,18 @@ public final class CurlFallback {
             try (OutputStream os = p.getOutputStream()) {
                 os.close();
             }
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-            try (InputStream in = p.getInputStream()) {
-                readLimited(in, out, MAX_STRING_SIZE);
-            }
-            ByteArrayOutputStream err = new ByteArrayOutputStream();
-            try (InputStream in = p.getErrorStream()) {
-                readLimited(in, err, 256 * 1024);
-            }
+            DrainedStreams drained = drainConcurrently(p, MAX_STRING_SIZE, 256 * 1024);
             boolean done = p.waitFor(TIMEOUT_SEC + 5, TimeUnit.SECONDS);
             if (!done) {
                 p.destroyForcibly();
                 throw new IOException("curl POST 超时: " + url);
             }
             int exit = p.exitValue();
-            String errMsg = err.toString(java.nio.charset.StandardCharsets.UTF_8).trim();
+            String errMsg = new String(drained.stderr, java.nio.charset.StandardCharsets.UTF_8).trim();
             if (exit != 0) {
                 throw new IOException("curl POST 网络失败 exit=" + exit + ": " + errMsg + " url=" + url);
             }
-            String output = out.toString(java.nio.charset.StandardCharsets.UTF_8);
+            String output = new String(drained.stdout, java.nio.charset.StandardCharsets.UTF_8);
             int sepIdx = output.lastIndexOf("\n__HTTP_CODE__");
             if (sepIdx < 0) {
                 return output;
@@ -318,14 +363,7 @@ public final class CurlFallback {
 
         Process p = new ProcessBuilder(cmd).start();
         try {
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-            try (InputStream in = p.getInputStream()) {
-                readLimited(in, out, MAX_STRING_SIZE);
-            }
-            ByteArrayOutputStream err = new ByteArrayOutputStream();
-            try (InputStream in = p.getErrorStream()) {
-                readLimited(in, err, 256 * 1024);
-            }
+            DrainedStreams drained = drainConcurrently(p, MAX_STRING_SIZE, 256 * 1024);
             boolean done = p.waitFor(timeoutSec + 5, TimeUnit.SECONDS);
             if (!done) {
                 p.destroyForcibly();
@@ -333,10 +371,10 @@ public final class CurlFallback {
             }
             int exit = p.exitValue();
             if (exit != 0) {
-                String errMsg = err.toString(java.nio.charset.StandardCharsets.UTF_8).trim();
+                String errMsg = new String(drained.stderr, java.nio.charset.StandardCharsets.UTF_8).trim();
                 throw new IOException("curl 失败 exit=" + exit + ": " + errMsg + " url=" + url);
             }
-            return out.toString(java.nio.charset.StandardCharsets.UTF_8);
+            return new String(drained.stdout, java.nio.charset.StandardCharsets.UTF_8);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             p.destroyForcibly();
@@ -375,15 +413,7 @@ public final class CurlFallback {
 
         Process p = new ProcessBuilder(cmd).start();
         try {
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-            try (InputStream in = p.getInputStream()) {
-                readLimited(in, out, MAX_STRING_SIZE);
-            }
-            // 读取 stderr 用于错误诊断
-            ByteArrayOutputStream err = new ByteArrayOutputStream();
-            try (InputStream in = p.getErrorStream()) {
-                readLimited(in, err, 256 * 1024);
-            }
+            DrainedStreams drained = drainConcurrently(p, MAX_STRING_SIZE, 256 * 1024);
             boolean done = p.waitFor(TIMEOUT_SEC + 5, TimeUnit.SECONDS);
             if (!done) {
                 p.destroyForcibly();
@@ -391,10 +421,10 @@ public final class CurlFallback {
             }
             int exit = p.exitValue();
             if (exit != 0) {
-                String errMsg = err.toString(java.nio.charset.StandardCharsets.UTF_8).trim();
+                String errMsg = new String(drained.stderr, java.nio.charset.StandardCharsets.UTF_8).trim();
                 throw new IOException("curl 失败 exit=" + exit + ": " + errMsg + " url=" + url);
             }
-            return out.toByteArray();
+            return drained.stdout;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             p.destroyForcibly();
@@ -427,10 +457,7 @@ public final class CurlFallback {
 
         Process p = new ProcessBuilder(cmd).start();
         try {
-            ByteArrayOutputStream err = new ByteArrayOutputStream();
-            try (InputStream in = p.getErrorStream()) {
-                readLimited(in, err, 256 * 1024);
-            }
+            byte[] errBytes = drainStderr(p, 256 * 1024);
             boolean done = p.waitFor(TIMEOUT_SEC * 3 + 10, TimeUnit.SECONDS);
             if (!done) {
                 p.destroyForcibly();
@@ -438,7 +465,7 @@ public final class CurlFallback {
             }
             int exit = p.exitValue();
             if (exit != 0) {
-                String errMsg = err.toString(java.nio.charset.StandardCharsets.UTF_8).trim();
+                String errMsg = new String(errBytes, java.nio.charset.StandardCharsets.UTF_8).trim();
                 throw new IOException("curl 下载失败 exit=" + exit + ": " + errMsg + " url=" + url);
             }
             try {
@@ -475,16 +502,13 @@ public final class CurlFallback {
 
             Process p = new ProcessBuilder(cmd).start();
             try {
-                ByteArrayOutputStream out = new ByteArrayOutputStream();
-                try (InputStream in = p.getInputStream()) {
-                    readLimited(in, out, 256 * 1024);
-                }
+                DrainedStreams drained = drainConcurrently(p, 256 * 1024, 64 * 1024);
                 boolean done = p.waitFor(15, TimeUnit.SECONDS);
                 if (!done) {
                     p.destroyForcibly();
                     return -1;
                 }
-                String resp = out.toString(java.nio.charset.StandardCharsets.UTF_8);
+                String resp = new String(drained.stdout, java.nio.charset.StandardCharsets.UTF_8);
                 // 解析 Content-Length 头
                 for (String line : resp.split("\n")) {
                     line = line.trim();
