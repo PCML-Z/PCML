@@ -85,6 +85,11 @@ public final class DownloadManager {
     private final java.util.concurrent.ConcurrentMap<Path, Object> fileLocks =
             new java.util.concurrent.ConcurrentHashMap<>();
 
+    /** 获取指定目标路径的 per-file 锁对象（同一文件的所有下载/校验/移动操作串行化） */
+    private Object fileLockFor(Path path) {
+        return fileLocks.computeIfAbsent(path.toAbsolutePath().normalize(), k -> new Object());
+    }
+
     // 网络参数（由 reconfigure 设置，跨线程可见）
     private volatile long speedLimitBytesPerSec = 0;     // 0 = 不限速
     private volatile int retryCount = 3;
@@ -272,6 +277,22 @@ public final class DownloadManager {
         return chunked.download(rewrite(url), target, onProgress);
     }
 
+    /**
+     * 分片下载大文件（带 SHA-1 校验）。
+     * <p>
+     * 下载完成后强制校验 SHA-1，防止分片续传错位或 CDN 行为不一致导致损坏文件静默通过。
+     * 校验失败时删除目标文件并抛出异常。
+     *
+     * @param url           资源 URL（已镜像重写）
+     * @param target        目标文件
+     * @param expectedSha1  期望的 SHA-1（null 或空表示不校验）
+     * @param onProgress    进度回调（已完成字节数）
+     */
+    public CompletableFuture<Void> downloadChunked(String url, Path target, String expectedSha1,
+                                                   java.util.function.Consumer<Long> onProgress) {
+        return chunked.download(rewrite(url), target, expectedSha1, onProgress);
+    }
+
     public MirrorManager mirror() { return mirror; }
 
     /**
@@ -450,7 +471,9 @@ public final class DownloadManager {
                 throw new RuntimeException(new IOException("SHA1 校验失败: " + task.getRelativePath() +
                         " 期望=" + expected + " 实际=" + actual));
             }
-            synchronized (DownloadManager.this) {
+            // per-file 锁：与 downloadOne 共用同一锁，确保同一 target 的下载+移动串行化。
+            // 原实现用 synchronized(DownloadManager.this) 全局锁，会序列化所有文件的移动操作。
+            synchronized (fileLockFor(target)) {
                 if (aborted != null && aborted.get()) {
                     throw new RuntimeException(new InterruptedIOException(
                             "批量下载已中止: " + task.getRelativePath()));
@@ -502,106 +525,101 @@ public final class DownloadManager {
         }
         Files.createDirectories(target.getParent());
 
-        // 已存在且 SHA1 匹配则跳过
-        if (Files.exists(target) && task.getSha1() != null && !task.getSha1().isEmpty()) {
-            // M61: skip 检查是同步决策点，直接调用 sha1() 而非异步
-            String existing = sha1(target);
-            if (existing.equalsIgnoreCase(task.getSha1())) {
-                return null;
-            }
-        }
-
-        // 断点续传：使用 .part 文件
-        Path partFile = target.resolveSibling(target.getFileName() + ".part");
-        long existingSize = 0;
-        if (enableResume && Files.exists(partFile)) {
-            existingSize = Files.size(partFile);
-        }
-
-        String url = rewrite(task.getUrl());
-        Request.Builder reqBuilder = new Request.Builder().url(url).get();
-        if (enableResume && existingSize > 0) {
-            reqBuilder.header("Range", "bytes=" + existingSize + "-");
-        }
-        Request req = reqBuilder.build();
-
-        String reqHost = okhttp3.HttpUrl.parse(url) != null ? okhttp3.HttpUrl.parse(url).host() : "";
-        try (Response resp = http.newCall(req).execute()) {
-            int code = resp.code();
-            // 200 = 全新下载，206 = Range 成功
-            boolean rangeOk = (code == 206);
-            boolean fullOk = (code == 200);
-            if (!rangeOk && !fullOk) {
-                // H1: HTTP 4xx/5xx 标记镜像 host 失败，连续达阈值后熔断回退官方源
-                if (code >= 400) {
-                    mirror.markFailure(reqHost);
+        // per-file 锁：防止并发下载同一文件导致 .part 数据竞争。
+        // 锁覆盖 skip 检查 → 下载 → .part 写入，与 verifyAndRename 中的 move 共用同一锁，
+        // 确保同一 target 的下载+校验+移动全流程串行化。
+        synchronized (fileLockFor(target)) {
+            // 已存在且 SHA1 匹配则跳过（在锁内做 double-check，避免并发时重复下载）
+            if (Files.exists(target) && task.getSha1() != null && !task.getSha1().isEmpty()) {
+                String existing = sha1(target);
+                if (existing.equalsIgnoreCase(task.getSha1())) {
+                    return null;
                 }
-                throw new IOException("下载失败 code=" + code + " url=" + url);
             }
-            // 如果服务端忽略 Range（返回 200），从头开始
-            long startPos = rangeOk ? existingSize : 0L;
 
-            // H33: 206 时校验 Content-Range 起始字节与请求 Range 一致，防止错位续传污染 .part
-            if (rangeOk) {
-                String contentRange = resp.header("Content-Range");
-                if (!contentRangeMatches(contentRange, existingSize)) {
+            // 断点续传：使用 .part 文件
+            Path partFile = target.resolveSibling(target.getFileName() + ".part");
+            long existingSize = 0;
+            if (enableResume && Files.exists(partFile)) {
+                existingSize = Files.size(partFile);
+            }
+
+            String url = rewrite(task.getUrl());
+            Request.Builder reqBuilder = new Request.Builder().url(url).get();
+            if (enableResume && existingSize > 0) {
+                reqBuilder.header("Range", "bytes=" + existingSize + "-");
+            }
+            Request req = reqBuilder.build();
+
+            String reqHost = okhttp3.HttpUrl.parse(url) != null ? okhttp3.HttpUrl.parse(url).host() : "";
+            try (Response resp = http.newCall(req).execute()) {
+                int code = resp.code();
+                // 200 = 全新下载，206 = Range 成功
+                boolean rangeOk = (code == 206);
+                boolean fullOk = (code == 200);
+                if (!rangeOk && !fullOk) {
+                    if (code >= 400) {
+                        mirror.markFailure(reqHost);
+                    }
+                    throw new IOException("下载失败 code=" + code + " url=" + url);
+                }
+                long startPos = rangeOk ? existingSize : 0L;
+
+                if (rangeOk) {
+                    String contentRange = resp.header("Content-Range");
+                    if (!contentRangeMatches(contentRange, existingSize)) {
+                        Files.deleteIfExists(partFile);
+                        throw new IOException("Content-Range 与请求 Range 不匹配: " + contentRange
+                                + " (expected start=" + existingSize + ")");
+                    }
+                }
+
+                if (fullOk && Files.exists(partFile)) {
                     Files.deleteIfExists(partFile);
-                    throw new IOException("Content-Range 与请求 Range 不匹配: " + contentRange
-                            + " (expected start=" + existingSize + ")");
                 }
-            }
 
-            // 关键：全新下载时先删除旧 .part 文件，避免旧内容残留
-            if (fullOk && Files.exists(partFile)) {
-                Files.deleteIfExists(partFile);
-            }
+                if (resp.body() == null) throw new IOException("响应体为空: " + url);
+                try (InputStream in = resp.body().byteStream();
+                     RandomAccessFile raf = new RandomAccessFile(partFile.toFile(), "rw")) {
+                    raf.seek(startPos);
+                    byte[] buf = new byte[BUFFER_SIZE];
+                    long lastThrottleTime = System.currentTimeMillis();
+                    long bytesInWindow = 0;
+                    int n;
+                    while ((n = in.read(buf)) != -1) {
+                        throwIfInterrupted();
+                        raf.write(buf, 0, n);
+                        bytesInWindow += n;
+                        if (onDeltaBytes != null) onDeltaBytes.accept((long) n);
 
-            if (resp.body() == null) throw new IOException("响应体为空: " + url);
-            try (InputStream in = resp.body().byteStream();
-                 RandomAccessFile raf = new RandomAccessFile(partFile.toFile(), "rw")) {
-                raf.seek(startPos);
-                byte[] buf = new byte[BUFFER_SIZE];
-                long lastThrottleTime = System.currentTimeMillis();
-                long bytesInWindow = 0;
-                int n;
-                while ((n = in.read(buf)) != -1) {
-                    throwIfInterrupted();
-                    raf.write(buf, 0, n);
-                    bytesInWindow += n;
-                    // 实时进度回调
-                    if (onDeltaBytes != null) onDeltaBytes.accept((long) n);
-
-                    // 限速：每 100ms 检查一次
-                    if (speedLimitBytesPerSec > 0) {
-                        long now = System.currentTimeMillis();
-                        long elapsed = now - lastThrottleTime;
-                        if (elapsed >= 100) {
-                            long allowed = (speedLimitBytesPerSec * elapsed) / 1000L;
-                            if (bytesInWindow > allowed) {
-                                long sleepMs = (bytesInWindow - allowed) * 1000L / speedLimitBytesPerSec;
-                                try {
-                                    Thread.sleep(sleepMs);
-                                } catch (InterruptedException ie) {
-                                    Thread.currentThread().interrupt();
-                                    throw new InterruptedIOException("下载已中断");
+                        if (speedLimitBytesPerSec > 0) {
+                            long now = System.currentTimeMillis();
+                            long elapsed = now - lastThrottleTime;
+                            if (elapsed >= 100) {
+                                long allowed = (speedLimitBytesPerSec * elapsed) / 1000L;
+                                if (bytesInWindow > allowed) {
+                                    long sleepMs = (bytesInWindow - allowed) * 1000L / speedLimitBytesPerSec;
+                                    try {
+                                        Thread.sleep(sleepMs);
+                                    } catch (InterruptedException ie) {
+                                        Thread.currentThread().interrupt();
+                                        throw new InterruptedIOException("下载已中断");
+                                    }
                                 }
+                                lastThrottleTime = System.currentTimeMillis();
+                                bytesInWindow = 0;
                             }
-                            lastThrottleTime = System.currentTimeMillis();
-                            bytesInWindow = 0;
                         }
                     }
                 }
+                mirror.markSuccess(reqHost);
+            } catch (IOException e) {
+                mirror.markFailure(reqHost);
+                throw e;
             }
-            // H1: 下载成功，重置该 host 的失败计数
-            mirror.markSuccess(reqHost);
-        } catch (IOException e) {
-            // H1: 网络错误同样标记失败（连接超时、DNS 失败、连接重置等）
-            mirror.markFailure(reqHost);
-            throw e;
-        }
 
-        // 返回 .part 路径，校验和重命名由调用方在释放 semaphore 后执行
-        return partFile;
+            return partFile;
+        }
     }
 
     /** 文本下载上限（与 CurlFallback.MAX_STRING_SIZE 对齐），防 OOM */
@@ -863,6 +881,8 @@ public final class DownloadManager {
         Files.createDirectories(target.getParent());
         String rewritten = rewrite(url);
 
+        // per-file 锁：防止并发下载同一文件导致 .download 数据竞争
+        synchronized (fileLockFor(target)) {
         // 断点续传：使用 .download 文件
         Path tmp = target.resolveSibling(target.getFileName() + ".download");
         long existingSize = 0;
@@ -999,6 +1019,7 @@ public final class DownloadManager {
             return;
         }
         throw last;
+        } // synchronized(fileLockFor(target))
     }
 
     /**

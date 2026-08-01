@@ -53,10 +53,10 @@ final class UpdateSignatureVerifier {
     static void verifyOrThrow(String version, String url, String sha256, String sha1, long size,
                               String signatureB64) throws IOException {
         if (PUBLIC_KEY == null) {
-            throw new IOException("更新验签公钥未配置，拒绝自定义清单更新");
+            throw new IOException("更新验签公钥未配置，拒绝未验签更新");
         }
         if (signatureB64 == null || signatureB64.isBlank()) {
-            throw new IOException("更新清单缺少 signature 字段，拒绝未签名更新");
+            throw new IOException("更新缺少 signature，拒绝未签名更新");
         }
         byte[] sig;
         try {

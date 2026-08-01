@@ -3,6 +3,7 @@ package com.pmcl.core.update;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
+import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -219,18 +220,19 @@ public final class GitHubReleaseSyncChecker implements AutoCloseable {
 
     /**
      * 解析 GitHub Release JSON，提取更新信息。
-     * 从 assets 中查找包含 "pmcl" 字样的 .jar 文件。
+     * 从 assets 中查找包含 "pmcl" 字样的 .jar 文件，并下载同名 .sig 签名资产。
      */
-    private SelfUpdater.UpdateInfo parseRelease(JsonObject release) {
+    private SelfUpdater.UpdateInfo parseRelease(JsonObject release) throws IOException {
         String tagName = release.has("tag_name") && !release.get("tag_name").isJsonNull()
                 ? release.get("tag_name").getAsString() : "";
         String version = tagName.startsWith("v") ? tagName.substring(1) : tagName;
         if (version.isEmpty()) return null;
         String notes = release.has("body") && !release.get("body").isJsonNull()
                 ? release.get("body").getAsString() : "";
-        // 从 assets 中查找 pmcl jar，并解析 SHA-256（GitHub digest 或同名 .sha256 旁路资产）
+        // 从 assets 中查找 pmcl jar、.sig 签名，并解析 SHA-256（GitHub digest 或同名 .sha256 旁路资产）
         if (!release.has("assets") || !release.get("assets").isJsonArray()) return null;
         JsonObject jarAsset = null;
+        JsonObject sigAsset = null;
         java.util.Map<String, String> sha256ByName = new java.util.HashMap<>();
         for (var assetElem : release.getAsJsonArray("assets")) {
             JsonObject asset = assetElem.getAsJsonObject();
@@ -251,6 +253,9 @@ public final class GitHubReleaseSyncChecker implements AutoCloseable {
             if (lower.endsWith(".jar") && lower.contains("pmcl") && jarAsset == null) {
                 jarAsset = asset;
             }
+            if (lower.endsWith(".sig") && sigAsset == null) {
+                sigAsset = asset;
+            }
         }
         if (jarAsset == null) return null;
         String name = jarAsset.get("name").getAsString();
@@ -265,8 +270,62 @@ public final class GitHubReleaseSyncChecker implements AutoCloseable {
                     + name + "），SelfUpdater 将拒绝安装。请在 GitHub Release 启用 asset digests。");
             return null;
         }
-        return new SelfUpdater.UpdateInfo(version, url, "", sha256, size, notes, null,
+        // 下载 Ed25519 签名（.sig 资产），作为 HTTPS 之外的密码学兜底
+        String signature = downloadSignatureAsset(sigAsset, name);
+        if (signature == null) return null;
+        return new SelfUpdater.UpdateInfo(version, url, "", sha256, size, notes, signature,
                 SelfUpdater.TrustedChannel.GITHUB_RELEASE);
+    }
+
+    /**
+     * 下载 Release 的 Ed25519 签名资产（.sig 文件）。
+     * <p>
+     * 签名是对 canonical payload（version/url/sha256/sha1/size）的 Base64 编码签名，
+     * 由发布流水线用与 {@link UpdateSignatureVerifier} 公钥配对的私钥生成。
+     *
+     * @param sigAsset GitHub API 返回的 .sig asset JSON，可为 null
+     * @param jarName  jar 资产名（用于错误提示）
+     * @return Base64 签名字符串，失败返回 null
+     */
+    private String downloadSignatureAsset(JsonObject sigAsset, String jarName) throws IOException {
+        if (sigAsset == null) {
+            System.err.println("[GitHubReleaseSync] Release 缺少 Ed25519 签名资产（.sig），"
+                    + "SelfUpdater 将拒绝安装。请在 Release 上传 " + jarName + ".sig");
+            return null;
+        }
+        String sigUrl = sigAsset.has("browser_download_url")
+                && !sigAsset.get("browser_download_url").isJsonNull()
+                ? sigAsset.get("browser_download_url").getAsString() : "";
+        if (sigUrl.isEmpty()) {
+            System.err.println("[GitHubReleaseSync] 签名资产缺少 browser_download_url");
+            return null;
+        }
+        HttpRequest sigReq = HttpRequest.newBuilder()
+                .uri(URI.create(sigUrl))
+                .timeout(Duration.ofSeconds(HTTP_TIMEOUT_SECONDS))
+                .header("Accept", "text/plain, */*")
+                .header("User-Agent", "PMCL-Updater")
+                .GET()
+                .build();
+        HttpResponse<String> sigResp;
+        try {
+            sigResp = httpClient.send(sigReq, HttpResponse.BodyHandlers.ofString());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("下载签名被中断: " + sigUrl, e);
+        }
+        if (sigResp.statusCode() != 200) {
+            System.err.println("[GitHubReleaseSync] 下载签名失败 HTTP " + sigResp.statusCode()
+                    + " url=" + sigUrl);
+            return null;
+        }
+        String sig = sigResp.body().trim();
+        // Ed25519 签名 = 64 字节，Base64 ≈ 88 字符；设上限防滥用
+        if (sig.isEmpty() || sig.length() > 4096) {
+            System.err.println("[GitHubReleaseSync] 签名内容异常（长度 " + sig.length() + "）");
+            return null;
+        }
+        return sig;
     }
 
     /** @see UpdateVersions#isNewer */

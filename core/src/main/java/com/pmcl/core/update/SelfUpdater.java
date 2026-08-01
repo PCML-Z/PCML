@@ -37,8 +37,8 @@ import java.util.function.Consumer;
  * }
  * </pre>
  * <p>
- * GitHub Release 通道（{@link TrustedChannel#GITHUB_RELEASE}）依赖 GitHub HTTPS +
- * asset digest，不走自定义清单验签。
+ * GitHub Release 通道（{@link TrustedChannel#GITHUB_RELEASE}）除 GitHub HTTPS +
+ * asset digest 外，还要求 Release 附带 Ed25519 签名资产（.sig），与自定义清单使用同一公钥验签。
  * <p>
  * 本实现仅完成「下载并验证」，不替换运行中的 jar。
  */
@@ -48,7 +48,7 @@ public final class SelfUpdater {
     public enum TrustedChannel {
         /** 自定义清单：必须通过固定公钥 Ed25519 验签 */
         SIGNED_MANIFEST,
-        /** GitHub Releases API + asset SHA-256 digest */
+        /** GitHub Releases API + asset SHA-256 digest + Ed25519 签名资产（.sig） */
         GITHUB_RELEASE
     }
 
@@ -192,8 +192,8 @@ public final class SelfUpdater {
             if (sha256 == null || sha256.isEmpty()) {
                 throw new IOException("GitHub 更新缺少 SHA-256 digest，拒绝安装");
             }
-            return;
         }
+        // 两个通道都验证 Ed25519 签名，防止 HTTPS 被绕过后安装未签名更新
         UpdateSignatureVerifier.verifyOrThrow(
                 info.getVersion(), info.getUrl(), info.getSha256(), info.getSha1(),
                 info.getSize(), info.getSignature());
