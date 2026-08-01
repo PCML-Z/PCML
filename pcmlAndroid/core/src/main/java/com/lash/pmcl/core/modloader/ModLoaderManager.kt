@@ -44,6 +44,10 @@ class ModLoaderManager(
         installers[ModLoader.LITELOADER] = LiteLoaderInstaller(paths, downloadManager)
         installers[ModLoader.RIFT] = RiftInstaller(paths, downloadManager, versionInstaller)
         installers[ModLoader.RISUGAMI] = RisugamiInstaller(paths, downloadManager, versionInstaller)
+        installers[ModLoader.NILLOADER] = NilLoaderInstaller(paths, downloadManager, versionInstaller)
+        installers[ModLoader.JAVA_AGENT] = JavaAgentInstaller(paths, downloadManager, versionInstaller)
+        installers[ModLoader.FORGE] = ForgeInstaller(paths, downloadManager, false)
+        installers[ModLoader.NEOFORGE] = ForgeInstaller(paths, downloadManager, true)
     }
 
     fun get(loader: ModLoader): ModLoaderInstaller =

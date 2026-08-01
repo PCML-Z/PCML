@@ -9,8 +9,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Extension
+import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Public
@@ -32,7 +34,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import com.lash.pmcl.core.LauncherCore
 import com.lash.pmcl.ui.screens.AccountsScreen
 import com.lash.pmcl.ui.screens.DownloadsScreen
+import com.lash.pmcl.ui.screens.InstancesScreen
 import com.lash.pmcl.ui.screens.LaunchScreen
+import com.lash.pmcl.ui.screens.ModpacksScreen
 import com.lash.pmcl.ui.screens.ModsScreen
 import com.lash.pmcl.ui.screens.SettingsScreen
 import com.lash.pmcl.ui.screens.VersionsScreen
@@ -44,6 +48,8 @@ private enum class NavTab(val label: String, val icon: ImageVector) {
     DOWNLOADS("下载", Icons.Outlined.Download),
     MODS("模组", Icons.Outlined.Extension),
     WORLDS("存档", Icons.Outlined.Public),
+    INSTANCES("实例", Icons.Outlined.Folder),
+    MODPACKS("整合包", Icons.Outlined.Archive),
     ACCOUNTS("账号", Icons.Outlined.Person),
     SETTINGS("设置", Icons.Outlined.Settings),
 }
@@ -92,6 +98,8 @@ fun MainScreen(
                         NavTab.DOWNLOADS -> DownloadsScreen()
                         NavTab.MODS -> ModsScreen(modManager = core.modManager)
                         NavTab.WORLDS -> WorldsScreen(worldManager = core.worldManager)
+                        NavTab.INSTANCES -> InstancesScreen(instanceManager = core.instanceManager)
+                        NavTab.MODPACKS -> ModpacksScreen(modpackManager = core.modpackManager)
                         NavTab.ACCOUNTS -> AccountsScreen(
                             authService = core.authService,
                             preferences = core.preferences,
