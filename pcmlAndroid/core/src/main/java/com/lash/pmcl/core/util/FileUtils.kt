@@ -69,6 +69,21 @@ object FileUtils {
     }
 
     /**
+     * 将字节数组写入文件（覆盖）。
+     */
+    @Throws(IOException::class)
+    fun writeBytes(path: Path, bytes: ByteArray) {
+        path.parent?.let { Files.createDirectories(it) }
+        Files.newOutputStream(path).use { it.write(bytes) }
+    }
+
+    /**
+     * 读取文件全部内容为字节数组。
+     */
+    @Throws(IOException::class)
+    fun readBytes(path: Path): ByteArray = Files.readAllBytes(path)
+
+    /**
      * 递归删除目录或文件。
      */
     @Throws(IOException::class)
