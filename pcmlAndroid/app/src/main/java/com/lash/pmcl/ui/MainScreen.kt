@@ -110,9 +110,13 @@ fun MainScreen(
                             versionManager = core.versionManager,
                             preferences = core.preferences,
                         )
-                        NavTab.VERSIONS -> VersionsScreen(versionManager = core.versionManager)
+                        NavTab.VERSIONS -> VersionsScreen(
+                            versionManager = core.versionManager,
+                            versionInstaller = core.versionInstaller,
+                            modLoaderManager = core.modLoaderManager,
+                        )
                         NavTab.DOWNLOADS -> DownloadsScreen()
-                        NavTab.MODS -> ModsScreen(modManager = core.modManager)
+                        NavTab.MODS -> ModsScreen(core = core)
                         NavTab.WORLDS -> WorldsScreen(worldManager = core.worldManager)
                         NavTab.INSTANCES -> InstancesScreen(instanceManager = core.instanceManager)
                         NavTab.MODPACKS -> ModpacksScreen(modpackManager = core.modpackManager)

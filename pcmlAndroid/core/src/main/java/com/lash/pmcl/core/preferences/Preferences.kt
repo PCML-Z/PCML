@@ -53,6 +53,11 @@ class Preferences(
     private var lastPlayedTimes: MutableMap<String, Long> = HashMap()        // versionId → epoch millis
     private var pinnedTileLabels: MutableMap<String, String> = HashMap()     // versionId → 自定义磁贴名称
 
+    // ===== 每版本 Java 路径 / 服务器直连 =====
+    private var versionJavaPaths: MutableMap<String, String> = HashMap()
+    private var gameServerHost: String = ""
+    private var gameServerPort: Int = 25565
+
     // ===== JVM / 启动 =====
     private var customJvmArgs: String = ""
     private var gcType: String = "G1GC"
@@ -199,6 +204,22 @@ class Preferences(
     @Synchronized fun getMaxMemoryMb(): Int = maxMemoryMb
     @Synchronized fun setMaxMemoryMb(v: Int) { maxMemoryMb = v.coerceAtLeast(512); scheduleSave() }
 
+    // ==================== 每版本 Java 路径 / 服务器直连 ====================
+    @Synchronized fun getVersionJavaPath(versionId: String): String =
+        versionJavaPaths[versionId] ?: ""
+
+    @Synchronized fun setVersionJavaPath(versionId: String, path: String) {
+        if (path.isEmpty()) versionJavaPaths.remove(versionId)
+        else versionJavaPaths[versionId] = path
+        scheduleSave()
+    }
+
+    @Synchronized fun getGameServerHost(): String = gameServerHost
+    @Synchronized fun setGameServerHost(v: String) { gameServerHost = v ?: ""; scheduleSave() }
+
+    @Synchronized fun getGameServerPort(): Int = gameServerPort
+    @Synchronized fun setGameServerPort(v: Int) { gameServerPort = v; scheduleSave() }
+
     // ==================== 网络配置 ====================
     @Synchronized fun getMirrorType(): String = mirrorType
     @Synchronized fun setMirrorType(v: String) { mirrorType = v ?: "OFFICIAL"; scheduleSave() }
@@ -288,6 +309,9 @@ class Preferences(
             downloadThreads = root.optInt("downloadThreads", 8)
             githubSyncEnabled = root.optBool("githubSyncEnabled", false)
             githubRepo = root.optStr("githubRepo", "")
+            versionJavaPaths = root.optStrMap("versionJavaPaths")
+            gameServerHost = root.optStr("gameServerHost", "")
+            gameServerPort = root.optInt("gameServerPort", 25565)
 
             pinnedVersions = root.optStrList("pinnedVersions")
             recentVersions = root.optStrList("recentVersions")
@@ -332,6 +356,9 @@ class Preferences(
             addProperty("downloadThreads", downloadThreads)
             addProperty("githubSyncEnabled", githubSyncEnabled)
             addProperty("githubRepo", githubRepo)
+            add("versionJavaPaths", gson.toJsonTree(versionJavaPaths))
+            addProperty("gameServerHost", gameServerHost)
+            addProperty("gameServerPort", gameServerPort)
             add("pinnedVersions", gson.toJsonTree(pinnedVersions))
             add("recentVersions", gson.toJsonTree(recentVersions))
             add("lastPlayedTimes", gson.toJsonTree(lastPlayedTimes))
