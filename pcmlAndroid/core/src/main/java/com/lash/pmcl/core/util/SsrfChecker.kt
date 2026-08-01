@@ -87,6 +87,39 @@ object SsrfChecker {
     fun isSafe(url: String?): Boolean = validate(url) == null
 
     /**
+     * 校验完整 URL 是否安全，但允许私有局域网 / 回环地址。
+     *
+     * 用于皮肤站（Yggdrasil）登录、authlib-injector 等合法需要访问局域网服务的场景。
+     * 拒绝链路本地（含云 metadata 169.254.169.254）、组播与任意本地 0.0.0.0。
+     *
+     * @param url 完整 URL 字符串（含 scheme）
+     * @return null 表示校验通过，否则返回错误描述
+     */
+    fun validateAllowingPrivateLan(url: String?): String? {
+        if (url.isNullOrBlank()) {
+            return "URL is null or blank"
+        }
+        if (url.length > MAX_URL_LENGTH) {
+            return "URL exceeds max length of $MAX_URL_LENGTH"
+        }
+        val parsed: URL
+        try {
+            parsed = URL(url)
+        } catch (e: MalformedURLException) {
+            return "Malformed URL: ${e.message}"
+        }
+        val protocol = parsed.protocol.lowercase()
+        if (protocol !in ALLOWED_PROTOCOLS) {
+            return "Protocol '$protocol' not allowed (supported: http, https)"
+        }
+        val host = parsed.host
+        if (host.isNullOrBlank()) {
+            return "URL host is missing"
+        }
+        return validateHostAllowingPrivateLan(host)
+    }
+
+    /**
      * 校验裸主机名（无 scheme），用于 TCP 探测如服务器 ping。
      *
      * 允许私有局域网 / 回环地址（局域网 Minecraft 服务器合法场景），

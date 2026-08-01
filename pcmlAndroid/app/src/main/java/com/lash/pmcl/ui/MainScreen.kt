@@ -13,11 +13,13 @@ import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Extension
 import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.Newspaper
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Storage
+import androidx.compose.material.icons.outlined.Wifi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationRail
@@ -38,6 +40,8 @@ import com.lash.pmcl.ui.screens.InstancesScreen
 import com.lash.pmcl.ui.screens.LaunchScreen
 import com.lash.pmcl.ui.screens.ModpacksScreen
 import com.lash.pmcl.ui.screens.ModsScreen
+import com.lash.pmcl.ui.screens.NewsScreen
+import com.lash.pmcl.ui.screens.ServersScreen
 import com.lash.pmcl.ui.screens.SettingsScreen
 import com.lash.pmcl.ui.screens.VersionsScreen
 import com.lash.pmcl.ui.screens.WorldsScreen
@@ -50,6 +54,8 @@ private enum class NavTab(val label: String, val icon: ImageVector) {
     WORLDS("存档", Icons.Outlined.Public),
     INSTANCES("实例", Icons.Outlined.Folder),
     MODPACKS("整合包", Icons.Outlined.Archive),
+    SERVERS("服务器", Icons.Outlined.Wifi),
+    NEWS("新闻", Icons.Outlined.Newspaper),
     ACCOUNTS("账号", Icons.Outlined.Person),
     SETTINGS("设置", Icons.Outlined.Settings),
 }
@@ -100,6 +106,8 @@ fun MainScreen(
                         NavTab.WORLDS -> WorldsScreen(worldManager = core.worldManager)
                         NavTab.INSTANCES -> InstancesScreen(instanceManager = core.instanceManager)
                         NavTab.MODPACKS -> ModpacksScreen(modpackManager = core.modpackManager)
+                        NavTab.SERVERS -> ServersScreen(serverPinger = core.serverPinger)
+                        NavTab.NEWS -> NewsScreen(newsClient = core.newsClient)
                         NavTab.ACCOUNTS -> AccountsScreen(
                             authService = core.authService,
                             preferences = core.preferences,
