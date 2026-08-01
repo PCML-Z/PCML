@@ -11,9 +11,12 @@ import com.lash.pmcl.core.gamecontent.ShaderPackManager
 import com.lash.pmcl.core.gamecontent.WorldManager
 import com.lash.pmcl.core.install.IntegrityChecker
 import com.lash.pmcl.core.install.VersionInstaller
+import com.lash.pmcl.core.instance.InstanceManager
 import com.lash.pmcl.core.launch.LaunchManager
 import com.lash.pmcl.core.market.CurseForgeClient
+import com.lash.pmcl.core.market.ModMarketManager
 import com.lash.pmcl.core.market.ModrinthClient
+import com.lash.pmcl.core.modpack.ModpackManager
 import com.lash.pmcl.core.mods.ModDependencyResolver
 import com.lash.pmcl.core.mods.ModDropInstaller
 import com.lash.pmcl.core.mods.ModManager
@@ -74,9 +77,18 @@ class LauncherCore(
     // ===== 市场 =====
     val modrinthClient: ModrinthClient = ModrinthClient(downloadManager)
     val curseForgeClient: CurseForgeClient = CurseForgeClient("", downloadManager)
+    val modMarketManager: ModMarketManager = ModMarketManager(paths, downloadManager, "")
 
     // ===== 模组加载器 =====
     val modLoaderManager: ModLoaderManager = ModLoaderManager(paths, downloadManager, versionInstaller)
+
+    // ===== 实例管理 =====
+    val instanceManager: InstanceManager = InstanceManager(paths)
+
+    // ===== 整合包管理 =====
+    val modpackManager: ModpackManager = ModpackManager(
+        paths, downloadManager, versionInstaller, modLoaderManager, preferences
+    )
 
     // ===== 模组管理 =====
     val modManager: ModManager = ModManager(paths.minecraftWorkDir.resolve("mods"))
