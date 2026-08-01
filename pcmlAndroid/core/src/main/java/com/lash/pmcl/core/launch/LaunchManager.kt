@@ -28,9 +28,16 @@ class LaunchManager(
         const val EXIT_CANCELLED = -100
     }
 
+    private val profileBuilder = LaunchProfileBuilder(paths, preferences)
+
     /** UI 层注入的游戏启动器实现 */
     @Volatile
     var gameLauncher: GameLauncher? = null
+
+    /** 构造启动配置（委托给 LaunchProfileBuilder） */
+    @Throws(IOException::class)
+    fun buildProfile(versionId: String, account: com.lash.pmcl.core.auth.Account?): LaunchProfile =
+        profileBuilder.build(versionId, account)
 
     /** 活跃游戏进程集合（应用退出时强制清理） */
     private val activeProcesses: MutableSet<GameProcess> =

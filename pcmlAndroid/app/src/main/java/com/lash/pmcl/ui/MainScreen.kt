@@ -1,16 +1,24 @@
 package com.lash.pmcl.ui
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.Scaffold
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -19,15 +27,28 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import com.lash.pmcl.core.auth.AuthService
 import com.lash.pmcl.core.download.DownloadManager
+import com.lash.pmcl.core.launch.LaunchManager
+import com.lash.pmcl.core.preferences.Preferences
 import com.lash.pmcl.core.version.VersionManager
+import com.lash.pmcl.ui.screens.AccountsScreen
 import com.lash.pmcl.ui.screens.DownloadsScreen
+import com.lash.pmcl.ui.screens.LaunchScreen
 import com.lash.pmcl.ui.screens.SettingsScreen
 import com.lash.pmcl.ui.screens.VersionsScreen
 
-private enum class Tab(val label: String, val icon: ImageVector) {
+/**
+ * 主界面 — 横向布局，与桌面版 UI 一致。
+ *
+ * 结构：Row { NavigationRail(左侧导航) + 内容区(weight 1f) }
+ * 导航项对应已迁移的核心模块：启动 / 版本 / 下载 / 账号 / 设置。
+ */
+private enum class NavTab(val label: String, val icon: ImageVector) {
+    LAUNCH("启动", Icons.Outlined.PlayArrow),
     VERSIONS("版本", Icons.Outlined.Storage),
     DOWNLOADS("下载", Icons.Outlined.Download),
+    ACCOUNTS("账号", Icons.Outlined.Person),
     SETTINGS("设置", Icons.Outlined.Settings),
 }
 
@@ -35,17 +56,25 @@ private enum class Tab(val label: String, val icon: ImageVector) {
 fun MainScreen(
     versionManager: VersionManager,
     downloadManager: DownloadManager,
+    authService: AuthService,
+    launchManager: LaunchManager,
+    preferences: Preferences,
     appVersion: String,
 ) {
     var selected by remember { mutableIntStateOf(0) }
-    val tabs = Tab.entries
+    val tabs = NavTab.entries
 
-    Scaffold(
+    Surface(
         modifier = Modifier.fillMaxSize(),
-        bottomBar = {
-            NavigationBar {
+        color = MaterialTheme.colorScheme.surface,
+    ) {
+        Row(modifier = Modifier.fillMaxSize()) {
+            NavigationRail(
+                modifier = Modifier.fillMaxHeight(),
+                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            ) {
                 tabs.forEachIndexed { index, tab ->
-                    NavigationBarItem(
+                    NavigationRailItem(
                         selected = selected == index,
                         onClick = { selected = index },
                         icon = { Icon(tab.icon, contentDescription = tab.label) },
@@ -53,22 +82,33 @@ fun MainScreen(
                     )
                 }
             }
-        },
-        containerColor = MaterialTheme.colorScheme.surface,
-    ) { innerPadding ->
-        when (tabs[selected]) {
-            Tab.VERSIONS -> VersionsScreen(
-                versionManager = versionManager,
-                contentPadding = innerPadding,
-            )
-            Tab.DOWNLOADS -> {
-                DownloadsScreen()
-            }
-            Tab.SETTINGS -> {
-                SettingsScreen(
-                    downloadManager = downloadManager,
-                    appVersion = appVersion,
-                )
+
+            Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                AnimatedContent(
+                    targetState = selected,
+                    transitionSpec = { fadeIn() togetherWith fadeOut() },
+                    label = "page-switch",
+                ) { index ->
+                    when (tabs[index]) {
+                        NavTab.LAUNCH -> LaunchScreen(
+                            authService = authService,
+                            launchManager = launchManager,
+                            versionManager = versionManager,
+                            preferences = preferences,
+                        )
+                        NavTab.VERSIONS -> VersionsScreen(versionManager = versionManager)
+                        NavTab.DOWNLOADS -> DownloadsScreen()
+                        NavTab.ACCOUNTS -> AccountsScreen(
+                            authService = authService,
+                            preferences = preferences,
+                        )
+                        NavTab.SETTINGS -> SettingsScreen(
+                            downloadManager = downloadManager,
+                            preferences = preferences,
+                            appVersion = appVersion,
+                        )
+                    }
+                }
             }
         }
     }

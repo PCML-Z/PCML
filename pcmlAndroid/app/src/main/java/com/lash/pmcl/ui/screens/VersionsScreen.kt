@@ -3,7 +3,6 @@ package com.lash.pmcl.ui.screens
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -13,14 +12,19 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Storage
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -40,12 +44,9 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun VersionsScreen(
-    versionManager: VersionManager,
-    contentPadding: PaddingValues,
-) {
+fun VersionsScreen(versionManager: VersionManager) {
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
     var loading by remember { mutableStateOf(true) }
     var versions by remember { mutableStateOf<List<VersionManager.LocalVersionInfo>>(emptyList()) }
@@ -68,8 +69,7 @@ fun VersionsScreen(
         error = null
         Thread {
             try {
-                val result = versionManager.scanAllLocalVersions()
-                versions = result
+                versions = versionManager.scanAllLocalVersions()
             } catch (e: Exception) {
                 error = e.message ?: e.toString()
             } finally {
@@ -103,64 +103,45 @@ fun VersionsScreen(
                     Box(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center,
-                    ) {
-                        CircularProgressIndicator()
-                    }
+                    ) { CircularProgressIndicator() }
                 }
                 error != null -> {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(24.dp),
-                        verticalArrangement = Arrangement.Center,
-                        horizontalAlignment = Alignment.CenterHorizontally,
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center,
                     ) {
-                        Text(
-                            text = "加载失败",
-                            style = MaterialTheme.typography.titleMedium,
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            text = error!!,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.outline,
-                        )
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("加载失败", style = MaterialTheme.typography.titleMedium)
+                            Spacer(Modifier.height(8.dp))
+                            Text(error!!, style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.outline)
+                        }
                     }
                 }
                 versions.isEmpty() -> {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(24.dp),
-                        verticalArrangement = Arrangement.Center,
-                        horizontalAlignment = Alignment.CenterHorizontally,
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center,
                     ) {
-                        Icon(
-                            Icons.Outlined.Storage,
-                            contentDescription = null,
-                            modifier = Modifier.size(48.dp),
-                            tint = MaterialTheme.colorScheme.outline,
-                        )
-                        Spacer(Modifier.height(12.dp))
-                        Text(
-                            text = "暂无已安装的版本",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.outline,
-                        )
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(Icons.Outlined.Storage, contentDescription = null,
+                                modifier = Modifier.size(48.dp),
+                                tint = MaterialTheme.colorScheme.outline)
+                            Spacer(Modifier.height(12.dp))
+                            Text("暂无已安装的版本", style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.outline)
+                        }
                     }
                 }
                 else -> {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(
-                            start = 0.dp,
-                            end = 0.dp,
-                            top = 8.dp,
-                            bottom = contentPadding.calculateBottomPadding() + 8.dp,
-                        ),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                            horizontal = 16.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         items(versions, key = { it.id }) { v ->
-                            VersionRow(v)
+                            VersionCard(v)
                         }
                     }
                 }
@@ -170,51 +151,55 @@ fun VersionsScreen(
 }
 
 @Composable
-private fun VersionRow(v: VersionManager.LocalVersionInfo) {
+private fun VersionCard(v: VersionManager.LocalVersionInfo) {
     val dateFmt = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+        ),
+        shape = RoundedCornerShape(8.dp),
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = v.id,
-                style = MaterialTheme.typography.titleSmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(2.dp))
-            val info = buildString {
-                if (v.hasJar) append("jar ")
-                if (v.hasJson) append("json")
-                if (v.inheritsFrom != null) append(" <- ${v.inheritsFrom}")
-                if (v.mainClass != null) append("  ${v.mainClass}")
-            }
-            if (info.isNotBlank()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = info,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline,
+                    text = v.id,
+                    style = MaterialTheme.typography.titleSmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                Spacer(Modifier.height(2.dp))
+                val info = buildString {
+                    if (v.hasJar) append("jar ")
+                    if (v.hasJson) append("json")
+                    if (v.inheritsFrom != null) append(" <- ${v.inheritsFrom}")
+                    if (v.mainClass != null) append("  ${v.mainClass}")
+                }
+                if (info.isNotBlank()) {
+                    Text(info, style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                if (v.lastModified > 0) {
+                    Text(dateFmt.format(Date(v.lastModified)),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline)
+                }
             }
-            if (v.lastModified > 0) {
-                Text(
-                    text = dateFmt.format(Date(v.lastModified)),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.outline,
-                )
+            if (!v.isLaunchable) {
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = MaterialTheme.colorScheme.errorContainer,
+                ) {
+                    Text("不可用",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                }
             }
-        }
-        if (!v.isLaunchable) {
-            Text(
-                text = "不可用",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.outline,
-            )
         }
     }
 }
