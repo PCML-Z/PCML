@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -42,15 +44,21 @@ import androidx.compose.ui.unit.dp
 fun AgreementGateScreen(onAgreed: () -> Unit) {
     var agreed by remember { mutableStateOf(false) }
     var dialogContent by remember { mutableStateOf<AgreementContent?>(null) }
+    val scrollState = rememberScrollState()
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(24.dp),
-        contentAlignment = Alignment.Center,
+            .navigationBarsPadding()
+            .imePadding(),
+        contentAlignment = Alignment.TopCenter,
     ) {
         Column(
-            modifier = Modifier.widthIn(max = 480.dp),
+            modifier = Modifier
+                .widthIn(max = 480.dp)
+                .fillMaxWidth()
+                .verticalScroll(scrollState)
+                .padding(horizontal = 24.dp, vertical = 48.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Icon(
