@@ -11,8 +11,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Extension
 import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Newspaper
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.PlayArrow
@@ -35,14 +37,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.lash.pmcl.core.LauncherCore
 import com.lash.pmcl.ui.screens.AccountsScreen
+import com.lash.pmcl.ui.screens.ConfigEditorScreen
 import com.lash.pmcl.ui.screens.DownloadsScreen
 import com.lash.pmcl.ui.screens.InstancesScreen
 import com.lash.pmcl.ui.screens.LaunchScreen
 import com.lash.pmcl.ui.screens.ModpacksScreen
 import com.lash.pmcl.ui.screens.ModsScreen
 import com.lash.pmcl.ui.screens.NewsScreen
+import com.lash.pmcl.ui.screens.ResourcePacksScreen
+import com.lash.pmcl.ui.screens.ScreenshotsScreen
 import com.lash.pmcl.ui.screens.ServersScreen
 import com.lash.pmcl.ui.screens.SettingsScreen
+import com.lash.pmcl.ui.screens.ShaderPacksScreen
 import com.lash.pmcl.ui.screens.VersionsScreen
 import com.lash.pmcl.ui.screens.WorldsScreen
 
@@ -56,6 +62,10 @@ private enum class NavTab(val label: String, val icon: ImageVector) {
     MODPACKS("整合包", Icons.Outlined.Archive),
     SERVERS("服务器", Icons.Outlined.Wifi),
     NEWS("新闻", Icons.Outlined.Newspaper),
+    RESOURCE_PACKS("资源包", Icons.Outlined.Image),
+    SHADER_PACKS("光影包", Icons.Outlined.Image),
+    SCREENSHOTS("截图", Icons.Outlined.Image),
+    CONFIG_EDITOR("配置", Icons.Outlined.Edit),
     ACCOUNTS("账号", Icons.Outlined.Person),
     SETTINGS("设置", Icons.Outlined.Settings),
 }
@@ -108,6 +118,10 @@ fun MainScreen(
                         NavTab.MODPACKS -> ModpacksScreen(modpackManager = core.modpackManager)
                         NavTab.SERVERS -> ServersScreen(serverPinger = core.serverPinger)
                         NavTab.NEWS -> NewsScreen(newsClient = core.newsClient)
+                        NavTab.RESOURCE_PACKS -> ResourcePacksScreen(resourcePackManager = core.resourcePackManager)
+                        NavTab.SHADER_PACKS -> ShaderPacksScreen(shaderPackManager = core.shaderPackManager)
+                        NavTab.SCREENSHOTS -> ScreenshotsScreen(screenshotManager = core.screenshotManager)
+                        NavTab.CONFIG_EDITOR -> ConfigEditorScreen(configFileManager = core.configFileManager)
                         NavTab.ACCOUNTS -> AccountsScreen(
                             authService = core.authService,
                             preferences = core.preferences,
