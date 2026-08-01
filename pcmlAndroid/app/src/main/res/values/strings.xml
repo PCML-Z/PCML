@@ -1,3 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">PMCL</string>
+
+    <!-- ===== 底部导航 ===== -->
+    <string name="nav_versions">版本</string>
+    <string name="nav_downloads">下载</string>
+    <string name="nav_settings">设置</string>
+
+    <!-- ===== 通用 ===== -->
+    <string name="common_ok">确定</string>
+    <string name="common_cancel">取消</string>
+    <string name="common_confirm">确认</string>
+    <string name="common_retry">重试</string>
+    <string name="common_back">返回</string>
+    <string name="common_close">关闭</string>
+    <string name="common_save">保存</string>
+    <string name="common_install">安装</string>
+    <string name="common_uninstall">卸载</string>
+    <string name="common_delete">删除</string>
+    <string name="common_refresh">刷新</string>
+    <string name="common_loading">加载中…</string>
+    <string name="common_failed">失败</string>
+    <string name="common_success">成功</string>
+    <string name="common_search">搜索</string>
+    <string name="common_browse">浏览</string>
+
+    <!-- ===== 版本页 ===== -->
+    <string name="versions_title">Minecraft 版本</string>
+    <string name="versions_empty">尚未安装任何版本，前往「下载」页安装一个吧</string>
+    <string name="versions_scan_failed">扫描本地版本失败: %1$s</string>
+    <string name="versions_last_played">上次游玩: %1$s</string>
+    <string name="versions_never_played">从未游玩</string>
+    <string name="versions_play">启动</string>
+    <string name="versions_pin">固定</string>
+    <string name="versions_unpin">取消固定</string>
+
+    <!-- ===== 下载页 ===== -->
+    <string name="downloads_title">下载版本</string>
+    <string name="downloads_search_hint">搜索版本号，如 1.20.4</string>
+    <string name="downloads_release">正式版</string>
+    <string name="downloads_snapshot">快照</string>
+    <string name="downloads_old_beta">老版本</string>
+    <string name="downloads_installed">已安装</string>
+    <string name="downloads_install">安装</string>
+    <string name="downloads_installing">安装中…</string>
+    <string name="downloads_fetch_failed">获取版本列表失败: %1$s</string>
+
+    <!-- ===== 设置页 ===== -->
+    <string name="settings_title">设置</string>
+    <string name="settings_appearance">外观</string>
+    <string name="settings_dark_theme">深色主题</string>
+    <string name="settings_dynamic_color">动态取色（Material You）</string>
+    <string name="settings_theme_preset">主题预设</string>
+    <string name="settings_color_mode">色彩模式</string>
+    <string name="settings_language">语言</string>
+
+    <string name="settings_game">游戏</string>
+    <string name="settings_jvm_args">JVM 参数</string>
+    <string name="settings_gc_type">GC 类型</string>
+    <string name="settings_use_aikar_flags">使用 Aikar Flags</string>
+    <string name="settings_min_memory">最小内存 (MB)</string>
+    <string name="settings_max_memory">最大内存 (MB)</string>
+
+    <string name="settings_network">网络</string>
+    <string name="settings_mirror">镜像源</string>
+    <string name="settings_mirror_official">官方</string>
+    <string name="settings_mirror_bmclapi">BMCLAPI</string>
+    <string name="settings_mirror_custom">自定义</string>
+    <string name="settings_custom_mirror_base">自定义镜像基址</string>
+    <string name="settings_proxy">代理</string>
+    <string name="settings_proxy_host">代理地址</string>
+    <string name="settings_proxy_port">代理端口</string>
+    <string name="settings_proxy_auth">代理认证</string>
+    <string name="settings_proxy_username">代理用户名</string>
+    <string name="settings_proxy_password">代理密码</string>
+    <string name="settings_speed_limit">下载限速 (KB/s，0=不限)</string>
+    <string name="settings_retry_count">下载重试次数</string>
+    <string name="settings_enable_resume">断点续传</string>
+    <string name="settings_chunked_threads">分片下载线程数</string>
+    <string name="settings_download_threads">总下载线程数</string>
+
+    <string name="settings_about">关于</string>
+    <string name="settings_github_sync">GitHub Release 同步更新</string>
+    <string name="settings_github_repo">GitHub 仓库（owner/repo）</string>
+    <string name="settings_check_update">检查更新</string>
+
+    <!-- ===== 首次启动 ===== -->
+    <string name="welcome_title">欢迎使用 PMCL</string>
+    <string name="welcome_agreement">用户协议与免责声明</string>
+    <string name="welcome_accept">我已阅读并同意</string>
+    <string name="welcome_start">开始使用</string>
+
+    <!-- ===== 主题预设 ===== -->
+    <string name="theme_default">默认</string>
+    <string name="theme_ocean">海洋</string>
+    <string name="theme_forest">森林</string>
+    <string name="theme_sunset">日落</string>
+    <string name="theme_lavender">薰衣草</string>
+    <string name="theme_sakura">樱花</string>
+    <string name="theme_midnight">午夜</string>
+
+    <!-- ===== 色彩模式 ===== -->
+    <string name="color_mode_normal">普通</string>
+    <string name="color_mode_amoled">AMOLED 纯黑</string>
+    <string name="color_mode_high_contrast">高对比度</string>
+    <string name="color_mode_soft">柔和</string>
 </resources>

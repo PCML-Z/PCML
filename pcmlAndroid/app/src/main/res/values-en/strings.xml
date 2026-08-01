@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">PMCL</string>
+
+    <!-- ===== Bottom navigation ===== -->
+    <string name="nav_versions">Versions</string>
+    <string name="nav_downloads">Downloads</string>
+    <string name="nav_settings">Settings</string>
+
+    <!-- ===== Common ===== -->
+    <string name="common_ok">OK</string>
+    <string name="common_cancel">Cancel</string>
+    <string name="common_confirm">Confirm</string>
+    <string name="common_retry">Retry</string>
+    <string name="common_back">Back</string>
+    <string name="common_close">Close</string>
+    <string name="common_save">Save</string>
+    <string name="common_install">Install</string>
+    <string name="common_uninstall">Uninstall</string>
+    <string name="common_delete">Delete</string>
+    <string name="common_refresh">Refresh</string>
+    <string name="common_loading">Loading…</string>
+    <string name="common_failed">Failed</string>
+    <string name="common_success">Success</string>
+    <string name="common_search">Search</string>
+    <string name="common_browse">Browse</string>
+
+    <!-- ===== Versions page ===== -->
+    <string name="versions_title">Minecraft Versions</string>
+    <string name="versions_empty">No version installed yet. Go to Downloads to install one.</string>
+    <string name="versions_scan_failed">Failed to scan local versions: %1$s</string>
+    <string name="versions_last_played">Last played: %1$s</string>
+    <string name="versions_never_played">Never played</string>
+    <string name="versions_play">Play</string>
+    <string name="versions_pin">Pin</string>
+    <string name="versions_unpin">Unpin</string>
+
+    <!-- ===== Downloads page ===== -->
+    <string name="downloads_title">Download Version</string>
+    <string name="downloads_search_hint">Search version, e.g. 1.20.4</string>
+    <string name="downloads_release">Release</string>
+    <string name="downloads_snapshot">Snapshot</string>
+    <string name="downloads_old_beta">Old Beta</string>
+    <string name="downloads_installed">Installed</string>
+    <string name="downloads_install">Install</string>
+    <string name="downloads_installing">Installing…</string>
+    <string name="downloads_fetch_failed">Failed to fetch version list: %1$s</string>
+
+    <!-- ===== Settings page ===== -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_appearance">Appearance</string>
+    <string name="settings_dark_theme">Dark theme</string>
+    <string name="settings_dynamic_color">Dynamic color (Material You)</string>
+    <string name="settings_theme_preset">Theme preset</string>
+    <string name="settings_color_mode">Color mode</string>
+    <string name="settings_language">Language</string>
+
+    <string name="settings_game">Game</string>
+    <string name="settings_jvm_args">JVM args</string>
+    <string name="settings_gc_type">GC type</string>
+    <string name="settings_use_aikar_flags">Use Aikar Flags</string>
+    <string name="settings_min_memory">Min memory (MB)</string>
+    <string name="settings_max_memory">Max memory (MB)</string>
+
+    <string name="settings_network">Network</string>
+    <string name="settings_mirror">Mirror</string>
+    <string name="settings_mirror_official">Official</string>
+    <string name="settings_mirror_bmclapi">BMCLAPI</string>
+    <string name="settings_mirror_custom">Custom</string>
+    <string name="settings_custom_mirror_base">Custom mirror base</string>
+    <string name="settings_proxy">Proxy</string>
+    <string name="settings_proxy_host">Proxy host</string>
+    <string name="settings_proxy_port">Proxy port</string>
+    <string name="settings_proxy_auth">Proxy auth</string>
+    <string name="settings_proxy_username">Proxy username</string>
+    <string name="settings_proxy_password">Proxy password</string>
+    <string name="settings_speed_limit">Speed limit (KB/s, 0=none)</string>
+    <string name="settings_retry_count">Retry count</string>
+    <string name="settings_enable_resume">Resume download</string>
+    <string name="settings_chunked_threads">Chunked download threads</string>
+    <string name="settings_download_threads">Total download threads</string>
+
+    <string name="settings_about">About</string>
+    <string name="settings_github_sync">GitHub Release sync</string>
+    <string name="settings_github_repo">GitHub repo (owner/repo)</string>
+    <string name="settings_check_update">Check for updates</string>
+
+    <!-- ===== Welcome ===== -->
+    <string name="welcome_title">Welcome to PMCL</string>
+    <string name="welcome_agreement">User agreement and disclaimer</string>
+    <string name="welcome_accept">I have read and agree</string>
+    <string name="welcome_start">Get started</string>
+
+    <!-- ===== Theme presets ===== -->
+    <string name="theme_default">Default</string>
+    <string name="theme_ocean">Ocean</string>
+    <string name="theme_forest">Forest</string>
+    <string name="theme_sunset">Sunset</string>
+    <string name="theme_lavender">Lavender</string>
+    <string name="theme_sakura">Sakura</string>
+    <string name="theme_midnight">Midnight</string>
+
+    <!-- ===== Color modes ===== -->
+    <string name="color_mode_normal">Normal</string>
+    <string name="color_mode_amoled">AMOLED Black</string>
+    <string name="color_mode_high_contrast">High contrast</string>
+    <string name="color_mode_soft">Soft</string>
+</resources>
