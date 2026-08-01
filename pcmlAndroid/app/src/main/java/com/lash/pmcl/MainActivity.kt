@@ -13,6 +13,7 @@ import com.lash.pmcl.core.LauncherCore
 import com.lash.pmcl.core.paths.PmclPaths
 import com.lash.pmcl.ui.MainScreen
 import com.lash.pmcl.ui.screens.AgreementGateScreen
+import com.lash.pmcl.ui.screens.ServersScreenBridge
 import com.lash.pmcl.ui.screens.WelcomeScreen
 import com.lash.pmcl.ui.theme.PmclTheme
 import java.nio.file.Path
@@ -70,6 +71,8 @@ class MainActivity : ComponentActivity() {
             appVersion = BuildConfig.VERSION_NAME,
         )
         core.applyLanguage(core.preferences.getLanguage())
+        // 注入 paths 与 preferences，供 ServersScreen 在不变签名时做持久化与直连设置
+        ServersScreenBridge.init(core.paths, core.preferences)
     }
 
     override fun onDestroy() {

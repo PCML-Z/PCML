@@ -18,6 +18,7 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -29,6 +30,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -38,6 +41,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,10 +49,37 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import com.lash.pmcl.core.multiplayer.ServerPinger
+import com.lash.pmcl.core.paths.PmclPaths
+import com.lash.pmcl.core.preferences.Preferences
+import com.lash.pmcl.core.util.FileUtils
+import kotlinx.coroutines.launch
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.util.concurrent.atomic.AtomicLong
 
-/** 一条用户保存的服务器记录（内存态，后续可扩展为持久化）。 */
+/**
+ * 全局桥接：在 MainActivity 初始化时注入 paths 与 preferences，
+ * 供 ServersScreen 在不改变函数签名 `ServersScreen(serverPinger)` 的前提下，
+ * 内部使用 paths 做文件持久化、使用 preferences 做直连启动设置。
+ */
+object ServersScreenBridge {
+    @Volatile private var _paths: PmclPaths? = null
+    @Volatile private var _preferences: Preferences? = null
+
+    val paths: PmclPaths? get() = _paths
+    val preferences: Preferences? get() = _preferences
+
+    fun init(paths: PmclPaths, preferences: Preferences) {
+        _paths = paths
+        _preferences = preferences
+    }
+}
+
+/** 一条用户保存的服务器记录（持久化到 servers.json）。 */
 data class ServerEntry(
     val id: Long,
     val name: String,
@@ -70,6 +101,49 @@ data class ServerState(
     val error: String = "",
 )
 
+private const val SERVERS_FILE_NAME = "servers.json"
+private val gson: Gson = Gson()
+
+/** 从 paths.root/servers.json 读取服务器列表。文件不存在或损坏时返回空列表。 */
+private fun loadServers(): List<ServerEntry> {
+    val paths = ServersScreenBridge.paths ?: return emptyList()
+    val file = paths.root.resolve(SERVERS_FILE_NAME)
+    if (!Files.exists(file)) return emptyList()
+    return try {
+        val json = FileUtils.readString(file)
+        if (json.isBlank()) emptyList()
+        else {
+            val type = object : TypeToken<List<ServerEntry>>() {}.type
+            gson.fromJson<List<ServerEntry>>(json, type) ?: emptyList()
+        }
+    } catch (e: Exception) {
+        System.err.println("[ServersScreen] 加载服务器列表失败: ${e.message}")
+        emptyList()
+    }
+}
+
+/** 将服务器列表写入 paths.root/servers.json（临时文件 + 原子移动，避免半成品覆盖）。 */
+private fun saveServers(servers: List<ServerEntry>) {
+    val paths = ServersScreenBridge.paths ?: return
+    val file = paths.root.resolve(SERVERS_FILE_NAME)
+    try {
+        val tmp = file.resolveSibling("$SERVERS_FILE_NAME.tmp")
+        FileUtils.writeString(tmp, gson.toJson(servers))
+        try {
+            Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+        } catch (_: AtomicMoveNotSupportedException) {
+            Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING)
+        }
+    } catch (e: Exception) {
+        System.err.println("[ServersScreen] 保存服务器列表失败: ${e.message}")
+    }
+}
+
+/** 异步保存，避免阻塞 UI 线程。 */
+private fun saveServersAsync(servers: List<ServerEntry>) {
+    Thread { saveServers(servers) }.start()
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ServersScreen(serverPinger: ServerPinger) {
@@ -82,6 +156,8 @@ fun ServersScreen(serverPinger: ServerPinger) {
     var editTarget by remember { mutableStateOf<ServerEntry?>(null) }
     var deleteTarget by remember { mutableStateOf<ServerEntry?>(null) }
     val idCounter = remember { AtomicLong(0) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     fun pingServer(entry: ServerEntry) {
         states = states + (entry.id to ServerState(status = PingStatus.PINGING))
@@ -109,14 +185,31 @@ fun ServersScreen(serverPinger: ServerPinger) {
         }.start()
     }
 
-    fun refresh() {
-        loading = true
-        error = null
+    /** 直连启动：将服务器地址写入 preferences，启动时由启动参数读取。 */
+    fun connectServer(entry: ServerEntry) {
+        val prefs = ServersScreenBridge.preferences
+        if (prefs != null) {
+            prefs.setGameServerHost(entry.host)
+            prefs.setGameServerPort(entry.port)
+            scope.launch {
+                snackbarHostState.showSnackbar("已设置直连服务器：${entry.host}:${entry.port}")
+            }
+        } else {
+            scope.launch { snackbarHostState.showSnackbar("未初始化，无法设置直连") }
+        }
+    }
+
+    // 启动时从文件加载服务器列表，加载完成后批量 ping
+    LaunchedEffect(Unit) {
         Thread {
             try {
-                // 内存态：列表本身无需异步读取
+                val loaded = loadServers()
+                if (loaded.isNotEmpty()) {
+                    idCounter.set(loaded.maxOf { it.id } + 1)
+                }
+                servers = loaded
                 loading = false
-                servers.forEach { pingServer(it) }
+                loaded.forEach { pingServer(it) }
             } catch (e: Exception) {
                 error = e.message ?: e.toString()
                 loading = false
@@ -124,24 +217,23 @@ fun ServersScreen(serverPinger: ServerPinger) {
         }.start()
     }
 
-    LaunchedEffect(Unit) { refresh() }
-
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
                 title = { Text("服务器") },
                 actions = {
-                    IconButton(onClick = { showAddDialog = true }) {
+                    IconButton(onClick = { showAddDialog = true }, enabled = !loading) {
                         Icon(Icons.Outlined.Add, contentDescription = "添加服务器")
                     }
-                    IconButton(onClick = { refresh() }) {
+                    IconButton(onClick = { servers.forEach { pingServer(it) } }) {
                         Icon(Icons.Outlined.Refresh, contentDescription = "刷新")
                     }
                 },
                 scrollBehavior = scrollBehavior,
             )
         },
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
     ) { innerPadding ->
         Box(
             modifier = Modifier
@@ -198,6 +290,7 @@ fun ServersScreen(serverPinger: ServerPinger) {
                             ServerCard(
                                 entry = entry,
                                 state = states[entry.id] ?: ServerState(),
+                                onConnect = { connectServer(entry) },
                                 onEdit = { editTarget = entry },
                                 onDelete = { deleteTarget = entry },
                             )
@@ -223,6 +316,7 @@ fun ServersScreen(serverPinger: ServerPinger) {
                     port = port,
                 )
                 servers = servers + entry
+                saveServersAsync(servers)
                 showAddDialog = false
                 pingServer(entry)
             },
@@ -239,6 +333,7 @@ fun ServersScreen(serverPinger: ServerPinger) {
             onConfirm = { name, host, port ->
                 val updated = target.copy(name = name, host = host, port = port)
                 servers = servers.map { if (it.id == target.id) updated else it }
+                saveServersAsync(servers)
                 editTarget = null
                 pingServer(updated)
             },
@@ -254,6 +349,7 @@ fun ServersScreen(serverPinger: ServerPinger) {
                 TextButton(onClick = {
                     servers = servers.filterNot { it.id == target.id }
                     states = states - target.id
+                    saveServersAsync(servers)
                     deleteTarget = null
                 }) { Text("删除", color = MaterialTheme.colorScheme.error) }
             },
@@ -268,6 +364,7 @@ fun ServersScreen(serverPinger: ServerPinger) {
 private fun ServerCard(
     entry: ServerEntry,
     state: ServerState,
+    onConnect: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -342,6 +439,11 @@ private fun ServerCard(
                 }
                 Spacer(Modifier.height(4.dp))
                 Row {
+                    IconButton(onClick = onConnect) {
+                        Icon(Icons.Outlined.PlayArrow, contentDescription = "直连启动",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp))
+                    }
                     IconButton(onClick = onEdit) {
                         Icon(Icons.Outlined.Edit, contentDescription = "编辑",
                             modifier = Modifier.size(20.dp))

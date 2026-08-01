@@ -202,6 +202,53 @@ class InstanceManager(private val paths: PmclPaths) {
     }
 
     /** 保存实例元数据到 instance.json */
+    /**
+     * 设置实例图标：将源图片复制到实例目录下，并更新 iconPath。
+     * 仅允许图片扩展名（png/jpg/jpeg/gif/webp），目标文件名为 icon.<ext>。
+     *
+     * @param instanceId      实例 ID
+     * @param sourceImagePath 源图片文件路径
+     * @return 写入实例目录的图标文件名（如 "icon.png"）
+     */
+    @Throws(IOException::class)
+    fun setInstanceIcon(instanceId: String, sourceImagePath: Path): String {
+        val dir = getInstanceDir(instanceId)
+        if (!Files.isDirectory(dir)) throw IOException("实例目录不存在: $instanceId")
+        val source = sourceImagePath.toAbsolutePath().normalize()
+        if (!Files.isRegularFile(source)) throw IOException("图标文件不存在: $sourceImagePath")
+        val srcName = source.fileName?.toString() ?: "icon.png"
+        val ext = srcName.substringAfterLast('.', "png").lowercase()
+        val safeExt = if (ext in ICON_EXTENSIONS) ext else "png"
+        val iconName = "icon.$safeExt"
+        val target = dir.resolve(iconName).normalize()
+        if (!target.startsWith(dir.toAbsolutePath().normalize())) {
+            throw IOException("图标目标路径越界: $iconName")
+        }
+        Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING)
+        val info = loadInstanceInfo(dir) ?: throw IOException("无法读取实例元数据")
+        info.iconPath = iconName
+        saveInstanceInfo(info)
+        return iconName
+    }
+
+    /** 清除实例图标：删除图标文件并清空 iconPath */
+    @Throws(IOException::class)
+    fun clearInstanceIcon(instanceId: String) {
+        val dir = getInstanceDir(instanceId)
+        if (!Files.isDirectory(dir)) throw IOException("实例目录不存在: $instanceId")
+        val info = loadInstanceInfo(dir) ?: throw IOException("无法读取实例元数据")
+        val iconPath = info.iconPath
+        if (!iconPath.isNullOrEmpty()) {
+            val iconFile = resolveSafeIconPath(dir, iconPath)
+            if (iconFile != null) {
+                try { Files.deleteIfExists(iconFile) } catch (_: IOException) {}
+            }
+            info.iconPath = null
+            saveInstanceInfo(info)
+        }
+    }
+
+    /** 保存实例元数据到 instance.json */
     @Throws(IOException::class)
     fun saveInstanceInfo(info: InstanceInfo) {
         val instanceDir = info.instanceDir ?: throw IOException("实例目录未初始化")
@@ -230,6 +277,7 @@ class InstanceManager(private val paths: PmclPaths) {
         private const val LEGACY_MODPACK_MARKER = "modpack.json"
         private val SUBDIRS =
             arrayOf("mods", "saves", "config", "resourcepacks", "shaderpacks", "screenshots", "logs")
+        private val ICON_EXTENSIONS = setOf("png", "jpg", "jpeg", "gif", "webp")
 
         /** @throws IllegalArgumentException 若 instanceId 非法 */
         @JvmStatic
