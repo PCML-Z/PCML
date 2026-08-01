@@ -27,23 +27,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import com.lash.pmcl.core.auth.AuthService
-import com.lash.pmcl.core.download.DownloadManager
-import com.lash.pmcl.core.launch.LaunchManager
-import com.lash.pmcl.core.preferences.Preferences
-import com.lash.pmcl.core.version.VersionManager
+import com.lash.pmcl.core.LauncherCore
 import com.lash.pmcl.ui.screens.AccountsScreen
 import com.lash.pmcl.ui.screens.DownloadsScreen
 import com.lash.pmcl.ui.screens.LaunchScreen
 import com.lash.pmcl.ui.screens.SettingsScreen
 import com.lash.pmcl.ui.screens.VersionsScreen
 
-/**
- * 主界面 — 横向布局，与桌面版 UI 一致。
- *
- * 结构：Row { NavigationRail(左侧导航) + 内容区(weight 1f) }
- * 导航项对应已迁移的核心模块：启动 / 版本 / 下载 / 账号 / 设置。
- */
 private enum class NavTab(val label: String, val icon: ImageVector) {
     LAUNCH("启动", Icons.Outlined.PlayArrow),
     VERSIONS("版本", Icons.Outlined.Storage),
@@ -54,11 +44,7 @@ private enum class NavTab(val label: String, val icon: ImageVector) {
 
 @Composable
 fun MainScreen(
-    versionManager: VersionManager,
-    downloadManager: DownloadManager,
-    authService: AuthService,
-    launchManager: LaunchManager,
-    preferences: Preferences,
+    core: LauncherCore,
     appVersion: String,
 ) {
     var selected by remember { mutableIntStateOf(0) }
@@ -91,20 +77,20 @@ fun MainScreen(
                 ) { index ->
                     when (tabs[index]) {
                         NavTab.LAUNCH -> LaunchScreen(
-                            authService = authService,
-                            launchManager = launchManager,
-                            versionManager = versionManager,
-                            preferences = preferences,
+                            authService = core.authService,
+                            launchManager = core.launchManager,
+                            versionManager = core.versionManager,
+                            preferences = core.preferences,
                         )
-                        NavTab.VERSIONS -> VersionsScreen(versionManager = versionManager)
+                        NavTab.VERSIONS -> VersionsScreen(versionManager = core.versionManager)
                         NavTab.DOWNLOADS -> DownloadsScreen()
                         NavTab.ACCOUNTS -> AccountsScreen(
-                            authService = authService,
-                            preferences = preferences,
+                            authService = core.authService,
+                            preferences = core.preferences,
                         )
                         NavTab.SETTINGS -> SettingsScreen(
-                            downloadManager = downloadManager,
-                            preferences = preferences,
+                            downloadManager = core.downloadManager,
+                            preferences = core.preferences,
                             appVersion = appVersion,
                         )
                     }

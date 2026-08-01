@@ -5,8 +5,10 @@ import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.lash.pmcl.core.download.DownloadManager
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 import java.util.concurrent.CompletableFuture
 
@@ -250,6 +252,59 @@ class ModrinthClient(
         }
         val msg = last?.message ?: "未知错误"
         throw RuntimeException("Modrinth 获取项目失败：${friendlyError(msg)}", last)
+    }
+
+    /**
+     * 批量通过 SHA1 反查 Modrinth 版本文件信息。
+     * 调用 POST /v2/version_files 接口，返回 hash → 版本 JSON 的映射。
+     *
+     * @param sha1s SHA1 哈希列表
+     * @return Map<sha1, 版本 JsonObject>；网络失败时抛异常
+     */
+    fun batchCheckBySha1(sha1s: List<String>): Map<String, JsonObject> {
+        if (sha1s.isEmpty()) return emptyMap()
+        val hashArray = JsonArray()
+        for (s in sha1s) hashArray.add(s)
+        val requestBody = JsonObject().apply {
+            add("hashes", hashArray)
+            addProperty("algorithm", "sha1")
+        }
+        val mediaType = "application/json".toMediaType()
+        val req = Request.Builder()
+            .url("$BASE/version_files")
+            .header("User-Agent", "PMCL/1.0")
+            .post(requestBody.toString().toRequestBody(mediaType))
+            .build()
+        var last: Exception? = null
+        for (attempt in 0..RETRY) {
+            try {
+                http.newCall(req).execute().use { resp ->
+                    if (!resp.isSuccessful) {
+                        throw IOException("HTTP ${resp.code}")
+                    }
+                    val body = resp.body?.string() ?: "{}"
+                    val root = JsonParser.parseString(body).asJsonObject
+                    val result = HashMap<String, JsonObject>()
+                    for ((hash, value) in root.entrySet()) {
+                        if (value.isJsonObject) {
+                            result[hash] = value.asJsonObject
+                        }
+                    }
+                    return result
+                }
+            } catch (e: Exception) {
+                last = e
+                if (attempt < RETRY) {
+                    try {
+                        Thread.sleep(RETRY_BASE_MS * (1L shl attempt))
+                    } catch (_: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                        break
+                    }
+                }
+            }
+        }
+        throw RuntimeException("Modrinth batchCheckBySha1 失败: ${last?.message}", last)
     }
 
     /**

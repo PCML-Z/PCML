@@ -87,6 +87,49 @@ object SsrfChecker {
     fun isSafe(url: String?): Boolean = validate(url) == null
 
     /**
+     * 校验裸主机名（无 scheme），用于 TCP 探测如服务器 ping。
+     *
+     * 允许私有局域网 / 回环地址（局域网 Minecraft 服务器合法场景），
+     * 但拒绝链路本地（含云 metadata 169.254.169.254）、组播与任意本地 0.0.0.0。
+     *
+     * @param host 裸主机名或 IP 字面量
+     * @return null 表示校验通过，否则返回错误描述
+     */
+    fun validateHostAllowingPrivateLan(host: String?): String? {
+        if (host.isNullOrBlank()) {
+            return "Host is null or blank"
+        }
+        var h = host.trim()
+        if (h.length > 253) {
+            return "Host exceeds max length"
+        }
+        if (h.contains("/") || h.contains("\\") || h.contains(" ") || h.contains("\u0000")) {
+            return "Host contains illegal characters"
+        }
+        // 去除 IPv6 方括号
+        if (h.startsWith("[") && h.endsWith("]")) {
+            h = h.substring(1, h.length - 1)
+        }
+        val numericIpError = rejectNumericIpLiteral(h)
+        if (numericIpError != null) {
+            return numericIpError
+        }
+        val addresses: Array<InetAddress>
+        try {
+            addresses = InetAddress.getAllByName(h)
+        } catch (e: UnknownHostException) {
+            return "Cannot resolve host: $host"
+        }
+        for (addr in addresses) {
+            if (addr.isLinkLocalAddress || addr.isMulticastAddress || addr.isAnyLocalAddress) {
+                return "Host '$host' resolves to restricted address ${addr.hostAddress}" +
+                    " (link-local/multicast/any-local blocked)"
+            }
+        }
+        return null
+    }
+
+    /**
      * 判断一个 InetAddress 是否为内部/受限地址。
      * <p>
      * 拒绝的地址类型：
