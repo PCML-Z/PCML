@@ -2,11 +2,12 @@ package com.pmcl.ui.animation
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
-import androidx.compose.animation.with
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxSize
@@ -58,28 +59,45 @@ fun <T> AnimatedPageSwitch(
         targetState = targetState,
         modifier = modifier,
         transitionSpec = {
-            val duration = 300 // 平衡流畅度与响应感
-            if (direction >= 0) {
-                // 前进：新页从右滑入，旧页向左滑出
-                slideIntoContainer(
-                    towards = AnimatedContentTransitionScope.SlideDirection.Start,
-                    animationSpec = tween(duration, easing = MotionTokens.EasingEmphasized)
-                ) + fadeIn(tween(duration)) togetherWith
-                        slideOutOfContainer(
-                            towards = AnimatedContentTransitionScope.SlideDirection.Start,
-                            animationSpec = tween(duration, easing = MotionTokens.EasingEmphasized)
-                        ) + fadeOut(tween(duration / 2))
-            } else {
-                // 后退：新页从左滑入，旧页向右滑出
-                slideIntoContainer(
-                    towards = AnimatedContentTransitionScope.SlideDirection.End,
-                    animationSpec = tween(duration, easing = MotionTokens.EasingEmphasized)
-                ) + fadeIn(tween(duration)) togetherWith
-                        slideOutOfContainer(
-                            towards = AnimatedContentTransitionScope.SlideDirection.End,
-                            animationSpec = tween(duration, easing = MotionTokens.EasingEmphasized)
-                        ) + fadeOut(tween(duration / 2))
+            val duration = MotionTokens.DURATION_MEDIUM
+            val transition = when {
+                direction > 0 -> {
+                    // 前进 / 二级向下：新页从右轻滑入
+                    slideIntoContainer(
+                        towards = AnimatedContentTransitionScope.SlideDirection.Start,
+                        animationSpec = tween(duration, easing = MotionTokens.EasingEmphasizedDecelerate),
+                        initialOffset = { it / 5 }
+                    ) + fadeIn(tween(duration, easing = MotionTokens.EasingEmphasizedDecelerate)) togetherWith
+                            slideOutOfContainer(
+                                towards = AnimatedContentTransitionScope.SlideDirection.Start,
+                                animationSpec = tween(duration * 2 / 3, easing = MotionTokens.EasingEmphasizedAccelerate),
+                                targetOffset = { it / 6 }
+                            ) + fadeOut(tween(duration / 2))
+                }
+                direction < 0 -> {
+                    // 后退 / 二级向上：新页从左轻滑入
+                    slideIntoContainer(
+                        towards = AnimatedContentTransitionScope.SlideDirection.End,
+                        animationSpec = tween(duration, easing = MotionTokens.EasingEmphasizedDecelerate),
+                        initialOffset = { it / 5 }
+                    ) + fadeIn(tween(duration, easing = MotionTokens.EasingEmphasizedDecelerate)) togetherWith
+                            slideOutOfContainer(
+                                towards = AnimatedContentTransitionScope.SlideDirection.End,
+                                animationSpec = tween(duration * 2 / 3, easing = MotionTokens.EasingEmphasizedAccelerate),
+                                targetOffset = { it / 6 }
+                            ) + fadeOut(tween(duration / 2))
+                }
+                else -> {
+                    // 同级：交叉淡入淡出
+                    fadeIn(
+                        tween(duration, easing = MotionTokens.EasingEmphasizedDecelerate)
+                    ) togetherWith fadeOut(
+                        tween(duration * 2 / 3, easing = MotionTokens.EasingEmphasizedAccelerate)
+                    )
+                }
             }
+            // 退出二级侧栏时与侧栏宽度动画并发，禁止再插值页面尺寸以免双重 layout
+            transition.using(SizeTransform(clip = false) { _, _ -> snap() })
         },
         label = "pageSwitch"
     ) { state ->

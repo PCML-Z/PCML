@@ -12,18 +12,32 @@ android {
         minSdk = 26
         targetSdk = 36
         versionCode = 1
-        versionName = "1.0"
+        versionName = "BAAL1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = file("pmcl.keystore")
+            storePassword = "pmcl123"
+            keyAlias = "pmcl"
+            keyPassword = "pmcl123"
+        }
+    }
+
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.getByName("release")
+        }
+        debug {
+            signingConfig = signingConfigs.getByName("release")
         }
     }
     compileOptions {
@@ -42,6 +56,7 @@ android {
 }
 
 dependencies {
+    implementation("com.google.zxing:core:3.5.3")
     implementation(project(":core"))
 
     implementation(libs.androidx.core.ktx)

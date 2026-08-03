@@ -41,10 +41,10 @@ import java.io.FilenameFilter
 import javax.swing.JFileChooser
 
 /**
- * 音乐播放器页面：URL 解析 → 播放列表 / 历史 → 当前曲目卡片 → 播放控制。
+ * 音乐播放器：由二级侧栏切换 播放器 / 播放列表 / 历史。
  */
 @Composable
-fun MusicPage(vm: LauncherViewModel) {
+fun MusicPage(vm: LauncherViewModel, sectionId: String = "player") {
     val playlist by vm.musicPlaylist.collectAsState()
     val history by vm.musicHistory.collectAsState()
     val currentIndex by vm.musicCurrentIndex.collectAsState()
@@ -64,43 +64,43 @@ fun MusicPage(vm: LauncherViewModel) {
     var showClearDialog by remember { mutableStateOf(false) }
     var showClearHistoryDialog by remember { mutableStateOf(false) }
     var removeIndex by remember { mutableStateOf<Int?>(null) }
-    var listTab by remember { mutableIntStateOf(0) } // 0=播放列表 1=历史
     var showCreatePlaylist by remember { mutableStateOf(false) }
     var newPlaylistName by remember { mutableStateOf("") }
     var playlistMenuExpanded by remember { mutableStateOf(false) }
 
+    val sectionTitleKey = when (sectionId) {
+        "playlist" -> "music.playlist"
+        "history" -> "music.history"
+        else -> "music.section.player"
+    }
+
     Column(Modifier.fillMaxSize().padding(16.dp)) {
-        // 上方：标题 / 输入 / 正在播放（可滚动，高度上限避免挤掉列表）
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(max = 360.dp)
-                .weight(1f, fill = false),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            item(key = "header") {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            I18n.t("music.title"),
-                            style = MaterialTheme.typography.headlineSmall,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            I18n.t("music.subtitle"),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.outline
-                        )
-                    }
-                    TextButton(onClick = { vm.clearMusicCache() }) {
-                        Icon(Icons.Filled.CleaningServices, null, Modifier.size(16.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text(I18n.t("music.clear_cache"))
+        when (sectionId) {
+            "playlist" -> {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        I18n.t(sectionTitleKey),
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        I18n.t("music.track_count", playlist.size),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                    if (playlist.isNotEmpty()) {
+                        TextButton(onClick = { showClearDialog = true }) {
+                            Icon(Icons.Filled.DeleteSweep, null, Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text(I18n.t("music.clear"))
+                        }
                     }
                 }
-            }
-
-            item(key = "playlist-picker") {
+                Spacer(Modifier.height(12.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(I18n.t("music.playlists"), style = MaterialTheme.typography.labelLarge)
                     Spacer(Modifier.width(8.dp))
@@ -145,185 +145,168 @@ fun MusicPage(vm: LauncherViewModel) {
                         }
                     }
                 }
-            }
-
-            item(key = "url-input") {
-                OutlinedTextField(
-                    value = inputUrl,
-                    onValueChange = { inputUrl = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text(I18n.t("music.input_placeholder")) },
-                    singleLine = true
-                )
-            }
-
-            item(key = "actions") {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                Spacer(Modifier.height(12.dp))
+                LazyColumn(
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Button(
-                        onClick = {
-                            vm.resolveAndAddMusicTrack(inputUrl)
-                            inputUrl = ""
-                        },
-                        enabled = loadingUrl == null && inputUrl.isNotBlank()
-                    ) {
-                        if (loadingUrl != null) {
-                            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                        } else {
-                            Icon(Icons.Filled.Add, null, Modifier.size(16.dp))
-                        }
-                        Spacer(Modifier.width(4.dp))
-                        Text(if (loadingUrl != null) I18n.t("music.resolving") else I18n.t("music.resolve"))
-                    }
-                    OutlinedButton(onClick = {
-                        val fd = FileDialog(null as Frame?, I18n.t("music.pick_files"), FileDialog.LOAD)
-                        fd.isMultipleMode = true
-                        fd.filenameFilter = FilenameFilter { _, name -> LocalAudioSource.hasAudioExt(name) }
-                        fd.isVisible = true
-                        val files = fd.files?.map { it.absolutePath }.orEmpty()
-                        if (files.isNotEmpty()) vm.addLocalMusicFiles(files)
-                    }) {
-                        Icon(Icons.Filled.AudioFile, null, Modifier.size(16.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text(I18n.t("music.add_files"))
-                    }
-                    OutlinedButton(onClick = {
-                        val chooser = JFileChooser().apply {
-                            fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
-                            dialogTitle = I18n.t("music.pick_folder")
-                        }
-                        if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
-                            vm.addLocalMusicFolder(chooser.selectedFile.absolutePath)
-                        }
-                    }) {
-                        Icon(Icons.Filled.FolderOpen, null, Modifier.size(16.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text(I18n.t("music.add_folder"))
-                    }
-                }
-            }
-
-            if (currentIndex in playlist.indices) {
-                item(key = "now-playing") {
-                    NowPlayingCard(
-                        playlist[currentIndex],
-                        state,
-                        currentMs,
-                        durationMs,
-                        lyrics,
-                        vm
-                    )
-                }
-            }
-        }
-
-        Spacer(Modifier.height(10.dp))
-
-        // 播放列表 / 历史：固定在滚动区下方，避免滚走后找不到
-        Row(
-            Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = glassSurfaceVariantColor(),
-                modifier = Modifier.weight(1f)
-            ) {
-                Row(
-                    Modifier.padding(3.dp),
-                    horizontalArrangement = Arrangement.spacedBy(2.dp)
-                ) {
-                    listOf(
-                        0 to I18n.t("music.playlist"),
-                        1 to I18n.t("music.history")
-                    ).forEach { (tab, label) ->
-                        val on = listTab == tab
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(
-                                    if (on) MaterialTheme.colorScheme.surface
-                                    else Color.Transparent
-                                )
-                                .clickable { listTab = tab }
-                                .padding(vertical = 7.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                label,
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium,
-                                color = if (on) MaterialTheme.colorScheme.onSurface
-                                else MaterialTheme.colorScheme.onSurfaceVariant
+                    if (playlist.isEmpty()) {
+                        item(key = "playlist-empty") { EmptyState() }
+                    } else {
+                        itemsIndexed(playlist, key = { i, t -> "p-$i-${t.sourceUrl}" }) { index, track ->
+                            PlaylistRow(
+                                index = index,
+                                track = track,
+                                isCurrent = index == currentIndex,
+                                isPlaying = index == currentIndex && state == PlaybackState.PLAYING,
+                                onPlay = { vm.playOrToggleMusicAt(index) },
+                                onRemove = { removeIndex = index }
                             )
                         }
                     }
                 }
             }
-            Spacer(Modifier.width(8.dp))
-            Text(
-                if (listTab == 0) I18n.t("music.track_count", playlist.size)
-                else I18n.t("music.track_count", history.size),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.outline
-            )
-            if (listTab == 0 && playlist.isNotEmpty()) {
-                TextButton(onClick = { showClearDialog = true }) {
-                    Icon(Icons.Filled.DeleteSweep, null, Modifier.size(16.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text(I18n.t("music.clear"))
-                }
-            }
-            if (listTab == 1) {
-                TextButton(
-                    onClick = { showClearHistoryDialog = true },
-                    enabled = history.isNotEmpty()
+            "history" -> {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Filled.DeleteSweep, null, Modifier.size(16.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text(I18n.t("music.clear_history"))
-                }
-            }
-        }
-
-        Spacer(Modifier.height(8.dp))
-
-        // 列表区域单独滚动
-        LazyColumn(
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            if (listTab == 0) {
-                if (playlist.isEmpty()) {
-                    item(key = "playlist-empty") { EmptyState() }
-                } else {
-                    itemsIndexed(playlist, key = { i, t -> "p-$i-${t.sourceUrl}" }) { index, track ->
-                        PlaylistRow(
-                            index = index,
-                            track = track,
-                            isCurrent = index == currentIndex,
-                            isPlaying = index == currentIndex && state == PlaybackState.PLAYING,
-                            onPlay = { vm.playOrToggleMusicAt(index) },
-                            onRemove = { removeIndex = index }
-                        )
+                    Text(
+                        I18n.t(sectionTitleKey),
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        I18n.t("music.track_count", history.size),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                    TextButton(
+                        onClick = { showClearHistoryDialog = true },
+                        enabled = history.isNotEmpty()
+                    ) {
+                        Icon(Icons.Filled.DeleteSweep, null, Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(I18n.t("music.clear_history"))
                     }
                 }
-            } else {
-                if (history.isEmpty()) {
-                    item(key = "history-empty") { HistoryEmptyState() }
-                } else {
-                    itemsIndexed(history, key = { i, t -> "h-$i-${t.sourceUrl}" }) { index, track ->
-                        HistoryRow(
-                            track = track,
-                            onPlay = { vm.playMusicFromHistory(track) },
-                            onRemove = { vm.removeMusicHistoryAt(index) }
+                Spacer(Modifier.height(12.dp))
+                LazyColumn(
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    if (history.isEmpty()) {
+                        item(key = "history-empty") { HistoryEmptyState() }
+                    } else {
+                        itemsIndexed(history, key = { i, t -> "h-$i-${t.sourceUrl}" }) { index, track ->
+                            HistoryRow(
+                                track = track,
+                                onPlay = { vm.playMusicFromHistory(track) },
+                                onRemove = { vm.removeMusicHistoryAt(index) }
+                            )
+                        }
+                    }
+                }
+            }
+            else -> {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    item(key = "header") {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    I18n.t(sectionTitleKey),
+                                    style = MaterialTheme.typography.headlineSmall,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    I18n.t("music.subtitle"),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.outline
+                                )
+                            }
+                            TextButton(onClick = { vm.clearMusicCache() }) {
+                                Icon(Icons.Filled.CleaningServices, null, Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text(I18n.t("music.clear_cache"))
+                            }
+                        }
+                    }
+                    item(key = "url-input") {
+                        OutlinedTextField(
+                            value = inputUrl,
+                            onValueChange = { inputUrl = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            placeholder = { Text(I18n.t("music.input_placeholder")) },
+                            singleLine = true
                         )
+                    }
+                    item(key = "actions") {
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Button(
+                                onClick = {
+                                    vm.resolveAndAddMusicTrack(inputUrl)
+                                    inputUrl = ""
+                                },
+                                enabled = loadingUrl == null && inputUrl.isNotBlank()
+                            ) {
+                                if (loadingUrl != null) {
+                                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                                } else {
+                                    Icon(Icons.Filled.Add, null, Modifier.size(16.dp))
+                                }
+                                Spacer(Modifier.width(4.dp))
+                                Text(if (loadingUrl != null) I18n.t("music.resolving") else I18n.t("music.resolve"))
+                            }
+                            OutlinedButton(onClick = {
+                                val fd = FileDialog(null as Frame?, I18n.t("music.pick_files"), FileDialog.LOAD)
+                                fd.isMultipleMode = true
+                                fd.filenameFilter = FilenameFilter { _, name -> LocalAudioSource.hasAudioExt(name) }
+                                fd.isVisible = true
+                                val files = fd.files?.map { it.absolutePath }.orEmpty()
+                                if (files.isNotEmpty()) vm.addLocalMusicFiles(files)
+                            }) {
+                                Icon(Icons.Filled.AudioFile, null, Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text(I18n.t("music.add_files"))
+                            }
+                            OutlinedButton(onClick = {
+                                val chooser = JFileChooser().apply {
+                                    fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
+                                    dialogTitle = I18n.t("music.pick_folder")
+                                }
+                                if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
+                                    vm.addLocalMusicFolder(chooser.selectedFile.absolutePath)
+                                }
+                            }) {
+                                Icon(Icons.Filled.FolderOpen, null, Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text(I18n.t("music.add_folder"))
+                            }
+                        }
+                    }
+                    if (currentIndex in playlist.indices) {
+                        item(key = "now-playing") {
+                            NowPlayingCard(
+                                playlist[currentIndex],
+                                state,
+                                currentMs,
+                                durationMs,
+                                lyrics,
+                                vm
+                            )
+                        }
                     }
                 }
             }

@@ -1,306 +1,197 @@
 package com.lash.pmcl.ui.screens
 
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Article
-import androidx.compose.material.icons.outlined.Gavel
-import androidx.compose.material.icons.outlined.Security
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/**
- * 协议同意门控页:首次打开 PMCL 时显示。
- *
- * 一条总勾选 + 三个协议链接;全文在对话框中阅读(从 assets 加载,与桌面端一致)。
- */
 @Composable
-fun AgreementGateScreen(onAgreed: () -> Unit) {
+fun AgreementGateScreen(onAccept: () -> Unit, onDecline: () -> Unit) {
+    val context = LocalContext.current
     var agreed by remember { mutableStateOf(false) }
-    var dialogAsset by remember { mutableStateOf<Pair<String, String>?>(null) }
-    val contentScroll = rememberScrollState()
+    var viewingDoc by remember { mutableStateOf<Pair<String, String>?>(null) }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .imePadding(),
-    ) {
-        // 内容区:可滚动
+    // 底部按钮高度
+    val bottomBarHeight = 72.dp
+
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        bottomBar = {
+            Surface(
+                tonalElevation = 3.dp,
+                shadowElevation = 8.dp,
+                color = MaterialTheme.colorScheme.surface
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .windowInsetsPadding(WindowInsets.navigationBars)
+                        .padding(horizontal = 24.dp, vertical = 14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedButton(
+                        onClick = onDecline,
+                        modifier = Modifier.weight(1f)
+                    ) { Text("拒绝并退出") }
+                    Button(
+                        onClick = onAccept,
+                        enabled = agreed,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Filled.CheckCircle, null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("同意并继续")
+                    }
+                }
+            }
+        }
+    ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(bottom = 96.dp)
-                .verticalScroll(contentScroll)
-                .padding(horizontal = 24.dp)
-                .padding(top = 48.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
+                .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
+                .windowInsetsPadding(WindowInsets.statusBars)
+                .padding(horizontal = 24.dp, vertical = 48.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Column(
-                modifier = Modifier
-                    .widthIn(max = 560.dp)
-                    .fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Security,
-                    contentDescription = null,
-                    modifier = Modifier.size(48.dp),
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    text = "欢迎使用 PMCL",
-                    style = MaterialTheme.typography.headlineSmall,
-                    textAlign = TextAlign.Center,
-                )
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    text = "PMCL 是一款开源的 Minecraft 启动器。请在继续前阅读并同意以下协议。",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                )
+            Icon(Icons.Filled.Gavel, contentDescription = null,
+                modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.height(12.dp))
+            Text("用户协议与声明", style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+            Spacer(Modifier.height(8.dp))
+            Text("使用 PMCL 前，请先阅读并同意以下协议",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center)
 
-                Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(24.dp))
 
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    ),
-                    shape = RoundedCornerShape(8.dp),
-                ) {
-                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
-                        Text(
-                            text = "协议文档",
-                            style = MaterialTheme.typography.titleSmall,
-                        )
-                        Spacer(Modifier.height(8.dp))
-
-                        AgreementLink(
-                            icon = Icons.Outlined.Article,
-                            title = "用户协议",
-                            onClick = {
-                                dialogAsset = "用户协议" to "USER_AGREEMENT.txt"
-                            },
-                        )
-                        AgreementLink(
-                            icon = Icons.Outlined.Security,
-                            title = "免责协议",
-                            onClick = {
-                                dialogAsset = "免责协议" to "DISCLAIMER.txt"
-                            },
-                        )
-                        AgreementLink(
-                            icon = Icons.Outlined.Gavel,
-                            title = "PMCL 软件技术许可证",
-                            onClick = {
-                                dialogAsset = "PMCL 软件技术许可证" to "LICENSE.zh.txt"
-                            },
-                        )
-
-                        Spacer(Modifier.height(8.dp))
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { agreed = !agreed }
-                                .padding(vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Checkbox(
-                                checked = agreed,
-                                onCheckedChange = { agreed = it },
-                            )
-                            Text(
-                                text = "我已阅读并同意以上协议",
-                                style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.padding(start = 4.dp),
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // 底部固定按钮栏
-        Surface(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth(),
-            tonalElevation = 3.dp,
-            shadowElevation = 8.dp,
-            color = MaterialTheme.colorScheme.surface,
-        ) {
-            Box(
+            Card(
                 modifier = Modifier.fillMaxWidth(),
-                contentAlignment = Alignment.Center,
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
             ) {
-                Column(
-                    modifier = Modifier
-                        .widthIn(max = 560.dp)
-                        .fillMaxWidth()
-                        .padding(horizontal = 24.dp, vertical = 14.dp)
-                        .navigationBarsPadding(),
-                ) {
-                    if (!agreed) {
-                        Text(
-                            text = "请先勾选同意以上协议才能继续",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(bottom = 8.dp),
-                        )
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+                    Text("协议文件", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(8.dp))
+
+                    AgreementDocLink("《PMCL 用户协议》") {
+                        viewingDoc = "PMCL 用户协议" to "USER_AGREEMENT.txt"
                     }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        OutlinedButton(
-                            onClick = { /* 桌面版退出,Android 不主动退出 */ },
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Text("不同意")
-                        }
-                        Spacer(Modifier.size(12.dp))
-                        Button(
-                            onClick = onAgreed,
-                            enabled = agreed,
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Text("同意并继续")
-                        }
+                    AgreementDocLink("《免责声明》") {
+                        viewingDoc = "免责声明" to "DISCLAIMER.txt"
+                    }
+                    AgreementDocLink("《开源许可证 (GPL-3.0)》") {
+                        viewingDoc = "开源许可证" to "LICENSE.zh.txt"
+                    }
+
+                    HorizontalDivider(Modifier.padding(vertical = 12.dp))
+
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                        Checkbox(checked = agreed, onCheckedChange = { agreed = it },
+                            modifier = Modifier.padding(top = 2.dp))
+                        Text("我已阅读并同意以上所有协议和声明",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(top = 12.dp, start = 4.dp).weight(1f))
                     }
                 }
             }
         }
     }
 
-    dialogAsset?.let { (title, assetName) ->
-        AgreementDocumentDialog(
-            title = title,
-            assetName = assetName,
-            onDismiss = { dialogAsset = null },
-        )
+    viewingDoc?.let { (title, fileName) ->
+        AgreementDocumentDialog(title = title, fileName = fileName, onDismiss = { viewingDoc = null })
     }
 }
 
 @Composable
-private fun AgreementLink(
-    icon: ImageVector,
-    title: String,
-    onClick: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
+private fun AgreementDocLink(title: String, onClick: () -> Unit) {
+    TextButton(
+        onClick = onClick,
+        contentPadding = PaddingValues(horizontal = 0.dp, vertical = 4.dp),
+        modifier = Modifier.fillMaxWidth()
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(20.dp),
-        )
-        Spacer(Modifier.size(12.dp))
         Text(
             text = title,
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.weight(1f),
-        )
-        Text(
-            text = "查看",
-            style = MaterialTheme.typography.labelMedium,
+            style = MaterialTheme.typography.bodyMedium.copy(textDecoration = TextDecoration.Underline),
             color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.Start
         )
     }
 }
 
 @Composable
-private fun AgreementDocumentDialog(
-    title: String,
-    assetName: String,
-    onDismiss: () -> Unit,
-) {
+private fun AgreementDocumentDialog(title: String, fileName: String, onDismiss: () -> Unit) {
     val context = LocalContext.current
-    val docText by produceState(initialValue = "", assetName) {
-        value = withContext(Dispatchers.IO) {
-            runCatching {
-                context.assets.open(assetName).bufferedReader().use { it.readText() }
-            }.getOrElse { "加载协议文本失败" }
+    val clipboardManager = LocalClipboardManager.current
+    val scope = rememberCoroutineScope()
+
+    var docText by remember { mutableStateOf("加载中...") }
+
+    LaunchedEffect(fileName) {
+        docText = withContext(Dispatchers.IO) {
+            try {
+                context.assets.open(fileName).bufferedReader().use { it.readText() }
+            } catch (e: Exception) { "无法加载: ${e.message}" }
         }
     }
-    val scrollState = rememberScrollState()
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(title) },
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.Description, null, Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(title)
+            }
+        },
         text = {
-            if (docText.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 200.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    CircularProgressIndicator()
+            Column(Modifier.fillMaxWidth()) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = {
+                        clipboardManager.setText(AnnotatedString(docText))
+                    }) {
+                        Icon(Icons.Filled.ContentCopy, null, Modifier.size(14.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("复制全文")
+                    }
                 }
-            } else {
-                Text(
-                    text = docText,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 480.dp)
-                        .verticalScroll(scrollState),
-                )
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 280.dp, max = 440.dp)
+                ) {
+                    Text(
+                        text = docText,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier.verticalScroll(rememberScrollState()).padding(12.dp)
+                    )
+                }
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("关闭")
-            }
-        },
+            TextButton(onClick = onDismiss) { Text("关闭") }
+        }
     )
 }

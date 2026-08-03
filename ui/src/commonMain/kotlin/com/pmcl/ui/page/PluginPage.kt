@@ -12,6 +12,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.pmcl.core.i18n.I18n
 import com.pmcl.core.plugin.PluginManager
 import com.pmcl.ui.theme.glassCardBorder
 import com.pmcl.ui.theme.glassCardColors
@@ -24,11 +25,10 @@ import java.io.IOException
 import java.nio.file.Paths
 
 /**
- * Plugin management page: visually install, enable, disable, and uninstall plugins.
- * Shows all loaded plugins with their state, commands, and details.
+ * 插件管理：由二级侧栏切换 已安装 / 插件动作 / 安装。
  */
 @Composable
-fun PluginPage(vm: LauncherViewModel) {
+fun PluginPage(vm: LauncherViewModel, sectionId: String = "installed") {
     val scope = rememberCoroutineScope()
     val pm = vm.core.plugins()
 
@@ -70,39 +70,51 @@ fun PluginPage(vm: LauncherViewModel) {
         }
     }
 
+    val menuActions = remember(revision) { pm.getCustomMenuActions() }
+    val sectionTitleKey = when (sectionId) {
+        "actions" -> "plugins.section.actions"
+        "install" -> "plugins.section.install"
+        else -> "plugins.section.installed"
+    }
+
+    fun scanPlugins() {
+        scope.launch {
+            withContext(Dispatchers.IO) {
+                pm.discoverAndLoadAll()
+            }
+            plugins = pm.getLoadedPlugins()
+            val errors = pm.getLastDiscoveryErrors()
+            statusMessage = if (errors.isEmpty()) {
+                "Scan complete: ${plugins.size} plugin(s) loaded"
+            } else {
+                "Scan: ${plugins.size} loaded, ${errors.size} failed — ${errors.first()}"
+            }
+        }
+    }
+
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        // Header
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(Icons.Filled.Extension, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.width(12.dp))
-            Text("Plugin Manager", style = MaterialTheme.typography.headlineSmall)
+            Text(I18n.t(sectionTitleKey), style = MaterialTheme.typography.headlineSmall)
             Spacer(Modifier.weight(1f))
-            Button(onClick = { showInstallDialog = true }) {
-                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("Install")
-            }
-            Spacer(Modifier.width(8.dp))
-            OutlinedButton(onClick = {
-                scope.launch {
-                    withContext(Dispatchers.IO) {
-                        pm.discoverAndLoadAll()
-                    }
-                    plugins = pm.getLoadedPlugins()
-                    val errors = pm.getLastDiscoveryErrors()
-                    statusMessage = if (errors.isEmpty()) {
-                        "Scan complete: ${plugins.size} plugin(s) loaded"
-                    } else {
-                        "Scan: ${plugins.size} loaded, ${errors.size} failed — ${errors.first()}"
-                    }
+            if (sectionId == "installed" || sectionId == "install") {
+                Button(onClick = { showInstallDialog = true }) {
+                    Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(I18n.t("plugin.install"))
                 }
-            }) {
-                Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("Scan")
+            }
+            if (sectionId == "installed") {
+                Spacer(Modifier.width(8.dp))
+                OutlinedButton(onClick = { scanPlugins() }) {
+                    Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(I18n.t("plugin.scan"))
+                }
             }
         }
 
@@ -123,123 +135,151 @@ fun PluginPage(vm: LauncherViewModel) {
             }
         }
 
-        // Plugin-contributed menu actions
-        val menuActions = remember(revision) { pm.getCustomMenuActions() }
-        if (menuActions.isNotEmpty()) {
-            Spacer(Modifier.height(12.dp))
-            Text("Plugin Actions", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(8.dp))
-            for (action in menuActions) {
-                OutlinedButton(
-                    onClick = {
-                        // H44: 插件 handler 可能阻塞，派发到 IO
-                        scope.launch {
-                            try {
-                                withContext(Dispatchers.IO) {
-                                    action.handler?.run()
-                                }
-                                statusMessage = "Ran: ${action.title}"
-                            } catch (e: Throwable) {
-                                statusMessage = "Action failed: ${e.message}"
-                            }
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        if (action.description.isNotBlank()) {
-                            "${action.title} — ${action.description}"
-                        } else {
-                            action.title
-                        }
-                    )
-                }
-                Spacer(Modifier.height(6.dp))
-            }
-        }
-
         Spacer(Modifier.height(16.dp))
 
-        if (plugins.isEmpty()) {
-            // Empty state
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        Icons.Filled.Extension,
-                        contentDescription = null,
-                        modifier = Modifier.size(64.dp),
-                        tint = MaterialTheme.colorScheme.outline
-                    )
-                    Spacer(Modifier.height(16.dp))
-                    Text("No plugins installed", style = MaterialTheme.typography.titleMedium)
-                    Spacer(Modifier.height(8.dp))
+        when (sectionId) {
+            "actions" -> {
+                if (menuActions.isEmpty()) {
                     Text(
-                        "Click 'Install' to add a plugin from a JAR file or URL,\n" +
-                        "or 'Scan' to discover plugins in ~/.pmcl/plugins/",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        I18n.t("plugins.section.actions_empty"),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.outline
                     )
+                } else {
+                    for (action in menuActions) {
+                        OutlinedButton(
+                            onClick = {
+                                scope.launch {
+                                    try {
+                                        withContext(Dispatchers.IO) {
+                                            action.handler?.run()
+                                        }
+                                        statusMessage = "Ran: ${action.title}"
+                                    } catch (e: Throwable) {
+                                        statusMessage = "Action failed: ${e.message}"
+                                    }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                if (action.description.isNotBlank()) {
+                                    "${action.title} — ${action.description}"
+                                } else {
+                                    action.title
+                                }
+                            )
+                        }
+                        Spacer(Modifier.height(6.dp))
+                    }
                 }
             }
-        } else {
-            // Plugin list
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(plugins, key = { it.info.id }) { entry ->
-                    PluginCard(
-                        entry = entry,
-                        isSelected = selectedPlugin == entry.info.id,
-                        onClick = { selectedPlugin = entry.info.id },
-                        onEnable = {
-                            scope.launch {
-                                withContext(Dispatchers.IO) { pm.enablePlugin(entry.info.id) }
-                                plugins = pm.getLoadedPlugins()
-                                statusMessage = "Enabled: ${entry.info.name}"
-                            }
-                        },
-                        onDisable = {
-                            scope.launch {
-                                withContext(Dispatchers.IO) { pm.disablePlugin(entry.info.id) }
-                                plugins = pm.getLoadedPlugins()
-                                statusMessage = "Disabled: ${entry.info.name}"
-                            }
-                        },
-                        onReload = {
-                            scope.launch {
-                                try {
-                                    withContext(Dispatchers.IO) { pm.reloadPlugin(entry.info.id) }
-                                    plugins = pm.getLoadedPlugins()
-                                    statusMessage = "Reloaded: ${entry.info.name}"
-                                } catch (e: Throwable) {
-                                    statusMessage = "Reload failed: ${e.message}"
-                                }
-                            }
-                        },
-                        onUninstall = {
-                            scope.launch {
-                                try {
-                                    withContext(Dispatchers.IO) { pm.uninstallPlugin(entry.info.id) }
-                                    plugins = pm.getLoadedPlugins()
-                                    selectedPlugin = null
-                                    statusMessage = "Uninstalled: ${entry.info.name}"
-                                } catch (e: Throwable) {
-                                    statusMessage = "Uninstall failed: ${e.message}"
-                                }
-                            }
-                        },
-                        pm = pm
-                    )
+            "install" -> {
+                Card(
+                    modifier = Modifier.fillMaxWidth().glassCardBorder(),
+                    colors = glassCardColors(),
+                    elevation = glassCardElevation()
+                ) {
+                    Column(Modifier.padding(16.dp)) {
+                        Text(
+                            I18n.t("plugins.section.install_hint"),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Button(onClick = { showInstallDialog = true }) {
+                            Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(I18n.t("plugin.install"))
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedButton(onClick = { scanPlugins() }) {
+                            Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(I18n.t("plugin.scan"))
+                        }
+                    }
+                }
+            }
+            else -> {
+                if (plugins.isEmpty()) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                Icons.Filled.Extension,
+                                contentDescription = null,
+                                modifier = Modifier.size(64.dp),
+                                tint = MaterialTheme.colorScheme.outline
+                            )
+                            Spacer(Modifier.height(16.dp))
+                            Text(I18n.t("plugin.empty"), style = MaterialTheme.typography.titleMedium)
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                I18n.t("plugins.section.install_hint"),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(plugins, key = { it.info.id }) { entry ->
+                            PluginCard(
+                                entry = entry,
+                                isSelected = selectedPlugin == entry.info.id,
+                                onClick = { selectedPlugin = entry.info.id },
+                                onEnable = {
+                                    scope.launch {
+                                        withContext(Dispatchers.IO) { pm.enablePlugin(entry.info.id) }
+                                        plugins = pm.getLoadedPlugins()
+                                        statusMessage = "Enabled: ${entry.info.name}"
+                                    }
+                                },
+                                onDisable = {
+                                    scope.launch {
+                                        withContext(Dispatchers.IO) { pm.disablePlugin(entry.info.id) }
+                                        plugins = pm.getLoadedPlugins()
+                                        statusMessage = "Disabled: ${entry.info.name}"
+                                    }
+                                },
+                                onReload = {
+                                    scope.launch {
+                                        try {
+                                            withContext(Dispatchers.IO) { pm.reloadPlugin(entry.info.id) }
+                                            plugins = pm.getLoadedPlugins()
+                                            statusMessage = "Reloaded: ${entry.info.name}"
+                                        } catch (e: Throwable) {
+                                            statusMessage = "Reload failed: ${e.message}"
+                                        }
+                                    }
+                                },
+                                onUninstall = {
+                                    scope.launch {
+                                        try {
+                                            withContext(Dispatchers.IO) { pm.uninstallPlugin(entry.info.id) }
+                                            plugins = pm.getLoadedPlugins()
+                                            selectedPlugin = null
+                                            statusMessage = "Uninstalled: ${entry.info.name}"
+                                        } catch (e: Throwable) {
+                                            statusMessage = "Uninstall failed: ${e.message}"
+                                        }
+                                    }
+                                },
+                                pm = pm
+                            )
+                        }
+                    }
                 }
             }
         }
     }
 
-    // Install dialog
     if (showInstallDialog) {
         InstallPluginDialog(
             onDismiss = { showInstallDialog = false },
@@ -247,18 +287,15 @@ fun PluginPage(vm: LauncherViewModel) {
                 scope.launch {
                     try {
                         withContext(Dispatchers.IO) {
-                            // 解析 "source||sha256:hash" 格式（由 InstallPluginDialog 拼接）
                             val parts = sourceWithHash.split("||sha256:", limit = 2)
                             val source = parts[0]
                             val expectedSha256 = if (parts.size > 1) parts[1] else null
 
                             if (source.startsWith("http://") || source.startsWith("https://")) {
                                 if (expectedSha256 != null) {
-                                    // 有 SHA256：下载到临时文件，校验后再安装
                                     val tmpFile = java.io.File.createTempFile("pmcl-plugin-", ".jar")
                                     tmpFile.deleteOnExit()
                                     try {
-                                        // 与 PluginManager.installFromUrl 一致：SSRF 校验含重定向
                                         vm.core.downloads().downloadToSsrfChecked(source, tmpFile.toPath())
                                         val actual = sha256Hex(tmpFile.toPath())
                                         if (!actual.equals(expectedSha256, ignoreCase = true)) {
@@ -272,7 +309,6 @@ fun PluginPage(vm: LauncherViewModel) {
                                     pm.installFromUrl(source)
                                 }
                             } else {
-                                // 本地文件：若提供 SHA256 则校验
                                 val path = Paths.get(source)
                                 if (expectedSha256 != null) {
                                     val actual = sha256Hex(path)

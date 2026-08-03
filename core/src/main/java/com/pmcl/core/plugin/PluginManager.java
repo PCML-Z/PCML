@@ -408,9 +408,10 @@ public final class PluginManager {
             info = parseDescriptor(jarPath);
             info.validate();
 
-            // Check for duplicate
-            if (loadedPlugins.containsKey(info.getId())) {
-                throw new IllegalStateException("Plugin already loaded: " + info.getId());
+            // Idempotent: discover/scan may revisit an already-loaded JAR
+            PluginEntry existing = loadedPlugins.get(info.getId());
+            if (existing != null) {
+                return existing.getInfo();
             }
 
             // Check dependencies — all must be loaded before this plugin can load
@@ -976,13 +977,23 @@ public final class PluginManager {
 
     /**
      * Reload a plugin (unload + load + enable if previously enabled).
+     * <p>
+     * Must NOT hold the PluginManager monitor across {@link #enablePlugin}/{@link #unloadPlugin}:
+     * those call into the plugin ThreadGroup (spawn+join), and plugin code re-enters
+     * {@code synchronized (manager)} for registration APIs — holding the lock here deadlocks
+     * the host (UI freezes on reload).
      */
-    public synchronized void reloadPlugin(String pluginId) throws Exception {
-        PluginEntry entry = loadedPlugins.get(pluginId);
-        if (entry == null) throw new IllegalStateException("Plugin not loaded: " + pluginId);
-        boolean wasEnabled = entry.getState() == PluginState.ENABLED;
-        Path sourcePath = entry.getJarPath();
-        boolean wasPackage = entry.isPackage();
+    public void reloadPlugin(String pluginId) throws Exception {
+        final boolean wasEnabled;
+        final Path sourcePath;
+        final boolean wasPackage;
+        synchronized (this) {
+            PluginEntry entry = loadedPlugins.get(pluginId);
+            if (entry == null) throw new IllegalStateException("Plugin not loaded: " + pluginId);
+            wasEnabled = entry.getState() == PluginState.ENABLED;
+            sourcePath = entry.getJarPath();
+            wasPackage = entry.isPackage();
+        }
         unloadPlugin(pluginId);
         if (wasPackage) {
             loadPluginPackage(sourcePath);
@@ -998,15 +1009,19 @@ public final class PluginManager {
      * Install a plugin from a local JAR file.
      * Copies the JAR to ~/.pmcl/plugins/ and loads it.
      */
-    public synchronized PluginInfo installFromPath(Path sourceJar) throws Exception {
+    public PluginInfo installFromPath(Path sourceJar) throws Exception {
         PluginInfo info = parseDescriptor(sourceJar);
         info.validate();
 
         Path target = pluginsDir.resolve(info.getId() + ".jar");
         Files.copy(sourceJar, target, StandardCopyOption.REPLACE_EXISTING);
 
-        // If already loaded, unload first
-        if (loadedPlugins.containsKey(info.getId())) {
+        // If already loaded, unload first (must not hold manager lock — see reloadPlugin)
+        boolean alreadyLoaded;
+        synchronized (this) {
+            alreadyLoaded = loadedPlugins.containsKey(info.getId());
+        }
+        if (alreadyLoaded) {
             unloadPlugin(info.getId());
         }
 
@@ -1063,9 +1078,10 @@ public final class PluginManager {
             ktCount = pkg.getKotlinSources().size();
             javaCount = pkg.getJavaSources().size();
 
-            // Check for duplicate
-            if (loadedPlugins.containsKey(info.getId())) {
-                throw new IllegalStateException("Plugin already loaded: " + info.getId());
+            // Idempotent: discover/scan may revisit an already-loaded .ppk
+            PluginEntry existing = loadedPlugins.get(info.getId());
+            if (existing != null) {
+                return existing.getInfo();
             }
 
             // Check dependencies
@@ -1135,7 +1151,7 @@ public final class PluginManager {
      * @return the PluginInfo of the installed plugin
      * @throws Exception if installation fails
      */
-    public synchronized PluginInfo installFromPackage(Path ppkPath) throws Exception {
+    public PluginInfo installFromPackage(Path ppkPath) throws Exception {
         // Parse to get the plugin ID for naming the target file
         PluginPackage pkg = PluginPackageParser.parse(ppkPath);
         PluginInfo info = pkg.getInfo();
@@ -1144,8 +1160,12 @@ public final class PluginManager {
         Path targetPpk = pluginsDir.resolve(info.getId() + ".ppk");
         Files.copy(ppkPath, targetPpk, StandardCopyOption.REPLACE_EXISTING);
 
-        // If already loaded, unload first
-        if (loadedPlugins.containsKey(info.getId())) {
+        // If already loaded, unload first (must not hold manager lock — see reloadPlugin)
+        boolean alreadyLoaded;
+        synchronized (this) {
+            alreadyLoaded = loadedPlugins.containsKey(info.getId());
+        }
+        if (alreadyLoaded) {
             unloadPlugin(info.getId());
         }
 
@@ -1184,7 +1204,7 @@ public final class PluginManager {
      *
      * @param pluginId plugin id
      */
-    public synchronized void uninstallPlugin(String pluginId) throws IOException {
+    public void uninstallPlugin(String pluginId) throws IOException {
         uninstallPlugin(pluginId, true);
     }
 
@@ -1194,7 +1214,8 @@ public final class PluginManager {
      * @param pluginId plugin id
      * @param keepUserData true to preserve plugins/&lt;id&gt;/data/, false to delete everything
      */
-    public synchronized void uninstallPlugin(String pluginId, boolean keepUserData) throws IOException {
+    public void uninstallPlugin(String pluginId, boolean keepUserData) throws IOException {
+        // unload/onDisable must run without holding the manager monitor (see reloadPlugin)
         unloadPlugin(pluginId);
         // Delete the source file (could be .jar or .ppk)
         Path jar = pluginsDir.resolve(pluginId + ".jar");

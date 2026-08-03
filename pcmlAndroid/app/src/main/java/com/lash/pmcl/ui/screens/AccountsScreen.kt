@@ -138,7 +138,7 @@ fun AccountsScreen(
                 withContext(Dispatchers.IO) {
                     authService.saveStore(AccountStore(accounts.toList(), selectedUuid))
                 }
-            } catch (e: IOException) {
+            } catch (e: Exception) {
                 status = "保存失败: ${e.message}"
             }
         }

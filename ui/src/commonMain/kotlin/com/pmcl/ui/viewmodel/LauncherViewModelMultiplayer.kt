@@ -15,13 +15,19 @@ import com.pmcl.core.i18n.I18n
  * 状态字段与 FavoriteServer 保留在 LauncherViewModel（@PublishedApi）。
  */
 
-/** 将偏好中的 ConnectX 配置同步到 MultiplayerManager（启动与设置保存时调用） */
+/** 将偏好中的 ConnectX / EasyTier 配置同步到 MultiplayerManager（启动与设置保存时调用） */
 fun LauncherViewModel.syncConnectXConfig() {
     core.multiplayer().configureConnectX(
         preferences.getConnectxBinaryPath(),
         preferences.getConnectxServerAddress(),
         preferences.getConnectxServerPort()
     )
+    core.multiplayer().configureEasyTierPeer(preferences.getEasytierPeer())
+}
+
+/** 同步 EasyTier 共享节点配置 */
+fun LauncherViewModel.syncEasyTierConfig() {
+    core.multiplayer().configureEasyTierPeer(preferences.getEasytierPeer())
 }
 
 fun LauncherViewModel.setMpBackend(b: com.pmcl.core.multiplayer.MultiplayerManager.Backend) {
@@ -78,27 +84,38 @@ fun LauncherViewModel.createRoom() {
                     }
                     else -> {
                         // Terracotta / EasyTier 都走 createRoom
+                        if (backend == com.pmcl.core.multiplayer.MultiplayerManager.Backend.EASYTIER) {
+                            syncEasyTierConfig()
+                        }
                         core.multiplayer().createRoom { msg ->
                             _mpProgress.value = msg
+                            // 跟随后端状态，避免 UI 一直停在 DOWNLOADING / 「正在连接」
+                            _mpState.value = core.multiplayer().state
                         }.join()
                     }
                 }
             }
             refreshMpState()
-            _status.value = if (core.multiplayer().state ==
-                com.pmcl.core.multiplayer.MultiplayerManager.State.CONNECTED) {
-                val friendWarn = startFriendSubsystemQuiet()
-                val base = when (backend) {
-                    com.pmcl.core.multiplayer.MultiplayerManager.Backend.TERRACOTTA ->
-                        I18n.t("status.room_created_with_code", core.multiplayer().currentRoomCode)
-                    com.pmcl.core.multiplayer.MultiplayerManager.Backend.CONNECTX ->
-                        I18n.t("status.connectx_room_created")
-                    else ->
-                        I18n.t("status.room_created_with_vip", core.multiplayer().virtualIp)
+            val finalState = core.multiplayer().state
+            _status.value = when (finalState) {
+                com.pmcl.core.multiplayer.MultiplayerManager.State.CONNECTED -> {
+                    val friendWarn = startFriendSubsystemQuiet()
+                    val base = when (backend) {
+                        com.pmcl.core.multiplayer.MultiplayerManager.Backend.TERRACOTTA ->
+                            I18n.t("status.room_created_with_code", core.multiplayer().currentRoomCode)
+                        com.pmcl.core.multiplayer.MultiplayerManager.Backend.CONNECTX ->
+                            I18n.t("status.connectx_room_created")
+                        else ->
+                            I18n.t("status.room_created_with_vip", core.multiplayer().virtualIp)
+                    }
+                    if (friendWarn != null) "$base · $friendWarn" else base
                 }
-                if (friendWarn != null) "$base · $friendWarn" else base
-            } else {
-                I18n.t("status.room_started_waiting")
+                com.pmcl.core.multiplayer.MultiplayerManager.State.FAILED ->
+                    I18n.t(
+                        "status.create_room_failed",
+                        core.multiplayer().lastError.ifBlank { I18n.t("common.unknown") }
+                    )
+                else -> I18n.t("status.room_started_waiting")
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
             try { withContext(Dispatchers.IO) { core.multiplayer().leaveRoom() } } catch (_: Throwable) {}
@@ -143,23 +160,31 @@ fun LauncherViewModel.joinRoom(invitation: String) {
                         _mpProgress.value = msg
                     }, binPath, serverAddr, serverPort).join()
                 } else {
+                    if (!isTerracotta) syncEasyTierConfig()
                     core.multiplayer().joinRoom(invitation) { msg ->
                         _mpProgress.value = msg
+                        _mpState.value = core.multiplayer().state
                     }.join()
                 }
             }
             refreshMpState()
-            _status.value = if (core.multiplayer().state ==
-                com.pmcl.core.multiplayer.MultiplayerManager.State.CONNECTED) {
-                val friendWarn = startFriendSubsystemQuiet()
-                val base = if (isTerracotta && core.multiplayer().localMcAddr.isNotEmpty()) {
-                    I18n.t("status.joined_room_mc_addr", core.multiplayer().localMcAddr)
-                } else {
-                    I18n.t("status.joined_room_vip", core.multiplayer().virtualIp)
+            val finalState = core.multiplayer().state
+            _status.value = when (finalState) {
+                com.pmcl.core.multiplayer.MultiplayerManager.State.CONNECTED -> {
+                    val friendWarn = startFriendSubsystemQuiet()
+                    val base = if (isTerracotta && core.multiplayer().localMcAddr.isNotEmpty()) {
+                        I18n.t("status.joined_room_mc_addr", core.multiplayer().localMcAddr)
+                    } else {
+                        I18n.t("status.joined_room_vip", core.multiplayer().virtualIp)
+                    }
+                    if (friendWarn != null) "$base · $friendWarn" else base
                 }
-                if (friendWarn != null) "$base · $friendWarn" else base
-            } else {
-                I18n.t("status.connecting_room")
+                com.pmcl.core.multiplayer.MultiplayerManager.State.FAILED ->
+                    I18n.t(
+                        "status.join_room_failed",
+                        core.multiplayer().lastError.ifBlank { I18n.t("common.unknown") }
+                    )
+                else -> I18n.t("status.connecting_room")
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
             try { withContext(Dispatchers.IO) { core.multiplayer().leaveRoom() } } catch (_: Throwable) {}

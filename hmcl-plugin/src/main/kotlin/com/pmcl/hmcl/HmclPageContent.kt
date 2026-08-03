@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.awt.SwingPanel
 import com.pmcl.plugin.ComposableContent
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Compose page that embeds HMCL's JavaFX UI via SwingPanel + JFXPanel.
@@ -37,6 +38,8 @@ private fun HmclPage() {
     var status by remember { mutableStateOf(HmclEmbedder.getStatus()) }
     var showDisclaimer by remember { mutableStateOf(false) }
     var disclaimerAccepted by remember { mutableStateOf(false) }
+    var panelEpoch by remember { mutableStateOf(0) }
+    val scope = rememberCoroutineScope()
 
     // Poll status from the embedder (updated on JavaFX thread)
     LaunchedEffect(started) {
@@ -167,9 +170,15 @@ private fun HmclPage() {
                     }
                     Button(
                         onClick = {
-                            HmclEmbedder.shutdown()
-                            started = false
-                            status = "Restarting..."
+                            scope.launch {
+                                HmclEmbedder.shutdown()
+                                started = false
+                                status = "Restarting..."
+                                // 先卸下面板再挂载，避免同一帧内 Compose 合并状态
+                                delay(50)
+                                panelEpoch++
+                                started = true
+                            }
                         }
                     ) {
                         Icon(Icons.Filled.Refresh, contentDescription = null)
@@ -202,11 +211,13 @@ private fun HmclPage() {
 
         // Embedded JavaFX panel or placeholder
         if (started) {
-            SwingPanel(
-                factory = { HmclEmbedder.getOrCreatePanel() },
-                modifier = Modifier.fillMaxSize(),
-                background = Color.White
-            )
+            key(panelEpoch) {
+                SwingPanel(
+                    factory = { HmclEmbedder.getOrCreatePanel() },
+                    modifier = Modifier.fillMaxSize(),
+                    background = Color.White
+                )
+            }
         } else {
             Box(
                 modifier = Modifier.fillMaxSize(),

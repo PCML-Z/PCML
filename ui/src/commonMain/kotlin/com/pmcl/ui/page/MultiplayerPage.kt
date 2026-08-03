@@ -8,9 +8,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
@@ -32,12 +30,22 @@ import com.pmcl.ui.viewmodel.leaveRoom
 import com.pmcl.ui.viewmodel.copyInvitation
 import com.pmcl.ui.viewmodel.copyToClipboard
 import com.pmcl.ui.viewmodel.syncConnectXConfig
+import com.pmcl.ui.viewmodel.syncEasyTierConfig
 
 /**
- * 多人联机页：创建 / 加入房间为主，其余收进设置与说明。
+ * 多人联机页：由二级侧栏切换 创建与加入 / 联机设置 / 使用说明。
  */
 @Composable
-fun MultiplayerPage(vm: LauncherViewModel) {
+fun MultiplayerPage(vm: LauncherViewModel, sectionId: String = "room") {
+    when (sectionId) {
+        "settings" -> MpSettingsSection(vm)
+        "help" -> MpHelpSection(vm)
+        else -> MpRoomSection(vm)
+    }
+}
+
+@Composable
+private fun MpRoomSection(vm: LauncherViewModel) {
     val state by vm.mpState.collectAsState()
     val progress by vm.mpProgress.collectAsState()
     val virtualIp by vm.mpVirtualIp.collectAsState()
@@ -46,11 +54,6 @@ fun MultiplayerPage(vm: LauncherViewModel) {
     val backend by vm.mpBackendState.collectAsState()
 
     var joinCode by remember { mutableStateOf("") }
-    var showHelp by remember { mutableStateOf(false) }
-    var showConnectXSettings by remember { mutableStateOf(false) }
-    var connectxBinPath by remember { mutableStateOf(vm.preferences.getConnectxBinaryPath() ?: "") }
-    var connectxServer by remember { mutableStateOf(vm.preferences.getConnectxServerAddress() ?: "") }
-    var connectxPort by remember { mutableStateOf(vm.preferences.getConnectxServerPort().toString()) }
 
     val isConnectX = backend == MultiplayerManager.Backend.CONNECTX
     val isTerracotta = backend == MultiplayerManager.Backend.TERRACOTTA
@@ -60,7 +63,6 @@ fun MultiplayerPage(vm: LauncherViewModel) {
         state == MultiplayerManager.State.CONNECTED
     val failed = state == MultiplayerManager.State.FAILED
 
-    // 国产架构（LoongArch64/RISC-V 64/MIPS64el）无 EasyTier 官方构建，禁用联机功能
     val archSupported = EasyTierManager.isEasyTierSupportedOnCurrentArch()
 
     val stateText = when (state) {
@@ -96,12 +98,11 @@ fun MultiplayerPage(vm: LauncherViewModel) {
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // 顶栏：标题 + 状态 + 帮助 / 设置
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Filled.Share, null, tint = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.width(8.dp))
             Text(
-                I18n.t("nav.multiplayer"),
+                I18n.t("mp.section.room"),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.weight(1f)
@@ -117,17 +118,8 @@ fun MultiplayerPage(vm: LauncherViewModel) {
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                 )
             }
-            IconButton(onClick = { showHelp = true }) {
-                Icon(Icons.Filled.Info, I18n.t("mp.usage"))
-            }
-            if (!inRoom) {
-                IconButton(onClick = { showConnectXSettings = true }) {
-                    Icon(Icons.Filled.Settings, I18n.t("mp.settings"))
-                }
-            }
         }
 
-        // 架构不支持警告横幅
         if (!archSupported) {
             Surface(
                 color = MaterialTheme.colorScheme.errorContainer,
@@ -156,7 +148,6 @@ fun MultiplayerPage(vm: LauncherViewModel) {
         }
 
         if (!inRoom) {
-            // 联机方式（单行，不占大卡片）
             Text(
                 I18n.t("mp.backend"),
                 style = MaterialTheme.typography.labelMedium,
@@ -170,7 +161,6 @@ fun MultiplayerPage(vm: LauncherViewModel) {
                 height = 34.dp
             )
 
-            // 主操作：创建
             Button(
                 onClick = { vm.createRoom() },
                 enabled = !busy && archSupported,
@@ -191,7 +181,6 @@ fun MultiplayerPage(vm: LauncherViewModel) {
                 )
             }
 
-            // 加入
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -232,7 +221,6 @@ fun MultiplayerPage(vm: LauncherViewModel) {
                 color = MaterialTheme.colorScheme.outline
             )
         } else {
-            // 已在房间：突出房间码 / IP，其余精简
             val primaryLabel: String
             val primaryValue: String
             val primaryHint: String
@@ -381,39 +369,127 @@ fun MultiplayerPage(vm: LauncherViewModel) {
             )
         }
     }
+}
 
-    if (showHelp) {
-        MpHelpDialog(
-            backend = backend,
-            onDismiss = { showHelp = false }
+@Composable
+private fun MpSettingsSection(vm: LauncherViewModel) {
+    var easytierPeer by remember { mutableStateOf(vm.preferences.getEasytierPeer() ?: "") }
+    var connectxBinPath by remember { mutableStateOf(vm.preferences.getConnectxBinaryPath() ?: "") }
+    var connectxServer by remember { mutableStateOf(vm.preferences.getConnectxServerAddress() ?: "") }
+    var connectxPort by remember { mutableStateOf(vm.preferences.getConnectxServerPort().toString()) }
+    var savedFlash by remember { mutableStateOf(false) }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .padding(horizontal = 20.dp, vertical = 16.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text(
+            I18n.t("mp.section.settings"),
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold
         )
-    }
 
-    if (showConnectXSettings) {
-        ConnectXSettingsDialog(
-            binPath = connectxBinPath,
-            serverAddr = connectxServer,
-            serverPort = connectxPort,
-            onBinPathChange = { connectxBinPath = it },
-            onServerAddrChange = { connectxServer = it },
-            onServerPortChange = { connectxPort = it },
-            onDismiss = { showConnectXSettings = false },
-            onSave = {
+        Text(
+            I18n.t("mp.easytier_peer"),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.outline
+        )
+        OutlinedTextField(
+            value = easytierPeer,
+            onValueChange = { easytierPeer = it },
+            placeholder = { Text("tcp://your.host:11010") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            shape = RoundedCornerShape(12.dp)
+        )
+        Text(
+            I18n.t("mp.easytier_peer_hint"),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.outline
+        )
+
+        HorizontalDivider()
+
+        Text(
+            I18n.t("mp.connectx_settings"),
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold
+        )
+        Text(
+            I18n.t("mp.connectx_binary"),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.outline
+        )
+        OutlinedTextField(
+            value = connectxBinPath,
+            onValueChange = { connectxBinPath = it },
+            placeholder = { Text("/path/to/ConnectX.ClientConsole") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            shape = RoundedCornerShape(12.dp)
+        )
+        Text(
+            I18n.t("mp.connectx_server"),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.outline
+        )
+        OutlinedTextField(
+            value = connectxServer,
+            onValueChange = { connectxServer = it },
+            placeholder = { Text("192.168.1.100") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            shape = RoundedCornerShape(12.dp)
+        )
+        Text(
+            I18n.t("mp.connectx_port"),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.outline
+        )
+        OutlinedTextField(
+            value = connectxPort,
+            onValueChange = { connectxPort = it },
+            placeholder = { Text("3535") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            shape = RoundedCornerShape(12.dp)
+        )
+        Text(
+            I18n.t("mp.connectx_about"),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.outline
+        )
+
+        Button(
+            onClick = {
+                vm.preferences.setEasytierPeer(easytierPeer)
                 vm.preferences.setConnectxBinaryPath(connectxBinPath)
                 vm.preferences.setConnectxServerAddress(connectxServer)
                 vm.preferences.setConnectxServerPort(connectxPort.toIntOrNull() ?: 3535)
                 vm.syncConnectXConfig()
-                showConnectXSettings = false
-            }
-        )
+                vm.syncEasyTierConfig()
+                savedFlash = true
+            },
+            modifier = Modifier.fillMaxWidth().height(44.dp)
+        ) {
+            Text(I18n.t("common.save"))
+        }
+        if (savedFlash) {
+            Text(
+                I18n.t("common.save") + " ✓",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
     }
 }
 
 @Composable
-private fun MpHelpDialog(
-    backend: MultiplayerManager.Backend,
-    onDismiss: () -> Unit
-) {
+private fun MpHelpSection(vm: LauncherViewModel) {
+    val backend by vm.mpBackendState.collectAsState()
     val lines = when (backend) {
         MultiplayerManager.Backend.TERRACOTTA -> listOf(
             I18n.t("mp.host_label"),
@@ -449,90 +525,30 @@ private fun MpHelpDialog(
         )
     }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(I18n.t("mp.usage")) },
-        text = {
-            Column(
-                Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                lines.forEach { line ->
-                    if (line.isEmpty()) Spacer(Modifier.height(4.dp))
-                    else Text(line, style = MaterialTheme.typography.bodySmall)
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text(I18n.t("common.ok")) }
+    Column(
+        Modifier
+            .fillMaxSize()
+            .padding(horizontal = 20.dp, vertical = 16.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            I18n.t("mp.section.help"),
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold
+        )
+        Text(
+            when (backend) {
+                MultiplayerManager.Backend.TERRACOTTA -> I18n.t("mp.terracotta_official")
+                MultiplayerManager.Backend.CONNECTX -> "ConnectX"
+                else -> "EasyTier"
+            },
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary
+        )
+        lines.forEach { line ->
+            if (line.isEmpty()) Spacer(Modifier.height(4.dp))
+            else Text(line, style = MaterialTheme.typography.bodyMedium)
         }
-    )
-}
-
-@Composable
-private fun ConnectXSettingsDialog(
-    binPath: String,
-    serverAddr: String,
-    serverPort: String,
-    onBinPathChange: (String) -> Unit,
-    onServerAddrChange: (String) -> Unit,
-    onServerPortChange: (String) -> Unit,
-    onDismiss: () -> Unit,
-    onSave: () -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(I18n.t("mp.connectx_settings")) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    I18n.t("mp.connectx_binary"),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.outline
-                )
-                OutlinedTextField(
-                    value = binPath,
-                    onValueChange = onBinPathChange,
-                    placeholder = { Text("/path/to/ConnectX.ClientConsole") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-                Text(
-                    I18n.t("mp.connectx_server"),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.outline
-                )
-                OutlinedTextField(
-                    value = serverAddr,
-                    onValueChange = onServerAddrChange,
-                    placeholder = { Text("192.168.1.100") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-                Text(
-                    I18n.t("mp.connectx_port"),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.outline
-                )
-                OutlinedTextField(
-                    value = serverPort,
-                    onValueChange = onServerPortChange,
-                    placeholder = { Text("3535") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-                Text(
-                    I18n.t("mp.connectx_about"),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.outline
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onSave) { Text(I18n.t("common.save")) }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text(I18n.t("common.cancel")) }
-        }
-    )
+    }
 }

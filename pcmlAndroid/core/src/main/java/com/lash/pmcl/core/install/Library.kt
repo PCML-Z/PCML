@@ -67,7 +67,20 @@ class Library private constructor(
         val os = currentOsName()
         if (!natives.has(os) || natives.get(os).isJsonNull) return null
         val classifier = natives.get(os).asString
-        return classifier.replace("\${arch}", "64")
+        // 替换 ${arch} 为空字符串，让 natives-linux 匹配 "natives-linux"
+        // 同时尝试带 arch 后缀的变体（如 natives-linux-arm64）
+        val noArch = classifier.replace("\${arch}", "")
+        // 如果 noArch 有值（不以 } 结尾说明是有效替换），并且 classifiers 中有直接匹配，优先返回
+        if (noArch.isNotEmpty() && classifiers.containsKey(noArch)) {
+            return noArch
+        }
+        // 否则尝试带架构后缀（Android ARM64 → "arm64", "aarch64"）
+        val archBits = if (isArm64()) "arm64" else "64"
+        val withArch = classifier.replace("\${arch}", archBits)
+        if (classifiers.containsKey(withArch)) return withArch
+        // 再尝试不带 arch 但去掉模板标记的直接匹配
+        val bare = classifier.replace("\${arch}", "")
+        return if (classifiers.containsKey(bare)) bare else noArch
     }
 
     /**

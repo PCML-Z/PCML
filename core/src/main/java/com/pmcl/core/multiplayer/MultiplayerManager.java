@@ -66,6 +66,8 @@ public final class MultiplayerManager {
     private volatile String localMcAddr = "";
     private volatile String lastError = "";
     /** ConnectX 运行时配置（由偏好同步，供 joinRoom 自动路由） */
+    /** User-configured EasyTier shared-node URI (empty → try built-in public peers). */
+    private volatile String easytierPeer = "";
     private volatile String connectxBinaryPath = "";
     private volatile String connectxServerAddress = "";
     private volatile int connectxServerPort = 3535;
@@ -109,6 +111,15 @@ public final class MultiplayerManager {
         this.connectxBinaryPath = binaryPath != null ? binaryPath.trim() : "";
         this.connectxServerAddress = serverAddr != null ? serverAddr.trim() : "";
         this.connectxServerPort = serverPort > 0 ? serverPort : 3535;
+    }
+
+    /** 同步 EasyTier 共享节点（偏好变更时调用）；空则启动时尝试内置公共节点。 */
+    public void configureEasyTierPeer(String peerUri) {
+        this.easytierPeer = peerUri != null ? peerUri.trim() : "";
+    }
+
+    public String getEasytierPeer() {
+        return easytierPeer;
     }
 
     public EasyTierManager getEasyTier() { return easyTier; }
@@ -160,7 +171,7 @@ public final class MultiplayerManager {
         new java.security.SecureRandom().nextBytes(token);
         currentInviteToken = Base64.getUrlEncoder().withoutPadding().encodeToString(token);
         currentNetworkSecret = deriveEasyTierSecret(token);
-        currentPeer = EasyTierManager.PUBLIC_PEER;
+        currentPeer = easytierPeer.isEmpty() ? EasyTierManager.PUBLIC_PEER : easytierPeer;
         return startEasyTier(onProgress);
     }
 
@@ -191,7 +202,9 @@ public final class MultiplayerManager {
             currentNetworkSecret = parts[1];
             currentPeer = parts[2];
             currentInviteToken = parts.length >= 4 ? parts[3] : "";
-            if (currentPeer.isEmpty()) currentPeer = EasyTierManager.PUBLIC_PEER;
+            if (currentPeer.isEmpty()) {
+                currentPeer = easytierPeer.isEmpty() ? EasyTierManager.PUBLIC_PEER : easytierPeer;
+            }
         } catch (Exception e) {
             return CompletableFuture.failedFuture(new IllegalArgumentException("邀请码格式无效：" + e.getMessage(), e));
         }
@@ -533,10 +546,21 @@ public final class MultiplayerManager {
         state = State.DOWNLOADING;
         lastError = "";
         virtualIp = "";
+        // Preflight: official public nodes are often NXDOMAIN — fail fast instead of hanging
+        String resolvedPeer = EasyTierManager.resolvePeerUri(currentPeer);
+        if (resolvedPeer == null) {
+            String hint = "无法解析 EasyTier 共享节点"
+                    + (currentPeer.isEmpty() ? "（官方 public.easytier.cn 已停用）" : "：" + currentPeer)
+                    + "。请在联机设置中填写可用节点（tcp://主机:端口），或改用「陶瓦联机」。";
+            state = State.FAILED;
+            lastError = hint;
+            return CompletableFuture.failedFuture(new IllegalStateException(hint));
+        }
+        currentPeer = resolvedPeer;
         return easyTier.ensureBinary(onProgress)
                 .thenCompose(v -> {
                     state = State.CONNECTING;
-                    if (onProgress != null) onProgress.accept("正在连接到陶瓦联机网络…");
+                    if (onProgress != null) onProgress.accept("正在连接 EasyTier（节点 " + currentPeer + "）…");
                     // EasyTier 输出同时传给解析器和 UI（方便用户看到实时日志诊断问题）
                     return easyTier.start(currentNetworkName, currentNetworkSecret, currentPeer, line -> {
                         parseEasyTierOutput(line);
@@ -547,10 +571,21 @@ public final class MultiplayerManager {
                     // EasyTier 进程已启动，等 TUN 网卡就绪后主动查询虚拟 IP
                     if (onProgress != null) onProgress.accept("正在获取虚拟 IP…（需要管理员/sudo 权限创建虚拟网卡）");
                     return CompletableFuture.supplyAsync(() -> {
-                        // TUN 网卡创建需要 1-3 秒，重试查询 15 次
-                        for (int i = 0; i < 15; i++) {
+                        // TUN 网卡创建需要 1-3 秒；进程若已退出则立即失败
+                        for (int i = 0; i < 20; i++) {
                             try { Thread.sleep(1000); } catch (InterruptedException ie) {
                                 Thread.currentThread().interrupt(); break;
+                            }
+                            if (!easyTier.isRunning()) {
+                                String logs = easyTier.recentLogSnippet();
+                                String hint = "EasyTier 进程已退出，未能建立虚拟网卡。"
+                                        + (logs.isEmpty() ? "" : ("\n" + logs))
+                                        + "\n若提示端口占用，请结束残留的 easytier-core 后重试；"
+                                        + "官方公共节点已停用时请配置自建节点或改用陶瓦联机。";
+                                if (onProgress != null) onProgress.accept(hint);
+                                lastError = hint;
+                                state = State.FAILED;
+                                throw new IllegalStateException(hint);
                             }
                             String ip = easyTier.queryVirtualIp();
                             if (!ip.isEmpty()) {
@@ -573,10 +608,13 @@ public final class MultiplayerManager {
                             if (os.contains("win")) {
                                 hint = "未获取到虚拟 IP。请用「管理员身份」运行 PMCL，EasyTier 需要 WinTun 驱动创建虚拟网卡。";
                             } else if (os.contains("mac")) {
-                                hint = "未获取到虚拟 IP。macOS 创建 TUN 网卡需要 root 权限，请用 sudo 运行 PMCL。";
+                                hint = "未获取到虚拟 IP。macOS 创建 TUN 网卡需要 root 权限，请用 sudo 运行 PMCL；"
+                                        + "也可改用「陶瓦联机」（无需自建 EasyTier 节点）。";
                             } else {
                                 hint = "未获取到虚拟 IP。Linux 创建 TUN 网卡需要 root 或 CAP_NET_ADMIN 权限，请用 sudo 运行 PMCL。";
                             }
+                            String logs = easyTier.recentLogSnippet();
+                            if (!logs.isEmpty()) hint = hint + "\n" + logs;
                             if (onProgress != null) onProgress.accept(hint);
                             lastError = hint;
                             state = State.FAILED;

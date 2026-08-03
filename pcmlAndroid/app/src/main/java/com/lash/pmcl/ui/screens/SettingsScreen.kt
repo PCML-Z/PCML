@@ -3,6 +3,9 @@ package com.lash.pmcl.ui.screens
 import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import android.net.Uri
 import android.os.Build
 import androidx.compose.foundation.background
@@ -53,6 +56,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -145,13 +149,12 @@ fun SettingsScreen(
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
-        topBar = { TopAppBar(title = { Text("设置") }) },
     ) { innerPadding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp),
         ) {
@@ -399,19 +402,34 @@ private fun GameBehaviorCard(preferences: Preferences) {
     SettingsCard {
         Text("游戏通用行为", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(4.dp))
-        Text("控制游戏窗口、渲染与启动行为。未标注功能在 Android 端暂不支持。",
+        Text("控制游戏窗口、渲染与启动行为。",
             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
 
         Spacer(Modifier.height(12.dp))
-        UnsupportedSwitchItem("版本隔离", "每个版本独立存档与配置目录")
+        SettingSwitchItem("版本隔离", "每个版本独立存档与配置目录",
+            checked = preferences.isVersionIsolation(),
+            onToggle = { preferences.setVersionIsolation(it) })
         HorizontalDivider()
-        UnsupportedRow("窗口分辨率", "游戏窗口的宽 × 高")
+        var gameRes by remember { mutableStateOf(preferences.getGameResolution()) }
+        SettingFieldItem("窗口分辨率", "游戏窗口的宽 × 高，如 1920x1080",
+            value = gameRes,
+            onValueChange = { gameRes = it; preferences.setGameResolution(it) },
+            placeholder = "1920x1080")
         HorizontalDivider()
-        UnsupportedRow("渲染器", "AUTO / OPENGL / VULKAN")
+        var renderer by remember { mutableStateOf(preferences.getGameRenderer()) }
+        SettingChoiceItem("渲染器", "图形渲染后端",
+            value = renderer,
+            choices = listOf("zink", "vulkan", "auto"),
+            labels = listOf("Zink (OpenGL→Vulkan)", "Vulkan", "AUTO"),
+            onSelect = { renderer = it; preferences.setGameRenderer(it) })
         HorizontalDivider()
-        UnsupportedSwitchItem("全屏启动", "启动时进入全屏模式")
+        SettingSwitchItem("全屏启动", "启动时进入全屏模式",
+            checked = preferences.isGameFullscreen(),
+            onToggle = { preferences.setGameFullscreen(it) })
         HorizontalDivider()
-        UnsupportedSwitchItem("Demo 模式", "以演示模式启动游戏")
+        SettingSwitchItem("Demo 模式", "以演示模式启动游戏",
+            checked = preferences.isGameDemoMode(),
+            onToggle = { preferences.setGameDemoMode(it) })
 
         Spacer(Modifier.height(12.dp))
         HorizontalDivider()
@@ -442,11 +460,23 @@ private fun GameBehaviorCard(preferences: Preferences) {
         Spacer(Modifier.height(12.dp))
         HorizontalDivider()
         Spacer(Modifier.height(8.dp))
-        UnsupportedRow("自定义窗口图标", "游戏窗口标题栏图标路径")
+        var customIcon by remember { mutableStateOf(preferences.getGameCustomIcon()) }
+        SettingFieldItem("自定义窗口图标", "游戏窗口标题栏图标路径",
+            value = customIcon,
+            onValueChange = { customIcon = it; preferences.setGameCustomIcon(it) },
+            placeholder = "/sdcard/icon.png")
         HorizontalDivider()
-        UnsupportedRow("自定义主菜单背景视频", "替换游戏主菜单背景动画")
+        var bgVideo by remember { mutableStateOf(preferences.getGameBgVideo()) }
+        SettingFieldItem("主菜单背景视频", "替换游戏主菜单背景动画",
+            value = bgVideo,
+            onValueChange = { bgVideo = it; preferences.setGameBgVideo(it) },
+            placeholder = "/sdcard/bg.mp4")
         HorizontalDivider()
-        UnsupportedRow("自定义 Natives 路径", "指定本地库加载目录")
+        var customNatives by remember { mutableStateOf(preferences.getGameCustomNatives()) }
+        SettingFieldItem("自定义 Natives 路径", "指定本地库加载目录",
+            value = customNatives,
+            onValueChange = { customNatives = it; preferences.setGameCustomNatives(it) },
+            placeholder = "/sdcard/natives")
     }
 }
 
@@ -525,6 +555,9 @@ private fun AppearanceCard(preferences: Preferences) {
     var accentColor by remember { mutableStateOf(preferences.getCustomAccentColor()) }
     var colorMode by remember { mutableStateOf(preferences.getColorMode()) }
     var language by remember { mutableStateOf(preferences.getLanguage()) }
+    var glassTheme by remember { mutableStateOf(preferences.isGlassTheme()) }
+    var lockscreenLaunch by remember { mutableStateOf(preferences.isLockscreenLaunchTheme()) }
+    var uiScale by remember { mutableStateOf(preferences.getUiScale()) }
 
     SettingsCard {
         Text("外观", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
@@ -688,11 +721,39 @@ private fun AppearanceCard(preferences: Preferences) {
         Spacer(Modifier.height(12.dp))
         HorizontalDivider()
         Spacer(Modifier.height(8.dp))
+
+        // 玻璃主题（与桌面端一致）
+        SwitchRow("玻璃主题", "侧边栏与卡片使用毛玻璃效果", glassTheme) {
+            glassTheme = it; preferences.setGlassTheme(it)
+        }
+
+        // 锁屏启动页（与桌面端一致）
+        SwitchRow("锁屏启动页", "启用 Origin OS2 风格的锁屏启动页", lockscreenLaunch) {
+            lockscreenLaunch = it; preferences.setLockscreenLaunchTheme(it)
+        }
+
+        // UI 缩放（与桌面端一致）
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("UI 缩放", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                Text("调整启动器界面缩放比例", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+            }
+            Text("${(uiScale * 100).toInt()}%", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+        }
+        Spacer(Modifier.height(4.dp))
+        Slider(
+            value = uiScale,
+            onValueChange = { uiScale = (Math.round(it * 20) / 20f).coerceIn(0.8f, 1.5f)
+                              preferences.setUiScale(uiScale) },
+            valueRange = 0.8f..1.5f,
+            steps = 13,
+        )
+
+        Spacer(Modifier.height(8.dp))
+        HorizontalDivider()
         UnsupportedRow("自定义启动器背景", "关闭 / 图片 / 视频")
         HorizontalDivider()
         UnsupportedSwitchItem("预判启动", "基于使用习惯预测并预热版本")
-        HorizontalDivider()
-        UnsupportedRow("UI 缩放", "调整启动器界面缩放比例 (0.8 ~ 1.5)")
         HorizontalDivider()
         UnsupportedSwitchItem("性能 HUD", "悬浮显示 CPU / 内存 / GPU / FPS 指标")
     }
@@ -1229,3 +1290,49 @@ private val ACCENT_PRESETS = listOf(
     0x00BCD4 to "青色", 0x8BC34A to "草绿", 0xFFC107 to "金色",
     0x795548 to "棕色", 0x607D8B to "石板灰", 0x000000 to "黑色",
 )
+
+@Composable
+private fun SettingSwitchItem(title: String, desc: String, checked: Boolean, onToggle: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyMedium)
+            if (desc.isNotEmpty()) Text(desc, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+        }
+        Switch(checked = checked, onCheckedChange = onToggle)
+    }
+}
+
+@Composable
+private fun SettingFieldItem(title: String, desc: String, value: String, onValueChange: (String) -> Unit, placeholder: String) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyMedium)
+            if (desc.isNotEmpty()) Text(desc, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+        }
+        Spacer(Modifier.width(8.dp))
+        OutlinedTextField(value = value, onValueChange = onValueChange, singleLine = true,
+            placeholder = { Text(placeholder) }, modifier = Modifier.width(180.dp))
+    }
+}
+
+@Composable
+private fun SettingChoiceItem(title: String, desc: String, value: String, choices: List<String>, labels: List<String>, onSelect: (String) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyMedium)
+            if (desc.isNotEmpty()) Text(desc, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+        }
+        Box {
+            OutlinedButton(onClick = { expanded = true }) {
+                Text(labels.getOrElse(choices.indexOf(value)) { value })
+                Icon(Icons.Filled.ArrowDropDown, null, Modifier.size(16.dp))
+            }
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                choices.forEachIndexed { i, c ->
+                    DropdownMenuItem(text = { Text(labels[i]) }, onClick = { onSelect(c); expanded = false })
+                }
+            }
+        }
+    }
+}

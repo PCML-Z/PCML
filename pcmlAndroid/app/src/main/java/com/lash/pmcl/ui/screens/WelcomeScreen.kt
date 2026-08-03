@@ -1,5 +1,6 @@
 package com.lash.pmcl.ui.screens
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,7 +11,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.Extension
@@ -25,19 +28,30 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 
 @Composable
 fun WelcomeScreen(onContinue: () -> Unit) {
+    // 横屏时屏幕高度有限，整体放入可滚动容器，确保"开始使用"按钮始终可见
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(24.dp),
-        contentAlignment = Alignment.Center,
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
+                        MaterialTheme.colorScheme.surface
+                    )
+                )
+            )
     ) {
         Column(
-            modifier = Modifier.widthIn(max = 480.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp, vertical = 32.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
@@ -54,7 +68,7 @@ fun WelcomeScreen(onContinue: () -> Unit) {
             Spacer(Modifier.height(32.dp))
 
             Card(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.widthIn(max = 480.dp).fillMaxWidth(),
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceVariant,
                 ),
@@ -71,7 +85,7 @@ fun WelcomeScreen(onContinue: () -> Unit) {
 
             Button(
                 onClick = onContinue,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.widthIn(max = 480.dp).fillMaxWidth(),
             ) {
                 Text("开始使用")
             }

@@ -10,16 +10,19 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
 import com.pmcl.core.plugin.PluginManager
+import com.pmcl.ui.animation.AnimatedNavSidebar
 import com.pmcl.ui.animation.AnimatedPageSwitch
 import com.pmcl.ui.animation.EntranceAnimation
 import com.pmcl.ui.animation.SlideInFromStart
 import com.pmcl.ui.navigation.NavDestination
+import com.pmcl.ui.navigation.SecondaryNavRail
+import com.pmcl.ui.navigation.SecondaryNavRailWidth
+import com.pmcl.ui.navigation.SecondaryNavRegistry
 import com.pmcl.ui.navigation.allDestinations
 import com.pmcl.ui.page.AccountsPage
 import com.pmcl.ui.page.AgreementGatePage
@@ -283,6 +286,40 @@ private fun MainWindowContent(vm: LauncherViewModel) {
     var current by remember { mutableStateOf<NavTarget>(NavTarget.BuiltIn(NavDestination.Launch)) }
     // 导航方向：1=前进，-1=后退，0=初始
     var navDirection by remember { mutableIntStateOf(0) }
+    // 二级侧栏：非空表示已钻入有子导航的一级入口
+    var secondarySectionId by remember { mutableStateOf<String?>(null) }
+    // 二级分区切换方向：1=列表向下，-1=向上，0=交叉淡入（钻入/返回时）
+    var secondarySectionDirection by remember { mutableIntStateOf(0) }
+    var hasPluginSettings by remember { mutableStateOf(false) }
+
+    fun enterPrimary(target: NavTarget, direction: Int = 0) {
+        navDirection = direction
+        current = target
+        val dest = (target as? NavTarget.BuiltIn)?.dest
+        val spec = dest?.let { SecondaryNavRegistry.specFor(it) }
+        secondarySectionDirection = 0
+        secondarySectionId = spec?.sections?.firstOrNull()?.id
+    }
+
+    fun exitSecondary() {
+        secondarySectionId = null
+        secondarySectionDirection = 0
+        navDirection = -1
+        current = NavTarget.BuiltIn(NavDestination.Launch)
+    }
+
+    fun selectSecondarySection(spec: com.pmcl.ui.navigation.SecondaryNavSpec, id: String) {
+        val oldIdx = spec.sections.indexOfFirst { it.id == secondarySectionId }
+        val newIdx = spec.sections.indexOfFirst { it.id == id }
+        secondarySectionDirection = when {
+            oldIdx < 0 || newIdx < 0 || oldIdx == newIdx -> 0
+            newIdx > oldIdx -> 1
+            else -> -1
+        }
+        // 同级分区用精细水平滑动，不走整页推进动画
+        navDirection = 0
+        secondarySectionId = id
+    }
 
     // Collect plugin-provided pages (refreshable via revision polling)
     var pluginPages by remember { mutableStateOf<List<PluginManager.RegisteredPage>>(emptyList()) }
@@ -311,6 +348,9 @@ private fun MainWindowContent(vm: LauncherViewModel) {
         navBadgeMap = try {
             vm.core.plugins().navBadges.associate { it.target to it.text }
         } catch (_: Throwable) { emptyMap() }
+        hasPluginSettings = try {
+            vm.core.plugins().getCustomSettingsSections().isNotEmpty()
+        } catch (_: Throwable) { false }
         lastRevision = vm.core.plugins().getRevision()
         // 若当前正停在已卸载/禁用的插件页，立刻退回内置页，避免 Compose 持有已关闭 ClassLoader 的内容
         val afterLoad = current
@@ -319,8 +359,7 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                 it.pluginId == afterLoad.page.pluginId && it.id == afterLoad.page.id
             }
             if (!stillThere) {
-                current = NavTarget.BuiltIn(NavDestination.Plugins)
-                navDirection = 0
+                enterPrimary(NavTarget.BuiltIn(NavDestination.Plugins), 0)
             }
         }
         // 插件加载完成后，检查持久化的 customThemePackId 是否仍可用
@@ -341,14 +380,16 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                 navBadgeMap = try {
                     vm.core.plugins().navBadges.associate { it.target to it.text }
                 } catch (_: Throwable) { emptyMap() }
+                hasPluginSettings = try {
+                    vm.core.plugins().getCustomSettingsSections().isNotEmpty()
+                } catch (_: Throwable) { false }
                 val cur = current
                 if (cur is NavTarget.PluginPage) {
                     val stillThere = pluginPages.any {
                         it.pluginId == cur.page.pluginId && it.id == cur.page.id
                     }
                     if (!stillThere) {
-                        current = NavTarget.BuiltIn(NavDestination.Plugins)
-                        navDirection = 0
+                        enterPrimary(NavTarget.BuiltIn(NavDestination.Plugins), 0)
                     }
                 }
                 // 插件结构变化（启用/禁用/卸载）可能影响主题包可用性
@@ -397,22 +438,28 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                                 it.pluginId == parts[0] && it.id == parts[1]
                             }
                             if (page != null) {
-                                current = NavTarget.PluginPage(page)
+                                enterPrimary(NavTarget.PluginPage(page), 0)
                             }
                         }
                     }
                     target.equals("settings", ignoreCase = true) ->
-                        current = NavTarget.BuiltIn(NavDestination.Settings)
+                        enterPrimary(NavTarget.BuiltIn(NavDestination.Settings), 0)
                     target.equals("plugins", ignoreCase = true) ->
-                        current = NavTarget.BuiltIn(NavDestination.Plugins)
+                        enterPrimary(NavTarget.BuiltIn(NavDestination.Plugins), 0)
                     target.equals("home", ignoreCase = true) || target.equals("launch", ignoreCase = true) ->
-                        current = NavTarget.BuiltIn(NavDestination.Launch)
+                        enterPrimary(NavTarget.BuiltIn(NavDestination.Launch), 0)
                     target.equals("versions", ignoreCase = true) || target.equals("download", ignoreCase = true) ->
-                        current = NavTarget.BuiltIn(NavDestination.Download)
+                        enterPrimary(NavTarget.BuiltIn(NavDestination.Download), 0)
+                    target.equals("content", ignoreCase = true) ->
+                        enterPrimary(NavTarget.BuiltIn(NavDestination.Content), 0)
+                    target.equals("multiplayer", ignoreCase = true) || target.equals("mp", ignoreCase = true) ->
+                        enterPrimary(NavTarget.BuiltIn(NavDestination.Multiplayer), 0)
+                    target.equals("statistics", ignoreCase = true) || target.equals("stats", ignoreCase = true) ->
+                        enterPrimary(NavTarget.BuiltIn(NavDestination.Statistics), 0)
                     target.equals("instances", ignoreCase = true) ->
-                        current = NavTarget.BuiltIn(NavDestination.Instances)
+                        enterPrimary(NavTarget.BuiltIn(NavDestination.Instances), 0)
                     target.equals("accounts", ignoreCase = true) ->
-                        current = NavTarget.BuiltIn(NavDestination.Accounts)
+                        enterPrimary(NavTarget.BuiltIn(NavDestination.Accounts), 0)
                     else -> { /* ignore unknown */ }
                 }
             }
@@ -624,75 +671,106 @@ private fun MainWindowContent(vm: LauncherViewModel) {
         }
     }
 
+    val currentBuiltIn = (current as? NavTarget.BuiltIn)?.dest
+    val secondarySpec = currentBuiltIn?.let { SecondaryNavRegistry.specFor(it) }
+    val inSecondary = secondarySectionId != null && secondarySpec != null
+    val queueSummaryForBadge by vm.queueSummary.collectAsState()
+    val secondaryBadges = remember(queueSummaryForBadge.active()) {
+        if (queueSummaryForBadge.active() > 0) {
+            mapOf("queue" to "${queueSummaryForBadge.active()}")
+        } else emptyMap()
+    }
+    val secondaryHidden = remember(hasPluginSettings) {
+        if (hasPluginSettings) emptySet() else setOf("extensions")
+    }
+
     Row(Modifier.fillMaxSize()) {
         SlideInFromStart(delayMs = 0, durationMs = 400) {
             // 玻璃主题：侧边栏分层渲染 —— 底层独立模糊背景层（只画颜色），
-            // 上层 NavigationRail 透明背景 + 清晰文字图标。
-            // 注意：Modifier.blur 是节点后处理，无法只模糊"下方内容"，
-            // 必须把背景拆成独立节点模糊，内容节点保持不模糊。
+            // 上层 NavigationRail / SecondaryNavRail 透明背景 + 清晰文字图标。
             val glassOn = themeState.glassTheme
             Box(Modifier.fillMaxHeight()) {
-                if (glassOn) {
-                    // 模糊背景层：独立节点，自身被 blur，渲染出毛玻璃质感
-                    Box(
-                        Modifier
-                            .matchParentSize()
-                            .blur(24.dp)
-                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
-                    )
-                }
-                NavigationRail(
-                    modifier = Modifier.fillMaxHeight(),
-                    containerColor = if (glassOn) androidx.compose.ui.graphics.Color.Transparent
-                                     else MaterialTheme.colorScheme.surface
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.Top),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        navItems.forEach { target ->
-                            val selected = current == target
-                            val badgeKey = when (target) {
-                                is NavTarget.BuiltIn -> target.dest.route
-                                is NavTarget.PluginPage -> "plugin:${target.page.pluginId}:${target.page.id}"
-                            }
-                            val badgeText = navBadgeMap[badgeKey]
-                            NavigationRailItem(
-                                selected = selected,
-                                onClick = {
-                                val oldIndex = navItems.indexOf(current)
-                                val newIndex = navItems.indexOf(target)
-                                navDirection = if (newIndex > oldIndex) 1 else if (newIndex < oldIndex) -1 else 0
-                                current = target
-                            },
-                                icon = {
-                                    val iconContent = @Composable {
-                                        when (target) {
-                                            is NavTarget.BuiltIn -> Icon(target.dest.icon, contentDescription = I18n.t(target.dest.labelKey))
-                                            is NavTarget.PluginPage -> Icon(Icons.Filled.Extension, contentDescription = target.page.title)
-                                        }
+                AnimatedNavSidebar(
+                    inSecondary = inSecondary,
+                    secondaryWidth = SecondaryNavRailWidth,
+                    glassBlur = glassOn,
+                    primary = {
+                        NavigationRail(
+                            modifier = Modifier.fillMaxHeight(),
+                            containerColor = if (glassOn) androidx.compose.ui.graphics.Color.Transparent
+                                             else MaterialTheme.colorScheme.surface
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .verticalScroll(rememberScrollState()),
+                                verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.Top),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                navItems.forEach { target ->
+                                    val selected = current == target
+                                    val badgeKey = when (target) {
+                                        is NavTarget.BuiltIn -> target.dest.route
+                                        is NavTarget.PluginPage -> "plugin:${target.page.pluginId}:${target.page.id}"
                                     }
-                                    if (!badgeText.isNullOrBlank()) {
-                                        BadgedBox(badge = { Badge { Text(badgeText.take(4)) } }) {
-                                            iconContent()
+                                    val badgeText = navBadgeMap[badgeKey]
+                                    NavigationRailItem(
+                                        selected = selected,
+                                        onClick = {
+                                            val oldIndex = navItems.indexOf(current)
+                                            val newIndex = navItems.indexOf(target)
+                                            val dir = when {
+                                                newIndex > oldIndex -> 1
+                                                newIndex < oldIndex -> -1
+                                                else -> 0
+                                            }
+                                            enterPrimary(target, dir)
+                                        },
+                                        icon = {
+                                            val iconContent = @Composable {
+                                                when (target) {
+                                                    is NavTarget.BuiltIn -> Icon(target.dest.icon, contentDescription = I18n.t(target.dest.labelKey))
+                                                    is NavTarget.PluginPage -> Icon(Icons.Filled.Extension, contentDescription = target.page.title)
+                                                }
+                                            }
+                                            if (!badgeText.isNullOrBlank()) {
+                                                BadgedBox(badge = { Badge { Text(badgeText.take(4)) } }) {
+                                                    iconContent()
+                                                }
+                                            } else {
+                                                iconContent()
+                                            }
+                                        },
+                                        label = {
+                                            Text(when (target) {
+                                                is NavTarget.BuiltIn -> I18n.t(target.dest.labelKey)
+                                                is NavTarget.PluginPage -> target.page.title
+                                            })
                                         }
-                                    } else {
-                                        iconContent()
-                                    }
-                                },
-                                label = {
-                                    Text(when (target) {
-                                        is NavTarget.BuiltIn -> I18n.t(target.dest.labelKey)
-                                        is NavTarget.PluginPage -> target.page.title
-                                    })
+                                    )
                                 }
+                            }
+                        }
+                    },
+                    secondary = {
+                        val spec = secondarySpec
+                        if (spec != null && secondarySectionId != null) {
+                            SecondaryNavRail(
+                                spec = spec,
+                                selectedSectionId = secondarySectionId!!,
+                                onBack = { exitSecondary() },
+                                onSelect = { id -> selectSecondarySection(spec, id) },
+                                badges = secondaryBadges,
+                                hiddenSectionIds = if (spec.parentRoute == "settings") {
+                                    secondaryHidden
+                                } else emptySet(),
+                                railModifier = if (glassOn) {
+                                    Modifier.background(androidx.compose.ui.graphics.Color.Transparent)
+                                } else Modifier
                             )
                         }
                     }
-                }
+                )
             }
         }
 
@@ -726,25 +804,64 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                     }
             ) {
                 EntranceAnimation(delayMs = 120, durationMs = 400, offsetDp = 32) {
-                    AnimatedPageSwitch(targetState = current, direction = navDirection) { target ->
-                        when (target) {
+                    val sectionId = secondarySectionId
+                    // 将二级 section 并入 targetState，确保侧栏切换时内容区正确重组
+                    val pageSwitchKey = when (val c = current) {
+                        is NavTarget.BuiltIn -> c.dest.route + ":" + (sectionId ?: "")
+                        is NavTarget.PluginPage -> "plugin:${c.page.pluginId}:${c.page.id}"
+                    }
+                    // 二级分区切换用精细水平滑动；一级页面切换仍用 navDirection
+                    val contentDirection = if (inSecondary && secondarySectionDirection != 0) {
+                        secondarySectionDirection
+                    } else {
+                        navDirection
+                    }
+                    AnimatedPageSwitch(targetState = pageSwitchKey, direction = contentDirection) {
+                        when (val target = current) {
                             is NavTarget.BuiltIn -> when (target.dest) {
                                 NavDestination.Launch      -> LaunchPage(vm)
                                 NavDestination.News        -> NewsPage(vm)
-                                NavDestination.Multiplayer -> MultiplayerPage(vm)
+                                NavDestination.Multiplayer -> MultiplayerPage(
+                                    vm,
+                                    sectionId = sectionId ?: SecondaryNavRegistry.multiplayer.sections.first().id
+                                )
                                 NavDestination.Servers     -> ServersPage(vm)
                                 NavDestination.Friends     -> FriendPage(vm)
-                                NavDestination.Download    -> DownloadHubPage(vm)
-                                NavDestination.Content     -> ContentHubPage(vm)
-                                NavDestination.Saves       -> SavesHubPage(vm)
-                                NavDestination.Statistics  -> StatisticsPage(vm)
-                                NavDestination.Accounts    -> AccountsPage(vm)
-                                NavDestination.Settings    -> SettingsPage(vm)
+                                NavDestination.Download    -> DownloadHubPage(
+                                    vm,
+                                    sectionId = sectionId ?: SecondaryNavRegistry.download.sections.first().id
+                                )
+                                NavDestination.Content     -> ContentHubPage(
+                                    vm,
+                                    sectionId = sectionId ?: SecondaryNavRegistry.content.sections.first().id
+                                )
+                                NavDestination.Saves       -> SavesHubPage(
+                                    vm,
+                                    sectionId = sectionId ?: SecondaryNavRegistry.saves.sections.first().id
+                                )
+                                NavDestination.Statistics  -> StatisticsPage(
+                                    vm,
+                                    sectionId = sectionId ?: SecondaryNavRegistry.statistics.sections.first().id
+                                )
+                                NavDestination.Accounts    -> AccountsPage(
+                                    vm,
+                                    sectionId = sectionId ?: SecondaryNavRegistry.accounts.sections.first().id
+                                )
+                                NavDestination.Settings    -> SettingsPage(
+                                    vm,
+                                    sectionId = sectionId ?: SecondaryNavRegistry.settings.sections.first().id
+                                )
                                 NavDestination.Terminal    -> TerminalPage(vm)
-                                NavDestination.Plugins     -> PluginPage(vm)
+                                NavDestination.Plugins     -> PluginPage(
+                                    vm,
+                                    sectionId = sectionId ?: SecondaryNavRegistry.plugins.sections.first().id
+                                )
                                 NavDestination.Instances   -> InstancesPage(vm)
                                 NavDestination.NbtEditor   -> NbtEditorPage(vm)
-                                NavDestination.Music       -> MusicPage(vm)
+                                NavDestination.Music       -> MusicPage(
+                                    vm,
+                                    sectionId = sectionId ?: SecondaryNavRegistry.music.sections.first().id
+                                )
                             }
                             is NavTarget.PluginPage -> {
                                 // M36 修复：插件页 content.invoke() 同步调用，插件异常会传播到主窗口导致整个 App 崩溃。
@@ -766,8 +883,9 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                         pulseTrigger = pulseTrigger,
                         forceVisible = flyAnimations.isNotEmpty(),
                         onClick = {
-                            current = NavTarget.BuiltIn(NavDestination.Download)
                             navDirection = 1
+                            current = NavTarget.BuiltIn(NavDestination.Download)
+                            secondarySectionId = "queue"
                         },
                         onPositioned = { rect, _ -> vm.updateDownloadQueueRect(rect) },
                         modifier = Modifier.align(Alignment.BottomEnd)
@@ -821,8 +939,12 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                         val target = NavTarget.BuiltIn(NavDestination.Music)
                         val oldIndex = navItems.indexOf(current)
                         val newIndex = navItems.indexOf(target)
-                        navDirection = if (newIndex > oldIndex) 1 else if (newIndex < oldIndex) -1 else 0
-                        current = target
+                        val dir = when {
+                            newIndex > oldIndex -> 1
+                            newIndex < oldIndex -> -1
+                            else -> 0
+                        }
+                        enterPrimary(target, dir)
                     }
                 )
             }
@@ -840,7 +962,7 @@ private fun MainWindowContent(vm: LauncherViewModel) {
         )
     }
 
-    // ===== 全局：崩溃恢复操作导航请求 =====
+    // ===== 全局：崩溃恢复 / 命令面板导航请求 =====
     val navigationRequest by vm.navigationRequest.collectAsState()
     LaunchedEffect(navigationRequest) {
         val req = navigationRequest ?: return@LaunchedEffect
@@ -849,10 +971,69 @@ private fun MainWindowContent(vm: LauncherViewModel) {
             val newTarget = NavTarget.BuiltIn(target)
             val oldIndex = navItems.indexOf(current)
             val newIndex = navItems.indexOf(newTarget)
-            navDirection = if (newIndex > oldIndex) 1 else if (newIndex < oldIndex) -1 else 0
-            current = newTarget
+            val dir = when {
+                newIndex > oldIndex -> 1
+                newIndex < oldIndex -> -1
+                else -> 0
+            }
+            enterPrimary(newTarget, dir)
         }
         vm.clearNavigationRequest()
+    }
+
+    val secondaryNavRequest by vm.secondaryNavRequest.collectAsState()
+    LaunchedEffect(secondaryNavRequest) {
+        val req = secondaryNavRequest ?: return@LaunchedEffect
+        val (route, sectionId) = req
+        val dest = allDestinations.firstOrNull { it.route == route }
+        val spec = SecondaryNavRegistry.specForRoute(route)
+        if (dest != null && spec != null) {
+            val newTarget = NavTarget.BuiltIn(dest)
+            val oldIndex = navItems.indexOf(current)
+            val newIndex = navItems.indexOf(newTarget)
+            navDirection = when {
+                newIndex > oldIndex -> 1
+                newIndex < oldIndex -> -1
+                else -> 0
+            }
+            current = newTarget
+            secondarySectionDirection = 0
+            secondarySectionId = if (spec.sections.any { it.id == sectionId }) {
+                sectionId
+            } else {
+                spec.sections.first().id
+            }
+        }
+        vm.clearSecondaryNavRequest()
+    }
+
+    // 兼容旧 hubTabRequest：下载/内容/设置/统计/联机/账号/存档映射到二级 section
+    val hubTabRequest by vm.hubTabRequest.collectAsState()
+    LaunchedEffect(hubTabRequest) {
+        val req = hubTabRequest ?: return@LaunchedEffect
+        val (route, tabIndex) = req
+        val sectionId = when (route) {
+            "download" -> SecondaryNavRegistry.downloadSectionId(tabIndex)
+            "content" -> SecondaryNavRegistry.contentSectionId(tabIndex)
+            "settings" -> SecondaryNavRegistry.settings.sections.getOrNull(tabIndex)?.id
+                ?: SecondaryNavRegistry.settings.sections.first().id
+            "statistics" -> SecondaryNavRegistry.statistics.sections.getOrNull(tabIndex)?.id
+                ?: SecondaryNavRegistry.statistics.sections.first().id
+            "multiplayer" -> SecondaryNavRegistry.multiplayer.sections.getOrNull(tabIndex)?.id
+                ?: SecondaryNavRegistry.multiplayer.sections.first().id
+            "accounts" -> SecondaryNavRegistry.accounts.sections.getOrNull(tabIndex)?.id
+                ?: SecondaryNavRegistry.accounts.sections.first().id
+            "saves" -> SecondaryNavRegistry.savesSectionId(tabIndex)
+            "plugins" -> SecondaryNavRegistry.plugins.sections.getOrNull(tabIndex)?.id
+                ?: SecondaryNavRegistry.plugins.sections.first().id
+            "music" -> SecondaryNavRegistry.music.sections.getOrNull(tabIndex)?.id
+                ?: SecondaryNavRegistry.music.sections.first().id
+            else -> null
+        }
+        if (sectionId != null) {
+            vm.requestSecondaryNav(route, sectionId)
+            vm.clearHubTabRequest()
+        }
     }
 }
 

@@ -39,7 +39,20 @@ class Preferences(
     private var customAccentColor: Int = -1            // 自定义强调色 ARGB，-1 表示未设置
     private var themePreset: String = "default"        // default/ocean/forest/sunset/lavender/sakura/midnight
     private var colorMode: String = "normal"           // normal/amoled/high_contrast/soft
+    private var glassTheme: Boolean = false            // 玻璃主题
+    private var lockscreenLaunchTheme: Boolean = false // Origin OS2 锁屏启动页
+    private var uiScale: Float = 1.0f                  // UI 缩放 0.75~1.5
     private var language: String = "zh_CN"             // zh_CN / en_US 等
+
+    // ===== 游戏通用行为 =====
+    private var versionIsolation: Boolean = false       // 版本隔离（独立存档/配置目录）
+    private var gameResolution: String = ""             // 窗口分辨率 "WxH"，空=默认
+        private var gameRenderer: String = "zink"           // Zink = OpenGL via Vulkan（移动端推荐）
+    private var gameFullscreen: Boolean = true           // 全屏启动（移动端默认 true）
+    private var gameDemoMode: Boolean = false            // Demo 模式
+    private var gameCustomIcon: String = ""              // 自定义窗口图标路径（移动端暂不生效）
+    private var gameBgVideo: String = ""                 // 自定义主菜单背景视频路径（移动端暂不生效）
+    private var gameCustomNatives: String = ""           // 自定义 Natives 路径（移动端暂不生效）
 
     // ===== 首次启动 =====
     private var firstLaunchCompleted: Boolean = false
@@ -66,7 +79,7 @@ class Preferences(
     private var maxMemoryMb: Int = 2048     // Android 设备内存通常较小，默认 2GB
 
     // ===== 网络配置 =====
-    private var mirrorType: String = "OFFICIAL"         // OFFICIAL / BMCLAPI / CUSTOM
+    private var mirrorType: String = "BMCLAPI"         // OFFICIAL / BMCLAPI / CUSTOM（国内默认 BMCLAPI）
     private var customMirrorBase: String = ""
     private var useProxy: Boolean = false
     private var proxyHost: String = ""
@@ -118,6 +131,39 @@ class Preferences(
 
     @Synchronized fun getColorMode(): String = colorMode
     @Synchronized fun setColorMode(v: String) { colorMode = v ?: "normal"; scheduleSave() }
+
+    @Synchronized fun isGlassTheme(): Boolean = glassTheme
+    @Synchronized fun setGlassTheme(v: Boolean) { glassTheme = v; scheduleSave() }
+
+    @Synchronized fun isLockscreenLaunchTheme(): Boolean = lockscreenLaunchTheme
+    @Synchronized fun setLockscreenLaunchTheme(v: Boolean) { lockscreenLaunchTheme = v; scheduleSave() }
+
+    @Synchronized fun getUiScale(): Float = uiScale
+    @Synchronized fun setUiScale(v: Float) { uiScale = v.coerceIn(0.75f, 1.5f); scheduleSave() }
+
+    @Synchronized fun isVersionIsolation(): Boolean = versionIsolation
+    @Synchronized fun setVersionIsolation(v: Boolean) { versionIsolation = v; scheduleSave() }
+
+    @Synchronized fun getGameResolution(): String = gameResolution
+    @Synchronized fun setGameResolution(v: String) { gameResolution = v ?: ""; scheduleSave() }
+
+    @Synchronized fun getGameRenderer(): String = gameRenderer
+    @Synchronized fun setGameRenderer(v: String) { gameRenderer = v ?: "zink"; scheduleSave() }
+
+    @Synchronized fun isGameFullscreen(): Boolean = gameFullscreen
+    @Synchronized fun setGameFullscreen(v: Boolean) { gameFullscreen = v; scheduleSave() }
+
+    @Synchronized fun isGameDemoMode(): Boolean = gameDemoMode
+    @Synchronized fun setGameDemoMode(v: Boolean) { gameDemoMode = v; scheduleSave() }
+
+    @Synchronized fun getGameCustomIcon(): String = gameCustomIcon
+    @Synchronized fun setGameCustomIcon(v: String) { gameCustomIcon = v ?: ""; scheduleSave() }
+
+    @Synchronized fun getGameBgVideo(): String = gameBgVideo
+    @Synchronized fun setGameBgVideo(v: String) { gameBgVideo = v ?: ""; scheduleSave() }
+
+    @Synchronized fun getGameCustomNatives(): String = gameCustomNatives
+    @Synchronized fun setGameCustomNatives(v: String) { gameCustomNatives = v ?: ""; scheduleSave() }
 
     @Synchronized fun getLanguage(): String = language
     @Synchronized fun setLanguage(v: String) { language = v ?: "zh_CN"; scheduleSave() }
@@ -222,7 +268,7 @@ class Preferences(
 
     // ==================== 网络配置 ====================
     @Synchronized fun getMirrorType(): String = mirrorType
-    @Synchronized fun setMirrorType(v: String) { mirrorType = v ?: "OFFICIAL"; scheduleSave() }
+    @Synchronized fun setMirrorType(v: String) { mirrorType = v ?: "BMCLAPI"; scheduleSave() }
 
     @Synchronized fun getCustomMirrorBase(): String = customMirrorBase
     @Synchronized fun setCustomMirrorBase(v: String) { customMirrorBase = v ?: ""; scheduleSave() }
@@ -284,7 +330,18 @@ class Preferences(
             customAccentColor = root.optInt("customAccentColor", -1)
             themePreset = root.optStr("themePreset", "default")
             colorMode = root.optStr("colorMode", "normal")
+            glassTheme = root.optBool("glassTheme", false)
+            lockscreenLaunchTheme = root.optBool("lockscreenLaunchTheme", false)
+            uiScale = root.optFloat("uiScale", 1.0f)
             language = root.optStr("language", "zh_CN")
+            versionIsolation = root.optBool("versionIsolation", false)
+            gameResolution = root.optStr("gameResolution", "")
+            gameRenderer = root.optStr("gameRenderer", "zink")
+            gameFullscreen = root.optBool("gameFullscreen", true)
+            gameDemoMode = root.optBool("gameDemoMode", false)
+            gameCustomIcon = root.optStr("gameCustomIcon", "")
+            gameBgVideo = root.optStr("gameBgVideo", "")
+            gameCustomNatives = root.optStr("gameCustomNatives", "")
             firstLaunchCompleted = root.optBool("firstLaunchCompleted", false)
             agreementAccepted = root.optBool("agreementAccepted", false)
             lastSelectedVersion = root.optStr("lastSelectedVersion", "")
@@ -294,7 +351,7 @@ class Preferences(
             useAikarFlags = root.optBool("useAikarFlags", true)
             minMemoryMb = root.optInt("minMemoryMb", 512)
             maxMemoryMb = root.optInt("maxMemoryMb", 2048)
-            mirrorType = root.optStr("mirrorType", "OFFICIAL")
+            mirrorType = root.optStr("mirrorType", "BMCLAPI")
             customMirrorBase = root.optStr("customMirrorBase", "")
             useProxy = root.optBool("useProxy", false)
             proxyHost = root.optStr("proxyHost", "")
@@ -331,7 +388,18 @@ class Preferences(
             addProperty("customAccentColor", customAccentColor)
             addProperty("themePreset", themePreset)
             addProperty("colorMode", colorMode)
+            addProperty("glassTheme", glassTheme)
+            addProperty("lockscreenLaunchTheme", lockscreenLaunchTheme)
+            addProperty("uiScale", uiScale)
             addProperty("language", language)
+            addProperty("versionIsolation", versionIsolation)
+            addProperty("gameResolution", gameResolution)
+            addProperty("gameRenderer", gameRenderer)
+            addProperty("gameFullscreen", gameFullscreen)
+            addProperty("gameDemoMode", gameDemoMode)
+            addProperty("gameCustomIcon", gameCustomIcon)
+            addProperty("gameBgVideo", gameBgVideo)
+            addProperty("gameCustomNatives", gameCustomNatives)
             addProperty("firstLaunchCompleted", firstLaunchCompleted)
             addProperty("agreementAccepted", agreementAccepted)
             addProperty("lastSelectedVersion", lastSelectedVersion)
@@ -375,19 +443,22 @@ class Preferences(
             } catch (e: java.nio.file.AtomicMoveNotSupportedException) {
                 Files.move(tmp, file, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
             }
+            dirty = false
         } catch (e: IOException) {
             System.err.println("[Preferences] 保存失败: ${e.message}")
         }
-        dirty = false
     }
 
     /** 防抖保存：200ms 内连续修改只触发一次磁盘 IO */
+    private val saveGeneration = java.util.concurrent.atomic.AtomicInteger(0)
+
     private fun scheduleSave() {
         dirty = true
+        val gen = saveGeneration.incrementAndGet()
         synchronized(saveExecutor) {
             pendingSave?.cancel(false)
             pendingSave = saveExecutor.schedule({
-                if (dirty) {
+                if (dirty && saveGeneration.get() == gen) {
                     try { save() } catch (t: Throwable) {
                         System.err.println("[Preferences] 异步保存失败: ${t.message}")
                     }
@@ -430,6 +501,9 @@ class Preferences(
 
     private fun JsonObject.optInt(key: String, default: Int): Int =
         if (has(key) && !get(key).isJsonNull) get(key).asInt else default
+
+    private fun JsonObject.optFloat(key: String, default: Float): Float =
+        if (has(key) && !get(key).isJsonNull) get(key).asFloat else default
 
     private fun JsonObject.optStr(key: String, default: String): String =
         if (has(key) && !get(key).isJsonNull) get(key).asString else default

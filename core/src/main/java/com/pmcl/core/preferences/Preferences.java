@@ -134,6 +134,7 @@ public final class Preferences {
 
     // ===== 多人联机 =====
     private String mpBackend = "TERRACOTTA";       // TERRACOTTA / EASYTIER / CONNECTX（默认 Terracotta，HMCL 同款官方陶瓦联机）
+    private String easytierPeer = "";               // EasyTier 共享节点 URI（官方公共节点已停用，需自建/第三方）
     private String connectxServerAddress = "";     // ConnectX 服务器地址
     private int connectxServerPort = 3535;         // ConnectX 服务器端口
     private String connectxBinaryPath = "";        // ConnectX.ClientConsole 二进制路径
@@ -645,6 +646,8 @@ public final class Preferences {
     public synchronized void setMpBackend(String v) {
         mpBackend = (v == null || v.isEmpty()) ? "TERRACOTTA" : v.toUpperCase(Locale.ROOT); scheduleSave();
     }
+    public synchronized String getEasytierPeer() { return easytierPeer; }
+    public synchronized void setEasytierPeer(String v) { easytierPeer = v == null ? "" : v.trim(); scheduleSave(); }
     public synchronized String getConnectxServerAddress() { return connectxServerAddress; }
     public synchronized void setConnectxServerAddress(String v) { connectxServerAddress = v == null ? "" : v; scheduleSave(); }
     public synchronized int getConnectxServerPort() { return connectxServerPort; }
@@ -911,6 +914,7 @@ public final class Preferences {
                 scheduleSave();
             }
             mpBackend = loadString(o, "mpBackend", "TERRACOTTA");
+            easytierPeer = loadString(o, "easytierPeer", "");
             connectxServerAddress = loadString(o, "connectxServerAddress", "");
             connectxBinaryPath = loadString(o, "connectxBinaryPath", "");
             deviceProtectionLicense = loadString(o, "deviceProtectionLicense", "");
@@ -923,6 +927,7 @@ public final class Preferences {
             // 主 try 中途失败时，关键鉴权/联机字段仍尝试恢复，避免整段跳过
             try {
                 mpBackend = loadString(o, "mpBackend", mpBackend != null ? mpBackend : "TERRACOTTA");
+                easytierPeer = loadString(o, "easytierPeer", easytierPeer);
                 connectxServerAddress = loadString(o, "connectxServerAddress", connectxServerAddress);
                 connectxBinaryPath = loadString(o, "connectxBinaryPath", connectxBinaryPath);
                 connectxServerPort = loadInt(o, "connectxServerPort", connectxServerPort, 1, 65535);
@@ -1222,6 +1227,7 @@ public final class Preferences {
         o.addProperty("mioModeMetaspace", mioModeMetaspace);
         o.addProperty("metalRenderEnabled", metalRenderEnabled);
         o.addProperty("mpBackend", mpBackend);
+        o.addProperty("easytierPeer", easytierPeer);
         o.addProperty("connectxServerAddress", connectxServerAddress);
         o.addProperty("connectxServerPort", connectxServerPort);
         o.addProperty("connectxBinaryPath", connectxBinaryPath);

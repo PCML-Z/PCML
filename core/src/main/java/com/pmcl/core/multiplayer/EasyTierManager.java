@@ -1,5 +1,9 @@
 package com.pmcl.core.multiplayer;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -29,12 +33,18 @@ import java.util.zip.ZipInputStream;
  * 二进制存放在 {@code ~/.pmcl/easytier/easytier-core[.exe]}。
  * 首次启动时若文件不存在则自动从 GitHub Releases 下载并解压。
  * <p>
- * 陶瓦联机基于 EasyTier P2P 组网工具，使用官方公共共享节点 {@code tcp://public.easytier.cn:11010}。
+ * EasyTier P2P 组网。官方公共节点 {@code public.easytier.cn} 已停用（NXDOMAIN），
+ * 需配置自建/第三方共享节点；无公共 IP 时更推荐使用 Terracotta 后端。
  */
 public final class EasyTierManager {
 
-    /** 官方公共共享节点（陶瓦联机默认入口） */
+    /**
+     * 历史默认共享节点（已失效，仅作回退尝试）。
+     * @see #resolvePeerUri(String)
+     */
     public static final String PUBLIC_PEER = "tcp://public.easytier.cn:11010";
+    /** 文档曾用的备用域名（同样可能 NXDOMAIN） */
+    public static final String PUBLIC_PEER_ALT = "tcp://public.easytier.top:11010";
 
     /**
      * GitHub 下载镜像列表（按顺序尝试）。GitHub Releases 在中国大陆访问不稳定，
@@ -64,6 +74,10 @@ public final class EasyTierManager {
     private volatile Thread outputThread;
     /** Temp 0600 config used so network_secret is not on the process cmdline. */
     private volatile Path runtimeConfigPath;
+    /** Recent stdout lines for fail-fast diagnostics. */
+    private final java.util.concurrent.ConcurrentLinkedDeque<String> recentLogs =
+            new java.util.concurrent.ConcurrentLinkedDeque<>();
+    private static final int RECENT_LOG_LIMIT = 40;
 
     public EasyTierManager() {
         this.binaryDir = Paths.get(System.getProperty("user.home"), ".pmcl", "easytier");
@@ -303,72 +317,64 @@ public final class EasyTierManager {
     }
 
     /**
-     * 简单 JSON 解析：提取 tag_name、asset name、digest、size。
+     * 用 Gson 解析 GitHub Release JSON（提取 tag_name、asset name、digest、size）。
      * <p>
-     * GitHub API 的 asset 对象包含：
-     * <ul>
-     *   <li>{@code "name": "easytier-macos-x86_64-v2.6.4.zip"}</li>
-     *   <li>{@code "size": 1234567}</li>
-     *   <li>{@code "digest": "sha256:abcdef..."}（2024 年起新增字段，旧 release 可能缺失）</li>
-     * </ul>
-     * digest 用于校验下载完整性，防止镜像投毒；size 用于强制校验，防止错误页被当作有效 zip。
+     * 不可用「无嵌套花括号」正则：asset 对象含 {@code uploader:{...}}，旧正则会匹配失败，
+     * 表现为有 assets 列表却拿不到 digest，最终报「未获取到 SHA-256 digest」。
      */
     private ReleaseInfo parseReleaseJson(String json) {
         ReleaseInfo info = new ReleaseInfo();
-        java.util.regex.Matcher tagM = java.util.regex.Pattern
-                .compile("\"tag_name\"\\s*:\\s*\"([^\"]+)\"")
-                .matcher(json);
-        if (tagM.find()) info.version = tagM.group(1);
-        // 匹配每个 asset 的 name + size + digest（同一对象内字段）
-        // asset 对象形如: { "name": "xxx.zip", "size": 12345, "digest": "sha256:abc...", ... }
-        java.util.regex.Pattern assetP = java.util.regex.Pattern.compile(
-                "\\{[^{}]*\"name\"\\s*:\\s*\"([^\"]+)\"[^{}]*\"size\"\\s*:\\s*(\\d+)" +
-                "(?:[^{}]*\"digest\"\\s*:\\s*\"sha256:([0-9a-fA-F]+)\")?[^{}]*\\}");
-        java.util.regex.Matcher assetM = assetP.matcher(json);
-        while (assetM.find()) {
-            String n = assetM.group(1);
-            if (n.equals("github-actions[bot]") || n.startsWith("v") && n.matches("v\\d+\\.\\d+\\.\\d+")) {
-                continue;
+        JsonElement rootEl = JsonParser.parseString(json);
+        // /releases 返回数组时取第一个非 draft
+        JsonObject root;
+        if (rootEl.isJsonArray()) {
+            JsonArray arr = rootEl.getAsJsonArray();
+            root = null;
+            for (JsonElement el : arr) {
+                if (!el.isJsonObject()) continue;
+                JsonObject o = el.getAsJsonObject();
+                if (o.has("draft") && o.get("draft").getAsBoolean()) continue;
+                root = o;
+                break;
             }
-            info.assets.add(n);
-            try {
-                info.assetSizes.put(n, Long.parseLong(assetM.group(2)));
-            } catch (NumberFormatException ignored) {}
-            if (assetM.group(3) != null) {
-                info.assetDigests.put(n, assetM.group(3).toLowerCase(Locale.ROOT));
+            if (root == null && !arr.isEmpty() && arr.get(0).isJsonObject()) {
+                root = arr.get(0).getAsJsonObject();
             }
+            if (root == null) {
+                info.version = "latest";
+                return info;
+            }
+        } else if (rootEl.isJsonObject()) {
+            root = rootEl.getAsJsonObject();
+        } else {
+            info.version = "latest";
+            return info;
         }
-        // 兼容：某些 release 的 asset 字段顺序不同（digest 在 size 之前）
-        if (info.assetDigests.isEmpty()) {
-            java.util.regex.Pattern digestFirstP = java.util.regex.Pattern.compile(
-                    "\\{[^{}]*\"name\"\\s*:\\s*\"([^\"]+)\"[^{}]*\"digest\"\\s*:\\s*\"sha256:([0-9a-fA-F]+)\"" +
-                    "[^{}]*\"size\"\\s*:\\s*(\\d+)[^{}]*\\}");
-            java.util.regex.Matcher dfM = digestFirstP.matcher(json);
-            while (dfM.find()) {
-                String n = dfM.group(1);
-                if (!info.assets.contains(n)) {
-                    if (n.equals("github-actions[bot]") || n.startsWith("v") && n.matches("v\\d+\\.\\d+\\.\\d+")) {
-                        continue;
-                    }
-                    info.assets.add(n);
-                }
-                info.assetDigests.put(n, dfM.group(2).toLowerCase(Locale.ROOT));
-                try {
-                    info.assetSizes.put(n, Long.parseLong(dfM.group(3)));
-                } catch (NumberFormatException ignored) {}
-            }
+        if (root.has("tag_name") && root.get("tag_name").isJsonPrimitive()) {
+            info.version = root.get("tag_name").getAsString();
         }
-        // Fallback：仅提取 name（原逻辑，确保即使 digest/size 解析失败也能拿到 asset 列表）
-        if (info.assets.isEmpty()) {
-            java.util.regex.Matcher nameM = java.util.regex.Pattern
-                    .compile("\"name\"\\s*:\\s*\"([^\"]+)\"")
-                    .matcher(json);
-            while (nameM.find()) {
-                String n = nameM.group(1);
-                if (n.equals("github-actions[bot]") || n.startsWith("v") && n.matches("v\\d+\\.\\d+\\.\\d+")) {
-                    continue;
-                }
+        if (root.has("assets") && root.get("assets").isJsonArray()) {
+            for (JsonElement ae : root.getAsJsonArray("assets")) {
+                if (!ae.isJsonObject()) continue;
+                JsonObject a = ae.getAsJsonObject();
+                if (!a.has("name") || !a.get("name").isJsonPrimitive()) continue;
+                String n = a.get("name").getAsString();
+                if (n.isBlank() || "github-actions[bot]".equals(n)) continue;
                 info.assets.add(n);
+                if (a.has("size") && a.get("size").isJsonPrimitive()) {
+                    try {
+                        info.assetSizes.put(n, a.get("size").getAsLong());
+                    } catch (Exception ignored) {}
+                }
+                if (a.has("digest") && a.get("digest").isJsonPrimitive()) {
+                    String dig = a.get("digest").getAsString().trim();
+                    if (dig.regionMatches(true, 0, "sha256:", 0, 7)) {
+                        dig = dig.substring(7);
+                    }
+                    if (dig.matches("[0-9a-fA-F]{64}")) {
+                        info.assetDigests.put(n, dig.toLowerCase(Locale.ROOT));
+                    }
+                }
             }
         }
         if (info.version == null) info.version = "latest";
@@ -485,16 +491,31 @@ public final class EasyTierManager {
                     throw new RuntimeException("EasyTier 已在运行");
                 }
                 try {
-                    Path config = writeRuntimeConfig(networkName, networkSecret, peer);
+                    // 清理上次异常退出残留的同路径进程，避免 11010 端口占用导致秒退
+                    killOrphanProcesses();
+                    recentLogs.clear();
+
+                    String peerUri = resolvePeerUri(peer);
+                    if (peerUri == null || peerUri.isEmpty()) {
+                        throw new RuntimeException(
+                                "未配置可用的 EasyTier 共享节点。官方 public.easytier.cn 已停用，"
+                                        + "请在联机设置中填写自建/第三方节点（如 tcp://your.host:11010），"
+                                        + "或改用「陶瓦联机」。");
+                    }
+
+                    Path config = writeRuntimeConfig(networkName, networkSecret, null);
                     runtimeConfigPath = config;
 
                     List<String> cmd = new ArrayList<>();
                     cmd.add(binaryPath.toString());
                     // Prefer config file (0600) over --network-secret on argv (visible in ps).
-                    // Also set ET_NETWORK_SECRET for builds that prefer env over file contents.
                     cmd.add("-c");
                     cmd.add(config.toString());
                     cmd.add("-d");                   // DHCP 自动分配虚拟 IP
+                    // 不监听固定 11010：避免与残留实例/陶瓦 EasyTier 冲突；靠 -p 连共享节点发现
+                    cmd.add("--no-listener");
+                    cmd.add("-p");
+                    cmd.add(peerUri);
                     cmd.add("--multi-thread");
                     cmd.add("--instance-name");
                     cmd.add("pmcl");
@@ -518,6 +539,10 @@ public final class EasyTierManager {
                                 new InputStreamReader(procForThread.getInputStream(), StandardCharsets.UTF_8))) {
                             String line;
                             while ((line = reader.readLine()) != null) {
+                                recentLogs.addLast(line);
+                                while (recentLogs.size() > RECENT_LOG_LIMIT) {
+                                    recentLogs.pollFirst();
+                                }
                                 if (onOutput != null) {
                                     try { onOutput.accept(line); } catch (Throwable ignored) {}
                                 }
@@ -533,6 +558,82 @@ public final class EasyTierManager {
                 }
             }
         });
+    }
+
+    /**
+     * Resolve peer URI: prefer user-provided; if empty, try built-in defaults that still DNS-resolve.
+     * Explicit preferred that fails DNS returns null (do not silently substitute another peer).
+     */
+    public static String resolvePeerUri(String preferred) {
+        if (preferred != null && !preferred.isBlank()) {
+            String p = preferred.trim();
+            return peerHostResolvable(p) ? p : null;
+        }
+        for (String c : Arrays.asList(PUBLIC_PEER, PUBLIC_PEER_ALT)) {
+            if (peerHostResolvable(c)) return c;
+        }
+        return null;
+    }
+
+    /** Extract host from {@code tcp://host:port} / {@code host:port} and check DNS. */
+    static boolean peerHostResolvable(String peerUri) {
+        if (peerUri == null || peerUri.isBlank()) return false;
+        try {
+            String host = peerUri.trim();
+            int scheme = host.indexOf("://");
+            if (scheme >= 0) host = host.substring(scheme + 3);
+            int slash = host.indexOf('/');
+            if (slash >= 0) host = host.substring(0, slash);
+            int colon = host.lastIndexOf(':');
+            if (colon > 0 && host.indexOf(']') < 0) {
+                host = host.substring(0, colon);
+            }
+            if (host.startsWith("[") && host.endsWith("]")) {
+                host = host.substring(1, host.length() - 1);
+            }
+            if (host.isEmpty()) return false;
+            java.net.InetAddress.getByName(host);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** Kill leftover easytier-core processes started from our binary path. */
+    private void killOrphanProcesses() {
+        try {
+            String want = binaryPath.toAbsolutePath().normalize().toString();
+            long self = ProcessHandle.current().pid();
+            ProcessHandle.allProcesses().forEach(ph -> {
+                try {
+                    if (ph.pid() == self) return;
+                    var cmd = ph.info().command();
+                    if (cmd.isEmpty() || !want.equals(cmd.get())) return;
+                    ph.destroy();
+                    try {
+                        ph.onExit().get(1, TimeUnit.SECONDS);
+                    } catch (Exception ignored) {
+                        if (ph.isAlive()) ph.destroyForcibly();
+                    }
+                } catch (Exception ignored) {}
+            });
+        } catch (Exception e) {
+            System.err.println("[EasyTierManager] orphan cleanup: " + e.getMessage());
+        }
+    }
+
+    /** Recent log lines (newest last), for error messages. */
+    public String recentLogSnippet() {
+        if (recentLogs.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder();
+        int i = 0;
+        for (String line : recentLogs) {
+            if (i++ >= recentLogs.size() - 8) {
+                if (sb.length() > 0) sb.append('\n');
+                sb.append(line);
+            }
+        }
+        return sb.toString();
     }
 
     /** 停止正在运行的 easytier-core 进程 */

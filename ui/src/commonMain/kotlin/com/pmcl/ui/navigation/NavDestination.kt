@@ -20,12 +20,10 @@ import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.ui.graphics.vector.ImageVector
 
 /**
- * 顶层导航目标（侧边栏）。
+ * 顶层导航目标（一级侧边栏）。
  *
- * 原细分页面通过 Hub 页面内的 Tab 切换：
- * - Download: 版本安装 / 模组市场 / Wiki
- * - Content:  模组 / 光影包 / 资源包
- * - Saves:    世界 / 截图
+ * 功能较多的入口钻入二级侧边栏（见 [SecondaryNavRegistry]）：
+ * - Settings / Download / Content / Statistics / Multiplayer / Accounts / Saves / Plugins / Music
  *
  * 注意：Compose Multiplatform 内置 material-icons 集合有限，仅使用稳定可用的图标。
  */

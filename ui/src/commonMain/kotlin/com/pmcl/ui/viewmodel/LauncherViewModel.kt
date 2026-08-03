@@ -1189,6 +1189,14 @@ class LauncherViewModel {
     fun requestHubTab(route: String, tabIndex: Int) { _hubTabRequest.value = route to tabIndex }
     fun clearHubTabRequest() { _hubTabRequest.value = null }
 
+    /** 二级侧栏深链：route + sectionId（设置/下载/内容/统计） */
+    private val _secondaryNavRequest = MutableStateFlow<Pair<String, String>?>(null)
+    val secondaryNavRequest: StateFlow<Pair<String, String>?> = _secondaryNavRequest.asStateFlow()
+    fun requestSecondaryNav(route: String, sectionId: String) {
+        _secondaryNavRequest.value = route to sectionId
+    }
+    fun clearSecondaryNavRequest() { _secondaryNavRequest.value = null }
+
     // ===== 游戏安装前询问事件（用于弹窗询问是否同时安装模组加载器）=====
     /**
      * 用户点击安装游戏时触发的事件（安装开始前）。

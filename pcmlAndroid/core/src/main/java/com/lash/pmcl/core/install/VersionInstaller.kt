@@ -47,6 +47,7 @@ class VersionInstaller(
             VersionStaging.assertSafeVersionId(versionId)
             doInstall(versionId, onProgress)
         } catch (e: Throwable) {
+            android.util.Log.e("PMCL", "[VersionInstaller] 安装失败: $versionId — ${Exceptions.rootMessage(e)}", e)
             if (InstallInterruptedException.isInterrupted(e)) {
                 // 暂停/取消：保留 staging 与 .part，供断点续传
                 throw if (e is RuntimeException) e
@@ -296,11 +297,22 @@ class VersionInstaller(
             }
         } catch (e: java.nio.file.FileSystemException) {
             System.err.println("[VersionInstaller] 磁盘空间预检跳过: ${e.message}")
+        } catch (e: SecurityException) {
+            // Android 不允许 getFileStore()，跳过磁盘空间检查
+            System.err.println("[VersionInstaller] 磁盘空间预检跳过（Android 限制）: ${e.message}")
         }
     }
 
+    /** 远程版本清单缓存，避免每次安装都拉取整个清单 */
+    @Volatile
+    private var cachedRemoteVersions: List<McVersion>? = null
+
     private fun findVersion(versionId: String): McVersion {
-        val versions = versionManager.fetchRemoteVersions().join()
+        var versions = cachedRemoteVersions
+        if (versions == null) {
+            versions = versionManager.fetchRemoteVersions().join()
+            cachedRemoteVersions = versions
+        }
         for (v in versions) {
             if (v.id == versionId) return v
         }
@@ -354,7 +366,12 @@ class VersionInstaller(
             throw IOException("检测到循环版本继承: $visiting -> $parentId")
         }
         try {
-            val versions = versionManager.fetchRemoteVersions().join()
+            // 复用 findVersion 已拉取的缓存，避免重复网络调用
+            var versions = cachedRemoteVersions
+            if (versions == null) {
+                versions = versionManager.fetchRemoteVersions().join()
+                cachedRemoteVersions = versions
+            }
             var parent: McVersion? = null
             for (v in versions) {
                 if (v.id == parentId) { parent = v; break }

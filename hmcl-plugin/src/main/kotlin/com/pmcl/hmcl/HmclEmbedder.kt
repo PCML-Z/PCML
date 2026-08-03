@@ -11,7 +11,10 @@ import javafx.scene.layout.HBox
 import javafx.scene.layout.Pane
 import javafx.stage.Stage
 import javafx.stage.StageStyle
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
+import javax.swing.SwingUtilities
 
 /**
  * Handles JavaFX initialization and HMCL scene embedding.
@@ -487,8 +490,8 @@ object HmclEmbedder {
      * 修复策略：
      * 1. 在 JavaFX 线程调用 HMCL onApplicationStop 清理 HMCL 资源
      * 2. 释放 JFXPanel 持有的 Scene（setScene(null)）
-     * 3. 调用 removeNotify() 让 JFXPanel 卸载其 Swing peer 与 JavaFX surface
-     * 4. 重置 panelRef/sceneStolen/statusRef 状态
+     * 3. 在 EDT 调用 removeNotify()（不可在 FX 线程，否则易死锁）
+     * 4. 等待 FX/EDT 清理完成（带超时），避免 unload 过早关闭 ClassLoader
      */
     fun shutdown() {
         log("Shutdown requested")
@@ -496,34 +499,64 @@ object HmclEmbedder {
         sceneStolen = false
         statusRef.set("Stopped")
         if (panel == null) return
-        Platform.runLater {
+
+        val fxDone = CountDownLatch(1)
+        val fxCleanup = Runnable {
             try {
-                val controllersClass = Class.forName("org.jackhuang.hmcl.ui.Controllers")
-                val stopMethod = controllersClass.getMethod("onApplicationStop")
-                stopMethod.invoke(null)
-                log("HMCL onApplicationStop called")
-            } catch (e: Throwable) {
-                error("Shutdown HMCL onApplicationStop error (non-fatal)", e)
-            }
-            try {
-                // 释放 JFXPanel 持有的 Scene，断开 JavaFX Scene graph 与面板的引用
-                panel.setScene(null)
-            } catch (e: Throwable) {
-                error("Failed to detach scene during shutdown (non-fatal)", e)
-            }
-            try {
-                // removeNotify 会触发 JFXPanel 卸载其内部的 JavaFX surface
-                // （EmbeddedSceneInterface / HostInterface），停止 pulse 定时器，
-                // 释放 Swing 端的 peer 资源。必须在 JavaFX 线程外调用以避免死锁。
-                javax.swing.SwingUtilities.invokeLater {
-                    try {
-                        panel.removeNotify()
-                    } catch (e: Throwable) {
-                        error("JFXPanel.removeNotify failed (non-fatal)", e)
-                    }
+                try {
+                    val controllersClass = Class.forName("org.jackhuang.hmcl.ui.Controllers")
+                    val stopMethod = controllersClass.getMethod("onApplicationStop")
+                    stopMethod.invoke(null)
+                    log("HMCL onApplicationStop called")
+                } catch (e: Throwable) {
+                    error("Shutdown HMCL onApplicationStop error (non-fatal)", e)
                 }
+                try {
+                    panel.setScene(null)
+                } catch (e: Throwable) {
+                    error("Failed to detach scene during shutdown (non-fatal)", e)
+                }
+            } finally {
+                fxDone.countDown()
+            }
+        }
+
+        if (Platform.isFxApplicationThread()) {
+            fxCleanup.run()
+        } else {
+            try {
+                Platform.runLater(fxCleanup)
+            } catch (e: Throwable) {
+                error("Failed to schedule FX shutdown (non-fatal)", e)
+                fxDone.countDown()
+            }
+            if (!fxDone.await(5, TimeUnit.SECONDS)) {
+                error("Timed out waiting for JavaFX shutdown", null)
+            }
+        }
+
+        // removeNotify 必须在 FX 线程外；若已在 EDT 则同步执行，否则带超时等待
+        val edtDone = CountDownLatch(1)
+        val edtCleanup = Runnable {
+            try {
+                panel.removeNotify()
+            } catch (e: Throwable) {
+                error("JFXPanel.removeNotify failed (non-fatal)", e)
+            } finally {
+                edtDone.countDown()
+            }
+        }
+        if (SwingUtilities.isEventDispatchThread()) {
+            edtCleanup.run()
+        } else {
+            try {
+                SwingUtilities.invokeLater(edtCleanup)
             } catch (e: Throwable) {
                 error("Failed to schedule removeNotify (non-fatal)", e)
+                edtDone.countDown()
+            }
+            if (!edtDone.await(3, TimeUnit.SECONDS)) {
+                error("Timed out waiting for JFXPanel.removeNotify", null)
             }
         }
     }

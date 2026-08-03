@@ -3,6 +3,7 @@ package com.lash.pmcl.ui.screens
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -32,20 +33,22 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.lash.pmcl.core.news.NewsClient
 import com.lash.pmcl.core.news.NewsItem
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -53,7 +56,7 @@ import java.util.Locale
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NewsScreen(newsClient: NewsClient) {
-    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
+    val scope = rememberCoroutineScope()
     var loading by remember { mutableStateOf(true) }
     var news by remember { mutableStateOf<List<NewsItem>>(emptyList()) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -63,15 +66,18 @@ fun NewsScreen(newsClient: NewsClient) {
     fun refresh() {
         loading = true
         error = null
-        Thread {
+        scope.launch {
             try {
-                news = newsClient.fetch().join()
+                val items = withContext(Dispatchers.IO) {
+                    newsClient.fetch().join()
+                }
+                news = items
             } catch (e: Exception) {
                 error = e.message ?: e.toString()
             } finally {
                 loading = false
             }
-        }.start()
+        }
     }
 
     LaunchedEffect(Unit) { refresh() }
@@ -86,15 +92,13 @@ fun NewsScreen(newsClient: NewsClient) {
                         Icon(Icons.Outlined.Refresh, contentDescription = "刷新")
                     }
                 },
-                scrollBehavior = scrollBehavior,
             )
         },
     ) { innerPadding ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
-                .nestedScroll(scrollBehavior.nestedScrollConnection),
+                .padding(innerPadding),
         ) {
             when {
                 loading -> {
@@ -134,8 +138,7 @@ fun NewsScreen(newsClient: NewsClient) {
                 else -> {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                            horizontal = 16.dp, vertical = 8.dp),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         items(news, key = { it.link + it.title }) { item ->
@@ -168,6 +171,7 @@ private fun NewsCard(
     onClick: () -> Unit,
 ) {
     val pubMillis = remember(item.pubDate) { parsePubDate(item.pubDate) }
+    val hasImage = item.imageUrl.isNotEmpty()
     Card(
         modifier = Modifier.fillMaxWidth(),
         onClick = onClick,
@@ -176,10 +180,29 @@ private fun NewsCard(
         ),
         shape = RoundedCornerShape(8.dp),
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        Column {
+            // 封面图片区域
+            if (hasImage) {
+                Surface(
+                    Modifier.fillMaxWidth().height(120.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    shape = RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp)
+                ) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(Icons.Outlined.Article, null, Modifier.size(32.dp),
+                                 tint = MaterialTheme.colorScheme.outline)
+                            Spacer(Modifier.height(4.dp))
+                            Text("封面图片", style = MaterialTheme.typography.labelSmall,
+                                 color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
+                        }
+                    }
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
             Icon(Icons.Outlined.Article, contentDescription = null,
                 modifier = Modifier.size(32.dp),
                 tint = MaterialTheme.colorScheme.primary)
@@ -220,6 +243,7 @@ private fun NewsCard(
                     }
                 }
             }
+            }
         }
     }
 }
@@ -231,6 +255,7 @@ private fun NewsDetailDialog(
     dateFmt: SimpleDateFormat,
     onDismiss: () -> Unit,
 ) {
+    val scope = rememberCoroutineScope()
     var loading by remember { mutableStateOf(true) }
     var body by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
@@ -244,17 +269,17 @@ private fun NewsDetailDialog(
         }
         loading = true
         error = null
-        Thread {
-            try {
-                val article = newsClient.fetchArticle(item.link).join()
-                val plain = htmlToPlain(article.bodyHtml)
-                body = plain.ifEmpty { item.description }
-                loading = false
-            } catch (e: Exception) {
-                error = e.message ?: e.toString()
-                loading = false
+        try {
+            val article = withContext(Dispatchers.IO) {
+                newsClient.fetchArticle(item.link).join()
             }
-        }.start()
+            val plain = htmlToPlain(article.bodyHtml)
+            body = plain.ifEmpty { item.description }
+        } catch (e: Exception) {
+            error = e.message ?: e.toString()
+        } finally {
+            loading = false
+        }
     }
 
     AlertDialog(
@@ -330,7 +355,6 @@ private fun NewsDetailDialog(
     )
 }
 
-/** 解析 RSS pubDate（RFC-822）为毫秒时间戳，失败返回 0。 */
 private fun parsePubDate(raw: String): Long {
     if (raw.isEmpty()) return 0L
     val patterns = listOf(
@@ -344,17 +368,14 @@ private fun parsePubDate(raw: String): Long {
             val sdf = SimpleDateFormat(p, Locale.ENGLISH)
             val parsed = sdf.parse(raw)
             if (parsed != null) return parsed.time
-        } catch (_: Throwable) {
-            continue
-        }
+        } catch (_: Throwable) { continue }
     }
     return 0L
 }
 
-/** 将文章正文 HTML 片段转为可读纯文本（保留段落与列表换行）。 */
 private fun htmlToPlain(html: String): String {
     if (html.isEmpty()) return ""
-    var s = html
+    return html
         .replace("&nbsp;", " ")
         .replace("&amp;", "&")
         .replace("&lt;", "<")
@@ -370,5 +391,4 @@ private fun htmlToPlain(html: String): String {
         .replace(Regex("[ \\t]{2,}"), " ")
         .replace(Regex("\\n{3,}"), "\n\n")
         .trim()
-    return s
 }

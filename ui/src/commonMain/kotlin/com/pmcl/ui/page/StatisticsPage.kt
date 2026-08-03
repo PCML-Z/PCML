@@ -131,7 +131,7 @@ private fun CountUpText(
 }
 
 @Composable
-fun StatisticsPage(vm: LauncherViewModel) {
+fun StatisticsPage(vm: LauncherViewModel, sectionId: String = "performance") {
     val stats by vm.playTimeStats.collectAsState()
     val dailyStats by vm.dailyStats.collectAsState()
     val days by vm.statsDays.collectAsState()
@@ -148,42 +148,36 @@ fun StatisticsPage(vm: LauncherViewModel) {
         }
     }
 
-    Row(
-        Modifier.fillMaxSize().padding(16.dp),
-        horizontalArrangement = Arrangement.spacedBy(16.dp)
+    Column(
+        Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // ===== 左栏：实时设备性能负载 =====
-        Column(
-            modifier = Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            RealtimePerformanceCard(entranceDelay = 0)
-        }
-
-        // ===== 右栏：游玩统计（Apple 卡片风格） =====
-        Column(
-            modifier = Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            OverviewCard(stats, records, entranceDelay = 80)
-            if (records != null) {
-                RecordsCard(records!!, entranceDelay = 160)
+        when (sectionId) {
+            "overview" -> {
+                OverviewCard(stats, records, entranceDelay = 80)
+                if (records != null) {
+                    RecordsCard(records!!, entranceDelay = 160)
+                }
+                DaysSelector(days, onSelect = { vm.setStatsDays(it) }, entranceDelay = 220)
+                if (dailyStats.isNotEmpty()) {
+                    DailyTrendCard(dailyStats, days, entranceDelay = 280)
+                }
+                if (heatmap != null) {
+                    HeatmapCard(heatmap!!, entranceDelay = 360)
+                }
+                if (weekdayDist.isNotEmpty()) {
+                    WeekdayDistributionCard(weekdayDist, entranceDelay = 440)
+                }
+                if (stats != null && stats!!.versions.isNotEmpty()) {
+                    VersionPieCard(stats!!.versions, entranceDelay = 520)
+                }
             }
-            DaysSelector(days, onSelect = { vm.setStatsDays(it) }, entranceDelay = 220)
-            if (dailyStats.isNotEmpty()) {
-                DailyTrendCard(dailyStats, days, entranceDelay = 280)
-            }
-            if (heatmap != null) {
-                HeatmapCard(heatmap!!, entranceDelay = 360)
-            }
-            if (weekdayDist.isNotEmpty()) {
-                WeekdayDistributionCard(weekdayDist, entranceDelay = 440)
-            }
-            if (stats != null && stats!!.versions.isNotEmpty()) {
-                VersionPieCard(stats!!.versions, entranceDelay = 520)
-            }
-            SessionListCard(vm, entranceDelay = 600)
-            BreakdownCard(vm, entranceDelay = 680)
+            "sessions" -> SessionListCard(vm, entranceDelay = 0)
+            "breakdown" -> BreakdownCard(vm, entranceDelay = 0)
+            else -> RealtimePerformanceCard(entranceDelay = 0)
         }
     }
 }

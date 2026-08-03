@@ -117,8 +117,7 @@ fun buildSearchIndex(vm: LauncherViewModel): List<SearchItem> {
                 group = GROUP_ACTION,
                 keywords = listOf(I18n.t("cmd.kw.mod"), "mod", I18n.t("cmd.kw.scan"), "scan"),
                 onSelect = {
-                    vm.requestNavigation("content")
-                    vm.requestHubTab("content", 0)
+                    vm.requestSecondaryNav("content", "mods")
                     vm.refreshInstalledMods()
                 }
             ))
@@ -136,7 +135,7 @@ fun buildSearchIndex(vm: LauncherViewModel): List<SearchItem> {
                 icon = Icons.Filled.Settings,
                 group = GROUP_ACTION,
                 keywords = listOf(I18n.t("cmd.kw.settings"), "settings", I18n.t("cmd.kw.preferences"), I18n.t("cmd.kw.config")),
-                onSelect = { vm.requestNavigation("settings") }
+                onSelect = { vm.requestSecondaryNav("settings", "launcher") }
             ))
 
             // ===== 顶层页面导航 =====
@@ -152,42 +151,102 @@ fun buildSearchIndex(vm: LauncherViewModel): List<SearchItem> {
                 ))
             }
 
-            // ===== Hub 子页面 =====
+            // ===== Hub / 二级侧栏子页面 =====
             add(SearchItem(I18n.t("nav.mods"), I18n.t("search.hub.mods"), Icons.Filled.Extension, GROUP_NAV, listOf("mod", "mods", I18n.t("cmd.kw.mod"))) {
-                vm.requestNavigation("content"); vm.requestHubTab("content", 0)
+                vm.requestSecondaryNav("content", "mods")
             })
             add(SearchItem(I18n.t("nav.modpacks"), I18n.t("search.hub.modpacks"), Icons.Filled.Inventory2, GROUP_NAV, listOf("modpack", I18n.t("cmd.kw.modpack"))) {
-                vm.requestNavigation("content"); vm.requestHubTab("content", 1)
+                vm.requestSecondaryNav("content", "modpacks")
             })
             add(SearchItem(I18n.t("nav.shaders"), I18n.t("search.hub.shaders"), Icons.Filled.WbSunny, GROUP_NAV, listOf("shader", I18n.t("cmd.kw.shader"), I18n.t("cmd.kw.shader_alt"))) {
-                vm.requestNavigation("content"); vm.requestHubTab("content", 2)
+                vm.requestSecondaryNav("content", "shaders")
             })
             add(SearchItem(I18n.t("nav.resourcepacks"), I18n.t("search.hub.resourcepacks"), Icons.Filled.Palette, GROUP_NAV, listOf("resource", I18n.t("cmd.kw.resource_pack"), I18n.t("cmd.kw.texture"))) {
-                vm.requestNavigation("content"); vm.requestHubTab("content", 3)
+                vm.requestSecondaryNav("content", "resourcepacks")
             })
             add(SearchItem(I18n.t("nav.datapacks"), I18n.t("search.hub.datapacks"), Icons.Filled.Dataset, GROUP_NAV, listOf("datapack", I18n.t("cmd.kw.datapack"))) {
-                vm.requestNavigation("content"); vm.requestHubTab("content", 4)
+                vm.requestSecondaryNav("content", "datapacks")
             })
             add(SearchItem(I18n.t("nav.configs"), I18n.t("search.hub.configs"), Icons.Filled.Edit, GROUP_NAV, listOf("config", I18n.t("cmd.kw.config"), I18n.t("cmd.kw.edit"))) {
-                vm.requestNavigation("content"); vm.requestHubTab("content", 5)
+                vm.requestSecondaryNav("content", "configs")
             })
             add(SearchItem(I18n.t("download.local_versions"), I18n.t("search.hub.local_versions"), Icons.Filled.Build, GROUP_NAV, listOf("version", I18n.t("cmd.kw.version"), I18n.t("cmd.kw.install"))) {
-                vm.requestNavigation("download"); vm.requestHubTab("download", 0)
+                vm.requestSecondaryNav("download", "versions")
             })
             add(SearchItem(I18n.t("nav.market"), I18n.t("search.hub.market"), Icons.Filled.Store, GROUP_NAV, listOf("market", I18n.t("cmd.kw.market"), I18n.t("cmd.kw.store"))) {
-                vm.requestNavigation("download"); vm.requestHubTab("download", 1)
+                vm.requestSecondaryNav("download", "market")
             })
             add(SearchItem(I18n.t("nav.queue"), I18n.t("search.hub.queue"), Icons.Filled.Download, GROUP_NAV, listOf("queue", I18n.t("cmd.kw.queue"), I18n.t("cmd.kw.download"))) {
-                vm.requestNavigation("download"); vm.requestHubTab("download", 2)
+                vm.requestSecondaryNav("download", "queue")
             })
             add(SearchItem(I18n.t("nav.wiki"), I18n.t("search.hub.wiki"), Icons.AutoMirrored.Filled.MenuBook, GROUP_NAV, listOf("wiki", I18n.t("cmd.kw.wiki"))) {
-                vm.requestNavigation("download"); vm.requestHubTab("download", 3)
+                vm.requestSecondaryNav("download", "wiki")
+            })
+            add(SearchItem(I18n.t("settings.section.java"), I18n.t("search.nav.settings"), Icons.Filled.Settings, GROUP_NAV, listOf("java", "jvm", I18n.t("cmd.kw.settings"))) {
+                vm.requestSecondaryNav("settings", "java")
+            })
+            add(SearchItem(I18n.t("settings.section.theme"), I18n.t("search.nav.settings"), Icons.Filled.Palette, GROUP_NAV, listOf("theme", I18n.t("cmd.kw.theme"))) {
+                vm.requestSecondaryNav("settings", "theme")
+            })
+            add(SearchItem(I18n.t("settings.section.game"), I18n.t("search.nav.settings"), Icons.Filled.PlayArrow, GROUP_NAV, listOf("game", I18n.t("cmd.kw.settings"))) {
+                vm.requestSecondaryNav("settings", "game")
+            })
+            add(SearchItem(I18n.t("settings.section.mio"), I18n.t("search.nav.settings"), Icons.Filled.Speed, GROUP_NAV, listOf("mio", I18n.t("cmd.kw.settings"))) {
+                vm.requestSecondaryNav("settings", "mio")
+            })
+            add(SearchItem(I18n.t("stats.section.performance"), I18n.t("search.nav.statistics"), Icons.Filled.Speed, GROUP_NAV, listOf("cpu", "perf", I18n.t("cmd.kw.stats"))) {
+                vm.requestSecondaryNav("statistics", "performance")
+            })
+            add(SearchItem(I18n.t("mp.section.room"), I18n.t("search.nav.multiplayer"), Icons.Filled.Share, GROUP_NAV, listOf("mp", I18n.t("cmd.kw.multiplayer"), "room")) {
+                vm.requestSecondaryNav("multiplayer", "room")
+            })
+            add(SearchItem(I18n.t("mp.section.settings"), I18n.t("search.nav.multiplayer"), Icons.Filled.Settings, GROUP_NAV, listOf("mp", I18n.t("cmd.kw.multiplayer"), "connectx", "easytier")) {
+                vm.requestSecondaryNav("multiplayer", "settings")
+            })
+            add(SearchItem(I18n.t("mp.section.help"), I18n.t("search.nav.multiplayer"), Icons.Filled.Info, GROUP_NAV, listOf("mp", I18n.t("cmd.kw.multiplayer"), "help")) {
+                vm.requestSecondaryNav("multiplayer", "help")
+            })
+            add(SearchItem(I18n.t("accounts.section.list"), I18n.t("search.nav.accounts"), Icons.Filled.Person, GROUP_NAV, listOf("account", I18n.t("cmd.kw.account"))) {
+                vm.requestSecondaryNav("accounts", "list")
+            })
+            add(SearchItem(I18n.t("accounts.section.skin"), I18n.t("search.nav.accounts"), Icons.Filled.Palette, GROUP_NAV, listOf("skin", I18n.t("cmd.kw.account"))) {
+                vm.requestSecondaryNav("accounts", "skin")
+            })
+            add(SearchItem(I18n.t("accounts.section.microsoft"), I18n.t("search.nav.accounts"), Icons.Filled.OpenInBrowser, GROUP_NAV, listOf("microsoft", I18n.t("cmd.kw.microsoft"), I18n.t("cmd.kw.login"))) {
+                vm.requestSecondaryNav("accounts", "microsoft")
+            })
+            add(SearchItem(I18n.t("accounts.section.offline"), I18n.t("search.nav.accounts"), Icons.Filled.Person, GROUP_NAV, listOf("offline", I18n.t("cmd.kw.login"))) {
+                vm.requestSecondaryNav("accounts", "offline")
+            })
+            add(SearchItem(I18n.t("accounts.section.github"), I18n.t("search.nav.accounts"), Icons.Filled.Key, GROUP_NAV, listOf("github", I18n.t("cmd.kw.login"))) {
+                vm.requestSecondaryNav("accounts", "github")
+            })
+            add(SearchItem(I18n.t("accounts.section.yggdrasil"), I18n.t("search.nav.accounts"), Icons.Filled.Palette, GROUP_NAV, listOf("yggdrasil", "littleskin", I18n.t("cmd.kw.login"))) {
+                vm.requestSecondaryNav("accounts", "yggdrasil")
             })
             add(SearchItem(I18n.t("nav.worlds"), I18n.t("search.hub.worlds"), Icons.Filled.Public, GROUP_NAV, listOf("world", I18n.t("cmd.kw.world"), I18n.t("cmd.kw.save"))) {
-                vm.requestNavigation("saves"); vm.requestHubTab("saves", 0)
+                vm.requestSecondaryNav("saves", "worlds")
             })
             add(SearchItem(I18n.t("nav.screenshots"), I18n.t("search.hub.screenshots"), Icons.Filled.Image, GROUP_NAV, listOf("screenshot", I18n.t("cmd.kw.screenshot"))) {
-                vm.requestNavigation("saves"); vm.requestHubTab("saves", 1)
+                vm.requestSecondaryNav("saves", "screenshots")
+            })
+            add(SearchItem(I18n.t("plugins.section.installed"), I18n.t("search.nav.plugins"), Icons.Filled.Extension, GROUP_NAV, listOf("plugin", I18n.t("cmd.kw.plugin"))) {
+                vm.requestSecondaryNav("plugins", "installed")
+            })
+            add(SearchItem(I18n.t("plugins.section.actions"), I18n.t("search.nav.plugins"), Icons.Filled.PlayArrow, GROUP_NAV, listOf("plugin", I18n.t("cmd.kw.plugin"), "action")) {
+                vm.requestSecondaryNav("plugins", "actions")
+            })
+            add(SearchItem(I18n.t("plugins.section.install"), I18n.t("search.nav.plugins"), Icons.Filled.Add, GROUP_NAV, listOf("plugin", I18n.t("cmd.kw.plugin"), I18n.t("cmd.kw.install"))) {
+                vm.requestSecondaryNav("plugins", "install")
+            })
+            add(SearchItem(I18n.t("music.section.player"), I18n.t("search.nav.music"), Icons.Filled.PlayArrow, GROUP_NAV, listOf("music", "audio", "player")) {
+                vm.requestSecondaryNav("music", "player")
+            })
+            add(SearchItem(I18n.t("music.playlist"), I18n.t("search.nav.music"), Icons.Filled.LibraryMusic, GROUP_NAV, listOf("music", "audio", "playlist")) {
+                vm.requestSecondaryNav("music", "playlist")
+            })
+            add(SearchItem(I18n.t("music.history"), I18n.t("search.nav.music"), Icons.Filled.History, GROUP_NAV, listOf("music", "audio", "history")) {
+                vm.requestSecondaryNav("music", "history")
             })
             // ===== 本地已安装版本（可启动） =====
             localInfos.forEach { info ->
@@ -221,8 +280,7 @@ fun buildSearchIndex(vm: LauncherViewModel): List<SearchItem> {
                     group = GROUP_MOD,
                     keywords = listOf("mod", I18n.t("cmd.kw.mod"), mod.getModId() ?: "", name),
                     onSelect = {
-                        vm.requestNavigation("content")
-                        vm.requestHubTab("content", 0)
+                        vm.requestSecondaryNav("content", "mods")
                     }
                 ))
             }
@@ -265,6 +323,7 @@ private fun describeRoute(route: String): String = when (route) {
     "terminal" -> I18n.t("search.nav.terminal")
     "plugins" -> I18n.t("search.nav.plugins")
     "instances" -> I18n.t("search.nav.instances")
+    "music" -> I18n.t("search.nav.music")
     else -> ""
 }
 
@@ -283,6 +342,7 @@ private fun keywordsForRoute(route: String, label: String): List<String> = when 
     "terminal" -> listOf(I18n.t("cmd.kw.terminal"), "terminal", I18n.t("cmd.kw.console"), "console")
     "plugins" -> listOf(I18n.t("cmd.kw.plugin"), "plugin", I18n.t("cmd.kw.extension"))
     "instances" -> listOf(I18n.t("cmd.kw.instance"), "instance", I18n.t("cmd.kw.standalone"), "prism", "multimc")
+    "music" -> listOf("music", "audio", "playlist", "bilibili")
     else -> listOf(label)
 }
 

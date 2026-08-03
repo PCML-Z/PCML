@@ -27,26 +27,19 @@ class MirrorManager {
     var customBase: String = ""
 
     /** 官方域名 → BMCLAPI 域名映射 */
-    private val BMCLAPI_MAP: MutableMap<String, String> = linkedMapOf()
-
-    init {
-        // 版本清单 / 元数据
-        BMCLAPI_MAP["piston-meta.mojang.com"] = "bmclapi2.bangbang93.com"
-        BMCLAPI_MAP["launchermeta.mojang.com"] = "bmclapi2.bangbang93.com"
-        BMCLAPI_MAP["launcher.mojang.com"] = "bmclapi2.bangbang93.com"
-        // Java runtime 文件对象（Mojang 分文件 JRE）
-        BMCLAPI_MAP["piston-data.mojang.com"] = "bmclapi2.bangbang93.com"
-        // 库
-        BMCLAPI_MAP["libraries.minecraft.net"] = "bmclapi2.bangbang93.com/maven"
-        // 资产
-        BMCLAPI_MAP["resources.download.minecraft.net"] = "bmclapi2.bangbang93.com/assets"
-        // Forge / Fabric / Quilt
-        BMCLAPI_MAP["files.minecraftforge.net"] = "bmclapi2.bangbang93.com"
-        BMCLAPI_MAP["maven.fabricmc.net"] = "bmclapi2.bangbang93.com/maven"
-        BMCLAPI_MAP["meta.fabricmc.net"] = "bmclapi2.bangbang93.com/fabric-meta"
-        BMCLAPI_MAP["meta.quiltmc.org"] = "bmclapi2.bangbang93.com/quilt-meta"
-        BMCLAPI_MAP["maven.quiltmc.org"] = "bmclapi2.bangbang93.com/maven"
-    }
+    private val BMCLAPI_MAP: Map<String, String> = mapOf(
+        "piston-meta.mojang.com" to "bmclapi2.bangbang93.com",
+        "launchermeta.mojang.com" to "bmclapi2.bangbang93.com",
+        "launcher.mojang.com" to "bmclapi2.bangbang93.com",
+        "piston-data.mojang.com" to "bmclapi2.bangbang93.com",
+        "libraries.minecraft.net" to "bmclapi2.bangbang93.com/maven",
+        "resources.download.minecraft.net" to "bmclapi2.bangbang93.com/assets",
+        "files.minecraftforge.net" to "bmclapi2.bangbang93.com",
+        "maven.fabricmc.net" to "bmclapi2.bangbang93.com/maven",
+        "meta.fabricmc.net" to "bmclapi2.bangbang93.com/fabric-meta",
+        "meta.quiltmc.org" to "bmclapi2.bangbang93.com/quilt-meta",
+        "maven.quiltmc.org" to "bmclapi2.bangbang93.com/maven",
+    )
 
     /** 熔断阈值：连续失败 N 次后熔断 */
     private val CIRCUIT_FAILURE_THRESHOLD = 3

@@ -272,11 +272,11 @@ class DownloadManager(
                         }
                         downloadOneWithRetry(t) { deltaBytes: Long ->
                             if (onBytes != null && !aborted.get()) {
-                                val now = completed.addAndGet(deltaBytes)
+                                completed.addAndGet(deltaBytes)
                                 val t2 = System.currentTimeMillis()
                                 if (t2 - lastNotifyTime.get() >= progressThrottleMs) {
                                     lastNotifyTime.set(t2)
-                                    onBytes.accept(now)
+                                    onBytes.accept(completed.get()) // 用全局最新值而非局部变量
                                 }
                             }
                         }

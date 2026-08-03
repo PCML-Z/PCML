@@ -59,7 +59,7 @@ import com.pmcl.ui.util.decodeSampledBitmap
 import java.util.concurrent.ConcurrentHashMap
 
 @Composable
-fun AccountsPage(vm: LauncherViewModel) {
+fun AccountsPage(vm: LauncherViewModel, sectionId: String = "list") {
     val account by vm.account.collectAsState()
     val accounts by vm.accounts.collectAsState()
     val status by vm.status.collectAsState()
@@ -67,7 +67,7 @@ fun AccountsPage(vm: LauncherViewModel) {
     val loggingIn by vm.loggingIn.collectAsState()
 
     // 当前登录流程类型：区分微软/GitHub，避免两卡片共用 deviceCode 状态导致同时显示
-    var loginMode by remember { mutableStateOf<String?>(null) } // "ms" | "github" | null
+    var loginMode by remember { mutableStateOf<String?>(null) } // "ms" | "github" | "yggdrasil" | null
     // 用户手动关闭设备码弹窗后隐藏；切换 loginMode 或点「查看设备码」时重置
     var hideDeviceCodeDialog by remember { mutableStateOf(false) }
     LaunchedEffect(loginMode) { hideDeviceCodeDialog = false }
@@ -76,13 +76,27 @@ fun AccountsPage(vm: LauncherViewModel) {
     var customSkinUrl by remember { mutableStateOf("") }
     var skinModel by remember { mutableStateOf("classic") }
     var deleteTarget by remember { mutableStateOf<Account?>(null) }
+    var yggdrasilApiUrl by remember { mutableStateOf("https://littleskin.cn") }
+    var yggdrasilUsername by remember { mutableStateOf("") }
+    var yggdrasilPassword by remember { mutableStateOf("") }
+    var yggdrasilPasswordVisible by remember { mutableStateOf(false) }
     val scroll = rememberScrollState()
 
+    val sectionTitleKey = when (sectionId) {
+        "skin" -> "accounts.section.skin"
+        "offline" -> "accounts.section.offline"
+        "microsoft" -> "accounts.section.microsoft"
+        "github" -> "accounts.section.github"
+        "yggdrasil" -> "accounts.section.yggdrasil"
+        else -> "accounts.section.list"
+    }
+
     Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(scroll)) {
-        Text(I18n.t("accounts.title"), style = MaterialTheme.typography.headlineSmall,
+        Text(I18n.t(sectionTitleKey), style = MaterialTheme.typography.headlineSmall,
              fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(16.dp))
 
+        if (sectionId == "list") {
         // ===== 多账号列表 =====
         if (accounts.isNotEmpty()) {
             Text(I18n.t("accounts.list"), style = MaterialTheme.typography.titleSmall,
@@ -159,9 +173,9 @@ fun AccountsPage(vm: LauncherViewModel) {
                 }
             }
         }
+        } // end sectionId == list
 
-        Spacer(Modifier.height(16.dp))
-
+        if (sectionId == "skin") {
         // 自定义皮肤（仅离线账号）
         if (account?.getType() == Account.AccountType.OFFLINE) {
             Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
@@ -233,7 +247,20 @@ fun AccountsPage(vm: LauncherViewModel) {
             )
             Spacer(Modifier.height(16.dp))
         }
+        if (account == null ||
+            (account?.getType() != Account.AccountType.OFFLINE &&
+                account?.getType() != Account.AccountType.MICROSOFT &&
+                account?.getType() != Account.AccountType.YGGDRASIL)
+        ) {
+            Text(
+                I18n.t("accounts.section.skin_empty"),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.outline
+            )
+        }
+        } // end sectionId == skin
 
+        if (sectionId == "offline") {
         // 离线登录卡片
         Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
             Column(Modifier.padding(16.dp)) {
@@ -252,9 +279,9 @@ fun AccountsPage(vm: LauncherViewModel) {
                 }
             }
         }
+        } // end sectionId == offline
 
-        Spacer(Modifier.height(16.dp))
-
+        if (sectionId == "microsoft") {
         // 微软登录卡片
         Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
             Column(Modifier.padding(16.dp)) {
@@ -316,9 +343,9 @@ fun AccountsPage(vm: LauncherViewModel) {
                 }
             }
         }
+        } // end sectionId == microsoft
 
-        Spacer(Modifier.height(16.dp))
-
+        if (sectionId == "github") {
         // GitHub 登录卡片
         Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
             Column(Modifier.padding(16.dp)) {
@@ -365,15 +392,10 @@ fun AccountsPage(vm: LauncherViewModel) {
                 }
             }
         }
+        } // end sectionId == github
 
-        Spacer(Modifier.height(16.dp))
-
+        if (sectionId == "yggdrasil") {
         // 皮肤站登录卡片（authlib-injector / Yggdrasil）
-        var yggdrasilApiUrl by remember { mutableStateOf("https://littleskin.cn") }
-        var yggdrasilUsername by remember { mutableStateOf("") }
-        var yggdrasilPassword by remember { mutableStateOf("") }
-        var yggdrasilPasswordVisible by remember { mutableStateOf(false) }
-
         Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
             Column(Modifier.padding(16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -456,6 +478,7 @@ fun AccountsPage(vm: LauncherViewModel) {
                 }
             }
         }
+        } // end sectionId == yggdrasil
 
         Spacer(Modifier.height(16.dp))
         HorizontalDivider()

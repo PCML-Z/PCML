@@ -347,8 +347,13 @@ class ForgeInstaller(
                 }
                 base + downloadPath
             } else if (resolvedUrl.contains("maven.minecraftforge.net/")) {
-                resolvedUrl.replace("https://maven.minecraftforge.net/", BMCLAPI_MAVEN)
-                    .replace("http://maven.minecraftforge.net/", BMCLAPI_MAVEN)
+                if (resolvedUrl.startsWith("https://maven.minecraftforge.net/")) {
+                    BMCLAPI_MAVEN + resolvedUrl.substring("https://maven.minecraftforge.net/".length)
+                } else if (resolvedUrl.startsWith("http://maven.minecraftforge.net/")) {
+                    BMCLAPI_MAVEN + resolvedUrl.substring("http://maven.minecraftforge.net/".length)
+                } else {
+                    resolvedUrl
+                }
             } else if (resolvedUrl.contains("maven.neoforged.net/")) {
                 resolvedUrl.replace("https://maven.neoforged.net/", BMCLAPI_MAVEN)
                     .replace("http://maven.neoforged.net/", BMCLAPI_MAVEN)

@@ -2,6 +2,11 @@ package com.lash.pmcl.ui.screens
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -28,6 +33,8 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Download
@@ -330,28 +337,19 @@ fun ModsMarketScreen(core: LauncherCore) {
             onOpenUrl = ::openUrl,
         )
     } else {
-        val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
-        Scaffold(
-            modifier = Modifier.fillMaxSize(),
-            topBar = {
-                TopAppBar(
-                    title = { Text("模组市场") },
-                    actions = {
-                        IconButton(onClick = { refreshInstalled() }) {
-                            Icon(Icons.Outlined.Refresh, contentDescription = "刷新已安装")
-                        }
-                    },
-                    scrollBehavior = scrollBehavior,
-                )
-            },
-        ) { innerPadding ->
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding)
-                    .nestedScroll(scrollBehavior.nestedScrollConnection)
-                    .padding(16.dp)
-            ) {
+        var filterExpanded by remember { mutableStateOf(false) }
+        Column(
+            modifier = Modifier.fillMaxSize().padding(16.dp)
+        ) {
+            // 折叠式标题栏
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("模组市场${if (status.isNotEmpty()) " | $status" else ""}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline, modifier = Modifier.weight(1f))
+                TextButton(onClick = { filterExpanded = !filterExpanded }, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                    Text(if (filterExpanded) "收起" else "搜索", style = MaterialTheme.typography.labelMedium)
+                    Icon(if (filterExpanded) Icons.Filled.KeyboardArrowDown else Icons.Filled.KeyboardArrowUp, null, Modifier.size(16.dp))
+                }
+            }
+            AnimatedVisibility(filterExpanded, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
                 Text(
                     "聚合 Modrinth / CurseForge，搜索或浏览模组",
                     style = MaterialTheme.typography.labelSmall,
@@ -451,7 +449,17 @@ fun ModsMarketScreen(core: LauncherCore) {
                 )
                 Spacer(Modifier.height(12.dp))
 
-                // 三种视图
+            } // 关闭 AnimatedVisibility
+
+            // 刷新已安装按钮（折叠态也可见）
+            TextButton(onClick = { refreshInstalled() }) {
+                Icon(Icons.Outlined.Refresh, null, Modifier.size(14.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("刷新已安装", style = MaterialTheme.typography.labelSmall)
+            }
+            Spacer(Modifier.height(8.dp))
+
+            // 三种视图
                 when {
                     // 搜索结果视图（用户主动搜索后）
                     searchedQuery.isNotBlank() -> {
@@ -579,7 +587,6 @@ fun ModsMarketScreen(core: LauncherCore) {
                     )
                 }
             }
-        }
     }
 
     // 依赖安装结果对话框

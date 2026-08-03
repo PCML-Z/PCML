@@ -92,15 +92,24 @@ object VersionStaging {
         try {
             Files.move(stagingDir, target, StandardCopyOption.REPLACE_EXISTING)
         } catch (e: Exception) {
-            // 提升失败：回滚
-            if (Files.exists(bak)) {
-                Files.move(bak, target, StandardCopyOption.REPLACE_EXISTING)
+            // 提升失败：尝试回滚
+            try {
+                if (Files.exists(bak)) {
+                    Files.move(bak, target, StandardCopyOption.REPLACE_EXISTING)
+                }
+            } catch (rollbackErr: Exception) {
+                e.addSuppressed(rollbackErr)
+                System.err.println("[VersionStaging] 回滚也失败: $versionId — ${rollbackErr.message}")
             }
             throw IOException("提升 staging 目录失败: $versionId", e)
         }
-        // 成功后删除备份
-        if (Files.exists(bak)) {
-            FileUtils.deleteRecursively(bak)
+        // 成功后删除备份（失败不影响主流程）
+        try {
+            if (Files.exists(bak)) {
+                FileUtils.deleteRecursively(bak)
+            }
+        } catch (e: IOException) {
+            System.err.println("[VersionStaging] 删除备份失败: ${e.message}")
         }
     }
 

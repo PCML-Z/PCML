@@ -43,6 +43,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -66,6 +67,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private const val THUMB_PX = 240
@@ -91,18 +93,16 @@ fun ScreenshotsScreen(screenshotManager: ScreenshotManager) {
         }
     }
 
+    val scope = rememberCoroutineScope()
+    
     fun refresh() {
-        loading = true
-        error = null
-        Thread {
+        scope.launch {
+            loading = true; error = null
             try {
-                shots = screenshotManager.list()
-            } catch (e: Exception) {
-                error = e.message ?: e.toString()
-            } finally {
-                loading = false
-            }
-        }.start()
+                shots = withContext(Dispatchers.IO) { screenshotManager.list() }
+            } catch (e: Exception) { error = e.message ?: e.toString() }
+            finally { loading = false }
+        }
     }
 
     LaunchedEffect(Unit) { refresh() }

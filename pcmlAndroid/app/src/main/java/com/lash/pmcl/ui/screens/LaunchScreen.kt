@@ -242,6 +242,7 @@ fun LaunchScreen(
     fun addLog(text: String) {
         logs.add(LogEntry(logSeq.incrementAndGet(), text))
         while (logs.size > 500) logs.removeAt(0)
+        com.lash.pmcl.core.launch.LogCollector.add(text)
     }
 
     fun refreshPinnedLabels() {
@@ -496,8 +497,9 @@ fun LaunchScreen(
 
     // ===== 布局 =====
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val isTablet = maxWidth >= 840.dp
-        if (isTablet) {
+        // 横屏手机宽度通常 600-720dp，分栏需要至少 ~600dp；原先 840dp 门槛太高导致横屏走错分支
+        val isWideEnough = maxWidth >= 600.dp
+        if (isWideEnough) {
             Row(Modifier.fillMaxSize()) {
                 LazyColumn(
                     Modifier.weight(1.2f).fillMaxHeight().padding(16.dp),
@@ -1441,7 +1443,7 @@ private fun PinnedTile(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(displayName,
-                         color = Color.White,
+                         color = MaterialTheme.colorScheme.onPrimary,
                          fontWeight = FontWeight.Bold,
                          fontSize = 15.sp,
                          maxLines = 1)
@@ -1458,7 +1460,7 @@ private fun PinnedTile(
                         shape = RoundedCornerShape(4.dp),
                     ) {
                         Text(modLoaderHint,
-                             color = Color.White,
+                             color = MaterialTheme.colorScheme.onPrimary,
                              fontSize = 10.sp,
                              fontWeight = FontWeight.Medium,
                              modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp))

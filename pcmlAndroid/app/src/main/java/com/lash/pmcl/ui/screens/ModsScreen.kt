@@ -127,6 +127,7 @@ fun ModsScreen(core: LauncherCore) {
     var sortExpanded by remember { mutableStateOf(false) }
     var sortBy by remember { mutableStateOf(ModSort.NAME) }
     var showImportDialog by remember { mutableStateOf(false) }
+    var showModDropDialog by remember { mutableStateOf(false) }
     var detailMod by remember { mutableStateOf<ModMeta?>(null) }
     var selectionMode by remember { mutableStateOf(false) }
     var selectedMods by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -483,6 +484,12 @@ fun ModsScreen(core: LauncherCore) {
                             Text("导入模组")
                         }
                         Spacer(Modifier.width(6.dp))
+                        OutlinedButton(onClick = { showModDropDialog = true }) {
+                            Icon(Icons.Filled.Info, null, Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("高级导入")
+                        }
+                        Spacer(Modifier.width(6.dp))
                         FilterChip(
                             selected = selectionMode,
                             onClick = {
@@ -774,6 +781,17 @@ fun ModsScreen(core: LauncherCore) {
     // 详情对话框
     detailMod?.let { mod ->
         ModDetailDialog(m = mod, onDismiss = { detailMod = null })
+    }
+
+    // 高级导入（Modrinth 元数据查询）
+    if (showModDropDialog) {
+        ModDropDialog(
+            installer = core.modDropInstaller,
+            versionId = null,
+            gameVersion = null,
+            onDismiss = { showModDropDialog = false },
+            onInstalled = { refresh() }
+        )
     }
 
     // 批量删除确认

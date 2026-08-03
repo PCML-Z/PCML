@@ -81,16 +81,17 @@ class LaunchManager(
         javaExecutable: String,
         onLog: Consumer<String>?
     ): CompletableFuture<GameProcess> {
+        val launcher = gameLauncher
         val deny = verifyBeforeLaunch(profile)
         if (deny != null) {
             val future = CompletableFuture<GameProcess>()
             future.completeExceptionally(IOException(deny))
             return future
         }
-        val launcher = gameLauncher!!
+        val launcherNonNull = launcher!!
         return CompletableFuture.supplyAsync({
             try {
-                val proc = launcher.launch(profile!!, javaExecutable, onLog)
+                val proc = launcherNonNull.launch(profile!!, javaExecutable, onLog)
                 synchronized(activeProcesses) { activeProcesses.add(proc) }
                 // 异步等待退出，退出后从活跃集合移除
                 launchExecutor.execute {
@@ -118,11 +119,17 @@ class LaunchManager(
         javaExecutable: String,
         onLog: Consumer<String>?
     ): GameProcess {
+        val launcher = gameLauncher
         val deny = verifyBeforeLaunch(profile)
         if (deny != null) throw IOException(deny)
-        val launcher = gameLauncher ?: throw IOException("未配置 GameLauncher")
-        val proc = launcher.launch(profile!!, javaExecutable, onLog)
+        val launcherNonNull = launcher ?: throw IOException("未配置 GameLauncher")
+        val proc = launcherNonNull.launch(profile!!, javaExecutable, onLog)
         synchronized(activeProcesses) { activeProcesses.add(proc) }
+        // 后台线程等待进程退出后清理
+        launchExecutor.execute {
+            try { proc.waitFor() } catch (_: InterruptedException) {}
+            synchronized(activeProcesses) { activeProcesses.remove(proc) }
+        }
         return proc
     }
 

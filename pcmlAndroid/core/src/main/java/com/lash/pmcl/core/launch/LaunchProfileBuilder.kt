@@ -1,5 +1,6 @@
 package com.lash.pmcl.core.launch
 
+import com.google.gson.JsonParser
 import com.lash.pmcl.core.auth.Account
 import com.lash.pmcl.core.install.VersionJson
 import com.lash.pmcl.core.paths.PmclPaths
@@ -115,7 +116,8 @@ class LaunchProfileBuilder(
 
     /**
      * 递归合并继承版本（inheritsFrom）。
-     * 桌面版有完整实现，这里精简：只合并 libraries（classpath 用）和 mainClass。
+     * 将父版本的 mainClass、libraries、arguments、assets、javaVersion 等合并到子版本。
+     * 与 VersionInstaller.mergeInheritedRecursive 逻辑一致。
      */
     @Throws(IOException::class)
     private fun mergeInherited(
@@ -128,13 +130,98 @@ class LaunchProfileBuilder(
         if (!visited.add(parentVersionId)) {
             throw IOException("版本继承出现循环: ${visited.joinToString(" → ")} → $parentVersionId")
         }
-        val parentJsonPath = findVersionJson(parentVersionId)
-            ?: throw IOException("未找到父版本 JSON: $parentVersionId")
-        val parentJson = FileUtils.readString(parentJsonPath)
-        val parent = VersionJson.parse(parentJson)
-        // 简化：返回 child（Android 上 inheritsFrom 合并主要用于 classpath，
-        // 已在 build() 中通过 libraries 遍历处理；完整合并逻辑可在后续按需迁移）
-        return child
+        try {
+            val parentJsonPath = findVersionJson(parentVersionId)
+                ?: throw IOException("未找到父版本 JSON: $parentVersionId")
+            val parentJson = FileUtils.readString(parentJsonPath)
+            var parentObj = JsonParser.parseString(parentJson).asJsonObject
+            var parentVj = VersionJson.parse(parentJson)
+
+            // 递归处理父版本的 inheritsFrom
+            if (!parentVj.inheritsFrom.isNullOrEmpty() && parentVj.inheritsFrom != parentVersionId) {
+                val merged = mergeInherited(parentVj, parentVj.inheritsFrom, visited, depth + 1)
+                parentObj = merged.rawJson
+            }
+
+            val childObj = child.rawJson
+
+            // mainClass: 子没有则用父
+            if (!childObj.has("mainClass") && parentObj.has("mainClass")) {
+                childObj.add("mainClass", parentObj.get("mainClass"))
+            }
+            // type: 继承父版本的类型标识
+            if (!childObj.has("type") && parentObj.has("type")) {
+                childObj.add("type", parentObj.get("type"))
+            }
+            // assets: 子没有则用父
+            if (!childObj.has("assets") && parentObj.has("assets")) {
+                childObj.add("assets", parentObj.get("assets"))
+            }
+            // assetIndex
+            if (!childObj.has("assetIndex") && parentObj.has("assetIndex")) {
+                childObj.add("assetIndex", parentObj.get("assetIndex"))
+            }
+            // downloads
+            if (!childObj.has("downloads") && parentObj.has("downloads")) {
+                childObj.add("downloads", parentObj.get("downloads"))
+            }
+            // javaVersion
+            if (!childObj.has("javaVersion") && parentObj.has("javaVersion")) {
+                childObj.add("javaVersion", parentObj.get("javaVersion"))
+            }
+            // minecraftArguments
+            if (!childObj.has("minecraftArguments") && parentObj.has("minecraftArguments")) {
+                childObj.add("minecraftArguments", parentObj.get("minecraftArguments"))
+            }
+
+            // 合并 arguments
+            if (parentObj.has("arguments")) {
+                val parentArgs = parentObj.getAsJsonObject("arguments")
+                if (!childObj.has("arguments")) {
+                    childObj.add("arguments", parentArgs)
+                } else {
+                    val childArgs = childObj.getAsJsonObject("arguments")
+                    if (parentArgs.has("game")) {
+                        val merged = com.google.gson.JsonArray()
+                        if (childArgs.has("game"))
+                            childArgs.getAsJsonArray("game").forEach { merged.add(it) }
+                        parentArgs.getAsJsonArray("game").forEach { merged.add(it) }
+                        childArgs.add("game", merged)
+                    }
+                    if (parentArgs.has("jvm")) {
+                        val merged = com.google.gson.JsonArray()
+                        if (childArgs.has("jvm"))
+                            childArgs.getAsJsonArray("jvm").forEach { merged.add(it) }
+                        parentArgs.getAsJsonArray("jvm").forEach { merged.add(it) }
+                        childArgs.add("jvm", merged)
+                    }
+                }
+            }
+
+            // 合并 libraries：子的覆盖父的同名库
+            if (parentObj.has("libraries")) {
+                val merged = com.google.gson.JsonArray()
+                val childNames = HashSet<String>()
+                if (childObj.has("libraries")) {
+                    childObj.getAsJsonArray("libraries").forEach { e ->
+                        merged.add(e)
+                        val libObj = e.asJsonObject
+                        if (libObj.has("name") && !libObj.get("name").isJsonNull)
+                            childNames.add(libObj.get("name").asString)
+                    }
+                }
+                parentObj.getAsJsonArray("libraries").forEach { e ->
+                    val libObj = e.asJsonObject
+                    if (!libObj.has("name") || libObj.get("name").isJsonNull) return@forEach
+                    if (libObj.get("name").asString !in childNames) merged.add(e)
+                }
+                childObj.add("libraries", merged)
+            }
+
+            return VersionJson.parse(childObj.toString())
+        } finally {
+            visited.remove(parentVersionId)
+        }
     }
 
     /**

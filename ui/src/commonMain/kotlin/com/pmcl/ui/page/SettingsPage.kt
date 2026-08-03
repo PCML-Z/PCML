@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Gavel
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -29,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
@@ -41,11 +43,14 @@ import com.pmcl.ui.theme.glassCardBorder
 import com.pmcl.ui.theme.glassCardColors
 import com.pmcl.ui.theme.glassCardElevation
 import com.pmcl.ui.theme.glassSurfaceVariantColor
+import com.pmcl.ui.util.decodeSampledBitmap
 import com.pmcl.ui.viewmodel.LauncherViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
-fun SettingsPage(vm: LauncherViewModel) {
+fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
     val pref = remember { vm.preferences }
     val themeState = LocalThemeState.current
 
@@ -75,11 +80,26 @@ fun SettingsPage(vm: LauncherViewModel) {
         }
     }
 
+    val sectionTitleKey = when (sectionId) {
+        "theme" -> "settings.section.theme"
+        "java" -> "settings.section.java"
+        "game" -> "settings.section.game"
+        "mio" -> "settings.section.mio"
+        "network" -> "settings.section.network"
+        "updates" -> "settings.section.updates"
+        "device" -> "settings.section.device"
+        "system" -> "settings.section.system"
+        "about" -> "settings.section.about"
+        "extensions" -> "settings.section.extensions"
+        else -> "settings.section.launcher"
+    }
+
     Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
-        Text(I18n.t("settings.title"), style = MaterialTheme.typography.headlineSmall,
+        Text(I18n.t(sectionTitleKey), style = MaterialTheme.typography.headlineSmall,
              fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(16.dp))
 
+        if (sectionId == "java") {
         // 内存
         Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
             Column(Modifier.padding(16.dp)) {
@@ -183,6 +203,11 @@ fun SettingsPage(vm: LauncherViewModel) {
 
         Spacer(Modifier.height(16.dp))
 
+        // Java 运行时管理
+        JavaRuntimeCard(vm, pref)
+        } // end sectionId == java
+
+        if (sectionId == "game") {
         // 游戏通用行为
         GameBehaviorCard(pref)
 
@@ -193,23 +218,20 @@ fun SettingsPage(vm: LauncherViewModel) {
 
         Spacer(Modifier.height(16.dp))
 
-        // 澪模式
-        MioModeCard(pref)
-
-        Spacer(Modifier.height(16.dp))
-
         // Metal 渲染（仅 Apple Silicon Mac 显示）
         if (vm.isMetalRenderSupported()) {
             MetalRenderCard(vm, pref)
             Spacer(Modifier.height(16.dp))
         }
+        } // end sectionId == game
 
-        // Java 运行时管理
-        JavaRuntimeCard(vm, pref)
+        if (sectionId == "mio") {
+        // 澪模式
+        MioModeCard(pref)
+        }
 
-        Spacer(Modifier.height(16.dp))
-
-        // 外观
+        if (sectionId == "theme") {
+        // 主题系统
         Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
             Column(Modifier.padding(16.dp)) {
                 Text(I18n.t("settings.appearance"), style = MaterialTheme.typography.titleSmall,
@@ -359,11 +381,14 @@ fun SettingsPage(vm: LauncherViewModel) {
                 Text(I18n.t("settings.color_mode_desc"),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
+            }
+        }
+        } // end sectionId == theme
 
-                Spacer(Modifier.height(12.dp))
-                HorizontalDivider()
-                Spacer(Modifier.height(12.dp))
-
+        if (sectionId == "launcher") {
+        // 启动器设置（语言 / 窗口 / 背景 / HUD 等）
+        Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
+            Column(Modifier.padding(16.dp)) {
                 Text(I18n.t("settings.language_label"), style = MaterialTheme.typography.labelMedium)
                 Spacer(Modifier.height(4.dp))
                 val langItems = listOf(
@@ -696,14 +721,14 @@ fun SettingsPage(vm: LauncherViewModel) {
                 }
             }
         }
+        } // end sectionId == launcher
 
-        Spacer(Modifier.height(16.dp))
-
+        if (sectionId == "network") {
         // 网络配置
         NetworkConfigCard(vm, pref)
+        }
 
-        Spacer(Modifier.height(16.dp))
-
+        if (sectionId == "system") {
         // 系统信息
         Card(Modifier.fillMaxWidth().glassCardBorder(8.dp), shape = RoundedCornerShape(8.dp), colors = glassCardColors(), elevation = glassCardElevation()) {
             Column(Modifier.padding(16.dp)) {
@@ -719,31 +744,25 @@ fun SettingsPage(vm: LauncherViewModel) {
                      color = MaterialTheme.colorScheme.outline)
             }
         }
+        }
 
-        Spacer(Modifier.height(16.dp))
-
+        if (sectionId == "updates") {
         // GitHub Release 同步更新
         GithubSyncCard(vm, pref)
+        }
 
-        Spacer(Modifier.height(16.dp))
-
+        if (sectionId == "device") {
         // 设备绑定保护
         DeviceBindingCard(vm, pref)
+        }
 
-        Spacer(Modifier.height(16.dp))
-
+        if (sectionId == "about") {
         // 关于
         AboutCard(vm)
+        }
 
         // 插件扩展设置分区
-        if (pluginSettingsSections.isNotEmpty()) {
-            Spacer(Modifier.height(24.dp))
-            Text(
-                "扩展设置",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(Modifier.height(8.dp))
+        if (sectionId == "extensions" && pluginSettingsSections.isNotEmpty()) {
             pluginSettingsSections.forEach { section ->
                 Card(
                     modifier = Modifier.fillMaxWidth().glassCardBorder(),
@@ -919,11 +938,26 @@ private fun AboutCard(vm: LauncherViewModel) {
                 )
             }
 
-            // === 技术栈：表格 ===
+            // === 开发者列表 ===
             Spacer(Modifier.height(16.dp))
-            Text(I18n.t("about.tech_stack"), style = MaterialTheme.typography.labelMedium,
-                 fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(6.dp))
+            Text(
+                I18n.t("about.developers"),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(Modifier.height(8.dp))
+            DeveloperList()
+
+            // === 技术栈依赖列表 ===
+            Spacer(Modifier.height(16.dp))
+            Text(
+                I18n.t("about.tech_stack"),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(Modifier.height(8.dp))
             TechStackTable()
 
             // === 链接按钮 ===
@@ -1003,73 +1037,293 @@ private fun FeatureColumn(
     }
 }
 
-/** 关于卡片中的技术栈表格 */
+/** 技术栈依赖条目：名称 + 版权 + 许可证 + 外链 */
+private data class TechDependency(
+    val name: String,
+    val copyright: String,
+    val license: String,
+    val url: String,
+)
+
+/** 开发者条目：头像 URL + 名称 + 职责 + 主页（可空） */
+private data class DeveloperEntry(
+    val name: String,
+    val roleKey: String,
+    val avatarUrl: String = "",
+    val url: String = "",
+)
+
+/** 关于卡片中的开发者列表 */
 @Composable
-private fun TechStackTable() {
-    val rows = listOf(
-        Triple("Kotlin", KotlinVersion.CURRENT.toString(), I18n.t("about.tech.kotlin")),
-        Triple("Compose Multiplatform", "1.7.0", I18n.t("about.tech.compose")),
-        Triple("Java", "21", I18n.t("about.tech.java")),
-        Triple("OkHttp", "4.12.0", I18n.t("about.tech.okhttp")),
-        Triple("FFmpeg", "7.1-1.5.11", I18n.t("about.tech.ffmpeg")),
-        Triple("Gradle", "8.10", I18n.t("about.tech.gradle")),
-        Triple("Gson", "2.11.0", I18n.t("about.tech.gson")),
-        Triple("kotlinx-coroutines", "1.9.0", I18n.t("about.tech.coroutines")),
-        Triple("oshi", "6.6.5", I18n.t("about.tech.oshi"))
+private fun DeveloperList() {
+    val developers = listOf(
+        DeveloperEntry(
+            name = "peddlejumper",
+            roleKey = "about.dev.peddlejumper.role",
+            avatarUrl = "https://github.com/peddlejumper.png?size=128",
+            url = "https://github.com/peddlejumper"
+        ),
+        DeveloperEntry(
+            name = "Forget me",
+            roleKey = "about.dev.forget_me.role",
+            avatarUrl = "https://github.com/peddlejumper2.png?size=128",
+            url = "https://github.com/peddlejumper2"
+        ),
+        DeveloperEntry(
+            name = "mtutu_1314",
+            roleKey = "about.dev.mtutu_1314.role",
+            avatarUrl = "https://github.com/matutu1314.png?size=128",
+            url = "https://github.com/matutu1314"
+        ),
+        DeveloperEntry(
+            name = "HCS-Organization",
+            roleKey = "about.dev.hcs_organization.role",
+            avatarUrl = "https://github.com/HCS-Organization.png?size=128",
+            url = "https://github.com/HCS-Organization"
+        ),
+        DeveloperEntry(
+            name = "ニー・ヌオリアン",
+            roleKey = "about.dev.sjgdnsk.role"
+        ),
+        DeveloperEntry(
+            name = "sjgdnsk",
+            roleKey = "about.dev.ninolian.role"
+        ),
+        DeveloperEntry(
+            name = "LBSH",
+            roleKey = "about.dev.lbsh.role",
+            url = "https://lash.simdif.com"
+        ),
+        DeveloperEntry(
+            name = "PMCL-Z",
+            roleKey = "about.dev.pmcl_z.role",
+            avatarUrl = "https://github.com/PCML-Z.png?size=128",
+            url = "https://github.com/PCML-Z"
+        ),
+        DeveloperEntry(
+            name = "hcslash",
+            roleKey = "about.dev.hcslash.role",
+            avatarUrl = "https://avatars.githubusercontent.com/u/187082976?s=128&v=4",
+            url = "https://github.com/hcslash"
+        ),
     )
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp),
-        color = glassSurfaceVariantColor(glassAlpha = 0.3f),
-        tonalElevation = 1.dp
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f),
+        tonalElevation = 0.dp
     ) {
         Column {
-            // 表头
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(I18n.t("about.tech_component"),
-                     style = MaterialTheme.typography.labelMedium,
-                     fontWeight = FontWeight.SemiBold,
-                     color = MaterialTheme.colorScheme.primary,
-                     modifier = Modifier.weight(0.3f))
-                Text(I18n.t("about.tech_version"),
-                     style = MaterialTheme.typography.labelMedium,
-                     fontWeight = FontWeight.SemiBold,
-                     color = MaterialTheme.colorScheme.primary,
-                     modifier = Modifier.weight(0.25f))
-                Text(I18n.t("about.tech_purpose"),
-                     style = MaterialTheme.typography.labelMedium,
-                     fontWeight = FontWeight.SemiBold,
-                     color = MaterialTheme.colorScheme.primary,
-                     modifier = Modifier.weight(0.45f))
-            }
-            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
-
-            // 数据行
-            rows.forEachIndexed { index, (name, version, purpose) ->
+            developers.forEachIndexed { index, dev ->
+                val hasLink = dev.url.isNotBlank()
+                val openUrl = {
+                    if (hasLink) {
+                        try {
+                            com.pmcl.core.web.WikiBrowser.open(dev.url)
+                        } catch (_: Throwable) {
+                        }
+                    }
+                }
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                    Modifier
+                        .fillMaxWidth()
+                        .then(
+                            if (hasLink) Modifier.clickable(onClick = openUrl)
+                            else Modifier
+                        )
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(name,
-                         style = MaterialTheme.typography.bodySmall,
-                         fontWeight = FontWeight.Medium,
-                         modifier = Modifier.weight(0.3f))
-                    Text(version,
-                         style = MaterialTheme.typography.bodySmall,
-                         fontFamily = FontFamily.Monospace,
-                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                         modifier = Modifier.weight(0.25f))
-                    Text(purpose,
-                         style = MaterialTheme.typography.bodySmall,
-                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                         modifier = Modifier.weight(0.45f))
+                    DeveloperAvatar(url = dev.avatarUrl, name = dev.name)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            dev.name,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            I18n.t(dev.roleKey),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    if (hasLink) {
+                        Spacer(Modifier.width(12.dp))
+                        Icon(
+                            Icons.Filled.OpenInNew,
+                            contentDescription = dev.url,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
-                if (index < rows.size - 1) {
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+                if (index < developers.lastIndex) {
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DeveloperAvatar(url: String, name: String) {
+    var image by remember(url) { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(url) {
+        if (url.isBlank()) {
+            image = null
+            return@LaunchedEffect
+        }
+        withContext(Dispatchers.IO) {
+            try {
+                val bytes = com.pmcl.ui.util.SafeUrlFetcher.fetchBytes(url, allowPrivateLan = false)
+                image = decodeSampledBitmap(bytes, 128)
+            } catch (_: Throwable) {
+                image = null
+            }
+        }
+    }
+    val bmp = image
+    if (bmp != null) {
+        Image(
+            bitmap = bmp,
+            contentDescription = name,
+            modifier = Modifier
+                .size(40.dp)
+                .clip(RoundedCornerShape(8.dp))
+        )
+    } else {
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.size(40.dp)
+        ) {
+            Icon(
+                Icons.Filled.Person,
+                contentDescription = name,
+                modifier = Modifier.padding(8.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+/** 关于卡片中的技术栈依赖列表（参考「依赖」卡片样式） */
+@Composable
+private fun TechStackTable() {
+    val deps = listOf(
+        TechDependency(
+            name = "Kotlin ${KotlinVersion.CURRENT}",
+            copyright = "Copyright © JetBrains s.r.o. and Kotlin contributors.",
+            license = "Licensed under the Apache License 2.0.",
+            url = "https://kotlinlang.org/"
+        ),
+        TechDependency(
+            name = "Compose Multiplatform",
+            copyright = "Copyright © JetBrains s.r.o. and contributors.",
+            license = "Licensed under the Apache License 2.0.",
+            url = "https://www.jetbrains.com/compose-multiplatform/"
+        ),
+        TechDependency(
+            name = "Java",
+            copyright = "Copyright © Oracle and/or its affiliates.",
+            license = "Licensed under the GPL 2 with Classpath Exception.",
+            url = "https://openjdk.org/"
+        ),
+        TechDependency(
+            name = "OkHttp",
+            copyright = "Copyright © Square, Inc.",
+            license = "Licensed under the Apache License 2.0.",
+            url = "https://square.github.io/okhttp/"
+        ),
+        TechDependency(
+            name = "FFmpeg",
+            copyright = "Copyright © the FFmpeg developers.",
+            license = "Licensed under the LGPL / GPL.",
+            url = "https://ffmpeg.org/"
+        ),
+        TechDependency(
+            name = "Gradle",
+            copyright = "Copyright © Gradle Inc.",
+            license = "Licensed under the Apache License 2.0.",
+            url = "https://gradle.org/"
+        ),
+        TechDependency(
+            name = "Gson",
+            copyright = "Copyright © 2008 Google Inc.",
+            license = "Licensed under the Apache License 2.0.",
+            url = "https://github.com/google/gson"
+        ),
+        TechDependency(
+            name = "kotlinx-coroutines",
+            copyright = "Copyright © JetBrains s.r.o. and contributors.",
+            license = "Licensed under the Apache License 2.0.",
+            url = "https://github.com/Kotlin/kotlinx.coroutines"
+        ),
+        TechDependency(
+            name = "oshi",
+            copyright = "Copyright © The OSHI Project contributors.",
+            license = "Licensed under the MIT License.",
+            url = "https://github.com/oshi/oshi"
+        ),
+    )
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f),
+        tonalElevation = 0.dp
+    ) {
+        Column {
+            deps.forEachIndexed { index, dep ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            try {
+                                com.pmcl.core.web.WikiBrowser.open(dep.url)
+                            } catch (_: Throwable) {
+                            }
+                        }
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            dep.name,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            dep.copyright,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            dep.license,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Icon(
+                        imageVector = Icons.Filled.OpenInNew,
+                        contentDescription = dep.url,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                if (index < deps.size - 1) {
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
+                    )
                 }
             }
         }

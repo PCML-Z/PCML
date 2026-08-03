@@ -19,31 +19,41 @@ import org.jetbrains.skia.Image as SkiaImage
  */
 fun decodeSampledBitmap(bytes: ByteArray, maxDimension: Int = 0): ImageBitmap? {
     val image = SkiaImage.makeFromEncoded(bytes) ?: return null
-    if (maxDimension <= 0) return image.toComposeImageBitmap()
     val w = image.width
     val h = image.height
-    if (w <= maxDimension && h <= maxDimension) return image.toComposeImageBitmap()
+    // 无需降采样：直接交给 Compose（保留 image，由 ImageBitmap 生命周期管理）
+    if (maxDimension <= 0 || (w <= maxDimension && h <= maxDimension)) {
+        return image.toComposeImageBitmap()
+    }
     // 计算目标尺寸（保持宽高比）
     val ratio = maxDimension.toFloat() / maxOf(w, h)
     val targetW = (w * ratio).toInt().coerceAtLeast(1)
     val targetH = (h * ratio).toInt().coerceAtLeast(1)
-    // 创建小尺寸 Bitmap，用 Canvas 绘制缩放后的图像
-    val bitmap = Bitmap()
-    val canvas = Canvas(bitmap)
-    try {
-        bitmap.allocN32Pixels(targetW, targetH, false)
-        canvas.drawImageRect(
-            image,
-            Rect.makeWH(w.toFloat(), h.toFloat()),
-            Rect.makeWH(targetW.toFloat(), targetH.toFloat()),
-            null
-        )
-        // makeFromBitmap 对 mutable bitmap 会拷贝像素数据，因此可安全关闭 bitmap/canvas
-        return SkiaImage.makeFromBitmap(bitmap).toComposeImageBitmap()
-    } finally {
-        // 释放中间原生资源：canvas、bitmap、以及全尺寸源图像
-        canvas.close()
-        bitmap.close()
-        image.close()
+    return try {
+        // 必须先分配像素再创建 Canvas；否则大图降采样会失败（如 GitHub 头像 >128px）
+        val bitmap = Bitmap()
+        try {
+            bitmap.allocN32Pixels(targetW, targetH, false)
+            val canvas = Canvas(bitmap)
+            try {
+                canvas.drawImageRect(
+                    image,
+                    Rect.makeWH(w.toFloat(), h.toFloat()),
+                    Rect.makeWH(targetW.toFloat(), targetH.toFloat()),
+                    null
+                )
+            } finally {
+                canvas.close()
+            }
+            // makeFromBitmap 会拷贝像素，随后可安全关闭源图与中间 bitmap
+            val sampled = SkiaImage.makeFromBitmap(bitmap).toComposeImageBitmap()
+            image.close()
+            sampled
+        } finally {
+            bitmap.close()
+        }
+    } catch (_: Throwable) {
+        // 降采样失败时回退原图，避免头像等资源空白
+        image.toComposeImageBitmap()
     }
 }

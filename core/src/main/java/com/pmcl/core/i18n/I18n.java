@@ -99,6 +99,22 @@ public final class I18n {
         ZH.put("nav.instances", "实例");
         ZH.put("nav.nbt", "NBT编辑器");
         ZH.put("nav.music", "音乐");
+        ZH.put("nav.secondary.back", "返回");
+        ZH.put("settings.section.launcher", "启动器设置");
+        ZH.put("settings.section.theme", "主题系统管理");
+        ZH.put("settings.section.java", "Java 行为管理");
+        ZH.put("settings.section.game", "游戏行为管理");
+        ZH.put("settings.section.mio", "澪模式管理");
+        ZH.put("settings.section.network", "网络配置");
+        ZH.put("settings.section.updates", "更新同步");
+        ZH.put("settings.section.device", "设备绑定");
+        ZH.put("settings.section.system", "系统信息");
+        ZH.put("settings.section.about", "关于");
+        ZH.put("settings.section.extensions", "扩展设置");
+        ZH.put("stats.section.performance", "实时性能");
+        ZH.put("stats.section.overview", "游玩总览");
+        ZH.put("stats.section.sessions", "会话记录");
+        ZH.put("stats.section.breakdown", "分类明细");
         ZH.put("nbt.title", "NBT编辑器");
         ZH.put("nbt.open_file", "选择NBT文件");
         ZH.put("nbt.open", "打开");
@@ -218,6 +234,7 @@ public final class I18n {
         ZH.put("search.mod.disabled", "已禁用");
 
         // ===== 音乐播放器 =====
+        ZH.put("music.section.player", "播放器");
         ZH.put("music.title", "音乐");
         ZH.put("music.subtitle", "在线音频播放器");
         ZH.put("music.input_placeholder", "输入 B站/A站视频链接或音频直链");
@@ -675,6 +692,13 @@ public final class I18n {
 
         // ===== 账号页 =====
         ZH.put("accounts.title", "账号");
+        ZH.put("accounts.section.list", "账号管理");
+        ZH.put("accounts.section.skin", "皮肤管理");
+        ZH.put("accounts.section.offline", "离线登录");
+        ZH.put("accounts.section.microsoft", "微软登录");
+        ZH.put("accounts.section.github", "GitHub 登录");
+        ZH.put("accounts.section.yggdrasil", "皮肤站登录");
+        ZH.put("accounts.section.skin_empty", "登录账号后可在此管理皮肤。离线账号支持自定义 URL；微软 / 皮肤站账号支持上传与重置。");
         ZH.put("accounts.current", "当前账号");
         ZH.put("accounts.not_logged_in", "未登录");
         ZH.put("accounts.logout", "退出登录");
@@ -697,6 +721,9 @@ public final class I18n {
         ZH.put("mp.terracotta", "陶瓦联机 · Terracotta");
         ZH.put("mp.easytier", "陶瓦联机 · EasyTier");
         ZH.put("mp.settings", "联机设置");
+        ZH.put("mp.section.room", "创建与加入");
+        ZH.put("mp.section.settings", "联机设置");
+        ZH.put("mp.section.help", "使用说明");
         ZH.put("mp.backend", "联机后端");
         ZH.put("mp.advanced", "联机方式 / 高级");
         ZH.put("mp.hub.room", "房间联机");
@@ -768,6 +795,16 @@ public final class I18n {
         ZH.put("about.feat.news", "Minecraft.net 新闻");
         ZH.put("about.feat.terminal", "内置终端");
         ZH.put("about.tech_stack", "技术栈");
+        ZH.put("about.developers", "开发者");
+        ZH.put("about.dev.peddlejumper.role", "负责 PMCL 的设计与开发");
+        ZH.put("about.dev.forget_me.role", "负责 PMCL 的设计与开发");
+        ZH.put("about.dev.mtutu_1314.role", "负责 PMCL 的设计与开发");
+        ZH.put("about.dev.hcs_organization.role", "负责 PMCL 的设计与开发");
+        ZH.put("about.dev.sjgdnsk.role", "美术设计");
+        ZH.put("about.dev.ninolian.role", "功能审查");
+        ZH.put("about.dev.lbsh.role", "决策指导");
+        ZH.put("about.dev.pmcl_z.role", "开发 PMCL 新功能");
+        ZH.put("about.dev.hcslash.role", "审核 PMCL 新功能");
         ZH.put("about.tech_component", "组件");
         ZH.put("about.tech_version", "版本");
         ZH.put("about.tech_purpose", "用途");
@@ -907,6 +944,11 @@ public final class I18n {
         ZH.put("plugin.empty", "暂无插件");
         ZH.put("plugin.enabled", "已启用");
         ZH.put("plugin.disabled", "已禁用");
+        ZH.put("plugins.section.installed", "已安装");
+        ZH.put("plugins.section.actions", "插件动作");
+        ZH.put("plugins.section.install", "安装插件");
+        ZH.put("plugins.section.actions_empty", "当前没有插件提供的动作。");
+        ZH.put("plugins.section.install_hint", "从本地 JAR 或 URL 安装插件，也可扫描 ~/.pmcl/plugins/。");
 
         // ===== 终端页 =====
         ZH.put("terminal.title", "终端");
@@ -1184,7 +1226,9 @@ public final class I18n {
         ZH.put("mp.usage.easytier.4", "4. 房主进入单人世界 → 菜单 → 「对局域网开放」，游戏会显示端口号（如 12345）");
         ZH.put("mp.usage.easytier.5", "5. 房客：多人游戏 → 「直接连接」→ 输入 房主虚拟IP:端口（如 10.144.144.10:12345）");
         ZH.put("mp.usage.easytier.warning", "⚠ 重要：不要用「多人游戏」列表自动扫描！虚拟网络不转发 LAN 广播，列表里看不到房间，必须用「直接连接」手动输入 IP:端口。");
-        ZH.put("mp.usage.easytier.note", "提示：陶瓦联机基于 P2P，稳定性弱于服务器中继方案。打洞失败时请重试。双方需都显示「已连接」才能联机。");
+        ZH.put("mp.usage.easytier.note", "提示：官方公共节点 public.easytier.cn 已停用。使用 EasyTier 前请在联机设置填写自建/第三方共享节点；无节点时请改用「陶瓦联机」。macOS/Linux 创建虚拟网卡通常需要 sudo。双方需都显示「已连接」才能联机。");
+        ZH.put("mp.easytier_peer", "EasyTier 共享节点");
+        ZH.put("mp.easytier_peer_hint", "格式如 tcp://主机:11010。官方 public.easytier.cn 已失效；留空将尝试内置节点（通常会失败）。");
         ZH.put("mp.connectx_about", "说明：ConnectX 是基于 ZeroTier SDK 的 P2P 联机方案。需要自行编译 ConnectX.ClientConsole 并部署 ConnectX.Server。项目地址：github.com/Corona-Studio/ConnectX");
         ZH.put("mp.favorite_servers", "收藏服务器");
         ZH.put("mp.ping_all", "全部测速");
@@ -2101,6 +2145,22 @@ public final class I18n {
         EN.put("nav.instances", "Instances");
         EN.put("nav.nbt", "NBT Editor");
         EN.put("nav.music", "Music");
+        EN.put("nav.secondary.back", "Back");
+        EN.put("settings.section.launcher", "Launcher settings");
+        EN.put("settings.section.theme", "Theme system");
+        EN.put("settings.section.java", "Java behavior");
+        EN.put("settings.section.game", "Game behavior");
+        EN.put("settings.section.mio", "Mio mode");
+        EN.put("settings.section.network", "Network");
+        EN.put("settings.section.updates", "Updates");
+        EN.put("settings.section.device", "Device binding");
+        EN.put("settings.section.system", "System info");
+        EN.put("settings.section.about", "About");
+        EN.put("settings.section.extensions", "Extensions");
+        EN.put("stats.section.performance", "Live performance");
+        EN.put("stats.section.overview", "Play overview");
+        EN.put("stats.section.sessions", "Sessions");
+        EN.put("stats.section.breakdown", "Breakdown");
         EN.put("nbt.title", "NBT editor");
         EN.put("nbt.open_file", "Select NBT File");
         EN.put("nbt.open", "Open");
@@ -2215,6 +2275,7 @@ public final class I18n {
         EN.put("search.mod.disabled", "Disabled");
 
         // ===== Music Player =====
+        EN.put("music.section.player", "Player");
         EN.put("music.title", "Music");
         EN.put("music.subtitle", "Online audio player");
         EN.put("music.input_placeholder", "Enter BiliBili/AcFun video URL or direct audio link");
@@ -2660,6 +2721,13 @@ public final class I18n {
         EN.put("wiki.unsupported", "System browser not supported on this platform");
 
         EN.put("accounts.title", "Accounts");
+        EN.put("accounts.section.list", "Manage accounts");
+        EN.put("accounts.section.skin", "Skins");
+        EN.put("accounts.section.offline", "Offline login");
+        EN.put("accounts.section.microsoft", "Microsoft login");
+        EN.put("accounts.section.github", "GitHub login");
+        EN.put("accounts.section.yggdrasil", "Skin station login");
+        EN.put("accounts.section.skin_empty", "Sign in to manage skins here. Offline accounts support custom URLs; Microsoft / skin-station accounts support upload and reset.");
         EN.put("accounts.current", "Current account");
         EN.put("accounts.not_logged_in", "Not logged in");
         EN.put("accounts.logout", "Log out");
@@ -2681,6 +2749,9 @@ public final class I18n {
         EN.put("mp.terracotta", "Terracotta Multiplayer");
         EN.put("mp.easytier", "EasyTier Multiplayer");
         EN.put("mp.settings", "Multiplayer settings");
+        EN.put("mp.section.room", "Create & join");
+        EN.put("mp.section.settings", "Settings");
+        EN.put("mp.section.help", "Usage guide");
         EN.put("mp.backend", "Backend");
         EN.put("mp.advanced", "Connection / Advanced");
         EN.put("mp.hub.room", "Room");
@@ -2752,6 +2823,16 @@ public final class I18n {
         EN.put("about.feat.news", "Minecraft.net news");
         EN.put("about.feat.terminal", "Built-in terminal");
         EN.put("about.tech_stack", "Tech Stack");
+        EN.put("about.developers", "Developers");
+        EN.put("about.dev.peddlejumper.role", "Designs and develops PMCL");
+        EN.put("about.dev.forget_me.role", "Designs and develops PMCL");
+        EN.put("about.dev.mtutu_1314.role", "Designs and develops PMCL");
+        EN.put("about.dev.hcs_organization.role", "Designs and develops PMCL");
+        EN.put("about.dev.sjgdnsk.role", "Art design");
+        EN.put("about.dev.ninolian.role", "Feature review");
+        EN.put("about.dev.lbsh.role", "Decision guidance");
+        EN.put("about.dev.pmcl_z.role", "Develops new PMCL features");
+        EN.put("about.dev.hcslash.role", "Reviews new PMCL features");
         EN.put("about.tech_component", "Component");
         EN.put("about.tech_version", "Version");
         EN.put("about.tech_purpose", "Purpose");
@@ -2886,6 +2967,11 @@ public final class I18n {
         EN.put("plugin.empty", "No plugins");
         EN.put("plugin.enabled", "Enabled");
         EN.put("plugin.disabled", "Disabled");
+        EN.put("plugins.section.installed", "Installed");
+        EN.put("plugins.section.actions", "Plugin actions");
+        EN.put("plugins.section.install", "Install");
+        EN.put("plugins.section.actions_empty", "No plugin-contributed actions yet.");
+        EN.put("plugins.section.install_hint", "Install from a local JAR or URL, or scan ~/.pmcl/plugins/.");
 
         EN.put("terminal.title", "Terminal");
         EN.put("terminal.welcome_hint", "Type help for commands; Tab to complete; ↑↓ for history; clear to reset.");
@@ -3162,7 +3248,9 @@ public final class I18n {
         EN.put("mp.usage.easytier.4", "4. Host enters a single-player world → menu → \"Open to LAN\". The game will show a port number (e.g. 12345).");
         EN.put("mp.usage.easytier.5", "5. Guest: Multiplayer → \"Direct Connect\" → enter host's virtual IP:port (e.g. 10.144.144.10:12345)");
         EN.put("mp.usage.easytier.warning", "⚠ Important: Do not use the \"Multiplayer\" list auto-scan! Virtual networks do not forward LAN broadcasts, so rooms won't appear in the list. You must use \"Direct Connect\" and enter the IP:port manually.");
-        EN.put("mp.usage.easytier.note", "Tip: Terracotta multiplayer is P2P-based and less stable than server relay solutions. Retry if NAT traversal fails. Both sides must show \"Connected\" to play.");
+        EN.put("mp.usage.easytier.note", "Tip: The official public node public.easytier.cn is discontinued. Configure a self-hosted/third-party shared node in multiplayer settings, or switch to Terracotta. Creating a TUN usually needs sudo on macOS/Linux. Both sides must show \"Connected\".");
+        EN.put("mp.easytier_peer", "EasyTier shared peer");
+        EN.put("mp.easytier_peer_hint", "e.g. tcp://host:11010. Official public.easytier.cn is dead; leave empty to try built-in peers (usually fails).");
         EN.put("mp.connectx_about", "Note: ConnectX is a P2P multiplayer solution based on the ZeroTier SDK. You need to compile ConnectX.ClientConsole yourself and deploy ConnectX.Server. Project: github.com/Corona-Studio/ConnectX");
         EN.put("mp.favorite_servers", "Favorite Servers");
         EN.put("mp.ping_all", "Ping All");
@@ -4020,6 +4108,22 @@ public final class I18n {
         JA.put("nav.instances", "インスタンス");
         JA.put("nav.nbt", "NBTエディタ");
         JA.put("nav.music", "音楽");
+        JA.put("nav.secondary.back", "戻る");
+        JA.put("settings.section.launcher", "ランチャー設定");
+        JA.put("settings.section.theme", "テーマシステム");
+        JA.put("settings.section.java", "Java 動作管理");
+        JA.put("settings.section.game", "ゲーム動作管理");
+        JA.put("settings.section.mio", "澪モード管理");
+        JA.put("settings.section.network", "ネットワーク");
+        JA.put("settings.section.updates", "更新同期");
+        JA.put("settings.section.device", "デバイス紐付け");
+        JA.put("settings.section.system", "システム情報");
+        JA.put("settings.section.about", "このアプリについて");
+        JA.put("settings.section.extensions", "拡張設定");
+        JA.put("stats.section.performance", "リアルタイム性能");
+        JA.put("stats.section.overview", "プレイ概要");
+        JA.put("stats.section.sessions", "セッション");
+        JA.put("stats.section.breakdown", "分類明細");
         JA.put("nbt.title", "NBTエディタ");
         JA.put("nbt.open_file", "NBTファイルを選択");
         JA.put("nbt.open", "開く");
@@ -4134,6 +4238,7 @@ public final class I18n {
         JA.put("search.mod.disabled", "無効");
 
         // ===== 音楽プレーヤー =====
+        JA.put("music.section.player", "プレーヤー");
         JA.put("music.title", "音楽");
         JA.put("music.subtitle", "オンラインオーディオプレーヤー");
         JA.put("music.input_placeholder", "Bilibili/AcFunの動画URLまたは音声直リンクを入力");
@@ -4579,6 +4684,13 @@ public final class I18n {
         JA.put("wiki.unsupported", "このプラットフォームではブラウザを開けません");
 
         JA.put("accounts.title", "アカウント");
+        JA.put("accounts.section.list", "アカウント管理");
+        JA.put("accounts.section.skin", "スキン管理");
+        JA.put("accounts.section.offline", "オフラインログイン");
+        JA.put("accounts.section.microsoft", "Microsoft ログイン");
+        JA.put("accounts.section.github", "GitHub ログイン");
+        JA.put("accounts.section.yggdrasil", "スキン站ログイン");
+        JA.put("accounts.section.skin_empty", "ログイン後にここでスキンを管理できます。オフラインは URL、Microsoft / スキン站はアップロードとリセットに対応します。");
         JA.put("accounts.current", "現在のアカウント");
         JA.put("accounts.not_logged_in", "未ログイン");
         JA.put("accounts.logout", "ログアウト");
@@ -4600,6 +4712,9 @@ public final class I18n {
         JA.put("mp.terracotta", "テラコッタマルチプレイ · Terracotta");
         JA.put("mp.easytier", "テラコッタマルチプレイ · EasyTier");
         JA.put("mp.settings", "マルチプレイ設定");
+        JA.put("mp.section.room", "作成と参加");
+        JA.put("mp.section.settings", "接続設定");
+        JA.put("mp.section.help", "使い方");
         JA.put("mp.backend", "バックエンド");
         JA.put("mp.advanced", "接続方式 / 詳細");
         JA.put("mp.hub.room", "ルーム");
@@ -4671,6 +4786,16 @@ public final class I18n {
         JA.put("about.feat.news", "Minecraft.net ニュース");
         JA.put("about.feat.terminal", "内蔵ターミナル");
         JA.put("about.tech_stack", "技術スタック");
+        JA.put("about.developers", "開発者");
+        JA.put("about.dev.peddlejumper.role", "PMCL の設計と開発を担当");
+        JA.put("about.dev.forget_me.role", "PMCL の設計と開発を担当");
+        JA.put("about.dev.mtutu_1314.role", "PMCL の設計と開発を担当");
+        JA.put("about.dev.hcs_organization.role", "PMCL の設計と開発を担当");
+        JA.put("about.dev.sjgdnsk.role", "美術デザイン");
+        JA.put("about.dev.ninolian.role", "機能レビュー");
+        JA.put("about.dev.lbsh.role", "意思決定指導");
+        JA.put("about.dev.pmcl_z.role", "PMCL の新機能開発");
+        JA.put("about.dev.hcslash.role", "PMCL の新機能レビュー");
         JA.put("about.tech_component", "コンポーネント");
         JA.put("about.tech_version", "バージョン");
         JA.put("about.tech_purpose", "用途");
@@ -4805,6 +4930,11 @@ public final class I18n {
         JA.put("plugin.empty", "プラグインがありません");
         JA.put("plugin.enabled", "有効");
         JA.put("plugin.disabled", "無効");
+        JA.put("plugins.section.installed", "インストール済み");
+        JA.put("plugins.section.actions", "プラグイン操作");
+        JA.put("plugins.section.install", "インストール");
+        JA.put("plugins.section.actions_empty", "プラグイン提供の操作はまだありません。");
+        JA.put("plugins.section.install_hint", "ローカル JAR または URL からインストール、もしくは ~/.pmcl/plugins/ をスキャンできます。");
 
         JA.put("terminal.title", "ターミナル");
         JA.put("terminal.welcome_hint", "help でコマンド一覧；Tab 補完；↑↓ で履歴；clear で画面クリア。");
@@ -5081,7 +5211,9 @@ public final class I18n {
         JA.put("mp.usage.easytier.4", "4. ホストはシングルプレイワールドに入る → メニュー → 「LANに公開」。ゲームにポート番号（例: 12345）が表示されます。");
         JA.put("mp.usage.easytier.5", "5. ゲスト: マルチプレイ → 「直接接続」→ ホストの仮想 IP:ポートを入力（例: 10.144.144.10:12345）");
         JA.put("mp.usage.easytier.warning", "⚠ 重要:「マルチプレイ」リストの自動スキャンは使わないでください！仮想ネットワークは LAN ブロードキャストを転送しないため、リストにルームが表示されません。「直接接続」で IP:ポートを手動入力してください。");
-        JA.put("mp.usage.easytier.note", "ヒント: 陶瓦聯機は P2P ベースで、サーバーリレイ方式より安定性が劣ります。NAT 越え失敗時は再試行してください。双方が「接続済み」になる必要があります。");
+        JA.put("mp.usage.easytier.note", "ヒント: 公式公開ノード public.easytier.cn は停止しています。EasyTier 利用前に設定で自前/第三者ノードを記入するか、「陶瓦聯機」を使ってください。macOS/Linux の仮想 NIC 作成には通常 sudo が必要です。双方が「接続済み」になる必要があります。");
+        JA.put("mp.easytier_peer", "EasyTier 共有ノード");
+        JA.put("mp.easytier_peer_hint", "例: tcp://host:11010。公式 public.easytier.cn は無効です。空欄だと内蔵ノードを試し、通常は失敗します。");
         JA.put("mp.connectx_about", "説明: ConnectX は ZeroTier SDK ベースの P2P マルチプレイソリューションです。ConnectX.ClientConsole を自身でコンパイルし、ConnectX.Server をデプロイする必要があります。プロジェクト: github.com/Corona-Studio/ConnectX");
         JA.put("mp.favorite_servers", "お気に入りサーバー");
         JA.put("mp.ping_all", "すべてPing測定");

@@ -4,6 +4,7 @@ import com.lash.pmcl.core.auth.AuthService
 import com.lash.pmcl.core.auth.TokenEncryptor
 import com.lash.pmcl.core.cache.DataCache
 import com.lash.pmcl.core.download.DownloadManager
+import com.lash.pmcl.core.download.MirrorManager
 import com.lash.pmcl.core.gamecontent.ConfigFileManager
 import com.lash.pmcl.core.gamecontent.ResourcePackManager
 import com.lash.pmcl.core.gamecontent.ScreenshotManager
@@ -57,11 +58,25 @@ class LauncherCore(
     // ===== 基础设施 =====
     val preferences: Preferences = Preferences(paths)
 
+    // ===== 共享镜像管理器（避免 VersionManager 和 DownloadManager 熔断状态不一致） =====
+    private val sharedMirror = MirrorManager().also {
+        it.type = MirrorManager.MirrorType.valueOf(
+            preferences.getMirrorType().takeIf { v -> v in listOf("OFFICIAL", "BMCLAPI", "CUSTOM") } ?: "BMCLAPI"
+        )
+        it.customBase = preferences.getCustomMirrorBase()
+    }
+
     // ===== 版本管理 =====
-    val versionManager: VersionManager = VersionManager(paths = paths)
+    val versionManager: VersionManager = VersionManager(
+        paths = paths,
+        mirrorManager = sharedMirror
+    )
 
     // ===== 下载 =====
-    val downloadManager: DownloadManager = DownloadManager(workDir = paths.minecraftWorkDir)
+    val downloadManager: DownloadManager = DownloadManager(workDir = paths.minecraftWorkDir).also { dm ->
+        dm.mirror.type = sharedMirror.type
+        dm.mirror.customBase = sharedMirror.customBase
+    }
 
     // ===== 鉴权 =====
     val tokenEncryptor: TokenEncryptor = TokenEncryptor(paths, androidId, appDataDir)

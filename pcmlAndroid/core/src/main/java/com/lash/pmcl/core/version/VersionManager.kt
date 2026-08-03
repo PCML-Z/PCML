@@ -1,6 +1,7 @@
 package com.lash.pmcl.core.version
 
 import com.google.gson.JsonParser
+import com.lash.pmcl.core.download.MirrorManager
 import com.lash.pmcl.core.install.VersionStaging
 import com.lash.pmcl.core.paths.PmclPaths
 import com.lash.pmcl.core.util.FileUtils
@@ -25,8 +26,11 @@ import java.util.concurrent.TimeUnit
 class VersionManager(
     private val paths: PmclPaths,
     /** 用户自定义的外部 Minecraft 根目录（每项含 versions 子目录的父目录） */
-    private val extraMinecraftRoots: List<String> = emptyList()
+    private val extraMinecraftRoots: List<String> = emptyList(),
+    /** 镜像管理器（与 LauncherCore 共享同一实例以避免熔断状态不一致） */
+    mirrorManager: MirrorManager = MirrorManager()
 ) {
+    val mirrorManager: MirrorManager = mirrorManager
     private val http: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
@@ -39,7 +43,10 @@ class VersionManager(
     fun fetchRemoteVersions(): CompletableFuture<List<McVersion>> {
         return CompletableFuture.supplyAsync {
             try {
-                val req = Request.Builder().url(VERSION_MANIFEST_URL).get().build()
+                // 通过镜像重写 URL（国内网络直连 Mojang 会被墙）
+                val manifestUrl = mirrorManager.rewrite(VERSION_MANIFEST_URL)
+                android.util.Log.i("PMCL", "[VersionManager] 拉取版本清单: $manifestUrl")
+                val req = Request.Builder().url(manifestUrl).get().build()
                 http.newCall(req).execute().use { resp ->
                     if (!resp.isSuccessful) {
                         throw IOException("Unexpected code ${resp.code}")
@@ -48,6 +55,7 @@ class VersionManager(
                     parseManifest(body.string())
                 }
             } catch (e: Throwable) {
+                android.util.Log.e("PMCL", "[VersionManager] 拉取版本清单失败: ${e::class.simpleName} - ${e.message}", e)
                 throw RuntimeException("拉取版本清单失败", e)
             }
         }

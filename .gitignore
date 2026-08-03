@@ -63,3 +63,15 @@ ui/build/compose/binaries/main/main/runtime/
 
 # AI memory
 .workbuddy/
+
+# Android keystore
+pcmlAndroid/app/pmcl.keystore
+*.keystore
+*.jks
+
+# Amethyst runtime extraction
+pcmlAndroid/amethyst/
+pcmlAndroid/amethyst_runtime/
+
+# JRE assets
+pcmlAndroid/app/src/main/assets/components/jre/

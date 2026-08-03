@@ -152,7 +152,7 @@ class TokenEncryptor(
     @Synchronized
     private fun loadOrCreateFallbackKey(): SecretKey {
         synchronized(KEYFILE_LOCK) {
-            val keyFile = appDataDir.resolve(".pmcl").resolve(".keyfile")
+            val keyFile = appDataDir.resolve("pmcl").resolve(".keyfile") // 与 PmclPaths 同目录，统一管理
             try {
                 if (Files.exists(keyFile)) {
                     val data = Files.readAllBytes(keyFile)

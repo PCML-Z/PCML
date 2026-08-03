@@ -48,6 +48,7 @@ class ModLoaderManager(
         installers[ModLoader.JAVA_AGENT] = JavaAgentInstaller(paths, downloadManager, versionInstaller)
         installers[ModLoader.FORGE] = ForgeInstaller(paths, downloadManager, false)
         installers[ModLoader.NEOFORGE] = ForgeInstaller(paths, downloadManager, true)
+        installers[ModLoader.OPTIFINE] = OptiFineInstaller(paths, downloadManager)
     }
 
     fun get(loader: ModLoader): ModLoaderInstaller =
