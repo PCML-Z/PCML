@@ -8,6 +8,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,6 +19,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.unit.dp
 
 /**
  * 页面外壳：统一所有页面的入场动画。
@@ -101,6 +107,24 @@ fun <T> AnimatedPageSwitch(
         },
         label = "pageSwitch"
     ) { state ->
-        content(state)
+        // 正常显示时把内容记录到 GPU GraphicsLayer。退出后停止重绘旧组合树，
+        // 只复用最后一帧快照执行横向滑动、固定虚化与淡出，避免父布局变宽时反复 measure/draw。
+        val exiting = state != targetState
+        val snapshotLayer = rememberGraphicsLayer()
+        Box(
+            Modifier
+                .fillMaxSize()
+                .blur(if (exiting) 6.dp else 0.dp)
+                .drawWithContent {
+                    if (!exiting) {
+                        snapshotLayer.record {
+                            this@drawWithContent.drawContent()
+                        }
+                    }
+                    drawLayer(snapshotLayer)
+                }
+        ) {
+            content(state)
+        }
     }
 }

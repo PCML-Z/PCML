@@ -29,6 +29,7 @@ import com.pmcl.core.preferences.Preferences
 import com.pmcl.core.stats.PlayTimeTracker
 import com.pmcl.core.update.GitHubReleaseSyncChecker
 import com.pmcl.core.update.SelfUpdater
+import com.pmcl.core.update.UpdateInstaller
 import com.pmcl.core.version.McVersion
 import com.pmcl.core.gamecontent.WorldManager
 import com.pmcl.core.gamecontent.ScreenshotManager
@@ -86,6 +87,14 @@ class LauncherViewModel {
     private val _syncActive = kotlinx.coroutines.flow.MutableStateFlow(false)
     val syncActive: kotlinx.coroutines.flow.StateFlow<Boolean> = _syncActive
 
+    /** 用户配置的自动同步开关；默认关闭，作为设置页开关的唯一状态源 */
+    private val _syncEnabled = kotlinx.coroutines.flow.MutableStateFlow(preferences.isGithubSyncEnabled())
+    val syncEnabled: kotlinx.coroutines.flow.StateFlow<Boolean> = _syncEnabled
+
+    /** 当前是否正在执行 GitHub API 检查 */
+    private val _syncChecking = kotlinx.coroutines.flow.MutableStateFlow(false)
+    val syncChecking: kotlinx.coroutines.flow.StateFlow<Boolean> = _syncChecking
+
     /** 发现的新版本（null = 无；非 null = 待用户处理的更新通知） */
     private val _pushedUpdate = kotlinx.coroutines.flow.MutableStateFlow<SelfUpdater.UpdateInfo?>(null)
     val pushedUpdate: kotlinx.coroutines.flow.StateFlow<SelfUpdater.UpdateInfo?> = _pushedUpdate
@@ -93,6 +102,10 @@ class LauncherViewModel {
     /** 同步状态描述（检查中 / 已是最新 / 错误 / 速率限制等） */
     private val _pushStatusText = kotlinx.coroutines.flow.MutableStateFlow("")
     val pushStatusText: kotlinx.coroutines.flow.StateFlow<String> = _pushStatusText
+
+    /** 安装接管进程已启动，桌面宿主应优雅退出以完成替换。 */
+    private val _restartForUpdate = kotlinx.coroutines.flow.MutableStateFlow(false)
+    val restartForUpdate: kotlinx.coroutines.flow.StateFlow<Boolean> = _restartForUpdate
 
     /** 同步监听器引用（用于 start/stop 时 add/remove） */
     private var syncListener: GitHubReleaseSyncChecker.Listener? = null
@@ -111,6 +124,17 @@ class LauncherViewModel {
         }
         // 注册 GitHub Release 同步监听器
         setupGithubSyncListener()
+        // 每次打开都检查一次；周期同步仍由设置开关控制且默认关闭
+        checkUpdateOnStartup()
+    }
+
+    private fun checkUpdateOnStartup() {
+        val client = core.githubSync() ?: return
+        val repo = preferences.getGithubRepo().trim()
+        if (!GitHubReleaseSyncChecker.isValidGithubRepo(repo)) return
+        client.setGithubRepo(repo)
+        // 已启用时 LauncherCore 会在启动后 5 秒执行；关闭时仍执行本次一次性检查
+        if (!preferences.isGithubSyncEnabled()) client.checkNow()
     }
 
     /**
@@ -136,6 +160,13 @@ class LauncherViewModel {
             override fun onRateLimited(retryAfterMinutes: Long) {
                 _pushStatusText.value = "GitHub API 速率限制，${retryAfterMinutes}分钟后重试"
             }
+            override fun onCheckStarted() {
+                _syncChecking.value = true
+                _pushStatusText.value = "正在检查 GitHub Release..."
+            }
+            override fun onCheckFinished() {
+                _syncChecking.value = false
+            }
         }
         client.addListener(listener)
         syncListener = listener
@@ -147,18 +178,28 @@ class LauncherViewModel {
 
     /** 用户在设置页开启/关闭 GitHub Release 同步 */
     fun setGithubSyncEnabled(enabled: Boolean) {
-        val client = core.githubSync() ?: return
+        val repo = preferences.getGithubRepo().trim()
+        if (enabled && !GitHubReleaseSyncChecker.isValidGithubRepo(repo)) {
+            preferences.setGithubSyncEnabled(false)
+            _syncEnabled.value = false
+            _syncActive.value = false
+            _pushStatusText.value = "启用失败：请先填写有效的 owner/repo"
+            return
+        }
+
         preferences.setGithubSyncEnabled(enabled)
+        _syncEnabled.value = enabled
+        val client = core.githubSync()
+        if (client == null) {
+            _syncActive.value = false
+            _pushStatusText.value = "同步更新组件不可用"
+            return
+        }
         if (enabled) {
-            val repo = preferences.getGithubRepo()
-            if (repo.isNotEmpty()) {
-                client.setGithubRepo(repo)
-                client.start()
-                _syncActive.value = true
-                _pushStatusText.value = "已启用，正在检查更新..."
-            } else {
-                _pushStatusText.value = "已启用，请填写 GitHub 仓库地址"
-            }
+            client.setGithubRepo(repo)
+            _syncActive.value = true
+            _pushStatusText.value = "已启用，将立即检查更新..."
+            client.startNow()
         } else {
             // stop() 取消定时任务但保留调度器，可再次 start()
             client.stop()
@@ -168,17 +209,37 @@ class LauncherViewModel {
     }
 
     /** 用户在设置页修改 GitHub 仓库（格式 "owner/repo"） */
-    fun setGithubRepo(repo: String) {
-        val client = core.githubSync() ?: return
-        preferences.setGithubRepo(repo)
-        client.setGithubRepo(repo)
-        // 仓库变更后立即触发一次检查（若已启用）
-        if (preferences.isGithubSyncEnabled() && repo.isNotEmpty()) {
-            client.checkNow()
-            _pushStatusText.value = "仓库已更新，正在检查..."
-        } else {
-            _pushStatusText.value = "仓库已保存（启用后生效）"
+    fun setGithubRepo(repo: String): Boolean {
+        val normalized = repo.trim()
+        if (!GitHubReleaseSyncChecker.isValidGithubRepo(normalized)) {
+            _pushStatusText.value = "仓库格式无效，应为 owner/repo"
+            return false
         }
+        preferences.setGithubRepo(normalized)
+        val client = core.githubSync()
+        if (client == null) {
+            _pushStatusText.value = "仓库已保存，但同步更新组件不可用"
+            return true
+        }
+        client.setGithubRepo(normalized)
+        // 仓库变更后立即触发一次检查（若已启用）
+        if (preferences.isGithubSyncEnabled()) {
+            _syncActive.value = true
+            _pushStatusText.value = "仓库已更新，将立即检查..."
+            client.startNow()
+        } else {
+            _pushStatusText.value = "仓库已保存（启用后自动检查）"
+        }
+        return true
+    }
+
+    /** 手动检查一次；自动同步保持关闭也可使用 */
+    fun checkGithubSyncNow(repo: String): Boolean {
+        if (!setGithubRepo(repo)) return false
+        val client = core.githubSync() ?: return false
+        // 启用状态下 setGithubRepo 已通过 startNow 触发；关闭时才单独执行手动检查
+        if (!preferences.isGithubSyncEnabled()) client.checkNow()
+        return true
     }
 
     /** 用户响应了更新弹窗（无论下载/取消），清除待处理状态 */
@@ -192,12 +253,17 @@ class LauncherViewModel {
         val updater = core.selfUpdater() ?: return
         scope.launch {
             try {
-                _pushStatusText.value = "正在下载更新 v${info.version}..."
-                updater.downloadUpdate(info, onProgress).join()
-                _pushStatusText.value = "更新已下载，下次启动时生效"
-                _pushedUpdate.value = null
+                _pushStatusText.value = "正在下载 ${info.assetName.ifBlank { "更新包" }}..."
+                val downloaded = updater.downloadUpdate(info, onProgress).join()
+                _pushStatusText.value = "校验完成，正在准备自动安装..."
+                withContext(Dispatchers.IO) {
+                    UpdateInstaller.launchAfterExit(downloaded, info)
+                }
+                _pushStatusText.value = "安装程序已接管，启动器即将重启"
+                _restartForUpdate.value = true
             } catch (e: Throwable) {
-                _pushStatusText.value = "下载更新失败: ${e.message}"
+                val cause = e.cause ?: e
+                _pushStatusText.value = "更新安装失败: ${cause.message ?: cause.javaClass.simpleName}"
             }
         }
     }
@@ -1326,8 +1392,12 @@ class LauncherViewModel {
     @PublishedApi internal var gameLogger: GameLogger? = null
 
     val systemInfo: String
-        get() = with(core.runtime()) {
-            "OS: ${getOsName()}  |  内存: ${getAvailableMemoryMb()}/${getTotalMemoryMb()} MB  |  推荐: ${getRecommendedMaxMemoryMb()} MB"
+        get() = try {
+            with(core.runtime()) {
+                "OS: ${getOsName()}  |  内存: ${getAvailableMemoryMb()}/${getTotalMemoryMb()} MB  |  推荐: ${getRecommendedMaxMemoryMb()} MB"
+            }
+        } catch (t: Throwable) {
+            "OS: —  |  内存: —  |  推荐: —"
         }
 
     val config: LauncherConfig get() = core.getConfig()
@@ -2580,9 +2650,46 @@ class LauncherViewModel {
     private val _metalRenderEnabled = MutableStateFlow(preferences.isMetalRenderEnabled())
     val metalRenderEnabled: StateFlow<Boolean> = _metalRenderEnabled.asStateFlow()
 
-    /** 检测当前是否为 Apple Silicon Mac */
+    /** null=尚未探测；true/false=已缓存结果（IO 线程探测，避免卡 UI） */
+    private val _metalRenderSupported = MutableStateFlow<Boolean?>(null)
+    val metalRenderSupported: StateFlow<Boolean?> = _metalRenderSupported.asStateFlow()
+
+    /** 支持版本文案；空字符串表示尚未加载 */
+    private val _metalSupportedVersionsText = MutableStateFlow("")
+    val metalSupportedVersionsText: StateFlow<String> = _metalSupportedVersionsText.asStateFlow()
+
+    private var metalCapabilityJob: Job? = null
+
+    /** 设置页进入游戏分区时调用：后台探测 Apple Silicon + 拉取支持版本列表 */
+    fun ensureMetalCapabilityLoaded() {
+        if (metalCapabilityJob?.isActive == true) return
+        val known = _metalRenderSupported.value
+        if (known == false) return
+        if (known == true && _metalSupportedVersionsText.value.isNotEmpty()) return
+        metalCapabilityJob = scope.launch(Dispatchers.IO) {
+            try {
+                val supported = com.pmcl.core.metal.MetalRenderInstaller.isAppleSiliconMac()
+                _metalRenderSupported.value = supported
+                if (supported) {
+                    val versions = try {
+                        core.metalRender().supportedGameVersions()
+                    } catch (_: Throwable) {
+                        listOf("1.21.8", "1.21.9", "1.21.10")
+                    }
+                    _metalSupportedVersionsText.value = versions.joinToString(", ")
+                }
+            } catch (_: Throwable) {
+                _metalRenderSupported.value = false
+            }
+        }
+    }
+
+    /** 检测当前是否为 Apple Silicon Mac（同步；优先读缓存） */
     fun isMetalRenderSupported(): Boolean {
-        return com.pmcl.core.metal.MetalRenderInstaller.isAppleSiliconMac()
+        _metalRenderSupported.value?.let { return it }
+        val v = com.pmcl.core.metal.MetalRenderInstaller.isAppleSiliconMac()
+        _metalRenderSupported.value = v
+        return v
     }
 
     /** 检查 MetalRender mod 是否已安装到当前选中版本的 mods 目录 */

@@ -6,6 +6,7 @@ import com.pmcl.core.download.DownloadManager;
 
 import java.io.IOException;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -50,6 +51,11 @@ public final class SelfUpdater {
         SIGNED_MANIFEST,
         /** GitHub Releases API + asset SHA-256 digest + Ed25519 签名资产（.sig） */
         GITHUB_RELEASE
+    }
+
+    /** 下载资产类型，用于选择平台安装方式。 */
+    public enum AssetKind {
+        JAR, PKG, DMG, MSI, EXE, DEB, RPM, APPIMAGE, TAR_GZ, UNKNOWN
     }
 
     private final DownloadManager downloadManager;
@@ -100,6 +106,30 @@ public final class SelfUpdater {
         public String getNotes() { return notes; }
         public String getSignature() { return signature; }
         public TrustedChannel getChannel() { return channel; }
+        public String getAssetName() {
+            try {
+                String path = URI.create(url).getPath();
+                int slash = path == null ? -1 : path.lastIndexOf('/');
+                String raw = slash >= 0 ? path.substring(slash + 1) : path;
+                return raw == null ? "" : java.net.URLDecoder.decode(
+                        raw, StandardCharsets.UTF_8);
+            } catch (Exception ignored) {
+                return "";
+            }
+        }
+        public AssetKind getAssetKind() {
+            String name = getAssetName().toLowerCase(Locale.ROOT);
+            if (name.endsWith(".tar.gz")) return AssetKind.TAR_GZ;
+            if (name.endsWith(".appimage")) return AssetKind.APPIMAGE;
+            if (name.endsWith(".jar")) return AssetKind.JAR;
+            if (name.endsWith(".pkg")) return AssetKind.PKG;
+            if (name.endsWith(".dmg")) return AssetKind.DMG;
+            if (name.endsWith(".msi")) return AssetKind.MSI;
+            if (name.endsWith(".exe")) return AssetKind.EXE;
+            if (name.endsWith(".deb")) return AssetKind.DEB;
+            if (name.endsWith(".rpm")) return AssetKind.RPM;
+            return AssetKind.UNKNOWN;
+        }
     }
 
     /** 检查更新（若 manifestUrl 为空返回 null） */
@@ -150,7 +180,7 @@ public final class SelfUpdater {
                         .toAbsolutePath().normalize();
                 Files.createDirectories(updatesDir);
                 // 私有目录下的临时文件；不先删再建，避免 /tmp TOCTOU / 符号链接竞态
-                tmp = Files.createTempFile(updatesDir, "pmcl-update-", ".jar.tmp");
+                tmp = Files.createTempFile(updatesDir, "pmcl-update-", ".tmp");
                 trySetOwnerOnly(tmp);
 
                 downloadManager.downloadToSsrfChecked(info.getUrl(), tmp);
@@ -163,7 +193,12 @@ public final class SelfUpdater {
                         || ver.contains("..")) {
                     throw new IOException("更新版本号非法（拒绝路径穿越）: " + ver);
                 }
-                Path target = updatesDir.resolve("pmcl-" + ver + ".jar").normalize();
+                String assetName = info.getAssetName();
+                if (assetName.isBlank()) assetName = "pmcl-" + ver + ".jar";
+                // Release 资产名不能控制目录，只保留文件名并限制字符集
+                assetName = Paths.get(assetName).getFileName().toString()
+                        .replaceAll("[^A-Za-z0-9._+-]", "_");
+                Path target = updatesDir.resolve(ver + "-" + assetName).normalize();
                 if (!target.startsWith(updatesDir)) {
                     throw new IOException("更新目标路径越界: " + target);
                 }

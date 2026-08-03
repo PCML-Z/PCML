@@ -13,6 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
+import com.pmcl.ui.animation.TypewriterTitle
 import com.pmcl.core.plugin.PluginManager
 import com.pmcl.ui.theme.glassCardBorder
 import com.pmcl.ui.theme.glassCardColors
@@ -99,7 +100,7 @@ fun PluginPage(vm: LauncherViewModel, sectionId: String = "installed") {
         ) {
             Icon(Icons.Filled.Extension, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.width(12.dp))
-            Text(I18n.t(sectionTitleKey), style = MaterialTheme.typography.headlineSmall)
+            TypewriterTitle(I18n.t(sectionTitleKey))
             Spacer(Modifier.weight(1f))
             if (sectionId == "installed" || sectionId == "install") {
                 Button(onClick = { showInstallDialog = true }) {

@@ -33,6 +33,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.auth.Account
 import com.pmcl.core.i18n.I18n
+import com.pmcl.ui.animation.TypewriterTitle
 import com.pmcl.ui.theme.LocalThemeState
 import com.pmcl.ui.theme.glassCardBorder
 import com.pmcl.ui.theme.glassCardColors
@@ -92,8 +93,7 @@ fun AccountsPage(vm: LauncherViewModel, sectionId: String = "list") {
     }
 
     Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(scroll)) {
-        Text(I18n.t(sectionTitleKey), style = MaterialTheme.typography.headlineSmall,
-             fontWeight = FontWeight.Bold)
+        TypewriterTitle(I18n.t(sectionTitleKey))
         Spacer(Modifier.height(16.dp))
 
         if (sectionId == "list") {

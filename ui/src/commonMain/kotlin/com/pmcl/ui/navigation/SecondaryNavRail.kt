@@ -78,6 +78,8 @@ fun SecondaryNavRail(
     // 整栏内容入场：轻微右移 + 渐显（draw 阶段，不触发布局）
     val railEnter = remember { Animatable(0f) }
     LaunchedEffect(spec.parentRoute) {
+        // 已入场完成则跳过，避免退出过渡重组时再次打开放入动画抢帧
+        if (railEnter.value >= 0.999f) return@LaunchedEffect
         railEnter.snapTo(0f)
         railEnter.animateTo(
             1f,
@@ -186,6 +188,8 @@ private fun SecondaryNavItem(
     val enter: Animatable<Float, AnimationVector1D> =
         remember(parentKey, staggerIndex) { Animatable(0f) }
     LaunchedEffect(parentKey, staggerIndex) {
+        // 已完成入场则不再重播，减轻退出侧栏时子项重组负担
+        if (enter.value >= 0.999f) return@LaunchedEffect
         enter.snapTo(0f)
         val delayMs = (staggerIndex.coerceAtMost(StaggerTokens.MAX_ITEMS_ANIMATED) *
             StaggerTokens.ITEM_DELAY_MS).toLong()
@@ -200,25 +204,20 @@ private fun SecondaryNavItem(
     }
     val enterProgress = enter.value
 
-    // 未选中时背景全透明，跳过颜色插值以减少退出/切换时的动画负载
+    // 未选中直接用静态色，避免 N 项同时跑 color AsState
+    val selectedBg = MaterialTheme.colorScheme.secondaryContainer
+    val selectedFg = MaterialTheme.colorScheme.onSecondaryContainer
+    val unselectedFg = MaterialTheme.colorScheme.onSurface
     val bg by animateColorAsState(
-        targetValue = if (selected) {
-            MaterialTheme.colorScheme.secondaryContainer
+        targetValue = if (selected) selectedBg else selectedBg.copy(alpha = 0f),
+        animationSpec = if (selected) {
+            tween(MotionTokens.DURATION_MEDIUM, easing = MotionTokens.EasingEmphasized)
         } else {
-            MaterialTheme.colorScheme.surface.copy(alpha = 0f)
+            tween(MotionTokens.DURATION_SHORT, easing = MotionTokens.EasingEmphasizedAccelerate)
         },
-        animationSpec = tween(MotionTokens.DURATION_MEDIUM, easing = MotionTokens.EasingEmphasized),
         label = "navItemBg"
     )
-    val fg by animateColorAsState(
-        targetValue = if (selected) {
-            MaterialTheme.colorScheme.onSecondaryContainer
-        } else {
-            MaterialTheme.colorScheme.onSurface
-        },
-        animationSpec = tween(MotionTokens.DURATION_MEDIUM, easing = MotionTokens.EasingEmphasized),
-        label = "navItemFg"
-    )
+    val fg = if (selected) selectedFg else unselectedFg
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val pressScale by animateFloatAsState(

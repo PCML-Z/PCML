@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.pmcl.core.gamecontent.ScreenshotManager.Screenshot
 import com.pmcl.core.i18n.I18n
+import com.pmcl.ui.animation.TypewriterTitle
 import com.pmcl.ui.theme.glassCardBorder
 import com.pmcl.ui.theme.glassCardColors
 import com.pmcl.ui.theme.glassCardElevation
@@ -145,7 +146,7 @@ fun ScreenshotsPage(vm: LauncherViewModel) {
     ) {
         // ===== 顶栏 =====
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
+            TypewriterTitle(
                 I18n.t("screenshot.title"),
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,

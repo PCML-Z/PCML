@@ -25,6 +25,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
+import com.pmcl.ui.animation.TypewriterTitle
 import com.pmcl.music.lyrics.LyricsLine
 import com.pmcl.music.lyrics.LyricsParser
 import com.pmcl.music.player.PlaybackState
@@ -81,10 +82,8 @@ fun MusicPage(vm: LauncherViewModel, sectionId: String = "player") {
                     Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
+                    TypewriterTitle(
                         I18n.t(sectionTitleKey),
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
                         modifier = Modifier.weight(1f)
                     )
                     Text(
@@ -171,10 +170,8 @@ fun MusicPage(vm: LauncherViewModel, sectionId: String = "player") {
                     Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
+                    TypewriterTitle(
                         I18n.t(sectionTitleKey),
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
                         modifier = Modifier.weight(1f)
                     )
                     Text(
@@ -219,10 +216,8 @@ fun MusicPage(vm: LauncherViewModel, sectionId: String = "player") {
                     item(key = "header") {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
-                                Text(
-                                    I18n.t(sectionTitleKey),
-                                    style = MaterialTheme.typography.headlineSmall,
-                                    fontWeight = FontWeight.Bold
+                                TypewriterTitle(
+                                    I18n.t(sectionTitleKey)
                                 )
                                 Text(
                                     I18n.t("music.subtitle"),

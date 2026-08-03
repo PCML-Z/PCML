@@ -19,6 +19,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
+import com.pmcl.ui.animation.TypewriterTitle
 import com.pmcl.core.multiplayer.EasyTierManager
 import com.pmcl.core.multiplayer.MultiplayerManager
 import com.pmcl.ui.animation.AnimatedSegmentedSelector
@@ -101,10 +102,9 @@ private fun MpRoomSection(vm: LauncherViewModel) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Filled.Share, null, tint = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.width(8.dp))
-            Text(
+            TypewriterTitle(
                 I18n.t("mp.section.room"),
                 style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
                 modifier = Modifier.weight(1f)
             )
             Surface(
@@ -386,10 +386,9 @@ private fun MpSettingsSection(vm: LauncherViewModel) {
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text(
+        TypewriterTitle(
             I18n.t("mp.section.settings"),
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold
+            style = MaterialTheme.typography.titleLarge
         )
 
         Text(
@@ -532,10 +531,9 @@ private fun MpHelpSection(vm: LauncherViewModel) {
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Text(
+        TypewriterTitle(
             I18n.t("mp.section.help"),
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold
+            style = MaterialTheme.typography.titleLarge
         )
         Text(
             when (backend) {

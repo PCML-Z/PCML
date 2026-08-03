@@ -25,11 +25,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *   <li>启动时立即检查一次</li>
  *   <li>之后每 30 分钟检查一次（遇到 API 速率限制时自动延长到 2 小时）</li>
  *   <li>使用 GitHub REST API: {@code https://api.github.com/repos/{owner}/{repo}/releases/latest}</li>
- *   <li>解析 Release 的 assets，查找包含 "pmcl" 字样的 .jar 文件作为更新包</li>
+ *   <li>按当前操作系统/架构选择原生安装包，缺失时回退跨平台 fat JAR</li>
  *   <li>版本号取 tag_name（去掉 v 前缀），与当前版本比较</li>
  * </ul>
  * <p>
- * GitHub API 速率限制：未认证 60 次/小时，30 分钟轮询 = 48 次/小时，足够使用。
+ * GitHub API 速率限制：未认证 60 次/小时，30 分钟轮询 = 2 次/小时。
  */
 public final class GitHubReleaseSyncChecker implements AutoCloseable {
 
@@ -50,6 +50,7 @@ public final class GitHubReleaseSyncChecker implements AutoCloseable {
     private volatile String clientVersion;
 
     private final AtomicBoolean running = new AtomicBoolean(false);
+    private final AtomicBoolean checking = new AtomicBoolean(false);
     private volatile ScheduledFuture<?> checkTask;
     private volatile long currentInterval = CHECK_INTERVAL_MINUTES;
 
@@ -75,6 +76,10 @@ public final class GitHubReleaseSyncChecker implements AutoCloseable {
         default void onError(String message, Throwable cause) {}
         /** 速率限制触发，将在指定分钟后重试 */
         default void onRateLimited(long retryAfterMinutes) {}
+        /** 一次检查开始 */
+        default void onCheckStarted() {}
+        /** 一次检查结束（成功或失败） */
+        default void onCheckFinished() {}
     }
 
     public void addListener(Listener l) { listeners.addIfAbsent(l); }
@@ -87,13 +92,22 @@ public final class GitHubReleaseSyncChecker implements AutoCloseable {
             return;
         }
         String trimmed = repo.trim();
-        if (!trimmed.matches("^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")) {
+        if (!isValidGithubRepo(trimmed)) {
             System.err.println("[GitHubSync] 非法 repo 格式: " + repo);
             this.githubRepo = "";
             return;
         }
         this.githubRepo = trimmed;
     }
+
+    public static boolean isValidGithubRepo(String repo) {
+        return repo != null
+                && repo.trim().matches("^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$");
+    }
+
+    public String getGithubRepo() { return githubRepo == null ? "" : githubRepo; }
+    public boolean isRunning() { return running.get(); }
+    public boolean isChecking() { return checking.get(); }
 
     /** 更新当前客户端版本号 */
     public void setClientVersion(String version) {
@@ -105,6 +119,15 @@ public final class GitHubReleaseSyncChecker implements AutoCloseable {
         if (!running.compareAndSet(false, true)) return;
         // 启动后 5 秒检查一次（避免阻塞启动流程）
         scheduleCheck(5, TimeUnit.SECONDS);
+    }
+
+    /** 用户主动启用或修改仓库时立即检查，之后继续按正常周期调度。 */
+    public void startNow() {
+        if (running.compareAndSet(false, true)) {
+            scheduleCheck(0, TimeUnit.SECONDS);
+        } else {
+            checkNow();
+        }
     }
 
     /**
@@ -119,9 +142,9 @@ public final class GitHubReleaseSyncChecker implements AutoCloseable {
         }
     }
 
-    /** 立即触发一次检查（不影响定时调度） */
+    /** 立即触发一次检查（允许在自动同步关闭时手动检查，不影响定时调度） */
     public void checkNow() {
-        scheduler.submit(this::doCheck);
+        scheduler.submit(() -> doCheck(true));
     }
 
     @Override
@@ -138,7 +161,7 @@ public final class GitHubReleaseSyncChecker implements AutoCloseable {
         if (!running.get()) return;
         if (checkTask != null) checkTask.cancel(false);
         checkTask = scheduler.scheduleAtFixedRate(
-                this::doCheck,
+                () -> doCheck(false),
                 unit.toSeconds(delay),
                 currentInterval * 60,
                 TimeUnit.SECONDS
@@ -149,10 +172,11 @@ public final class GitHubReleaseSyncChecker implements AutoCloseable {
     private void rescheduleWithRateLimit() {
         currentInterval = RATE_LIMITED_INTERVAL_MINUTES;
         notifyRateLimited(currentInterval);
+        if (!running.get()) return;
         // 取消当前任务，用新间隔重新调度
         if (checkTask != null) checkTask.cancel(false);
         checkTask = scheduler.scheduleAtFixedRate(
-                this::doCheck,
+                () -> doCheck(false),
                 currentInterval * 60,
                 currentInterval * 60,
                 TimeUnit.SECONDS
@@ -163,9 +187,15 @@ public final class GitHubReleaseSyncChecker implements AutoCloseable {
     // GitHub API 调用
     // -------------------------------------------------------------------------
 
-    private void doCheck() {
-        if (!running.get()) return;
-        if (githubRepo == null || githubRepo.isEmpty()) return;
+    private void doCheck(boolean manual) {
+        if (!manual && !running.get()) return;
+        if (githubRepo == null || githubRepo.isEmpty()) {
+            if (manual) notifyError("请先配置 GitHub 仓库", null);
+            return;
+        }
+        // 定时任务、手动按钮和保存仓库可能同时触发；只允许一个检查占用网络与解析流程
+        if (!checking.compareAndSet(false, true)) return;
+        notifyCheckStarted();
         try {
             String apiUrl = "https://api.github.com/repos/" + githubRepo + "/releases/latest";
             HttpRequest req = HttpRequest.newBuilder()
@@ -177,16 +207,15 @@ public final class GitHubReleaseSyncChecker implements AutoCloseable {
                     .build();
             HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
             // 检查速率限制
-            if (resp.statusCode() == 403) {
+            if (resp.statusCode() == 403 || resp.statusCode() == 429) {
                 String remaining = resp.headers().firstValue("X-RateLimit-Remaining").orElse("1");
-                if ("0".equals(remaining)) {
+                if (resp.statusCode() == 429 || "0".equals(remaining)) {
                     rescheduleWithRateLimit();
                     return;
                 }
             }
             if (resp.statusCode() == 404) {
-                // 没有 Release（仓库从未发布过 Release）
-                notifyUpToDate();
+                notifyError("仓库不存在、不可访问或尚未发布 Release", null);
                 return;
             }
             if (resp.statusCode() != 200) {
@@ -194,51 +223,57 @@ public final class GitHubReleaseSyncChecker implements AutoCloseable {
                 return;
             }
             JsonObject release = JsonParser.parseString(resp.body()).getAsJsonObject();
-            SelfUpdater.UpdateInfo info = parseRelease(release);
-            if (info == null) {
+            String remoteVersion = releaseVersion(release);
+            if (remoteVersion.isEmpty() || !isNewer(remoteVersion, clientVersion)) {
+                restoreNormalInterval();
                 notifyUpToDate();
                 return;
             }
-            // 版本比较：tag_name 去掉 v 前缀后与 currentVersion 比较
-            if (!info.getVersion().equals(clientVersion)
-                    && isNewer(info.getVersion(), clientVersion)) {
-                notifyUpdateAvailable(info);
-            } else {
-                // 恢复正常间隔
-                if (currentInterval != CHECK_INTERVAL_MINUTES) {
-                    currentInterval = CHECK_INTERVAL_MINUTES;
-                    scheduleCheck(currentInterval, TimeUnit.MINUTES);
-                }
-                notifyUpToDate();
+            SelfUpdater.UpdateInfo info = parseRelease(release);
+            if (info == null) {
+                notifyError("Release 中没有可用的 PMCL 更新资产", null);
+                return;
             }
+            restoreNormalInterval();
+            notifyUpdateAvailable(info);
         } catch (java.net.http.HttpTimeoutException e) {
             notifyError("GitHub API 请求超时", e);
         } catch (Exception e) {
             notifyError("检查 GitHub Release 失败: " + e.getMessage(), e);
+        } finally {
+            checking.set(false);
+            notifyCheckFinished();
         }
     }
 
+    private void restoreNormalInterval() {
+        if (currentInterval == CHECK_INTERVAL_MINUTES) return;
+        currentInterval = CHECK_INTERVAL_MINUTES;
+        if (running.get()) scheduleCheck(currentInterval, TimeUnit.MINUTES);
+    }
+
     /**
-     * 解析 GitHub Release JSON，提取更新信息。
-     * 从 assets 中查找包含 "pmcl" 字样的 .jar 文件，并下载同名 .sig 签名资产。
+     * 解析 GitHub Release JSON，提取当前操作系统最合适的更新资产。
+     * 优先级：macOS pkg/dmg、Windows msi/exe、Linux deb/rpm/AppImage，均缺失时回退 fat JAR。
+     * 每个安装资产必须有同名 .sig（或去扩展名 .sig）并带 GitHub SHA-256 digest。
      */
     private SelfUpdater.UpdateInfo parseRelease(JsonObject release) throws IOException {
-        String tagName = release.has("tag_name") && !release.get("tag_name").isJsonNull()
-                ? release.get("tag_name").getAsString() : "";
-        String version = tagName.startsWith("v") ? tagName.substring(1) : tagName;
+        String version = releaseVersion(release);
         if (version.isEmpty()) return null;
         String notes = release.has("body") && !release.get("body").isJsonNull()
                 ? release.get("body").getAsString() : "";
-        // 从 assets 中查找 pmcl jar、.sig 签名，并解析 SHA-256（GitHub digest 或同名 .sha256 旁路资产）
+        // 从 assets 中选择当前平台安装包，并解析 GitHub 提供的 SHA-256 digest
         if (!release.has("assets") || !release.get("assets").isJsonArray()) return null;
-        JsonObject jarAsset = null;
-        JsonObject sigAsset = null;
+        JsonObject selectedAsset = null;
+        int selectedScore = Integer.MIN_VALUE;
         java.util.Map<String, String> sha256ByName = new java.util.HashMap<>();
+        java.util.Map<String, JsonObject> assetsByLowerName = new java.util.HashMap<>();
         for (var assetElem : release.getAsJsonArray("assets")) {
             JsonObject asset = assetElem.getAsJsonObject();
             String name = asset.has("name") && !asset.get("name").isJsonNull()
                     ? asset.get("name").getAsString() : "";
             String lower = name.toLowerCase(java.util.Locale.ROOT);
+            assetsByLowerName.put(lower, asset);
             if (lower.endsWith(".sha256") || lower.endsWith(".sha256.txt")) {
                 // 旁路摘要文件本身不含 digest 字段；摘要需下载后读取——此处仅记录 URL 供后续
                 // 优先使用 GitHub API digest 字段（见下）
@@ -250,20 +285,25 @@ public final class GitHubReleaseSyncChecker implements AutoCloseable {
                     sha256ByName.put(name, dig.substring("sha256:".length()).trim());
                 }
             }
-            if (lower.endsWith(".jar") && lower.contains("pmcl") && jarAsset == null) {
-                jarAsset = asset;
-            }
-            if (lower.endsWith(".sig") && sigAsset == null) {
-                sigAsset = asset;
+            int score = platformAssetScore(lower);
+            if (score > selectedScore) {
+                selectedScore = score;
+                selectedAsset = asset;
             }
         }
-        if (jarAsset == null) return null;
-        String name = jarAsset.get("name").getAsString();
-        String url = jarAsset.has("browser_download_url")
-                && !jarAsset.get("browser_download_url").isJsonNull()
-                ? jarAsset.get("browser_download_url").getAsString() : "";
-        long size = jarAsset.has("size") && !jarAsset.get("size").isJsonNull()
-                ? jarAsset.get("size").getAsLong() : 0L;
+        if (selectedAsset == null || selectedScore < 0) return null;
+        String name = selectedAsset.get("name").getAsString();
+        String lowerAssetName = name.toLowerCase(java.util.Locale.ROOT);
+        JsonObject sigAsset = assetsByLowerName.get(lowerAssetName + ".sig");
+        if (sigAsset == null) {
+            String withoutExtension = stripPackageExtension(lowerAssetName);
+            sigAsset = assetsByLowerName.get(withoutExtension + ".sig");
+        }
+        String url = selectedAsset.has("browser_download_url")
+                && !selectedAsset.get("browser_download_url").isJsonNull()
+                ? selectedAsset.get("browser_download_url").getAsString() : "";
+        long size = selectedAsset.has("size") && !selectedAsset.get("size").isJsonNull()
+                ? selectedAsset.get("size").getAsLong() : 0L;
         String sha256 = sha256ByName.getOrDefault(name, "");
         if (sha256.isEmpty()) {
             System.err.println("[GitHubReleaseSync] Release asset 缺少 SHA-256 digest（"
@@ -275,6 +315,69 @@ public final class GitHubReleaseSyncChecker implements AutoCloseable {
         if (signature == null) return null;
         return new SelfUpdater.UpdateInfo(version, url, "", sha256, size, notes, signature,
                 SelfUpdater.TrustedChannel.GITHUB_RELEASE);
+    }
+
+    private static int platformAssetScore(String lowerName) {
+        if (lowerName == null || !lowerName.contains("pmcl")
+                || lowerName.endsWith(".sig")
+                || lowerName.endsWith(".sha256")
+                || lowerName.endsWith(".sha256.txt")) {
+            return -1;
+        }
+
+        String os = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT);
+        String arch = System.getProperty("os.arch", "").toLowerCase(java.util.Locale.ROOT);
+        boolean mac = os.contains("mac");
+        boolean win = os.contains("win");
+        boolean assetMac = lowerName.contains("macos") || lowerName.contains("mac-");
+        boolean assetWin = lowerName.contains("windows") || lowerName.contains("win-");
+        boolean assetLinux = lowerName.contains("linux");
+        if ((assetMac && !mac) || (assetWin && !win) || (assetLinux && (mac || win))) {
+            return -1;
+        }
+        boolean arm = arch.contains("aarch64") || arch.contains("arm64");
+        boolean assetArm = lowerName.contains("arm64") || lowerName.contains("aarch64");
+        boolean assetX64 = lowerName.contains("x86_64") || lowerName.contains("amd64")
+                || lowerName.contains("x64");
+        if ((assetArm && !arm) || (assetX64 && arm)) return -1;
+
+        int archBonus = (assetArm || assetX64) ? 10 : 0;
+        int platformBonus = (assetMac || assetWin || assetLinux) ? 10 : 0;
+        if (mac) {
+            if (lowerName.endsWith(".pkg")) return 120 + archBonus;
+            if (lowerName.endsWith(".dmg")) return 100 + archBonus;
+            if (lowerName.endsWith(".jar")) return 20 + platformBonus + archBonus;
+        } else if (win) {
+            if (lowerName.endsWith(".msi")) return 120 + archBonus;
+            if (lowerName.endsWith(".exe")) return 100 + archBonus;
+            if (lowerName.endsWith(".jar")) return 20 + platformBonus + archBonus;
+        } else {
+            if (lowerName.endsWith(".deb")) return 120 + archBonus;
+            if (lowerName.endsWith(".rpm")) return 110 + archBonus;
+            if (lowerName.endsWith(".appimage")) return 100 + archBonus;
+            if (lowerName.endsWith(".tar.gz")) return 80 + archBonus;
+            if (lowerName.endsWith(".jar")) return 20 + platformBonus + archBonus;
+        }
+        return -1;
+    }
+
+    private static String stripPackageExtension(String lowerName) {
+        String[] extensions = {".tar.gz", ".appimage", ".jar", ".pkg", ".dmg",
+                ".msi", ".exe", ".deb", ".rpm"};
+        for (String extension : extensions) {
+            if (lowerName.endsWith(extension)) {
+                return lowerName.substring(0, lowerName.length() - extension.length());
+            }
+        }
+        int dot = lowerName.lastIndexOf('.');
+        return dot > 0 ? lowerName.substring(0, dot) : lowerName;
+    }
+
+    private static String releaseVersion(JsonObject release) {
+        String tagName = release.has("tag_name") && !release.get("tag_name").isJsonNull()
+                ? release.get("tag_name").getAsString().trim() : "";
+        return tagName.startsWith("v") || tagName.startsWith("V")
+                ? tagName.substring(1) : tagName;
     }
 
     /**
@@ -358,6 +461,18 @@ public final class GitHubReleaseSyncChecker implements AutoCloseable {
     private void notifyRateLimited(long retryAfterMinutes) {
         for (Listener l : listeners) {
             try { l.onRateLimited(retryAfterMinutes); } catch (Exception ignored) {}
+        }
+    }
+
+    private void notifyCheckStarted() {
+        for (Listener l : listeners) {
+            try { l.onCheckStarted(); } catch (Exception ignored) {}
+        }
+    }
+
+    private void notifyCheckFinished() {
+        for (Listener l : listeners) {
+            try { l.onCheckFinished(); } catch (Exception ignored) {}
         }
     }
 }

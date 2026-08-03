@@ -31,6 +31,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.gamecontent.ShaderPackManager
 import com.pmcl.core.i18n.I18n
+import com.pmcl.ui.animation.TypewriterTitle
 import com.pmcl.ui.animation.StaggeredAppear
 import com.pmcl.ui.theme.glassContainerColor
 import com.pmcl.ui.theme.glassSurfaceVariantColor
@@ -88,7 +89,7 @@ fun ShaderPacksPage(vm: LauncherViewModel) {
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(I18n.t("shader.title"), style = MaterialTheme.typography.headlineSmall,
+            TypewriterTitle(I18n.t("shader.title"), style = MaterialTheme.typography.headlineSmall,
                  fontWeight = FontWeight.Bold)
             Spacer(Modifier.weight(1f))
             OutlinedButton(onClick = { vm.openShaderPacksDir() }) {

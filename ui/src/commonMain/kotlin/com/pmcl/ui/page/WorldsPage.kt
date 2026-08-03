@@ -36,6 +36,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.gamecontent.WorldManager
 import com.pmcl.core.i18n.I18n
+import com.pmcl.ui.animation.TypewriterTitle
 import com.pmcl.ui.animation.StaggeredAppear
 import com.pmcl.ui.theme.glassContainerColor
 import com.pmcl.ui.theme.glassSurfaceVariantColor
@@ -97,7 +98,7 @@ fun WorldsPage(vm: LauncherViewModel) {
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         // === 标题栏 ===
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(I18n.t("worlds.title"), style = MaterialTheme.typography.headlineSmall,
+            TypewriterTitle(I18n.t("worlds.title"), style = MaterialTheme.typography.headlineSmall,
                  fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
             OutlinedButton(onClick = {
                 val fd = FileDialog(null as Frame?, I18n.t("world.import_title"), FileDialog.LOAD)

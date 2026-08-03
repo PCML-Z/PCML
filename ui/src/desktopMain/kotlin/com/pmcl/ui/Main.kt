@@ -69,12 +69,41 @@ private val coroutinesErrorMachineryPreloaded: Boolean = run {
         "com.pmcl.core.stats.PlayTimeTracker\$VersionStat",
         "com.pmcl.core.stats.PlayTimeTracker\$BreakdownStat",
         "com.pmcl.core.stats.PlayTimeTracker\$Session",
+        // 系统信息 / 实时性能卡依赖 oshi；嵌套类 OSVersionInfo 最容易在 jar 被覆盖后炸
+        "oshi.SystemInfo",
+        "oshi.software.os.OperatingSystem",
+        "oshi.software.os.OperatingSystem\$OSVersionInfo",
+        "oshi.software.os.OperatingSystem\$ProcessFiltering",
+        "oshi.software.os.OperatingSystem\$ProcessSorting",
+        "oshi.software.common.AbstractOperatingSystem",
+        "oshi.hardware.HardwareAbstractionLayer",
+        "oshi.hardware.CentralProcessor",
+        "oshi.hardware.CentralProcessor\$ProcessorIdentifier",
+        "oshi.hardware.GlobalMemory",
+        "oshi.hardware.GraphicsCard",
+        "oshi.hardware.NetworkIF",
+        "oshi.software.os.OSFileStore",
+        "com.pmcl.core.runtime.RuntimeManager",
     ).forEach { name ->
         try {
             Class.forName(name)
         } catch (e: Throwable) {
             System.err.println("[Main] 预加载 $name 失败: $e")
         }
+    }
+    // 平台实现类 + 一次真实初始化，把 Mac/Win/Linux OperatingSystem 与 OSVersionInfo 全部钉进 Metaspace
+    try {
+        when {
+            System.getProperty("os.name", "").lowercase().contains("mac") ->
+                Class.forName("oshi.software.os.mac.MacOperatingSystem")
+            System.getProperty("os.name", "").lowercase().contains("win") ->
+                Class.forName("oshi.software.os.windows.WindowsOperatingSystem")
+            else ->
+                Class.forName("oshi.software.os.linux.LinuxOperatingSystem")
+        }
+        com.pmcl.core.runtime.RuntimeManager().getOsName()
+    } catch (e: Throwable) {
+        System.err.println("[Main] oshi/RuntimeManager 预热失败: $e")
     }
     true
 }
@@ -107,6 +136,15 @@ fun main() = application {
     val useDark = remember { readDarkThemePref(prefPath.toString()) }
     val vm = remember { LauncherViewModel() }
     val searchFocusRequester = remember { FocusRequester() }
+    val restartForUpdate by vm.restartForUpdate.collectAsState()
+
+    // 安装辅助进程已启动：先释放游戏/联机/文件句柄，再退出，让辅助进程替换并重启当前构建。
+    LaunchedEffect(restartForUpdate) {
+        if (restartForUpdate) {
+            vm.shutdown()
+            exitApplication()
+        }
+    }
 
     // 应用退出时优雅关闭（进程/联机/偏好落盘）；onDispose 作兜底
     DisposableEffect(Unit) {

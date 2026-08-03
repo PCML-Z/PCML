@@ -9,6 +9,13 @@ java {
     withSourcesJar()
 }
 
+val pmclVersion = providers.gradleProperty("pmcl.version").orElse("1.3.0")
+tasks.withType<Jar>().configureEach {
+    manifest {
+        attributes("Implementation-Version" to pmclVersion.get())
+    }
+}
+
 val glfwAgent: SourceSet by sourceSets.creating {
     java.srcDir("src/glfwAgent/java")
 }

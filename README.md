@@ -103,7 +103,7 @@ PMCL/
 ### 构建
 
 ```bash
-# 构建 Fat JAR (跨平台，含 Windows native 库)
+# 构建 Fat JAR（Compose 原生库较全，但 JavaFX 原生库与构建主机一致）
 ./gradlew :ui:fatJar
 
 # 输出: ui/build/libs/pmcl-1.3.0-all.jar
@@ -113,10 +113,10 @@ PMCL/
 ### 构建原生安装包
 
 ```bash
-# macOS (.dmg)
+# 当前系统的原生安装包（macOS: pkg/dmg，Windows: msi/exe，Linux: deb/rpm）
 ./gradlew :ui:packageDistributionForCurrentOS
 
-# 输出: ui/build/compose/binaries/main/dmg/pmcl-1.3.0.dmg
+# 发布构建可用 packageReleasePkg / packageReleaseMsi / packageReleaseDeb 等任务
 ```
 
 ### 构建插件
@@ -204,57 +204,52 @@ plugin package /absolute/path/to/plugin.ppk
 
 ## GitHub Release 同步更新
 
-PMCL 支持直接同步 GitHub Release：启动器内置定时轮询器（`GitHubReleaseSyncChecker`），定期访问 GitHub Releases API 检查最新版本，发现新版本时弹窗询问用户是否下载更新。**无需独立推送服务器、无需 webhook 配置**，只需一个公开的 GitHub 仓库即可。
+PMCL 每次启动都会访问 GitHub Releases API 检查一次最新版本。周期同步开关默认关闭；用户开启后，每 30 分钟追加检查一次。发现新版本时会选择当前操作系统/架构对应的安装包，用户确认后完成下载、摘要与签名校验，并在退出当前进程后自动安装、重启。
 
 ### 架构
 
 ```
-GitHub Releases API  ◀──轮询(每30分钟)──  PMCL 客户端
+GitHub Releases API  ◀──启动检查/可选周期轮询──  PMCL 客户端
    │                                            │
-   │ Release 含 pmcl*.jar 资产                  │
+   │ Release 含 pkg/msi/deb/rpm/平台 JAR 资产   │
    ▼                                            ▼
-解析版本号 + 下载 URL + 文件大小 + notes   发现新版本 → 弹窗询问用户
+平台/架构选择 + 版本比较 + 签名资产匹配     发现新版本 → 弹窗询问用户
                                                    │
                                                    ▼
-                                             SelfUpdater 下载
-                                             到 ~/.pmcl/updates/
+                                      下载并校验 SHA-256 + Ed25519
+                                      退出后安装并重新启动
 ```
 
-- **GitHubReleaseSyncChecker** — 内置于 PMCL 的轮询器，启动后 5 秒首次检查，之后每 30 分钟检查一次
+- **启动检查** — 无论周期同步是否开启，每次打开 PMCL 都检查一次
+- **周期同步** — 默认关闭；开启后启动 5 秒内检查，之后每 30 分钟检查
 - **版本比较** — 取 Release 的 `tag_name`（去掉 `v` 前缀），按点分段比较数字大小
-- **资产识别** — 从 Release 的 `assets` 中查找文件名包含 `pmcl` 字样的 `.jar` 文件作为更新包
+- **资产识别** — macOS 优先 `.pkg/.dmg`，Windows 优先 `.msi/.exe`，Linux 优先 `.deb/.rpm/AppImage`，缺失时仅回退 OS/架构匹配的 JAR；旧版无平台标记 JAR 优先级最低
+- **安全校验** — 安装包必须有 GitHub SHA-256 digest 和对应的 `.sig` Ed25519 签名资产
 - **速率限制处理** — 未认证 GitHub API 限 60 次/小时；触发限制后自动延长到 2 小时间隔，通过 `X-RateLimit-Remaining` header 检测
 
 ### 发布新版本
 
-1. 在 GitHub 仓库创建新 Release，tag 建议使用 `v` 前缀（如 `v1.0.1`）
-2. 上传构建好的 fat JAR 作为 Release 资产，**文件名必须包含 `pmcl` 字样**（如 `pmcl-1.0.1-all.jar`）
-3. 填写 Release notes（会显示在更新弹窗中）
-4. 发布 Release 后，已启用同步的启动器会在下一次轮询时（最多 30 分钟）发现新版本
+仓库内置 `.github/workflows/release-desktop.yml`。推送 `v*` tag 后会分别构建 macOS PKG、Windows MSI、Linux DEB/RPM，以及各构建主机对应的 OS/架构 JAR，并上传每个安装包及其同名 `.sig`。
 
-```bash
-# 构建 fat JAR
-./gradlew :ui:fatJar
-# 输出: ui/build/libs/pmcl-1.3.0-all.jar
+发布仓库必须配置 Actions Secret：
 
-# 创建 GitHub Release 并上传资产（需 gh CLI）
-gh release create v1.3.0 ui/build/libs/pmcl-1.3.0-all.jar \
-  --title "v1.3.0" --notes "PMCL 1.3.0"
-```
+- `PMCL_UPDATE_ED25519_PRIVATE_KEY`：与客户端内置公钥配对的 Base64 PKCS#8 Ed25519 私钥
+
+工作流通过 `tools/SignUpdateAsset.java` 对版本、下载 URL、SHA-256 和文件大小的规范载荷签名。缺少密钥或签名时发布任务会失败，客户端也会拒绝安装。
 
 ### 启动器端配置
 
 1. 打开 PMCL → 设置 → 滚动到底部"GitHub Release 同步"卡片
-2. 开启"启用 GitHub Release 同步"开关
-3. 填入 GitHub 仓库（格式 `owner/repo`，如 `peddlejumper/PMCL`），点击右侧勾号保存
-4. 保存后立即触发一次检查，之后每 30 分钟自动检查
-5. 卡片下方状态指示灯显示同步状态（蓝色圆点 = 已启用，灰色 = 未启用）
+2. 默认仓库为 `PCML-Z/PCML`；也可填入其他 `owner/repo`
+3. “立即检查”不要求开启周期同步
+4. 开启“GitHub Release 自动同步”后，每 30 分钟自动检查
+5. 卡片下方状态指示灯显示检查与同步状态
 
-发现新版本时，启动器任意页面都会弹出对话框显示新版本号、更新说明和文件大小，用户可选择"下载更新"或"稍后再说"。下载完成后，JAR 文件存放在 `~/.pmcl/updates/pmcl-<version>.jar`，下次启动时由启动脚本替换。
+发现新版本时，启动器任意页面都会弹出版本、平台构建、更新说明和大小。选择“下载并自动安装”后，文件先保存到 `~/.pmcl/updates/` 并完成双重校验；随后辅助安装进程接管，PMCL 优雅退出、安装对应系统构建并重新打开。系统安装包可能触发管理员授权。
 
 ### GitHub API 速率限制
 
-未认证的 GitHub REST API 限制为 60 次/小时。PMCL 每 30 分钟轮询一次（48 次/小时），正常使用不会触及限制。若因其他原因触发限制：
+未认证的 GitHub REST API 限制为 60 次/小时。PMCL 每 30 分钟轮询一次（2 次/小时），正常使用不会触及限制。若因其他原因触发限制：
 
 - 检测到 `X-RateLimit-Remaining: 0` 时，自动将轮询间隔延长到 2 小时
 - 恢复后自动回到 30 分钟的正常间隔

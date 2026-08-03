@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp as lerpDp
 import com.pmcl.core.i18n.I18n
+import com.pmcl.ui.animation.TypewriterTitle
 import com.pmcl.core.market.ModProject
 import com.pmcl.ui.animation.MotionTokens
 import com.pmcl.ui.theme.glassContainerColor
@@ -213,8 +214,7 @@ fun ModsMarketPage(vm: LauncherViewModel) {
                 .blur(listBlurRadius)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(I18n.t("market.title"), style = MaterialTheme.typography.headlineSmall,
-                     fontWeight = FontWeight.Bold)
+                TypewriterTitle(I18n.t("market.title"))
                 Spacer(Modifier.weight(1f))
                 FilterChip(
                     selected = translateEnabled,

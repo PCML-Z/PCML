@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pmcl.core.gamecontent.ConfigFileManager
 import com.pmcl.core.i18n.I18n
+import com.pmcl.ui.animation.TypewriterTitle
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import com.pmcl.ui.viewmodel.refreshConfigFiles
 import com.pmcl.ui.viewmodel.openConfigDir
@@ -88,7 +89,7 @@ fun ConfigEditorPage(vm: LauncherViewModel) {
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         // 顶部标题栏
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(I18n.t("config.title"), style = MaterialTheme.typography.headlineSmall,
+            TypewriterTitle(I18n.t("config.title"), style = MaterialTheme.typography.headlineSmall,
                  fontWeight = FontWeight.Bold)
             Spacer(Modifier.weight(1f))
             if (selectedVersion != null) {

@@ -4,6 +4,8 @@ plugins {
     alias(libs.plugins.compose.compiler)
 }
 
+val pmclVersion = providers.gradleProperty("pmcl.version").orElse("1.3.0")
+
 kotlin {
     jvm("desktop") {
         // 强制编译为 Java 21 字节码（版本 65），确保 Windows 上 Java 21 可运行
@@ -85,12 +87,14 @@ compose.desktop {
         nativeDistributions {
             targetFormats(
                 org.jetbrains.compose.desktop.application.dsl.TargetFormat.Dmg,
+                org.jetbrains.compose.desktop.application.dsl.TargetFormat.Pkg,
                 org.jetbrains.compose.desktop.application.dsl.TargetFormat.Msi,
                 org.jetbrains.compose.desktop.application.dsl.TargetFormat.Exe,
-                org.jetbrains.compose.desktop.application.dsl.TargetFormat.Deb
+                org.jetbrains.compose.desktop.application.dsl.TargetFormat.Deb,
+                org.jetbrains.compose.desktop.application.dsl.TargetFormat.Rpm
             )
             packageName = "pmcl"
-            packageVersion = "1.3.0"
+            packageVersion = pmclVersion.get()
 
             // jlink 默认仅按显式 module 依赖打包，反射/运行时加载的模块需手动声明
             // 缺失会导致 NoClassDefFoundError: java/lang/management/ManagementFactory 等
@@ -130,11 +134,14 @@ tasks.register<Jar>("fatJar") {
     dependsOn("desktopJar")
     archiveBaseName.set("pmcl")
     archiveClassifier.set("all")
-    archiveVersion.set("1.3.0")
+    archiveVersion.set(pmclVersion.get())
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 
     manifest {
-        attributes("Main-Class" to "com.pmcl.ui.MainKt")
+        attributes(
+            "Main-Class" to "com.pmcl.ui.MainKt",
+            "Implementation-Version" to pmclVersion.get()
+        )
     }
 
     // 合入 desktop 主类输出

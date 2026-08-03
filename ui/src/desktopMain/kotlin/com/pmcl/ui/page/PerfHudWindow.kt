@@ -95,7 +95,14 @@ private fun PerfHudContent(
     awtWindow: java.awt.Window,
     onClose: () -> Unit
 ) {
-    val runtime = remember { RuntimeManager() }
+    val runtime = remember {
+        try {
+            RuntimeManager()
+        } catch (t: Throwable) {
+            System.err.println("[PerfHud] RuntimeManager 初始化失败: ${t.javaClass.name}: ${t.message}")
+            null
+        }
+    }
 
     // 采样状态
     var cpuLoad by remember { mutableStateOf(0.0) }
@@ -110,17 +117,18 @@ private fun PerfHudContent(
     val fpsHistory = remember { mutableStateListOf<Float>() }
 
     // CPU/内存/GPU 采样协程：1.5s 一次。try-catch 防止 oshi 偶发异常导致采样永久中断。
-    LaunchedEffect(Unit) {
+    LaunchedEffect(runtime) {
+        val rm = runtime ?: return@LaunchedEffect
         while (isActive) {
             try {
                 val s = withContext(Dispatchers.IO) {
                     PerfSample(
-                        cpu = runtime.getCpuLoad(),
-                        mem = runtime.getMemoryLoad(),
-                        memUsed = runtime.getAvailableMemoryMb(),
-                        memTotal = runtime.getTotalMemoryMb(),
-                        gpuName = runtime.getPrimaryGpuName(),
-                        gpuVram = runtime.getPrimaryGpuVramMb()
+                        cpu = rm.getCpuLoad(),
+                        mem = rm.getMemoryLoad(),
+                        memUsed = rm.getAvailableMemoryMb(),
+                        memTotal = rm.getTotalMemoryMb(),
+                        gpuName = rm.getPrimaryGpuName(),
+                        gpuVram = rm.getPrimaryGpuVramMb()
                     )
                 }
                 cpuLoad = s.cpu

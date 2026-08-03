@@ -27,6 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.gamecontent.ResourcePackManager
 import com.pmcl.core.i18n.I18n
+import com.pmcl.ui.animation.TypewriterTitle
 import com.pmcl.ui.animation.StaggeredAppear
 import com.pmcl.ui.theme.glassContainerColor
 import com.pmcl.ui.theme.glassSurfaceVariantColor
@@ -85,7 +86,7 @@ fun ResourcePacksPage(vm: LauncherViewModel) {
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         // === 标题栏 ===
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(I18n.t("resource.title"), style = MaterialTheme.typography.headlineSmall,
+            TypewriterTitle(I18n.t("resource.title"), style = MaterialTheme.typography.headlineSmall,
                  fontWeight = FontWeight.Bold)
             Spacer(Modifier.weight(1f))
             Button(onClick = { showImportDialog = true }) {

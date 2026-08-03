@@ -54,6 +54,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
+import com.pmcl.ui.animation.TypewriterTitle
 import com.pmcl.core.mods.ModConflictChecker
 import com.pmcl.core.mods.ModIconExtractor
 import com.pmcl.core.mods.ModMeta
@@ -180,8 +181,7 @@ fun ModsPage(vm: LauncherViewModel) {
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 10.dp)) {
         // === 紧凑顶栏：标题 + 搜索 + 折叠开关 + 常用操作 ===
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(I18n.t("mods.title"), style = MaterialTheme.typography.titleLarge,
-                 fontWeight = FontWeight.Bold)
+            TypewriterTitle(I18n.t("mods.title"), style = MaterialTheme.typography.titleLarge)
             Spacer(Modifier.width(8.dp))
             Surface(
                 color = MaterialTheme.colorScheme.primaryContainer,

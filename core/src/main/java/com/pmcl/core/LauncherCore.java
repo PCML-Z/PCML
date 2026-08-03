@@ -163,12 +163,13 @@ public final class LauncherCore {
         this.processMonitor = new ProcessMonitor();
 
         // 可选子系统：失败不中断启动器，对应功能降级不可用
+        String launcherVersion = currentLauncherVersion();
         this.selfUpdater = initOptional("SelfUpdater",
-                () -> new SelfUpdater(downloadManager, "", "0.0.0"));
+                () -> new SelfUpdater(downloadManager, "", launcherVersion));
         // GitHub Release 同步更新（从 Preferences 读取配置，enabled 时自动检查）
         this.githubSync = initOptional("GitHubReleaseSync",
                 () -> {
-                    GitHubReleaseSyncChecker checker = new GitHubReleaseSyncChecker("1.3.0");
+                    GitHubReleaseSyncChecker checker = new GitHubReleaseSyncChecker(launcherVersion);
                     checker.setGithubRepo(preferences.getGithubRepo());
                     if (preferences.isGithubSyncEnabled()) {
                         try {
@@ -393,6 +394,16 @@ public final class LauncherCore {
     public PluginManager plugins() { return pluginManager; }
 
     public InstanceManager instances() { return instanceManager; }
+    public String launcherVersion() { return currentLauncherVersion(); }
+
+    /** 从构建产物 Manifest 读取版本；IDE 运行时回退开发版本。 */
+    private static String currentLauncherVersion() {
+        String version = LauncherCore.class.getPackage().getImplementationVersion();
+        if (version == null || version.isBlank()) {
+            version = System.getProperty("pmcl.version", "1.3.0");
+        }
+        return version;
+    }
 
     /**
      * 统一关闭内核子系统（下载队列、网络、启动、鉴权、模组检查等）。

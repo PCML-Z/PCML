@@ -20,6 +20,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -112,7 +115,25 @@ fun AnimatedNavSidebar(
             },
             label = "sidebarMode"
         ) { secondaryMode ->
-            if (secondaryMode) secondary() else primary()
+            // 为一级/二级内容各保留最后一帧 GPU 快照。退场后不再重绘完整侧栏树，
+            // 仅由 AnimatedContent 对快照执行原有滑动与淡出，外层宽度动画保持实时。
+            val exiting = secondaryMode != inSecondary
+            val snapshotLayer = rememberGraphicsLayer()
+            Box(
+                Modifier
+                    .width(secondaryWidth)
+                    .fillMaxHeight()
+                    .drawWithContent {
+                        if (!exiting) {
+                            snapshotLayer.record {
+                                this@drawWithContent.drawContent()
+                            }
+                        }
+                        drawLayer(snapshotLayer)
+                    }
+            ) {
+                if (secondaryMode) secondary() else primary()
+            }
         }
     }
 }

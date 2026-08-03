@@ -1,0 +1,128 @@
+name: Release desktop builds
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (for example v1.4.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macOS
+            os: macos-14
+            tasks: ":ui:packageReleasePkg :ui:fatJar"
+            asset_globs: "ui/build/compose/binaries/main-release/pkg/*.pkg ui/build/libs/*-all.jar"
+          - platform: Windows
+            os: windows-latest
+            tasks: ":ui:packageReleaseMsi :ui:fatJar"
+            asset_globs: "ui/build/compose/binaries/main-release/msi/*.msi ui/build/libs/*-all.jar"
+          - platform: Linux
+            os: ubuntu-latest
+            tasks: ":ui:packageReleaseDeb :ui:packageReleaseRpm :ui:fatJar"
+            asset_globs: "ui/build/compose/binaries/main-release/deb/*.deb ui/build/compose/binaries/main-release/rpm/*.rpm ui/build/libs/*-all.jar"
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Install Linux packaging tools
+        if: runner.os == 'Linux'
+        shell: bash
+        run: sudo apt-get update && sudo apt-get install -y fakeroot rpm
+
+      - name: Build release assets
+        shell: bash
+        run: ./gradlew ${{ matrix.tasks }} -Ppmcl.useAliyunMirror=false -Ppmcl.version="${RELEASE_TAG#v}"
+
+      - name: Sign update assets
+        shell: bash
+        env:
+          PMCL_UPDATE_ED25519_PRIVATE_KEY: ${{ secrets.PMCL_UPDATE_ED25519_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          version="${RELEASE_TAG#v}"
+          case "${RUNNER_OS}" in
+            macOS) os_token="macos" ;;
+            Windows) os_token="windows" ;;
+            Linux) os_token="linux" ;;
+          esac
+          case "$(uname -m)" in
+            arm64|aarch64) arch_token="arm64" ;;
+            x86_64|amd64) arch_token="x64" ;;
+            *) arch_token="$(uname -m)" ;;
+          esac
+          found=0
+          for asset in ${{ matrix.asset_globs }}; do
+            [ -f "$asset" ] || continue
+            found=1
+            original_name="$(basename "$asset")"
+            if [[ "$original_name" == *.tar.gz ]]; then
+              name="pmcl-${version}-${os_token}-${arch_token}.tar.gz"
+            else
+              extension="${original_name##*.}"
+              name="pmcl-${version}-${os_token}-${arch_token}.${extension}"
+            fi
+            cp "$asset" "dist/$name"
+            url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/${name}"
+            java tools/SignUpdateAsset.java "$version" "$url" "dist/$name"
+          done
+          [ "$found" -eq 1 ] || { echo "No release assets found"; exit 1; }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pmcl-${{ matrix.platform }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: pmcl-*
+          path: dist
+          merge-multiple: true
+
+      - name: Create or update release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "PMCL ${RELEASE_TAG#v}" \
+              --generate-notes
+          fi
+          gh release upload "$RELEASE_TAG" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber

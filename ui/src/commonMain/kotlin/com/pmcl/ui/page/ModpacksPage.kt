@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
 import com.pmcl.core.install.InstallProgress
 import com.pmcl.core.modpack.ModpackManager
+import com.pmcl.ui.animation.TypewriterTitle
 import com.pmcl.ui.theme.LocalThemeState
 import com.pmcl.ui.theme.glassCardBorder
 import com.pmcl.ui.theme.glassCardColors
@@ -65,8 +66,12 @@ fun ModpacksPage(vm: LauncherViewModel) {
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         // 顶部操作栏
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(I18n.t("modpack.title"), style = MaterialTheme.typography.titleMedium,
-                 fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            TypewriterTitle(
+                I18n.t("modpack.title"),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f)
+            )
             if (selectionMode) {
                 // 批量模式：显示已选数量 + 批量删除按钮 + 取消
                 Text(I18n.t("common.selected_count", selectedModpacks.size),

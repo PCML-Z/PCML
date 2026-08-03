@@ -110,6 +110,7 @@ public final class I18n {
         ZH.put("settings.section.device", "设备绑定");
         ZH.put("settings.section.system", "系统信息");
         ZH.put("settings.section.about", "关于");
+        ZH.put("settings.section.licenses", "许可证与协议");
         ZH.put("settings.section.extensions", "扩展设置");
         ZH.put("stats.section.performance", "实时性能");
         ZH.put("stats.section.overview", "游玩总览");
@@ -798,13 +799,14 @@ public final class I18n {
         ZH.put("about.developers", "开发者");
         ZH.put("about.dev.peddlejumper.role", "负责 PMCL 的设计与开发");
         ZH.put("about.dev.forget_me.role", "负责 PMCL 的设计与开发");
-        ZH.put("about.dev.mtutu_1314.role", "负责 PMCL 的设计与开发");
+        ZH.put("about.dev.mtutu_1314.role", "负责 PMCL 安卓移动端的移植");
         ZH.put("about.dev.unnk_ye.role", "负责 PMCL 的设计与开发");
-        ZH.put("about.dev.hcs_organization.role", "负责 PMCL 的设计与开发");
-        ZH.put("about.dev.sjgdnsk.role", "美术设计");
-        ZH.put("about.dev.ninolian.role", "功能审查");
-        ZH.put("about.dev.lbsh.role", "决策指导");
-        ZH.put("about.dev.pmcl_z.role", "开发 PMCL 新功能");
+        ZH.put("about.dev.hcs_organization.role", "统筹计划 PMCL 的设计与开发");
+        ZH.put("about.dev.i_miss_you_ling.role", "负责 PMCL动画美术设计");
+        ZH.put("about.dev.sjgdnsk.role", "负责 PMCL界面美术设计");
+        ZH.put("about.dev.ninolian.role", "负责 PMCL功能审查");
+        ZH.put("about.dev.lbsh.role", "对 PMCL 开发进行决策指导");
+        ZH.put("about.dev.pmcl_z.role", "联合调度开发 PMCL 新功能");
         ZH.put("about.dev.hcslash.role", "审核 PMCL 新功能");
         ZH.put("about.tech_component", "组件");
         ZH.put("about.tech_version", "版本");
@@ -1402,6 +1404,7 @@ public final class I18n {
         // ===== 统计页新增 =====
         ZH.put("stats.realtime_performance", "实时设备性能负载");
         ZH.put("stats.realtime", "实时");
+        ZH.put("stats.system_info_unavailable", "系统信息暂时不可用（请重启启动器后再试）");
         ZH.put("stats.system_memory", "系统内存");
         ZH.put("stats.jvm_heap", "JVM 堆");
         ZH.put("stats.network", "网络");
@@ -2157,6 +2160,7 @@ public final class I18n {
         EN.put("settings.section.device", "Device binding");
         EN.put("settings.section.system", "System info");
         EN.put("settings.section.about", "About");
+        EN.put("settings.section.licenses", "Licenses & Agreements");
         EN.put("settings.section.extensions", "Extensions");
         EN.put("stats.section.performance", "Live performance");
         EN.put("stats.section.overview", "Play overview");
@@ -2830,6 +2834,7 @@ public final class I18n {
         EN.put("about.dev.mtutu_1314.role", "Designs and develops PMCL");
         EN.put("about.dev.unnk_ye.role", "Designs and develops PMCL");
         EN.put("about.dev.hcs_organization.role", "Designs and develops PMCL");
+        EN.put("about.dev.i_miss_you_ling.role", "Art design");
         EN.put("about.dev.sjgdnsk.role", "Art design");
         EN.put("about.dev.ninolian.role", "Feature review");
         EN.put("about.dev.lbsh.role", "Decision guidance");
@@ -3425,6 +3430,7 @@ public final class I18n {
         // ===== Statistics page new =====
         EN.put("stats.realtime_performance", "Realtime Performance");
         EN.put("stats.realtime", "Live");
+        EN.put("stats.system_info_unavailable", "System info unavailable. Please restart the launcher and try again.");
         EN.put("stats.system_memory", "System Memory");
         EN.put("stats.jvm_heap", "JVM Heap");
         EN.put("stats.network", "Network");
@@ -4121,6 +4127,7 @@ public final class I18n {
         JA.put("settings.section.device", "デバイス紐付け");
         JA.put("settings.section.system", "システム情報");
         JA.put("settings.section.about", "このアプリについて");
+        JA.put("settings.section.licenses", "ライセンスと規約");
         JA.put("settings.section.extensions", "拡張設定");
         JA.put("stats.section.performance", "リアルタイム性能");
         JA.put("stats.section.overview", "プレイ概要");
@@ -4794,6 +4801,7 @@ public final class I18n {
         JA.put("about.dev.mtutu_1314.role", "PMCL の設計と開発を担当");
         JA.put("about.dev.unnk_ye.role", "PMCL の設計と開発を担当");
         JA.put("about.dev.hcs_organization.role", "PMCL の設計と開発を担当");
+        JA.put("about.dev.i_miss_you_ling.role", "美術デザイン");
         JA.put("about.dev.sjgdnsk.role", "美術デザイン");
         JA.put("about.dev.ninolian.role", "機能レビュー");
         JA.put("about.dev.lbsh.role", "意思決定指導");
@@ -5389,6 +5397,7 @@ public final class I18n {
         // ===== 統計ページ新規 =====
         JA.put("stats.realtime_performance", "リアルタイムデバイス性能");
         JA.put("stats.realtime", "リアル");
+        JA.put("stats.system_info_unavailable", "システム情報を取得できません。ランチャーを再起動してから再試行してください。");
         JA.put("stats.system_memory", "システムメモリ");
         JA.put("stats.jvm_heap", "JVM ヒープ");
         JA.put("stats.network", "ネットワーク");

@@ -16,6 +16,7 @@ import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
+import com.pmcl.ui.animation.TypewriterTitle
 import com.pmcl.core.modloader.ModLoader
 import com.pmcl.ui.animation.StaggeredAppear
 import com.pmcl.ui.theme.LocalThemeState
@@ -43,8 +44,7 @@ fun DownloadPage(vm: LauncherViewModel) {
     LaunchedEffect(Unit) { if (versions.isEmpty()) vm.refreshVersions() }
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
-        Text(I18n.t("download.page_title"), style = MaterialTheme.typography.headlineSmall,
-             fontWeight = FontWeight.Bold)
+        TypewriterTitle(I18n.t("download.page_title"))
         Spacer(Modifier.height(16.dp))
 
         // Tab 选择

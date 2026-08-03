@@ -78,15 +78,32 @@ public final class MetalRenderInstaller {
         this.downloads = downloads;
     }
 
+    /** 进程级缓存：避免设置页每次组合都 fork sysctl（waitFor 最长约 2s） */
+    private static volatile Boolean appleSiliconCached;
+
     /**
      * 检测当前是否为 Apple Silicon Mac。
      * <p>
      * 优先用 sysctl 检测真实硬件架构（Rosetta 2 下 os.arch 不可靠）。
-     * 先 waitFor 再读流，避免 readAllBytes 阻塞导致卡死。
+     * 结果进程级缓存；先 waitFor 再读流，避免 readAllBytes 阻塞导致卡死。
      *
      * @return true 表示当前是 Apple Silicon Mac
      */
     public static boolean isAppleSiliconMac() {
+        Boolean cached = appleSiliconCached;
+        if (cached != null) return cached;
+
+        synchronized (MetalRenderInstaller.class) {
+            cached = appleSiliconCached;
+            if (cached != null) return cached;
+
+            boolean result = detectAppleSiliconMac();
+            appleSiliconCached = result;
+            return result;
+        }
+    }
+
+    private static boolean detectAppleSiliconMac() {
         String osName = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
         if (!osName.contains("mac")) return false;
 
@@ -114,27 +131,40 @@ public final class MetalRenderInstaller {
         return "aarch64".equals(System.getProperty("os.arch", ""));
     }
 
+    /** 支持版本列表缓存（网络成功结果）；失败不缓存以便下次重试 */
+    private volatile List<String> supportedVersionsCache;
+
     /**
      * 查询 MetalRender 当前支持的 Minecraft 版本列表（优先 Modrinth，失败则回退常量）。
+     * 成功结果会缓存，避免设置页重复打网络。
      */
     public List<String> supportedGameVersions() {
-        try {
-            JsonObject project = modrinth.getProject(METALRENDER_PROJECT);
-            if (project != null && project.has("game_versions")) {
-                List<String> versions = new ArrayList<>();
-                for (JsonElement e : project.getAsJsonArray("game_versions")) {
-                    if (e != null && e.isJsonPrimitive()) {
-                        versions.add(e.getAsString());
+        List<String> cached = supportedVersionsCache;
+        if (cached != null) return cached;
+
+        synchronized (this) {
+            cached = supportedVersionsCache;
+            if (cached != null) return cached;
+            try {
+                JsonObject project = modrinth.getProject(METALRENDER_PROJECT);
+                if (project != null && project.has("game_versions")) {
+                    List<String> versions = new ArrayList<>();
+                    for (JsonElement e : project.getAsJsonArray("game_versions")) {
+                        if (e != null && e.isJsonPrimitive()) {
+                            versions.add(e.getAsString());
+                        }
+                    }
+                    if (!versions.isEmpty()) {
+                        List<String> frozen = Collections.unmodifiableList(versions);
+                        supportedVersionsCache = frozen;
+                        return frozen;
                     }
                 }
-                if (!versions.isEmpty()) {
-                    return Collections.unmodifiableList(versions);
-                }
+            } catch (Exception ignored) {
+                // 网络失败时用离线列表（不缓存失败，下次仍可重试）
             }
-        } catch (Exception ignored) {
-            // 网络失败时用离线列表
+            return FALLBACK_SUPPORTED_VERSIONS;
         }
-        return FALLBACK_SUPPORTED_VERSIONS;
     }
 
     /**

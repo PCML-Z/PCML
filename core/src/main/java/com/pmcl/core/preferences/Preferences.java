@@ -52,8 +52,8 @@ public final class Preferences {
     private java.util.List<String> recentNbtFiles = new java.util.ArrayList<>(); // 最近打开的 NBT 文件（LRU，最多 8 个）
     private String lastSelectedVersion = "";       // 上次选中的版本（启动时恢复）
     private String lastOfflineUsername = "";      // 上次离线登录用户名（启动时恢复，避免每次重置为 Steve）
-    private boolean githubSyncEnabled = false;    // 是否启用 GitHub Release 同步更新
-    private String githubRepo = "";               // GitHub 仓库（格式 "owner/repo"，如 "peddlejumper/PMCL"）
+    private boolean githubSyncEnabled = false;    // 是否启用 GitHub Release 同步更新（默认关闭）
+    private String githubRepo = "PCML-Z/PCML";    // 默认官方仓库；仅在用户主动启用后自动检查
     private java.util.Map<String, Long> lastPlayedTimes = new java.util.HashMap<>();  // versionId → epoch millis
     private java.util.Map<String, String> pinnedTileLabels = new java.util.HashMap<>();  // versionId → 自定义磁贴名称
     private String customJvmArgs = "";
@@ -891,7 +891,8 @@ public final class Preferences {
             lastSelectedVersion = loadString(o, "lastSelectedVersion", "");
             lastOfflineUsername = loadString(o, "lastOfflineUsername", "");
             githubSyncEnabled = loadBool(o, "githubSyncEnabled", false);
-            githubRepo = loadString(o, "githubRepo", "");
+            githubRepo = loadString(o, "githubRepo", "PCML-Z/PCML");
+            if (githubRepo.isBlank()) githubRepo = "PCML-Z/PCML";
             customJvmArgs = loadString(o, "customJvmArgs", "");
             gcType = loadString(o, "gcType", "G1GC");
             javaPath = loadString(o, "javaPath", "");

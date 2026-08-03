@@ -21,6 +21,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
 import com.pmcl.core.download.DownloadQueueManager
+import com.pmcl.ui.animation.TypewriterTitle
 import com.pmcl.ui.theme.glassCardBorder
 import com.pmcl.ui.theme.glassCardColors
 import com.pmcl.ui.theme.glassCardElevation
@@ -107,9 +108,11 @@ private fun QueueSummaryCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
-                    Text(I18n.t("queue.title"),
+                    TypewriterTitle(
+                        I18n.t("queue.title"),
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold)
+                        fontWeight = FontWeight.SemiBold
+                    )
                     Spacer(Modifier.height(4.dp))
                     Text(buildString {
                         append(I18n.t("queue.total_items", summary.total()))

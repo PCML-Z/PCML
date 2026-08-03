@@ -4,6 +4,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -38,6 +39,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
+import com.pmcl.ui.animation.TypewriterTitle
 import com.pmcl.ui.theme.LocalThemeState
 import com.pmcl.ui.theme.glassCardBorder
 import com.pmcl.ui.theme.glassCardColors
@@ -90,13 +92,31 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
         "device" -> "settings.section.device"
         "system" -> "settings.section.system"
         "about" -> "settings.section.about"
+        "licenses" -> "settings.section.licenses"
         "extensions" -> "settings.section.extensions"
         else -> "settings.section.launcher"
     }
 
+    // Metal 能力与版本列表只在游戏分区后台加载；正文与页面动画同步出现
+    LaunchedEffect(sectionId) {
+        if (sectionId == "game") {
+            vm.ensureMetalCapabilityLoaded()
+        }
+    }
+
+    // 推荐内存：复用 LauncherCore 已有 RuntimeManager，IO 线程读取，避免组合期 new RuntimeManager()（OSHI 很重）
+    val recommendedMaxMb by produceState(0L, sectionId) {
+        if (sectionId != "java") {
+            value = 0L
+            return@produceState
+        }
+        value = withContext(Dispatchers.IO) {
+            runCatching { vm.core.runtime().getRecommendedMaxMemoryMb() }.getOrDefault(0L)
+        }
+    }
+
     Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
-        Text(I18n.t(sectionTitleKey), style = MaterialTheme.typography.headlineSmall,
-             fontWeight = FontWeight.Bold)
+        TypewriterTitle(I18n.t(sectionTitleKey))
         Spacer(Modifier.height(16.dp))
 
         if (sectionId == "java") {
@@ -138,9 +158,11 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
                     )
                 }
                 Spacer(Modifier.height(8.dp))
-                Text(I18n.t("settings.recommended_max", com.pmcl.core.runtime.RuntimeManager().getRecommendedMaxMemoryMb()),
-                     style = MaterialTheme.typography.labelSmall,
-                     color = MaterialTheme.colorScheme.outline)
+                Text(
+                    I18n.t("settings.recommended_max", recommendedMaxMb),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
             }
         }
 
@@ -210,16 +232,15 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
         if (sectionId == "game") {
         // 游戏通用行为
         GameBehaviorCard(pref)
-
         Spacer(Modifier.height(16.dp))
 
         // Minecraft 根目录管理
         MinecraftRootsCard(vm)
-
         Spacer(Modifier.height(16.dp))
 
-        // Metal 渲染（仅 Apple Silicon Mac 显示）
-        if (vm.isMetalRenderSupported()) {
+        // Metal 渲染（仅 Apple Silicon Mac 显示；探测在 IO 线程执行）
+        val metalSupported by vm.metalRenderSupported.collectAsState()
+        if (metalSupported == true) {
             MetalRenderCard(vm, pref)
             Spacer(Modifier.height(16.dp))
         }
@@ -761,6 +782,10 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
         AboutCard(vm)
         }
 
+        if (sectionId == "licenses") {
+        LicensesAndAgreementsSection()
+        }
+
         // 插件扩展设置分区
         if (sectionId == "extensions" && pluginSettingsSections.isNotEmpty()) {
             pluginSettingsSections.forEach { section ->
@@ -788,9 +813,11 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
 
 @Composable
 private fun GithubSyncCard(vm: LauncherViewModel, pref: com.pmcl.core.preferences.Preferences) {
-    var syncEnabled by remember { mutableStateOf(pref.isGithubSyncEnabled()) }
+    val syncEnabled by vm.syncEnabled.collectAsState()
     var repoInput by remember { mutableStateOf(pref.getGithubRepo()) }
+    var repoError by remember { mutableStateOf(false) }
     val syncActive by vm.syncActive.collectAsState()
+    val syncChecking by vm.syncChecking.collectAsState()
     val pushStatusText by vm.pushStatusText.collectAsState()
 
     Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
@@ -804,46 +831,81 @@ private fun GithubSyncCard(vm: LauncherViewModel, pref: com.pmcl.core.preference
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Switch(checked = syncEnabled, onCheckedChange = {
-                    syncEnabled = it
-                    vm.setGithubSyncEnabled(it)
+                    if (it && repoInput.trim() != pref.getGithubRepo()) {
+                        repoError = !vm.setGithubRepo(repoInput)
+                    }
+                    if (!repoError) vm.setGithubSyncEnabled(it)
                 })
                 Spacer(Modifier.width(8.dp))
-                Text("启用 GitHub Release 同步")
+                Column {
+                    Text("启用 GitHub Release 自动同步")
+                    Text(
+                        "默认关闭；启用后启动时检查，之后每 30 分钟检查一次",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                }
             }
 
             Spacer(Modifier.height(12.dp))
             OutlinedTextField(
                 value = repoInput,
-                onValueChange = { repoInput = it },
+                onValueChange = {
+                    repoInput = it
+                    repoError = false
+                },
                 label = { Text("GitHub 仓库") },
                 placeholder = { Text("owner/repo") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
+                isError = repoError,
+                supportingText = {
+                    Text(if (repoError) "格式无效，应为 owner/repo" else "默认官方仓库：PCML-Z/PCML")
+                },
                 trailingIcon = {
-                    IconButton(onClick = { vm.setGithubRepo(repoInput.trim()) }) {
+                    IconButton(
+                        enabled = !syncChecking,
+                        onClick = { repoError = !vm.setGithubRepo(repoInput) }
+                    ) {
                         Icon(Icons.Filled.Check, contentDescription = "保存仓库")
                     }
                 }
             )
-            Spacer(Modifier.height(4.dp))
-            Text("格式: owner/repo（如 peddlejumper/PMCL）。Release 资产中需包含名称带 pmcl 字样的 .jar 文件。每 30 分钟检查一次。",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.outline)
+
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                enabled = !syncChecking,
+                onClick = { repoError = !vm.checkGithubSyncNow(repoInput) }
+            ) {
+                if (syncChecking) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("检查中…")
+                } else {
+                    Text("立即检查")
+                }
+            }
 
             Spacer(Modifier.height(8.dp))
             // 同步状态指示
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     Modifier.size(8.dp).background(
-                        color = if (syncActive) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.outline,
+                        color = when {
+                            syncChecking -> MaterialTheme.colorScheme.tertiary
+                            syncActive -> MaterialTheme.colorScheme.primary
+                            else -> MaterialTheme.colorScheme.outline
+                        },
                         shape = CircleShape
                     )
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
                     if (pushStatusText.isEmpty()) {
-                        if (syncEnabled) "等待检查..." else "未启用"
+                        if (syncEnabled) "等待自动检查…" else "自动同步未启用"
                     } else pushStatusText,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.outline
@@ -855,10 +917,6 @@ private fun GithubSyncCard(vm: LauncherViewModel, pref: com.pmcl.core.preference
 
 @Composable
 private fun AboutCard(vm: LauncherViewModel) {
-    var showLicenseDialog by remember { mutableStateOf(false) }
-    var showAgreementDialog by remember { mutableStateOf(false) }
-    var showDisclaimerDialog by remember { mutableStateOf(false) }
-
     Card(Modifier.fillMaxWidth().glassCardBorder(8.dp), shape = RoundedCornerShape(8.dp), colors = glassCardColors(), elevation = glassCardElevation()) {
         Column(Modifier.padding(16.dp)) {
             // === 头部：Logo + 名称 + 版本 ===
@@ -878,7 +936,7 @@ private fun AboutCard(vm: LauncherViewModel) {
                 Column {
                     Text(I18n.t("about.title"), style = MaterialTheme.typography.titleMedium,
                          fontWeight = FontWeight.Bold)
-                    Text(I18n.t("about.version", "1.3.0 (build 20260803.1)"),
+                    Text(I18n.t("about.version", vm.core.launcherVersion()),
                          style = MaterialTheme.typography.labelSmall,
                          color = MaterialTheme.colorScheme.outline)
                 }
@@ -960,35 +1018,6 @@ private fun AboutCard(vm: LauncherViewModel) {
             Spacer(Modifier.height(8.dp))
             TechStackTable()
 
-            // === 链接按钮 ===
-            Spacer(Modifier.height(16.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = {
-                    try { com.pmcl.core.web.WikiBrowser.open("https://github.com/peddlejumper") } catch (_: Throwable) {}
-                }) { Text(I18n.t("about.author_github")); Icon(Icons.Filled.OpenInNew, null, modifier = Modifier.size(14.dp).padding(start = 2.dp)) }
-                OutlinedButton(onClick = { showLicenseDialog = true }) {
-                    Icon(Icons.Filled.Article, null, modifier = Modifier.size(14.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text(I18n.t("about.view_license"))
-                }
-                OutlinedButton(onClick = { showAgreementDialog = true }) {
-                    Icon(Icons.Filled.Gavel, null, modifier = Modifier.size(14.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text(I18n.t("about.user_agreement"))
-                }
-                OutlinedButton(onClick = { showDisclaimerDialog = true }) {
-                    Icon(Icons.Filled.Shield, null, modifier = Modifier.size(14.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text(I18n.t("about.disclaimer"))
-                }
-                OutlinedButton(onClick = {
-                    try { com.pmcl.core.web.WikiBrowser.open("https://github.com/EasyTier/EasyTier") } catch (_: Throwable) {}
-                }) { Text(I18n.t("about.easytier")) }
-                OutlinedButton(onClick = {
-                    try { com.pmcl.core.web.WikiBrowser.open("https://modrinth.com") } catch (_: Throwable) {}
-                }) { Text("Modrinth") }
-            }
-
             Spacer(Modifier.height(12.dp))
             HorizontalDivider()
             Spacer(Modifier.height(8.dp))
@@ -997,23 +1026,54 @@ private fun AboutCard(vm: LauncherViewModel) {
                  color = MaterialTheme.colorScheme.outline)
         }
     }
+}
 
-    if (showLicenseDialog) {
-        LicenseViewerDialog(onDismiss = { showLicenseDialog = false })
-    }
-    if (showAgreementDialog) {
-        DocumentViewerDialog(
-            title = I18n.t("about.user_agreement"),
-            resourceName = "USER_AGREEMENT.txt",
-            onDismiss = { showAgreementDialog = false }
-        )
-    }
-    if (showDisclaimerDialog) {
-        DocumentViewerDialog(
-            title = I18n.t("about.disclaimer"),
-            resourceName = "DISCLAIMER.txt",
-            onDismiss = { showDisclaimerDialog = false }
-        )
+/** 设置 → 许可证与协议：内嵌展示软件许可证 / 用户协议 / 免责协议 */
+@Composable
+private fun LicensesAndAgreementsSection() {
+    var selected by remember { mutableStateOf(0) }
+    val tabs = listOf(
+        I18n.t("about.view_license"),
+        I18n.t("about.user_agreement"),
+        I18n.t("about.disclaimer")
+    )
+
+    Card(
+        modifier = Modifier.fillMaxWidth().glassCardBorder(),
+        colors = glassCardColors(),
+        elevation = glassCardElevation()
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                tabs.forEachIndexed { index, label ->
+                    FilterChip(
+                        selected = selected == index,
+                        onClick = { selected = index },
+                        label = { Text(label) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = when (index) {
+                                    0 -> Icons.Filled.Article
+                                    1 -> Icons.Filled.Gavel
+                                    else -> Icons.Filled.Shield
+                                },
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    )
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            when (selected) {
+                0 -> LicenseDocumentPanel()
+                1 -> DocumentPanel(resourceName = "USER_AGREEMENT.txt")
+                else -> DocumentPanel(resourceName = "DISCLAIMER.txt")
+            }
+        }
     }
 }
 
@@ -1058,6 +1118,12 @@ private data class DeveloperEntry(
 private fun DeveloperList() {
     val developers = listOf(
         DeveloperEntry(
+            name = "HCS-Organization",
+            roleKey = "about.dev.hcs_organization.role",
+            avatarUrl = "https://github.com/HCS-Organization.png?size=128",
+            url = "https://github.com/HCS-Organization"
+        ),
+        DeveloperEntry(
             name = "peddlejumper",
             roleKey = "about.dev.peddlejumper.role",
             avatarUrl = "https://github.com/peddlejumper.png?size=128",
@@ -1077,35 +1143,39 @@ private fun DeveloperList() {
         ),
         DeveloperEntry(
             name = "unnk叶",
-            roleKey = "about.dev.unnk_ye.role"
+            roleKey = "about.dev.unnk_ye.role",
+            avatarUrl = "https://lash.simdif.com/images/public/sd_6a70b153c4ab3.jpg?no_cache=1785777533"
         ),
         DeveloperEntry(
-            name = "HCS-Organization",
-            roleKey = "about.dev.hcs_organization.role",
-            avatarUrl = "https://github.com/HCS-Organization.png?size=128",
-            url = "https://github.com/HCS-Organization"
+            name = "I Miss You LING",
+            roleKey = "about.dev.i_miss_you_ling.role",
+            avatarUrl = "https://github.com/I-miss-you-LING.png?size=128",
+            url = "https://github.com/I-miss-you-LING"
         ),
         DeveloperEntry(
             name = "ニー・ヌオリアン",
-            roleKey = "about.dev.sjgdnsk.role"
+            roleKey = "about.dev.sjgdnsk.role",
+            avatarUrl = "https://lash.simdif.com/images/public/sd_6a70aeb2e9586.jpg?no_cache=1785776856"
         ),
         DeveloperEntry(
-            name = "sjgdnsk",
-            roleKey = "about.dev.ninolian.role"
+            name = "kakun 小新",
+            roleKey = "about.dev.ninolian.role",
+            avatarUrl = "https://lash.simdif.com/images/public/sd_6a70b04a20023.jpg?no_cache=1785777263"
         ),
         DeveloperEntry(
             name = "LBSH",
             roleKey = "about.dev.lbsh.role",
+            avatarUrl = "https://lash.simdif.com/images/public/sd_6a70958dbf4b5.png?no_cache=1785770424",
             url = "https://lash.simdif.com"
         ),
         DeveloperEntry(
-            name = "PMCL-Z",
+            name = "@PMCL-Z团队",
             roleKey = "about.dev.pmcl_z.role",
             avatarUrl = "https://github.com/PCML-Z.png?size=128",
             url = "https://github.com/PCML-Z"
         ),
         DeveloperEntry(
-            name = "hcslash",
+            name = "hcslash审核",
             roleKey = "about.dev.hcslash.role",
             avatarUrl = "https://avatars.githubusercontent.com/u/187082976?s=128&v=4",
             url = "https://github.com/hcslash"
@@ -2259,7 +2329,10 @@ private fun JavaRuntimeCard(vm: LauncherViewModel, pref: com.pmcl.core.preferenc
     val downloading by vm.javaDownloading.collectAsState()
     val dlStatus by vm.javaDownloadStatus.collectAsState()
     var manualPath by remember { mutableStateOf(pref.getJavaPath()) }
-    val detectedPath = remember { vm.detectJavaPath() }
+    // Java 探测可能扫磁盘，放到 IO 线程，避免进入 Java 分区时卡 UI
+    val detectedPath by produceState(I18n.t("common.loading")) {
+        value = withContext(Dispatchers.IO) { vm.detectJavaPath() }
+    }
     val modifier = Modifier
 
     Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
@@ -2669,17 +2742,15 @@ private fun AccentColorPicker(
 }
 
 /**
- * 许可证查看器对话框：支持中英文切换、滚动阅读、复制全文。
- * 从 JAR 资源中加载 LICENSE.zh.txt / LICENSE.en.txt。
+ * 软件技术许可证正文：支持中英文切换、滚动阅读、复制全文。
  */
 @Composable
-private fun LicenseViewerDialog(onDismiss: () -> Unit) {
+private fun LicenseDocumentPanel() {
     var isEnglish by remember { mutableStateOf(false) }
     val clipboardManager = LocalClipboardManager.current
 
-    // 异步加载许可证文本（避免在组合期同步 IO 阻塞主线程）
-    val licenseText by androidx.compose.runtime.produceState(I18n.t("common.loading"), isEnglish) {
-        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+    val licenseText by produceState(I18n.t("common.loading"), isEnglish) {
+        value = withContext(Dispatchers.IO) {
             runCatching {
                 val resName = if (isEnglish) "LICENSE.en.txt" else "LICENSE.zh.txt"
                 Thread.currentThread().contextClassLoader
@@ -2693,99 +2764,70 @@ private fun LicenseViewerDialog(onDismiss: () -> Unit) {
 
     val scrollState = rememberScrollState()
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.Article, null, Modifier.size(20.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(I18n.t("settings.license_title"))
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row {
+                FilterChip(
+                    selected = !isEnglish,
+                    onClick = { isEnglish = false },
+                    label = { Text("中文") }
+                )
+                Spacer(Modifier.width(6.dp))
+                FilterChip(
+                    selected = isEnglish,
+                    onClick = { isEnglish = true },
+                    label = { Text("English") }
+                )
             }
-        },
-        text = {
-            Column(Modifier.fillMaxWidth()) {
-                // 语言切换 + 复制按钮
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row {
-                        FilterChip(
-                            selected = !isEnglish,
-                            onClick = { isEnglish = false },
-                            label = { Text("中文") }
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        FilterChip(
-                            selected = isEnglish,
-                            onClick = { isEnglish = true },
-                            label = { Text("English") }
-                        )
-                    }
-                    TextButton(onClick = {
-                        clipboardManager.setText(AnnotatedString(licenseText))
-                    }) {
-                        Icon(Icons.Filled.ContentCopy, null, Modifier.size(14.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text(I18n.t("common.copy"))
-                    }
-                }
-
-                Spacer(Modifier.height(8.dp))
-
-                // 许可证正文（可滚动）
-                Surface(
-                    color = glassSurfaceVariantColor(),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.fillMaxWidth().height(420.dp)
-                ) {
-                    Text(
-                        text = licenseText,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontFamily = FontFamily.Monospace,
-                        modifier = Modifier
-                            .verticalScroll(scrollState)
-                            .padding(12.dp)
-                    )
-                }
-
-                Spacer(Modifier.height(4.dp))
-                if (isEnglish) {
-                    Text(
-                        I18n.t("settings.license_english_ref"),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.outline
-                    )
-                } else {
-                    Text(
-                        I18n.t("settings.license_chinese_authoritative"),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.outline
-                    )
-                }
+            TextButton(onClick = {
+                clipboardManager.setText(AnnotatedString(licenseText))
+            }) {
+                Icon(Icons.Filled.ContentCopy, null, Modifier.size(14.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(I18n.t("common.copy"))
             }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text(I18n.t("common.close")) }
         }
-    )
+
+        Spacer(Modifier.height(8.dp))
+
+        Surface(
+            color = glassSurfaceVariantColor(),
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 360.dp, max = 560.dp)
+        ) {
+            Text(
+                text = licenseText,
+                style = MaterialTheme.typography.bodySmall,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier
+                    .verticalScroll(scrollState)
+                    .padding(12.dp)
+            )
+        }
+
+        Spacer(Modifier.height(4.dp))
+        Text(
+            if (isEnglish) I18n.t("settings.license_english_ref")
+            else I18n.t("settings.license_chinese_authoritative"),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.outline
+        )
+    }
 }
 
 /**
- * 通用文档查看器对话框:从 JAR 资源加载文本并展示,支持滚动阅读和复制全文。
- * 用于《用户协议》《免责协议》等单语言文档。
+ * 通用文档正文：从 JAR 资源加载，支持滚动与复制。
  */
 @Composable
-private fun DocumentViewerDialog(
-    title: String,
-    resourceName: String,
-    onDismiss: () -> Unit
-) {
+private fun DocumentPanel(resourceName: String) {
     val clipboardManager = LocalClipboardManager.current
 
-    val docText by androidx.compose.runtime.produceState(I18n.t("common.loading"), resourceName) {
-        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+    val docText by produceState(I18n.t("common.loading"), resourceName) {
+        value = withContext(Dispatchers.IO) {
             runCatching {
                 Thread.currentThread().contextClassLoader
                     ?.getResourceAsStream(resourceName)
@@ -2798,52 +2840,37 @@ private fun DocumentViewerDialog(
 
     val scrollState = rememberScrollState()
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.Description, null, Modifier.size(20.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(title)
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End
+        ) {
+            TextButton(onClick = {
+                clipboardManager.setText(AnnotatedString(docText))
+            }) {
+                Icon(Icons.Filled.ContentCopy, null, Modifier.size(14.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(I18n.t("common.copy_all"))
             }
-        },
-        text = {
-            Column(Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    TextButton(onClick = {
-                        clipboardManager.setText(AnnotatedString(docText))
-                    }) {
-                        Icon(Icons.Filled.ContentCopy, null, Modifier.size(14.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text(I18n.t("common.copy_all"))
-                    }
-                }
-
-                Spacer(Modifier.height(4.dp))
-
-                Surface(
-                    color = glassSurfaceVariantColor(),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.fillMaxWidth().height(440.dp)
-                ) {
-                    Text(
-                        text = docText,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontFamily = FontFamily.Monospace,
-                        modifier = Modifier
-                            .verticalScroll(scrollState)
-                            .padding(12.dp)
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text(I18n.t("common.close")) }
         }
-    )
+
+        Spacer(Modifier.height(4.dp))
+
+        Surface(
+            color = glassSurfaceVariantColor(),
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 360.dp, max = 560.dp)
+        ) {
+            Text(
+                text = docText,
+                style = MaterialTheme.typography.bodySmall,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier
+                    .verticalScroll(scrollState)
+                    .padding(12.dp)
+            )
+        }
+    }
 }
 
 @Composable
@@ -2852,7 +2879,9 @@ private fun MetalRenderCard(vm: LauncherViewModel, pref: com.pmcl.core.preferenc
     val enabled by vm.metalRenderEnabled.collectAsState()
     val status by vm.status.collectAsState()
     val selectedVersion by vm.selectedVersion.collectAsState()
-    val supported = remember { vm.metalRenderSupportedVersions().joinToString(", ") }
+    // 支持版本由 ensureMetalCapabilityLoaded 在 IO 线程填充，避免组合期打 Modrinth
+    val supportedText by vm.metalSupportedVersionsText.collectAsState()
+    val supported = supportedText.ifEmpty { "…" }
     val showMetalStatus = status.contains("Metal", ignoreCase = true)
         || status.contains("MetalRender", ignoreCase = true)
         || status.contains("レンダリング")

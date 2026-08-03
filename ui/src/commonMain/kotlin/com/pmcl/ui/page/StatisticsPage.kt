@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.sp
 import com.pmcl.core.i18n.I18n
 import com.pmcl.core.runtime.RuntimeManager
 import com.pmcl.core.stats.PlayTimeTracker
+import com.pmcl.ui.animation.TypewriterTitle
 import com.pmcl.ui.theme.glassCardColors
 import com.pmcl.ui.theme.glassCardElevation
 import com.pmcl.ui.viewmodel.LauncherViewModel
@@ -155,6 +156,14 @@ fun StatisticsPage(vm: LauncherViewModel, sectionId: String = "performance") {
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
+        val sectionTitleKey = when (sectionId) {
+            "overview" -> "stats.section.overview"
+            "sessions" -> "stats.section.sessions"
+            "breakdown" -> "stats.section.breakdown"
+            else -> "stats.section.performance"
+        }
+        TypewriterTitle(I18n.t(sectionTitleKey))
+
         when (sectionId) {
             "overview" -> {
                 OverviewCard(stats, records, entranceDelay = 80)
@@ -223,7 +232,16 @@ private data class PeakRecords(
  */
 @Composable
 private fun RealtimePerformanceCard(entranceDelay: Int = 0) {
-    val runtime = remember { RuntimeManager() }
+    // NoClassDefFoundError 也要吞掉：运行中覆盖 fat jar 后首次进系统信息页会缺 oshi 嵌套类
+    val runtime = remember {
+        try {
+            RuntimeManager()
+        } catch (t: Throwable) {
+            System.err.println("[RealtimePerformance] RuntimeManager 初始化失败: ${t.javaClass.name}: ${t.message}")
+            null
+        }
+    }
+    var initFailed by remember { mutableStateOf(runtime == null) }
 
     val cpuHistory = remember { mutableStateListOf<Float>() }
     val memHistory = remember { mutableStateListOf<Float>() }
@@ -233,57 +251,64 @@ private fun RealtimePerformanceCard(entranceDelay: Int = 0) {
     var sample by remember { mutableStateOf<PerformanceSample?>(null) }
     val peaks = remember { PeakRecords() }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(runtime) {
+        val rm = runtime ?: return@LaunchedEffect
         while (true) {
-            val s = withContext(Dispatchers.IO) {
-                val cpu = runtime.getCpuLoad()
-                val mem = runtime.getMemoryLoad()
-                val jvmHeapLoad = runtime.getJvmHeapLoad()
-                val diskUsage = runtime.getPmclDiskUsage()
-                val netSpeed = runtime.getNetworkSpeedKbS()
-                PerformanceSample(
-                    cpuLoad = cpu,
-                    memLoad = mem,
-                    jvmHeapLoad = jvmHeapLoad,
-                    jvmHeapUsedMb = runtime.getJvmHeapUsedMb(),
-                    jvmHeapAllocatedMb = runtime.getJvmHeapAllocatedMb(),
-                    jvmHeapMaxMb = runtime.getJvmHeapMaxMb(),
-                    threadCount = runtime.getJvmThreadCount(),
-                    diskLoad = diskUsage?.get(2) ?: 0.0,
-                    cpuName = runtime.getCpuName(),
-                    cpuPhysicalCores = runtime.getCpuPhysicalCores(),
-                    cpuLogicalCores = runtime.getCpuLogicalCores(),
-                    totalMemMb = runtime.getTotalMemoryMb(),
-                    availableMemMb = runtime.getAvailableMemoryMb(),
-                    diskUsedGb = diskUsage?.get(0) ?: 0.0,
-                    diskTotalGb = diskUsage?.get(1) ?: 0.0,
-                    netUpKbS = netSpeed[0],
-                    netDownKbS = netSpeed[1],
-                    gpuName = runtime.getPrimaryGpuName(),
-                    gpuVramMb = runtime.getPrimaryGpuVramMb(),
-                    systemUptimeSec = runtime.getSystemUptimeSeconds()
-                )
+            try {
+                val s = withContext(Dispatchers.IO) {
+                    val cpu = rm.getCpuLoad()
+                    val mem = rm.getMemoryLoad()
+                    val jvmHeapLoad = rm.getJvmHeapLoad()
+                    val diskUsage = rm.getPmclDiskUsage()
+                    val netSpeed = rm.getNetworkSpeedKbS()
+                    PerformanceSample(
+                        cpuLoad = cpu,
+                        memLoad = mem,
+                        jvmHeapLoad = jvmHeapLoad,
+                        jvmHeapUsedMb = rm.getJvmHeapUsedMb(),
+                        jvmHeapAllocatedMb = rm.getJvmHeapAllocatedMb(),
+                        jvmHeapMaxMb = rm.getJvmHeapMaxMb(),
+                        threadCount = rm.getJvmThreadCount(),
+                        diskLoad = diskUsage?.get(2) ?: 0.0,
+                        cpuName = rm.getCpuName(),
+                        cpuPhysicalCores = rm.getCpuPhysicalCores(),
+                        cpuLogicalCores = rm.getCpuLogicalCores(),
+                        totalMemMb = rm.getTotalMemoryMb(),
+                        availableMemMb = rm.getAvailableMemoryMb(),
+                        diskUsedGb = diskUsage?.get(0) ?: 0.0,
+                        diskTotalGb = diskUsage?.get(1) ?: 0.0,
+                        netUpKbS = netSpeed[0],
+                        netDownKbS = netSpeed[1],
+                        gpuName = rm.getPrimaryGpuName(),
+                        gpuVramMb = rm.getPrimaryGpuVramMb(),
+                        systemUptimeSec = rm.getSystemUptimeSeconds()
+                    )
+                }
+                sample = s
+
+                // 更新峰值
+                val cpuPct = (s.cpuLoad * 100).toFloat()
+                val memPct = (s.memLoad * 100).toFloat()
+                val jvmPct = (s.jvmHeapLoad * 100).toFloat()
+                if (cpuPct > peaks.cpuPeak) peaks.cpuPeak = cpuPct
+                if (memPct > peaks.memPeak) peaks.memPeak = memPct
+                if (jvmPct > peaks.jvmPeak) peaks.jvmPeak = jvmPct
+                if (s.netUpKbS > peaks.netUpPeak) peaks.netUpPeak = s.netUpKbS
+                if (s.netDownKbS > peaks.netDownPeak) peaks.netDownPeak = s.netDownKbS
+
+                cpuHistory.add(cpuPct)
+                memHistory.add(memPct)
+                jvmHistory.add(jvmPct)
+                netHistory.add((s.netUpKbS + s.netDownKbS).toFloat())
+                while (cpuHistory.size > 40) cpuHistory.removeAt(0)
+                while (memHistory.size > 40) memHistory.removeAt(0)
+                while (jvmHistory.size > 40) jvmHistory.removeAt(0)
+                while (netHistory.size > 40) netHistory.removeAt(0)
+            } catch (t: Throwable) {
+                System.err.println("[RealtimePerformance] 采样失败: ${t.javaClass.name}: ${t.message}")
+                initFailed = true
+                break
             }
-            sample = s
-
-            // 更新峰值
-            val cpuPct = (s.cpuLoad * 100).toFloat()
-            val memPct = (s.memLoad * 100).toFloat()
-            val jvmPct = (s.jvmHeapLoad * 100).toFloat()
-            if (cpuPct > peaks.cpuPeak) peaks.cpuPeak = cpuPct
-            if (memPct > peaks.memPeak) peaks.memPeak = memPct
-            if (jvmPct > peaks.jvmPeak) peaks.jvmPeak = jvmPct
-            if (s.netUpKbS > peaks.netUpPeak) peaks.netUpPeak = s.netUpKbS
-            if (s.netDownKbS > peaks.netDownPeak) peaks.netDownPeak = s.netDownKbS
-
-            cpuHistory.add(cpuPct)
-            memHistory.add(memPct)
-            jvmHistory.add(jvmPct)
-            netHistory.add((s.netUpKbS + s.netDownKbS).toFloat())
-            while (cpuHistory.size > 40) cpuHistory.removeAt(0)
-            while (memHistory.size > 40) memHistory.removeAt(0)
-            while (jvmHistory.size > 40) jvmHistory.removeAt(0)
-            while (netHistory.size > 40) netHistory.removeAt(0)
 
             delay(1500)
         }
@@ -292,6 +317,25 @@ private fun RealtimePerformanceCard(entranceDelay: Int = 0) {
     AppleStatCard(entranceDelay = entranceDelay) {
         AppleEyebrow(I18n.t("stats.realtime_performance"))
         Spacer(Modifier.height(16.dp))
+
+        if (initFailed && sample == null) {
+            Text(
+                I18n.t("stats.system_info_unavailable"),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline
+            )
+        } else if (sample == null) {
+            Box(
+                Modifier.fillMaxWidth().height(160.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(28.dp),
+                    strokeWidth = 3.dp,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
 
         sample?.let { s ->
             Row(
@@ -373,17 +417,6 @@ private fun RealtimePerformanceCard(entranceDelay: Int = 0) {
                     I18n.t("stats.system_uptime"),
                     formatUptime(s.systemUptimeSec),
                     showDivider = false
-                )
-            }
-        } ?: run {
-            Box(
-                Modifier.fillMaxWidth().height(160.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(28.dp),
-                    strokeWidth = 3.dp,
-                    color = MaterialTheme.colorScheme.primary
                 )
             }
         }

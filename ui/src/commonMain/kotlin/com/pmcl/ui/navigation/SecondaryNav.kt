@@ -9,6 +9,7 @@ import androidx.compose.material.icons.filled.Dataset
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.Gavel
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Info
@@ -59,6 +60,7 @@ object SecondaryNavRegistry {
             SecondarySection("device", "settings.section.device", Icons.Filled.Shield),
             SecondarySection("system", "settings.section.system", Icons.Filled.Info),
             SecondarySection("about", "settings.section.about", Icons.Filled.Article),
+            SecondarySection("licenses", "settings.section.licenses", Icons.Filled.Gavel),
             SecondarySection("extensions", "settings.section.extensions", Icons.Filled.Extension),
         )
     )

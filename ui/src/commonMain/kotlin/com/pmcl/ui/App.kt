@@ -24,6 +24,7 @@ import com.pmcl.ui.navigation.SecondaryNavRail
 import com.pmcl.ui.navigation.SecondaryNavRailWidth
 import com.pmcl.ui.navigation.SecondaryNavRegistry
 import com.pmcl.ui.navigation.allDestinations
+import kotlinx.coroutines.launch
 import com.pmcl.ui.page.AccountsPage
 import com.pmcl.ui.page.AgreementGatePage
 import com.pmcl.ui.page.ContentHubPage
@@ -56,9 +57,7 @@ import com.pmcl.ui.viewmodel.setMusicVolume
 import com.pmcl.ui.viewmodel.stopMusic
 import com.pmcl.ui.widget.MiniMusicBar
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-
 @Composable
 fun App(vm: LauncherViewModel) {
     val themeState = remember { ThemeState(initialDark = vm.preferences.isUseDarkTheme()) }
@@ -180,7 +179,13 @@ private fun PushedUpdateDialog(vm: LauncherViewModel) {
         },
         text = {
             Column {
-                Text("GitHub Release 同步发现了一个新版本。")
+                Text("启动检查发现了适用于当前系统的新版本。")
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "构建：${info.assetName.ifBlank { "跨平台更新包" }}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
                 Spacer(Modifier.height(8.dp))
                 if (info.notes.isNotEmpty()) {
                     Text("更新说明:", style = MaterialTheme.typography.labelMedium,
@@ -195,6 +200,12 @@ private fun PushedUpdateDialog(vm: LauncherViewModel) {
                 Text("文件大小: $sizeStr",
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "下载后将校验 SHA-256 与 Ed25519 签名，并自动安装。安装时启动器会退出并重新打开；系统可能要求管理员授权。",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
                 if (downloading && info.size > 0) {
                     Spacer(Modifier.height(8.dp))
                     val fraction = (downloadedBytes.toFloat() / info.size).coerceIn(0f, 1f)
@@ -226,7 +237,7 @@ private fun PushedUpdateDialog(vm: LauncherViewModel) {
                     vm.downloadPushedUpdate { bytes -> downloadedBytes = bytes }
                 }
             ) {
-                Text(if (downloading) "下载中…" else "下载更新")
+                Text(if (downloading) "下载并安装中…" else "下载并自动安装")
             }
         },
         dismissButton = {
@@ -288,6 +299,8 @@ private fun MainWindowContent(vm: LauncherViewModel) {
     var navDirection by remember { mutableIntStateOf(0) }
     // 二级侧栏：非空表示已钻入有子导航的一级入口
     var secondarySectionId by remember { mutableStateOf<String?>(null) }
+    // 驱动侧栏展开/收起动画
+    var drilledIn by remember { mutableStateOf(false) }
     // 二级分区切换方向：1=列表向下，-1=向上，0=交叉淡入（钻入/返回时）
     var secondarySectionDirection by remember { mutableIntStateOf(0) }
     var hasPluginSettings by remember { mutableStateOf(false) }
@@ -299,16 +312,21 @@ private fun MainWindowContent(vm: LauncherViewModel) {
         val spec = dest?.let { SecondaryNavRegistry.specFor(it) }
         secondarySectionDirection = 0
         secondarySectionId = spec?.sections?.firstOrNull()?.id
+        drilledIn = spec != null
     }
 
     fun exitSecondary() {
-        secondarySectionId = null
+        if (!drilledIn) return
+        // 同一帧切换侧栏和内容，避免旧二级页面在侧栏收起后继续残留形成鬼影
+        drilledIn = false
         secondarySectionDirection = 0
         navDirection = -1
         current = NavTarget.BuiltIn(NavDestination.Launch)
+        secondarySectionId = null
     }
 
     fun selectSecondarySection(spec: com.pmcl.ui.navigation.SecondaryNavSpec, id: String) {
+        drilledIn = true
         val oldIdx = spec.sections.indexOfFirst { it.id == secondarySectionId }
         val newIdx = spec.sections.indexOfFirst { it.id == id }
         secondarySectionDirection = when {
@@ -673,7 +691,11 @@ private fun MainWindowContent(vm: LauncherViewModel) {
 
     val currentBuiltIn = (current as? NavTarget.BuiltIn)?.dest
     val secondarySpec = currentBuiltIn?.let { SecondaryNavRegistry.specFor(it) }
-    val inSecondary = secondarySectionId != null && secondarySpec != null
+    val inSecondary = drilledIn && secondarySectionId != null && secondarySpec != null
+    // 退出动画期间 drilledIn 已为 false，但 section 尚未清空：侧栏退场仍需渲染二级内容
+    val secondaryRailSpec = secondarySpec
+    val secondaryRailSectionId = secondarySectionId
+    val showSecondaryRail = secondaryRailSpec != null && secondaryRailSectionId != null
     val queueSummaryForBadge by vm.queueSummary.collectAsState()
     val secondaryBadges = remember(queueSummaryForBadge.active()) {
         if (queueSummaryForBadge.active() > 0) {
@@ -753,15 +775,14 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                         }
                     },
                     secondary = {
-                        val spec = secondarySpec
-                        if (spec != null && secondarySectionId != null) {
+                        if (showSecondaryRail) {
                             SecondaryNavRail(
-                                spec = spec,
-                                selectedSectionId = secondarySectionId!!,
+                                spec = secondaryRailSpec!!,
+                                selectedSectionId = secondaryRailSectionId!!,
                                 onBack = { exitSecondary() },
-                                onSelect = { id -> selectSecondarySection(spec, id) },
+                                onSelect = { id -> selectSecondarySection(secondaryRailSpec, id) },
                                 badges = secondaryBadges,
-                                hiddenSectionIds = if (spec.parentRoute == "settings") {
+                                hiddenSectionIds = if (secondaryRailSpec.parentRoute == "settings") {
                                     secondaryHidden
                                 } else emptySet(),
                                 railModifier = if (glassOn) {
@@ -811,6 +832,7 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                         is NavTarget.PluginPage -> "plugin:${c.page.pluginId}:${c.page.id}"
                     }
                     // 二级分区切换用精细水平滑动；一级页面切换仍用 navDirection
+                    // 标题另用 TypewriterTitle，不改动页面滚入动画
                     val contentDirection = if (inSecondary && secondarySectionDirection != 0) {
                         secondarySectionDirection
                     } else {
@@ -886,6 +908,7 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                             navDirection = 1
                             current = NavTarget.BuiltIn(NavDestination.Download)
                             secondarySectionId = "queue"
+                            drilledIn = true
                         },
                         onPositioned = { rect, _ -> vm.updateDownloadQueueRect(rect) },
                         modifier = Modifier.align(Alignment.BottomEnd)
@@ -1003,6 +1026,7 @@ private fun MainWindowContent(vm: LauncherViewModel) {
             } else {
                 spec.sections.first().id
             }
+            drilledIn = true
         }
         vm.clearSecondaryNavRequest()
     }
