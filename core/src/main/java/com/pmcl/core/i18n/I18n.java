@@ -799,6 +799,7 @@ public final class I18n {
         ZH.put("about.dev.peddlejumper.role", "负责 PMCL 的设计与开发");
         ZH.put("about.dev.forget_me.role", "负责 PMCL 的设计与开发");
         ZH.put("about.dev.mtutu_1314.role", "负责 PMCL 的设计与开发");
+        ZH.put("about.dev.unnk_ye.role", "负责 PMCL 的设计与开发");
         ZH.put("about.dev.hcs_organization.role", "负责 PMCL 的设计与开发");
         ZH.put("about.dev.sjgdnsk.role", "美术设计");
         ZH.put("about.dev.ninolian.role", "功能审查");
@@ -2827,6 +2828,7 @@ public final class I18n {
         EN.put("about.dev.peddlejumper.role", "Designs and develops PMCL");
         EN.put("about.dev.forget_me.role", "Designs and develops PMCL");
         EN.put("about.dev.mtutu_1314.role", "Designs and develops PMCL");
+        EN.put("about.dev.unnk_ye.role", "Designs and develops PMCL");
         EN.put("about.dev.hcs_organization.role", "Designs and develops PMCL");
         EN.put("about.dev.sjgdnsk.role", "Art design");
         EN.put("about.dev.ninolian.role", "Feature review");
@@ -4790,6 +4792,7 @@ public final class I18n {
         JA.put("about.dev.peddlejumper.role", "PMCL の設計と開発を担当");
         JA.put("about.dev.forget_me.role", "PMCL の設計と開発を担当");
         JA.put("about.dev.mtutu_1314.role", "PMCL の設計と開発を担当");
+        JA.put("about.dev.unnk_ye.role", "PMCL の設計と開発を担当");
         JA.put("about.dev.hcs_organization.role", "PMCL の設計と開発を担当");
         JA.put("about.dev.sjgdnsk.role", "美術デザイン");
         JA.put("about.dev.ninolian.role", "機能レビュー");

@@ -1076,6 +1076,10 @@ private fun DeveloperList() {
             url = "https://github.com/matutu1314"
         ),
         DeveloperEntry(
+            name = "unnk叶",
+            roleKey = "about.dev.unnk_ye.role"
+        ),
+        DeveloperEntry(
             name = "HCS-Organization",
             roleKey = "about.dev.hcs_organization.role",
             avatarUrl = "https://github.com/HCS-Organization.png?size=128",
