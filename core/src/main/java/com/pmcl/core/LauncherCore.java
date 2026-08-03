@@ -168,7 +168,7 @@ public final class LauncherCore {
         // GitHub Release 同步更新（从 Preferences 读取配置，enabled 时自动检查）
         this.githubSync = initOptional("GitHubReleaseSync",
                 () -> {
-                    GitHubReleaseSyncChecker checker = new GitHubReleaseSyncChecker("1.0.0");
+                    GitHubReleaseSyncChecker checker = new GitHubReleaseSyncChecker("1.3.0");
                     checker.setGithubRepo(preferences.getGithubRepo());
                     if (preferences.isGithubSyncEnabled()) {
                         try {

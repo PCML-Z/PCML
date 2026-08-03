@@ -878,7 +878,7 @@ private fun AboutCard(vm: LauncherViewModel) {
                 Column {
                     Text(I18n.t("about.title"), style = MaterialTheme.typography.titleMedium,
                          fontWeight = FontWeight.Bold)
-                    Text(I18n.t("about.version", "1.0.0 (build 20260719.1)"),
+                    Text(I18n.t("about.version", "1.3.0 (build 20260803.1)"),
                          style = MaterialTheme.typography.labelSmall,
                          color = MaterialTheme.colorScheme.outline)
                 }

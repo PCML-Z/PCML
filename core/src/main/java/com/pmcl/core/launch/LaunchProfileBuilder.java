@@ -2040,7 +2040,7 @@ public final class LaunchProfileBuilder {
         java.util.Map<String, String> placeholders = new java.util.HashMap<>();
         placeholders.put("${natives_directory}", effectiveNatives.toString());
         placeholders.put("${launcher_name}", "PMCL");
-        placeholders.put("${launcher_version}", "1.0.0");
+        placeholders.put("${launcher_version}", "1.3.0");
         placeholders.put("${classpath_separator}", System.getProperty("path.separator"));
         placeholders.put("${library_directory}", librariesDir.toString());
         placeholders.put("${game_directory}", gameDir.toString());

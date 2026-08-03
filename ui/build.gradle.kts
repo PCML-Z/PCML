@@ -27,8 +27,10 @@ kotlin {
 
             dependencies {
                 implementation(compose.desktop.currentOs)
-                // 引入 Windows 平台 native 库，使 fat jar 可在 Windows 上运行
+                // 引入 Windows / Linux 平台 native 库，使 fat jar 可跨平台运行 Compose UI
                 implementation(compose.desktop.windows_x64)
+                implementation(compose.desktop.linux_x64)
+                implementation(compose.desktop.linux_arm64)
 
                 implementation(project(":core"))
                 implementation(project(":cli"))
@@ -56,6 +58,7 @@ kotlin {
                 //    (libprism_es2.dylib: incompatible architecture have x86_64 need arm64)
                 //    导致 QuantumRenderer 初始化失败 → 整个窗口卡死
                 // 3. 每个模块的 classifier jar 独立，传递依赖不带 classifier，需全部显式声明
+                // 注意：不可把多平台 classifier 同时打进 fat jar（类重复）；Wiki 仅当前构建平台可用
                 val fxVer = libs.versions.javafx.get()
                 val osName = System.getProperty("os.name").lowercase()
                 val osArch = System.getProperty("os.arch").lowercase()
@@ -87,7 +90,7 @@ compose.desktop {
                 org.jetbrains.compose.desktop.application.dsl.TargetFormat.Deb
             )
             packageName = "pmcl"
-            packageVersion = "1.0.0"
+            packageVersion = "1.3.0"
 
             // jlink 默认仅按显式 module 依赖打包，反射/运行时加载的模块需手动声明
             // 缺失会导致 NoClassDefFoundError: java/lang/management/ManagementFactory 等
@@ -127,7 +130,7 @@ tasks.register<Jar>("fatJar") {
     dependsOn("desktopJar")
     archiveBaseName.set("pmcl")
     archiveClassifier.set("all")
-    archiveVersion.set("1.0.0")
+    archiveVersion.set("1.3.0")
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 
     manifest {

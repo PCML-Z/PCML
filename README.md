@@ -106,8 +106,8 @@ PMCL/
 # 构建 Fat JAR (跨平台，含 Windows native 库)
 ./gradlew :ui:fatJar
 
-# 输出: ui/build/libs/pmcl-1.0.0-all.jar
-# 运行: java -jar ui/build/libs/pmcl-1.0.0-all.jar
+# 输出: ui/build/libs/pmcl-1.3.0-all.jar
+# 运行: java -jar ui/build/libs/pmcl-1.3.0-all.jar
 ```
 
 ### 构建原生安装包
@@ -116,7 +116,7 @@ PMCL/
 # macOS (.dmg)
 ./gradlew :ui:packageDistributionForCurrentOS
 
-# 输出: ui/build/compose/binaries/main/dmg/pmcl-1.0.0.dmg
+# 输出: ui/build/compose/binaries/main/dmg/pmcl-1.3.0.dmg
 ```
 
 ### 构建插件
@@ -235,11 +235,11 @@ GitHub Releases API  ◀──轮询(每30分钟)──  PMCL 客户端
 ```bash
 # 构建 fat JAR
 ./gradlew :ui:fatJar
-# 输出: ui/build/libs/pmcl-1.0.0-all.jar
+# 输出: ui/build/libs/pmcl-1.3.0-all.jar
 
 # 创建 GitHub Release 并上传资产（需 gh CLI）
-gh release create v1.0.1 ui/build/libs/pmcl-1.0.0-all.jar \
-  --title "v1.0.1" --notes "修复 XXX 问题"
+gh release create v1.3.0 ui/build/libs/pmcl-1.3.0-all.jar \
+  --title "v1.3.0" --notes "PMCL 1.3.0"
 ```
 
 ### 启动器端配置
