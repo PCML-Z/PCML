@@ -330,6 +330,8 @@ public static AssetIndex parse(String json) throws IOException {
 
 ## 插件开发
 
+> 完整的插件包格式、描述符字段、签名信任、API 契约与权限声明等要求，请参见 **[PLUGIN_REQUIREMENTS.md](PLUGIN_REQUIREMENTS.md)**。
+
 ### 最小示例
 
 ```kotlin
