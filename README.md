@@ -8,7 +8,7 @@
   <img src="repo-stats.png" alt="PMCL repo stats">
 </p>
 
-**PMCL** (Personal Minecraft Custom Launcher) 是一个基于 Compose Desktop 构建的跨平台 Minecraft 启动器，采用 Material 3 设计语言，内置插件系统、联机功能、模组管理，并支持嵌入 JavaFX 界面。
+**PMCL** (Personal Minecraft Custom Launcher) 是一个基于 Compose Desktop 构建的跨平台 Minecraft 启动器，采用 Material 3 设计语言，内置插件系统、联机功能、模组管理，并支持嵌入 HMCL JavaFX 界面。
 
 ## 功能特性
 
@@ -84,6 +84,200 @@ PMCL/
 ├── test-plugin/             # 单 JAR 插件示例
 ├── test-plugin-package/     # .ppk 包插件示例
 └── settings.gradle.kts      # 8 个子模块
+```
+
+## 核心代码示例
+
+下面用启动器里**真实存在**的代码片段，展示四个关键阶段是如何实现的。所有路径相对于仓库根目录。
+
+### 1. 核心初始化（Core Initialization）
+
+启动器内核的入口是 `core/.../LauncherCore.java`。它在构造时一次性创建并装配所有子系统，并通过 `initOptional` 让可选模块（插件、联机、翻译等）初始化失败时降级而非中断启动：
+
+```java
+// core/src/main/java/com/pmcl/core/LauncherCore.java
+public LauncherCore(LauncherConfig config) {
+    this.config = config;
+    // 偏好配置与工作目录（~/.pmcl）
+    this.preferences = new Preferences(
+            Paths.get(System.getProperty("user.home"), ".pmcl", "preferences.json"));
+    this.instanceManager = new InstanceManager(config);
+
+    // 核心服务装配
+    this.versionManager   = new VersionManager(config, preferences);
+    this.downloadManager  = new DownloadManager(config, preferences);
+    this.authService      = new AuthService();
+    this.runtimeManager   = new RuntimeManager();
+    this.launchManager    = new LaunchManager(config, preferences);
+    this.versionInstaller = new VersionInstaller(config, versionManager, downloadManager);
+    // …… mod / modpack / 内容管理 / 完整性校验 / 崩溃分析 等 20+ 子系统
+
+    // 可选子系统：失败降级，不中断启动器
+    this.pluginManager = initOptional("PluginManager", () -> new PluginManager(this));
+
+    // 把插件管理器注入到启动 / 联机 / 下载队列，供钩子与事件使用
+    if (this.pluginManager != null) {
+        this.launchManager.setPluginManager(this.pluginManager);
+        this.multiplayerManager.setPluginManager(this.pluginManager);
+        this.downloadQueue.setPluginManager(this.pluginManager);
+    }
+    // 应用持久化的语言偏好
+    applyLanguage(preferences.getLanguage());
+}
+
+// 工作目录与派生目录（versions / libraries / assets / runtimes）由 LauncherConfig 统一解析
+// core/src/main/java/com/pmcl/core/LauncherConfig.java
+public LauncherConfig() {
+    this(Paths.get(System.getProperty("user.home"), ".pmcl"));
+}
+public Path getVersionsDir()  { return workDir.resolve("versions"); }
+public Path getAssetsDir()    { return workDir.resolve("assets"); }
+public Path getRuntimesDir()  { return workDir.resolve("runtimes"); }
+```
+
+UI 层（Compose）在 `LauncherViewModel` 中持有一个 `LauncherCore` 实例，并在 `init` 块里注入可选模块、注册监听器、启动检查更新：
+
+```kotlin
+// ui/src/commonMain/kotlin/com/pmcl/ui/viewmodel/LauncherViewModel.kt
+class LauncherViewModel {
+    val core = LauncherCore()          // 触发全部子系统初始化
+
+    init {
+        // 注入 video 模块的主菜单背景视频处理器（避免 core↔video 循环依赖）
+        core.profileBuilder().setMenuBackgroundProvider(com.pmcl.video.MenuBackgroundManager())
+        setupGithubSyncListener()       // 注册更新同步监听
+        checkUpdateOnStartup()          // 每次打开都检查一次更新
+    }
+}
+```
+
+### 2. Java 检测（Java Detection）
+
+检测系统可用的 Java 运行时由 `core/.../launch/JavaRuntimeFinder.java` 负责。它按「自带 runtimes 目录 → 常见安装路径 → JAVA_HOME → PATH」的优先级查找，并通过 fork `java -version` 解析主版本号：
+
+```java
+// core/src/main/java/com/pmcl/core/launch/JavaRuntimeFinder.java
+public static String findJavaExecutable(Path runtimesDir, int requiredMajorVersion,
+                                        boolean preferLegacyTranslation) {
+    // 1. 优先扫描启动器下载的 runtimes 目录
+    if (runtimesDir != null) {
+        String best = pickBestJavaForVersion(scanRuntimes(runtimesDir), requiredMajorVersion, preferLegacyTranslation);
+        if (best != null) return best;
+    }
+    // 2. 常见安装路径（按 OS 枚举 macOS / Windows / Linux，含龙芯与 RISC-V 路径）
+    List<String> candidates = new ArrayList<>();
+    if (os.contains("mac")) {
+        candidates.add("/Library/Java/JavaVirtualMachines/jdk-21.jdk/Contents/Home");
+        candidates.add("/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home");
+        // ……
+    }
+    String best = pickBestJavaForVersion(candidates, requiredMajorVersion, preferLegacyTranslation);
+    if (best != null) return best;
+
+    // 3. JAVA_HOME 环境变量
+    String javaHome = System.getenv("JAVA_HOME");
+    if (javaHome != null) { String exe = resolveJava(javaHome); if (exe != null) return exe; }
+
+    // 4. PATH 中的 java 命令（兜底）
+    // 5. 都找不到返回 null，由调用方引导用户安装
+    return null;
+}
+
+// 通过 fork java -version 解析主版本号（结果按路径缓存，避免重复起进程）
+public static Integer getMajorVersion(String javaExe) {
+    Integer cached = MAJOR_VERSION_CACHE.get(javaExe);
+    if (cached != null) return cached;
+    Integer result = computeMajorVersion(javaExe);     // 正则 "version \"21.0.1\"" → 21
+    if (result != null) MAJOR_VERSION_CACHE.put(javaExe, result);
+    return result;
+}
+```
+
+### 3. 游戏扫描（Game Scanning）
+
+本地已安装版本的扫描在 `core/.../version/VersionManager.java` 中。它会遍历 `versions/` 下的每个子目录，解析 `version.json` 提取 `inheritsFrom` / `mainClass` / `assets`，并合并 PMCL 目录、系统默认目录（如 `~/Library/Application Support/minecraft/versions`）与用户自定义根目录：
+
+```java
+// core/src/main/java/com/pmcl/core/version/VersionManager.java
+public List<LocalVersionInfo> scanVersionsDir(Path versionsDir,
+                                              Consumer<ScanProgress> onProgress) {
+    if (!Files.isDirectory(versionsDir)) return Collections.emptyList();
+    List<Path> subDirs = new ArrayList<>();
+    try (var stream = Files.list(versionsDir)) {
+        stream.filter(Files::isDirectory).forEach(subDirs::add);
+    }
+    // ……
+    for (Path p : subDirs) {
+        String id = p.getFileName().toString();
+        if (VersionStaging.isTransientDirName(id)) continue;   // 跳过 .staging / .bak
+        Path json = p.resolve(id + ".json");
+        boolean hasJson = Files.exists(json);
+        boolean hasJar  = Files.exists(p.resolve(id + ".jar"));
+        String inheritsFrom = null, mainClass = null, assets = null;
+        if (hasJson) {
+            JsonObject root = JsonParser.parseString(Files.readString(json, UTF_8)).getAsJsonObject();
+            if (root.has("inheritsFrom")) inheritsFrom = root.get("inheritsFrom").getAsString();
+            if (root.has("mainClass"))    mainClass    = root.get("mainClass").getAsString();
+            if (root.has("assets"))       assets       = root.get("assets").getAsString();
+        }
+        result.add(new LocalVersionInfo(id, mtime, hasJar, hasJson, inheritsFrom, mainClass, assets));
+        if (onProgress != null) onProgress.accept(new ScanProgress(dirName, ++scanned, total, id));
+    }
+    result.sort((a, b) -> Long.compare(b.getLastModified(), a.getLastModified())); // 最新在前
+    return result;
+}
+
+// 合并 .pmcl/versions + 系统默认目录 + 用户自定义根目录，跨目录去重
+public List<LocalVersionInfo> scanAllLocalVersions(Consumer<ScanProgress> onProgress) {
+    List<Path> dirs = getAllScanDirs();
+    // 第一遍逐目录扫描 → 第二遍合并去重 + 累计进度回调
+}
+```
+
+### 4. 资源完成（Resource Completion）
+
+版本安装器 `core/.../install/VersionInstaller.java` 负责把游戏所需的 `client.jar`、`libraries`（含 natives）和 `assets` 全部补齐。资源完整性由 `AssetIndex.parse` 校验——任一资源条目缺少有效 SHA-1 即拒绝安装，避免「装完却缺资源」：
+
+```java
+// core/src/main/java/com/pmcl/core/install/VersionInstaller.java  (doInstall 片段)
+// 5. 资产索引（声明了 assets 则必须成功下载，禁止静默跳过）
+if (vj.getAssets() != null && !vj.getAssets().isEmpty()) {
+    String assetIndexUrl   = resolveAssetIndexUrl(vj);
+    String assetIndexSha1  = resolveAssetIndexSha1(vj);
+    if (assetIndexSha1 == null || assetIndexSha1.isBlank())
+        throw new IOException("assetIndex 缺少 sha1，拒绝无完整性校验的索引下载");
+    Path idxPath = config.getAssetsDir().resolve("indexes").resolve(vj.getAssets() + ".json");
+    downloadManager.downloadToVerified(assetIndexUrl, idxPath, assetIndexSha1, null);
+    AssetIndex idx = AssetIndex.parse(Files.readString(idxPath, UTF_8));
+    for (AssetIndex.Asset a : idx.getAssets().values()) {
+        tasks.add(new DownloadTask(                 // 把每个资源加入下载队列
+                RESOURCE_BASE + a.getPath(), a.getHash(), a.getSize(),
+                "assets/objects/" + a.getPath()));
+    }
+}
+// 6. 批量下载（libraries + natives + assets），带 .part 续传与 SHA 校验
+downloadManager.downloadAll(tasks, /*onFile*/ file -> {}, /*onProgress*/ bytes -> { /*...*/ }).join();
+// 7. 解压 natives → 8. 原子提升 staging → versions/{id}
+```
+
+```java
+// core/src/main/java/com/pmcl/core/install/AssetIndex.java
+// 资源完整性校验：任一对象缺 hash 或 hash 不是合法 SHA-1 则直接失败
+public static AssetIndex parse(String json) throws IOException {
+    JsonObject root = JsonParser.parseString(json).getAsJsonObject();
+    AssetIndex idx = new AssetIndex(root.get("name").getAsString());
+    int missingHash = 0;
+    for (Map.Entry<String, JsonElement> e : root.getAsJsonObject("objects").entrySet()) {
+        JsonObject o = e.getValue().getAsJsonObject();
+        String hash = o.has("hash") ? o.get("hash").getAsString() : null;
+        if (hash == null || !hash.matches("[0-9a-fA-F]{40}")) { missingHash++; continue; }
+        long size = o.get("size").getAsLong();
+        idx.assets.put(e.getKey(), new Asset(hash, size));
+    }
+    if (missingHash > 0)
+        throw new IOException("资产索引有 " + missingHash + " 个条目缺少有效 SHA-1，拒绝安装");
+    return idx;
+}
 ```
 
 ## 技术栈
