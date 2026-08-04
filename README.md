@@ -1,7 +1,3 @@
-<p align="center">
-  <a href="README.zh-CN.md">中文</a> · <a href="README.md">English</a>
-</p>
-
 # PMCL
 
 <p align="center">
@@ -12,7 +8,7 @@
   <img src="repo-stats.png" alt="PMCL repo stats">
 </p>
 
-**PMCL** (Personal Minecraft Custom Launcher) is a cross-platform Minecraft launcher built on Compose Desktop, using the Material 3 design language, with a built-in plugin system, multiplayer support, mod management, and the ability to embed the HMCL JavaFX UI in-window.
+**PMCL** (Personal Minecraft Custom Launcher) is a cross-platform Minecraft launcher built on Compose Desktop, using the Material 3 design language, with a built-in plugin system, multiplayer support, mod management, and the ability to embed the JavaFX UI in-window.
 
 ## Features
 
@@ -27,7 +23,7 @@
 ### Content Management
 - **Mod management** — Modrinth / CurseForge marketplace integration with conflict detection
 - **Modpack support** — auto-scans the `mods` directory of modpack versions
-- **Worlds & screenshots** — merges PMCL / HMCL / official launcher directories with deduplicated display
+- **Worlds & screenshots** — merges PMCL / official launcher directories with deduplicated display
 - **Data packs / shader packs / resource packs** — one-click install and management
 
 ### Multiplayer
@@ -471,3 +467,6 @@ Minecraft is a trademark of Mojang Studios. Please make sure you own a legitimat
 - [Modrinth](https://modrinth.com) — mod marketplace API
 - [CurseForge](https://www.curseforge.com) — mod marketplace API
 - [Terracotta](https://maven.terraformersmc.com) — multiplayer backend
+<p align="center">
+  <a href="README.zh-CN.md">中文</a> · <a href="README.md">English</a>
+</p>
