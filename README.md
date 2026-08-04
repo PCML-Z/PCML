@@ -4,6 +4,10 @@
   <img src="ui/src/commonMain/resources/pmcl_icon.png" width="128" height="128" alt="PMCL Logo">
 </p>
 
+<p align="center">
+  <img src="logo-pmcl-pixel.png" alt="PMCL 像素猫娘图标" width="512">
+</p>
+
 **PMCL** (Personal Minecraft Custom Launcher) 是一个基于 Compose Desktop 构建的跨平台 Minecraft 启动器，采用 Material 3 设计语言，内置插件系统、联机功能、模组管理，并支持嵌入 HMCL JavaFX 界面。
 
 ## 功能特性
