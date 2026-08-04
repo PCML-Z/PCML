@@ -1,3 +1,7 @@
+<p align="center">
+  <a href="README.zh-CN.md">中文</a> · <a href="README.md">English</a>
+</p>
+
 # PMCL
 
 <p align="center">
@@ -8,124 +12,124 @@
   <img src="repo-stats.png" alt="PMCL repo stats">
 </p>
 
-**PMCL** (Personal Minecraft Custom Launcher) 是一个基于 Compose Desktop 构建的跨平台 Minecraft 启动器，采用 Material 3 设计语言，内置插件系统、联机功能、模组管理，并支持嵌入 HMCL JavaFX 界面。
+**PMCL** (Personal Minecraft Custom Launcher) is a cross-platform Minecraft launcher built on Compose Desktop, using the Material 3 design language, with a built-in plugin system, multiplayer support, mod management, and the ability to embed the HMCL JavaFX UI in-window.
 
-## 功能特性
+## Features
 
-### 启动器核心
-- **Compose Desktop UI** — Material 3 设计，流畅的动画和平滑滚动
-- **版本安装与启动** — 支持从 Alpha 到最新正式版的 Minecraft 版本
-- **微软账户认证** — OAuth 2.0 Device Code 流程登录
-- **Java 运行时管理** — 自动检测/下载 Java 8/17/21，Apple Silicon 支持 x86_64 兼容层
-- **跨平台** — macOS (arm64/x86_64)、Windows (x64)、Linux
-- **GitHub Release 同步更新** — 直接轮询 GitHub Releases API，发现新版本主动通知（见下文）
+### Launcher Core
+- **Compose Desktop UI** — Material 3 design, smooth animations and scrolling
+- **Version install & launch** — supports Minecraft versions from Alpha to the latest release
+- **Microsoft account auth** — OAuth 2.0 Device Code flow login
+- **Java runtime management** — auto-detect / download Java 8 / 17 / 21; Apple Silicon uses the x86_64 compatibility layer
+- **Cross-platform** — macOS (arm64 / x86_64), Windows (x64), Linux
+- **GitHub Release sync updates** — polls the GitHub Releases API directly and proactively notifies you of new versions (see below)
 
-### 内容管理
-- **模组管理** — Modrinth / CurseForge 模组市场集成，冲突检测
-- **整合包支持** — 自动扫描 modpack 版本的 mods 目录
-- **世界与截图** — 合并 PMCL / HMCL / 官方启动器目录，去重展示
-- **数据包 / 光影包 / 资源包** — 一键安装与管理
+### Content Management
+- **Mod management** — Modrinth / CurseForge marketplace integration with conflict detection
+- **Modpack support** — auto-scans the `mods` directory of modpack versions
+- **Worlds & screenshots** — merges PMCL / HMCL / official launcher directories with deduplicated display
+- **Data packs / shader packs / resource packs** — one-click install and management
 
-### 联机
-- **多后端支持** — Terracotta / EasyTier / ConnectX
-- **房间系统** — 创建/加入房间，状态机管理，房间码唯一性保证
-- **中继连接** — 稳定的中继服务器，低丢包率
+### Multiplayer
+- **Multiple backends** — Terracotta / EasyTier / ConnectX
+- **Room system** — create / join rooms, state-machine management, unique room-code guarantee
+- **Relay connection** — stable relay servers with low packet loss
 
-### 插件系统
-- **.ppk 包格式** — 严格规范的 ZIP 包，包含 plugin.xml 清单
-- **多语言源码** — Kotlin（主逻辑）+ Java（辅助功能）+ XML（信息说明）
-- **13 条验证规则** — 路径前缀、文件扩展名、唯一主标记、版本匹配等
-- **插件能力** — 注册命令、GUI 页面、启动钩子、事件监听器
-- **安全默认** — 命令名黑名单（56 个保留字）、zip-slip 防护
+### Plugin System
+- **.ppk package format** — strictly specified ZIP package containing a `plugin.xml` manifest
+- **Multi-language source** — Kotlin (main logic) + Java (helpers) + XML (info)
+- **13 validation rules** — path prefix, file extension, unique main marker, version matching, etc.
+- **Plugin capabilities** — register commands, GUI pages, launch hooks, event listeners
+- **Secure by default** — command-name blacklist (56 reserved words), zip-slip protection
 
-### 终端模式
-- **35 条命令** — 版本管理、模组操作、联机、Java 管理、Wiki 搜索等
-- **全英文界面** — 命令历史 (↑/↓)、彩色输出、自动滚动
-- **GUI 终端** — 内嵌在侧边栏的完整终端体验
+### Terminal Mode
+- **35 commands** — version management, mod operations, multiplayer, Java management, Wiki search, and more
+- **Fully English UI** — command history (↑ / ↓), colored output, auto-scroll
+- **GUI terminal** — a full terminal experience embedded in the sidebar
 
-### JavaFX UI 嵌入插件
-- **JavaFX in Compose** — 通过 JFXPanel + SwingPanel 将 JavaFX UI 嵌入 Compose Desktop
-- **Scene Stealing** — 反射调用 `Launcher.start(stage)`，拦截 `show()` 窃取 Scene
+### JavaFX UI Embed Plugin
+- **JavaFX in Compose** — embeds the JavaFX UI into Compose Desktop via `JFXPanel` + `SwingPanel`
+- **Scene Stealing** — reflectively calls `Launcher.start(stage)`, intercepts `show()` to steal the Scene
 
-## 项目结构
+## Project Structure
 
 ```
 PMCL/
-├── core/                    # 核心逻辑 (Java)
+├── core/                    # Core logic (Java)
 │   └── src/main/java/com/pmcl/core/
-│       ├── auth/            # 微软账户认证
-│       ├── download/        # 下载管理器 (支持 curl fallback)
-│       ├── install/         # 版本安装器
-│       ├── launch/          # 启动管理器 (Java 架构检测)
-│       ├── market/          # Modrinth/CurseForge 客户端
-│       ├── mods/            # 模组扫描与管理
-│       ├── multiplayer/     # 联机 (Terracotta/EasyTier/ConnectX)
-│       ├── plugin/          # 插件包构建器
-│       ├── update/          # 自更新 + GitHub Release 同步 (GitHubReleaseSyncChecker)
+│       ├── auth/            # Microsoft account authentication
+│       ├── download/        # Download manager (curl fallback supported)
+│       ├── install/         # Version installer
+│       ├── launch/          # Launch manager (Java arch detection)
+│       ├── market/          # Modrinth / CurseForge client
+│       ├── mods/            # Mod scanning and management
+│       ├── multiplayer/     # Multiplayer (Terracotta / EasyTier / ConnectX)
+│       ├── plugin/          # Plugin package builder
+│       ├── update/          # Self-update + GitHub Release sync (GitHubReleaseSyncChecker)
 │       └── ...
 ├── ui/                      # Compose Desktop UI (Kotlin)
 │   └── src/commonMain/kotlin/com/pmcl/ui/
-│       ├── page/            # 22 个页面 (启动/新闻/联机/下载/内容/存档...)
-│       ├── animation/       # 平滑滚动与过渡动画
-│       ├── theme/           # Material 3 主题
-│       └── App.kt           # 主应用入口
-├── cli/                     # 命令行接口 (Java, 35 条命令)
-├── plugin-api/              # 插件 API (Kotlin)
+│       ├── page/            # 22 pages (launch / news / multiplayer / download / content / saves ...)
+│       ├── animation/       # Smooth scroll and transition animations
+│       ├── theme/           # Material 3 theme
+│       └── App.kt           # Main app entry point
+├── cli/                     # Command-line interface (Java, 35 commands)
+├── plugin-api/              # Plugin API (Kotlin)
 │   └── src/main/kotlin/com/pmcl/plugin/
-│       ├── PmclPlugin.kt    # 插件接口
-│       ├── PluginContext.kt # 插件上下文 (注册命令/页面/钩子)
-│       └── PluginPackageParser.kt  # .ppk 解析器 (13 条规则)
-├── hmcl-plugin/             # 嵌入插件
+│       ├── PmclPlugin.kt    # Plugin interface
+│       ├── PluginContext.kt # Plugin context (register command / page / hook)
+│       └── PluginPackageParser.kt  # .ppk parser (13 rules)
+├── hmcl-plugin/             # Embed plugin
 │   ├── lib/                 # JavaFX 25 jars
 │   └── src/main/kotlin/com/pmcl/hmcl/
-│       ├── HmclEmbedder.kt  # JavaFX 初始化 + Scene 窃取
+│       ├── HmclEmbedder.kt  # JavaFX init + Scene stealing
 │       └── HmclPageContent.kt  # Compose UI + SwingPanel
-├── custom-downloader-plugin/  # 自定义下载器插件示例
-├── test-plugin/             # 单 JAR 插件示例
-├── test-plugin-package/     # .ppk 包插件示例
-└── settings.gradle.kts      # 8 个子模块
+├── custom-downloader-plugin/  # Custom downloader plugin example
+├── test-plugin/             # Single-JAR plugin example
+├── test-plugin-package/     # .ppk package plugin example
+└── settings.gradle.kts      # 8 submodules
 ```
 
-## 核心代码示例
+## Core Code Examples
 
-下面用启动器里**真实存在**的代码片段，展示四个关键阶段是如何实现的。所有路径相对于仓库根目录。
+The snippets below are **real code that exists in the launcher**, showing how the four key stages are implemented. All paths are relative to the repository root.
 
-### 1. 核心初始化（Core Initialization）
+### 1. Core Initialization
 
-启动器内核的入口是 `core/.../LauncherCore.java`。它在构造时一次性创建并装配所有子系统，并通过 `initOptional` 让可选模块（插件、联机、翻译等）初始化失败时降级而非中断启动：
+The entry point of the launcher core is `core/.../LauncherCore.java`. On construction it creates and wires up every subsystem at once, and uses `initOptional` so that optional modules (plugins, multiplayer, i18n, etc.) degrade gracefully instead of aborting startup when they fail:
 
 ```java
 // core/src/main/java/com/pmcl/core/LauncherCore.java
 public LauncherCore(LauncherConfig config) {
     this.config = config;
-    // 偏好配置与工作目录（~/.pmcl）
+    // Preferences and working directory (~/.pmcl)
     this.preferences = new Preferences(
             Paths.get(System.getProperty("user.home"), ".pmcl", "preferences.json"));
     this.instanceManager = new InstanceManager(config);
 
-    // 核心服务装配
+    // Core service wiring
     this.versionManager   = new VersionManager(config, preferences);
     this.downloadManager  = new DownloadManager(config, preferences);
     this.authService      = new AuthService();
     this.runtimeManager   = new RuntimeManager();
     this.launchManager    = new LaunchManager(config, preferences);
     this.versionInstaller = new VersionInstaller(config, versionManager, downloadManager);
-    // …… mod / modpack / 内容管理 / 完整性校验 / 崩溃分析 等 20+ 子系统
+    // …… mod / modpack / content management / integrity check / crash analysis and 20+ subsystems
 
-    // 可选子系统：失败降级，不中断启动器
+    // Optional subsystems: degrade gracefully, don't abort the launcher
     this.pluginManager = initOptional("PluginManager", () -> new PluginManager(this));
 
-    // 把插件管理器注入到启动 / 联机 / 下载队列，供钩子与事件使用
+    // Inject the plugin manager into launch / multiplayer / download queue for hooks and events
     if (this.pluginManager != null) {
         this.launchManager.setPluginManager(this.pluginManager);
         this.multiplayerManager.setPluginManager(this.pluginManager);
         this.downloadQueue.setPluginManager(this.pluginManager);
     }
-    // 应用持久化的语言偏好
+    // Apply persisted language preference
     applyLanguage(preferences.getLanguage());
 }
 
-// 工作目录与派生目录（versions / libraries / assets / runtimes）由 LauncherConfig 统一解析
+// Working directory and derived dirs (versions / libraries / assets / runtimes) are resolved centrally by LauncherConfig
 // core/src/main/java/com/pmcl/core/LauncherConfig.java
 public LauncherConfig() {
     this(Paths.get(System.getProperty("user.home"), ".pmcl"));
@@ -135,36 +139,36 @@ public Path getAssetsDir()    { return workDir.resolve("assets"); }
 public Path getRuntimesDir()  { return workDir.resolve("runtimes"); }
 ```
 
-UI 层（Compose）在 `LauncherViewModel` 中持有一个 `LauncherCore` 实例，并在 `init` 块里注入可选模块、注册监听器、启动检查更新：
+The UI layer (Compose) holds a `LauncherCore` instance in `LauncherViewModel` and, in its `init` block, injects optional modules, registers listeners, and kicks off the update check:
 
 ```kotlin
 // ui/src/commonMain/kotlin/com/pmcl/ui/viewmodel/LauncherViewModel.kt
 class LauncherViewModel {
-    val core = LauncherCore()          // 触发全部子系统初始化
+    val core = LauncherCore()          // triggers all subsystem initialization
 
     init {
-        // 注入 video 模块的主菜单背景视频处理器（避免 core↔video 循环依赖）
+        // Inject the video module's main-menu background video processor (avoids a core↔video cyclic dependency)
         core.profileBuilder().setMenuBackgroundProvider(com.pmcl.video.MenuBackgroundManager())
-        setupGithubSyncListener()       // 注册更新同步监听
-        checkUpdateOnStartup()          // 每次打开都检查一次更新
+        setupGithubSyncListener()       // register the update-sync listener
+        checkUpdateOnStartup()          // check for updates every time it opens
     }
 }
 ```
 
-### 2. Java 检测（Java Detection）
+### 2. Java Detection
 
-检测系统可用的 Java 运行时由 `core/.../launch/JavaRuntimeFinder.java` 负责。它按「自带 runtimes 目录 → 常见安装路径 → JAVA_HOME → PATH」的优先级查找，并通过 fork `java -version` 解析主版本号：
+Detecting available Java runtimes is handled by `core/.../launch/JavaRuntimeFinder.java`. It searches by the priority "bundled runtimes dir → common install paths → JAVA_HOME → PATH", and parses the major version by forking `java -version`:
 
 ```java
 // core/src/main/java/com/pmcl/core/launch/JavaRuntimeFinder.java
 public static String findJavaExecutable(Path runtimesDir, int requiredMajorVersion,
                                         boolean preferLegacyTranslation) {
-    // 1. 优先扫描启动器下载的 runtimes 目录
+    // 1. Prefer the launcher's own downloaded runtimes dir
     if (runtimesDir != null) {
         String best = pickBestJavaForVersion(scanRuntimes(runtimesDir), requiredMajorVersion, preferLegacyTranslation);
         if (best != null) return best;
     }
-    // 2. 常见安装路径（按 OS 枚举 macOS / Windows / Linux，含龙芯与 RISC-V 路径）
+    // 2. Common install paths (enumerate macOS / Windows / Linux, incl. LoongArch and RISC-V paths)
     List<String> candidates = new ArrayList<>();
     if (os.contains("mac")) {
         candidates.add("/Library/Java/JavaVirtualMachines/jdk-21.jdk/Contents/Home");
@@ -174,28 +178,28 @@ public static String findJavaExecutable(Path runtimesDir, int requiredMajorVersi
     String best = pickBestJavaForVersion(candidates, requiredMajorVersion, preferLegacyTranslation);
     if (best != null) return best;
 
-    // 3. JAVA_HOME 环境变量
+    // 3. JAVA_HOME environment variable
     String javaHome = System.getenv("JAVA_HOME");
     if (javaHome != null) { String exe = resolveJava(javaHome); if (exe != null) return exe; }
 
-    // 4. PATH 中的 java 命令（兜底）
-    // 5. 都找不到返回 null，由调用方引导用户安装
+    // 4. java on PATH (fallback)
+    // 5. If nothing is found, return null and let the caller guide the user to install
     return null;
 }
 
-// 通过 fork java -version 解析主版本号（结果按路径缓存，避免重复起进程）
+// Parse the major version by forking java -version (results cached by path to avoid repeated process spawns)
 public static Integer getMajorVersion(String javaExe) {
     Integer cached = MAJOR_VERSION_CACHE.get(javaExe);
     if (cached != null) return cached;
-    Integer result = computeMajorVersion(javaExe);     // 正则 "version \"21.0.1\"" → 21
+    Integer result = computeMajorVersion(javaExe);     // regex "version \"21.0.1\"" → 21
     if (result != null) MAJOR_VERSION_CACHE.put(javaExe, result);
     return result;
 }
 ```
 
-### 3. 游戏扫描（Game Scanning）
+### 3. Game Scanning
 
-本地已安装版本的扫描在 `core/.../version/VersionManager.java` 中。它会遍历 `versions/` 下的每个子目录，解析 `version.json` 提取 `inheritsFrom` / `mainClass` / `assets`，并合并 PMCL 目录、系统默认目录（如 `~/Library/Application Support/minecraft/versions`）与用户自定义根目录：
+Scanning locally installed versions lives in `core/.../version/VersionManager.java`. It iterates each subdirectory under `versions/`, parses `version.json` to extract `inheritsFrom` / `mainClass` / `assets`, and merges the PMCL directory, the system default directories (e.g. `~/Library/Application Support/minecraft/versions`) and user-custom root directories:
 
 ```java
 // core/src/main/java/com/pmcl/core/version/VersionManager.java
@@ -209,7 +213,7 @@ public List<LocalVersionInfo> scanVersionsDir(Path versionsDir,
     // ……
     for (Path p : subDirs) {
         String id = p.getFileName().toString();
-        if (VersionStaging.isTransientDirName(id)) continue;   // 跳过 .staging / .bak
+        if (VersionStaging.isTransientDirName(id)) continue;   // skip .staging / .bak
         Path json = p.resolve(id + ".json");
         boolean hasJson = Files.exists(json);
         boolean hasJar  = Files.exists(p.resolve(id + ".jar"));
@@ -223,46 +227,46 @@ public List<LocalVersionInfo> scanVersionsDir(Path versionsDir,
         result.add(new LocalVersionInfo(id, mtime, hasJar, hasJson, inheritsFrom, mainClass, assets));
         if (onProgress != null) onProgress.accept(new ScanProgress(dirName, ++scanned, total, id));
     }
-    result.sort((a, b) -> Long.compare(b.getLastModified(), a.getLastModified())); // 最新在前
+    result.sort((a, b) -> Long.compare(b.getLastModified(), a.getLastModified())); // newest first
     return result;
 }
 
-// 合并 .pmcl/versions + 系统默认目录 + 用户自定义根目录，跨目录去重
+// Merge .pmcl/versions + system default dirs + user custom root dirs, dedupe across dirs
 public List<LocalVersionInfo> scanAllLocalVersions(Consumer<ScanProgress> onProgress) {
     List<Path> dirs = getAllScanDirs();
-    // 第一遍逐目录扫描 → 第二遍合并去重 + 累计进度回调
+    // First pass: scan per dir → second pass: merge + dedupe + accumulate progress callback
 }
 ```
 
-### 4. 资源完成（Resource Completion）
+### 4. Resource Completion
 
-版本安装器 `core/.../install/VersionInstaller.java` 负责把游戏所需的 `client.jar`、`libraries`（含 natives）和 `assets` 全部补齐。资源完整性由 `AssetIndex.parse` 校验——任一资源条目缺少有效 SHA-1 即拒绝安装，避免「装完却缺资源」：
+The version installer `core/.../install/VersionInstaller.java` is responsible for completing the game's `client.jar`, `libraries` (including natives) and `assets`. Resource integrity is verified by `AssetIndex.parse` — if any asset entry lacks a valid SHA-1, installation is refused, avoiding "installed but missing resources":
 
 ```java
-// core/src/main/java/com/pmcl/core/install/VersionInstaller.java  (doInstall 片段)
-// 5. 资产索引（声明了 assets 则必须成功下载，禁止静默跳过）
+// core/src/main/java/com/pmcl/core/install/VersionInstaller.java  (doInstall excerpt)
+// 5. Asset index (if assets are declared, the download must succeed — no silent skipping)
 if (vj.getAssets() != null && !vj.getAssets().isEmpty()) {
     String assetIndexUrl   = resolveAssetIndexUrl(vj);
     String assetIndexSha1  = resolveAssetIndexSha1(vj);
     if (assetIndexSha1 == null || assetIndexSha1.isBlank())
-        throw new IOException("assetIndex 缺少 sha1，拒绝无完整性校验的索引下载");
+        throw new IOException("assetIndex missing sha1, refusing integrity-less index download");
     Path idxPath = config.getAssetsDir().resolve("indexes").resolve(vj.getAssets() + ".json");
     downloadManager.downloadToVerified(assetIndexUrl, idxPath, assetIndexSha1, null);
     AssetIndex idx = AssetIndex.parse(Files.readString(idxPath, UTF_8));
     for (AssetIndex.Asset a : idx.getAssets().values()) {
-        tasks.add(new DownloadTask(                 // 把每个资源加入下载队列
+        tasks.add(new DownloadTask(                 // add each asset to the download queue
                 RESOURCE_BASE + a.getPath(), a.getHash(), a.getSize(),
                 "assets/objects/" + a.getPath()));
     }
 }
-// 6. 批量下载（libraries + natives + assets），带 .part 续传与 SHA 校验
+// 6. Batch download (libraries + natives + assets), with .part resume and SHA verification
 downloadManager.downloadAll(tasks, /*onFile*/ file -> {}, /*onProgress*/ bytes -> { /*...*/ }).join();
-// 7. 解压 natives → 8. 原子提升 staging → versions/{id}
+// 7. Extract natives → 8. Atomically promote staging → versions/{id}
 ```
 
 ```java
 // core/src/main/java/com/pmcl/core/install/AssetIndex.java
-// 资源完整性校验：任一对象缺 hash 或 hash 不是合法 SHA-1 则直接失败
+// Resource integrity check: any object missing a hash or with a non-valid SHA-1 fails outright
 public static AssetIndex parse(String json) throws IOException {
     JsonObject root = JsonParser.parseString(json).getAsJsonObject();
     AssetIndex idx = new AssetIndex(root.get("name").getAsString());
@@ -275,195 +279,195 @@ public static AssetIndex parse(String json) throws IOException {
         idx.assets.put(e.getKey(), new Asset(hash, size));
     }
     if (missingHash > 0)
-        throw new IOException("资产索引有 " + missingHash + " 个条目缺少有效 SHA-1，拒绝安装");
+        throw new IOException("asset index has " + missingHash + " entries missing a valid SHA-1, refusing install");
     return idx;
 }
 ```
 
-## 技术栈
+## Tech Stack
 
-| 组件 | 技术 |
-|------|------|
-| UI 框架 | Compose Multiplatform 1.7.0 |
-| 语言 | Kotlin 2.0.21 / Java 21 |
-| 构建工具 | Gradle 8.10 (Kotlin DSL) |
-| 序列化 | Gson 2.11 + kotlinx.serialization |
-| 网络 | OkHttp 4.12 (支持 curl fallback) |
-| 系统信息 | OSHI 6.6.5 |
+| Component | Technology |
+|-----------|------------|
+| UI framework | Compose Multiplatform 1.7.0 |
+| Languages | Kotlin 2.0.21 / Java 21 |
+| Build tool | Gradle 8.10 (Kotlin DSL) |
+| Serialization | Gson 2.11 + kotlinx.serialization |
+| Networking | OkHttp 4.12 (curl fallback supported) |
+| System info | OSHI 6.6.5 |
 | JavaFX | OpenJFX 25 (mac arm64) |
 
-## 快速开始
+## Quick Start
 
-### 环境要求
+### Prerequisites
 - JDK 21+
-- Gradle 8.10+（项目已包含 gradlew）
+- Gradle 8.10+ (the project ships `gradlew`)
 
-### 构建
+### Build
 
 ```bash
-# 构建 Fat JAR（Compose 原生库较全，但 JavaFX 原生库与构建主机一致）
+# Build the Fat JAR (Compose native libs are fairly complete, but JavaFX native libs match the build host)
 ./gradlew :ui:fatJar
 
-# 输出: ui/build/libs/pmcl-1.3.0-all.jar
-# 运行: java -jar ui/build/libs/pmcl-1.3.0-all.jar
+# Output: ui/build/libs/pmcl-1.3.0-all.jar
+# Run: java -jar ui/build/libs/pmcl-1.3.0-all.jar
 ```
 
-### 构建原生安装包
+### Build native installers
 
 ```bash
-# 当前系统的原生安装包（macOS: pkg/dmg，Windows: msi/exe，Linux: deb/rpm）
+# Native installer for the current OS (macOS: pkg/dmg, Windows: msi/exe, Linux: deb/rpm)
 ./gradlew :ui:packageDistributionForCurrentOS
 
-# 发布构建可用 packageReleasePkg / packageReleaseMsi / packageReleaseDeb 等任务
+# Release builds can use the packageReleasePkg / packageReleaseMsi / packageReleaseDeb tasks
 ```
 
-### 构建插件
+### Build plugins
 
 ```bash
 ./gradlew :hmcl-plugin:ppk
-# 输出: hmcl-plugin/build/distributions/hmcl-embed-1.0.0.ppk
+# Output: hmcl-plugin/build/distributions/hmcl-embed-1.0.0.ppk
 
-# 自定义下载器插件
+# Custom downloader plugin
 ./gradlew :custom-downloader-plugin:ppk
-# 输出: custom-downloader-plugin/build/distributions/custom-downloader-1.1.0.ppk
+# Output: custom-downloader-plugin/build/distributions/custom-downloader-1.1.0.ppk
 ```
 
-## 插件开发
+## Plugin Development
 
-> 完整的插件包格式、描述符字段、签名信任、API 契约与权限声明等要求，请参见 **[PLUGIN_REQUIREMENTS.md](PLUGIN_REQUIREMENTS.md)**。
+> For the full plugin package format, descriptor fields, signature trust, API contract and permission declarations, see **[PLUGIN_REQUIREMENTS.md](PLUGIN_REQUIREMENTS.md)**.
 
-### 最小示例
+### Minimal Example
 
 ```kotlin
 class MyPlugin : PmclPlugin {
     override val pluginId = "my-plugin"
 
     override fun onEnable(ctx: PluginContext) {
-        // 注册终端命令
+        // Register a terminal command
         ctx.registerCommand("hello", "Say hello") { args ->
             "Hello, ${args.firstOrNull() ?: "World"}!"
         }
 
-        // 注册 GUI 页面 (侧边栏)
+        // Register a GUI page (sidebar)
         ctx.registerPage("my-page", "My Page", MyPageContent())
     }
 }
 ```
 
-### .ppk 包格式
+### .ppk Package Format
 
 ```
 my-plugin-1.0.0.ppk
-├── plugin.xml                          # 清单 (信息 + 版本控制)
+├── plugin.xml                          # Manifest (info + versioning)
 ├── META-INF/
-│   └── pmcl-plugin.properties          # 插件描述符
-├── classes/                            # 编译后的 .class 文件 (必需)
-├── lib/                                # 依赖 JAR (可选)
-├── resources/                          # 资源文件 (可选)
+│   └── pmcl-plugin.properties          # Plugin descriptor
+├── classes/                            # Compiled .class files (required)
+├── lib/                                # Dependency JARs (optional)
+├── resources/                          # Resource files (optional)
 └── src/
-    ├── kt/                             # Kotlin 源码 (文档)
-    └── java/                           # Java 源码 (文档)
+    ├── kt/                             # Kotlin source (documentation)
+    └── java/                           # Java source (documentation)
 ```
 
-### 安装插件
+### Installing a Plugin
 
 ```bash
-# Shell 终端
+# Shell terminal
 plugin package /path/to/plugin.ppk
 
-# GUI 终端
+# GUI terminal
 plugin package /absolute/path/to/plugin.ppk
 ```
 
-插件安装到 `~/.pmcl/plugins/<id>/`，支持 zip-slip 防护。
+Plugins install to `~/.pmcl/plugins/<id>/`, with zip-slip protection.
 
-## 侧边栏导航
+## Sidebar Navigation
 
-| 图标 | 页面 | 功能 |
-|------|------|------|
-| PlayArrow | 启动 | 版本选择、启动游戏、状态监控 |
-| Info | 新闻 | Minecraft.net RSS 新闻 |
-| Share | 联机 | Terracotta/EasyTier 房间 |
-| Build | 下载 | 版本安装 / 模组市场 / Wiki |
-| Star | 内容 | 模组 / 光影包 / 资源包 |
-| Search | 存档 | 世界 / 截图 |
-| Person | 账号 | 微软账户管理 |
-| Settings | 设置 | 主题、下载源、启动器配置 |
-| Terminal | 终端 | 35 条命令的 Shell |
-| Extension | 插件 | 插件管理 + 插件页面 |
+| Icon | Page | Function |
+|------|------|----------|
+| PlayArrow | Launch | version selection, launch game, status monitoring |
+| Info | News | Minecraft.net RSS news |
+| Share | Multiplayer | Terracotta / EasyTier rooms |
+| Build | Download | version install / mod marketplace / Wiki |
+| Star | Content | mods / shader packs / resource packs |
+| Search | Saves | worlds / screenshots |
+| Person | Accounts | Microsoft account management |
+| Settings | Settings | theme, download source, launcher config |
+| Terminal | Terminal | Shell with 35 commands |
+| Extension | Plugins | plugin management + plugin pages |
 
-## 工程要点
+## Engineering Notes
 
-- **Java 架构检测** — 通过 `java -XshowSettings:properties -version` 检测实际架构，Apple Silicon 优先选择 `natives-*-arm64`
-- **旧版本兼容** — 1.12.2 及更早版本强制使用 Java 8（LaunchWrapper 依赖 URLClassLoader）
-- **macOS .jnilib** — 旧版 LWJGL 2.x 使用 .jnilib，Java 9+ 需要 .dylib 副本
-- **curl Fallback** — GFW 干扰 Java TLS 指纹时自动回退到系统 curl 子进程
-- **代理复用** — 所有网络客户端复用 DownloadManager 的 OkHttpClient，继承用户代理配置
-- **Modpack gameDir** — 整合包的 gameDir 必须设为版本目录本身，而非 mcRoot
-- **Fat JAR module-info** — 排除所有 module-info.class 避免 Java 21 命名模块问题
+- **Java architecture detection** — detects the actual architecture via `java -XshowSettings:properties -version`; Apple Silicon prefers `natives-*-arm64`
+- **Legacy version compatibility** — 1.12.2 and earlier force Java 8 (LaunchWrapper depends on URLClassLoader)
+- **macOS .jnilib** — old LWJGL 2.x uses `.jnilib`; Java 9+ needs a `.dylib` copy
+- **curl Fallback** — automatically falls back to a system `curl` subprocess when the GFW interferes with Java TLS fingerprints
+- **Proxy reuse** — all network clients reuse `DownloadManager`'s OkHttpClient, inheriting user-agent config
+- **Modpack gameDir** — a modpack's `gameDir` must be set to the version directory itself, not `mcRoot`
+- **Fat JAR module-info** — exclude all `module-info.class` to avoid Java 21 named-module issues
 
-## GitHub Release 同步更新
+## GitHub Release Sync Updates
 
-PMCL 每次启动都会访问 GitHub Releases API 检查一次最新版本。周期同步开关默认关闭；用户开启后，每 30 分钟追加检查一次。发现新版本时会选择当前操作系统/架构对应的安装包，用户确认后完成下载、摘要与签名校验，并在退出当前进程后自动安装、重启。
+PMCL queries the GitHub Releases API for the latest version once on every startup. Periodic sync is off by default; when the user enables it, it additionally checks every 30 minutes. When a new version is found, it picks the installer matching the current OS / arch; after the user confirms, it downloads, verifies the digest and signature, then auto-installs and restarts after the current process exits.
 
-### 架构
+### Architecture
 
 ```
-GitHub Releases API  ◀──启动检查/可选周期轮询──  PMCL 客户端
-   │                                            │
-   │ Release 含 pkg/msi/deb/rpm/平台 JAR 资产   │
-   ▼                                            ▼
-平台/架构选择 + 版本比较 + 签名资产匹配     发现新版本 → 弹窗询问用户
-                                                   │
-                                                   ▼
-                                      下载并校验 SHA-256 + Ed25519
-                                      退出后安装并重新启动
+GitHub Releases API  ◀── startup check / optional periodic poll──  PMCL client
+   │                                                       │
+   │ Release contains pkg/msi/deb/rpm/platform JAR assets  │
+   ▼                                                       ▼
+platform/arch selection + version compare + signature asset match   new version found → prompt user
+                                                                    │
+                                                                    ▼
+                                          download + verify SHA-256 + Ed25519
+                                          exit, then install and restart
 ```
 
-- **启动检查** — 无论周期同步是否开启，每次打开 PMCL 都检查一次
-- **周期同步** — 默认关闭；开启后启动 5 秒内检查，之后每 30 分钟检查
-- **版本比较** — 取 Release 的 `tag_name`（去掉 `v` 前缀），按点分段比较数字大小
-- **资产识别** — macOS 优先 `.pkg/.dmg`，Windows 优先 `.msi/.exe`，Linux 优先 `.deb/.rpm/AppImage`，缺失时仅回退 OS/架构匹配的 JAR；旧版无平台标记 JAR 优先级最低
-- **安全校验** — 安装包必须有 GitHub SHA-256 digest 和对应的 `.sig` Ed25519 签名资产
-- **速率限制处理** — 未认证 GitHub API 限 60 次/小时；触发限制后自动延长到 2 小时间隔，通过 `X-RateLimit-Remaining` header 检测
+- **Startup check** — checks once every time PMCL opens, regardless of periodic sync
+- **Periodic sync** — off by default; checks within 5s of startup when enabled, then every 30 min
+- **Version comparison** — takes the Release `tag_name` (strip the `v` prefix) and compares numeric segments dot by dot
+- **Asset identification** — macOS prefers `.pkg/.dmg`, Windows `.msi/.exe`, Linux `.deb/.rpm/AppImage`; falls back to an OS / arch-matching JAR only when missing; old unmarked JARs have the lowest priority
+- **Security check** — the installer must ship a GitHub SHA-256 digest and a matching `.sig` Ed25519 signature asset
+- **Rate-limit handling** — unauthenticated GitHub API is limited to 60/hour; on hitting the limit it auto-extends to a 2-hour interval, detected via the `X-RateLimit-Remaining` header
 
-### 发布新版本
+### Releasing a New Version
 
-仓库内置 `.github/workflows/release-desktop.yml`。推送 `v*` tag 后会分别构建 macOS PKG、Windows MSI、Linux DEB/RPM，以及各构建主机对应的 OS/架构 JAR，并上传每个安装包及其同名 `.sig`。
+The repo ships `.github/workflows/release-desktop.yml`. After pushing a `v*` tag it builds macOS PKG, Windows MSI, Linux DEB / RPM, plus OS / arch JARs for each build host, and uploads each installer alongside its same-named `.sig`.
 
-发布仓库必须配置 Actions Secret：
+The publish repo must configure an Actions Secret:
 
-- `PMCL_UPDATE_ED25519_PRIVATE_KEY`：与客户端内置公钥配对的 Base64 PKCS#8 Ed25519 私钥
+- `PMCL_UPDATE_ED25519_PRIVATE_KEY`: the Base64 PKCS#8 Ed25519 private key paired with the client's built-in public key
 
-工作流通过 `tools/SignUpdateAsset.java` 对版本、下载 URL、SHA-256 和文件大小的规范载荷签名。缺少密钥或签名时发布任务会失败，客户端也会拒绝安装。
+The workflow signs a canonical payload of version, download URL, SHA-256 and file size via `tools/SignUpdateAsset.java`. A missing key or signature fails the release task, and the client refuses to install.
 
-### 启动器端配置
+### Launcher-side Configuration
 
-1. 打开 PMCL → 设置 → 滚动到底部"GitHub Release 同步"卡片
-2. 默认仓库为 `PCML-Z/PCML`；也可填入其他 `owner/repo`
-3. “立即检查”不要求开启周期同步
-4. 开启“GitHub Release 自动同步”后，每 30 分钟自动检查
-5. 卡片下方状态指示灯显示检查与同步状态
+1. Open PMCL → Settings → scroll down to the "GitHub Release Sync" card at the bottom
+2. The default repo is `PCML-Z/PCML`; you can also enter another `owner/repo`
+3. "Check now" does not require periodic sync to be enabled
+4. After enabling "GitHub Release Auto Sync", it auto-checks every 30 minutes
+5. The status indicator under the card shows the check and sync state
 
-发现新版本时，启动器任意页面都会弹出版本、平台构建、更新说明和大小。选择“下载并自动安装”后，文件先保存到 `~/.pmcl/updates/` 并完成双重校验；随后辅助安装进程接管，PMCL 优雅退出、安装对应系统构建并重新打开。系统安装包可能触发管理员授权。
+When a new version is found, any PMCL page pops up the version, platform build, release notes and size. After choosing "Download and auto-install", the file is first saved to `~/.pmcl/updates/` and double-verified; then a helper install process takes over, PMCL exits gracefully, installs the corresponding system build and reopens. The system installer may trigger an admin authorization prompt.
 
-### GitHub API 速率限制
+### GitHub API Rate Limit
 
-未认证的 GitHub REST API 限制为 60 次/小时。PMCL 每 30 分钟轮询一次（2 次/小时），正常使用不会触及限制。若因其他原因触发限制：
+The unauthenticated GitHub REST API is limited to 60/hour. PMCL polls every 30 minutes (2/hour), so normal use never hits the limit. If the limit is hit for other reasons:
 
-- 检测到 `X-RateLimit-Remaining: 0` 时，自动将轮询间隔延长到 2 小时
-- 恢复后自动回到 30 分钟的正常间隔
-- 状态栏会显示"GitHub API 速率限制，120分钟后重试"
+- On detecting `X-RateLimit-Remaining: 0`, it auto-extends the poll interval to 2 hours
+- After recovery it returns to the normal 30-minute interval
+- The status bar shows "GitHub API rate limited, retry in 120 min"
 
-## 许可证
+## License
 
-本项目仅供学习和个人使用。
+This project is for learning and personal use only.
 
-Minecraft 是 Mojang Studios 的商标。请确保您拥有合法的 Minecraft 副本。
+Minecraft is a trademark of Mojang Studios. Please make sure you own a legitimate copy of Minecraft.
 
-## 致谢
+## Acknowledgements
 
 - [Compose Multiplatform](https://github.com/JetBrains/compose-multiplatform) — JetBrains
-- [Modrinth](https://modrinth.com) — 模组市场 API
-- [CurseForge](https://www.curseforge.com) — 模组市场 API
-- [Terracotta](https://maven.terraformersmc.com) — 联机后端
+- [Modrinth](https://modrinth.com) — mod marketplace API
+- [CurseForge](https://www.curseforge.com) — mod marketplace API
+- [Terracotta](https://maven.terraformersmc.com) — multiplayer backend
