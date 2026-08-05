@@ -154,8 +154,17 @@ public final class MultiplayerManager {
      * EasyTier / Terracotta 直接调用；ConnectX 需使用 createRoomConnectX。
      */
     public synchronized CompletableFuture<Void> createRoom(Consumer<String> onProgress) {
+        return createRoom(onProgress, 0);
+    }
+
+    /**
+     * 创建房间，并可向 Terracotta 提供已从 Minecraft 日志确认的 LAN 端口。
+     * 端口提示仅用于补发本机 LAN 广播，EasyTier 后端会忽略。
+     */
+    public synchronized CompletableFuture<Void> createRoom(Consumer<String> onProgress,
+                                                            int localLanPortHint) {
         if (backend == Backend.TERRACOTTA) {
-            return createRoomTerracotta(onProgress, "PMCL-Player");
+            return createRoomTerracotta(onProgress, "PMCL-Player", localLanPortHint);
         }
         if (backend == Backend.CONNECTX) {
             return CompletableFuture.failedFuture(new IllegalStateException(
@@ -324,6 +333,12 @@ public final class MultiplayerManager {
      * @param playerName 玩家名（用于房间内显示）
      */
     public synchronized CompletableFuture<Void> createRoomTerracotta(Consumer<String> onProgress, String playerName) {
+        return createRoomTerracotta(onProgress, playerName, 0);
+    }
+
+    public synchronized CompletableFuture<Void> createRoomTerracotta(Consumer<String> onProgress,
+                                                                      String playerName,
+                                                                      int localLanPortHint) {
         if (isBusy()) {
             return CompletableFuture.failedFuture(new IllegalStateException("已在房间中或正在连接，请先离开"));
         }
@@ -331,17 +346,25 @@ public final class MultiplayerManager {
         lastError = "";
         currentRoomCode = "";
         localMcAddr = "";
-        return terracotta.createRoom(playerName, onProgress)
+        Consumer<String> progress = message -> {
+            if (message != null && (message.contains("扫描局域网")
+                    || message.contains("继续扫描")
+                    || message.contains("正在创建房间")
+                    || message.contains("当前状态：host-"))) {
+                state = State.CONNECTING;
+            }
+            if (onProgress != null) onProgress.accept(message);
+        };
+        return terracotta.createRoom(playerName, progress, localLanPortHint)
                 .thenAccept(json -> {
                     // 从状态 JSON 提取房间码
                     currentRoomCode = extractField(json, "room");
                     state = State.CONNECTED;
                     fireRoomCreated(currentRoomCode, localMcAddr);
-                    if (onProgress != null) onProgress.accept("✓ 房间已创建，房间码：" + currentRoomCode
+                    if (onProgress != null) onProgress.accept("✓ 房间网络已就绪，房间码：" + currentRoomCode
                         + "\n⚠ 重要提示："
                         + "\n1. 请保持 PMCL 运行，不要点击「离开房间」"
-                        + "\n2. 中继节点连接需要 1-2 分钟，请等待后再让朋友加入"
-                        + "\n3. 让朋友在另一台设备上输入此房间码加入");
+                        + "\n2. 现在可以让朋友在另一台设备上输入此房间码加入");
                 })
                 .exceptionally(e -> {
                     Throwable root = e;

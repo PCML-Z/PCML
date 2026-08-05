@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.IosShare
+import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Pause
@@ -52,6 +53,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.pmcl.core.instance.InstanceInfo
 import com.pmcl.core.version.VersionManager
 import com.pmcl.core.i18n.I18n
 import com.pmcl.ui.animation.StaggeredAppear
@@ -84,6 +86,8 @@ import java.util.concurrent.ConcurrentHashMap
 fun LaunchPage(vm: LauncherViewModel) {
     val versions by vm.versions.collectAsState()
     val localInfos by vm.localVersionInfos.collectAsState()
+    val instances by vm.instances.collectAsState()
+    val instanceLaunching by vm.instanceLaunching.collectAsState()
     val pinned by vm.pinnedVersions.collectAsState()
     val pinnedLabels by vm.pinnedTileLabels.collectAsState()
     val recents by vm.recentVersions.collectAsState()
@@ -136,6 +140,7 @@ fun LaunchPage(vm: LauncherViewModel) {
 
     LaunchedEffect(Unit) {
         if (versions.isEmpty()) vm.refreshVersions()
+        vm.loadInstances()
         // 进入启动页时触发预判启动（若用户在设置中开启了该功能）
         vm.predictAndPreheat()
     }
@@ -214,7 +219,7 @@ fun LaunchPage(vm: LauncherViewModel) {
                     }
                 }
                 Spacer(Modifier.height(4.dp))
-                Text(I18n.t("launch.installed_count", localInfos.size),
+                Text(I18n.t("launch.installed_count", localInfos.size + instances.size),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
             }
@@ -376,7 +381,7 @@ fun LaunchPage(vm: LauncherViewModel) {
             }
 
             // ===== 本地版本列表 =====
-            if (localInfos.isEmpty()) {
+            if (instances.isEmpty() && localInfos.isEmpty()) {
                 item {
                     Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
                         Column(Modifier.padding(16.dp)) {
@@ -392,6 +397,14 @@ fun LaunchPage(vm: LauncherViewModel) {
                     }
                 }
             } else {
+                items(instances, key = { "instance-${it.getInstanceId()}" }) { info ->
+                    LaunchInstanceRow(
+                        info = info,
+                        launching = instanceLaunching == info.getInstanceId(),
+                        enabled = account != null && !gameRunning && instanceLaunching == null,
+                        onLaunch = { vm.launchInstance(info.getInstanceId()) }
+                    )
+                }
                 itemsIndexed(localInfos, key = { _, info -> info.getId() }) { index, info ->
                     StaggeredAppear(index) {
                         LocalVersionRow(
@@ -1637,6 +1650,68 @@ private fun inferModLoader(info: VersionManager.LocalVersionInfo): String? {
             main.contains("quiltmc", ignoreCase = true) -> "Quilt"
         inherits.contains("liteloader", ignoreCase = true) -> "LiteLoader"
         else -> null
+    }
+}
+
+/** 启动页中的独立游戏实例/整合包条目。 */
+@Composable
+private fun LaunchInstanceRow(
+    info: InstanceInfo,
+    launching: Boolean,
+    enabled: Boolean,
+    onLaunch: () -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                Icons.Filled.Inventory2,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(34.dp)
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    info.getName(),
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1
+                )
+                val loader = info.getLoader().orEmpty()
+                val loaderVersion = info.getLoaderVersion().orEmpty()
+                Text(
+                    buildString {
+                        append(info.getBaseVersionId())
+                        if (loader.isNotBlank()) {
+                            append(" · ")
+                            append(loader)
+                            if (loaderVersion.isNotBlank()) append(" ").append(loaderVersion)
+                        }
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1
+                )
+            }
+            Spacer(Modifier.width(8.dp))
+            if (launching) {
+                CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+            } else {
+                IconButton(
+                    onClick = onLaunch,
+                    enabled = enabled && info.isLaunchable()
+                ) {
+                    Icon(Icons.Filled.PlayArrow, I18n.t("instance.launch"))
+                }
+            }
+        }
     }
 }
 

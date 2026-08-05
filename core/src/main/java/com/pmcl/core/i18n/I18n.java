@@ -764,6 +764,7 @@ public final class I18n {
         ZH.put("mp.state.downloading_terracotta", "正在下载 Terracotta…");
         ZH.put("mp.state.downloading_easytier", "正在下载 EasyTier…");
         ZH.put("mp.state.connecting", "正在连接…");
+        ZH.put("mp.state.scanning_lan", "正在检测局域网世界…");
         ZH.put("mp.state.connected", "已连接");
         ZH.put("mp.state.disconnected", "已断开");
         ZH.put("mp.state.failed", "连接失败");
@@ -1126,6 +1127,8 @@ public final class I18n {
         ZH.put("settings.renderer", "渲染器");
         ZH.put("settings.renderer_auto", "自动");
         ZH.put("settings.renderer_hint", "对应 --renderer；Vulkan 仅 MC 1.21+ 实验性支持，需配合兼容驱动");
+        ZH.put("settings.renderer_directx", "DirectX");
+        ZH.put("settings.renderer_dx_hint", "强制使用 glfw3.dll + opengl32.dll；仅 Windows 平台有效，需 GPU 驱动支持");
         ZH.put("settings.fullscreen_launch", "全屏启动");
         ZH.put("settings.fullscreen_launch_desc", "对应 --fullscreen，覆盖窗口分辨率设置");
         ZH.put("settings.demo_mode", "演示模式");
@@ -2796,6 +2799,7 @@ public final class I18n {
         EN.put("mp.state.downloading_terracotta", "Downloading Terracotta…");
         EN.put("mp.state.downloading_easytier", "Downloading EasyTier…");
         EN.put("mp.state.connecting", "Connecting…");
+        EN.put("mp.state.scanning_lan", "Detecting LAN world…");
         EN.put("mp.state.connected", "Connected");
         EN.put("mp.state.disconnected", "Disconnected");
         EN.put("mp.state.failed", "Connection failed");
@@ -3152,6 +3156,8 @@ public final class I18n {
         EN.put("settings.renderer", "Renderer");
         EN.put("settings.renderer_auto", "Auto");
         EN.put("settings.renderer_hint", "Maps to --renderer; Vulkan is experimental in MC 1.21+ only, requires compatible driver");
+        EN.put("settings.renderer_directx", "DirectX");
+        EN.put("settings.renderer_dx_hint", "Forces glfw3.dll + opengl32.dll; Windows only, requires GPU driver support");
         EN.put("settings.fullscreen_launch", "Fullscreen launch");
         EN.put("settings.fullscreen_launch_desc", "Maps to --fullscreen, overrides window resolution settings");
         EN.put("settings.demo_mode", "Demo mode");
@@ -4763,6 +4769,7 @@ public final class I18n {
         JA.put("mp.state.downloading_terracotta", "Terracottaダウンロード中…");
         JA.put("mp.state.downloading_easytier", "EasyTierダウンロード中…");
         JA.put("mp.state.connecting", "接続中…");
+        JA.put("mp.state.scanning_lan", "LANワールドを検出中…");
         JA.put("mp.state.connected", "接続済み");
         JA.put("mp.state.disconnected", "切断済み");
         JA.put("mp.state.failed", "接続失敗");
@@ -5119,6 +5126,8 @@ public final class I18n {
         JA.put("settings.renderer", "レンダラー");
         JA.put("settings.renderer_auto", "自動");
         JA.put("settings.renderer_hint", "--renderer に対応; Vulkan は MC 1.21+ の実験的サポートのみ、互換ドライバが必要");
+        JA.put("settings.renderer_directx", "DirectX");
+        JA.put("settings.renderer_dx_hint", "glfw3.dll + opengl32.dll を使用; Windows のみ、GPU ドライバーが必要");
         JA.put("settings.fullscreen_launch", "フルスクリーン起動");
         JA.put("settings.fullscreen_launch_desc", "--fullscreen に対応、ウィンドウ解像度設定を上書き");
         JA.put("settings.demo_mode", "デモモード");

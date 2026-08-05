@@ -78,7 +78,7 @@ public final class Preferences {
     private String gameServerHost = "";      // 启动后自动连接服务器地址（--server）
     private int gameServerPort = 25565;      // 服务器端口（--port）
     private java.util.List<String[]> favoriteServers = new java.util.ArrayList<>();  // 收藏的服务器列表，每项 [name, host, port]
-    private String gameRenderer = "AUTO";    // 渲染器：AUTO/OPENGL/VULKAN（--renderer）
+    private String gameRenderer = "AUTO";    // 渲染器：AUTO/OPENGL/VULKAN/DIRECTX（--renderer / GLFW强制指定）
     private String windowIconPath = "";      // 自定义游戏窗口图标 PNG 路径（注入到 <gameDir>/icons/）
     private String customMenuBackgroundVideo = "";  // 自定义主菜单背景视频路径（启动前提取 6 帧生成 panorama 资源包）
     private String customNativesPath = "";   // 自定义原生库目录路径（为空则从版本 libraries 提取 natives）
@@ -476,7 +476,7 @@ public final class Preferences {
     public synchronized void setGameRenderer(String v) {
         if (v == null) v = "AUTO";
         String upper = v.toUpperCase(java.util.Locale.ROOT);
-        if (upper.equals("OPENGL") || upper.equals("VULKAN") || upper.equals("AUTO")) {
+        if (upper.equals("OPENGL") || upper.equals("VULKAN") || upper.equals("AUTO") || upper.equals("DIRECTX")) {
             gameRenderer = upper;
         }
         scheduleSave();

@@ -1875,7 +1875,7 @@ public final class PmclCli {
             PluginInfo info;
             if (source.startsWith("http://") || source.startsWith("https://")) {
                 System.out.println("Installing plugin from URL: " + source);
-                info = pm.installFromUrl(source);
+                info = source.endsWith(".ppk") ? pm.installFromPackageUrl(source) : pm.installFromUrl(source);
             } else {
                 Path jarPath = Paths.get(source);
                 if (!Files.exists(jarPath)) {
@@ -1883,7 +1883,7 @@ public final class PmclCli {
                     return;
                 }
                 System.out.println("Installing plugin from file: " + source);
-                info = pm.installFromPath(jarPath);
+                info = source.endsWith(".ppk") ? pm.installFromPackage(jarPath) : pm.installFromPath(jarPath);
             }
             System.out.println(SEP);
             System.out.println("[OK] Plugin installed and enabled!");

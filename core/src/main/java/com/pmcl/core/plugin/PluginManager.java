@@ -32,6 +32,8 @@ import com.pmcl.plugin.api.HttpApi;
 import com.pmcl.plugin.api.I18nApi;
 import com.pmcl.plugin.api.InstancesApi;
 import com.pmcl.plugin.api.LaunchApi;
+import com.pmcl.plugin.api.LoaderVersionsApi;
+import com.pmcl.plugin.api.GameProcessApi;
 import com.pmcl.plugin.api.ModpackApi;
 import com.pmcl.plugin.api.ModsApi;
 import com.pmcl.plugin.api.NavBadge;
@@ -423,6 +425,13 @@ public final class PluginManager {
                 }
             }
 
+            // ===== Branch: External Runtime vs JVM =====
+            if (info.getExternalRuntime() != null || info.getEmbed() != null) {
+                // --- External runtime / window-embed path ---
+                loadExternalRuntimePlugin(info, jarPath);
+                return info;
+            }
+
             // Create classloader with PMCL classloader as parent — 使用隔离 ClassLoader
             // 阻止插件直接加载 com.pmcl.core.* 内部类，强制走 getService
             URL[] urls = {jarPath.toUri().toURL()};
@@ -484,7 +493,13 @@ public final class PluginManager {
         }
 
         try {
-            runInPlugin(pluginId, () -> entry.getPlugin().onEnable(entry.getContext()));
+            // onEnable runs on current thread for external (not inside runInPlugin ThreadGroup)
+            if (entry.getClassLoader() == null) {
+                // External runtime: call onEnable directly (ProcessBridge starts in it)
+                entry.getPlugin().onEnable(entry.getContext());
+            } else {
+                runInPlugin(pluginId, () -> entry.getPlugin().onEnable(entry.getContext()));
+            }
         } catch (Exception e) {
             System.err.println("[PluginManager] Failed to enable " + pluginId + ": " + e.getMessage());
             synchronized (this) {
@@ -517,7 +532,12 @@ public final class PluginManager {
         }
 
         try {
-            runInPlugin(pluginId, () -> entry.getPlugin().onDisable());
+            if (entry.getClassLoader() == null) {
+                // External runtime: call onDisable directly
+                entry.getPlugin().onDisable();
+            } else {
+                runInPlugin(pluginId, () -> entry.getPlugin().onDisable());
+            }
         } catch (Exception e) {
             System.err.println("[PluginManager] onDisable failed for " + pluginId + ": " + e.getMessage());
         }
@@ -542,7 +562,10 @@ public final class PluginManager {
                     ((TrackedLaunchHook) h).pluginId.equals(pluginId));
             urlRewriteHooks.removeIf(h -> h.pluginId.equals(pluginId));
 
-            shutdownPluginThreads(entry);
+            // Skip thread shutdown for external runtime plugins (no ThreadGroup)
+            if (entry.getClassLoader() != null) {
+                shutdownPluginThreads(entry);
+            }
 
             entry.setState(PluginState.DISABLED);
             enabledState.put(pluginId, false);
@@ -564,7 +587,10 @@ public final class PluginManager {
             if (entry != null) {
                 // Ensure threads are torn down even if already DISABLED
                 // (disablePlugin only runs the ENABLED → DISABLED path).
+                // Skip thread shutdown for external runtime plugins (no ThreadGroup)
+            if (entry.getClassLoader() != null) {
                 shutdownPluginThreads(entry);
+            }
             }
             customCommands.remove(pluginId);
             customPages.remove(pluginId);
@@ -580,7 +606,9 @@ public final class PluginManager {
             urlRewriteHooks.removeIf(h -> h.pluginId.equals(pluginId));
             bumpRevision();
         }
-        if (entry != null) {
+        // External runtime plugins (e.g. .NET via ProcessBridge) have a null
+        // classLoader — there is no isolated ClassLoader to close.
+        if (entry != null && entry.getClassLoader() != null) {
             try {
                 entry.getClassLoader().close();
             } catch (IOException e) {
@@ -1096,6 +1124,12 @@ public final class PluginManager {
             // Extract the package to a per-plugin directory
             Path packageDir = PluginPackageBuilder.getPackageDir(pluginsDir, info.getId());
             PluginPackageBuilder.extract(ppkPath, packageDir);
+
+            // External runtime / window-embed plugins skip classloader setup
+            if (info.getExternalRuntime() != null || info.getEmbed() != null) {
+                loadExternalRuntimePlugin(info, packageDir);
+                return info;
+            }
 
             // Validate runtime structure (must have classes/)
             PluginPackageBuilder.validateRuntimeStructure(packageDir);
@@ -1761,8 +1795,115 @@ public final class PluginManager {
                     .map(p -> PluginPermission.parseOrNull(p).name())
                     .collect(Collectors.toList());
 
+            // ===== External runtime fields (v1.7+) =====
+            String externalRuntime = props.getProperty(PluginInfo.KEY_EXTERNAL_RUNTIME, "");
+            if (externalRuntime != null && externalRuntime.isBlank()) externalRuntime = null;
+            String externalEntry = props.getProperty(PluginInfo.KEY_EXTERNAL_ENTRY, "");
+            if (externalEntry != null && externalEntry.isBlank()) externalEntry = null;
+            String externalRestart = props.getProperty(PluginInfo.KEY_EXTERNAL_RESTART, "on-failure");
+            if (externalRestart == null || externalRestart.isBlank()) externalRestart = "on-failure";
+            // 嵌入模式（可选）：embed=web 表示外部进程提供本地 Web UI，由 PMCL 内嵌 WebView 承载
+            String embed = props.getProperty(PluginInfo.KEY_EMBED, "");
+            if (embed != null && embed.isBlank()) embed = null;
+
             return new PluginInfo(id, name, version, author, description, apiVersion, mainClass,
-                    dependencies, website, license, permissions);
+                    dependencies, website, license, permissions,
+                    externalRuntime, externalEntry, externalRestart, embed);
+        }
+    }
+
+    /**
+     * Load an external runtime plugin (.NET / Python / Node.js).
+     * Skips ClassLoader creation; uses ProcessBridge + ExternalRuntimeBridge instead.
+     */
+    private void loadExternalRuntimePlugin(PluginInfo info, Path jarOrDirPath) throws Exception {
+        // 1. Determine bridge type by embed mode
+        boolean windowEmbed = PluginInfo.EMBED_WINDOW.equals(info.getEmbed());
+
+        // 2. Resolve work directory
+        Path workDir;
+        if (Files.isDirectory(jarOrDirPath)) {
+            // Called from loadPluginPackage: package already extracted
+            workDir = jarOrDirPath;
+        } else {
+            // Called from loadPlugin: extract the JAR/ZIP
+            workDir = pluginsDir.resolve(".ext-" + info.getId());
+            if (Files.exists(workDir)) {
+                try { deleteRecursive(workDir); } catch (IOException ignored) {}
+            }
+            Files.createDirectories(workDir);
+            extractJar(jarOrDirPath, workDir);
+        }
+
+        // 3. Validate runtime (web / non-embed only) & create bridge
+        //    window 嵌入不需要外部运行时（直接停靠应用窗口），跳过运行时检测。
+        java.util.function.Consumer<String> logFn = msg ->
+            System.out.println("[PluginManager][" + info.getId() + "] " + msg);
+        PmclPlugin bridge;
+        if (windowEmbed) {
+            bridge = new NativeDockBridge(info, workDir, logFn);
+        } else {
+            RuntimeDetection.DetectionResult det = RuntimeDetection.detect(info.getExternalRuntime());
+            if (!det.isAvailable()) {
+                throw new IllegalStateException(
+                    "External runtime '" + info.getExternalRuntime() + "' not available: " + det.message());
+            }
+            bridge = new ExternalRuntimeBridge(info, workDir, logFn);
+        }
+
+        // 4. Create PluginEntry (passes null classloader to signal external runtime)
+        PluginContextImpl ctx = new PluginContextImpl(this, info.getId());
+        PluginEntry entry = new PluginEntry(info, bridge, ctx, null, workDir); // classLoader=null
+        entry.setState(PluginState.LOADED);
+
+        synchronized (this) {
+            loadedPlugins.put(info.getId(), entry);
+        }
+
+        String mode = info.getEmbed() != null ? "embed=" + info.getEmbed()
+            : "runtime=" + info.getExternalRuntime();
+        System.out.println("[PluginManager] Loaded external plugin: " + info.getId()
+            + " v" + info.getVersion() + " (" + mode + ")");
+        bumpRevision();
+
+        // onLoad
+        try { bridge.onLoad(); } catch (Exception e) {
+            System.err.println("[PluginManager] onLoad failed for " + info.getId() + ": " + e.getMessage());
+            synchronized (this) { entry.setState(PluginState.FAILED); }
+            fireEvent(new PluginErrorEvent(info.getId(), e));
+        }
+        fireEvent(new PluginLoadedEvent(info.getId()));
+    }
+
+    /** Extract a JAR file to a directory. */
+    private static void extractJar(Path jarPath, Path destDir) throws IOException {
+        try (java.util.zip.ZipInputStream zis = new java.util.zip.ZipInputStream(
+                new java.io.BufferedInputStream(Files.newInputStream(jarPath)))) {
+            java.util.zip.ZipEntry ze;
+            byte[] buf = new byte[8192];
+            while ((ze = zis.getNextEntry()) != null) {
+                if (ze.isDirectory()) continue;
+                // security: prevent zip slip
+                Path outPath = destDir.resolve(ze.getName()).normalize();
+                if (!outPath.startsWith(destDir)) {
+                    throw new IOException("Zip slip detected: " + ze.getName());
+                }
+                Files.createDirectories(outPath.getParent());
+                try (java.io.OutputStream os = Files.newOutputStream(outPath)) {
+                    int len;
+                    while ((len = zis.read(buf)) > 0) os.write(buf, 0, len);
+                }
+                zis.closeEntry();
+            }
+        }
+    }
+
+    /** Recursively delete a directory. */
+    private static void deleteRecursive(Path dir) throws IOException {
+        if (!Files.exists(dir)) return;
+        try (var s = Files.walk(dir)) {
+            s.sorted(java.util.Comparator.reverseOrder())
+                .forEach(p -> { try { Files.delete(p); } catch (IOException ignored) {} });
         }
     }
 
@@ -1948,7 +2089,7 @@ public final class PluginManager {
     public static class PluginEntry {
         private final PluginInfo info;
         private final PmclPlugin plugin;
-        private final PluginContextImpl context;
+        private PluginContextImpl context;
         private final PluginIsolatingClassLoader classLoader;
         private final Path jarPath;
         /** Whether this plugin was loaded from a .ppk package (true) or a single .jar (false). */
@@ -1960,6 +2101,8 @@ public final class PluginManager {
                     PluginIsolatingClassLoader classLoader, Path jarPath) {
             this(info, plugin, context, classLoader, jarPath, false);
         }
+
+
 
         PluginEntry(PluginInfo info, PmclPlugin plugin, PluginContextImpl context,
                     PluginIsolatingClassLoader classLoader, Path jarPath, boolean isPackage) {
@@ -1977,6 +2120,7 @@ public final class PluginManager {
         public PluginInfo getInfo() { return info; }
         public PmclPlugin getPlugin() { return plugin; }
         public PluginContextImpl getContext() { return context; }
+
         public PluginIsolatingClassLoader getClassLoader() { return classLoader; }
         public Path getJarPath() { return jarPath; }
         public boolean isPackage() { return isPackage; }
@@ -2123,6 +2267,8 @@ public final class PluginManager {
             if (type == I18nApi.class) return (T) i18n();
             if (type == ModpackApi.class) return (T) modpacks();
             if (type == com.pmcl.plugin.api.GameContentApi.class) return (T) gameContent();
+            if (type == GameProcessApi.class) return (T) gameProcess();
+            if (type == LoaderVersionsApi.class) return (T) loaderVersions();
             if (type == com.pmcl.plugin.api.RoomsApi.class) return (T) rooms();
             if (type == com.pmcl.plugin.api.ServersApi.class) return (T) servers();
             if (type == com.pmcl.plugin.api.JavaRuntimesApi.class) return (T) javaRuntimes();
@@ -2158,6 +2304,11 @@ public final class PluginManager {
         }
 
         @Override
+        public LoaderVersionsApi loaderVersions() {
+            return PluginApiFacades.loaderVersions(manager.core, this::requirePermission);
+        }
+
+        @Override
         public DownloadsApi downloads() {
             return PluginApiFacades.downloads(manager.core, manager, pluginId, getDataDir(), this::requirePermission);
         }
@@ -2185,6 +2336,10 @@ public final class PluginManager {
         @Override
         public com.pmcl.plugin.api.GameContentApi gameContent() {
             return PluginApiFacades.gameContent(manager.core, this::requirePermission);
+        }
+
+        public GameProcessApi gameProcess() {
+            return PluginApiFacades.gameProcess(manager.core, this::requirePermission);
         }
 
         @Override

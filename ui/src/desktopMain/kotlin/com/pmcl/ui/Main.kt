@@ -130,6 +130,16 @@ fun main() = application {
     System.setProperty("prism.verbose", "true")
     System.setProperty("prism.vsync", "true")
 
+    // 注册 WebView 页面工厂：外部运行时插件（embed=web）据此把自己的本地 Web UI
+    // 嵌入 PMCL 主窗口成为一个普通页面，而不是弹出独立的外部应用窗口。
+    // 必须早于插件系统启用任何 embed 插件。
+    remember { com.pmcl.ui.page.registerEmbeddedWebViewFactory(); Unit }
+
+    // 注册 DockHost 页面工厂：外部运行时插件（embed=window）据此把声明应用的真实窗口
+    // 停靠进 PMCL 主窗口成为普通页面（占位区 + 浮动真实窗口）。
+    // 必须早于插件系统启用任何 embed=window 插件。
+    remember { com.pmcl.ui.page.registerDockHostFactory(); Unit }
+
     // 启动时仅轻量读取窗口/主题偏好（不构造完整 Preferences，避免与 LauncherCore 重复加载）
     val prefPath = Paths.get(System.getProperty("user.home"), ".pmcl", "preferences.json")
     val borderless = remember { readBorderlessPref(prefPath.toString()) }

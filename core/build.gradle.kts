@@ -98,6 +98,13 @@ tasks.named<Jar>("jar") {
     dependsOn(syncGlfwAgentResource)
 }
 
+// sourcesJar（withSourcesJar 生成）会包含 main 资源集，而 main 资源集已把
+// generated/glfwAgentResource 纳入 srcDir，故必须显式依赖生成任务，否则 Gradle 8.x
+// 配置校验会报 "uses output without declaring dependency" 导致 assemble 失败。
+tasks.named<Jar>("sourcesJar") {
+    dependsOn(syncGlfwAgentResource)
+}
+
 tasks.test {
     useJUnitPlatform()
 }

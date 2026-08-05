@@ -112,12 +112,21 @@ public final class RetroWrapperSupport {
         if (versionId == null || versionId.isBlank()) return -1;
         if (isPreReleaseLegacyId(versionId)) return 0;
         Matcher m = RELEASE_PATTERN.matcher(versionId);
-        if (!m.find()) return -1;
-        int major = Integer.parseInt(m.group(1));
-        int minor = Integer.parseInt(m.group(2));
-        // Ignore year-like false positives (e.g. 2024.x); MC releases are 0.x / 1.x
-        if (major > 1) return -1;
-        return major * 1000 + minor;
+        int bestRelease = -1;
+        int legacyFallback = -1;
+        while (m.find()) {
+            int major = Integer.parseInt(m.group(1));
+            int minor = Integer.parseInt(m.group(2));
+            // Modded profile IDs may start with a loader version, for example
+            // fabric-loader-0.19.3-1.20.4. Prefer the most plausible 1.x Minecraft
+            // release instead of treating the first 0.x loader version as the game.
+            if (major == 1) {
+                bestRelease = Math.max(bestRelease, 1000 + minor);
+            } else if (major == 0 && legacyFallback < 0) {
+                legacyFallback = minor;
+            }
+        }
+        return bestRelease >= 0 ? bestRelease : legacyFallback;
     }
 
     /**

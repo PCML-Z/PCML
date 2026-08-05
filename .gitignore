@@ -75,3 +75,7 @@ pcmlAndroid/amethyst_runtime/
 
 # JRE assets
 pcmlAndroid/app/src/main/assets/components/jre/
+
+# .NET build output
+**/obj/
+**/bin/

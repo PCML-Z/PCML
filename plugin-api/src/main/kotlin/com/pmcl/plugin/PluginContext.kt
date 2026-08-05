@@ -8,11 +8,13 @@ import com.pmcl.plugin.api.DownloadQueueApi
 import com.pmcl.plugin.api.DownloadsApi
 import com.pmcl.plugin.api.FilesystemApi
 import com.pmcl.plugin.api.GameContentApi
+import com.pmcl.plugin.api.GameProcessApi
 import com.pmcl.plugin.api.HttpApi
 import com.pmcl.plugin.api.I18nApi
 import com.pmcl.plugin.api.InstancesApi
 import com.pmcl.plugin.api.JavaRuntimesApi
 import com.pmcl.plugin.api.LaunchApi
+import com.pmcl.plugin.api.LoaderVersionsApi
 import com.pmcl.plugin.api.ModMarketApi
 import com.pmcl.plugin.api.ModpackApi
 import com.pmcl.plugin.api.ModsApi
@@ -44,12 +46,14 @@ interface PluginContext {
     fun instances(): InstancesApi
     fun accounts(): AccountsApi
     fun launch(): LaunchApi
+    fun loaderVersions(): LoaderVersionsApi
     fun downloads(): DownloadsApi
     fun downloadQueue(): DownloadQueueApi
     fun mods(): ModsApi
     fun modMarket(): ModMarketApi
     fun modpacks(): ModpackApi
     fun gameContent(): GameContentApi
+    fun gameProcess(): GameProcessApi
     fun rooms(): RoomsApi
     fun servers(): ServersApi
     fun javaRuntimes(): JavaRuntimesApi

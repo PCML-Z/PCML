@@ -10,6 +10,9 @@ java {
 
 dependencies {
     implementation(project(":core"))
+    // 显式声明：CLI 直接引用 com.pmcl.plugin.*（PluginInfo、PluginPackageParser 等），
+    // 此前仅靠 core 的 api(project(":plugin-api")) 传递可用，脆弱。
+    implementation(project(":plugin-api"))
     implementation(libs.gson)
     implementation(libs.okhttp)
     implementation(libs.slf4j.simple)

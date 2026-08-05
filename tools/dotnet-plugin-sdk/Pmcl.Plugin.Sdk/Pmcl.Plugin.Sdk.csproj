@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PackageId>Pmcl.Plugin.Sdk</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>PMCL-Z</Authors>
+    <Description>PMCL plugin SDK for .NET — build .NET plugins for the PMCL Minecraft launcher via stdin/stdout JSON-RPC.</Description>
+  </PropertyGroup>
+</Project>
