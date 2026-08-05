@@ -57,6 +57,9 @@ ui/build/compose/binaries/main/main/runtime/
 *.png
 !**/src/**/*.png
 !**/resources/**/*.png
+# 根目录图标（README 引用，必须纳入版本控制，勿被 *.png 吞掉）
+!logo-pmcl-pixel.png
+!repo-stats.png
 
 # Screenshot
 截屏*.png
