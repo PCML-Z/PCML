@@ -87,11 +87,18 @@ fun LauncherViewModel.createRoom() {
                         if (backend == com.pmcl.core.multiplayer.MultiplayerManager.Backend.EASYTIER) {
                             syncEasyTierConfig()
                         }
-                        core.multiplayer().createRoom { msg ->
+                        val lanPortHint = if (
+                            backend == com.pmcl.core.multiplayer.MultiplayerManager.Backend.TERRACOTTA
+                        ) {
+                            detectMinecraftLanPort()
+                        } else {
+                            0
+                        }
+                        core.multiplayer().createRoom({ msg ->
                             _mpProgress.value = msg
                             // 跟随后端状态，避免 UI 一直停在 DOWNLOADING / 「正在连接」
                             _mpState.value = core.multiplayer().state
-                        }.join()
+                        }, lanPortHint).join()
                     }
                 }
             }
@@ -128,6 +135,23 @@ fun LauncherViewModel.createRoom() {
             _mpProgress.value = ""
         }
     }
+}
+
+/** 从本次游戏进程日志提取“对局域网开放”后的端口。 */
+private fun LauncherViewModel.detectMinecraftLanPort(): Int {
+    if (!_gameRunning.value) return 0
+    val patterns = listOf(
+        Regex("""(?i)Started serving on\s+(\d{1,5})"""),
+        Regex("""(?i)Local game hosted on port\s+(\d{1,5})"""),
+        Regex("""本地游戏.*?端口\D*(\d{1,5})""")
+    )
+    for (entry in _gameLogs.value.asReversed()) {
+        for (pattern in patterns) {
+            val port = pattern.find(entry.text)?.groupValues?.getOrNull(1)?.toIntOrNull()
+            if (port != null && port in 1..65535) return port
+        }
+    }
+    return 0
 }
 
 /** 通过邀请码/房间码加入房间 */

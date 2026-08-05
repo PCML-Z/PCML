@@ -73,7 +73,11 @@ private fun MpRoomSection(vm: LauncherViewModel) {
             isTerracotta -> I18n.t("mp.state.downloading_terracotta")
             else -> I18n.t("mp.state.downloading_easytier")
         }
-        MultiplayerManager.State.CONNECTING -> I18n.t("mp.state.connecting")
+        MultiplayerManager.State.CONNECTING -> if (isTerracotta) {
+            I18n.t("mp.state.scanning_lan")
+        } else {
+            I18n.t("mp.state.connecting")
+        }
         MultiplayerManager.State.CONNECTED -> I18n.t("mp.state.connected")
         MultiplayerManager.State.DISCONNECTED -> I18n.t("mp.state.disconnected")
         MultiplayerManager.State.FAILED -> I18n.t("mp.state.failed")

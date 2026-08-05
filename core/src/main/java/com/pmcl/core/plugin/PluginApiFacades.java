@@ -20,6 +20,9 @@ import com.pmcl.plugin.ThemeChangedEvent;
 import com.pmcl.plugin.api.AccountSummary;
 import com.pmcl.plugin.api.AccountsApi;
 import com.pmcl.plugin.api.DownloadsApi;
+import com.pmcl.plugin.api.GameProcessApi;
+import com.pmcl.plugin.api.GameProcessSummary;
+import com.pmcl.plugin.api.LoaderVersionsApi;
 import com.pmcl.plugin.api.FilesystemApi;
 import com.pmcl.plugin.api.HttpApi;
 import com.pmcl.plugin.api.HttpResponseSummary;
@@ -2221,4 +2224,55 @@ final class PluginApiFacades {
     private static String emptyToNull(String s) {
         return (s == null || s.isBlank()) ? null : s;
     }
+
+    // ===== LoaderVersionsApi =====
+    static LoaderVersionsApi loaderVersions(LauncherCore core, PermissionGate gate) {
+        return (loader, gameVersion) -> {
+            gate.require("NETWORK");
+            java.util.concurrent.CompletableFuture<java.util.List<String>> future = new java.util.concurrent.CompletableFuture<>();
+            com.pmcl.core.modloader.ModLoaderManager mlm = core.modLoaders();
+            com.pmcl.core.modloader.ModLoader modLoader;
+            try {
+                modLoader = com.pmcl.core.modloader.ModLoader.valueOf(loader.toUpperCase(java.util.Locale.ROOT));
+            } catch (IllegalArgumentException e) {
+                future.completeExceptionally(new IllegalArgumentException("Unknown loader: " + loader + ". Valid: " + java.util.Arrays.toString(com.pmcl.core.modloader.ModLoader.values())));
+                return future;
+            }
+            try {
+                com.pmcl.core.modloader.ModLoaderInstaller installer = mlm.get(modLoader);
+                installer.listVersions(gameVersion).thenAccept(versions -> {
+                    java.util.List<String> result = new java.util.ArrayList<>();
+                    for (com.pmcl.core.modloader.ModLoaderVersion v : versions) {
+                        result.add(v.getLoaderVersion());
+                    }
+                    future.complete(result);
+                }).exceptionally(ex -> { future.completeExceptionally(ex); return null; });
+            } catch (Exception e) {
+                future.completeExceptionally(e);
+            }
+            return future;
+        };
+    }
+
+    // ===== GameProcessApi =====
+    static GameProcessApi gameProcess(LauncherCore core, PermissionGate gate) {
+        return new GameProcessApi() {
+            @Override
+            public java.util.List<GameProcessSummary> listProcesses() {
+                java.util.List<GameProcessSummary> result = new java.util.ArrayList<>();
+                com.pmcl.core.launch.LaunchManager lm = core.launch();
+                for (Long pid : lm.getActiveProcessPids()) {
+                    result.add(new GameProcessSummary("running", pid, true));
+                }
+                return result;
+            }
+
+            @Override
+            public boolean killProcess(long pid) {
+                gate.require("KILL_PROCESS");
+                return core.launch().killProcess(pid);
+            }
+        };
+    }
+
 }

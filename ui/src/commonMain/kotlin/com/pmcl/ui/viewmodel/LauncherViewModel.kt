@@ -2062,6 +2062,8 @@ class LauncherViewModel {
                 }
                 _status.value = I18n.t("status.modpack_import_complete")
                 refreshModpacks()
+                refreshLocalVersions()
+                loadInstances()
             } catch (e: Throwable) {
                 _status.value = I18n.t("status.modpack_import_failed", e.message ?: I18n.t("common.unknown"))
             } finally {

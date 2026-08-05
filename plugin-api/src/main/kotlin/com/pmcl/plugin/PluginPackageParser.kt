@@ -333,6 +333,14 @@ object PluginPackageParser {
                     perm.name
                 }
 
+        // External runtime fields (v1.7+)
+        val externalRuntime = elem.optionalChildText("external-runtime")
+        val externalEntry = elem.optionalChildText("external-entry")
+        val externalRestart = elem.optionalChildText("external-restart") ?: "on-failure"
+        // 嵌入模式（v1.7+）：<embed>web</embed> 表示子进程提供本地 Web UI，
+        // 由 PMCL 用内置 WebView 嵌入主窗口，而不是打开独立窗口。
+        val embed = elem.optionalChildText("embed")
+
         // dependencies will be set later from the top-level <dependencies> element
         return PluginInfo(
             id = id,
@@ -345,7 +353,11 @@ object PluginPackageParser {
             dependencies = emptyList(),
             website = website,
             license = license,
-            permissions = permissions
+            permissions = permissions,
+            externalRuntime = externalRuntime,
+            externalEntry = externalEntry,
+            externalRestart = externalRestart,
+            embed = embed
         )
     }
 
@@ -440,6 +452,9 @@ object PluginPackageParser {
         versions: List<VersionEntry>,
         deps: List<PackageDependency>
     ) {
+        // External runtime / window-embed plugins have no Kotlin sources to validate
+        if (info.externalRuntime != null || info.embed != null) return
+
         // Must have at least one Kotlin source
         val ktSources = sources.filter { it.language == SourceFile.Language.KOTLIN }
         if (ktSources.isEmpty()) {
@@ -533,6 +548,9 @@ object PluginPackageParser {
     }
 
     private fun validatePathsExist(zip: ZipFile, pkg: PluginPackage) {
+        // External runtime / window-embed plugins have no source files to verify
+        if (pkg.info.externalRuntime != null || pkg.info.embed != null) return
+
         // Check all source paths
         for (src in pkg.sources) {
             if (zip.getEntry(src.path) == null) {

@@ -209,6 +209,7 @@ public class VideoCallSessionTest {
             @Override public void onLocalCandidate(String s, String u, String p) {}
             @Override public void onRemoteFrame(BufferedImage f) {}
             @Override public void onLocalFrame(BufferedImage f) {}
+            @Override public void onVideoPortReady(int p) {}
             @Override public void onError(String m) {}
         };
 
@@ -219,6 +220,7 @@ public class VideoCallSessionTest {
             @Override public void onLocalCandidate(String s, String u, String p) {}
             @Override public void onRemoteFrame(BufferedImage f) {}
             @Override public void onLocalFrame(BufferedImage f) {}
+            @Override public void onVideoPortReady(int p) {}
             @Override public void onError(String m) {
                 errorMsg.set(m);
             }
@@ -262,6 +264,7 @@ public class VideoCallSessionTest {
             @Override public void onLocalCandidate(String s, String u, String p) {}
             @Override public void onRemoteFrame(BufferedImage f) {}
             @Override public void onLocalFrame(BufferedImage f) {}
+            @Override public void onVideoPortReady(int p) {}
             @Override public void onError(String m) {}
         };
 

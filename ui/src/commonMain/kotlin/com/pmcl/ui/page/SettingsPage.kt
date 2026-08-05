@@ -1960,7 +1960,13 @@ private fun GameBehaviorCard(pref: com.pmcl.core.preferences.Preferences) {
             Spacer(Modifier.height(12.dp))
             Text(I18n.t("settings.renderer"), style = MaterialTheme.typography.labelMedium)
             Spacer(Modifier.height(4.dp))
-            val rendererItems = listOf("AUTO" to I18n.t("settings.renderer_auto"), "OPENGL" to "OpenGL", "VULKAN" to "Vulkan")
+            val isWindows = System.getProperty("os.name", "").lowercase().contains("windows")
+            val rendererItems = buildList {
+                add("AUTO" to I18n.t("settings.renderer_auto"))
+                add("OPENGL" to "OpenGL")
+                add("VULKAN" to "Vulkan")
+                if (isWindows) add("DIRECTX" to I18n.t("settings.renderer_directx"))
+            }
             com.pmcl.ui.animation.AnimatedSegmentedSelector(
                 items = rendererItems.map { it.second },
                 selectedIndex = rendererItems.indexOfFirst { it.first == renderer }.coerceAtLeast(0),
@@ -1970,7 +1976,9 @@ private fun GameBehaviorCard(pref: com.pmcl.core.preferences.Preferences) {
                 },
                 fillWidth = true
             )
-            Text(I18n.t("settings.renderer_hint"),
+            Text(
+                text = if (renderer == "DIRECTX") I18n.t("settings.renderer_dx_hint")
+                       else I18n.t("settings.renderer_hint"),
                  style = MaterialTheme.typography.labelSmall,
                  color = MaterialTheme.colorScheme.outline)
 

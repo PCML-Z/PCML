@@ -121,6 +121,12 @@ compose.desktop {
             macOS {
                 bundleID = "com.pmcl.ui"
                 iconFile.set(project.file("src/commonMain/resources/pmcl.icns"))
+                infoPlist {
+                    extraKeysRawXml = """
+                        <key>NSLocalNetworkUsageDescription</key>
+                        <string>PMCL 需要访问本地网络，以检测 Minecraft 局域网世界并使用陶瓦联机创建或加入房间。</string>
+                    """.trimIndent()
+                }
             }
             linux {
                 packageName = "pmcl"

@@ -25,6 +25,7 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.Collections
+import java.util.Locale
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionException
 import java.util.concurrent.ConcurrentHashMap
@@ -82,8 +83,20 @@ class ModpackManager(
         val size: Long,
         val downloadUrl: String,
         val projectId: String?,
-        val fileId: String?
-    )
+        val fileId: String?,
+        /** 全部候选下载地址（含 downloadUrl 本身），按顺序逐个回退。 */
+        val mirrors: List<String> = emptyList(),
+        /** 是否为必需项；CurseForge required:false 的可选 mod 允许下载失败。 */
+        val required: Boolean = true
+    ) {
+        /** 去重后的完整候选地址列表，downloadUrl 优先。 */
+        fun allUrls(): List<String> {
+            val out = ArrayList<String>()
+            if (downloadUrl.isNotEmpty()) out.add(downloadUrl)
+            for (m in mirrors) if (m.isNotEmpty() && m !in out) out.add(m)
+            return out
+        }
+    }
 
     /** 单个 mod 的更新信息 */
     data class ModUpdate(
@@ -150,6 +163,15 @@ class ModpackManager(
             InstallProgress.Stage.DOWNLOAD_VERSION_JSON, 0, 0, "正在解析整合包清单..."))
 
         val manifest = parseManifest(file)
+
+        // P1: 版本缺失时立即给出可读错误，而不是把空串丢给 VersionInstaller
+        if (manifest.gameVersion.isBlank()) {
+            throw IOException("整合包未声明 Minecraft 版本" +
+                if (manifest.format == "serverpack")
+                    "（服务器包不含版本信息，且无法从文件名推断，请改用带 manifest 的整合包）"
+                else "（清单缺少 gameVersion 字段，文件可能已损坏）")
+        }
+
         val instanceName = sanitizeName(manifest.name)
         var instanceDir = paths.instances.resolve(instanceName)
 
@@ -161,6 +183,22 @@ class ModpackManager(
         }
 
         Files.createDirectories(instanceDir)
+        // P0-3: 目录创建后任何失败都必须清理，否则重试会不断堆积
+        // name-1 / name-2 半成品目录。
+        var ok = false
+        try {
+            doImportInto(file, instanceDir, manifest, progress)
+            ok = true
+        } finally {
+            if (!ok) deleteRecursivelyQuietly(instanceDir)
+        }
+    }
+
+    /** 实际执行导入的各阶段；任何异常都会由调用方触发实例目录清理。 */
+    private fun doImportInto(
+        file: Path, instanceDir: Path, manifest: ParsedManifest,
+        progress: Consumer<InstallProgress>?
+    ) {
         for (sub in listOf("mods", "saves", "config", "resourcepacks",
                 "shaderpacks", "screenshots", "logs")) {
             Files.createDirectories(instanceDir.resolve(sub))
@@ -217,6 +255,7 @@ class ModpackManager(
 
         val completed = AtomicInteger(0)
         val failCount = AtomicInteger(0)
+        val optionalFailCount = AtomicInteger(0)
         val failSamples = Collections.synchronizedList(ArrayList<String>())
         val pool: ExecutorService = Executors.newFixedThreadPool(minOf(16, maxOf(2, total)))
         val instanceDirFinal = instanceDir.toAbsolutePath().normalize()
@@ -231,10 +270,16 @@ class ModpackManager(
                             throw if (e is RuntimeException) e
                             else InstallInterruptedException("整合包模组下载已中断", e)
                         }
-                        failCount.incrementAndGet()
                         val detail = mf.path + ": " + Exceptions.rootMessage(e)
-                        if (failSamples.size < 5) failSamples.add(detail)
-                        System.err.println("[ModpackManager] 模组下载失败: $detail")
+                        // P1: 可选 mod（CF required:false）下载失败不应导致整体失败
+                        if (!mf.required) {
+                            optionalFailCount.incrementAndGet()
+                            System.err.println("[ModpackManager] 可选模组下载失败（已跳过）: $detail")
+                        } else {
+                            failCount.incrementAndGet()
+                            if (failSamples.size < 5) failSamples.add(detail)
+                            System.err.println("[ModpackManager] 模组下载失败: $detail")
+                        }
                     }
                     val done = completed.incrementAndGet()
                     if (progress != null) {
@@ -266,42 +311,68 @@ class ModpackManager(
 
         if (total > 0 && failCount.get() > 0) {
             val preview = failSamples.joinToString("; ")
-            throw IOException("整合包模组下载失败 ${failCount.get()}/$total 个（示例: $preview）")
+            throw IOException("整合包必需模组下载失败 ${failCount.get()}/$total 个（示例: $preview）")
+        }
+        if (optionalFailCount.get() > 0) {
+            System.err.println("[ModpackManager] 共跳过 ${optionalFailCount.get()} 个下载失败的可选模组")
         }
     }
 
-    /** 下载单个整合包模组文件（含 CF URL/SHA 解析）。 */
+    /** 下载单个整合包模组文件（含 CF URL/SHA 解析、镜像回退）。 */
     @Throws(IOException::class)
     private fun downloadModpackFile(mf: ModpackFile, instanceDirAbs: Path) {
-        var url: String? = mf.downloadUrl
+        val candidates = ArrayList(mf.allUrls())
         var sha1: String = mf.hash
+
         // CF 整合包 manifest 不含 downloadUrl/hash，需通过 API 查询
-        // 简化版未注入 market client，无法解析 CF 文件下载信息（返回空）
-        if ((url.isNullOrEmpty() || sha1.isBlank())
+        if ((candidates.isEmpty() || sha1.isBlank())
             && !mf.projectId.isNullOrEmpty() && !mf.fileId.isNullOrEmpty()) {
             val resolved = resolveCurseForgeFile(mf.projectId, mf.fileId)
-            if (url.isNullOrEmpty()) url = resolved.url
+            if (candidates.isEmpty() && resolved.url.isNotEmpty()) candidates.add(resolved.url)
             if (sha1.isBlank()) sha1 = resolved.sha1
         }
-        if (url.isNullOrEmpty()) {
-            throw IOException("无下载 URL")
+
+        if (candidates.isEmpty()) {
+            // P0-2: Android 端未接入 CurseForge API，必须明确告知真实原因，
+            // 而不是抛一句无从排查的「无下载 URL」。
+            throw IOException(
+                if (!mf.projectId.isNullOrEmpty())
+                    "无下载 URL（Android 端暂不支持 CurseForge 整合包：" +
+                        "缺少 CurseForge API 接入，无法解析 ${mf.projectId}/${mf.fileId}，" +
+                        "请改用 Modrinth .mrpack 格式）"
+                else "无下载 URL"
+            )
         }
-        validateDownloadUrl(url)
+
         val target = instanceDirAbs.resolve(mf.path).normalize()
         if (!target.startsWith(instanceDirAbs)) {
             throw IOException("非法路径: ${mf.path}")
         }
         target.parent?.let { Files.createDirectories(it) }
-        if (sha1.isBlank()) {
-            // 最后手段：无哈希则下载后拒绝过小文件
-            downloads.downloadTo(url, target)
-            if (Files.size(target) < 32) {
-                Files.deleteIfExists(target)
-                throw IOException("下载文件过小且无 SHA-1")
+
+        // P1: 逐个镜像回退，全部失败才抛出最后一次异常
+        var last: IOException? = null
+        for (url in candidates) {
+            try {
+                validateDownloadUrl(url)
+                if (sha1.isBlank()) {
+                    downloads.downloadTo(url, target)
+                    if (Files.size(target) < 32) {
+                        Files.deleteIfExists(target)
+                        throw IOException("下载文件过小且无 SHA-1")
+                    }
+                } else {
+                    downloads.downloadToVerified(url, target, sha1, null)
+                }
+                return
+            } catch (e: IOException) {
+                last = e
+            } catch (e: RuntimeException) {
+                if (InstallInterruptedException.isInterrupted(e)) throw e
+                last = IOException(Exceptions.rootMessage(e), e)
             }
-            return
         }
-        downloads.downloadToVerified(url, target, sha1, null)
+        throw last ?: IOException("下载失败: ${mf.path}")
     }
 
     @Throws(IOException::class)
@@ -318,6 +389,14 @@ class ModpackManager(
             throw IOException("非法下载协议: $scheme")
         }
         val host = uri.host ?: throw IOException("下载 URL 缺少 host: $url")
+
+        // P1: 域名白名单——manifest 中的 SHA-1 由整合包作者自填，
+        // 攻击者可连同恶意 jar 的哈希一起伪造，哈希校验因此形同虚设。
+        // 限制下载来源是唯一可靠防线（Modrinth 官方规范同样强制要求）。
+        if (!isTrustedDownloadHost(host)) {
+            throw IOException("下载源不在可信白名单内，已拒绝: $host（整合包可能被篡改）")
+        }
+
         // 内网主机校验
         try {
             val addr = InetAddress.getByName(host)
@@ -390,9 +469,18 @@ class ModpackManager(
         val files = ArrayList<ModpackFile>()
         if (root.has("files") && root.get("files").isJsonArray) {
             for (e in root.getAsJsonArray("files")) {
+                if (!e.isJsonObject) continue
                 val f = e.asJsonObject
-                val path = safeStr(f, "path", "")
+                val path = normalizeEntryPath(safeStr(f, "path", ""))
                 if (path.isEmpty()) continue
+
+                // P0-4: env.client == "unsupported" 表示服务端专用文件，
+                // 客户端必须跳过，否则装进 mods/ 会导致启动崩溃。
+                if (f.has("env") && f.get("env").isJsonObject) {
+                    val clientEnv = safeStr(f.getAsJsonObject("env"), "client", "required")
+                    if (clientEnv.equals("unsupported", ignoreCase = true)) continue
+                }
+
                 var hash = ""
                 if (f.has("hashes") && f.get("hashes").isJsonObject) {
                     val h = f.getAsJsonObject("hashes")
@@ -400,12 +488,18 @@ class ModpackManager(
                 }
                 val size = if (f.has("size") && !f.get("size").isJsonNull)
                     f.get("size").asLong else 0L
-                var downloadUrl = ""
-                if (f.has("downloads") && f.get("downloads").isJsonArray
-                    && f.getAsJsonArray("downloads").size() > 0) {
-                    downloadUrl = f.getAsJsonArray("downloads")[0].asString
+
+                // P1: downloads 是镜像数组，全部保留用于逐个回退
+                val mirrors = ArrayList<String>()
+                if (f.has("downloads") && f.get("downloads").isJsonArray) {
+                    for (d in f.getAsJsonArray("downloads")) {
+                        if (d.isJsonNull) continue
+                        val u = d.asString
+                        if (!u.isNullOrEmpty()) mirrors.add(u)
+                    }
                 }
-                files.add(ModpackFile(path, hash, size, downloadUrl, null, null))
+                val downloadUrl = mirrors.firstOrNull() ?: ""
+                files.add(ModpackFile(path, hash, size, downloadUrl, null, null, mirrors))
             }
         }
 
@@ -449,41 +543,70 @@ class ModpackManager(
         val files = ArrayList<ModpackFile>()
         if (root.has("files") && root.get("files").isJsonArray) {
             for (f in root.getAsJsonArray("files")) {
+                if (!f.isJsonObject) continue
                 val fObj = f.asJsonObject
                 val projectId = if (fObj.has("projectID") && !fObj.get("projectID").isJsonNull)
                     fObj.get("projectID").asString else ""
                 val fileId = if (fObj.has("fileID") && !fObj.get("fileID").isJsonNull)
                     fObj.get("fileID").asString else ""
+                if (projectId.isEmpty() || fileId.isEmpty()) continue
+
+                // P1: required:false 的可选 mod 下载失败不应导致整体失败
+                val required = if (fObj.has("required") && !fObj.get("required").isJsonNull) {
+                    try { fObj.get("required").asBoolean } catch (_: Exception) { true }
+                } else true
+
                 // CurseForge manifest 不含下载 URL；安装阶段由 resolveCurseForgeFile 补全
                 files.add(ModpackFile(
                     "mods/${projectId}_${fileId}.jar",
-                    "", 0L, "", projectId, fileId))
+                    "", 0L, "", projectId, fileId, emptyList(), required))
             }
         }
 
         return ParsedManifest(name, gameVersion, loader, loaderVersion, "curseforge", files, author)
     }
 
-    /** 解析纯 zip/服务器包（无 manifest，直接扫描 mods/ 目录） */
+    /**
+     * 解析纯 zip/服务器包（无 manifest，直接扫描 mods/ 目录）。
+     *
+     * P0-1: mods/ 目录下的 *.jar 已存在于 zip 内，没有下载 URL，files 必须留空，
+     * 由 extractOverrides 无前缀解压；否则第 4 步必然抛「无下载 URL」导致
+     * 服务器包 100% 导入失败。
+     *
+     * P1: 游戏版本从 mod 文件名启发式推断，推断不出由 doImport 显式拦截。
+     */
     @Throws(IOException::class)
     private fun parseServerPackManifest(zf: ZipFile): ParsedManifest {
-        val files = ArrayList<ModpackFile>()
+        var gameVersion = ""
+        var loader = ""
         val entries = Collections.list(zf.entries())
         for (e in entries) {
-            val name = e.name
-            if (name.startsWith("mods/") && name.endsWith(".jar") && !e.isDirectory) {
-                val fileName = name.substring(name.lastIndexOf('/') + 1)
-                files.add(ModpackFile("mods/$fileName", "", 0L, "", null, null))
+            if (e.isDirectory) continue
+            val lower = e.name.lowercase(Locale.ROOT)
+            if (gameVersion.isEmpty() && lower.startsWith("mods/") && lower.endsWith(".jar")) {
+                MC_VERSION_IN_NAME.find(lower)?.let { gameVersion = it.groupValues[1] }
+            }
+            if (loader.isEmpty()) {
+                when {
+                    lower.contains("fabric-loader") ||
+                        lower == "fabric-server-launch.jar" -> loader = "fabric"
+                    lower.contains("neoforge") -> loader = "neoforge"
+                    lower.contains("forge-") && lower.endsWith(".jar") -> loader = "forge"
+                    lower.contains("quilt-loader") -> loader = "quilt"
+                }
             }
         }
-        // 服务器包无版本信息，需要用户手动指定
-        return ParsedManifest("服务器包", "", "", "", "serverpack", files, "Server")
+        return ParsedManifest("服务器包", gameVersion, loader, "",
+            "serverpack", ArrayList(), "Server")
     }
 
     @Throws(IOException::class)
     private fun extractOverrides(file: Path, instanceDir: Path, format: String) {
-        // modrinth/curseforge 用 "overrides/" 前缀；serverpack 无前缀直接解压到根目录
-        val prefixes: List<String> = if (format == "serverpack") listOf("") else listOf("overrides/")
+        // modrinth/curseforge 用 "overrides/" 前缀；serverpack 无前缀直接解压到根目录。
+        // P1: 补上 client-overrides/（Modrinth 规范中在 overrides/ 之后应用，
+        // 承载客户端专属配置）；server-overrides/ 为服务端专用，客户端必须忽略。
+        val prefixes: List<String> = if (format == "serverpack") listOf("")
+            else listOf("overrides/", "client-overrides/")
 
         val maxTotal = SafeZipExtractor.DEFAULT_MAX_TOTAL_SIZE
         val maxEntry = SafeZipExtractor.DEFAULT_MAX_ENTRY_SIZE
@@ -510,6 +633,9 @@ class ModpackManager(
                     }
                 }
                 if (relative.isNullOrEmpty()) continue
+
+                // P1: 服务器包前缀为空，仅保留客户端有意义的内容
+                if (format == "serverpack" && !isClientRelevantServerPackEntry(relative)) continue
 
                 // ZipSlip 防护：失败即中止（禁止静默跳过）
                 if (relative.contains("..") || relative.startsWith("/") || relative.startsWith("\\")
@@ -599,7 +725,77 @@ class ModpackManager(
         while (result.endsWith(".") || result.endsWith(" ")) {
             result = result.substring(0, result.length - 1)
         }
-        return if (result.isEmpty()) "unnamed" else result
+        if (result.isEmpty()) return "unnamed"
+
+        // P1: Windows 保留设备名（导出到 PC 时会导致目录无法创建）
+        val base = result.substringBefore('.').uppercase(Locale.ROOT)
+        if (base in WINDOWS_RESERVED_NAMES) result = "_$result"
+
+        // 限制长度，避免超出文件系统单段上限
+        if (result.toByteArray(StandardCharsets.UTF_8).size > 120) {
+            val sb2 = StringBuilder()
+            var bytes = 0
+            for (c in result) {
+                val cb = c.toString().toByteArray(StandardCharsets.UTF_8).size
+                if (bytes + cb > 120) break
+                sb2.append(c); bytes += cb
+            }
+            result = sb2.toString()
+            if (result.isEmpty()) return "unnamed"
+        }
+        return result
+    }
+
+    /**
+     * 归一化 manifest 声明的目标路径：统一分隔符、剥离前导 "./" 与 "/"。
+     * 返回值仍需由调用方做 startsWith 越界校验。
+     */
+    private fun normalizeEntryPath(raw: String?): String {
+        if (raw == null) return ""
+        var p = raw.replace('\\', '/').trim()
+        while (p.startsWith("./")) p = p.substring(2)
+        while (p.startsWith("/")) p = p.substring(1)
+        return p
+    }
+
+    /**
+     * P0-3: 递归删除导入失败留下的半成品实例目录。
+     * 清理失败不应掩盖原始异常，因此全程静默。
+     */
+    private fun deleteRecursivelyQuietly(dir: Path?) {
+        if (dir == null || !Files.exists(dir)) return
+        try {
+            Files.walk(dir).use { walk ->
+                walk.sorted(Comparator.reverseOrder()).forEach { p ->
+                    try { Files.deleteIfExists(p) } catch (_: IOException) {}
+                }
+            }
+        } catch (e: IOException) {
+            System.err.println("[ModpackManager] 清理失败的实例目录未完成: $dir - ${e.message}")
+        }
+    }
+
+    /**
+     * 判断服务器包中的条目是否对客户端有意义。
+     * 服务器包无 overrides 前缀，不过滤会把 server.jar / eula.txt / 世界存档
+     * 等纯服务端产物一并释放进客户端实例目录。
+     */
+    private fun isClientRelevantServerPackEntry(relative: String): Boolean {
+        val lower = relative.lowercase(Locale.ROOT)
+        for (dir in listOf("mods/", "config/", "resourcepacks/", "shaderpacks/",
+            "kubejs/", "scripts/", "defaultconfigs/", "patchouli_books/", "schematics/")) {
+            if (lower.startsWith(dir)) return true
+        }
+        for (bad in listOf("eula.txt", "server.properties", "server-icon.png",
+            "ops.json", "whitelist.json", "banned-ips.json", "banned-players.json",
+            "usercache.json", "permissions.json")) {
+            if (lower == bad) return false
+        }
+        if (lower.endsWith(".bat") || lower.endsWith(".sh") || lower.endsWith(".cmd")) return false
+        if (!lower.contains("/") && lower.endsWith(".jar")) return false
+        if (lower.startsWith("world/") || lower.startsWith("logs/")
+            || lower.startsWith("crash-reports/") || lower.startsWith("libraries/")) return false
+        return lower.contains("/")
     }
 
     private fun safeStr(obj: JsonObject, key: String, default: String): String {
@@ -894,5 +1090,52 @@ class ModpackManager(
 
     companion object {
         private const val MAX_MANIFEST_BYTES = 8L * 1024 * 1024
+
+        /** 从文件名提取 Minecraft 版本，如 "...+mc1.20.1.jar" / "...-1.20.1-..." */
+        private val MC_VERSION_IN_NAME =
+            Regex("(?:mc|minecraft)?[-_+]?(1\\.\\d{1,2}(?:\\.\\d{1,2})?)")
+
+        private val WINDOWS_RESERVED_NAMES = setOf(
+            "CON", "PRN", "AUX", "NUL",
+            "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+            "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9")
+
+        /**
+         * 整合包下载源白名单。
+         *
+         * manifest 中的 SHA-1 由整合包作者自填，攻击者可连同恶意 jar 的哈希
+         * 一并伪造，使哈希校验形同虚设。限制下载来源域名是唯一可靠防线，
+         * 这也是 Modrinth 官方规范对客户端实现的强制要求。
+         */
+        private val TRUSTED_DOWNLOAD_HOSTS = listOf(
+            "cdn.modrinth.com",
+            "api.modrinth.com",
+            "edge.forgecdn.net",
+            "mediafilez.forgecdn.net",
+            "media.forgecdn.net",
+            "www.curseforge.com",
+            "api.curseforge.com",
+            "github.com",
+            "raw.githubusercontent.com",
+            "objects.githubusercontent.com",
+            "codeload.github.com",
+            "gitlab.com",
+            "maven.minecraftforge.net",
+            "maven.neoforged.net",
+            "maven.fabricmc.net",
+            "maven.quiltmc.org",
+            "libraries.minecraft.net",
+            "launcher.mojang.com",
+            "piston-data.mojang.com",
+            "piston-meta.mojang.com",
+            "bmclapi2.bangbang93.com",
+            "download.mcbbs.net"
+        )
+
+        /** 判断 host 是否命中白名单（支持子域名匹配）。 */
+        private fun isTrustedDownloadHost(host: String): Boolean {
+            val h = host.lowercase(Locale.ROOT)
+            return TRUSTED_DOWNLOAD_HOSTS.any { h == it || h.endsWith(".$it") }
+        }
     }
 }

@@ -3,6 +3,8 @@ package com.pmcl.core.instance;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.UUID;
@@ -100,13 +102,84 @@ public final class InstanceInfo {
         JsonObject o = JsonParser.parseString(json).getAsJsonObject();
         String name = o.has("name") ? o.get("name").getAsString() : instanceDir.getFileName().toString();
         String gameVersion = o.has("gameVersion") ? o.get("gameVersion").getAsString() : "";
-        String id = UUID.randomUUID().toString();
-        InstanceInfo info = new InstanceInfo(id, name, gameVersion, Type.MODPACK);
-        if (o.has("loader")) info.loader = o.get("loader").getAsString();
-        if (o.has("loaderVersion")) info.loaderVersion = o.get("loaderVersion").getAsString();
+        String loader = o.has("loader") ? o.get("loader").getAsString() : "";
+        String loaderVersion = o.has("loaderVersion") ? o.get("loaderVersion").getAsString() : "";
+        String baseVersionId = o.has("baseVersionId") && !o.get("baseVersionId").isJsonNull()
+                ? o.get("baseVersionId").getAsString() : "";
+        if (baseVersionId.isBlank()) {
+            Path workDir = instanceDir != null && instanceDir.getParent() != null
+                    ? instanceDir.getParent().getParent() : null;
+            Path versionsDir = workDir != null ? workDir.resolve("versions") : null;
+            baseVersionId = resolveInstalledBaseVersionId(
+                    versionsDir, gameVersion, loader, loaderVersion);
+        }
+        String id = UUID.nameUUIDFromBytes(
+                instanceDir.toAbsolutePath().normalize().toString().getBytes(StandardCharsets.UTF_8)
+        ).toString();
+        InstanceInfo info = new InstanceInfo(id, name, baseVersionId, Type.MODPACK);
+        info.loader = loader;
+        info.loaderVersion = loaderVersion;
         if (o.has("description")) info.description = o.get("description").getAsString();
         info.instanceDir = instanceDir;
         return info;
+    }
+
+    /**
+     * 找出整合包实际安装的加载器 profile。旧版 modpack.json 只保存 Minecraft
+     * 版本，导致实例错误地以原版启动；这里从 versions 目录迁移恢复真实版本 ID。
+     */
+    public static String resolveInstalledBaseVersionId(Path versionsDir, String gameVersion,
+                                                       String loader, String loaderVersion) {
+        if (gameVersion == null) gameVersion = "";
+        if (loader == null || loader.isBlank() || loaderVersion == null || loaderVersion.isBlank()
+                || versionsDir == null || !Files.isDirectory(versionsDir)) {
+            return gameVersion;
+        }
+
+        String loaderNeedle = loader.toLowerCase();
+        String versionNeedle = loaderVersion.toLowerCase();
+        String gameNeedle = gameVersion.toLowerCase();
+        String bestId = null;
+        int bestScore = -1;
+        try (var dirs = Files.list(versionsDir)) {
+            for (Path dir : dirs.filter(Files::isDirectory).toList()) {
+                String id = dir.getFileName().toString();
+                Path profile = dir.resolve(id + ".json");
+                if (!Files.isRegularFile(profile)) continue;
+
+                String idLower = id.toLowerCase();
+                String jsonLower;
+                try {
+                    jsonLower = Files.readString(profile, StandardCharsets.UTF_8).toLowerCase();
+                } catch (Exception ignored) {
+                    continue;
+                }
+                boolean loaderMatches = idLower.contains(loaderNeedle)
+                        || jsonLower.contains(loaderNeedle);
+                boolean versionMatches = idLower.contains(versionNeedle)
+                        || jsonLower.contains(versionNeedle);
+                if (!loaderMatches || !versionMatches) continue;
+
+                int score = 0;
+                if (idLower.contains(loaderNeedle)) score += 4;
+                if (idLower.contains(versionNeedle)) score += 4;
+                if (!gameNeedle.isBlank() && idLower.contains(gameNeedle)) score += 3;
+                try {
+                    JsonObject profileJson = JsonParser.parseString(jsonLower).getAsJsonObject();
+                    if (profileJson.has("inheritsFrom")
+                            && gameVersion.equals(profileJson.get("inheritsFrom").getAsString())) {
+                        score += 6;
+                    }
+                } catch (Exception ignored) {
+                }
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestId = id;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return bestId != null ? bestId : gameVersion;
     }
 
     /** 序列化为 JSON（不包含 instanceDir） */

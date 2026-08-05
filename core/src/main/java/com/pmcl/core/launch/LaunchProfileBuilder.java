@@ -716,11 +716,18 @@ public final class LaunchProfileBuilder {
                 profile.addGameArg("--height");
                 profile.addGameArg(Integer.toString(prefH));
             }
-            // 渲染器（MC 1.21+ 支持；OPENGL/VULKAN 注入 --renderer，AUTO 不注入）
+            // 渲染器（MC 1.21+ 支持；OPENGL/VULKAN 注入 --renderer，AUTO/DIRECTX 不注入）
             String renderer = preferences.getGameRenderer();
-            if (renderer != null && !renderer.isEmpty() && !renderer.equalsIgnoreCase("AUTO")) {
+            if (renderer != null && !renderer.isEmpty()
+                    && !renderer.equalsIgnoreCase("AUTO")
+                    && !renderer.equalsIgnoreCase("DIRECTX")) {
                 profile.addGameArg("--renderer");
                 profile.addGameArg(renderer.toLowerCase());
+            }
+            // DIRECTX 渲染器（仅 Windows，通过 GLFW libname 强制指定）
+            if ("DIRECTX".equalsIgnoreCase(renderer)) {
+                profile.addJvmArg("-Dorg.lwjgl.glfw.libname=glfw3.dll");
+                profile.addJvmArg("-Dorg.lwjgl.opengl.libname=opengl32.dll");
             }
             // 全屏
             if (preferences.isGameFullscreen()) {

@@ -624,6 +624,31 @@ public final class LaunchManager {
         activeProcesses.clear();
     }
 
+    /** Returns all active process PIDs for plugin monitoring. */
+    public java.util.List<Long> getActiveProcessPids() {
+        java.util.List<Long> pids = new java.util.ArrayList<>();
+        synchronized (activeProcesses) {
+            for (Process p : activeProcesses) {
+                if (p != null && p.isAlive()) pids.add(p.pid());
+            }
+        }
+        return pids;
+    }
+
+    /** Kill a specific process by PID. Returns true if found and killed. */
+    public boolean killProcess(long pid) {
+        synchronized (activeProcesses) {
+            for (Process p : activeProcesses) {
+                if (p != null && p.isAlive() && p.pid() == pid) {
+                    p.destroyForcibly();
+                    activeProcesses.remove(p);
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     /** 关闭启动专用线程池（应用退出时调用） */
     public void shutdown() {
         killAllProcesses();

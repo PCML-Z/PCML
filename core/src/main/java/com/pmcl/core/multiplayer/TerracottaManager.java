@@ -7,6 +7,11 @@ import okhttp3.Response;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.RandomAccessFile;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.MulticastSocket;
+import java.net.NetworkInterface;
+import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -206,8 +211,11 @@ public final class TerracottaManager {
      * 这样切换房主/房客模式时，已运行的 daemon 会被复用，不会因重复启动而退出。
      */
     public CompletableFuture<Void> start(Consumer<String> progress) {
+        return requestLocalNetworkAccess(progress).thenCompose(v -> startAfterPermission(progress));
+    }
+
+    private CompletableFuture<Void> startAfterPermission(Consumer<String> progress) {
         if (isApiReady()) return CompletableFuture.completedFuture(null);
-        if (isRunning() && httpPort > 0) return CompletableFuture.completedFuture(null);
         return ensureBinary(progress).thenApplyAsync(v -> {
             // Another create/join may have finished starting while we waited on ensureBinary.
             if (isApiReady()) return (Void) null;
@@ -353,6 +361,45 @@ public final class TerracottaManager {
         });
     }
 
+    /**
+     * macOS 只有在应用实际访问局域网时才显示本地网络授权框。加入 Minecraft
+     * 使用的组播发现地址可触发该授权，同时提前发现已拒绝权限的情况。
+     */
+    private CompletableFuture<Void> requestLocalNetworkAccess(Consumer<String> progress) {
+        String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+        if (!os.contains("mac")) return CompletableFuture.completedFuture(null);
+
+        return CompletableFuture.runAsync(() -> {
+            if (progress != null) progress.accept("正在申请 macOS 本地网络权限…");
+            InetAddress group;
+            try {
+                group = InetAddress.getByName("224.0.2.60");
+            } catch (IOException e) {
+                throw new RuntimeException("无法初始化 Minecraft 局域网发现地址", e);
+            }
+
+            try (MulticastSocket socket = new MulticastSocket(null)) {
+                socket.setReuseAddress(true);
+                socket.bind(new InetSocketAddress(0));
+                socket.setSoTimeout(300);
+                socket.joinGroup(group);
+                try {
+                    byte[] buffer = new byte[512];
+                    socket.receive(new java.net.DatagramPacket(buffer, buffer.length));
+                } catch (SocketTimeoutException ignored) {
+                    // 没有正在广播的世界是正常情况；访问组播本身已触发权限检查。
+                } finally {
+                    try { socket.leaveGroup(group); } catch (IOException ignored) {}
+                }
+                if (progress != null) progress.accept("本地网络权限检查完成");
+            } catch (IOException | SecurityException e) {
+                throw new RuntimeException(
+                        "无法访问本地网络。请在 macOS「系统设置 → 隐私与安全性 → 本地网络」"
+                                + "中允许 PMCL，然后重新创建房间。", e);
+            }
+        });
+    }
+
     /** 停止 Terracotta 进程 */
     public synchronized void stop() {
         // 先尝试 HTTP /panic?peaceful=true 优雅关闭（经认证代理）
@@ -457,20 +504,32 @@ public final class TerracottaManager {
      * @return 房间码（U/XXXX-XXXX-XXXX-XXXX）
      */
     public CompletableFuture<String> createRoom(String playerName, Consumer<String> progress) {
+        return createRoom(playerName, progress, 0);
+    }
+
+    public CompletableFuture<String> createRoom(String playerName, Consumer<String> progress,
+                                                int localLanPortHint) {
         return start(progress).thenComposeAsync(v -> {
             try {
                 String current = extractJsonField(queryState(), "state");
-                // 已扫到 / 已建房：直接收成，避免 toIdle 拆掉现有房间
-                if ("host-ok".equals(current) || "host-starting".equals(current)) {
+                // 已建房且网络完全就绪：直接复用，避免 toIdle 拆掉现有房间。
+                // host-starting 仅表示已生成房间码，EasyTier 隧道尚未可用，必须继续等待。
+                if ("host-ok".equals(current)) {
                     if (progress != null) progress.accept("复用已有房主状态：" + current);
                     return CompletableFuture.completedFuture(lastStateJson);
+                }
+                if ("host-starting".equals(current)) {
+                    if (progress != null) {
+                        progress.accept("房间码已生成，正在等待陶瓦网络完全就绪…");
+                    }
+                    return waitForHostState(progress, localLanPortHint);
                 }
                 // 仍在扫描：用户超时后开放了局域网再点「创建」→ 只续等，勿 toIdle
                 if ("host-scanning".equals(current)) {
                     if (progress != null) {
                         progress.accept("继续扫描局域网世界…请确认 Minecraft 已「对局域网开放」");
                     }
-                    return waitForState("host-ok", "host-starting", progress, 300000);
+                    return waitForHostState(progress, localLanPortHint);
                 }
 
                 // 先重置到 idle 并等待确认，避免 daemon 仍处于上一次的 host/guest 状态
@@ -493,13 +552,84 @@ public final class TerracottaManager {
                 if (progress != null) {
                     progress.accept("正在扫描局域网世界…请在等待期间于 Minecraft 中 Esc →「对局域网开放」");
                 }
-                // 轮询状态直到 host-ok 或 host-starting（房间码在 host-starting 状态就可用）
+                // 房间码在 host-starting 时虽已生成，但隧道尚不可用；必须等到 host-ok。
                 // 超时 5 分钟，给用户足够时间启动 MC 并开放局域网
-                return waitForState("host-ok", "host-starting", progress, 300000);
+                return waitForHostState(progress, localLanPortHint);
             } catch (HostScanningTimeoutException e) {
                 throw e;
             } catch (Exception e) {
                 throw new RuntimeException("创建房间失败：" + e.getMessage(), e);
+            }
+        });
+    }
+
+    /**
+     * 等待房主状态，并在 PMCL 已从游戏日志确认 LAN 端口时补发标准 Minecraft
+     * 组播公告。该公告可绕过 Windows 防火墙/多网卡导致原始游戏广播未被陶瓦收到。
+     */
+    private CompletableFuture<String> waitForHostState(Consumer<String> progress,
+                                                       int localLanPortHint) {
+        CompletableFuture<String> waiting =
+                waitForState("host-ok", null, progress, 300000);
+        if (localLanPortHint > 0 && localLanPortHint <= 65535) {
+            startMinecraftLanBeacon(localLanPortHint, waiting, progress);
+        }
+        return waiting;
+    }
+
+    private void startMinecraftLanBeacon(int port, CompletableFuture<?> until,
+                                         Consumer<String> progress) {
+        CompletableFuture.runAsync(() -> {
+            String payload = "[MOTD]PMCL Local Game[/MOTD][AD]" + port + "[/AD]";
+            byte[] bytes = payload.getBytes(StandardCharsets.UTF_8);
+            InetAddress group;
+            try {
+                group = InetAddress.getByName("224.0.2.60");
+            } catch (IOException e) {
+                return;
+            }
+            if (progress != null) {
+                progress.accept("已从 Minecraft 日志检测到局域网端口 " + port
+                        + "，正在协助陶瓦发现游戏…");
+            }
+
+            try (MulticastSocket socket = new MulticastSocket()) {
+                socket.setTimeToLive(1);
+                java.net.DatagramPacket packet =
+                        new java.net.DatagramPacket(bytes, bytes.length, group, 4445);
+                while (!until.isDone()) {
+                    boolean sent = false;
+                    try {
+                        java.util.Enumeration<NetworkInterface> interfaces =
+                                NetworkInterface.getNetworkInterfaces();
+                        while (interfaces != null && interfaces.hasMoreElements()) {
+                            NetworkInterface network = interfaces.nextElement();
+                            try {
+                                if (!network.isUp() || network.isLoopback()
+                                        || !network.supportsMulticast()) continue;
+                                boolean hasIpv4 = java.util.Collections.list(
+                                        network.getInetAddresses()).stream()
+                                        .anyMatch(address -> address instanceof java.net.Inet4Address);
+                                if (!hasIpv4) continue;
+                                socket.setNetworkInterface(network);
+                                socket.send(packet);
+                                sent = true;
+                            } catch (IOException ignored) {
+                            }
+                        }
+                    } catch (IOException ignored) {
+                    }
+                    if (!sent) {
+                        try { socket.send(packet); } catch (IOException ignored) {}
+                    }
+                    try {
+                        Thread.sleep(1_000);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
+                }
+            } catch (IOException ignored) {
             }
         });
     }
@@ -587,10 +717,27 @@ public final class TerracottaManager {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 String lastLoggedState = "";
+                String lastObservedState = "";
                 int pollCount = 0;
+                int consecutiveQueryFailures = 0;
                 while (System.currentTimeMillis() < deadline) {
-                    String json = queryState();
+                    String json;
+                    try {
+                        json = queryState();
+                        consecutiveQueryFailures = 0;
+                    } catch (IOException queryError) {
+                        consecutiveQueryFailures++;
+                        if (progress != null
+                                && (consecutiveQueryFailures == 1
+                                || consecutiveQueryFailures % 10 == 0)) {
+                            progress.accept("Terracotta 状态暂时不可用，正在重试（"
+                                    + queryError.getMessage() + "）");
+                        }
+                        Thread.sleep(500);
+                        continue;
+                    }
                     String state = extractJsonField(json, "state");
+                    lastObservedState = state;
                     if (targetState.equals(state) || (altState != null && altState.equals(state))) {
                         if (progress != null) progress.accept("状态达成：" + state);
                         return json;
@@ -631,8 +778,8 @@ public final class TerracottaManager {
                     pollCount++;
                     Thread.sleep(500);
                 }
-                String msg = timeoutMessage(targetState, altState, lastLoggedState);
-                if ("host-scanning".equals(lastLoggedState)
+                String msg = timeoutMessage(targetState, altState, lastObservedState);
+                if ("host-scanning".equals(lastObservedState)
                         && ("host-ok".equals(targetState) || "host-starting".equals(altState))) {
                     throw new HostScanningTimeoutException(msg);
                 }

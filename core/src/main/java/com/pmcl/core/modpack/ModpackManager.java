@@ -9,6 +9,7 @@ import com.pmcl.core.download.DownloadManager;
 import com.pmcl.core.install.InstallInterruptedException;
 import com.pmcl.core.install.InstallProgress;
 import com.pmcl.core.install.VersionInstaller;
+import com.pmcl.core.instance.InstanceInfo;
 import com.pmcl.core.market.CurseForgeClient;
 import com.pmcl.core.market.ModMarketManager;
 import com.pmcl.core.modloader.ModLoader;
@@ -101,18 +102,44 @@ public final class ModpackManager {
         public final String path;         // 目标路径，如 "mods/foo.jar"
         public final String hash;         // SHA1 哈希
         public final long size;           // 文件大小
-        public final String downloadUrl;  // 下载 URL（CurseForge 可能为空，需查询 API）
+        public final String downloadUrl;  // 首选下载 URL（CurseForge 可能为空，需查询 API）
         public final String projectId;    // CurseForge project ID（可选）
         public final String fileId;       // CurseForge file ID（可选）
+        /** 全部候选下载地址（含 downloadUrl 本身），按顺序逐个回退。 */
+        public final List<String> mirrors;
+        /** 该文件是否为必需项；CurseForge required:false 的可选 mod 允许下载失败。 */
+        public final boolean required;
 
         public ModpackFile(String path, String hash, long size, String downloadUrl,
                            String projectId, String fileId) {
+            this(path, hash, size, downloadUrl, projectId, fileId, null, true);
+        }
+
+        public ModpackFile(String path, String hash, long size, String downloadUrl,
+                           String projectId, String fileId, List<String> mirrors) {
+            this(path, hash, size, downloadUrl, projectId, fileId, mirrors, true);
+        }
+
+        public ModpackFile(String path, String hash, long size, String downloadUrl,
+                           String projectId, String fileId,
+                           List<String> mirrors, boolean required) {
             this.path = path;
             this.hash = hash;
             this.size = size;
             this.downloadUrl = downloadUrl;
             this.projectId = projectId;
             this.fileId = fileId;
+            List<String> m = new ArrayList<>();
+            if (mirrors != null) {
+                for (String s : mirrors) {
+                    if (s != null && !s.isEmpty() && !m.contains(s)) m.add(s);
+                }
+            }
+            if (downloadUrl != null && !downloadUrl.isEmpty() && !m.contains(downloadUrl)) {
+                m.add(0, downloadUrl);
+            }
+            this.mirrors = java.util.Collections.unmodifiableList(m);
+            this.required = required;
         }
     }
 
@@ -213,6 +240,16 @@ public final class ModpackManager {
                 InstallProgress.Stage.DOWNLOAD_VERSION_JSON, 0, 0, "正在解析整合包清单..."));
 
         ParsedManifest manifest = parseManifest(file);
+
+        // P1: 游戏版本缺失时立即给出可读错误，而不是把空串丢给 VersionInstaller
+        // 让它抛出「找不到版本 」这种无法理解的信息。
+        if (manifest.gameVersion == null || manifest.gameVersion.isBlank()) {
+            throw new IOException("整合包未声明 Minecraft 版本"
+                    + ("serverpack".equals(manifest.format)
+                        ? "（服务器包不含版本信息，且无法从文件名推断，请改用带 manifest 的整合包）"
+                        : "（清单缺少 gameVersion 字段，文件可能已损坏）"));
+        }
+
         String instanceName = sanitizeName(manifest.name);
         Path instanceDir = config.getWorkDir().resolve("instances").resolve(instanceName);
 
@@ -225,6 +262,22 @@ public final class ModpackManager {
         }
 
         Files.createDirectories(instanceDir);
+        // P0-3: 目录一旦创建，后续任何失败都必须清理，否则重试会不断堆积
+        // name-1 / name-2 半成品目录。用 try-catch 包住剩余全部步骤。
+        boolean ok = false;
+        try {
+            doImportInto(file, instanceDir, manifest, progress);
+            ok = true;
+        } finally {
+            if (!ok) {
+                deleteRecursivelyQuietly(instanceDir);
+            }
+        }
+    }
+
+    /** 实际执行导入的各阶段；任何异常都会由调用方触发实例目录清理。 */
+    private void doImportInto(Path file, Path instanceDir, ParsedManifest manifest,
+                              Consumer<InstallProgress> progress) throws Exception {
         for (String sub : new String[]{"mods", "saves", "config", "resourcepacks",
                 "shaderpacks", "screenshots", "logs"}) {
             Files.createDirectories(instanceDir.resolve(sub));
@@ -262,6 +315,7 @@ public final class ModpackManager {
 
         AtomicInteger completed = new AtomicInteger(0);
         AtomicInteger failCount = new AtomicInteger(0);
+        AtomicInteger optionalFailCount = new AtomicInteger(0);
         List<String> failSamples = java.util.Collections.synchronizedList(new ArrayList<>());
         ExecutorService pool = Executors.newFixedThreadPool(
                 Math.min(16, Math.max(2, Math.max(1, manifest.files.size()))));
@@ -278,10 +332,16 @@ public final class ModpackManager {
                                     ? (RuntimeException) e
                                     : new InstallInterruptedException("整合包模组下载已中断", e);
                         }
-                        failCount.incrementAndGet();
                         String detail = mf.path + ": " + Exceptions.rootMessage(e);
-                        if (failSamples.size() < 5) failSamples.add(detail);
-                        System.err.println("[ModpackManager] 模组下载失败: " + detail);
+                        // P1: 可选 mod（CF required:false）下载失败不应导致整体失败
+                        if (!mf.required) {
+                            optionalFailCount.incrementAndGet();
+                            System.err.println("[ModpackManager] 可选模组下载失败（已跳过）: " + detail);
+                        } else {
+                            failCount.incrementAndGet();
+                            if (failSamples.size() < 5) failSamples.add(detail);
+                            System.err.println("[ModpackManager] 模组下载失败: " + detail);
+                        }
                     }
                     int done = completed.incrementAndGet();
                     if (progress != null) progress.accept(new InstallProgress(
@@ -311,8 +371,12 @@ public final class ModpackManager {
 
         if (!manifest.files.isEmpty() && failCount.get() > 0) {
             String preview = String.join("; ", failSamples);
-            throw new IOException("整合包模组下载失败 " + failCount.get() + "/"
+            throw new IOException("整合包必需模组下载失败 " + failCount.get() + "/"
                     + manifest.files.size() + " 个（示例: " + preview + "）");
+        }
+        if (optionalFailCount.get() > 0) {
+            System.err.println("[ModpackManager] 共跳过 " + optionalFailCount.get()
+                    + " 个下载失败的可选模组");
         }
 
         // 5. 解压 overrides
@@ -330,37 +394,135 @@ public final class ModpackManager {
                 "整合包 '" + manifest.name + "' 导入完成"));
     }
 
-    /** 下载单个整合包模组文件（含 CF URL/SHA 解析）。 */
+    /** 下载单个整合包模组文件（含 CF URL/SHA/真实文件名解析、镜像回退）。 */
     private void downloadModpackFile(ModpackFile mf, Path instanceDirAbs) throws IOException {
-        String url = mf.downloadUrl;
+        List<String> candidates = new ArrayList<>(mf.mirrors);
         String sha1 = mf.hash != null ? mf.hash : "";
-        // S12: CF 整合包 manifest 不含 downloadUrl/hash，需通过 API 查询
-        if ((url == null || url.isEmpty() || sha1.isBlank())
+        String relPath = mf.path;
+
+        // S12: CF 整合包 manifest 不含 downloadUrl/hash/文件名，需通过 API 查询
+        if ((candidates.isEmpty() || sha1.isBlank())
                 && mf.projectId != null && !mf.projectId.isEmpty()
                 && mf.fileId != null && !mf.fileId.isEmpty()) {
             CfResolved resolved = resolveCurseForgeFile(mf.projectId, mf.fileId);
-            if (url == null || url.isEmpty()) url = resolved.url;
+            if (candidates.isEmpty() && !resolved.url.isEmpty()) candidates.add(resolved.url);
             if (sha1.isBlank()) sha1 = resolved.sha1;
-        }
-        if (url == null || url.isEmpty()) {
-            throw new IOException("无下载 URL");
-        }
-        validateDownloadUrl(url);
-        Path target = instanceDirAbs.resolve(mf.path).normalize();
-        if (!target.startsWith(instanceDirAbs)) {
-            throw new IOException("非法路径: " + mf.path);
-        }
-        Files.createDirectories(target.getParent());
-        if (sha1 == null || sha1.isBlank()) {
-            // 最后手段：无哈希则下载后拒绝过小文件
-            downloads.downloadTo(url, target);
-            if (Files.size(target) < 32) {
-                Files.deleteIfExists(target);
-                throw new IOException("下载文件过小且无 SHA-1");
+            // P1: 用 API 返回的真实文件名替换 "{projectId}_{fileId}.jar" 占位名，
+            // 并按扩展名把非 mod 资源（资源包/光影）放进正确目录，
+            // 避免 .zip 资源包被强塞进 mods/ 导致加载器报错。
+            if (!resolved.fileName.isEmpty()) {
+                relPath = routeCurseForgeFile(resolved.fileName);
             }
-            return;
         }
-        downloads.downloadToVerified(url, target, sha1, null);
+
+        if (candidates.isEmpty()) {
+            throw new IOException("无下载 URL"
+                    + (mf.projectId != null && !mf.projectId.isEmpty()
+                        ? "（CurseForge " + mf.projectId + "/" + mf.fileId
+                          + " 解析失败，请检查 CurseForge API Key 配置）"
+                        : ""));
+        }
+
+        Path target = instanceDirAbs.resolve(relPath).normalize();
+        if (!target.startsWith(instanceDirAbs)) {
+            throw new IOException("非法路径: " + relPath);
+        }
+        Path parent = target.getParent();
+        if (parent != null) Files.createDirectories(parent);
+
+        // P1: 逐个镜像回退，全部失败才抛出最后一次异常
+        IOException last = null;
+        for (String url : candidates) {
+            try {
+                validateDownloadUrl(url);
+                if (sha1 == null || sha1.isBlank()) {
+                    // 最后手段：无哈希则下载后拒绝过小文件
+                    downloads.downloadTo(url, target);
+                    if (Files.size(target) < 32) {
+                        Files.deleteIfExists(target);
+                        throw new IOException("下载文件过小且无 SHA-1");
+                    }
+                } else {
+                    downloads.downloadToVerified(url, target, sha1, null);
+                }
+                return;
+            } catch (IOException e) {
+                last = e;
+            } catch (RuntimeException e) {
+                if (InstallInterruptedException.isInterrupted(e)) throw e;
+                last = new IOException(Exceptions.rootMessage(e), e);
+            }
+        }
+        throw last != null ? last : new IOException("下载失败: " + relPath);
+    }
+
+    /**
+     * 根据 CurseForge 真实文件名决定其在实例内的相对路径。
+     * CF manifest 的 files 数组混杂 mod / 资源包 / 光影，
+     * 全部塞进 mods/ 会让加载器在启动时报错。
+     */
+    private String routeCurseForgeFile(String fileName) {
+        String safe = fileName.replace('\\', '/');
+        int slash = safe.lastIndexOf('/');
+        if (slash >= 0) safe = safe.substring(slash + 1);
+        String lower = safe.toLowerCase(java.util.Locale.ROOT);
+        if (lower.endsWith(".jar")) {
+            return "mods/" + safe;
+        }
+        if (lower.endsWith(".zip")) {
+            // 光影包通常带 shader/iris/optifine 关键字，其余 zip 视为资源包
+            if (lower.contains("shader") || lower.contains("iris")
+                    || lower.contains("seus") || lower.contains("bsl")
+                    || lower.contains("complementary")) {
+                return "shaderpacks/" + safe;
+            }
+            return "resourcepacks/" + safe;
+        }
+        return "mods/" + safe;
+    }
+
+    /**
+     * 整合包下载源白名单。
+     * <p>
+     * P1 安全修复：manifest 中的 SHA-1 由整合包作者自行填写，
+     * 攻击者可以把恶意 jar 的哈希一并写进 manifest，使哈希校验形同虚设。
+     * 唯一可靠的防线是限制下载来源域名——这也是 Modrinth 官方规范
+     * 对客户端实现的强制要求（仅允许 CDN 与主流代码托管站）。
+     * 若不加限制，一个 .mrpack 就能把任意可执行 jar 投放进 mods/，
+     * 下次启动游戏即等同于任意代码执行。
+     */
+    private static final List<String> TRUSTED_DOWNLOAD_HOSTS = List.of(
+            "cdn.modrinth.com",
+            "api.modrinth.com",
+            "edge.forgecdn.net",
+            "mediafilez.forgecdn.net",
+            "media.forgecdn.net",
+            "www.curseforge.com",
+            "api.curseforge.com",
+            "github.com",
+            "raw.githubusercontent.com",
+            "objects.githubusercontent.com",
+            "codeload.github.com",
+            "gitlab.com",
+            "maven.minecraftforge.net",
+            "maven.neoforged.net",
+            "maven.fabricmc.net",
+            "maven.quiltmc.org",
+            "libraries.minecraft.net",
+            "launcher.mojang.com",
+            "piston-data.mojang.com",
+            "piston-meta.mojang.com",
+            "bmclapi2.bangbang93.com",
+            "download.mcbbs.net"
+    );
+
+    /** 判断 host 是否命中白名单（支持子域名匹配，如 xxx.forgecdn.net）。 */
+    private static boolean isTrustedDownloadHost(String host) {
+        String h = host.toLowerCase(java.util.Locale.ROOT);
+        for (String allowed : TRUSTED_DOWNLOAD_HOSTS) {
+            if (h.equals(allowed) || h.endsWith("." + allowed)) return true;
+        }
+        return false;
     }
 
     private void validateDownloadUrl(String url) throws IOException {
@@ -375,6 +537,13 @@ public final class ModpackManager {
         }
         String host = uri.getHost();
         if (host == null) throw new IOException("下载 URL 缺少 host: " + url);
+
+        // P1: 域名白名单——阻断恶意整合包从任意公网地址投毒 jar
+        if (!isTrustedDownloadHost(host)) {
+            throw new IOException("下载源不在可信白名单内，已拒绝: " + host
+                    + "（整合包可能被篡改）");
+        }
+
         // 内网主机校验
         try {
             java.net.InetAddress addr = java.net.InetAddress.getByName(host);
@@ -390,32 +559,59 @@ public final class ModpackManager {
      * S12: 通过 CurseForge API 查询模组文件的下载 URL 与 SHA-1。
      * CF 整合包 manifest 只含 projectID/fileID。
      */
+    /**
+     * P1: 每个 projectId 的文件列表缓存。
+     * 同一整合包内同一 project 可能出现多次（主 mod + 依赖），
+     * 缓存可避免对同一 projectId 重复拉取全量文件列表。
+     */
+    private final Map<String, List<com.pmcl.core.market.ModFile>> cfFileListCache =
+            new ConcurrentHashMap<>();
+
     private CfResolved resolveCurseForgeFile(String projectId, String fileId) {
         try {
-            for (com.pmcl.core.market.ModMarketClient c : modMarketManager.getClients()) {
-                if (!"curseforge".equals(c.source())) continue;
-                var files = c.listFiles(projectId).join();
-                for (var f : files) {
-                    if (fileId.equals(f.getFileId())) {
-                        String u = f.getDownloadUrl() != null ? f.getDownloadUrl() : "";
-                        String s = f.getSha1() != null ? f.getSha1() : "";
-                        return new CfResolved(u, s);
-                    }
+            List<com.pmcl.core.market.ModFile> files = cfFileListCache.computeIfAbsent(
+                    projectId, pid -> {
+                        for (com.pmcl.core.market.ModMarketClient c : modMarketManager.getClients()) {
+                            if (!"curseforge".equals(c.source())) continue;
+                            try {
+                                List<com.pmcl.core.market.ModFile> r = c.listFiles(pid).join();
+                                if (r != null) return r;
+                            } catch (Exception e) {
+                                System.err.println("[ModpackManager] CF 文件列表拉取失败: "
+                                        + pid + " - " + Exceptions.rootMessage(e));
+                            }
+                        }
+                        return java.util.Collections.emptyList();
+                    });
+
+            for (var f : files) {
+                if (fileId.equals(f.getFileId())) {
+                    return new CfResolved(
+                            f.getDownloadUrl() != null ? f.getDownloadUrl() : "",
+                            f.getSha1() != null ? f.getSha1() : "",
+                            f.getFileName() != null ? f.getFileName() : "");
                 }
+            }
+            if (!files.isEmpty()) {
+                // 目标 fileId 不在返回列表中：CF 分页或该文件已被下架
+                System.err.println("[ModpackManager] CF 文件 " + projectId + "/" + fileId
+                        + " 未出现在文件列表中（共 " + files.size() + " 条），可能已下架或分页截断");
             }
         } catch (Exception e) {
             System.err.println("[ModpackManager] CF 模组查询失败: "
-                    + projectId + "/" + fileId + " - " + e.getMessage());
+                    + projectId + "/" + fileId + " - " + Exceptions.rootMessage(e));
         }
-        return new CfResolved("", "");
+        return new CfResolved("", "", "");
     }
 
     private static final class CfResolved {
         final String url;
         final String sha1;
-        CfResolved(String url, String sha1) {
+        final String fileName;
+        CfResolved(String url, String sha1, String fileName) {
             this.url = url == null ? "" : url;
             this.sha1 = sha1 == null ? "" : sha1;
+            this.fileName = fileName == null ? "" : fileName;
         }
     }
 
@@ -1657,14 +1853,11 @@ public final class ModpackManager {
             if (mmcEntry != null) {
                 return parseMultiMCManifest(zf, mmcEntry);
             }
-            // 尝试 FTB 格式（modpack.json + minecraft/ 目录）
+            // 尝试 FTB 格式（modpack.json，内容目录前缀为 minecraft/ 或 overrides/）
+            // P1: 原先此处按有无 minecraft/ 目录分成两个分支，但两路返回完全相同，
+            // 属于死代码，已合并为单一路径。
             ZipEntry ftbEntry = zf.getEntry("modpack.json");
             if (ftbEntry != null) {
-                // 确认是 FTB 格式而非其他工具的 modpack.json：检查是否有 minecraft/ 目录
-                if (zf.getEntry("minecraft/") != null || zf.getEntry("minecraft/mods/") != null) {
-                    return parseFtbManifest(zf, ftbEntry);
-                }
-                // 即使没有 minecraft/ 前缀，也尝试按 FTB 解析（某些 FTB 包用 overrides/）
                 return parseFtbManifest(zf, ftbEntry);
             }
             // 尝试纯 zip/服务器包（无 manifest，检测 mods/ 目录）
@@ -1692,19 +1885,25 @@ public final class ModpackManager {
         String loaderVersion = safeStr(root, "loaderVersion", "");
         String author = safeStr(root, "author", "PMCL");
 
+        // P0-1: LSL3 的 mods 条目均为「包内已存在的文件」，没有下载 URL。
+        // 过去把它们放进 files 会让 doImport 第 4 步立刻抛「无下载 URL」而整体失败，
+        // 永远走不到第 5 步 extractOverrides。这些文件由 extractOverrides 从
+        // files/ 前缀解压即可，因此 files 列表必须留空。
+        // 仅当条目显式提供了 url 时才作为网络下载项。
         List<ModpackFile> files = new ArrayList<>();
         if (root.has("mods") && root.get("mods").isJsonArray()) {
             for (JsonElement e : root.getAsJsonArray("mods")) {
+                if (!e.isJsonObject()) continue;
                 JsonObject m = e.getAsJsonObject();
                 String filePath = safeStr(m, "file", "");
+                String url = safeStr(m, "url", safeStr(m, "downloadUrl", ""));
+                if (filePath.isEmpty() || url.isEmpty()) continue;
                 String sha1 = safeStr(m, "sha1", "");
-                long size = m.has("size") ? m.get("size").getAsLong() : 0L;
-                if (!filePath.isEmpty()) {
-                    // LSL3 文件在 files/ 前缀下
-                    files.add(new ModpackFile(
-                            "files/" + filePath, sha1, size,
-                            "", null, null));
-                }
+                long size = m.has("size") && !m.get("size").isJsonNull()
+                        ? m.get("size").getAsLong() : 0L;
+                // 目标路径相对实例根目录，不带 files/ 前缀（那是 zip 内前缀）
+                files.add(new ModpackFile(
+                        normalizeEntryPath(filePath), sha1, size, url, null, null));
             }
         }
 
@@ -1755,47 +1954,74 @@ public final class ModpackManager {
             try (InputStream in = zf.getInputStream(cfgEntry)) {
                 String cfg = new String(com.pmcl.core.util.SafeZipExtractor.readLimited(in, MAX_MANIFEST_BYTES),
                         java.nio.charset.StandardCharsets.UTF_8);
-                for (String line : cfg.split("\n")) {
+                // P1: 按 \r\n / \r / \n 通用换行拆分，避免 CRLF 残留 \r
+                // 被 sanitizeName 转成下划线（实例名尾部多一个 "_"）
+                for (String line : cfg.split("\\R")) {
                     if (line.startsWith("name=")) {
-                        name = line.substring(5).trim();
+                        String v = line.substring(5).trim();
+                        if (!v.isEmpty()) name = v;
                         break;
                     }
                 }
             }
         }
 
-        // 收集 .minecraft/mods/*.jar 作为文件列表
+        // P0-1: MultiMC 包内的 .minecraft/mods/*.jar 是「已在 zip 中」的文件，
+        // 没有任何下载 URL。过去把它们塞进 files 会让第 4 步必然抛「无下载 URL」，
+        // 导致 MultiMC 整合包 100% 导入失败。这些 jar 由 extractOverrides
+        // 从 .minecraft/ 前缀解压即可，files 必须留空。
         List<ModpackFile> files = new ArrayList<>();
-        java.util.Enumeration<? extends ZipEntry> entries = zf.entries();
-        while (entries.hasMoreElements()) {
-            ZipEntry e = entries.nextElement();
-            String entryName = e.getName();
-            if (entryName.startsWith(".minecraft/mods/") && entryName.endsWith(".jar")) {
-                String fileName = entryName.substring(entryName.lastIndexOf('/') + 1);
-                files.add(new ModpackFile("mods/" + fileName, "", 0L, "", null, null));
-            }
-        }
 
         return new ParsedManifest(name, gameVersion, loader, loaderVersion,
                 "multimc", files, "MultiMC");
     }
 
-    /** 解析纯 zip/服务器包（无 manifest，直接扫描 mods/ 目录） */
+    /**
+     * 解析纯 zip/服务器包（无 manifest，直接扫描 mods/ 目录）。
+     * <p>
+     * P0-1: mods/*.jar 已存在于 zip 内，没有下载 URL，files 必须留空，
+     * 由 extractOverrides 无前缀解压。
+     * <p>
+     * P1: 服务器包无 manifest，游戏版本只能从 mod 文件名启发式推断；
+     * 推断不出时返回空串，由 doImport 显式拦截并给出可读错误。
+     */
     private ParsedManifest parseServerPackManifest(ZipFile zf) throws IOException {
-        List<ModpackFile> files = new ArrayList<>();
+        String gameVersion = "";
+        String loader = "";
+
         java.util.Enumeration<? extends ZipEntry> entries = zf.entries();
         while (entries.hasMoreElements()) {
             ZipEntry e = entries.nextElement();
             String name = e.getName();
-            if (name.startsWith("mods/") && name.endsWith(".jar") && !e.isDirectory()) {
-                String fileName = name.substring(name.lastIndexOf('/') + 1);
-                files.add(new ModpackFile("mods/" + fileName, "", 0L, "", null, null));
+            if (e.isDirectory()) continue;
+            String lower = name.toLowerCase(java.util.Locale.ROOT);
+
+            // 从 mod 文件名推断 MC 版本，例如 "sodium-fabric-0.5.8+mc1.20.1.jar"
+            if (gameVersion.isEmpty() && lower.startsWith("mods/") && lower.endsWith(".jar")) {
+                java.util.regex.Matcher m = MC_VERSION_IN_NAME.matcher(lower);
+                if (m.find()) gameVersion = m.group(1);
+            }
+            // 从加载器特征文件推断
+            if (loader.isEmpty()) {
+                if (lower.contains("fabric-loader") || lower.equals("fabric-server-launch.jar")) {
+                    loader = "fabric";
+                } else if (lower.contains("neoforge")) {
+                    loader = "neoforge";
+                } else if (lower.contains("forge-") && lower.endsWith(".jar")) {
+                    loader = "forge";
+                } else if (lower.contains("quilt-loader")) {
+                    loader = "quilt";
+                }
             }
         }
-        // 服务器包无版本信息，需要用户手动指定
-        return new ParsedManifest("服务器包", "", "", "",
-                "serverpack", files, "Server");
+
+        return new ParsedManifest("服务器包", gameVersion, loader, "",
+                "serverpack", new ArrayList<>(), "Server");
     }
+
+    /** 从文件名中提取 Minecraft 版本，如 "...+mc1.20.1.jar" / "...-1.20.1-..." */
+    private static final java.util.regex.Pattern MC_VERSION_IN_NAME =
+            java.util.regex.Pattern.compile("(?:mc|minecraft)?[-_+]?(1\\.\\d{1,2}(?:\\.\\d{1,2})?)");
 
     private static final long MAX_MANIFEST_BYTES = 8L * 1024 * 1024;
 
@@ -1834,9 +2060,21 @@ public final class ModpackManager {
         List<ModpackFile> files = new ArrayList<>();
         if (root.has("files") && root.get("files").isJsonArray()) {
             for (var e : root.getAsJsonArray("files")) {
+                if (!e.isJsonObject()) continue;
                 JsonObject f = e.getAsJsonObject();
-                String path = safeStr(f, "path", "");
+                String path = normalizeEntryPath(safeStr(f, "path", ""));
                 if (path.isEmpty()) continue;
+
+                // P0-4: 解析 env 字段。Modrinth 规范中 env.client == "unsupported"
+                // 表示该文件是服务端专用，客户端必须跳过；否则装进 mods/ 会导致
+                // 启动直接崩溃。缺省（无 env）按需要安装处理。
+                if (f.has("env") && f.get("env").isJsonObject()) {
+                    String clientEnv = safeStr(f.getAsJsonObject("env"), "client", "required");
+                    if ("unsupported".equalsIgnoreCase(clientEnv)) {
+                        continue;
+                    }
+                }
+
                 String hash = "";
                 if (f.has("hashes") && f.get("hashes").isJsonObject()) {
                     JsonObject h = f.getAsJsonObject("hashes");
@@ -1844,12 +2082,19 @@ public final class ModpackManager {
                 }
                 long size = f.has("size") && !f.get("size").isJsonNull()
                         ? f.get("size").getAsLong() : 0;
-                String downloadUrl = "";
-                if (f.has("downloads") && f.get("downloads").isJsonArray()
-                        && f.getAsJsonArray("downloads").size() > 0) {
-                    downloadUrl = f.getAsJsonArray("downloads").get(0).getAsString();
+
+                // P1: downloads 是镜像数组，全部保留用于逐个回退，
+                // 而不是只取 [0] 后一失败即整体失败。
+                List<String> mirrors = new ArrayList<>();
+                if (f.has("downloads") && f.get("downloads").isJsonArray()) {
+                    for (JsonElement d : f.getAsJsonArray("downloads")) {
+                        if (d.isJsonNull()) continue;
+                        String u = d.getAsString();
+                        if (u != null && !u.isEmpty()) mirrors.add(u);
+                    }
                 }
-                files.add(new ModpackFile(path, hash, size, downloadUrl, null, null));
+                String downloadUrl = mirrors.isEmpty() ? "" : mirrors.get(0);
+                files.add(new ModpackFile(path, hash, size, downloadUrl, null, null, mirrors));
             }
         }
 
@@ -1902,15 +2147,30 @@ public final class ModpackManager {
         List<ModpackFile> files = new ArrayList<>();
         if (root.has("files") && root.get("files").isJsonArray()) {
             for (var f : root.getAsJsonArray("files")) {
+                if (!f.isJsonObject()) continue;
                 JsonObject fObj = f.getAsJsonObject();
                 String projectId = fObj.has("projectID") && !fObj.get("projectID").isJsonNull()
                         ? fObj.get("projectID").getAsString() : "";
                 String fileId = fObj.has("fileID") && !fObj.get("fileID").isJsonNull()
                         ? fObj.get("fileID").getAsString() : "";
-                // CurseForge manifest 不含下载 URL；URL 在安装阶段由 resolveCurseForgeUrls() 补全
+                if (projectId.isEmpty() || fileId.isEmpty()) continue;
+
+                // P1: CF manifest 的 required 字段标记可选 mod，
+                // 可选项下载失败不应导致整个整合包导入失败。
+                boolean required = true;
+                if (fObj.has("required") && !fObj.get("required").isJsonNull()) {
+                    try {
+                        required = fObj.get("required").getAsBoolean();
+                    } catch (Exception ignored) {
+                    }
+                }
+
+                // CurseForge manifest 不含下载 URL 与真实文件名，
+                // 二者都在安装阶段由 resolveCurseForgeFile() 通过 API 补全。
+                // path 此处仅为占位，真实文件名解析成功后会被替换。
                 files.add(new ModpackFile(
                         "mods/" + projectId + "_" + fileId + ".jar",
-                        "", 0, "", projectId, fileId));
+                        "", 0, "", projectId, fileId, null, required));
             }
         }
 
@@ -1995,9 +2255,13 @@ public final class ModpackManager {
         // MultiMC 用 ".minecraft/" 前缀
         // LSL3 用 "files/" 前缀
         // serverpack 无前缀，直接是 mods/ config/ 等
+        // P1: 补上 client-overrides/。Modrinth 规范中它在 overrides/ 之后应用，
+        // 用于覆盖客户端专属配置；过去被完全忽略，导致整合包作者针对客户端的
+        // 配置（键位、性能选项等）不生效。server-overrides/ 是服务端专用，
+        // 客户端必须忽略，故不加入列表。
         List<String> prefixes;
         if (format.equals("ftb")) {
-            prefixes = List.of("minecraft/", "overrides/");
+            prefixes = List.of("minecraft/", "overrides/", "client-overrides/");
         } else if (format.equals("multimc")) {
             prefixes = List.of(".minecraft/");
         } else if (format.equals("lsl3")) {
@@ -2005,7 +2269,7 @@ public final class ModpackManager {
         } else if (format.equals("serverpack")) {
             prefixes = List.of("");  // 无前缀，直接解压到根目录
         } else {
-            prefixes = List.of("overrides/");
+            prefixes = List.of("overrides/", "client-overrides/");
         }
 
         // S22 安全修复：ZipBomb 防护阈值（含单 entry + 压缩比）
@@ -2034,6 +2298,12 @@ public final class ModpackManager {
                     }
                 }
                 if (relative == null || relative.isEmpty()) continue;
+
+                // P1: 服务器包前缀为空，会把整包内容（含 server.jar、eula.txt、
+                // 启动脚本等纯服务端文件）全部倒进实例目录。仅保留客户端有意义的内容。
+                if ("serverpack".equals(format) && !isClientRelevantServerPackEntry(relative)) {
+                    continue;
+                }
 
                 // H27: ZipSlip 失败即中止（与 InstanceImporter 一致，禁止静默跳过）
                 if (relative.contains("..") || relative.startsWith("/") || relative.startsWith("\\")
@@ -2065,12 +2335,45 @@ public final class ModpackManager {
         }
     }
 
+    /**
+     * 判断服务器包中的某个条目是否对客户端有意义。
+     * 服务器包没有 overrides 前缀，若不过滤会把 server.jar、eula.txt、
+     * start.sh、world/ 等纯服务端产物一并释放进客户端实例目录。
+     */
+    private boolean isClientRelevantServerPackEntry(String relative) {
+        String lower = relative.toLowerCase(java.util.Locale.ROOT);
+        // 允许的客户端内容目录
+        for (String dir : new String[]{"mods/", "config/", "resourcepacks/",
+                "shaderpacks/", "kubejs/", "scripts/", "defaultconfigs/",
+                "patchouli_books/", "schematics/"}) {
+            if (lower.startsWith(dir)) return true;
+        }
+        // 明确排除的服务端专属文件
+        for (String bad : new String[]{"eula.txt", "server.properties", "server-icon.png",
+                "ops.json", "whitelist.json", "banned-ips.json", "banned-players.json",
+                "usercache.json", "permissions.json"}) {
+            if (lower.equals(bad)) return false;
+        }
+        // 排除服务端启动脚本与 jar、世界存档
+        if (lower.endsWith(".bat") || lower.endsWith(".sh") || lower.endsWith(".cmd")) return false;
+        if (!lower.contains("/") && lower.endsWith(".jar")) return false;
+        if (lower.startsWith("world/") || lower.startsWith("logs/")
+                || lower.startsWith("crash-reports/") || lower.startsWith("libraries/")) {
+            return false;
+        }
+        // 其余根目录零散文件（README、licence 等）一律不释放
+        return lower.contains("/");
+    }
+
     private void saveInstanceInfo(Path instanceDir, ParsedManifest manifest) throws IOException {
         JsonObject info = new JsonObject();
         info.addProperty("name", manifest.name);
         info.addProperty("gameVersion", manifest.gameVersion);
         info.addProperty("loader", manifest.loader != null ? manifest.loader : "");
         info.addProperty("loaderVersion", manifest.loaderVersion != null ? manifest.loaderVersion : "");
+        info.addProperty("baseVersionId", InstanceInfo.resolveInstalledBaseVersionId(
+                config.getVersionsDir(), manifest.gameVersion,
+                manifest.loader, manifest.loaderVersion));
         info.addProperty("format", manifest.format);
         if (manifest.author != null) {
             info.addProperty("author", manifest.author);
@@ -2133,7 +2436,69 @@ public final class ModpackManager {
             result = result.substring(0, result.length() - 1);
         }
         if (result.isEmpty()) return "unnamed";
+
+        // P1: Windows 保留设备名（CON/PRN/AUX/NUL/COM1-9/LPT1-9），
+        // 即使带扩展名也不允许创建，会导致 createDirectories 直接失败。
+        String base = result;
+        int dot = base.indexOf('.');
+        if (dot > 0) base = base.substring(0, dot);
+        if (WINDOWS_RESERVED_NAMES.contains(base.toUpperCase(java.util.Locale.ROOT))) {
+            result = "_" + result;
+        }
+
+        // 限制长度，避免超出文件系统上限（多数 FS 单段上限 255 字节）
+        if (result.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 120) {
+            StringBuilder trimmed = new StringBuilder();
+            int bytes = 0;
+            for (int i = 0; i < result.length(); i++) {
+                char c = result.charAt(i);
+                int cb = String.valueOf(c).getBytes(
+                        java.nio.charset.StandardCharsets.UTF_8).length;
+                if (bytes + cb > 120) break;
+                trimmed.append(c);
+                bytes += cb;
+            }
+            result = trimmed.toString();
+            if (result.isEmpty()) return "unnamed";
+        }
         return result;
+    }
+
+    private static final java.util.Set<String> WINDOWS_RESERVED_NAMES = java.util.Set.of(
+            "CON", "PRN", "AUX", "NUL",
+            "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+            "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9");
+
+    /**
+     * P0-3: 递归删除导入失败留下的半成品实例目录。
+     * 清理本身失败不应掩盖原始异常，因此全程静默。
+     */
+    private void deleteRecursivelyQuietly(Path dir) {
+        if (dir == null || !Files.exists(dir)) return;
+        try (var walk = Files.walk(dir)) {
+            walk.sorted(java.util.Comparator.reverseOrder())
+                    .forEach(p -> {
+                        try {
+                            Files.deleteIfExists(p);
+                        } catch (IOException ignored) {
+                        }
+                    });
+        } catch (IOException e) {
+            System.err.println("[ModpackManager] 清理失败的实例目录未完成: " + dir
+                    + " - " + e.getMessage());
+        }
+    }
+
+    /**
+     * 归一化 manifest 中声明的目标路径：统一分隔符、剥离前导 "./" 与 "/"，
+     * 并拒绝任何含 ".." 或盘符的越权路径（返回值仍需由调用方做 startsWith 校验）。
+     */
+    private String normalizeEntryPath(String raw) {
+        if (raw == null) return "";
+        String p = raw.replace('\\', '/').trim();
+        while (p.startsWith("./")) p = p.substring(2);
+        while (p.startsWith("/")) p = p.substring(1);
+        return p;
     }
 
     private String safeStr(JsonObject obj, String key, String def) {

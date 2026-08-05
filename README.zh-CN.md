@@ -1,3 +1,7 @@
+<p align="center">
+  <a href="README.zh-CN.md">中文</a> · <a href="README.md">English</a>
+</p>
+
 # PMCL
 
 <p align="center">
