@@ -269,7 +269,8 @@ fun SlideInFromStart(
 fun SplashIconReveal(
     modifier: Modifier = Modifier,
     durationMs: Int = 1400,
-    iconSize: Dp = 160.dp,
+    iconWidth: Dp = 320.dp,
+    iconHeight: Dp = 100.dp,
     onFinished: () -> Unit = {}
 ) {
     var started by remember { mutableStateOf(false) }
@@ -321,15 +322,16 @@ fun SplashIconReveal(
             // 左→右擦除显现：裁剪框宽度随 reveal 增长，图标内容左锚定（TopStart）
             Box(
                 modifier = Modifier
-                    .width(iconSize * reveal)
-                    .height(iconSize)
+                    .width(iconWidth * reveal)
+                    .height(iconHeight)
                     .clip(RoundedCornerShape(0))
             ) {
                 Image(
-                    painter = painterResource("pmcl_icon.png"),
+                    painter = painterResource("logo-pmcl-pixel.png"),
                     contentDescription = "PMCL",
                     modifier = Modifier
-                        .size(iconSize)
+                        .width(iconWidth)
+                        .height(iconHeight)
                         .align(Alignment.TopStart)
                 )
             }
