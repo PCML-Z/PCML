@@ -254,7 +254,7 @@ fun SlideInFromStart(
 /**
  * 启动加载动画：以 PMCL 图标为核心。
  * - 图标从左到右擦除显现（裁剪框宽度 0 → 100%，图标内容左锚定）
- * - 微幅放大（scale 0.88 → 1.0）
+ * - 微幅放大（scale 0.93 → 1.0）
  * - 全程线性匀速（[MotionTokens.EasingLinear]），无缓动
  * - 显现结束后整体线性淡出，并回调 [onFinished]
  *
@@ -269,8 +269,8 @@ fun SlideInFromStart(
 fun SplashIconReveal(
     modifier: Modifier = Modifier,
     durationMs: Int = 1400,
-    iconWidth: Dp = 380.dp,
-    iconHeight: Dp = 120.dp,
+    iconWidth: Dp = 500.dp,
+    iconHeight: Dp = 158.dp,
     onFinished: () -> Unit = {}
 ) {
     var started by remember { mutableStateOf(false) }
@@ -282,7 +282,7 @@ fun SplashIconReveal(
         label = "splashReveal"
     )
     val scale by animateFloatAsState(
-        targetValue = if (started) 1f else 0.88f,
+        targetValue = if (started) 1f else 0.93f,
         animationSpec = tween(durationMs, easing = MotionTokens.EasingLinear),
         label = "splashScale"
     )
