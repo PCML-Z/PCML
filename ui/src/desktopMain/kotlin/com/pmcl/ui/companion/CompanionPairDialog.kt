@@ -62,7 +62,8 @@ private fun companionSurfaceVariant(glassOn: Boolean, glassAlpha: Float = 0.4f):
 }
 
 /**
- * iOS 伴随 App 配对对话框：左侧展示配对码的二维码与一维码，右侧展示配对码文字及已配对设备。
+ * 手机伴随 App 配对对话框：左侧展示配对码的二维码与一维码，右侧展示配对码文字及已配对设备。
+ * 支持 iOS（PCML Swift）和 Android（PMCL Android）客户端。
  */
 @Composable
 fun CompanionPairDialog(
@@ -101,7 +102,7 @@ fun CompanionPairDialog(
 
     Window(
         onCloseRequest = onDismiss,
-        title = "配对至 iPhone",
+        title = "设备配对",
         undecorated = true,
         transparent = true,
         resizable = false,
@@ -186,7 +187,7 @@ fun CompanionPairDialog(
                                     )
                                     Spacer(Modifier.width(8.dp))
                                     Text(
-                                        "配对至 iPhone",
+                                        "设备配对",
                                         style = MaterialTheme.typography.titleMedium,
                                         fontWeight = FontWeight.Bold
                                     )
@@ -212,7 +213,7 @@ fun CompanionPairDialog(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        "用 iOS 端 PCML 扫描下方二维码或一维码即可快速配对",
+                        "用手机端 PMCL 扫描下方二维码或一维码即可快速配对",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center
@@ -322,7 +323,7 @@ fun CompanionPairDialog(
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     Text(
-                        "在 iOS 端打开 PCML，输入下方配对码完成配对，" +
+                        "在手机端打开 PMCL，输入下方配对码完成配对，" +
                             "即可远程控制桌面端 PMCL 启动游戏、浏览模组、好友聊天。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant

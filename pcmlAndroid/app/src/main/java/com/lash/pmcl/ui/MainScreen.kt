@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
@@ -43,6 +44,7 @@ import com.lash.pmcl.ui.screens.LaunchScreen
 import com.lash.pmcl.ui.screens.MusicScreen
 import com.lash.pmcl.ui.screens.MultiplayerScreen
 import com.lash.pmcl.ui.screens.FriendScreen
+import com.lash.pmcl.ui.screens.PairingScreen
 import com.lash.pmcl.ui.screens.PluginScreen
 import com.lash.pmcl.ui.screens.NbtEditorScreen
 import com.lash.pmcl.ui.screens.NewsScreen
@@ -124,6 +126,10 @@ private sealed class NavTarget {
         override val label = "插件"
         override val icon = Icons.Filled.Build
     }
+    data object Pairing : NavTarget() {
+        override val label = "配对"
+        override val icon = Icons.Filled.Link
+    }
 }
 
 private val navItems = listOf<NavTarget>(
@@ -140,6 +146,7 @@ private val navItems = listOf<NavTarget>(
     NavTarget.NbtEditor,
     NavTarget.Terminal,
     NavTarget.Music,
+    NavTarget.Pairing,
 )
 
 @Composable
@@ -273,6 +280,7 @@ fun MainScreen(
                             NavTarget.Multiplayer -> MultiplayerScreen()
                             NavTarget.Friend -> FriendScreen()
                             NavTarget.Plugin -> PluginScreen()
+                            NavTarget.Pairing -> PairingScreen(onBack = { current = NavTarget.Launch })
                         }
                     }
                 }
