@@ -269,8 +269,8 @@ fun SlideInFromStart(
 fun SplashIconReveal(
     modifier: Modifier = Modifier,
     durationMs: Int = 1400,
-    iconWidth: Dp = 500.dp,
-    iconHeight: Dp = 158.dp,
+    iconWidth: Dp = 600.dp,
+    iconHeight: Dp = 190.dp,
     onFinished: () -> Unit = {}
 ) {
     var started by remember { mutableStateOf(false) }
