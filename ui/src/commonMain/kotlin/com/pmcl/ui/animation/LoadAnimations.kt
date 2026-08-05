@@ -256,7 +256,7 @@ fun SlideInFromStart(
  * - 图标从左到右擦除显现（裁剪框宽度 0 → 100%，图标内容左锚定）
  * - 微幅放大（scale 0.93 → 1.0）
  * - 全程线性匀速（[MotionTokens.EasingLinear]），无缓动
- * - 显现结束后整体线性淡出，并回调 [onFinished]
+ * - 显现结束后线性淡出，并回调 [onFinished]
  *
  * 用法（App 启动序列中作为一次性覆盖层）：
  * ```
@@ -286,11 +286,6 @@ fun SplashIconReveal(
         animationSpec = tween(durationMs, easing = MotionTokens.EasingLinear),
         label = "splashScale"
     )
-    val fade by animateFloatAsState(
-        targetValue = if (started) 1f else 0f,
-        animationSpec = tween(durationMs, easing = MotionTokens.EasingLinear),
-        label = "splashFade"
-    )
     val exitAlpha by animateFloatAsState(
         targetValue = if (exiting) 0f else 1f,
         animationSpec = tween(280, easing = MotionTokens.EasingLinear),
@@ -316,7 +311,6 @@ fun SplashIconReveal(
             modifier = Modifier.graphicsLayer {
                 scaleX = scale
                 scaleY = scale
-                this.alpha = fade
             }
         ) {
             // 左→右擦除显现：裁剪框宽度随 reveal 增长，图标内容左锚定（TopStart）
