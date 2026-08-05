@@ -19,7 +19,6 @@ import com.pmcl.ui.animation.AnimatedNavSidebar
 import com.pmcl.ui.animation.AnimatedPageSwitch
 import com.pmcl.ui.animation.EntranceAnimation
 import com.pmcl.ui.animation.SlideInFromStart
-import com.pmcl.ui.animation.SplashIconReveal
 import com.pmcl.ui.navigation.NavDestination
 import com.pmcl.ui.navigation.SecondaryNavRail
 import com.pmcl.ui.navigation.SecondaryNavRailWidth
@@ -128,7 +127,6 @@ fun App(vm: LauncherViewModel) {
                 Box(Modifier.fillMaxSize()) {
                     val agreementAccepted by vm.agreementAccepted.collectAsState()
                     val firstLaunchDone by vm.firstLaunchCompleted.collectAsState()
-                    var showSplash by remember { mutableStateOf(true) }
 
                     if (!agreementAccepted) {
                         // 首次打开：必须同意用户协议、免责协议与许可证
@@ -160,14 +158,6 @@ fun App(vm: LauncherViewModel) {
                     PushedUpdateDialog(vm)
                     // P2-1: 账号 keyfile 丢失/损坏警告（任意页面都可见）
                     CorruptedAccountsDialog(vm)
-
-                    // 启动加载动画：图标从左到右擦除显现 + 放大 + 线性淡出
-                    if (showSplash) {
-                        SplashIconReveal(
-                            modifier = Modifier.fillMaxSize(),
-                            onFinished = { showSplash = false }
-                        )
-                    }
                 }
             }
         }

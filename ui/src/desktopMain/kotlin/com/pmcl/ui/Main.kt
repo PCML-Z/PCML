@@ -28,6 +28,7 @@ import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.WindowScope
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import com.pmcl.ui.animation.SplashIconReveal
 import com.pmcl.ui.page.PerfHudWindow
 import com.pmcl.ui.page.TopBarSearchField
 import com.pmcl.ui.viewmodel.LauncherViewModel
@@ -194,7 +195,33 @@ fun main() = application {
     // 玻璃主题开关（响应式，标题栏/侧边栏分层毛玻璃）
     val glassOn by vm.glassTheme.collectAsState()
 
+    // 启动动画状态：播放期间主窗口隐藏，动画结束 → 切换为主窗口
+    var splashDone by remember { mutableStateOf(false) }
+
+    // --- 启动动画窗口（无边框、透明、居中） ---
+    if (!splashDone) {
+        Window(
+            onCloseRequest = { splashDone = true },
+            title = "PMCL",
+            state = rememberWindowState(
+                width = 700.dp,
+                height = 400.dp,
+                position = WindowPosition.Aligned(Alignment.Center)
+            ),
+            undecorated = true,
+            transparent = true,
+            resizable = false
+        ) {
+            SplashIconReveal(
+                modifier = Modifier.fillMaxSize(),
+                onFinished = { splashDone = true }
+            )
+        }
+    }
+
+    // --- 主窗口（启动动画期间隐藏以预加载资源） ---
     Window(
+        visible = splashDone,
         onCloseRequest = {
             try {
                 vm.shutdown()
