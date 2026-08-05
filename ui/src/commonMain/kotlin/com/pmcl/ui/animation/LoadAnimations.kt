@@ -20,11 +20,11 @@ import androidx.compose.ui.composed
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.Dp
@@ -307,28 +307,25 @@ fun SplashIconReveal(
             .background(MaterialTheme.colorScheme.background),
         contentAlignment = Alignment.Center
     ) {
+        // 微幅放大 + Canvas 级左→右裁剪
         Box(
-            modifier = Modifier.graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-            }
+            modifier = Modifier
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                }
+                .drawWithContent {
+                    // clipRect(right) 控制右边界：reveal=0→右边界=0→不可见；reveal=1→全可见
+                    clipRect(right = size.width * reveal) {
+                        this@drawWithContent.drawContent()
+                    }
+                }
         ) {
-            // 左→右擦除显现：裁剪框宽度随 reveal 增长，图标内容左锚定（TopStart）
-            Box(
-                modifier = Modifier
-                    .width(iconWidth * reveal)
-                    .height(iconHeight)
-                    .clip(RoundedCornerShape(0))
-            ) {
-                Image(
-                    painter = painterResource("logo-pmcl-pixel.png"),
-                    contentDescription = "PMCL",
-                    modifier = Modifier
-                        .width(iconWidth)
-                        .height(iconHeight)
-                        .align(Alignment.TopStart)
-                )
-            }
+            Image(
+                painter = painterResource("logo-pmcl-pixel.png"),
+                contentDescription = "PMCL",
+                modifier = Modifier.width(iconWidth).height(iconHeight)
+            )
         }
     }
 }
