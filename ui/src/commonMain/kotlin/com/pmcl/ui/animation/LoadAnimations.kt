@@ -17,10 +17,19 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 
 /**
  * 加载动画组件集合：
@@ -239,5 +248,91 @@ fun SlideInFromStart(
         exit = fadeOut(tween(durationMs / 2))
     ) {
         content()
+    }
+}
+
+/**
+ * 启动加载动画：以 PMCL 图标为核心。
+ * - 图标从左到右擦除显现（裁剪框宽度 0 → 100%，图标内容左锚定）
+ * - 整体放大（scale 0.7 → 1.0）
+ * - 全程线性匀速（[MotionTokens.EasingLinear]），无缓动
+ * - 显现结束后整体线性淡出，并回调 [onFinished]
+ *
+ * 用法（App 启动序列中作为一次性覆盖层）：
+ * ```
+ * var showSplash by remember { mutableStateOf(true) }
+ * // ... 主内容 ...
+ * if (showSplash) SplashIconReveal(Modifier.fillMaxSize()) { showSplash = false }
+ * ```
+ */
+@Composable
+fun SplashIconReveal(
+    modifier: Modifier = Modifier,
+    durationMs: Int = 1400,
+    iconSize: Dp = 160.dp,
+    onFinished: () -> Unit = {}
+) {
+    var started by remember { mutableStateOf(false) }
+    var exiting by remember { mutableStateOf(false) }
+
+    val reveal by animateFloatAsState(
+        targetValue = if (started) 1f else 0f,
+        animationSpec = tween(durationMs, easing = MotionTokens.EasingLinear),
+        label = "splashReveal"
+    )
+    val scale by animateFloatAsState(
+        targetValue = if (started) 1f else 0.7f,
+        animationSpec = tween(durationMs, easing = MotionTokens.EasingLinear),
+        label = "splashScale"
+    )
+    val fade by animateFloatAsState(
+        targetValue = if (started) 1f else 0f,
+        animationSpec = tween(durationMs, easing = MotionTokens.EasingLinear),
+        label = "splashFade"
+    )
+    val exitAlpha by animateFloatAsState(
+        targetValue = if (exiting) 0f else 1f,
+        animationSpec = tween(280, easing = MotionTokens.EasingLinear),
+        label = "splashExit"
+    )
+
+    LaunchedEffect(Unit) {
+        started = true
+        delay(durationMs.toLong())
+        exiting = true
+        delay(280)
+        onFinished()
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .graphicsLayer { this.alpha = exitAlpha }
+            .background(MaterialTheme.colorScheme.background),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier.graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+                this.alpha = fade
+            }
+        ) {
+            // 左→右擦除显现：裁剪框宽度随 reveal 增长，图标内容左锚定（TopStart）
+            Box(
+                modifier = Modifier
+                    .width(iconSize * reveal)
+                    .height(iconSize)
+                    .clip(RoundedCornerShape(0))
+            ) {
+                Image(
+                    painter = painterResource("pmcl_icon.png"),
+                    contentDescription = "PMCL",
+                    modifier = Modifier
+                        .size(iconSize)
+                        .align(Alignment.TopStart)
+                )
+            }
+        }
     }
 }

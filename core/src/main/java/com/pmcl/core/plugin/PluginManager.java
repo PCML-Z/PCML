@@ -1814,65 +1814,14 @@ public final class PluginManager {
 
     /**
      * Load an external runtime plugin (.NET / Python / Node.js).
-     * Skips ClassLoader creation; uses ProcessBridge + ExternalRuntimeBridge instead.
+     * Removed: ExternalRuntimeBridge, RuntimeDetection, NativeDockBridge, ProcessBridge
+     * were non-embed dead-ends and have been deleted.
      */
     private void loadExternalRuntimePlugin(PluginInfo info, Path jarOrDirPath) throws Exception {
-        // 1. Determine bridge type by embed mode
-        boolean windowEmbed = PluginInfo.EMBED_WINDOW.equals(info.getEmbed());
-
-        // 2. Resolve work directory
-        Path workDir;
-        if (Files.isDirectory(jarOrDirPath)) {
-            // Called from loadPluginPackage: package already extracted
-            workDir = jarOrDirPath;
-        } else {
-            // Called from loadPlugin: extract the JAR/ZIP
-            workDir = pluginsDir.resolve(".ext-" + info.getId());
-            if (Files.exists(workDir)) {
-                try { deleteRecursive(workDir); } catch (IOException ignored) {}
-            }
-            Files.createDirectories(workDir);
-            extractJar(jarOrDirPath, workDir);
-        }
-
-        // 3. Validate runtime (web / non-embed only) & create bridge
-        //    window 嵌入不需要外部运行时（直接停靠应用窗口），跳过运行时检测。
-        java.util.function.Consumer<String> logFn = msg ->
-            System.out.println("[PluginManager][" + info.getId() + "] " + msg);
-        PmclPlugin bridge;
-        if (windowEmbed) {
-            bridge = new NativeDockBridge(info, workDir, logFn);
-        } else {
-            RuntimeDetection.DetectionResult det = RuntimeDetection.detect(info.getExternalRuntime());
-            if (!det.isAvailable()) {
-                throw new IllegalStateException(
-                    "External runtime '" + info.getExternalRuntime() + "' not available: " + det.message());
-            }
-            bridge = new ExternalRuntimeBridge(info, workDir, logFn);
-        }
-
-        // 4. Create PluginEntry (passes null classloader to signal external runtime)
-        PluginContextImpl ctx = new PluginContextImpl(this, info.getId());
-        PluginEntry entry = new PluginEntry(info, bridge, ctx, null, workDir); // classLoader=null
-        entry.setState(PluginState.LOADED);
-
-        synchronized (this) {
-            loadedPlugins.put(info.getId(), entry);
-        }
-
-        String mode = info.getEmbed() != null ? "embed=" + info.getEmbed()
-            : "runtime=" + info.getExternalRuntime();
-        System.out.println("[PluginManager] Loaded external plugin: " + info.getId()
-            + " v" + info.getVersion() + " (" + mode + ")");
-        bumpRevision();
-
-        // onLoad
-        try { bridge.onLoad(); } catch (Exception e) {
-            System.err.println("[PluginManager] onLoad failed for " + info.getId() + ": " + e.getMessage());
-            synchronized (this) { entry.setState(PluginState.FAILED); }
-            fireEvent(new PluginErrorEvent(info.getId(), e));
-        }
-        fireEvent(new PluginLoadedEvent(info.getId()));
+        throw new UnsupportedOperationException(
+            "External runtime plugin '" + info.getId() + "' cannot be loaded: "
+            + "bridge implementations (ExternalRuntimeBridge / RuntimeDetection / "
+            + "NativeDockBridge) have been removed.");
     }
 
     /** Extract a JAR file to a directory. */
