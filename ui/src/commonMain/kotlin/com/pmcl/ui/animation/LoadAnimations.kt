@@ -295,7 +295,7 @@ fun SplashIconReveal(
     LaunchedEffect(Unit) {
         started = true
         delay(durationMs.toLong())
-        delay(300)       // 暂留 0.3s，图标完全可见后再淡出
+        delay(700)       // 暂留 0.7s，图标完全可见后再淡出
         exiting = true
         delay(280)
         onFinished()
