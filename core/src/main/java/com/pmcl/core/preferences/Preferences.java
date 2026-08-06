@@ -59,6 +59,7 @@ public final class Preferences {
     private String customJvmArgs = "";
     private String gcType = "G1GC";
     private boolean useAikarFlags = true;
+    private boolean useSegmentedLaunchLayout = false; // 启动页布局：false=最初分栏布局，true=底部滑块切换布局
     private int minMemoryMb = 512;
     private int maxMemoryMb = 4096;
     private String javaPath = "";  // 用户指定的 Java 路径，空则自动查找
@@ -361,6 +362,9 @@ public final class Preferences {
 
     public synchronized boolean isUseAikarFlags() { return useAikarFlags; }
     public synchronized void setUseAikarFlags(boolean v) { useAikarFlags = v; scheduleSave(); }
+
+    public synchronized boolean isUseSegmentedLaunchLayout() { return useSegmentedLaunchLayout; }
+    public synchronized void setUseSegmentedLaunchLayout(boolean v) { useSegmentedLaunchLayout = v; scheduleSave(); }
 
     public synchronized int getMinMemoryMb() { return minMemoryMb; }
     public synchronized void setMinMemoryMb(int v) { if (v < 128) return; minMemoryMb = v; scheduleSave(); }

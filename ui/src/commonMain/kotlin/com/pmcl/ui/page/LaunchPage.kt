@@ -15,6 +15,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -76,8 +77,6 @@ import com.pmcl.ui.viewmodel.lastOfflineUsername
 import com.pmcl.ui.viewmodel.loginOffline
 import com.pmcl.ui.viewmodel.selectInstance
 import com.pmcl.ui.viewmodel.startMicrosoftLogin
-import com.pmcl.ui.viewmodel.switchAccount
-import com.pmcl.ui.viewmodel.removeAccount
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -197,368 +196,10 @@ fun LaunchPage(vm: LauncherViewModel) {
     }
 
     var launchTab by remember { mutableStateOf(0) } // 0=启动 1=版本 2=账号 3=日志
+    val useSegmentedLayout by remember { mutableStateOf(vm.preferences.isUseSegmentedLaunchLayout()) }
 
-    Column(Modifier.fillMaxSize()) {
-        Box(Modifier.weight(1f).fillMaxWidth()) {
-            when (launchTab) {
-                // ===== 启动：空白页 + 固定启动按钮（多固定版本时弹出选择）=====
-                0 -> {
-                    var showPinnedPicker by remember { mutableStateOf(false) }
-
-                    // 判断某个固定版本是否可启动
-                    fun canLaunch(vid: String): Boolean {
-                        val info = localInfos.find { it.getId() == vid }
-                        return info?.isLaunchable() == true && account != null && !gameRunning
-                    }
-
-                    Box(Modifier.fillMaxSize().padding(24.dp),
-                        contentAlignment = Alignment.BottomEnd) {
-                        Box {
-                            FloatingActionButton(
-                                onClick = {
-                                    when {
-                                        pinned.isEmpty() -> launchTab = 1 // 无固定版本，跳转版本列表
-                                        pinned.size == 1 && canLaunch(pinned.first()) ->
-                                            vm.quickLaunch(pinned.first())
-                                        pinned.isNotEmpty() -> showPinnedPicker = true
-                                    }
-                                },
-                                containerColor = MaterialTheme.colorScheme.primary,
-                                contentColor = MaterialTheme.colorScheme.onPrimary
-                            ) {
-                                Icon(Icons.Filled.PlayArrow,
-                                     contentDescription = I18n.t("launch.start"),
-                                     modifier = Modifier.size(28.dp))
-                            }
-
-                            DropdownMenu(
-                                expanded = showPinnedPicker,
-                                onDismissRequest = { showPinnedPicker = false }
-                            ) {
-                                pinned.forEach { versionId ->
-                                    val launchable = canLaunch(versionId)
-                                    DropdownMenuItem(
-                                        text = { Text(pinnedLabels[versionId] ?: versionId) },
-                                        onClick = {
-                                            showPinnedPicker = false
-                                            if (launchable) vm.quickLaunch(versionId)
-                                        },
-                                        enabled = launchable,
-                                        leadingIcon = {
-                                            Icon(Icons.Filled.PlayArrow, null,
-                                                 modifier = Modifier.size(18.dp))
-                                        }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // ===== 版本列表（宽屏双栏 / 窄屏单栏）=====
-                1 -> BoxWithConstraints(Modifier.fillMaxSize()) {
-                    val isWide = maxWidth >= 720.dp
-                    Row(Modifier.fillMaxSize()) {
-        // ===== 左侧：统一用 LazyColumn 滚动，避免嵌套滚动冲突 =====
-        LazyColumn(
-            Modifier.weight(if (isWide) 1.2f else 1f).fillMaxHeight().padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            // 标题栏
-            item {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(I18n.t("launch.start"), style = MaterialTheme.typography.headlineSmall,
-                         fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                    OutlinedButton(
-                        onClick = { vm.refreshLocalVersions() },
-                        enabled = !scanning
-                    ) {
-                        Icon(
-                            Icons.Filled.Refresh,
-                            I18n.t("launch.scan"),
-                            Modifier.size(16.dp).then(
-                                if (scanning) Modifier.rotate(rotationAngle)
-                                else Modifier
-                            )
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Text(if (scanning) I18n.t("launch.scanning") else I18n.t("launch.scan"))
-                    }
-                }
-                Spacer(Modifier.height(4.dp))
-                Text(I18n.t("launch.installed_count", localInfos.size + instances.size),
-                     style = MaterialTheme.typography.labelSmall,
-                     color = MaterialTheme.colorScheme.outline)
-            }
-
-            // ===== 插件主页卡片 =====
-            if (homeCards.isNotEmpty()) {
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        for (card in homeCards) {
-                            Surface(
-                                shape = MaterialTheme.shapes.medium,
-                                tonalElevation = 1.dp,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(Modifier.padding(12.dp)) {
-                                    Text(card.title, style = MaterialTheme.typography.titleSmall,
-                                        fontWeight = FontWeight.SemiBold)
-                                    if (card.subtitle.isNotBlank()) {
-                                        Text(
-                                            card.subtitle,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.outline
-                                        )
-                                    }
-                                    Spacer(Modifier.height(6.dp))
-                                    // Compose 不允许 try/catch 包裹 @Composable；异常由宿主 SafePluginPage 同类策略承接
-                                    card.content.invoke()
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // ===== 扫描进度/结果反馈 =====
-            item {
-                // 用 AnimatedVisibility 让进度条平滑进出
-                // scanProgress 在 ScanProgressBar 内部订阅，避免高频更新触发整页重组
-                AnimatedVisibility(visible = scanning) {
-                    ScanProgressBar(vm)
-                }
-                // 扫描完成后显示结果摘要（常驻直到下次扫描）
-                AnimatedVisibility(visible = !scanning && localInfos.isEmpty()) {
-                    Surface(
-                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f),
-                        shape = RoundedCornerShape(6.dp),
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
-                    ) {
-                        Row(
-                            Modifier.padding(10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Filled.Warning, null, Modifier.size(16.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                I18n.t("launch.no_local_hint"),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                    }
-                }
-            }
-
-            // ===== 固定磁贴区 =====
-            item {
-                Spacer(Modifier.height(12.dp))
-                Text(I18n.t("launch.quick_launch"), style = MaterialTheme.typography.titleSmall,
-                     fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.height(8.dp))
-            }
-
-            if (pinned.isEmpty()) {
-                item {
-                    Surface(
-                        color = glassSurfaceVariantColor(),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(I18n.t("launch.pinned_empty_hint"),
-                             modifier = Modifier.padding(12.dp),
-                             style = MaterialTheme.typography.bodySmall,
-                             color = MaterialTheme.colorScheme.outline)
-                    }
-                }
-            } else {
-                // 磁贴两列布局：手动 chunked，避免 LazyVerticalGrid 嵌套滚动
-                val rows = pinned.chunked(2)
-                rows.forEachIndexed { index, rowVersions ->
-                    item(key = "pinned-row-$index") {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            rowVersions.forEach { versionId ->
-                                val info = localInfos.find { it.getId() == versionId }
-                                Box(Modifier.weight(1f)) {
-                                    PinnedTile(
-                                        versionId = versionId,
-                                        customLabel = pinnedLabels[versionId],
-                                        launchable = info?.isLaunchable() ?: false,
-                                        gameRunning = gameRunning,
-                                        hasAccount = account != null,
-                                        modLoaderHint = info?.let { inferModLoader(it) },
-                                        lastPlayedTime = lastPlayedTimes[versionId],
-                                        formatRelative = formatRelative,
-                                        onLaunch = { vm.quickLaunch(versionId) },
-                                        onRename = { renameTarget = versionId },
-                                        onDelete = { deleteTarget = versionId }
-                                    )
-                                }
-                            }
-                            // 奇数个时补占位保持两列对齐
-                            if (rowVersions.size == 1) {
-                                Spacer(Modifier.weight(1f))
-                            }
-                        }
-                    }
-                }
-            }
-
-            // ===== 最近使用（LRU，自动记录） =====
-            // recentNotPinned 已在顶层用 remember 预计算
-            if (recentNotPinned.isNotEmpty()) {
-                item {
-                    Spacer(Modifier.height(12.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.Refresh, I18n.t("launch.recent"),
-                             modifier = Modifier.size(16.dp),
-                             tint = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.width(6.dp))
-                        Text(I18n.t("launch.recent"), style = MaterialTheme.typography.titleSmall,
-                             fontWeight = FontWeight.SemiBold,
-                             color = MaterialTheme.colorScheme.primary)
-                    }
-                    Spacer(Modifier.height(6.dp))
-                }
-                items(recentNotPinned, key = { "recent-$it" }) { versionId ->
-                    RecentVersionRow(
-                        versionId = versionId,
-                        lastPlayedTime = lastPlayedTimes[versionId],
-                        formatRelative = formatRelative,
-                        gameRunning = gameRunning,
-                        hasAccount = account != null,
-                        onClick = { vm.selectVersion(versionId) },
-                        onLaunch = { vm.quickLaunch(versionId) }
-                    )
-                }
-            }
-
-            // ===== 分隔线 =====
-            item {
-                Spacer(Modifier.height(12.dp))
-                HorizontalDivider()
-                Spacer(Modifier.height(12.dp))
-                Text(I18n.t("launch.local_versions"), style = MaterialTheme.typography.titleSmall,
-                     fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.height(8.dp))
-            }
-
-            // ===== 本地版本列表 =====
-            if (instances.isEmpty() && localInfos.isEmpty()) {
-                item {
-                    Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
-                        Column(Modifier.padding(16.dp)) {
-                            Text(I18n.t("launch.local_empty_title"),
-                                 style = MaterialTheme.typography.titleSmall,
-                                 fontWeight = FontWeight.SemiBold)
-                            Spacer(Modifier.height(8.dp))
-                            Text(
-                                I18n.t("launch.local_empty_hint", vm.config.getVersionsDir()),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.outline)
-                        }
-                    }
-                }
-            } else {
-                items(instances, key = { "instance-${it.getInstanceId()}" }) { info ->
-                    LaunchInstanceRow(
-                        info = info,
-                        launching = instanceLaunching == info.getInstanceId(),
-                        enabled = account != null && !gameRunning && instanceLaunching == null,
-                        onLaunch = { vm.launchInstance(info.getInstanceId()) }
-                    )
-                }
-                itemsIndexed(localInfos, key = { _, info -> info.getId() }) { index, info ->
-                    StaggeredAppear(index) {
-                        LocalVersionRow(
-                            info = info,
-                            selected = info.getId() == selected,
-                            pinned = info.getId() in pinnedIds,
-                            format = format,
-                            gameRunning = gameRunning,
-                            hasAccount = account != null,
-                            onClick = { vm.selectVersion(info.getId()) },
-                            onPin = { vm.pinVersion(info.getId()) },
-                            onUnpin = { vm.unpinVersion(info.getId()) },
-                            onLaunch = { vm.quickLaunch(info.getId()) }
-                        )
-                    }
-                }
-            }
-
-            // ===== 分隔线 =====
-            item {
-                Spacer(Modifier.height(12.dp))
-                HorizontalDivider()
-                Spacer(Modifier.height(8.dp))
-                Text(I18n.t("launch.remote_count", versions.size),
-                     style = MaterialTheme.typography.labelMedium,
-                     color = MaterialTheme.colorScheme.outline)
-                Spacer(Modifier.height(8.dp))
-            }
-
-            // ===== 版本分类筛选 + 搜索 =====
-            item {
-                Column {
-                    // 分类滑动选择器
-                    val categories = listOf(
-                        I18n.t("launch.category_all"),
-                        I18n.t("launch.category_release"),
-                        I18n.t("launch.category_snapshot"),
-                        I18n.t("launch.category_old_beta"),
-                        I18n.t("launch.category_old_alpha")
-                    )
-                    com.pmcl.ui.animation.AnimatedSegmentedSelector(
-                        items = categories,
-                        selectedIndex = versionCategory,
-                        onSelect = { versionCategory = it },
-                        fillWidth = true,
-                        height = 32.dp
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    // 搜索框
-                    OutlinedTextField(
-                        value = searchQuery,
-                        onValueChange = { searchQuery = it },
-                        label = { Text(I18n.t("launch.search_version")) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        textStyle = MaterialTheme.typography.bodySmall
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(I18n.t("launch.showing_count", filtered.size),
-                         style = MaterialTheme.typography.labelSmall,
-                         color = MaterialTheme.colorScheme.outline)
-                    Spacer(Modifier.height(6.dp))
-                }
-            }
-
-            // 远程版本列表：作为 LazyColumn 真正的 items，按视口懒加载
-            // 之前用 filtered.forEach 塞进单个 item，导致 200 行全部立即测量+布局，丧失懒加载意义
-            items(filtered, key = { v -> "remote-" + v.getId() }) { v ->
-                RemoteVersionRow(
-                    id = v.getId(),
-                    type = v.getType(),
-                    selected = v.getId() == selected,
-                    installed = v.getId() in localInfoIds,
-                    onClick = { vm.selectVersion(v.getId()) }
-                )
-            }
-        }
-
-        if (isWide) {
-            VerticalDivider()
-
-        // ===== 右侧：版本操作（选中提示 / Java / 服务器 / 启动按钮） =====
-        // verticalScroll 让整个右侧区域可平滑滑动
-        Column(
-            Modifier.weight(1f).fillMaxHeight().padding(16.dp)
-                .verticalScroll(rememberScrollState())
-        ) {
+    // 右侧详情面板内容提取为可复用 lambda，供分栏布局和最初分栏布局共用
+    val rightDetailContent: @Composable () -> Unit = {
             // 当前选中版本提示
             selected?.let {
                 val hintColor = if (isInstalled) MaterialTheme.colorScheme.primaryContainer
@@ -923,21 +564,384 @@ fun LaunchPage(vm: LauncherViewModel) {
                     }
                 }
             }
+    }
 
+    // 版本列表内容提取为可复用 lambda，供滑块布局和分栏布局共用
+    val versionListContent: LazyListScope.() -> Unit = {
+            // 标题栏
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(I18n.t("launch.start"), style = MaterialTheme.typography.headlineSmall,
+                         fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    OutlinedButton(
+                        onClick = { vm.refreshLocalVersions() },
+                        enabled = !scanning
+                    ) {
+                        Icon(
+                            Icons.Filled.Refresh,
+                            I18n.t("launch.scan"),
+                            Modifier.size(16.dp).then(
+                                if (scanning) Modifier.rotate(rotationAngle)
+                                else Modifier
+                            )
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(if (scanning) I18n.t("launch.scanning") else I18n.t("launch.scan"))
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(I18n.t("launch.installed_count", localInfos.size + instances.size),
+                     style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.outline)
+            }
+
+            // ===== 插件主页卡片 =====
+            if (homeCards.isNotEmpty()) {
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        for (card in homeCards) {
+                            Surface(
+                                shape = MaterialTheme.shapes.medium,
+                                tonalElevation = 1.dp,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(Modifier.padding(12.dp)) {
+                                    Text(card.title, style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.SemiBold)
+                                    if (card.subtitle.isNotBlank()) {
+                                        Text(
+                                            card.subtitle,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.outline
+                                        )
+                                    }
+                                    Spacer(Modifier.height(6.dp))
+                                    // Compose 不允许 try/catch 包裹 @Composable；异常由宿主 SafePluginPage 同类策略承接
+                                    card.content.invoke()
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ===== 扫描进度/结果反馈 =====
+            item {
+                // 用 AnimatedVisibility 让进度条平滑进出
+                // scanProgress 在 ScanProgressBar 内部订阅，避免高频更新触发整页重组
+                AnimatedVisibility(visible = scanning) {
+                    ScanProgressBar(vm)
+                }
+                // 扫描完成后显示结果摘要（常驻直到下次扫描）
+                AnimatedVisibility(visible = !scanning && localInfos.isEmpty()) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f),
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                    ) {
+                        Row(
+                            Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Filled.Warning, null, Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                I18n.t("launch.no_local_hint"),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+            }
+
+            // ===== 固定磁贴区 =====
+            item {
+                Spacer(Modifier.height(12.dp))
+                Text(I18n.t("launch.quick_launch"), style = MaterialTheme.typography.titleSmall,
+                     fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.height(8.dp))
+            }
+
+            if (pinned.isEmpty()) {
+                item {
+                    Surface(
+                        color = glassSurfaceVariantColor(),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(I18n.t("launch.pinned_empty_hint"),
+                             modifier = Modifier.padding(12.dp),
+                             style = MaterialTheme.typography.bodySmall,
+                             color = MaterialTheme.colorScheme.outline)
+                    }
+                }
+            } else {
+                // 磁贴两列布局：手动 chunked，避免 LazyVerticalGrid 嵌套滚动
+                val rows = pinned.chunked(2)
+                rows.forEachIndexed { index, rowVersions ->
+                    item(key = "pinned-row-$index") {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            rowVersions.forEach { versionId ->
+                                val info = localInfos.find { it.getId() == versionId }
+                                Box(Modifier.weight(1f)) {
+                                    PinnedTile(
+                                        versionId = versionId,
+                                        customLabel = pinnedLabels[versionId],
+                                        launchable = info?.isLaunchable() ?: false,
+                                        gameRunning = gameRunning,
+                                        hasAccount = account != null,
+                                        modLoaderHint = info?.let { inferModLoader(it) },
+                                        lastPlayedTime = lastPlayedTimes[versionId],
+                                        formatRelative = formatRelative,
+                                        onLaunch = { vm.quickLaunch(versionId) },
+                                        onRename = { renameTarget = versionId },
+                                        onDelete = { deleteTarget = versionId }
+                                    )
+                                }
+                            }
+                            // 奇数个时补占位保持两列对齐
+                            if (rowVersions.size == 1) {
+                                Spacer(Modifier.weight(1f))
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ===== 最近使用（LRU，自动记录） =====
+            // recentNotPinned 已在顶层用 remember 预计算
+            if (recentNotPinned.isNotEmpty()) {
+                item {
+                    Spacer(Modifier.height(12.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.Refresh, I18n.t("launch.recent"),
+                             modifier = Modifier.size(16.dp),
+                             tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(6.dp))
+                        Text(I18n.t("launch.recent"), style = MaterialTheme.typography.titleSmall,
+                             fontWeight = FontWeight.SemiBold,
+                             color = MaterialTheme.colorScheme.primary)
+                    }
+                    Spacer(Modifier.height(6.dp))
+                }
+                items(recentNotPinned, key = { "recent-$it" }) { versionId ->
+                    RecentVersionRow(
+                        versionId = versionId,
+                        lastPlayedTime = lastPlayedTimes[versionId],
+                        formatRelative = formatRelative,
+                        gameRunning = gameRunning,
+                        hasAccount = account != null,
+                        onClick = { vm.selectVersion(versionId) },
+                        onLaunch = { vm.quickLaunch(versionId) }
+                    )
+                }
+            }
+
+            // ===== 分隔线 =====
+            item {
+                Spacer(Modifier.height(12.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(12.dp))
+                Text(I18n.t("launch.local_versions"), style = MaterialTheme.typography.titleSmall,
+                     fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(8.dp))
+            }
+
+            // ===== 本地版本列表 =====
+            if (instances.isEmpty() && localInfos.isEmpty()) {
+                item {
+                    Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
+                        Column(Modifier.padding(16.dp)) {
+                            Text(I18n.t("launch.local_empty_title"),
+                                 style = MaterialTheme.typography.titleSmall,
+                                 fontWeight = FontWeight.SemiBold)
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                I18n.t("launch.local_empty_hint", vm.config.getVersionsDir()),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.outline)
+                        }
+                    }
+                }
+            } else {
+                items(instances, key = { "instance-${it.getInstanceId()}" }) { info ->
+                    LaunchInstanceRow(
+                        info = info,
+                        launching = instanceLaunching == info.getInstanceId(),
+                        enabled = account != null && !gameRunning && instanceLaunching == null,
+                        onLaunch = { vm.launchInstance(info.getInstanceId()) }
+                    )
+                }
+                itemsIndexed(localInfos, key = { _, info -> info.getId() }) { index, info ->
+                    StaggeredAppear(index) {
+                        LocalVersionRow(
+                            info = info,
+                            selected = info.getId() == selected,
+                            pinned = info.getId() in pinnedIds,
+                            format = format,
+                            gameRunning = gameRunning,
+                            hasAccount = account != null,
+                            onClick = { vm.selectVersion(info.getId()) },
+                            onPin = { vm.pinVersion(info.getId()) },
+                            onUnpin = { vm.unpinVersion(info.getId()) },
+                            onLaunch = { vm.quickLaunch(info.getId()) }
+                        )
+                    }
+                }
+            }
+
+            // ===== 分隔线 =====
+            item {
+                Spacer(Modifier.height(12.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(8.dp))
+                Text(I18n.t("launch.remote_count", versions.size),
+                     style = MaterialTheme.typography.labelMedium,
+                     color = MaterialTheme.colorScheme.outline)
+                Spacer(Modifier.height(8.dp))
+            }
+
+            // ===== 版本分类筛选 + 搜索 =====
+            item {
+                Column {
+                    // 分类滑动选择器
+                    val categories = listOf(
+                        I18n.t("launch.category_all"),
+                        I18n.t("launch.category_release"),
+                        I18n.t("launch.category_snapshot"),
+                        I18n.t("launch.category_old_beta"),
+                        I18n.t("launch.category_old_alpha")
+                    )
+                    com.pmcl.ui.animation.AnimatedSegmentedSelector(
+                        items = categories,
+                        selectedIndex = versionCategory,
+                        onSelect = { versionCategory = it },
+                        fillWidth = true,
+                        height = 32.dp
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    // 搜索框
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        label = { Text(I18n.t("launch.search_version")) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        textStyle = MaterialTheme.typography.bodySmall
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(I18n.t("launch.showing_count", filtered.size),
+                         style = MaterialTheme.typography.labelSmall,
+                         color = MaterialTheme.colorScheme.outline)
+                    Spacer(Modifier.height(6.dp))
+                }
+            }
+
+            // 远程版本列表：作为 LazyColumn 真正的 items，按视口懒加载
+            // 之前用 filtered.forEach 塞进单个 item，导致 200 行全部立即测量+布局，丧失懒加载意义
+            items(filtered, key = { v -> "remote-" + v.getId() }) { v ->
+                RemoteVersionRow(
+                    id = v.getId(),
+                    type = v.getType(),
+                    selected = v.getId() == selected,
+                    installed = v.getId() in localInfoIds,
+                    onClick = { vm.selectVersion(v.getId()) }
+                )
+            }
+    }
+
+    Column(Modifier.fillMaxSize()) {
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            if (useSegmentedLayout) {
+            when (launchTab) {
+                // ===== 启动：空白页 + 固定启动按钮（多固定版本时弹出选择）=====
+                0 -> {
+                    var showPinnedPicker by remember { mutableStateOf(false) }
+
+                    // 判断某个固定版本是否可启动
+                    fun canLaunch(vid: String): Boolean {
+                        val info = localInfos.find { it.getId() == vid }
+                        return info?.isLaunchable() == true && account != null && !gameRunning
+                    }
+
+                    Box(Modifier.fillMaxSize().padding(24.dp),
+                        contentAlignment = Alignment.BottomEnd) {
+                        Box {
+                            FloatingActionButton(
+                                onClick = {
+                                    when {
+                                        pinned.isEmpty() -> launchTab = 1 // 无固定版本，跳转版本列表
+                                        pinned.size == 1 && canLaunch(pinned.first()) ->
+                                            vm.quickLaunch(pinned.first())
+                                        pinned.isNotEmpty() -> showPinnedPicker = true
+                                    }
+                                },
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary
+                            ) {
+                                Icon(Icons.Filled.PlayArrow,
+                                     contentDescription = I18n.t("launch.start"),
+                                     modifier = Modifier.size(28.dp))
+                            }
+
+                            DropdownMenu(
+                                expanded = showPinnedPicker,
+                                onDismissRequest = { showPinnedPicker = false }
+                            ) {
+                                pinned.forEach { versionId ->
+                                    val launchable = canLaunch(versionId)
+                                    DropdownMenuItem(
+                                        text = { Text(pinnedLabels[versionId] ?: versionId) },
+                                        onClick = {
+                                            showPinnedPicker = false
+                                            if (launchable) vm.quickLaunch(versionId)
+                                        },
+                                        enabled = launchable,
+                                        leadingIcon = {
+                                            Icon(Icons.Filled.PlayArrow, null,
+                                                 modifier = Modifier.size(18.dp))
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ===== 版本列表（宽屏双栏 / 窄屏单栏）=====
+                1 -> BoxWithConstraints(Modifier.fillMaxSize()) {
+                    val isWide = maxWidth >= 720.dp
+                    Row(Modifier.fillMaxSize()) {
+        // ===== 左侧：统一用 LazyColumn 滚动，避免嵌套滚动冲突 =====
+        LazyColumn(
+            Modifier.weight(if (isWide) 1.2f else 1f).fillMaxHeight().padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            versionListContent()
         }
+
+        if (isWide) {
+            VerticalDivider()
+            Column(
+                Modifier.weight(1f).fillMaxHeight().padding(16.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                rightDetailContent()
+            }
         } // end if isWide
         } // end Row
         } // end BoxWithConstraints
 
         // ===== 账号 =====
-                2 -> {
-                    val accountsList by vm.accounts.collectAsState()
-                    val currentAccount by vm.account.collectAsState()
-                    AccountPage(
-                        accounts = accountsList,
-                        current = currentAccount,
-                        vm = vm
-                    )
+                2 -> Column(
+                    Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    AccountCard(account, vm)
                 }
 
         // ===== 日志 =====
@@ -1147,17 +1151,44 @@ fun LaunchPage(vm: LauncherViewModel) {
             }
         }
             }
+            } else {
+                // 最初分栏布局：左版本列表 + 右账号日志同屏显示
+                Row(Modifier.fillMaxSize()) {
+                    LazyColumn(
+                        Modifier.weight(1.2f).fillMaxHeight().padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        versionListContent()
+                    }
+                    Column(
+                        Modifier.weight(1f).fillMaxHeight().padding(16.dp).verticalScroll(rememberScrollState())
+                    ) {
+                        AccountCard(account, vm)
+                        rightDetailContent()
+                        HorizontalDivider()
+                        Surface(
+                            color = glassSurfaceVariantColor(),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 300.dp, max = 400.dp)
+                        ) {
+                            GameLogPanel(vm)
+                        }
+                    }
+                }
+            }
         }
 
         // 底边栏：使用项目现成的 AnimatedSegmentedSelector 滑块切换
-        com.pmcl.ui.animation.AnimatedSegmentedSelector(
-            items = listOf("启动", "版本", "账号", "日志"),
-            selectedIndex = launchTab,
-            onSelect = { launchTab = it },
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-            fillWidth = true,
-            height = 40.dp
-        )
+        if (useSegmentedLayout) {
+            com.pmcl.ui.animation.AnimatedSegmentedSelector(
+                items = listOf("启动", "版本", "账号", "日志"),
+                selectedIndex = launchTab,
+                onSelect = { launchTab = it },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                fillWidth = true,
+                height = 40.dp
+            )
+        }
     }
 
     // ===== 磁贴重命名对话框 =====
@@ -1920,196 +1951,60 @@ private fun RemoteVersionRow(
 }
 
 @Composable
-private fun AccountPage(
-    accounts: List<com.pmcl.core.auth.Account>,
-    current: com.pmcl.core.auth.Account?,
-    vm: LauncherViewModel
-) {
+private fun AccountCard(account: com.pmcl.core.auth.Account?, vm: LauncherViewModel) {
     // 初始值从持久化读取，避免每次打开页面重置为 Steve
     var username by remember { mutableStateOf(vm.lastOfflineUsername().ifBlank { "Steve" }) }
-
-    Column(
-        Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        // 页面标题
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(I18n.t("launch.account"),
-                 style = MaterialTheme.typography.headlineSmall,
-                 fontWeight = FontWeight.Bold,
-                 modifier = Modifier.weight(1f))
-            if (accounts.isNotEmpty()) {
-                Text("${accounts.size} 个账号",
-                     style = MaterialTheme.typography.labelSmall,
-                     color = MaterialTheme.colorScheme.outline)
-            }
-        }
-
-        // ===== 账号列表 / 空状态时登录区占满补位 =====
-        if (accounts.isEmpty()) {
-            // 空状态：居中占满，登录卡片补全空位
-            Card(Modifier.fillMaxWidth().weight(1f).glassCardBorder(),
-                 colors = glassCardColors(), elevation = glassCardElevation()) {
-                Column(
-                    Modifier.fillMaxSize().padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Icon(Icons.Filled.AccountCircle, null,
-                         modifier = Modifier.size(56.dp),
-                         tint = MaterialTheme.colorScheme.outline)
-                    Spacer(Modifier.height(12.dp))
-                    Text(I18n.t("launch.not_logged_in_short"),
-                         style = MaterialTheme.typography.titleMedium,
-                         color = MaterialTheme.colorScheme.outline)
-                    Spacer(Modifier.height(20.dp))
-                    OutlinedTextField(
-                        value = username, onValueChange = { username = it },
-                        label = { Text(I18n.t("launch.offline_username")) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(Modifier.height(10.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth()) {
-                        Button(onClick = { vm.loginOffline(username) },
-                               enabled = username.isNotBlank(),
-                               modifier = Modifier.weight(1f)) {
-                            Icon(Icons.Filled.Person, null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text(I18n.t("launch.offline_login"))
-                        }
-                        OutlinedButton(onClick = vm::startMicrosoftLogin,
-                                       modifier = Modifier.weight(1f)) {
-                            Icon(Icons.Filled.AccountCircle, null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text(I18n.t("launch.microsoft_login"))
-                        }
-                    }
-                }
-            }
-        } else {
-            accounts.forEach { acc ->
-                val isSelected = current?.getUuid() == acc.getUuid()
-                AccountRow(
-                    account = acc,
-                    selected = isSelected,
-                    onSelect = { vm.switchAccount(acc.getUuid()) },
-                    onDelete = { vm.removeAccount(acc.getUuid()) }
-                )
-            }
-
-            Spacer(Modifier.height(4.dp))
-            HorizontalDivider()
-            Spacer(Modifier.height(4.dp))
-
-            // ===== 登录区 =====
-            Text("添加账号",
-                 style = MaterialTheme.typography.titleSmall,
-                 fontWeight = FontWeight.SemiBold,
-                 color = MaterialTheme.colorScheme.primary)
-
-            Card(Modifier.fillMaxWidth().glassCardBorder(),
-                 colors = glassCardColors(), elevation = glassCardElevation()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedTextField(
-                        value = username, onValueChange = { username = it },
-                        label = { Text(I18n.t("launch.offline_username")) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { vm.loginOffline(username) },
-                               enabled = username.isNotBlank(),
-                               modifier = Modifier.weight(1f)) {
-                            Icon(Icons.Filled.Person, null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text(I18n.t("launch.offline_login"))
-                        }
-                        OutlinedButton(onClick = vm::startMicrosoftLogin,
-                                       modifier = Modifier.weight(1f)) {
-                            Icon(Icons.Filled.AccountCircle, null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text(I18n.t("launch.microsoft_login"))
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun AccountRow(
-    account: com.pmcl.core.auth.Account,
-    selected: Boolean,
-    onSelect: () -> Unit,
-    onDelete: () -> Unit
-) {
-    val borderColor = if (selected) MaterialTheme.colorScheme.primary
-                      else androidx.compose.ui.graphics.Color.Transparent
-    Surface(
-        modifier = Modifier.fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .border(1.dp, borderColor, RoundedCornerShape(10.dp))
-            .clickable(onClick = onSelect),
-        color = if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
-                else glassSurfaceVariantColor(),
-        shape = RoundedCornerShape(10.dp)
-    ) {
-        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            // 头像
-            val avatarUrl = account.getAvatarUrl() ?: ""
-            if (avatarUrl.isNotEmpty()) {
-                AvatarImage(avatarUrl)
-            } else {
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.size(40.dp)
-                ) {
-                    Icon(Icons.Filled.AccountCircle, I18n.t("launch.default_avatar"),
-                         modifier = Modifier.padding(6.dp),
-                         tint = MaterialTheme.colorScheme.outline)
-                }
-            }
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
+    Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
+        Column(Modifier.padding(16.dp)) {
+            Text(I18n.t("launch.account"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(8.dp))
+            if (account != null) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(account.getUsername(),
-                         style = MaterialTheme.typography.titleSmall,
-                         fontWeight = FontWeight.SemiBold,
-                         maxLines = 1)
-                    if (selected) {
-                        Spacer(Modifier.width(6.dp))
+                    // 头像
+                    val avatarUrl = account.getAvatarUrl() ?: ""
+                    if (avatarUrl.isNotEmpty()) {
+                        AvatarImage(avatarUrl)
+                    } else {
                         Surface(
-                            color = MaterialTheme.colorScheme.primary,
-                            shape = RoundedCornerShape(3.dp)
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.size(40.dp)
                         ) {
-                            Text(I18n.t("launch.active"),
-                                 color = MaterialTheme.colorScheme.onPrimary,
-                                 style = MaterialTheme.typography.labelSmall,
-                                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
+                            Icon(Icons.Filled.AccountCircle, I18n.t("launch.default_avatar"), modifier = Modifier.padding(6.dp))
                         }
                     }
+                    Spacer(Modifier.width(12.dp))
+                    Column {
+                        Text(account.getUsername(), fontWeight = FontWeight.SemiBold)
+                        Text(
+                            when (account.getType()) {
+                                com.pmcl.core.auth.Account.AccountType.OFFLINE -> "离线账号"
+                                com.pmcl.core.auth.Account.AccountType.MICROSOFT -> "微软账号"
+                                com.pmcl.core.auth.Account.AccountType.YGGDRASIL -> "皮肤站账号"
+                                com.pmcl.core.auth.Account.AccountType.GITHUB -> "GitHub 账号"
+                                null -> ""
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline)
+                    }
                 }
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    when (account.getType()) {
-                        com.pmcl.core.auth.Account.AccountType.OFFLINE -> "离线账号"
-                        com.pmcl.core.auth.Account.AccountType.MICROSOFT -> "微软账号"
-                        com.pmcl.core.auth.Account.AccountType.YGGDRASIL -> "皮肤站账号"
-                        com.pmcl.core.auth.Account.AccountType.GITHUB -> "GitHub 账号"
-                        null -> ""
-                    },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.outline
-                )
+            } else {
+                Text(I18n.t("launch.not_logged_in_short"), color = MaterialTheme.colorScheme.outline)
             }
-            IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
-                Icon(Icons.Filled.Clear, I18n.t("common.delete"),
-                     modifier = Modifier.size(16.dp),
-                     tint = MaterialTheme.colorScheme.outline)
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = username, onValueChange = { username = it },
+                label = { Text(I18n.t("launch.offline_username")) }, singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { vm.loginOffline(username) }, enabled = username.isNotBlank()) {
+                    Text(I18n.t("launch.offline_login"))
+                }
+                OutlinedButton(onClick = vm::startMicrosoftLogin) {
+                    Text(I18n.t("launch.microsoft_login"))
+                }
             }
         }
     }
