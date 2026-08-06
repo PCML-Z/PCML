@@ -32,6 +32,9 @@ import androidx.compose.ui.window.rememberWindowState
 import com.pmcl.ui.animation.SplashIconReveal
 import com.pmcl.ui.page.PerfHudWindow
 import com.pmcl.ui.page.TopBarSearchField
+import com.pmcl.ui.theme.LauncherTheme
+import com.pmcl.ui.theme.LocalThemeState
+import com.pmcl.ui.theme.ThemeState
 import com.pmcl.ui.widget.TaskCenterPanel
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import com.pmcl.ui.viewmodel.playNextMusic
@@ -148,6 +151,9 @@ fun main() = application {
     val borderless = remember { readBorderlessPref(prefPath.toString()) }
     val useDark = remember { readDarkThemePref(prefPath.toString()) }
     val vm = remember { LauncherViewModel() }
+    val sharedThemeState = remember {
+        ThemeState(initialDark = vm.preferences.isUseDarkTheme())
+    }
     val searchFocusRequester = remember { FocusRequester() }
     val restartForUpdate by vm.restartForUpdate.collectAsState()
 
@@ -310,18 +316,6 @@ fun main() = application {
             // 最大化时移除圆角裁剪，让内容填满屏幕直角
             var isMaximized by remember { mutableStateOf(false) }
 
-            // 任务中心展开/收起时同步窗口圆角（直接在 AWT 线程设置，无 invokeLater 延迟）
-            LaunchedEffect(showTaskCenter) {
-                if (borderless) {
-                    window.shape = if (showTaskCenter) null
-                    else RoundRectangle2D.Double(
-                        0.0, 0.0,
-                        window.width.toDouble(), window.height.toDouble(),
-                        14.0, 14.0
-                    )
-                }
-            }
-
             // 背景层：放在最底层，所有内容悬浮其上
             // 无边框模式下 clip 圆角，避免方形边缘盖住窗口 shape
             // 最大化时不裁剪，让背景填满屏幕直角
@@ -368,8 +362,8 @@ fun main() = application {
                     val updateShape = {
                         val maximized = window.extendedState == Frame.MAXIMIZED_BOTH
                         isMaximized = maximized
-                        // 最大化或任务中心展开时直角，其他保持 14dp 圆角
-                        window.shape = if (maximized || showTaskCenter) null
+                        // 仅最大化时使用直角；任务中心是窗口内面板，不应改变窗口设计语言
+                        window.shape = if (maximized) null
                         else RoundRectangle2D.Double(
                             0.0, 0.0,
                             window.width.toDouble(), window.height.toDouble(),
@@ -434,8 +428,8 @@ fun main() = application {
                 MaterialTheme(colorScheme = scheme) {
                     Surface(
                         modifier = Modifier.fillMaxSize().then(
-                            // 最大化时不裁剪圆角，让内容填满屏幕直角
-                            if (isMaximized || showTaskCenter) Modifier
+                            // 仅最大化时不裁剪；任务中心展开期间继续保持窗口圆角
+                            if (isMaximized) Modifier
                             else Modifier.clip(RoundedCornerShape(14.dp))
                         ),
                         color = if (bgLayerOn) Color.Transparent else MaterialTheme.colorScheme.surface,
@@ -452,7 +446,7 @@ fun main() = application {
                                 glassOn = glassOn
                             )
                             Box(Modifier.weight(1f).fillMaxWidth()) {
-                                App(vm)
+                                App(vm, sharedThemeState)
                             }
                         }
                     }
@@ -468,7 +462,7 @@ fun main() = application {
                         glassOn = glassOn
                     )
                     Box(Modifier.weight(1f).fillMaxWidth()) {
-                        App(vm)
+                        App(vm, sharedThemeState)
                     }
                 }
             }
@@ -487,12 +481,33 @@ fun main() = application {
                 }
             }
             // 任务中心：右侧滑入面板（内嵌，非独立窗口）
-            TaskCenterPanel(
-                visible = showTaskCenter,
-                vm = vm,
-                onDismiss = { showTaskCenter = false },
-                useDark = useDark
-            )
+            val taskCenterDynamicScheme =
+                if (sharedThemeState.dynamicColor || sharedThemeState.customAccentColor != -1) {
+                    sharedThemeState.dynamicColorScheme
+                } else {
+                    null
+                }
+            LauncherTheme(
+                useDarkTheme = sharedThemeState.useDark,
+                dynamicColorScheme = taskCenterDynamicScheme,
+                uiScale = sharedThemeState.uiScale,
+                themePreset = sharedThemeState.themePreset,
+                colorMode = sharedThemeState.colorMode,
+                customThemePack = sharedThemeState.customThemePack
+            ) {
+                CompositionLocalProvider(LocalThemeState provides sharedThemeState) {
+                    TaskCenterPanel(
+                        visible = showTaskCenter,
+                        vm = vm,
+                        onDismiss = { showTaskCenter = false },
+                        modifier = if (borderless && !isMaximized) {
+                            Modifier.clip(RoundedCornerShape(14.dp))
+                        } else {
+                            Modifier
+                        }
+                    )
+                }
+            }
             // Mod 拖放安装对话框：拖入 .jar 文件后展示
             val dropState by vm.dropInstallState.collectAsState()
             if (dropState != null) {
