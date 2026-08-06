@@ -150,6 +150,7 @@ fun TaskCenterPanel(
         // 右侧面板：从右侧滑入
         AnimatedVisibility(
             visible = visible,
+            modifier = Modifier.align(Alignment.CenterEnd),
             enter = slideInHorizontally(
                 animationSpec = tween(300),
                 initialOffsetX = { it }
@@ -163,7 +164,6 @@ fun TaskCenterPanel(
                 Modifier
                     .fillMaxHeight()
                     .width(400.dp)
-                    .align(Alignment.CenterEnd)
                     .shadow(8.dp, RoundedCornerShape(topStart = 14.dp, bottomStart = 14.dp))
                     .clip(RoundedCornerShape(topStart = 14.dp, bottomStart = 14.dp))
                     .background(panelBg)
