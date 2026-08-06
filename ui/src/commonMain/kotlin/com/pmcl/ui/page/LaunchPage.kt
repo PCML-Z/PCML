@@ -197,27 +197,56 @@ fun LaunchPage(vm: LauncherViewModel) {
     Column(Modifier.fillMaxSize()) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when (launchTab) {
-                // ===== 启动：空白页 + 固定启动按钮 =====
+                // ===== 启动：空白页 + 固定启动按钮（多固定版本时弹出选择）=====
                 0 -> {
-                    val primaryPinned = pinned.firstOrNull()
-                    val primaryInfo = primaryPinned?.let { vid -> localInfos.find { it.getId() == vid } }
-                    val canQuickLaunch = primaryPinned != null &&
-                        (primaryInfo?.isLaunchable() ?: false) && account != null && !gameRunning
+                    var showPinnedPicker by remember { mutableStateOf(false) }
+
+                    // 判断某个固定版本是否可启动
+                    fun canLaunch(vid: String): Boolean {
+                        val info = localInfos.find { it.getId() == vid }
+                        return info?.isLaunchable() == true && account != null && !gameRunning
+                    }
 
                     Box(Modifier.fillMaxSize().padding(24.dp),
                         contentAlignment = Alignment.BottomEnd) {
-                        FloatingActionButton(
-                            onClick = {
-                                if (primaryPinned != null && canQuickLaunch) {
-                                    vm.quickLaunch(primaryPinned)
+                        Box {
+                            FloatingActionButton(
+                                onClick = {
+                                    when {
+                                        pinned.isEmpty() -> launchTab = 1 // 无固定版本，跳转版本列表
+                                        pinned.size == 1 && canLaunch(pinned.first()) ->
+                                            vm.quickLaunch(pinned.first())
+                                        pinned.isNotEmpty() -> showPinnedPicker = true
+                                    }
+                                },
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary
+                            ) {
+                                Icon(Icons.Filled.PlayArrow,
+                                     contentDescription = I18n.t("launch.start"),
+                                     modifier = Modifier.size(28.dp))
+                            }
+
+                            DropdownMenu(
+                                expanded = showPinnedPicker,
+                                onDismissRequest = { showPinnedPicker = false }
+                            ) {
+                                pinned.forEach { versionId ->
+                                    val launchable = canLaunch(versionId)
+                                    DropdownMenuItem(
+                                        text = { Text(pinnedLabels[versionId] ?: versionId) },
+                                        onClick = {
+                                            showPinnedPicker = false
+                                            if (launchable) vm.quickLaunch(versionId)
+                                        },
+                                        enabled = launchable,
+                                        leadingIcon = {
+                                            Icon(Icons.Filled.PlayArrow, null,
+                                                 modifier = Modifier.size(18.dp))
+                                        }
+                                    )
                                 }
-                            },
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor = MaterialTheme.colorScheme.onPrimary
-                        ) {
-                            Icon(Icons.Filled.PlayArrow,
-                                 contentDescription = I18n.t("launch.start"),
-                                 modifier = Modifier.size(28.dp))
+                            }
                         }
                     }
                 }
