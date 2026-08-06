@@ -1161,8 +1161,7 @@ fun LaunchPage(vm: LauncherViewModel) {
                         versionListContent()
                     }
                     Column(
-                        Modifier.weight(1f).fillMaxHeight().padding(16.dp).verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                        Modifier.weight(1f).fillMaxHeight().padding(16.dp).verticalScroll(rememberScrollState())
                     ) {
                         AccountCard(account, vm)
                         rightDetailContent()
