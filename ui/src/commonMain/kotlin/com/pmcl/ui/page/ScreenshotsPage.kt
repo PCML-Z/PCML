@@ -54,7 +54,7 @@ import com.pmcl.ui.theme.glassCardBorder
 import com.pmcl.ui.theme.glassCardColors
 import com.pmcl.ui.theme.glassCardElevation
 import com.pmcl.ui.theme.glassContainerColor
-import com.pmcl.ui.util.decodeSampledBitmap
+import com.pmcl.ui.util.LruImageCache
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import com.pmcl.ui.viewmodel.copyScreenshotToClipboard
 import com.pmcl.ui.viewmodel.deleteScreenshot
@@ -85,6 +85,7 @@ fun ScreenshotsPage(vm: LauncherViewModel) {
     var previewPath by remember { mutableStateOf<String?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
+    val thumbCache = remember { LruImageCache() }
 
     LaunchedEffect(Unit) {
         if (shots.isEmpty()) vm.refreshScreenshots()
@@ -297,6 +298,7 @@ fun ScreenshotsPage(vm: LauncherViewModel) {
                     val key = pathKey(shot)
                     ScreenshotThumbCard(
                         shot = shot,
+                        thumbCache = thumbCache,
                         selected = key in selectedPaths,
                         dateText = format.format(Date(shot.modified)),
                         onToggleSelect = {
@@ -369,6 +371,7 @@ fun ScreenshotsPage(vm: LauncherViewModel) {
 @Composable
 private fun ScreenshotThumbCard(
     shot: Screenshot,
+    thumbCache: LruImageCache,
     selected: Boolean,
     dateText: String,
     onToggleSelect: () -> Unit,
@@ -387,14 +390,22 @@ private fun ScreenshotThumbCard(
         thumb = null
         thumbFailed = false
         val path = shot.path ?: return@LaunchedEffect
+        val key = path.toAbsolutePath().toString()
+        // 先查缓存
+        thumbCache.get(key)?.let { thumb = it; return@LaunchedEffect }
         val loaded = withContext(Dispatchers.IO) {
             try {
-                decodeSampledBitmap(File(path.toString()).readBytes(), THUMB_MAX_PX)
+                decodeThumbnailFromPath(key, THUMB_MAX_PX)
             } catch (_: Throwable) {
                 null
             }
         }
-        if (loaded == null) thumbFailed = true else thumb = loaded
+        if (loaded == null) {
+            thumbFailed = true
+        } else {
+            thumbCache.put(key, loaded)
+            thumb = loaded
+        }
     }
 
     val shape = RoundedCornerShape(12.dp)

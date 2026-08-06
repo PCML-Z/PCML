@@ -51,3 +51,49 @@ internal actual fun loadPathImageBitmap(path: String): ImageBitmap? {
         null
     }
 }
+
+/**
+ * 从文件路径加载缩略图：用 ImageIO 子采样直接从文件流式解码，
+ * 无需将完整 PNG 字节读入内存（避免 4K 截图 ~5MB readBytes + ~33MB 全尺寸解码）。
+ */
+internal actual fun decodeThumbnailFromPath(path: String, maxDimension: Int): ImageBitmap? {
+    return try {
+        val file = File(path)
+        if (!file.exists()) return null
+        val inputStream = ImageIO.createImageInputStream(file)
+        if (inputStream == null) {
+            return decodeSampledBitmap(file.readBytes(), maxDimension) // fallback
+        }
+        try {
+            val readers = ImageIO.getImageReaders(inputStream)
+            if (!readers.hasNext()) {
+                return decodeSampledBitmap(file.readBytes(), maxDimension)
+            }
+            val reader = readers.next()
+            reader.input = inputStream
+            val w = reader.getWidth(0)
+            val h = reader.getHeight(0)
+            val maxDim = maxOf(w, h)
+            // 原图已足够小 → 直接解码
+            if (maxDim <= maxDimension) {
+                val image = reader.read(0)
+                reader.dispose()
+                return image?.toComposeImageBitmap()
+            }
+            // ImageIO 子采样（2 的幂）：从尺寸信息计算，不读取像素
+            var sample = 1
+            while (maxDim / (sample * 2) >= maxDimension) {
+                sample *= 2
+            }
+            val param = reader.defaultReadParam
+            param.setSourceSubsampling(sample, sample, 0, 0)
+            val image = reader.read(0, param)
+            reader.dispose()
+            image?.toComposeImageBitmap()
+        } finally {
+            inputStream.close()
+        }
+    } catch (_: Throwable) {
+        null
+    }
+}
