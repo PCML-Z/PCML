@@ -197,135 +197,128 @@ fun LaunchPage(vm: LauncherViewModel) {
     Column(Modifier.fillMaxSize()) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when (launchTab) {
-                // ===== 启动主页：只显示固定版本快速启动 =====
-                0 -> Column(
-                    Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Text("PMCL", style = MaterialTheme.typography.headlineMedium,
-                         fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
+                // ===== 启动主页：极简，右下角浮动启动按钮 =====
+                0 -> {
+                    val primaryPinned = pinned.firstOrNull()
+                    val primaryInfo = primaryPinned?.let { vid -> localInfos.find { it.getId() == vid } }
+                    val primaryLabel = primaryPinned?.let { pinnedLabels[it] } ?: primaryPinned
+                    val canQuickLaunch = primaryPinned != null &&
+                        (primaryInfo?.isLaunchable() ?: false) && account != null && !gameRunning
+                    val runningInstances by vm.runningInstances.collectAsState()
 
-                    if (pinned.isEmpty()) {
-                        Surface(
-                            color = glassSurfaceVariantColor(),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
+                    Box(Modifier.fillMaxSize()) {
+                        // 居中信息区
+                        Column(
+                            Modifier.fillMaxSize().padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
                         ) {
-                            Column(
-                                Modifier.padding(24.dp).fillMaxWidth(),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Icon(Icons.Filled.Star, null, Modifier.size(48.dp),
-                                     tint = MaterialTheme.colorScheme.outline)
-                                Spacer(Modifier.height(12.dp))
+                            Text("PMCL", style = MaterialTheme.typography.displaySmall,
+                                 fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
+                            Spacer(Modifier.height(16.dp))
+
+                            if (primaryPinned == null) {
                                 Text("未固定游戏版本",
                                      style = MaterialTheme.typography.titleMedium,
                                      color = MaterialTheme.colorScheme.outline)
-                                Spacer(Modifier.height(4.dp))
-                                Text("请在版本列表中固定一个版本以快速启动",
+                                Spacer(Modifier.height(6.dp))
+                                Text("前往版本列表固定一个版本以快速启动",
                                      style = MaterialTheme.typography.bodySmall,
                                      color = MaterialTheme.colorScheme.outline)
-                                Spacer(Modifier.height(16.dp))
+                                Spacer(Modifier.height(20.dp))
                                 OutlinedButton(onClick = { launchTab = 1 }) {
                                     Icon(Icons.Filled.Star, null, Modifier.size(16.dp))
                                     Spacer(Modifier.width(6.dp))
                                     Text("前往版本列表")
                                 }
-                            }
-                        }
-                    } else {
-                        Text(I18n.t("launch.quick_launch"), style = MaterialTheme.typography.titleSmall,
-                             fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
-                        val rows = pinned.chunked(2)
-                        rows.forEachIndexed { index, rowVersions ->
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                rowVersions.forEach { versionId ->
-                                    val info = localInfos.find { it.getId() == versionId }
-                                    Box(Modifier.weight(1f)) {
-                                        PinnedTile(
-                                            versionId = versionId,
-                                            customLabel = pinnedLabels[versionId],
-                                            launchable = info?.isLaunchable() ?: false,
-                                            gameRunning = gameRunning,
-                                            hasAccount = account != null,
-                                            modLoaderHint = info?.let { inferModLoader(it) },
-                                            lastPlayedTime = lastPlayedTimes[versionId],
-                                            formatRelative = formatRelative,
-                                            onLaunch = { vm.quickLaunch(versionId) },
-                                            onRename = { renameTarget = versionId },
-                                            onDelete = { deleteTarget = versionId }
-                                        )
-                                    }
-                                }
-                                if (rowVersions.size == 1) {
-                                    Spacer(Modifier.weight(1f))
-                                }
-                            }
-                        }
-                    }
-
-                    // 运行中实例
-                    val runningInstances by vm.runningInstances.collectAsState()
-                    if (runningInstances.isNotEmpty()) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(Modifier.padding(8.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(I18n.t("launch.running_instances"),
-                                         style = MaterialTheme.typography.labelMedium,
-                                         fontWeight = FontWeight.SemiBold,
-                                         modifier = Modifier.weight(1f))
-                                    Text("${runningInstances.size}",
+                            } else {
+                                Text(primaryLabel ?: primaryPinned,
+                                     style = MaterialTheme.typography.headlineSmall,
+                                     fontWeight = FontWeight.SemiBold,
+                                     color = MaterialTheme.colorScheme.primary)
+                                if (primaryLabel != null && primaryLabel != primaryPinned) {
+                                    Spacer(Modifier.height(2.dp))
+                                    Text(primaryPinned,
                                          style = MaterialTheme.typography.labelSmall,
-                                         color = MaterialTheme.colorScheme.primary,
-                                         fontWeight = FontWeight.Bold)
+                                         color = MaterialTheme.colorScheme.outline)
                                 }
-                                Spacer(Modifier.height(4.dp))
-                                runningInstances.forEach { inst ->
-                                    val isActive = inst.active
-                                    val runtimeStr = formatRuntime(System.currentTimeMillis() - inst.startTime)
-                                    Surface(
-                                        color = if (isActive) MaterialTheme.colorScheme.primaryContainer
-                                                else MaterialTheme.colorScheme.surface,
-                                        shape = RoundedCornerShape(6.dp),
-                                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
-                                            .clickable { vm.selectInstance(inst.id) }
-                                    ) {
-                                        Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(Icons.Filled.PlayArrow, null, Modifier.size(14.dp),
-                                                 tint = if (isActive) MaterialTheme.colorScheme.primary
-                                                        else MaterialTheme.colorScheme.outline)
-                                            Spacer(Modifier.width(6.dp))
-                                            Column(Modifier.weight(1f)) {
-                                                Text(inst.versionId,
-                                                     style = MaterialTheme.typography.bodySmall,
-                                                     fontWeight = FontWeight.SemiBold, maxLines = 1)
-                                                Text("${inst.accountName} · $runtimeStr",
+                                val hint = when {
+                                    primaryInfo?.isLaunchable() != true -> "版本不可用"
+                                    account == null -> "未登录账号"
+                                    gameRunning -> "游戏运行中"
+                                    else -> "点击右下角按钮启动"
+                                }
+                                Spacer(Modifier.height(6.dp))
+                                Text(hint,
+                                     style = MaterialTheme.typography.bodySmall,
+                                     color = MaterialTheme.colorScheme.outline)
+                            }
+
+                            // 运行中实例
+                            if (runningInstances.isNotEmpty()) {
+                                Spacer(Modifier.height(24.dp))
+                                Surface(
+                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Column(Modifier.padding(8.dp)) {
+                                        Text(I18n.t("launch.running_instances"),
+                                             style = MaterialTheme.typography.labelMedium,
+                                             fontWeight = FontWeight.SemiBold)
+                                        Spacer(Modifier.height(4.dp))
+                                        runningInstances.forEach { inst ->
+                                            val runtimeStr = formatRuntime(
+                                                System.currentTimeMillis() - inst.startTime)
+                                            Row(
+                                                Modifier.fillMaxWidth().padding(vertical = 2.dp)
+                                                    .clickable { vm.selectInstance(inst.id) },
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Icon(Icons.Filled.PlayArrow, null, Modifier.size(12.dp),
+                                                     tint = if (inst.active) MaterialTheme.colorScheme.primary
+                                                            else MaterialTheme.colorScheme.outline)
+                                                Spacer(Modifier.width(6.dp))
+                                                Text("${inst.versionId} · $runtimeStr",
                                                      style = MaterialTheme.typography.labelSmall,
-                                                     color = MaterialTheme.colorScheme.outline, maxLines = 1)
-                                            }
-                                            if (isActive) {
-                                                Surface(color = MaterialTheme.colorScheme.primary,
-                                                        shape = RoundedCornerShape(3.dp)) {
-                                                    Text(I18n.t("launch.active"),
-                                                         color = MaterialTheme.colorScheme.onPrimary,
-                                                         style = MaterialTheme.typography.labelSmall,
-                                                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
-                                                }
+                                                     modifier = Modifier.weight(1f),
+                                                     maxLines = 1)
                                             }
                                         }
                                     }
                                 }
                             }
                         }
-                    }
 
+                        // 右下角浮动启动按钮
+                        ExtendedFloatingActionButton(
+                            onClick = {
+                                if (primaryPinned != null) {
+                                    if (canQuickLaunch) vm.quickLaunch(primaryPinned)
+                                    else launchTab = 1
+                                } else {
+                                    launchTab = 1
+                                }
+                            },
+                            icon = {
+                                if (canQuickLaunch) {
+                                    Icon(Icons.Filled.PlayArrow, I18n.t("launch.start"),
+                                         modifier = Modifier.size(22.dp))
+                                } else {
+                                    Icon(Icons.Filled.Star, null, modifier = Modifier.size(22.dp))
+                                }
+                            },
+                            text = {
+                                Text(
+                                    if (canQuickLaunch) I18n.t("launch.start") else "选择版本",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            },
+                            modifier = Modifier.align(Alignment.BottomEnd).padding(24.dp),
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
+                        )
+                    }
                     StatusLine(vm)
                 }
 
@@ -1215,31 +1208,22 @@ fun LaunchPage(vm: LauncherViewModel) {
         }
         }
 
-        NavigationBar {
-            NavigationBarItem(
-                selected = launchTab == 0,
-                onClick = { launchTab = 0 },
-                icon = { Icon(Icons.Filled.PlayArrow, contentDescription = "启动") },
-                label = { Text("启动") },
-            )
-            NavigationBarItem(
-                selected = launchTab == 1,
-                onClick = { launchTab = 1 },
-                icon = { Icon(Icons.Filled.Star, contentDescription = "版本列表") },
-                label = { Text("版本列表") },
-            )
-            NavigationBarItem(
-                selected = launchTab == 2,
-                onClick = { launchTab = 2 },
-                icon = { Icon(Icons.Filled.AccountCircle, contentDescription = "账号") },
-                label = { Text("账号") },
-            )
-            NavigationBarItem(
-                selected = launchTab == 3,
-                onClick = { launchTab = 3 },
-                icon = { Icon(Icons.Filled.Code, contentDescription = "日志") },
-                label = { Text("日志") },
-            )
+        // 轻量底边栏：去掉 Material3 NavigationBar 笨重的实色背景与大色块指示器
+        Surface(
+            color = glassSurfaceVariantColor(glassAlpha = 0.6f),
+            tonalElevation = 0.dp,
+            shadowElevation = 8.dp
+        ) {
+            Row(
+                Modifier.fillMaxWidth().height(56.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                BottomNavTab(Icons.Filled.PlayArrow, "启动", launchTab == 0) { launchTab = 0 }
+                BottomNavTab(Icons.Filled.Star, "版本", launchTab == 1) { launchTab = 1 }
+                BottomNavTab(Icons.Filled.AccountCircle, "账号", launchTab == 2) { launchTab = 2 }
+                BottomNavTab(Icons.Filled.Code, "日志", launchTab == 3) { launchTab = 3 }
+            }
         }
     }
 
@@ -1348,6 +1332,47 @@ fun LaunchPage(vm: LauncherViewModel) {
             confirmButton = {},
             dismissButton = {}
         )
+    }
+}
+
+/**
+ * 轻量底边栏 Tab：选中态用强调色 + 顶部小圆点指示，未选中用 outline 色。
+ * 去掉 Material3 NavigationBarItem 的大色块指示器与笨重高度。
+ */
+@Composable
+private fun BottomNavTab(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    val tint = if (selected) MaterialTheme.colorScheme.primary
+               else MaterialTheme.colorScheme.outline
+    Column(
+        modifier = Modifier
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // 选中态顶部指示条
+        Box(Modifier.size(width = 16.dp, height = 3.dp)) {
+            if (selected) {
+                Box(
+                    Modifier.fillMaxSize()
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(MaterialTheme.colorScheme.primary)
+                )
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+        Icon(icon, contentDescription = label,
+             tint = tint, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.height(2.dp))
+        Text(label,
+             style = MaterialTheme.typography.labelSmall,
+             color = tint,
+             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
     }
 }
 
