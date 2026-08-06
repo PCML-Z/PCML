@@ -9,6 +9,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -34,6 +35,7 @@ import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Star
@@ -74,6 +76,8 @@ import com.pmcl.ui.viewmodel.lastOfflineUsername
 import com.pmcl.ui.viewmodel.loginOffline
 import com.pmcl.ui.viewmodel.selectInstance
 import com.pmcl.ui.viewmodel.startMicrosoftLogin
+import com.pmcl.ui.viewmodel.switchAccount
+import com.pmcl.ui.viewmodel.removeAccount
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -251,11 +255,13 @@ fun LaunchPage(vm: LauncherViewModel) {
                     }
                 }
 
-                // ===== 版本列表 =====
-                1 -> Row(Modifier.fillMaxSize()) {
+                // ===== 版本列表（宽屏双栏 / 窄屏单栏）=====
+                1 -> BoxWithConstraints(Modifier.fillMaxSize()) {
+                    val isWide = maxWidth >= 720.dp
+                    Row(Modifier.fillMaxSize()) {
         // ===== 左侧：统一用 LazyColumn 滚动，避免嵌套滚动冲突 =====
         LazyColumn(
-            Modifier.weight(1.2f).fillMaxHeight().padding(16.dp),
+            Modifier.weight(if (isWide) 1.2f else 1f).fillMaxHeight().padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             // 标题栏
@@ -544,7 +550,8 @@ fun LaunchPage(vm: LauncherViewModel) {
             }
         }
 
-        VerticalDivider()
+        if (isWide) {
+            VerticalDivider()
 
         // ===== 右侧：版本操作（选中提示 / Java / 服务器 / 启动按钮） =====
         // verticalScroll 让整个右侧区域可平滑滑动
@@ -918,14 +925,19 @@ fun LaunchPage(vm: LauncherViewModel) {
             }
 
         }
-        }
+        } // end if isWide
+        } // end Row
+        } // end BoxWithConstraints
 
         // ===== 账号 =====
-                2 -> Column(
-                    Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    AccountCard(account, vm)
+                2 -> {
+                    val accountsList by vm.accounts.collectAsState()
+                    val currentAccount by vm.account.collectAsState()
+                    AccountPage(
+                        accounts = accountsList,
+                        current = currentAccount,
+                        vm = vm
+                    )
                 }
 
         // ===== 日志 =====
@@ -1908,53 +1920,168 @@ private fun RemoteVersionRow(
 }
 
 @Composable
-private fun AccountCard(account: com.pmcl.core.auth.Account?, vm: LauncherViewModel) {
+private fun AccountPage(
+    accounts: List<com.pmcl.core.auth.Account>,
+    current: com.pmcl.core.auth.Account?,
+    vm: LauncherViewModel
+) {
     // 初始值从持久化读取，避免每次打开页面重置为 Steve
     var username by remember { mutableStateOf(vm.lastOfflineUsername().ifBlank { "Steve" }) }
-    Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
-        Column(Modifier.padding(16.dp)) {
-            Text(I18n.t("launch.account"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(8.dp))
-            if (account != null) {
+
+    Column(
+        Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        // 页面标题
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(I18n.t("launch.account"),
+                 style = MaterialTheme.typography.headlineSmall,
+                 fontWeight = FontWeight.Bold,
+                 modifier = Modifier.weight(1f))
+            if (accounts.isNotEmpty()) {
+                Text("${accounts.size} 个账号",
+                     style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.outline)
+            }
+        }
+
+        // ===== 账号列表 =====
+        if (accounts.isEmpty()) {
+            Card(Modifier.fillMaxWidth().glassCardBorder(),
+                 colors = glassCardColors(), elevation = glassCardElevation()) {
+                Column(Modifier.padding(24.dp).fillMaxWidth(),
+                       horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Filled.AccountCircle, null,
+                         modifier = Modifier.size(48.dp),
+                         tint = MaterialTheme.colorScheme.outline)
+                    Spacer(Modifier.height(12.dp))
+                    Text(I18n.t("launch.not_logged_in_short"),
+                         style = MaterialTheme.typography.titleSmall,
+                         color = MaterialTheme.colorScheme.outline)
+                }
+            }
+        } else {
+            accounts.forEach { acc ->
+                val isSelected = current?.getUuid() == acc.getUuid()
+                AccountRow(
+                    account = acc,
+                    selected = isSelected,
+                    onSelect = { vm.switchAccount(acc.getUuid()) },
+                    onDelete = { vm.removeAccount(acc.getUuid()) }
+                )
+            }
+        }
+
+        Spacer(Modifier.height(4.dp))
+        HorizontalDivider()
+        Spacer(Modifier.height(4.dp))
+
+        // ===== 登录区 =====
+        Text("添加账号",
+             style = MaterialTheme.typography.titleSmall,
+             fontWeight = FontWeight.SemiBold,
+             color = MaterialTheme.colorScheme.primary)
+
+        Card(Modifier.fillMaxWidth().glassCardBorder(),
+             colors = glassCardColors(), elevation = glassCardElevation()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = username, onValueChange = { username = it },
+                    label = { Text(I18n.t("launch.offline_username")) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { vm.loginOffline(username) },
+                           enabled = username.isNotBlank(),
+                           modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Filled.Person, null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(I18n.t("launch.offline_login"))
+                    }
+                    OutlinedButton(onClick = vm::startMicrosoftLogin,
+                                   modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Filled.AccountCircle, null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(I18n.t("launch.microsoft_login"))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AccountRow(
+    account: com.pmcl.core.auth.Account,
+    selected: Boolean,
+    onSelect: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val borderColor = if (selected) MaterialTheme.colorScheme.primary
+                      else androidx.compose.ui.graphics.Color.Transparent
+    Surface(
+        modifier = Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .border(1.dp, borderColor, RoundedCornerShape(10.dp))
+            .clickable(onClick = onSelect),
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                else glassSurfaceVariantColor(),
+        shape = RoundedCornerShape(10.dp)
+    ) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            // 头像
+            val avatarUrl = account.getAvatarUrl() ?: ""
+            if (avatarUrl.isNotEmpty()) {
+                AvatarImage(avatarUrl)
+            } else {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.size(40.dp)
+                ) {
+                    Icon(Icons.Filled.AccountCircle, I18n.t("launch.default_avatar"),
+                         modifier = Modifier.padding(6.dp),
+                         tint = MaterialTheme.colorScheme.outline)
+                }
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    // 头像
-                    val avatarUrl = account.getAvatarUrl() ?: ""
-                    if (avatarUrl.isNotEmpty()) {
-                        AvatarImage(avatarUrl)
-                    } else {
+                    Text(account.getUsername(),
+                         style = MaterialTheme.typography.titleSmall,
+                         fontWeight = FontWeight.SemiBold,
+                         maxLines = 1)
+                    if (selected) {
+                        Spacer(Modifier.width(6.dp))
                         Surface(
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.size(40.dp)
+                            color = MaterialTheme.colorScheme.primary,
+                            shape = RoundedCornerShape(3.dp)
                         ) {
-                            Icon(Icons.Filled.Star, I18n.t("launch.default_avatar"), modifier = Modifier.padding(10.dp))
+                            Text(I18n.t("launch.active"),
+                                 color = MaterialTheme.colorScheme.onPrimary,
+                                 style = MaterialTheme.typography.labelSmall,
+                                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
                         }
                     }
-                    Spacer(Modifier.width(12.dp))
-                    Column {
-                        Text(account.getUsername(), fontWeight = FontWeight.SemiBold)
-                        Text((account.getType()?.toString()) ?: "",
-                             style = MaterialTheme.typography.labelSmall,
-                             color = MaterialTheme.colorScheme.outline)
-                    }
                 }
-            } else {
-                Text(I18n.t("launch.not_logged_in_short"), color = MaterialTheme.colorScheme.outline)
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    when (account.getType()) {
+                        com.pmcl.core.auth.Account.AccountType.OFFLINE -> "离线账号"
+                        com.pmcl.core.auth.Account.AccountType.MICROSOFT -> "微软账号"
+                        com.pmcl.core.auth.Account.AccountType.YGGDRASIL -> "皮肤站账号"
+                        com.pmcl.core.auth.Account.AccountType.GITHUB -> "GitHub 账号"
+                        null -> ""
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
             }
-            Spacer(Modifier.height(8.dp))
-            OutlinedTextField(
-                value = username, onValueChange = { username = it },
-                label = { Text(I18n.t("launch.offline_username")) }, singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { vm.loginOffline(username) }, enabled = username.isNotBlank()) {
-                    Text(I18n.t("launch.offline_login"))
-                }
-                OutlinedButton(onClick = vm::startMicrosoftLogin) {
-                    Text(I18n.t("launch.microsoft_login"))
-                }
+            IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Filled.Clear, I18n.t("common.delete"),
+                     modifier = Modifier.size(16.dp),
+                     tint = MaterialTheme.colorScheme.outline)
             }
         }
     }
