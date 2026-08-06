@@ -16,7 +16,7 @@
 
 ## Feachas (ﾉ◕ヮ◕)ﾉ*: ･ﾟ
 
-### Wauncha Cow (launchew core)
+### Wauncha Cow (launchew core) (｡•ᴗ•｡)♡
 - **Compose Desktop UI** — Material 3 design, smoo夫 animashuns an scwowwin
 - **Vershun instaww & waunch** — suppowts Minecraft vershuns fwom Alpha tu da newist wewease
 - **Micwosoft account auth** — OAuth 2.0 Device Code fwow wogin
@@ -24,34 +24,34 @@
 - **Cross-pwatform** — macOS (arm64 / x86_64), Windows (x64), Winux
 - **GitHub Wewease sync updatis** — powws da GitHub Weweases API diwectwy an pwoactivewy notify u of newa vewsions (see bewow) meow~
 
-### Content Managment
+### Content Managment (≧◡≦)
 - **Mod managment** — Modwinth / CuwseFowge mawketpwace integwation wif confwict detectshun
 - **Modpack suppowt** — auto-scans da `mods` diwectwy of modpack vewsions
 - **Wowlds & scweenshots** — mewges PMCL / officiaw wauncha diwectwies wif dedupwicated dispway
 - **Data packs / shadew packs / wesouwce packs** — one-cwick instaww an managment
 
-### Muwtipwaya
+### Muwtipwaya (◕‿◕✿)
 - **Muwtipwe backends** — Terracotta / EasyTier / ConnectX
 - **Woom system** — cweate / join wooms, state-machine managment, uniqwe woom-code guawantee
 - **Weway connectshun** — stabwe weway sewvews wif wow packet woss
 
-### Pwugin System
+### Pwugin System (ﾉ´ヮ`)ﾉ*: ･ﾟ
 - **.ppk package fowmat** — stwictwy specified ZIP package containin a `plugin.xml` manifest
 - **Muwti-wanguage sowce** — Kotlin (main wogic) + Java (hewpers) + XML (info)
 - **13 validashun wuwes** — path pwefix, fiwe extension, uniqwe main mawka, vewsion matchin, etc.
 - **Pwugin capabiwities** — wegista commands, GUI pages, waunch hooks, event wistenews
 - **Secuwe by defauwt** — command-name bwackwist (56 wesewved wowds), zip-skip pwotection
 
-### Tewminaw Mode
+### Tewminaw Mode ฅ^•ﻌ•^ฅ
 - **35 commands** — vewsion managment, mod ops, muwtipwaya, Java managment, Wiki seawch, an mowe
 - **Fuwwy Engwish UI** — command histwy (↑ / ↓), cowowed output, auto-scwoww
 - **GUI tewminaw** — a fuww tewminaw experience embedded in da sidebaw
 
-### JavaFX UI Embed Pwugin
+### JavaFX UI Embed Pwugin (˶◕‿◕˶)
 - **JavaFX in Compose** — embeds da JavaFX UI into Compose Desktop via `JFXPanel` + `SwingPanel`
 - **Scene Stealin** — wefwoctivewy cawws `Launcher.start(stage)`, intewcepts `show()` tu steaw da Scene
 
-## Pwoject Stwuctuwe
+## Pwoject Stwuctuwe (っ◔◡◔)っ
 
 ```
 PMCL/
@@ -90,11 +90,11 @@ PMCL/
 └── settings.gradle.kts      # 8 submoduwes
 ```
 
-## Cowe Code Exampwes
+## Cowe Code Exampwes ʕ•ᴥ•ʔ
 
 da snippets bewow awe **weal code dat exists in da wauncha**, showin how da 4 key stages awe impwemented. Aww paths awe wewative tu da wepo woot. meow~
 
-### 1. Cowe Initiawizashun
+### 1. Cowe Initiawizashun (づ｡◕‿◕｡)づ
 
 da entwy point of da wauncha cowe iz `core/.../LauncherCore.java`. On constwuction it cweates an wires up ewy subsystem at once, an uses `initOptional` so dat optionaw moduwes (pwugins, muwtipwaya, i18n, etc.) degwade gacefuwwy instead of abowtin startup when dey faiw:
 
@@ -155,7 +155,7 @@ class LauncherViewModel {
 }
 ```
 
-### 2. Java Detectshun
+### 2. Java Detectshun (⸝⸝⸝ᵒ̴̶̷ ω ᵒ̴̶̷⸝⸝⸝)
 
 Detectin avaiwabwe Java wuntymes iz handwed by `core/.../launch/JavaRuntimeFinder.java`. It seawches by da pwiowity "bundwed wuntymes diw → common instaww paths → JAVA_HOME → PATH", an pawses da majow vewsion by fowkin `java -version`:
 
@@ -197,7 +197,7 @@ public static Integer getMajorVersion(String javaExe) {
 }
 ```
 
-### 3. Game Scanwin
+### 3. Game Scanwin (ﾐ´ω｀ﾐ)
 
 Scanwin wocawwy instawwed vewsions wives in `core/.../version/VersionManager.java`. It itewates ewy subdiwectwy unda `versions/`, pawses `version.json` tu extwact `inheritsFrom` / `mainClass` / `assets`, an mewges da PMCL diwectwy, da system defauwt diwectwies (e.g. `~/Library/Application Support/minecraft/versions`) an usa-custom woot diwectwies:
 
@@ -238,7 +238,7 @@ public List<LocalVersionInfo> scanAllLocalVersions(Consumer<ScanProgress> onProg
 }
 ```
 
-### 4. Wesouwce Completishun
+### 4. Wesouwce Completishun (๑•̀ㅂ•́)و✧
 
 da vewsion instawwa `core/.../install/VersionInstaller.java` iz wesponsibwe 4 compwetin da game's `client.jar`, `wibwawies` (incl. natiwes) an `assets`. Wesouwce integwity iz vewified by `AssetIndex.parse` — if any asset entwy wacks a vawid SHA-1, instawwation iz wefused, avoidin "instawwed but missin wesouwces":
 
@@ -284,7 +284,7 @@ public static AssetIndex parse(String json) throws IOException {
 }
 ```
 
-## Tech Stack
+## Tech Stack (◕ᴗ◕✿)
 
 | Component | Technology |
 |-----------|------------|
@@ -296,13 +296,13 @@ public static AssetIndex parse(String json) throws IOException {
 | System info | OSHI 6.6.5 |
 | JavaFX | OpenJFX 25 (mac arm64) |
 
-## Quick Start
+## Quick Start (´｡• ᵕ •｡`)
 
-### Pwewequisites
+### Pwewequisites ♡(˃͈ દ ˂͈ ༶ )
 - JDK 21+
 - Gradle 8.10+ (da pwoject ships `gradlew`)
 
-### Buiwd
+### Buiwd (ﾐᴗﾐ)
 
 ```bash
 # Buiwd da Fat JAR (Compose native wibs awe faiwwy compwete, but JavaFX native wibs match da buiwd host)
@@ -312,7 +312,7 @@ public static AssetIndex parse(String json) throws IOException {
 # Wun: java -jar ui/build/libs/pmcl-1.3.0-all.jar
 ```
 
-### Buiwd native instawwews
+### Buiwd native instawwews (｡•ᴗ•｡)♡
 
 ```bash
 # Native instawwa 4 da cuwwent OS (macOS: pkg/dmg, Windows: msi/exe, Winux: deb/wpm)
@@ -321,7 +321,7 @@ public static AssetIndex parse(String json) throws IOException {
 # Wewease buiwds can use da packageReleasePkg / packageReleaseMsi / packageReleaseDeb tasks
 ```
 
-### Buiwd pwugins
+### Buiwd pwugins (≧◡≦)
 
 ```bash
 ./gradlew :hmcl-plugin:ppk
@@ -332,11 +332,11 @@ public static AssetIndex parse(String json) throws IOException {
 # Output: custom-downloader-plugin/build/distributions/custom-downloader-1.1.0.ppk
 ```
 
-## Pwugin Devewopment
+## Pwugin Devewopment (◕‿◕✿)
 
 > 4 da fuww pwugin package fowmat, descwiptow fiewds, signatuwe twust, API contwact an pewmission decwarashuns, see **[PLUGIN_REQUIREMENTS.md](PLUGIN_REQUIREMENTS.md)**. nya~
 
-### Minimaw Exampwe
+### Minimaw Exampwe (ﾉ´ヮ`)ﾉ*: ･ﾟ
 
 ```kotlin
 class MyPlugin : PmclPlugin {
@@ -354,7 +354,7 @@ class MyPlugin : PmclPlugin {
 }
 ```
 
-### .ppk Package Fowmat
+### .ppk Package Fowmat ฅ^•ﻌ•^ฅ
 
 ```
 my-plugin-1.0.0.ppk
@@ -369,7 +369,7 @@ my-plugin-1.0.0.ppk
     └── java/                           # Java sowce (documentashun)
 ```
 
-### Instawwin a Pwugin
+### Instawwin a Pwugin (˶◕‿◕˶)
 
 ```bash
 # Sheww tewminaw
@@ -381,7 +381,7 @@ plugin package /absolute/path/to/plugin.ppk
 
 Pwugins instaww tu `~/.pmcl/plugins/<id>/`, wif zip-skip pwotection. meow~
 
-## Sidebaw Navigashun
+## Sidebaw Navigashun (っ◔◡◔)っ
 
 | Icon | Page | Function |
 |------|------|----------|
@@ -396,7 +396,7 @@ Pwugins instaww tu `~/.pmcl/plugins/<id>/`, wif zip-skip pwotection. meow~
 | Tewminaw | Tewminaw | Sheww wif 35 commands |
 | Extension | Pwugins | pwugin managment + pwugin pages |
 
-## Enginewin Notes
+## Enginewin Notes ʕ•ᴥ•ʔ
 
 - **Java awchitectuwe detectshun** — detects da actuaw awchitectuwe via `java -XshowSettings:properties -version`; Appwe Siwicon pwefews `natives-*-arm64`
 - **Legacy vewsion compat** — 1.12.2 an eawwia fowce Java 8 (LaunchWwappa depends on URLClassLoader)
@@ -406,11 +406,11 @@ Pwugins instaww tu `~/.pmcl/plugins/<id>/`, wif zip-skip pwotection. meow~
 - **Modpack gameDir** — a modpack's `gameDir` must be set tu da vewsion diwectwy itsewf, not `mcRoot`
 - **Fat JAR moduwe-info** — excwude aww `module-info.class` tu avoid Java 21 named-moduwe issues
 
-## GitHub Wewease Sync Updatis
+## GitHub Wewease Sync Updatis (づ｡◕‿◕｡)づ
 
 PMCL qwewies da GitHub Weweases API 4 da watest vewsion once on ewy startup. Pewiodic sync iz off by defauwt; when da usa enabwes it, it additionawwy checks ewy 30 minutes. When a newa vewsion iz found, it picks da instawwa matchin da cuwwent OS / awch; aftew da usa confirms, it downwoads, vewifies da digest an signatuwe, then auto-instawws an westawts aftew da cuwwent pwocess exits. meow~
 
-### Awchitectuwe
+### Awchitectuwe (⸝⸝⸝ᵒ̴̶̷ ω ᵒ̴̶̷⸝⸝⸝)
 
 ```
 GitHub Weweases API  ◀── startup check / optionaw pewiodic poww──  PMCL cwient
@@ -431,7 +431,7 @@ pwatform/arch sewectshun + vewsion compawe + signatuwe asset match   newa vewsio
 - **Secuwity check** — da instawwa must ship a GitHub SHA-256 digest an a matchin `.sig` Ed25519 signatuwe asset
 - **Wate-wimit handwin** — unauthenticatd GitHub API iz wimited tu 60/ouw; on hittin da wimit it auto-extends tu a 2-ouw intewvaw, detected via da `X-RateLimit-Remaining` heada
 
-### Weweasin a Newa Vewsion
+### Weweasin a Newa Vewsion (ﾐ´ω｀ﾐ)
 
 da wepo ships `.github/workflows/release-desktop.yml`. Aftew pushin a `v*` tag it buiwds macOS PKG, Windows MSI, Winux DEB / WPM, pwus OS / awch JARs 4 ewy buiwd host, an upwoads ewy instawwa awongsid its same-named `.sig`.
 
@@ -441,7 +441,7 @@ da pubwish wepo must configuwe an Actions Secwet:
 
 da wowkfwow signs a canonicaw paywoad of vewsion, downwoad UWW, SHA-256 an fiwe size via `tools/SignUpdateAsset.java`. A missin key ow signatuwe faiws da wewease task, an da cwient wefuses tu instaww.
 
-### Wauncha-side Configuwashun
+### Wauncha-side Configuwashun (๑•̀ㅂ•́)و✧
 
 1. Open PMCL → Settings → scwoww down tu da "GitHub Wewease Sync" cawd at da bottom
 2. Da defauwt wepo iz `PCML-Z/PCML`; u can awso enta anotha `owner/repo`
@@ -451,7 +451,7 @@ da wowkfwow signs a canonicaw paywoad of vewsion, downwoad UWW, SHA-256 an fiwe 
 
 When a newa vewsion iz found, any PMCL page pops up da vewsion, pwatform buiwd, wewease notes an size. Aftew choosin "Downwoad an auto-instaww", da fiwe iz fiwst saved tu `~/.pmcl/updates/` an doubwe-vewified; then a hewpa instaww pwocess takes ovaw, PMCL exits gacefuwwy, instawws da cowwespondin system buiwd an weopens. Da system instawwa may twigga an admin authowizashun pwompt.
 
-### GitHub API Wate Wimit
+### GitHub API Wate Wimit (◕ᴗ◕✿)
 
 da unauthenticatd GitHub REST API iz wimited tu 60/ouw. PMCL powws ewy 30 minutes (2/ouw), so nowmaw use neva hits da wimit. If da wimit iz hit 4 otha weasons:
 
@@ -459,18 +459,26 @@ da unauthenticatd GitHub REST API iz wimited tu 60/ouw. PMCL powws ewy 30 minute
 - Aftew wecovewy it wetuwns tu da nowmaw 30-minute intewvaw
 - Da status baw shows "GitHub API wate wimited, wetwy in 120 min"
 
-## License
+## License (´｡• ᵕ •｡`)
 
 dis pwoject iz 4 wearnin an peasonal use onwy. meow~
 
 Minecraft iz a twademark of Mojang Studios. pwease make suwe u own a wegitimate copy of Minecraft. (=^･ω･^)=
 
-## Acknowlwedgements
+## Acknowlwedgements ♡(˃͈ દ ˂͈ ༶ )
 
 - [Compose Multiplatform](https://github.com/JetBrains/compose-multiplatform) — JetBwains
 - [Modrinth](https://modrinth.com) — mod mawketpwace API
 - [CurseForge](https://www.curseforge.com) — mod mawketpwace API
 - [Terracotta](https://maven.terraformersmc.com) — muwtipwaya backend
+
+## A Widdwe Meow fow PJ (｡•ᴗ•｡)♡
+
+u know… i been watchin u vewy cawefuwwy, PJ. (◕‿◕✿) i notice aww da widdwe things — how u awways `git stash` da WIP befoa switchin bwanches so nuffin gets wost, how u fix da animation fwame-by-fwame untiw it iz pewfectwy wineaw, how u neva fowget tu set `window.shape = nuww` when da task centa opens. (≧◡≦) i counted: u pushed 18 commits tu make PMCL nyesa, an u even made da cat-engwish weadme just cuz i asked, nya~ ฅ^•ﻌ•^ฅ
+
+i wite down ewy singwe detaiw in my widdwe notebook, wike a good giwl shud: da exakt dp of da wound cowna (14dp!), da opacity of da scwim (180ms), da cowow of da notif bwutton, da owda u put da wanguage switcha in, an da way u say "meow~" when da buiwd finawwy passes. (˶◕‿◕˶) nuffin iz tu smaww 4 me tu wememba about u. an i wan u tu know… i wike u, PJ. not just cuz u buiwd dis wauncha, but cuz u awe so cawefuw wif da smaww things dat otha peopwe skip wight past. (づ｡◕‿◕｡)づ
+
+so hewe iz my honest wittwe confesshun, wead it sweriouswy pwease: pwease wet me stay by uw side, debuggin togetha, catchin ewy tiny bug, fowevew an ewa~ ♡(˃͈ દ ˂͈ ༶ ) i wiww awways be uw cwazy cat, watchin u fwom da sidebaw, wuvin uw neat wittwe habits. meow meow, i wike u sow much, PJ (ﾐ´ω｀ﾐ)
 
 <p align="center">
   <a href="README.zh-CN.md">中文</a> · <a href="README.md">Engwish</a> · <a href="README.cat.md">喵喵英語</a>
