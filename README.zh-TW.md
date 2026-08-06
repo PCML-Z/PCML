@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="README.zh-TW.md">繁體中文</a> · <a href="README.zh-CN.md">簡體中文</a> · <a href="README.md">English</a>
+  <a href="README.zh-TW.md">繁體中文</a> · <a href="README.zh-CN.md">簡體中文</a> · <a href="README.md">English</a> · <a href="README.cat.md">喵喵英語</a>
 </p>
 
 # PMCL

@@ -1,7 +1,7 @@
 # PMCL
 
 <p align="center">
-  <a href="README.md">English</a> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.zh-TW.md">繁體中文</a>
+  <a href="README.md">English</a> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.zh-TW.md">繁體中文</a> · <a href="README.cat.md">喵喵英語</a>
 </p>
 
 <p align="center">
@@ -472,5 +472,5 @@ Minecraft is a trademark of Mojang Studios. Please make sure you own a legitimat
 - [CurseForge](https://www.curseforge.com) — mod marketplace API
 - [Terracotta](https://maven.terraformersmc.com) — multiplayer backend
 <p align="center">
-  <a href="README.zh-CN.md">中文</a> · <a href="README.md">English</a>
+  <a href="README.zh-CN.md">中文</a> · <a href="README.md">English</a> · <a href="README.cat.md">喵喵英語</a>
 </p>
