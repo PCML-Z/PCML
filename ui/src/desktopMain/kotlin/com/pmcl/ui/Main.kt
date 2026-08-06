@@ -7,6 +7,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CropSquare
 import androidx.compose.material.icons.filled.Minimize
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PhoneIphone
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -31,6 +32,7 @@ import androidx.compose.ui.window.rememberWindowState
 import com.pmcl.ui.animation.SplashIconReveal
 import com.pmcl.ui.page.PerfHudWindow
 import com.pmcl.ui.page.TopBarSearchField
+import com.pmcl.ui.widget.TaskCenterWindow
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import com.pmcl.ui.viewmodel.playNextMusic
 import com.pmcl.ui.viewmodel.playPreviousMusic
@@ -181,6 +183,8 @@ fun main() = application {
 
     // iOS 伴随 App 配对对话框开关
     val showCompanionDialog = remember { mutableStateOf(false) }
+    // 任务中心开关
+    var showTaskCenter by remember { mutableStateOf(false) }
 
     // 视差背景主题开关（响应式，可在设置中实时切换）
     val parallaxBg by vm.parallaxBackground.collectAsState()
@@ -432,6 +436,7 @@ fun main() = application {
                                 vm = vm,
                                 searchFocusRequester = searchFocusRequester,
                                 onOpenCompanion = { showCompanionDialog.value = true },
+                                onOpenTaskCenter = { showTaskCenter = true },
                                 glassOn = glassOn
                             )
                             Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -447,6 +452,7 @@ fun main() = application {
                         vm = vm,
                         searchFocusRequester = searchFocusRequester,
                         onOpenCompanion = { showCompanionDialog.value = true },
+                        onOpenTaskCenter = { showTaskCenter = true },
                         glassOn = glassOn
                     )
                     Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -467,6 +473,16 @@ fun main() = application {
                         useDark = useDark
                     )
                 }
+            }
+            // 任务中心窗口
+            if (showTaskCenter) {
+                TaskCenterWindow(
+                    vm = vm,
+                    onDismiss = { showTaskCenter = false },
+                    parallaxBg = bgLayerOn,
+                    glassOn = glassOn,
+                    useDark = useDark
+                )
             }
             // Mod 拖放安装对话框：拖入 .jar 文件后展示
             val dropState by vm.dropInstallState.collectAsState()
@@ -576,6 +592,7 @@ private fun FrameWindowScope.BorderlessTitleBar(
     vm: LauncherViewModel,
     searchFocusRequester: FocusRequester,
     onOpenCompanion: () -> Unit,
+    onOpenTaskCenter: () -> Unit = {},
     glassOn: Boolean = false
 ) {
     Box(Modifier.fillMaxWidth().height(38.dp)) {
@@ -634,6 +651,10 @@ private fun FrameWindowScope.BorderlessTitleBar(
             IconButton(onClick = onOpenCompanion, modifier = Modifier.size(32.dp)) {
                 Icon(Icons.Filled.PhoneIphone, "iOS 伴随 App 配对", modifier = Modifier.size(16.dp))
             }
+            // 任务中心按钮
+            IconButton(onClick = onOpenTaskCenter, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Filled.Notifications, "任务中心", modifier = Modifier.size(16.dp))
+            }
             // 最小化
             IconButton(
                 onClick = { window.extendedState = Frame.ICONIFIED },
@@ -675,6 +696,7 @@ private fun SlimSearchBar(
     vm: LauncherViewModel,
     searchFocusRequester: FocusRequester,
     onOpenCompanion: () -> Unit,
+    onOpenTaskCenter: () -> Unit = {},
     glassOn: Boolean = false
 ) {
     Box(Modifier.fillMaxWidth().height(38.dp)) {
@@ -711,6 +733,9 @@ private fun SlimSearchBar(
                 Spacer(Modifier.weight(1f))
                 IconButton(onClick = onOpenCompanion, modifier = Modifier.size(32.dp)) {
                     Icon(Icons.Filled.PhoneIphone, "iOS 伴随 App 配对", modifier = Modifier.size(16.dp))
+                }
+                IconButton(onClick = onOpenTaskCenter, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Filled.Notifications, "任务中心", modifier = Modifier.size(16.dp))
                 }
             }
         }
