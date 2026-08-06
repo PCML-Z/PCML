@@ -60,6 +60,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -195,6 +197,7 @@ fun LaunchScreen(
     // 运行中实例
     val runningInstances = remember { mutableStateListOf<RunningInstance>() }
     var activeInstanceId by remember { mutableStateOf<String?>(null) }
+    var launchTab by remember { mutableStateOf(0) } // 0=启动 1=版本列表 2=账号 3=日志
 
     // 日志
     val logs = remember { mutableStateListOf<LogEntry>() }
@@ -496,13 +499,25 @@ fun LaunchScreen(
     }
 
     // ===== 布局 =====
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        // 横屏手机宽度通常 600-720dp，分栏需要至少 ~600dp；原先 840dp 门槛太高导致横屏走错分支
-        val isWideEnough = maxWidth >= 600.dp
-        if (isWideEnough) {
-            Row(Modifier.fillMaxSize()) {
-                LazyColumn(
-                    Modifier.weight(1.2f).fillMaxHeight().padding(16.dp),
+    Column(Modifier.fillMaxSize()) {
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            when (launchTab) {
+                // ===== 启动（固定版本快速启动） =====
+                0 -> LaunchHomeView(
+                    pinned = pinned,
+                    pinnedLabels = pinnedLabels,
+                    localInfos = localInfos,
+                    account = account,
+                    status = status,
+                    runningInstances = runningInstances,
+                    activeInstanceId = activeInstanceId,
+                    preferences = preferences,
+                    onLaunch = { doLaunch(it, account) },
+                    onGoToVersions = { launchTab = 1 },
+                )
+                // ===== 版本列表（可直接启动游戏） =====
+                1 -> LazyColumn(
+                    Modifier.fillMaxSize().padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     leftPanelItems(
@@ -531,95 +546,141 @@ fun LaunchScreen(
                         onCategoryChange = { versionCategory = it },
                         onSearchQueryChange = { searchQuery = it },
                     )
+                    // 选中版本操作栏（安装未安装的远程版本）
+                    selected?.let { sel ->
+                        item(key = "selected-action-bar") {
+                            val selInstalled = sel in localInfoIds
+                            if (!selInstalled) {
+                                Spacer(Modifier.height(8.dp))
+                                Button(
+                                    onClick = { doInstall(sel) },
+                                    enabled = !installing,
+                                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                                    shape = RoundedCornerShape(8.dp),
+                                ) {
+                                    if (installing) {
+                                        CircularProgressIndicator(
+                                            Modifier.size(18.dp), strokeWidth = 2.dp,
+                                            color = MaterialTheme.colorScheme.onPrimary,
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Text("安装中...")
+                                    } else {
+                                        Icon(Icons.Filled.Refresh, null, Modifier.size(18.dp))
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("下载安装 $sel")
+                                    }
+                                }
+                                if (installing && installProgress != null) {
+                                    val p = installProgress!!
+                                    val frac = if (p.total > 0) (p.completed.toFloat() / p.total).coerceIn(0f, 1f) else 0f
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        "${stageText(p.stage)} · ${p.message}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.tertiary,
+                                        maxLines = 1,
+                                    )
+                                    Spacer(Modifier.height(2.dp))
+                                    LinearProgressIndicator(
+                                        progress = { frac },
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
-                VerticalDivider()
-                Column(
-                    Modifier.weight(1f).fillMaxHeight().padding(16.dp)
-                        .verticalScroll(rememberScrollState())
+                // ===== 账号 =====
+                2 -> Column(
+                    Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    RightPanelContent(
+                    AccountCard(
                         account = account,
-                        selected = selected,
-                        isInstalled = isInstalled,
-                        installing = installing,
-                        installProgress = installProgress,
-                        status = status,
-                        runningInstances = runningInstances,
-                        activeInstanceId = activeInstanceId,
-                        logs = logs.toList(),
-                        preferences = preferences,
                         initialOfflineUsername = preferences.getLastOfflineUsername().ifBlank { "Steve" },
                         onLoginOffline = ::doLoginOffline,
                         onLoginMicrosoft = ::doLoginMicrosoft,
-                        onLaunch = { selected?.let { doLaunch(it, account) } },
-                        onInstall = { selected?.let { doInstall(it) } },
-                        onSelectInstance = { activeInstanceId = it },
-                        onClearLogs = { logs.clear() },
-                        onCopyLogs = ::doCopyLogs,
-                        onShareLogs = ::doShareLogs,
                     )
+                    if (status.isNotEmpty()) {
+                        Text("状态: $status",
+                             style = MaterialTheme.typography.labelSmall,
+                             color = MaterialTheme.colorScheme.outline)
+                    }
+                }
+                // ===== 日志 =====
+                3 -> Column(Modifier.fillMaxSize().padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("游戏日志", style = MaterialTheme.typography.labelLarge,
+                             fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                        var copied by remember { mutableStateOf(false) }
+                        TextButton(
+                            onClick = { doCopyLogs(); copied = true },
+                            enabled = logs.isNotEmpty(),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                        ) {
+                            if (copied) {
+                                Icon(Icons.Filled.Check, null, Modifier.size(14.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("已复制", style = MaterialTheme.typography.labelSmall)
+                            } else {
+                                Text("复制", style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                        LaunchedEffect(copied) {
+                            if (copied) { delay(1500); copied = false }
+                        }
+                        TextButton(
+                            onClick = ::doShareLogs,
+                            enabled = logs.isNotEmpty(),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                        ) {
+                            Icon(Icons.Filled.IosShare, null, Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("分享", style = MaterialTheme.typography.labelSmall)
+                        }
+                        TextButton(
+                            onClick = { logs.clear() },
+                            enabled = logs.isNotEmpty(),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                        ) {
+                            Icon(Icons.Filled.Clear, null, Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("清空", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    GameLogPanel(logs) { logs.clear() }
                 }
             }
-        } else {
-            LazyColumn(
-                Modifier.fillMaxSize().padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                leftPanelItems(
-                    localInfos = localInfos,
-                    filteredRemote = filteredRemote,
-                    selected = selected,
-                    scanning = scanning,
-                    scanProgress = scanProgress,
-                    pinned = pinned,
-                    pinnedLabels = pinnedLabels,
-                    recentNotPinned = recentNotPinned,
-                    lastPlayedTimes = lastPlayedTimes,
-                    hasAccount = hasAccount,
-                    gameRunning = gameRunning,
-                    versionCategory = versionCategory,
-                    searchQuery = searchQuery,
-                    format = format,
-                    formatRelative = formatRelative,
-                    onSelectVersion = ::onSelectVersion,
-                    onRefreshLocal = ::refreshLocal,
-                    onPin = ::onPin,
-                    onUnpin = ::onUnpin,
-                    onQuickLaunch = { doLaunch(it, account) },
-                    onRename = { renameTarget = it },
-                    onDelete = { deleteTarget = it },
-                    onCategoryChange = { versionCategory = it },
-                    onSearchQueryChange = { searchQuery = it },
-                )
-                item {
-                    Spacer(Modifier.height(12.dp))
-                    HorizontalDivider()
-                    Spacer(Modifier.height(12.dp))
-                }
-                item {
-                    RightPanelContent(
-                        account = account,
-                        selected = selected,
-                        isInstalled = isInstalled,
-                        installing = installing,
-                        installProgress = installProgress,
-                        status = status,
-                        runningInstances = runningInstances,
-                        activeInstanceId = activeInstanceId,
-                        logs = logs.toList(),
-                        preferences = preferences,
-                        initialOfflineUsername = preferences.getLastOfflineUsername().ifBlank { "Steve" },
-                        onLoginOffline = ::doLoginOffline,
-                        onLoginMicrosoft = ::doLoginMicrosoft,
-                        onLaunch = { selected?.let { doLaunch(it, account) } },
-                        onInstall = { selected?.let { doInstall(it) } },
-                        onSelectInstance = { activeInstanceId = it },
-                        onClearLogs = { logs.clear() },
-                        onCopyLogs = ::doCopyLogs,
-                        onShareLogs = ::doShareLogs,
-                    )
-                }
-            }
+        }
+
+        // ===== 底部导航栏 =====
+        NavigationBar {
+            NavigationBarItem(
+                selected = launchTab == 0,
+                onClick = { launchTab = 0 },
+                icon = { Icon(Icons.Filled.PlayArrow, contentDescription = "启动") },
+                label = { Text("启动") },
+            )
+            NavigationBarItem(
+                selected = launchTab == 1,
+                onClick = { launchTab = 1 },
+                icon = { Icon(Icons.Filled.Star, contentDescription = "版本列表") },
+                label = { Text("版本列表") },
+            )
+            NavigationBarItem(
+                selected = launchTab == 2,
+                onClick = { launchTab = 2 },
+                icon = { Icon(Icons.Outlined.AccountCircle, contentDescription = "账号") },
+                label = { Text("账号") },
+            )
+            NavigationBarItem(
+                selected = launchTab == 3,
+                onClick = { launchTab = 3 },
+                icon = { Icon(Icons.Filled.Code, contentDescription = "日志") },
+                label = { Text("日志") },
+            )
         }
     }
 
@@ -971,367 +1032,219 @@ private fun LazyListScope.leftPanelItems(
     }
 }
 
-// ==================== 右侧面板 ====================
+// ==================== 启动主页 ====================
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun RightPanelContent(
+private fun LaunchHomeView(
+    pinned: List<String>,
+    pinnedLabels: Map<String, String>,
+    localInfos: List<VersionManager.LocalVersionInfo>,
     account: Account?,
-    selected: String?,
-    isInstalled: Boolean,
-    installing: Boolean,
-    installProgress: InstallProgress?,
     status: String,
     runningInstances: List<RunningInstance>,
     activeInstanceId: String?,
-    logs: List<LogEntry>,
     preferences: Preferences,
-    initialOfflineUsername: String,
-    onLoginOffline: (String) -> Unit,
-    onLoginMicrosoft: () -> Unit,
-    onLaunch: () -> Unit,
-    onInstall: () -> Unit,
-    onSelectInstance: (String) -> Unit,
-    onClearLogs: () -> Unit,
-    onCopyLogs: () -> Unit,
-    onShareLogs: () -> Unit,
+    onLaunch: (String) -> Unit,
+    onGoToVersions: () -> Unit,
 ) {
-    Text("PMCL", style = MaterialTheme.typography.headlineMedium,
-         fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
-    Spacer(Modifier.height(12.dp))
+    val hasAccount = account != null
 
-    AccountCard(account, initialOfflineUsername, onLoginOffline, onLoginMicrosoft)
+    Column(
+        Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text("PMCL", style = MaterialTheme.typography.headlineMedium,
+             fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
 
-    Spacer(Modifier.height(16.dp))
+        if (pinned.isEmpty()) {
+            // 未固定游戏版本
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(
+                    Modifier.padding(24.dp).fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Icon(Icons.Filled.Star, null, Modifier.size(48.dp),
+                         tint = MaterialTheme.colorScheme.outline)
+                    Spacer(Modifier.height(12.dp))
+                    Text("未固定游戏版本",
+                         style = MaterialTheme.typography.titleMedium,
+                         color = MaterialTheme.colorScheme.outline)
+                    Spacer(Modifier.height(4.dp))
+                    Text("请在版本列表中固定一个版本以快速启动",
+                         style = MaterialTheme.typography.bodySmall,
+                         color = MaterialTheme.colorScheme.outline)
+                    Spacer(Modifier.height(16.dp))
+                    OutlinedButton(onClick = onGoToVersions) {
+                        Icon(Icons.Filled.Star, null, Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("前往版本列表")
+                    }
+                }
+            }
+        } else {
+            // 固定版本快速启动
+            Text("快捷启动", style = MaterialTheme.typography.titleSmall,
+                 fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+            pinned.forEach { versionId ->
+                val info = localInfos.find { it.id == versionId }
+                val launchable = info?.isLaunchable ?: false
+                val canLaunch = launchable && hasAccount
+                val displayName = pinnedLabels[versionId] ?: versionId
+                val modLoaderHint = info?.let { inferModLoader(it) }
 
-    // 选中版本提示
-    selected?.let {
-        val hintColor = if (isInstalled) MaterialTheme.colorScheme.primaryContainer
-                        else MaterialTheme.colorScheme.tertiaryContainer
+                val gradient = if (canLaunch) {
+                    Brush.linearGradient(
+                        listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.tertiary)
+                    )
+                } else {
+                    Brush.linearGradient(
+                        listOf(
+                            MaterialTheme.colorScheme.outline.copy(alpha = 0.6f),
+                            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        )
+                    )
+                }
+
+                Box(
+                    Modifier.fillMaxWidth().height(96.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(gradient)
+                        .clickable(enabled = canLaunch) { onLaunch(versionId) }
+                ) {
+                    Column(Modifier.padding(12.dp).fillMaxSize()) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(displayName,
+                                     color = MaterialTheme.colorScheme.onPrimary,
+                                     fontWeight = FontWeight.Bold, fontSize = 18.sp, maxLines = 1)
+                                if (pinnedLabels[versionId] != null && pinnedLabels[versionId] != versionId) {
+                                    Text(versionId,
+                                         color = Color.White.copy(alpha = 0.7f),
+                                         fontSize = 11.sp, maxLines = 1)
+                                }
+                            }
+                            if (modLoaderHint != null) {
+                                Surface(
+                                    color = Color.White.copy(alpha = 0.22f),
+                                    shape = RoundedCornerShape(4.dp),
+                                ) {
+                                    Text(modLoaderHint,
+                                         color = MaterialTheme.colorScheme.onPrimary,
+                                         fontSize = 10.sp, fontWeight = FontWeight.Medium,
+                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp))
+                                }
+                            }
+                        }
+                        Spacer(Modifier.weight(1f))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.PlayArrow, null,
+                                 tint = Color.White, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            val stateText = when {
+                                !launchable -> "版本不可用"
+                                !hasAccount -> "未登录账号"
+                                else -> "点击启动"
+                            }
+                            Text(stateText,
+                                 color = Color.White.copy(alpha = 0.95f),
+                                 fontSize = 12.sp, modifier = Modifier.weight(1f))
+                        }
+                    }
+                }
+            }
+        }
+
+        // 账号状态
         Surface(
-            color = hintColor,
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
             shape = RoundedCornerShape(8.dp),
             modifier = Modifier.fillMaxWidth(),
         ) {
             Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("已选: $it",
-                     style = MaterialTheme.typography.bodyMedium,
-                     fontWeight = FontWeight.SemiBold,
-                     modifier = Modifier.weight(1f))
-                Surface(
-                    color = if (isInstalled) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.tertiary,
-                    shape = RoundedCornerShape(4.dp),
-                ) {
-                    Text(
-                        if (isInstalled) "已安装" else "未安装",
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                    )
-                }
-            }
-        }
-        Spacer(Modifier.height(12.dp))
-    }
-
-    // 每版本 Java 路径
-    selected?.let { verId ->
-        var versionJava by remember(verId) { mutableStateOf(preferences.getVersionJavaPath(verId)) }
-        var javaExpanded by remember(verId) { mutableStateOf(false) }
-        val hasVersionJava = versionJava.isNotEmpty()
-
-        Surface(
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-            shape = RoundedCornerShape(8.dp),
-            modifier = Modifier.fillMaxWidth().clickable { javaExpanded = !javaExpanded },
-        ) {
-            Column(Modifier.padding(12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Filled.Code, null, Modifier.size(18.dp),
-                        tint = if (hasVersionJava) MaterialTheme.colorScheme.primary
-                               else MaterialTheme.colorScheme.outline
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text("版本 Java 路径",
-                             style = MaterialTheme.typography.labelLarge,
-                             fontWeight = FontWeight.SemiBold)
-                        Text(
-                            if (hasVersionJava) versionJava else "自动选择",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.outline,
-                            maxLines = 1,
-                        )
-                    }
-                    Icon(
-                        if (javaExpanded) Icons.Filled.KeyboardArrowUp
-                        else Icons.Filled.KeyboardArrowDown,
-                        null, Modifier.size(20.dp),
-                        tint = MaterialTheme.colorScheme.outline,
-                    )
-                }
-                AnimatedVisibility(visible = javaExpanded) {
-                    Column {
-                        Spacer(Modifier.height(12.dp))
-                        OutlinedTextField(
-                            value = versionJava,
-                            onValueChange = {
-                                versionJava = it
-                                preferences.setVersionJavaPath(verId, it)
-                            },
-                            label = { Text("Java 路径") },
-                            singleLine = true,
-                            placeholder = { Text("留空则自动选择") },
-                            modifier = Modifier.fillMaxWidth(),
-                            trailingIcon = {
-                                if (versionJava.isNotEmpty()) {
-                                    IconButton(onClick = {
-                                        versionJava = ""
-                                        preferences.setVersionJavaPath(verId, "")
-                                    }) {
-                                        Icon(Icons.Filled.Clear, contentDescription = "清除")
-                                    }
-                                }
-                            },
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text("为该版本指定 Java 路径（留空使用默认）",
-                             style = MaterialTheme.typography.labelSmall,
-                             color = MaterialTheme.colorScheme.outline)
-                    }
-                }
-            }
-        }
-        Spacer(Modifier.height(12.dp))
-    }
-
-    // 服务器直连配置
-    var serverHost by remember { mutableStateOf(preferences.getGameServerHost()) }
-    var serverPort by remember { mutableStateOf(preferences.getGameServerPort().toString()) }
-    var serverExpanded by remember { mutableStateOf(false) }
-    val serverEnabled = serverHost.isNotEmpty()
-
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-        shape = RoundedCornerShape(8.dp),
-        modifier = Modifier.fillMaxWidth().clickable { serverExpanded = !serverExpanded },
-    ) {
-        Column(Modifier.padding(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    Icons.Filled.Dns, null, Modifier.size(18.dp),
-                    tint = if (serverEnabled) MaterialTheme.colorScheme.primary
-                           else MaterialTheme.colorScheme.outline
-                )
+                Icon(Icons.Outlined.AccountCircle, null, Modifier.size(28.dp),
+                     tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(8.dp))
-                Column(Modifier.weight(1f)) {
-                    Text("服务器直连",
-                         style = MaterialTheme.typography.labelLarge,
-                         fontWeight = FontWeight.SemiBold)
-                    Text(
-                        if (serverEnabled) "$serverHost:$serverPort" else "未配置",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.outline,
-                        maxLines = 1,
-                    )
-                }
-                Icon(
-                    if (serverExpanded) Icons.Filled.KeyboardArrowUp
-                    else Icons.Filled.KeyboardArrowDown,
-                    null, Modifier.size(20.dp),
-                    tint = MaterialTheme.colorScheme.outline,
-                )
-            }
-            AnimatedVisibility(visible = serverExpanded) {
-                Column {
-                    Spacer(Modifier.height(12.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        OutlinedTextField(
-                            value = serverHost,
-                            onValueChange = {
-                                serverHost = it
-                                preferences.setGameServerHost(it)
-                            },
-                            label = { Text("服务器地址") },
-                            singleLine = true,
-                            placeholder = { Text("留空则不直连") },
-                            modifier = Modifier.weight(2f),
-                        )
-                        OutlinedTextField(
-                            value = serverPort,
-                            onValueChange = {
-                                serverPort = it
-                                it.toIntOrNull()?.let { v -> preferences.setGameServerPort(v) }
-                            },
-                            label = { Text("端口") },
-                            singleLine = true,
-                            modifier = Modifier.weight(1f),
-                        )
+                if (account != null) {
+                    Column(Modifier.weight(1f)) {
+                        Text(account.username, fontWeight = FontWeight.SemiBold)
+                        Text(when (account.type) {
+                            Account.AccountType.MICROSOFT -> "微软账号"
+                            Account.AccountType.OFFLINE -> "离线账号"
+                            Account.AccountType.GITHUB -> "GitHub"
+                            Account.AccountType.YGGDRASIL -> "皮肤站"
+                        }, style = MaterialTheme.typography.labelSmall,
+                           color = MaterialTheme.colorScheme.outline)
                     }
-                    Spacer(Modifier.height(4.dp))
-                    Text("启动时直接连接指定服务器（留空则进入单人/多人选择界面）",
-                         style = MaterialTheme.typography.labelSmall,
+                } else {
+                    Text("未登录账号", Modifier.weight(1f),
                          color = MaterialTheme.colorScheme.outline)
                 }
             }
         }
-    }
-    Spacer(Modifier.height(12.dp))
 
-    // 启动 / 下载按钮
-    val canInstall = selected != null && !installing
-    val canLaunch = selected != null && isInstalled && account != null && !installing
-    val buttonEnabled = canLaunch || canInstall
-    val isDownloadMode = selected != null && !isInstalled
-
-    Button(
-        onClick = {
-            if (isDownloadMode) onInstall() else onLaunch()
-        },
-        enabled = buttonEnabled,
-        modifier = Modifier.fillMaxWidth().height(64.dp),
-        shape = RoundedCornerShape(12.dp),
-        colors = if (isDownloadMode) ButtonDefaults.buttonColors(
-            containerColor = MaterialTheme.colorScheme.tertiary,
-            contentColor = MaterialTheme.colorScheme.onTertiary
-        ) else ButtonDefaults.buttonColors(),
-    ) {
-        when {
-            installing && isDownloadMode -> {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(22.dp),
-                    strokeWidth = 2.dp,
-                    color = MaterialTheme.colorScheme.onTertiary,
-                )
-                Spacer(Modifier.width(10.dp))
-                Text("下载中...", style = MaterialTheme.typography.titleMedium, fontSize = 18.sp)
-            }
-            isDownloadMode -> {
-                Icon(Icons.Filled.Refresh, null, Modifier.size(24.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("下载安装", style = MaterialTheme.typography.titleMedium, fontSize = 18.sp)
-            }
-            else -> {
-                Icon(Icons.Filled.PlayArrow, null, Modifier.size(24.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("启动 Minecraft", style = MaterialTheme.typography.titleMedium, fontSize = 18.sp)
-            }
+        // 状态
+        if (status.isNotEmpty()) {
+            Text("状态: $status",
+                 style = MaterialTheme.typography.labelSmall,
+                 color = MaterialTheme.colorScheme.outline)
         }
-    }
 
-    // 下载进度条
-    if (installing && isDownloadMode) {
-        installProgress?.let { p ->
-            val fraction = if (p.total > 0) (p.completed.toFloat() / p.total).coerceIn(0f, 1f) else 0f
-            Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "${stageText(p.stage)} · ${p.message}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.tertiary,
-                    modifier = Modifier.weight(1f),
-                    maxLines = 1,
-                )
-                if (p.total > 0) {
-                    Text("${(fraction * 100).toInt()}%",
-                         style = MaterialTheme.typography.labelSmall,
-                         color = MaterialTheme.colorScheme.tertiary,
-                         fontWeight = FontWeight.SemiBold)
-                }
-            }
-            Spacer(Modifier.height(4.dp))
-            if (p.total > 0) {
-                LinearProgressIndicator(
-                    progress = { fraction },
-                    modifier = Modifier.fillMaxWidth().height(6.dp),
-                    color = MaterialTheme.colorScheme.tertiary,
-                    trackColor = MaterialTheme.colorScheme.surfaceVariant,
-                )
-            } else {
-                LinearProgressIndicator(
-                    modifier = Modifier.fillMaxWidth().height(6.dp),
-                    color = MaterialTheme.colorScheme.tertiary,
-                    trackColor = MaterialTheme.colorScheme.surfaceVariant,
-                )
-            }
-        }
-    } else if (isDownloadMode && !installing) {
-        Spacer(Modifier.height(6.dp))
-        Text("该版本未安装，点击上方按钮下载安装",
-             style = MaterialTheme.typography.labelSmall,
-             color = MaterialTheme.colorScheme.outline)
-    }
-
-    Spacer(Modifier.height(8.dp))
-    // 状态行
-    if (status.isNotEmpty()) {
-        Text("状态: $status",
-             style = MaterialTheme.typography.labelSmall,
-             color = MaterialTheme.colorScheme.outline)
-    }
-
-    // 运行中实例列表
-    if (runningInstances.isNotEmpty()) {
-        Spacer(Modifier.height(8.dp))
-        Surface(
-            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
-            shape = RoundedCornerShape(8.dp),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Column(Modifier.padding(8.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("运行中实例",
-                         style = MaterialTheme.typography.labelMedium,
-                         fontWeight = FontWeight.SemiBold,
-                         modifier = Modifier.weight(1f))
-                    Text("${runningInstances.size}",
-                         style = MaterialTheme.typography.labelSmall,
-                         color = MaterialTheme.colorScheme.primary,
-                         fontWeight = FontWeight.Bold)
-                }
-                Spacer(Modifier.height(4.dp))
-                runningInstances.forEach { inst ->
-                    val isActive = inst.id == activeInstanceId
-                    val runtimeStr = formatRuntime(System.currentTimeMillis() - inst.startTime)
-                    Surface(
-                        color = if (isActive) MaterialTheme.colorScheme.primaryContainer
-                                else MaterialTheme.colorScheme.surface,
-                        shape = RoundedCornerShape(6.dp),
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
-                            .clickable { onSelectInstance(inst.id) },
-                    ) {
-                        Row(
-                            Modifier.padding(8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
+        // 运行中实例
+        if (runningInstances.isNotEmpty()) {
+            Surface(
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(Modifier.padding(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("运行中实例",
+                             style = MaterialTheme.typography.labelMedium,
+                             fontWeight = FontWeight.SemiBold,
+                             modifier = Modifier.weight(1f))
+                        Text("${runningInstances.size}",
+                             style = MaterialTheme.typography.labelSmall,
+                             color = MaterialTheme.colorScheme.primary,
+                             fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    runningInstances.forEach { inst ->
+                        val isActive = inst.id == activeInstanceId
+                        val runtimeStr = formatRuntime(System.currentTimeMillis() - inst.startTime)
+                        Surface(
+                            color = if (isActive) MaterialTheme.colorScheme.primaryContainer
+                                    else MaterialTheme.colorScheme.surface,
+                            shape = RoundedCornerShape(6.dp),
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
                         ) {
-                            Icon(
-                                Icons.Filled.PlayArrow, null, Modifier.size(14.dp),
-                                tint = if (isActive) MaterialTheme.colorScheme.primary
-                                       else MaterialTheme.colorScheme.outline
-                            )
-                            Spacer(Modifier.width(6.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(inst.versionId,
-                                     style = MaterialTheme.typography.bodySmall,
-                                     fontWeight = FontWeight.SemiBold,
-                                     maxLines = 1)
-                                Text("${inst.accountName} · $runtimeStr",
-                                     style = MaterialTheme.typography.labelSmall,
-                                     color = MaterialTheme.colorScheme.outline,
-                                     maxLines = 1)
-                            }
-                            if (isActive) {
-                                Surface(
-                                    color = MaterialTheme.colorScheme.primary,
-                                    shape = RoundedCornerShape(3.dp),
-                                ) {
-                                    Text("活跃",
-                                         color = MaterialTheme.colorScheme.onPrimary,
+                            Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Filled.PlayArrow, null, Modifier.size(14.dp),
+                                     tint = if (isActive) MaterialTheme.colorScheme.primary
+                                            else MaterialTheme.colorScheme.outline)
+                                Spacer(Modifier.width(6.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(inst.versionId,
+                                         style = MaterialTheme.typography.bodySmall,
+                                         fontWeight = FontWeight.SemiBold, maxLines = 1)
+                                    Text("${inst.accountName} · $runtimeStr",
                                          style = MaterialTheme.typography.labelSmall,
-                                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
+                                         color = MaterialTheme.colorScheme.outline, maxLines = 1)
+                                }
+                                if (isActive) {
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.primary,
+                                        shape = RoundedCornerShape(3.dp),
+                                    ) {
+                                        Text("活跃",
+                                             color = MaterialTheme.colorScheme.onPrimary,
+                                             style = MaterialTheme.typography.labelSmall,
+                                             modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
+                                    }
                                 }
                             }
                         }
@@ -1340,60 +1253,6 @@ private fun RightPanelContent(
             }
         }
     }
-
-    Spacer(Modifier.height(12.dp))
-    HorizontalDivider()
-    Spacer(Modifier.height(8.dp))
-
-    // 日志标题 + 操作按钮
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text("游戏日志", style = MaterialTheme.typography.labelLarge,
-             fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-        var copied by remember { mutableStateOf(false) }
-        TextButton(
-            onClick = {
-                onCopyLogs()
-                copied = true
-            },
-            enabled = logs.isNotEmpty(),
-            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-        ) {
-            if (copied) {
-                Icon(Icons.Filled.Check, null, Modifier.size(14.dp))
-                Spacer(Modifier.width(4.dp))
-                Text("已复制", style = MaterialTheme.typography.labelSmall)
-            } else {
-                Text("复制", style = MaterialTheme.typography.labelSmall)
-            }
-        }
-        LaunchedEffect(copied) {
-            if (copied) {
-                delay(1500)
-                copied = false
-            }
-        }
-        TextButton(
-            onClick = onShareLogs,
-            enabled = logs.isNotEmpty(),
-            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-        ) {
-            Icon(Icons.Filled.IosShare, null, Modifier.size(14.dp))
-            Spacer(Modifier.width(4.dp))
-            Text("分享", style = MaterialTheme.typography.labelSmall)
-        }
-        TextButton(
-            onClick = onClearLogs,
-            enabled = logs.isNotEmpty(),
-            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-        ) {
-            Icon(Icons.Filled.Clear, null, Modifier.size(14.dp))
-            Spacer(Modifier.width(4.dp))
-            Text("清空", style = MaterialTheme.typography.labelSmall)
-        }
-    }
-    Spacer(Modifier.height(4.dp))
-
-    GameLogPanel(logs, onClearLogs)
 }
 
 // ==================== 子组件 ====================
