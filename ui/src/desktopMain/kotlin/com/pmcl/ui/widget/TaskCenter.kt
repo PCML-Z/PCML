@@ -2,6 +2,7 @@ package com.pmcl.ui.widget
 
 import androidx.compose.animation.*
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -19,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -130,16 +132,17 @@ fun TaskCenterPanel(
         Color(0xFF1E1E1E) else Color(0xFFFAFAFA)
 
     Box(Modifier.fillMaxSize()) {
-        // 半透明遮罩
-        AnimatedVisibility(
-            visible = visible,
-            enter = fadeIn(animationSpec = tween(180, easing = LinearEasing)),
-            exit = fadeOut(animationSpec = tween(150, easing = LinearEasing))
-        ) {
+        // 遮罩 alpha：线性 180ms
+        val scrimAlpha by animateFloatAsState(
+            targetValue = if (visible) 0.35f else 0f,
+            animationSpec = tween(180, easing = LinearEasing),
+            label = "scrim"
+        )
+        if (scrimAlpha > 0.01f) {
             Box(
                 Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.35f))
+                    .background(Color.Black.copy(alpha = scrimAlpha))
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null
@@ -147,23 +150,19 @@ fun TaskCenterPanel(
             )
         }
 
-        // 右侧面板：从右侧滑入
-        AnimatedVisibility(
-            visible = visible,
-            modifier = Modifier.align(Alignment.CenterEnd),
-            enter = slideInHorizontally(
-                animationSpec = tween(250, easing = LinearEasing),
-                initialOffsetX = { it }
-            ),
-            exit = slideOutHorizontally(
-                animationSpec = tween(180, easing = LinearEasing),
-                targetOffsetX = { it }
-            )
-        ) {
+        // 面板位移：线性 250ms，GPU 加速 graphicsLayer
+        val slideProgress by animateFloatAsState(
+            targetValue = if (visible) 0f else 1f,
+            animationSpec = tween(250, easing = LinearEasing),
+            label = "panelSlide"
+        )
+        if (slideProgress < 0.999f) {
             Column(
                 Modifier
                     .fillMaxHeight()
                     .width(400.dp)
+                    .align(Alignment.CenterEnd)
+                    .graphicsLayer { translationX = this.size.width * slideProgress }
                     .clip(RoundedCornerShape(topStart = 14.dp, bottomStart = 14.dp))
                     .background(panelBg)
             ) {

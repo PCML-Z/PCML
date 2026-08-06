@@ -310,17 +310,15 @@ fun main() = application {
             // 最大化时移除圆角裁剪，让内容填满屏幕直角
             var isMaximized by remember { mutableStateOf(false) }
 
-            // 任务中心展开/收起时同步窗口圆角
+            // 任务中心展开/收起时同步窗口圆角（直接在 AWT 线程设置，无 invokeLater 延迟）
             LaunchedEffect(showTaskCenter) {
-                javax.swing.SwingUtilities.invokeLater {
-                    if (borderless) {
-                        window.shape = if (showTaskCenter) null
-                        else RoundRectangle2D.Double(
-                            0.0, 0.0,
-                            window.width.toDouble(), window.height.toDouble(),
-                            14.0, 14.0
-                        )
-                    }
+                if (borderless) {
+                    window.shape = if (showTaskCenter) null
+                    else RoundRectangle2D.Double(
+                        0.0, 0.0,
+                        window.width.toDouble(), window.height.toDouble(),
+                        14.0, 14.0
+                    )
                 }
             }
 
