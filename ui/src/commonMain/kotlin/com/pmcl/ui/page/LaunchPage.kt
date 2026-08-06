@@ -197,22 +197,29 @@ fun LaunchPage(vm: LauncherViewModel) {
     Column(Modifier.fillMaxSize()) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when (launchTab) {
-                // ===== 启动：空白页，切到此项即启动固定版本 =====
+                // ===== 启动：空白页 + 固定启动按钮 =====
                 0 -> {
                     val primaryPinned = pinned.firstOrNull()
                     val primaryInfo = primaryPinned?.let { vid -> localInfos.find { it.getId() == vid } }
                     val canQuickLaunch = primaryPinned != null &&
                         (primaryInfo?.isLaunchable() ?: false) && account != null && !gameRunning
 
-                    // 切到此项时立即触发启动（仅一次，避免重复启动）
-                    LaunchedEffect(primaryPinned, canQuickLaunch) {
-                        if (primaryPinned != null && canQuickLaunch) {
-                            vm.quickLaunch(primaryPinned)
+                    Box(Modifier.fillMaxSize().padding(24.dp),
+                        contentAlignment = Alignment.BottomEnd) {
+                        FloatingActionButton(
+                            onClick = {
+                                if (primaryPinned != null && canQuickLaunch) {
+                                    vm.quickLaunch(primaryPinned)
+                                }
+                            },
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
+                        ) {
+                            Icon(Icons.Filled.PlayArrow,
+                                 contentDescription = I18n.t("launch.start"),
+                                 modifier = Modifier.size(28.dp))
                         }
                     }
-
-                    // 空白页，无任何控件
-                    Box(Modifier.fillMaxSize())
                 }
 
                 // ===== 版本列表 =====
