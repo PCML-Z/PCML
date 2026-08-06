@@ -1945,19 +1945,47 @@ private fun AccountPage(
             }
         }
 
-        // ===== 账号列表 =====
+        // ===== 账号列表 / 空状态时登录区占满补位 =====
         if (accounts.isEmpty()) {
-            Card(Modifier.fillMaxWidth().glassCardBorder(),
+            // 空状态：居中占满，登录卡片补全空位
+            Card(Modifier.fillMaxWidth().weight(1f).glassCardBorder(),
                  colors = glassCardColors(), elevation = glassCardElevation()) {
-                Column(Modifier.padding(24.dp).fillMaxWidth(),
-                       horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(
+                    Modifier.fillMaxSize().padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
                     Icon(Icons.Filled.AccountCircle, null,
-                         modifier = Modifier.size(48.dp),
+                         modifier = Modifier.size(56.dp),
                          tint = MaterialTheme.colorScheme.outline)
                     Spacer(Modifier.height(12.dp))
                     Text(I18n.t("launch.not_logged_in_short"),
-                         style = MaterialTheme.typography.titleSmall,
+                         style = MaterialTheme.typography.titleMedium,
                          color = MaterialTheme.colorScheme.outline)
+                    Spacer(Modifier.height(20.dp))
+                    OutlinedTextField(
+                        value = username, onValueChange = { username = it },
+                        label = { Text(I18n.t("launch.offline_username")) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()) {
+                        Button(onClick = { vm.loginOffline(username) },
+                               enabled = username.isNotBlank(),
+                               modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Filled.Person, null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(I18n.t("launch.offline_login"))
+                        }
+                        OutlinedButton(onClick = vm::startMicrosoftLogin,
+                                       modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Filled.AccountCircle, null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(I18n.t("launch.microsoft_login"))
+                        }
+                    }
                 }
             }
         } else {
@@ -1970,40 +1998,40 @@ private fun AccountPage(
                     onDelete = { vm.removeAccount(acc.getUuid()) }
                 )
             }
-        }
 
-        Spacer(Modifier.height(4.dp))
-        HorizontalDivider()
-        Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(4.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(4.dp))
 
-        // ===== 登录区 =====
-        Text("添加账号",
-             style = MaterialTheme.typography.titleSmall,
-             fontWeight = FontWeight.SemiBold,
-             color = MaterialTheme.colorScheme.primary)
+            // ===== 登录区 =====
+            Text("添加账号",
+                 style = MaterialTheme.typography.titleSmall,
+                 fontWeight = FontWeight.SemiBold,
+                 color = MaterialTheme.colorScheme.primary)
 
-        Card(Modifier.fillMaxWidth().glassCardBorder(),
-             colors = glassCardColors(), elevation = glassCardElevation()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(
-                    value = username, onValueChange = { username = it },
-                    label = { Text(I18n.t("launch.offline_username")) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { vm.loginOffline(username) },
-                           enabled = username.isNotBlank(),
-                           modifier = Modifier.weight(1f)) {
-                        Icon(Icons.Filled.Person, null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(I18n.t("launch.offline_login"))
-                    }
-                    OutlinedButton(onClick = vm::startMicrosoftLogin,
-                                   modifier = Modifier.weight(1f)) {
-                        Icon(Icons.Filled.AccountCircle, null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(I18n.t("launch.microsoft_login"))
+            Card(Modifier.fillMaxWidth().glassCardBorder(),
+                 colors = glassCardColors(), elevation = glassCardElevation()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = username, onValueChange = { username = it },
+                        label = { Text(I18n.t("launch.offline_username")) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { vm.loginOffline(username) },
+                               enabled = username.isNotBlank(),
+                               modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Filled.Person, null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(I18n.t("launch.offline_login"))
+                        }
+                        OutlinedButton(onClick = vm::startMicrosoftLogin,
+                                       modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Filled.AccountCircle, null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(I18n.t("launch.microsoft_login"))
+                        }
                     }
                 }
             }
