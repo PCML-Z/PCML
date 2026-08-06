@@ -21,6 +21,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.CloudUpload
@@ -191,7 +192,145 @@ fun LaunchPage(vm: LauncherViewModel) {
         list.take(200) // 最多显示 200 个，避免列表过长
     }
 
-    Row(Modifier.fillMaxSize()) {
+    var launchTab by remember { mutableStateOf(0) } // 0=启动 1=版本列表 2=账号 3=日志
+
+    Column(Modifier.fillMaxSize()) {
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            when (launchTab) {
+                // ===== 启动主页：只显示固定版本快速启动 =====
+                0 -> Column(
+                    Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text("PMCL", style = MaterialTheme.typography.headlineMedium,
+                         fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
+
+                    if (pinned.isEmpty()) {
+                        Surface(
+                            color = glassSurfaceVariantColor(),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                Modifier.padding(24.dp).fillMaxWidth(),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Icon(Icons.Filled.Star, null, Modifier.size(48.dp),
+                                     tint = MaterialTheme.colorScheme.outline)
+                                Spacer(Modifier.height(12.dp))
+                                Text("未固定游戏版本",
+                                     style = MaterialTheme.typography.titleMedium,
+                                     color = MaterialTheme.colorScheme.outline)
+                                Spacer(Modifier.height(4.dp))
+                                Text("请在版本列表中固定一个版本以快速启动",
+                                     style = MaterialTheme.typography.bodySmall,
+                                     color = MaterialTheme.colorScheme.outline)
+                                Spacer(Modifier.height(16.dp))
+                                OutlinedButton(onClick = { launchTab = 1 }) {
+                                    Icon(Icons.Filled.Star, null, Modifier.size(16.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("前往版本列表")
+                                }
+                            }
+                        }
+                    } else {
+                        Text(I18n.t("launch.quick_launch"), style = MaterialTheme.typography.titleSmall,
+                             fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+                        val rows = pinned.chunked(2)
+                        rows.forEachIndexed { index, rowVersions ->
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                rowVersions.forEach { versionId ->
+                                    val info = localInfos.find { it.getId() == versionId }
+                                    Box(Modifier.weight(1f)) {
+                                        PinnedTile(
+                                            versionId = versionId,
+                                            customLabel = pinnedLabels[versionId],
+                                            launchable = info?.isLaunchable() ?: false,
+                                            gameRunning = gameRunning,
+                                            hasAccount = account != null,
+                                            modLoaderHint = info?.let { inferModLoader(it) },
+                                            lastPlayedTime = lastPlayedTimes[versionId],
+                                            formatRelative = formatRelative,
+                                            onLaunch = { vm.quickLaunch(versionId) },
+                                            onRename = { renameTarget = versionId },
+                                            onDelete = { deleteTarget = versionId }
+                                        )
+                                    }
+                                }
+                                if (rowVersions.size == 1) {
+                                    Spacer(Modifier.weight(1f))
+                                }
+                            }
+                        }
+                    }
+
+                    // 运行中实例
+                    val runningInstances by vm.runningInstances.collectAsState()
+                    if (runningInstances.isNotEmpty()) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(Modifier.padding(8.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(I18n.t("launch.running_instances"),
+                                         style = MaterialTheme.typography.labelMedium,
+                                         fontWeight = FontWeight.SemiBold,
+                                         modifier = Modifier.weight(1f))
+                                    Text("${runningInstances.size}",
+                                         style = MaterialTheme.typography.labelSmall,
+                                         color = MaterialTheme.colorScheme.primary,
+                                         fontWeight = FontWeight.Bold)
+                                }
+                                Spacer(Modifier.height(4.dp))
+                                runningInstances.forEach { inst ->
+                                    val isActive = inst.active
+                                    val runtimeStr = formatRuntime(System.currentTimeMillis() - inst.startTime)
+                                    Surface(
+                                        color = if (isActive) MaterialTheme.colorScheme.primaryContainer
+                                                else MaterialTheme.colorScheme.surface,
+                                        shape = RoundedCornerShape(6.dp),
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
+                                            .clickable { vm.selectInstance(inst.id) }
+                                    ) {
+                                        Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Filled.PlayArrow, null, Modifier.size(14.dp),
+                                                 tint = if (isActive) MaterialTheme.colorScheme.primary
+                                                        else MaterialTheme.colorScheme.outline)
+                                            Spacer(Modifier.width(6.dp))
+                                            Column(Modifier.weight(1f)) {
+                                                Text(inst.versionId,
+                                                     style = MaterialTheme.typography.bodySmall,
+                                                     fontWeight = FontWeight.SemiBold, maxLines = 1)
+                                                Text("${inst.accountName} · $runtimeStr",
+                                                     style = MaterialTheme.typography.labelSmall,
+                                                     color = MaterialTheme.colorScheme.outline, maxLines = 1)
+                                            }
+                                            if (isActive) {
+                                                Surface(color = MaterialTheme.colorScheme.primary,
+                                                        shape = RoundedCornerShape(3.dp)) {
+                                                    Text(I18n.t("launch.active"),
+                                                         color = MaterialTheme.colorScheme.onPrimary,
+                                                         style = MaterialTheme.typography.labelSmall,
+                                                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    StatusLine(vm)
+                }
+
+                // ===== 版本列表 =====
+                1 -> Row(Modifier.fillMaxSize()) {
         // ===== 左侧：统一用 LazyColumn 滚动，避免嵌套滚动冲突 =====
         LazyColumn(
             Modifier.weight(1.2f).fillMaxHeight().padding(16.dp),
@@ -412,9 +551,12 @@ fun LaunchPage(vm: LauncherViewModel) {
                             selected = info.getId() == selected,
                             pinned = info.getId() in pinnedIds,
                             format = format,
+                            gameRunning = gameRunning,
+                            hasAccount = account != null,
                             onClick = { vm.selectVersion(info.getId()) },
                             onPin = { vm.pinVersion(info.getId()) },
-                            onUnpin = { vm.unpinVersion(info.getId()) }
+                            onUnpin = { vm.unpinVersion(info.getId()) },
+                            onLaunch = { vm.quickLaunch(info.getId()) }
                         )
                     }
                 }
@@ -482,20 +624,12 @@ fun LaunchPage(vm: LauncherViewModel) {
 
         VerticalDivider()
 
-        // ===== 右侧：账号 + 启动 + 日志 =====
-        // verticalScroll 让整个右侧区域可平滑滑动（日志区使用固定最小高度，避免 weight 在可滚动 Column 中失效）
+        // ===== 右侧：版本操作（选中提示 / Java / 服务器 / 启动按钮） =====
+        // verticalScroll 让整个右侧区域可平滑滑动
         Column(
             Modifier.weight(1f).fillMaxHeight().padding(16.dp)
                 .verticalScroll(rememberScrollState())
         ) {
-            Text("PMCL", style = MaterialTheme.typography.headlineMedium,
-                 fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
-            Spacer(Modifier.height(12.dp))
-
-            AccountCard(account, vm)
-
-            Spacer(Modifier.height(16.dp))
-
             // 当前选中版本提示
             selected?.let {
                 val hintColor = if (isInstalled) MaterialTheme.colorScheme.primaryContainer
@@ -861,9 +995,19 @@ fun LaunchPage(vm: LauncherViewModel) {
                 }
             }
 
-            Spacer(Modifier.height(12.dp))
-            HorizontalDivider()
-            Spacer(Modifier.height(8.dp))
+        }
+        }
+
+        // ===== 账号 =====
+                2 -> Column(
+                    Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    AccountCard(account, vm)
+                }
+
+        // ===== 日志 =====
+                3 -> Column(Modifier.fillMaxSize().padding(16.dp)) {
             // 日志标题 + 操作按钮（复制 / 导出 / 分享）
             val logSharing by vm.logSharing.collectAsState()
             val shareUrl by vm.shareUrl.collectAsState()
@@ -1063,13 +1207,39 @@ fun LaunchPage(vm: LauncherViewModel) {
             Surface(
                 color = glassSurfaceVariantColor(),
                 shape = RoundedCornerShape(8.dp),
-                // 在 verticalScroll 的 Column 内，子组件 max height = Infinity
-                // GameLogPanel 内部是 LazyColumn，Infinity 约束会导致测量崩溃
-                // 加 max 约束让 LazyColumn 有有限高度
-                modifier = Modifier.fillMaxWidth().heightIn(min = 300.dp, max = 400.dp)
+                modifier = Modifier.fillMaxWidth().weight(1f).heightIn(min = 300.dp)
             ) {
                 GameLogPanel(vm)
             }
+        }
+        }
+        }
+
+        NavigationBar {
+            NavigationBarItem(
+                selected = launchTab == 0,
+                onClick = { launchTab = 0 },
+                icon = { Icon(Icons.Filled.PlayArrow, contentDescription = "启动") },
+                label = { Text("启动") },
+            )
+            NavigationBarItem(
+                selected = launchTab == 1,
+                onClick = { launchTab = 1 },
+                icon = { Icon(Icons.Filled.Star, contentDescription = "版本列表") },
+                label = { Text("版本列表") },
+            )
+            NavigationBarItem(
+                selected = launchTab == 2,
+                onClick = { launchTab = 2 },
+                icon = { Icon(Icons.Filled.AccountCircle, contentDescription = "账号") },
+                label = { Text("账号") },
+            )
+            NavigationBarItem(
+                selected = launchTab == 3,
+                onClick = { launchTab = 3 },
+                icon = { Icon(Icons.Filled.Code, contentDescription = "日志") },
+                label = { Text("日志") },
+            )
         }
     }
 
@@ -1724,10 +1894,14 @@ private fun LocalVersionRow(
     selected: Boolean,
     pinned: Boolean,
     format: SimpleDateFormat,
+    gameRunning: Boolean,
+    hasAccount: Boolean,
     onClick: () -> Unit,
     onPin: () -> Unit,
-    onUnpin: () -> Unit
+    onUnpin: () -> Unit,
+    onLaunch: () -> Unit
 ) {
+    val canLaunch = info.isLaunchable() && hasAccount && !gameRunning
     val bg by animateColorAsState(
         if (selected) MaterialTheme.colorScheme.primaryContainer
         else MaterialTheme.colorScheme.surfaceVariant,
@@ -1773,6 +1947,13 @@ private fun LocalVersionRow(
                              color = MaterialTheme.colorScheme.outline)
                     }
                 }
+            }
+            // 直接启动按钮
+            IconButton(onClick = onLaunch, enabled = canLaunch) {
+                Icon(Icons.Filled.PlayArrow, I18n.t("launch.start"),
+                     tint = if (canLaunch) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.outline,
+                     modifier = Modifier.size(18.dp))
             }
             // 固定按钮
             IconButton(onClick = { if (pinned) onUnpin() else onPin() }) {
