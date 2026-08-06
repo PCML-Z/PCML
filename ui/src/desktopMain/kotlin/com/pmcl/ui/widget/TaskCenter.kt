@@ -1,8 +1,10 @@
 package com.pmcl.ui.widget
 
+import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -15,34 +17,29 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Window
-import androidx.compose.ui.window.WindowPosition
-import androidx.compose.ui.window.rememberWindowState
 import com.pmcl.ui.theme.glassCardColors
+import com.pmcl.ui.theme.glassCardElevation
 import com.pmcl.ui.viewmodel.LauncherViewModel
-import java.awt.Frame
-import java.awt.event.ComponentAdapter
-import java.awt.event.ComponentEvent
-import java.awt.geom.RoundRectangle2D
 import java.text.SimpleDateFormat
 import java.util.Date
 
 /**
- * 任务中心：右侧抽屉式通知面板
- * 平时折叠为标题栏小按钮，点击展开为独立悬浮窗口
+ * 任务中心：从右侧滑入的抽屉面板（内嵌于主窗口，非独立窗口）。
  * - 调度队列：当前活动任务（下载、安装、启动、游戏运行）
  * - 历史通知：近期日志、崩溃事件、状态变更
+ * - 入场：slideInHorizontally 300ms + 半透明遮罩
+ * - 出场：slideOutHorizontally 200ms + 遮罩淡出
  */
 @Composable
-fun TaskCenterWindow(
+fun TaskCenterPanel(
+    visible: Boolean,
     vm: LauncherViewModel,
     onDismiss: () -> Unit,
-    parallaxBg: Boolean = false,
-    glassOn: Boolean = false,
     useDark: Boolean = false
 ) {
     val installing by vm.installing.collectAsState()
@@ -57,21 +54,19 @@ fun TaskCenterWindow(
     // 历史通知：合并多个状态来源
     val history = remember(gameLogs, crashEvent, status) {
         buildList {
-            // 崩溃事件优先
             crashEvent?.let {
                 add(
                     HistoryItem(
                         time = System.currentTimeMillis(),
                         timeText = timeFmt.format(Date()),
                         icon = Icons.Filled.Warning,
-                        title = "游戏崩溃 · v${it.versionId}",
+                        title = "游戏崩溃 \u00b7 v${it.versionId}",
                         message = it.report?.causes?.firstOrNull()
-                            ?: "exit code ${it.exitCode} · ${it.recentLogs.lastOrNull() ?: ""}",
+                            ?: "exit code ${it.exitCode} \u00b7 ${it.recentLogs.lastOrNull() ?: ""}",
                         tone = HistoryTone.Error
                     )
                 )
             }
-            // 最近 10 条游戏日志
             gameLogs.takeLast(10).reversed().forEach { log ->
                 add(
                     HistoryItem(
@@ -84,7 +79,6 @@ fun TaskCenterWindow(
                     )
                 )
             }
-            // 最近状态文本（非空且与最新日志不重复）
             if (status.isNotBlank() && (gameLogs.isEmpty() || status != gameLogs.last().text)) {
                 add(
                     HistoryItem(
@@ -120,7 +114,7 @@ fun TaskCenterWindow(
                     ActiveTask(
                         icon = Icons.Filled.PlayArrow,
                         title = "游戏运行中",
-                        message = vm.selectedVersion.value ?: "—",
+                        message = vm.selectedVersion.value ?: "\u2014",
                         progress = 1f,
                         stage = "运行"
                     )
@@ -132,58 +126,61 @@ fun TaskCenterWindow(
     val taskCount = activeTasks.size
     val notifCount = history.size
 
-    Window(
-        onCloseRequest = onDismiss,
-        title = "任务中心",
-        undecorated = true,
-        transparent = true,
-        resizable = false,
-        state = rememberWindowState(
-            width = 420.dp,
-            height = 560.dp,
-            position = WindowPosition.Aligned(Alignment.CenterEnd)
-        )
-    ) {
-        // 无边框窗口：圆角 14dp + 拖拽支持
-        DisposableEffect(Unit) {
-            val applyShape = {
-                window.shape = RoundRectangle2D.Double(
-                    0.0, 0.0,
-                    window.width.toDouble(), window.height.toDouble(),
-                    14.0, 14.0
-                )
-                window.background = java.awt.Color(0, 0, 0, 0)
-            }
-            applyShape()
-            val listener = object : ComponentAdapter() {
-                override fun componentResized(e: ComponentEvent?) { applyShape() }
-                override fun componentMoved(e: ComponentEvent?) { applyShape() }
-            }
-            window.addComponentListener(listener)
-            onDispose { window.removeComponentListener(listener) }
+    val panelBg = if (useDark)
+        Color(0xFF1E1E1E) else Color(0xFFFAFAFA)
+
+    Box(Modifier.fillMaxSize()) {
+        // 半透明遮罩
+        AnimatedVisibility(
+            visible = visible,
+            enter = fadeIn(animationSpec = tween(200)),
+            exit = fadeOut(animationSpec = tween(200))
+        ) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.35f))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { onDismiss() }
+            )
         }
 
-        Box(
-            Modifier
-                .fillMaxSize()
-                .clip(RoundedCornerShape(14.dp))
-                .border(0.5.dp, Color.Black.copy(alpha = 0.15f), RoundedCornerShape(14.dp))
-                .background(
-                    if (useDark) Color(0xFF1E1E1E)
-                    else Color(0xFFFAFAFA)
-                )
+        // 右侧面板：从右侧滑入
+        AnimatedVisibility(
+            visible = visible,
+            enter = slideInHorizontally(
+                animationSpec = tween(300),
+                initialOffsetX = { it }
+            ),
+            exit = slideOutHorizontally(
+                animationSpec = tween(200),
+                targetOffsetX = { it }
+            )
         ) {
-            Column(Modifier.fillMaxSize()) {
-                // ===== 标题栏：返回 + 标题 + 窗口控制 =====
+            Column(
+                Modifier
+                    .fillMaxHeight()
+                    .width(400.dp)
+                    .align(Alignment.CenterEnd)
+                    .shadow(8.dp, RoundedCornerShape(topStart = 14.dp, bottomStart = 14.dp))
+                    .clip(RoundedCornerShape(topStart = 14.dp, bottomStart = 14.dp))
+                    .background(panelBg)
+            ) {
+                // 标题栏
                 Row(
-                    Modifier.fillMaxWidth().height(40.dp),
+                    Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .padding(horizontal = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(36.dp)) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
                             "收起",
-                            modifier = Modifier.size(16.dp)
+                            modifier = Modifier.size(18.dp)
                         )
                     }
                     Text(
@@ -192,34 +189,21 @@ fun TaskCenterWindow(
                         fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.weight(1f)
                     )
-                    IconButton(
-                        onClick = { window.extendedState = Frame.ICONIFIED },
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(Icons.Filled.Minimize, "最小化", modifier = Modifier.size(16.dp))
-                    }
-                    IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Filled.Close, "关闭", modifier = Modifier.size(16.dp))
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(36.dp)) {
+                        Icon(Icons.Filled.Close, "关闭", modifier = Modifier.size(18.dp))
                     }
                 }
 
-                Divider(color = Color.Black.copy(alpha = 0.08f))
+                HorizontalDivider(color = Color.Black.copy(alpha = 0.08f))
 
                 LazyColumn(
                     Modifier.weight(1f).fillMaxWidth(),
                     contentPadding = PaddingValues(vertical = 8.dp)
                 ) {
                     // ===== 调度队列 =====
-                    item {
-                        SectionHeader("调度队列", badgeCount = taskCount)
-                    }
+                    item { SectionHeader("调度队列", badgeCount = taskCount) }
                     if (activeTasks.isEmpty()) {
-                        item {
-                            EmptyState(
-                                icon = Icons.Filled.Done,
-                                text = "无"
-                            )
-                        }
+                        item { EmptyState(icon = Icons.Filled.Done, text = "无") }
                     } else {
                         items(activeTasks, key = { it.title }) { task ->
                             ActiveTaskCard(task)
@@ -228,23 +212,16 @@ fun TaskCenterWindow(
 
                     item { Spacer(Modifier.height(16.dp)) }
                     item {
-                        Divider(color = Color.Black.copy(alpha = 0.08f))
+                        HorizontalDivider(color = Color.Black.copy(alpha = 0.08f))
                         Spacer(Modifier.height(8.dp))
                     }
 
                     // ===== 历史通知 =====
-                    item {
-                        SectionHeader("历史通知", badgeCount = notifCount)
-                    }
+                    item { SectionHeader("历史通知", badgeCount = notifCount) }
                     if (history.isEmpty()) {
-                        item {
-                            EmptyState(
-                                icon = Icons.Filled.NotificationsOff,
-                                text = "暂无通知"
-                            )
-                        }
+                        item { EmptyState(icon = Icons.Filled.NotificationsNone, text = "暂无通知") }
                     } else {
-                        items(history, key = { it.time.toString() + it.title + it.message.hashCode() }) { item ->
+                        items(history, key = { "${it.time}_${it.title}_${it.message.hashCode()}" }) { item ->
                             HistoryItemCard(item)
                         }
                     }
@@ -260,11 +237,7 @@ private fun SectionHeader(title: String, badgeCount: Int) {
         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            title,
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.SemiBold
-        )
+        Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
         if (badgeCount > 0) {
             Spacer(Modifier.width(6.dp))
             Box(
@@ -289,45 +262,26 @@ private fun EmptyState(icon: ImageVector, text: String) {
         Modifier.fillMaxWidth().padding(vertical = 32.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Icon(
-            icon,
-            null,
-            modifier = Modifier.size(32.dp),
-            tint = MaterialTheme.colorScheme.outline
-        )
+        Icon(icon, null, modifier = Modifier.size(32.dp), tint = MaterialTheme.colorScheme.outline)
         Spacer(Modifier.height(8.dp))
-        Text(
-            text,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.outline
-        )
+        Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
     }
 }
 
 @Composable
 private fun ActiveTaskCard(task: ActiveTask) {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 4.dp),
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
         shape = RoundedCornerShape(10.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow
+        colors = glassCardColors(),
+        elevation = glassCardElevation()
     ) {
         Column(Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    task.icon,
-                    null,
-                    modifier = Modifier.size(18.dp),
-                    tint = MaterialTheme.colorScheme.primary
-                )
+                Icon(task.icon, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(8.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(
-                        task.title,
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Medium
-                    )
+                    Text(task.title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Medium)
                     Text(
                         task.message,
                         style = MaterialTheme.typography.bodySmall,
@@ -335,11 +289,7 @@ private fun ActiveTaskCard(task: ActiveTask) {
                         maxLines = 1
                     )
                 }
-                Text(
-                    task.stage,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary
-                )
+                Text(task.stage, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
             }
             if (task.progress > 0f && task.progress < 1f) {
                 Spacer(Modifier.height(8.dp))
@@ -359,42 +309,33 @@ private fun HistoryItemCard(item: HistoryItem) {
         HistoryTone.Warn -> MaterialTheme.colorScheme.tertiary
         HistoryTone.Info -> MaterialTheme.colorScheme.primary
     }
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clickable { /* 点击展开详情 */ }
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.Top
+    val bg = when (item.tone) {
+        HistoryTone.Error -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
+        HistoryTone.Warn -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.3f)
+        HistoryTone.Info -> Color.Transparent
+    }
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = bg),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
-        Icon(
-            item.icon,
-            null,
-            modifier = Modifier.size(16.dp).padding(top = 2.dp),
-            tint = tint
-        )
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
-            Row {
-                Text(
-                    item.timeText,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.outline,
-                    modifier = Modifier.weight(1f)
-                )
-                Text(
-                    item.title,
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Medium,
-                    color = tint
-                )
+        Row(Modifier.padding(10.dp), verticalAlignment = Alignment.Top) {
+            Icon(item.icon, null, modifier = Modifier.size(16.dp).padding(top = 2.dp), tint = tint)
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Row {
+                    Text(
+                        item.timeText,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(item.title, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Medium, color = tint)
+                }
+                Spacer(Modifier.height(2.dp))
+                Text(item.message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface, maxLines = 3)
             }
-            Spacer(Modifier.height(2.dp))
-            Text(
-                item.message,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 3
-            )
         }
     }
 }

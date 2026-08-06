@@ -32,7 +32,7 @@ import androidx.compose.ui.window.rememberWindowState
 import com.pmcl.ui.animation.SplashIconReveal
 import com.pmcl.ui.page.PerfHudWindow
 import com.pmcl.ui.page.TopBarSearchField
-import com.pmcl.ui.widget.TaskCenterWindow
+import com.pmcl.ui.widget.TaskCenterPanel
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import com.pmcl.ui.viewmodel.playNextMusic
 import com.pmcl.ui.viewmodel.playPreviousMusic
@@ -474,16 +474,13 @@ fun main() = application {
                     )
                 }
             }
-            // 任务中心窗口
-            if (showTaskCenter) {
-                TaskCenterWindow(
-                    vm = vm,
-                    onDismiss = { showTaskCenter = false },
-                    parallaxBg = bgLayerOn,
-                    glassOn = glassOn,
-                    useDark = useDark
-                )
-            }
+            // 任务中心：右侧滑入面板（内嵌，非独立窗口）
+            TaskCenterPanel(
+                visible = showTaskCenter,
+                vm = vm,
+                onDismiss = { showTaskCenter = false },
+                useDark = useDark
+            )
             // Mod 拖放安装对话框：拖入 .jar 文件后展示
             val dropState by vm.dropInstallState.collectAsState()
             if (dropState != null) {
