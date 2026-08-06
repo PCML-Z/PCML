@@ -1208,23 +1208,15 @@ fun LaunchPage(vm: LauncherViewModel) {
         }
         }
 
-        // 轻量底边栏：去掉 Material3 NavigationBar 笨重的实色背景与大色块指示器
-        Surface(
-            color = glassSurfaceVariantColor(glassAlpha = 0.6f),
-            tonalElevation = 0.dp,
-            shadowElevation = 8.dp
-        ) {
-            Row(
-                Modifier.fillMaxWidth().height(56.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                BottomNavTab(Icons.Filled.PlayArrow, "启动", launchTab == 0) { launchTab = 0 }
-                BottomNavTab(Icons.Filled.Star, "版本", launchTab == 1) { launchTab = 1 }
-                BottomNavTab(Icons.Filled.AccountCircle, "账号", launchTab == 2) { launchTab = 2 }
-                BottomNavTab(Icons.Filled.Code, "日志", launchTab == 3) { launchTab = 3 }
-            }
-        }
+        // 底边栏：使用项目现成的 AnimatedSegmentedSelector 滑块切换
+        com.pmcl.ui.animation.AnimatedSegmentedSelector(
+            items = listOf("启动", "版本", "账号", "日志"),
+            selectedIndex = launchTab,
+            onSelect = { launchTab = it },
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            fillWidth = true,
+            height = 40.dp
+        )
     }
 
     // ===== 磁贴重命名对话框 =====
@@ -1332,47 +1324,6 @@ fun LaunchPage(vm: LauncherViewModel) {
             confirmButton = {},
             dismissButton = {}
         )
-    }
-}
-
-/**
- * 轻量底边栏 Tab：选中态用强调色 + 顶部小圆点指示，未选中用 outline 色。
- * 去掉 Material3 NavigationBarItem 的大色块指示器与笨重高度。
- */
-@Composable
-private fun BottomNavTab(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit
-) {
-    val tint = if (selected) MaterialTheme.colorScheme.primary
-               else MaterialTheme.colorScheme.outline
-    Column(
-        modifier = Modifier
-            .clip(RoundedCornerShape(10.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 6.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        // 选中态顶部指示条
-        Box(Modifier.size(width = 16.dp, height = 3.dp)) {
-            if (selected) {
-                Box(
-                    Modifier.fillMaxSize()
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(MaterialTheme.colorScheme.primary)
-                )
-            }
-        }
-        Spacer(Modifier.height(4.dp))
-        Icon(icon, contentDescription = label,
-             tint = tint, modifier = Modifier.size(20.dp))
-        Spacer(Modifier.height(2.dp))
-        Text(label,
-             style = MaterialTheme.typography.labelSmall,
-             color = tint,
-             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
     }
 }
 
