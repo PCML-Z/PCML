@@ -1,6 +1,10 @@
 # PMCL
 
 <p align="center">
+  <a href="README.md">English</a> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.zh-TW.md">繁體中文</a>
+</p>
+
+<p align="center">
   <img src="logo-pmcl-pixel.png" alt="PMCL" width="512">
 </p>
 
