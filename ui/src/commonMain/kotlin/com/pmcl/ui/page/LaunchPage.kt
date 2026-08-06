@@ -203,7 +203,6 @@ fun LaunchPage(vm: LauncherViewModel) {
                     val primaryInfo = primaryPinned?.let { vid -> localInfos.find { it.getId() == vid } }
                     val canQuickLaunch = primaryPinned != null &&
                         (primaryInfo?.isLaunchable() ?: false) && account != null && !gameRunning
-                    val runningInstances by vm.runningInstances.collectAsState()
 
                     // 切到此项时立即触发启动（仅一次，避免重复启动）
                     LaunchedEffect(primaryPinned, canQuickLaunch) {
@@ -212,42 +211,8 @@ fun LaunchPage(vm: LauncherViewModel) {
                         }
                     }
 
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            if (primaryPinned == null) {
-                                Text("未固定游戏版本",
-                                     style = MaterialTheme.typography.titleMedium,
-                                     color = MaterialTheme.colorScheme.outline)
-                                Spacer(Modifier.height(6.dp))
-                                Text("请前往版本列表固定一个版本",
-                                     style = MaterialTheme.typography.bodySmall,
-                                     color = MaterialTheme.colorScheme.outline)
-                            } else if (!canQuickLaunch) {
-                                val hint = when {
-                                    primaryInfo?.isLaunchable() != true -> "版本不可用"
-                                    account == null -> "未登录账号"
-                                    gameRunning -> "游戏运行中"
-                                    else -> "无法启动"
-                                }
-                                Text(hint,
-                                     style = MaterialTheme.typography.titleMedium,
-                                     color = MaterialTheme.colorScheme.outline)
-                            } else {
-                                CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 2.dp)
-                                Spacer(Modifier.height(12.dp))
-                                Text("正在启动 ${pinnedLabels[primaryPinned] ?: primaryPinned} ...",
-                                     style = MaterialTheme.typography.bodyMedium)
-                            }
-                            if (runningInstances.isNotEmpty()) {
-                                Spacer(Modifier.height(24.dp))
-                                Text(I18n.t("launch.running_instances") + " · ${runningInstances.size}",
-                                     style = MaterialTheme.typography.labelMedium,
-                                     color = MaterialTheme.colorScheme.primary,
-                                     fontWeight = FontWeight.SemiBold)
-                            }
-                        }
-                    }
-                    StatusLine(vm)
+                    // 空白页，无任何控件
+                    Box(Modifier.fillMaxSize())
                 }
 
                 // ===== 版本列表 =====
