@@ -1,6 +1,7 @@
 package com.pmcl.ui.widget
 
 import androidx.compose.animation.*
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -17,7 +18,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -133,8 +133,8 @@ fun TaskCenterPanel(
         // 半透明遮罩
         AnimatedVisibility(
             visible = visible,
-            enter = fadeIn(animationSpec = tween(200)),
-            exit = fadeOut(animationSpec = tween(200))
+            enter = fadeIn(animationSpec = tween(180, easing = LinearEasing)),
+            exit = fadeOut(animationSpec = tween(150, easing = LinearEasing))
         ) {
             Box(
                 Modifier
@@ -152,11 +152,11 @@ fun TaskCenterPanel(
             visible = visible,
             modifier = Modifier.align(Alignment.CenterEnd),
             enter = slideInHorizontally(
-                animationSpec = tween(300),
+                animationSpec = tween(250, easing = LinearEasing),
                 initialOffsetX = { it }
             ),
             exit = slideOutHorizontally(
-                animationSpec = tween(200),
+                animationSpec = tween(180, easing = LinearEasing),
                 targetOffsetX = { it }
             )
         ) {
@@ -164,7 +164,6 @@ fun TaskCenterPanel(
                 Modifier
                     .fillMaxHeight()
                     .width(400.dp)
-                    .shadow(8.dp, RoundedCornerShape(topStart = 14.dp, bottomStart = 14.dp))
                     .clip(RoundedCornerShape(topStart = 14.dp, bottomStart = 14.dp))
                     .background(panelBg)
             ) {

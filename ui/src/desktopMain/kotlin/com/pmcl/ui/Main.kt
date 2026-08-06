@@ -310,6 +310,19 @@ fun main() = application {
             // 最大化时移除圆角裁剪，让内容填满屏幕直角
             var isMaximized by remember { mutableStateOf(false) }
 
+            // 任务中心展开/收起时同步窗口圆角
+            LaunchedEffect(showTaskCenter) {
+                javax.swing.SwingUtilities.invokeLater {
+                    if (borderless && !showTaskCenter) {
+                        window.shape = RoundRectangle2D.Double(
+                            0.0, 0.0,
+                            window.width.toDouble(), window.height.toDouble(),
+                            14.0, 14.0
+                        )
+                    }
+                }
+            }
+
             // 背景层：放在最底层，所有内容悬浮其上
             // 无边框模式下 clip 圆角，避免方形边缘盖住窗口 shape
             // 最大化时不裁剪，让背景填满屏幕直角
@@ -356,8 +369,8 @@ fun main() = application {
                     val updateShape = {
                         val maximized = window.extendedState == Frame.MAXIMIZED_BOTH
                         isMaximized = maximized
-                        // 最大化时直角填满屏幕，其他状态保持 14dp 圆角
-                        window.shape = if (maximized) null
+                        // 最大化或任务中心展开时直角，其他保持 14dp 圆角
+                        window.shape = if (maximized || showTaskCenter) null
                         else RoundRectangle2D.Double(
                             0.0, 0.0,
                             window.width.toDouble(), window.height.toDouble(),
@@ -423,7 +436,7 @@ fun main() = application {
                     Surface(
                         modifier = Modifier.fillMaxSize().then(
                             // 最大化时不裁剪圆角，让内容填满屏幕直角
-                            if (isMaximized) Modifier
+                            if (isMaximized || showTaskCenter) Modifier
                             else Modifier.clip(RoundedCornerShape(14.dp))
                         ),
                         color = if (bgLayerOn) Color.Transparent else MaterialTheme.colorScheme.surface,
