@@ -157,11 +157,9 @@ class AuthService(
     }
 
     /**
-     * 校验 Yggdrasil accessToken 是否仍有效。
+     * 校验 Yggdrasil accessToken 是否仍有效（网络错误时返回 false，不抛异常）。
      * @param clientToken 可选，用于会话绑定校验
-     * @return true 有效，false 已失效
      */
-    @Throws(IOException::class)
     fun yggdrasilValidate(apiUrl: String, accessToken: String, clientToken: String? = null): Boolean {
         return if (clientToken != null)
             yggdrasilFlow.validate(apiUrl, accessToken, clientToken)
@@ -170,10 +168,9 @@ class AuthService(
     }
 
     /**
-     * 刷新 Yggdrasil accessToken（使用 clientToken 保持会话绑定）。
-     * 成功后返回新的 accessToken，失败返回 null。
+     * 刷新 Yggdrasil accessToken（网络错误或失效时返回 null，不抛异常）。
+     * @param clientToken 可选，用于保持会话绑定
      */
-    @Throws(IOException::class)
     fun yggdrasilRefresh(apiUrl: String, accessToken: String, clientToken: String? = null): String? {
         return if (clientToken != null)
             yggdrasilFlow.refresh(apiUrl, accessToken, clientToken)
