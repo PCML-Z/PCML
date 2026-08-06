@@ -101,6 +101,7 @@ public final class I18n {
         ZH.put("nav.music", "音乐");
         ZH.put("nav.secondary.back", "返回");
         ZH.put("settings.section.launcher", "启动器设置");
+        ZH.put("settings.section.accounts", "账号管理");
         ZH.put("settings.section.theme", "主题系统管理");
         ZH.put("settings.section.java", "Java 行为管理");
         ZH.put("settings.section.game", "游戏行为管理");
@@ -837,6 +838,8 @@ public final class I18n {
         ZH.put("settings.gc_type", "GC 类型");
         ZH.put("settings.aikar", "Aikar's Flags");
         ZH.put("settings.aikar_desc", "社区公认的 MC 优化参数集（推荐开启）");
+        ZH.put("settings.segmented_launch", "启动页滑块布局");
+        ZH.put("settings.segmented_launch_desc", "使用底部滑块切换启动/版本/账号/日志，关闭则恢复分栏布局");
         ZH.put("settings.custom_args", "自定义 JVM 参数（空格分隔）");
         ZH.put("settings.appearance", "外观");
         ZH.put("settings.dark_theme", "深色主题");
@@ -1060,6 +1063,8 @@ public final class I18n {
         ZH.put("launch.default_avatar", "默认头像");
         ZH.put("launch.offline_username", "离线用户名");
         ZH.put("launch.offline_login", "离线登录");
+        ZH.put("launch.account_count", "账号总数: {0}");
+        ZH.put("launch.add_account", "添加账号");
         ZH.put("launch.microsoft_login", "微软登录");
         ZH.put("launch.avatar", "头像");
         ZH.put("launch.no_logs", "（暂无日志）");
@@ -2154,6 +2159,7 @@ public final class I18n {
         EN.put("nav.music", "Music");
         EN.put("nav.secondary.back", "Back");
         EN.put("settings.section.launcher", "Launcher settings");
+        EN.put("settings.section.accounts", "Accounts");
         EN.put("settings.section.theme", "Theme system");
         EN.put("settings.section.java", "Java behavior");
         EN.put("settings.section.game", "Game behavior");
@@ -2871,6 +2877,8 @@ public final class I18n {
         EN.put("settings.gc_type", "GC type");
         EN.put("settings.aikar", "Aikar's Flags");
         EN.put("settings.aikar_desc", "Community-recognized MC optimization flags");
+        EN.put("settings.segmented_launch", "Segmented launch layout");
+        EN.put("settings.segmented_launch_desc", "Use bottom slider to switch launch/version/account/log; off restores split layout");
         EN.put("settings.custom_args", "Custom JVM args (space separated)");
         EN.put("settings.appearance", "Appearance");
         EN.put("settings.dark_theme", "Dark theme");
@@ -3089,6 +3097,8 @@ public final class I18n {
         EN.put("launch.default_avatar", "Default Avatar");
         EN.put("launch.offline_username", "Offline Username");
         EN.put("launch.offline_login", "Offline Login");
+        EN.put("launch.account_count", "Accounts: {0}");
+        EN.put("launch.add_account", "Add Account");
         EN.put("launch.microsoft_login", "Microsoft Login");
         EN.put("launch.avatar", "Avatar");
         EN.put("launch.no_logs", "(No logs yet)");
@@ -4124,6 +4134,7 @@ public final class I18n {
         JA.put("nav.music", "音楽");
         JA.put("nav.secondary.back", "戻る");
         JA.put("settings.section.launcher", "ランチャー設定");
+        JA.put("settings.section.accounts", "アカウント管理");
         JA.put("settings.section.theme", "テーマシステム");
         JA.put("settings.section.java", "Java 動作管理");
         JA.put("settings.section.game", "ゲーム動作管理");
@@ -4841,6 +4852,8 @@ public final class I18n {
         JA.put("settings.gc_type", "GCタイプ");
         JA.put("settings.aikar", "Aikar's Flags");
         JA.put("settings.aikar_desc", "コミュニティ推奨のMC最適化パラメータ");
+        JA.put("settings.segmented_launch", "セグメント起動レイアウト");
+        JA.put("settings.segmented_launch_desc", "下部スライダーで起動/バージョン/アカウント/ログを切替、オフなら分割レイアウト");
         JA.put("settings.custom_args", "カスタムJVM引数（スペース区切り）");
         JA.put("settings.appearance", "外観");
         JA.put("settings.dark_theme", "ダークテーマ");
@@ -5059,6 +5072,8 @@ public final class I18n {
         JA.put("launch.default_avatar", "デフォルトアバター");
         JA.put("launch.offline_username", "オフラインユーザー名");
         JA.put("launch.offline_login", "オフラインログイン");
+        JA.put("launch.account_count", "アカウント数: {0}");
+        JA.put("launch.add_account", "アカウントを追加");
         JA.put("launch.microsoft_login", "Microsoft ログイン");
         JA.put("launch.avatar", "アバター");
         JA.put("launch.no_logs", "（ログはまだありません）");

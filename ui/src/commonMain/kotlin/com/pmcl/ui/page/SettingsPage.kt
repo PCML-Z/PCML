@@ -12,6 +12,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Article
 import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.Check
@@ -47,6 +48,11 @@ import com.pmcl.ui.theme.glassCardElevation
 import com.pmcl.ui.theme.glassSurfaceVariantColor
 import com.pmcl.ui.util.decodeSampledBitmap
 import com.pmcl.ui.viewmodel.LauncherViewModel
+import com.pmcl.ui.viewmodel.switchAccount
+import com.pmcl.ui.viewmodel.removeAccount
+import com.pmcl.ui.viewmodel.loginOffline
+import com.pmcl.ui.viewmodel.startMicrosoftLogin
+import com.pmcl.ui.viewmodel.lastOfflineUsername
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -63,6 +69,7 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
     var customArgs by remember { mutableStateOf(pref.getCustomJvmArgs()) }
     var language by remember { mutableStateOf(pref.getLanguage()) }
     var borderless by remember { mutableStateOf(pref.isBorderlessWindow()) }
+    var segmentedLaunch by remember { mutableStateOf(pref.isUseSegmentedLaunchLayout()) }
 
     // 插件主题包 / 设置分区（轮询 PluginManager.revision 变化时刷新）
     var pluginThemePacks by remember { mutableStateOf<List<com.pmcl.plugin.ThemePack>>(emptyList()) }
@@ -83,6 +90,7 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
     }
 
     val sectionTitleKey = when (sectionId) {
+        "accounts" -> "settings.section.accounts"
         "theme" -> "settings.section.theme"
         "java" -> "settings.section.java"
         "game" -> "settings.section.game"
@@ -457,6 +465,27 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
                 HorizontalDivider()
                 Spacer(Modifier.height(12.dp))
 
+                // 启动页滑块布局
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = segmentedLaunch,
+                        onCheckedChange = { v ->
+                            segmentedLaunch = v
+                            pref.setUseSegmentedLaunchLayout(v)
+                        }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(I18n.t("settings.segmented_launch"), fontWeight = FontWeight.Medium)
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(I18n.t("settings.segmented_launch_desc"),
+                     style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.outline)
+
+                Spacer(Modifier.height(12.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(12.dp))
+
                 // 视差背景主题
                 val parallaxBg by vm.parallaxBackground.collectAsState()
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -777,6 +806,12 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
         DeviceBindingCard(vm, pref)
         }
 
+        if (sectionId == "accounts") {
+            val accountsList by vm.accounts.collectAsState()
+            val currentAccount by vm.account.collectAsState()
+            AccountManagementPage(accounts = accountsList, current = currentAccount, vm = vm)
+        }
+
         if (sectionId == "about") {
         // 关于
         AboutCard(vm)
@@ -911,6 +946,184 @@ private fun GithubSyncCard(vm: LauncherViewModel, pref: com.pmcl.core.preference
                     color = MaterialTheme.colorScheme.outline
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun AccountManagementPage(
+    accounts: List<com.pmcl.core.auth.Account>,
+    current: com.pmcl.core.auth.Account?,
+    vm: LauncherViewModel
+) {
+    var username by remember { mutableStateOf(vm.lastOfflineUsername().ifBlank { "Steve" }) }
+
+    Column(Modifier.fillMaxWidth()) {
+        // 标题 + 账号总数
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                I18n.t("launch.account"),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                I18n.t("launch.account_count", accounts.size),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline
+            )
+        }
+        Spacer(Modifier.height(12.dp))
+
+        if (accounts.isEmpty()) {
+            // 空状态：居中图标 + 未登录提示
+            Box(
+                Modifier.fillMaxWidth().padding(32.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        Icons.Filled.AccountCircle,
+                        contentDescription = null,
+                        modifier = Modifier.size(48.dp),
+                        tint = MaterialTheme.colorScheme.outline
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        I18n.t("launch.not_logged_in_short"),
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                }
+            }
+        } else {
+            // 账号列表
+            Card(
+                Modifier.fillMaxWidth().glassCardBorder(),
+                colors = glassCardColors(),
+                elevation = glassCardElevation()
+            ) {
+                Column {
+                    accounts.forEachIndexed { index, acc ->
+                        AccountRow(
+                            account = acc,
+                            isSelected = current?.getUuid() == acc.getUuid(),
+                            onClick = { vm.switchAccount(acc.getUuid()) },
+                            onDelete = { vm.removeAccount(acc.getUuid()) }
+                        )
+                        if (index < accounts.lastIndex) {
+                            HorizontalDivider(
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
+        Spacer(Modifier.height(16.dp))
+
+        // 底部登录区
+        Card(
+            Modifier.fillMaxWidth().glassCardBorder(),
+            colors = glassCardColors(),
+            elevation = glassCardElevation()
+        ) {
+            Column(Modifier.padding(16.dp)) {
+                Text(
+                    I18n.t("launch.add_account"),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = username,
+                    onValueChange = { username = it },
+                    label = { Text(I18n.t("launch.offline_username")) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = { vm.loginOffline(username) },
+                        enabled = username.isNotBlank()
+                    ) {
+                        Text(I18n.t("launch.offline_login"))
+                    }
+                    OutlinedButton(onClick = vm::startMicrosoftLogin) {
+                        Text(I18n.t("launch.microsoft_login"))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AccountRow(
+    account: com.pmcl.core.auth.Account,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    onDelete: () -> Unit
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // 头像
+        val avatarUrl = account.getAvatarUrl() ?: ""
+        if (avatarUrl.isNotEmpty()) {
+            DeveloperAvatar(avatarUrl, account.getUsername())
+        } else {
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.size(40.dp)
+            ) {
+                Icon(
+                    Icons.Filled.AccountCircle,
+                    contentDescription = I18n.t("launch.default_avatar"),
+                    modifier = Modifier.padding(6.dp)
+                )
+            }
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(account.getUsername(), fontWeight = FontWeight.SemiBold)
+            Text(
+                when (account.getType()) {
+                    com.pmcl.core.auth.Account.AccountType.OFFLINE -> "离线账号"
+                    com.pmcl.core.auth.Account.AccountType.MICROSOFT -> "微软账号"
+                    com.pmcl.core.auth.Account.AccountType.YGGDRASIL -> "皮肤站账号"
+                    com.pmcl.core.auth.Account.AccountType.GITHUB -> "GitHub 账号"
+                    null -> ""
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline
+            )
+        }
+        // 当前选中标记
+        if (isSelected) {
+            Icon(
+                Icons.Filled.Check,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(Modifier.width(12.dp))
+        }
+        // 删除按钮
+        IconButton(onClick = onDelete) {
+            Icon(
+                Icons.Filled.Delete,
+                contentDescription = I18n.t("common.delete"),
+                tint = MaterialTheme.colorScheme.outline
+            )
         }
     }
 }

@@ -2,6 +2,7 @@ package com.pmcl.ui.navigation
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Article
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Build
@@ -51,6 +52,7 @@ object SecondaryNavRegistry {
         parentLabelKey = "nav.settings",
         sections = listOf(
             SecondarySection("launcher", "settings.section.launcher", Icons.Filled.Settings),
+            SecondarySection("accounts", "settings.section.accounts", Icons.Filled.AccountCircle),
             SecondarySection("theme", "settings.section.theme", Icons.Filled.Palette),
             SecondarySection("java", "settings.section.java", Icons.Filled.Terminal),
             SecondarySection("game", "settings.section.game", Icons.Filled.PlayArrow),
