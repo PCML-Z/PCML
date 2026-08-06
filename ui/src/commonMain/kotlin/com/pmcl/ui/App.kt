@@ -59,9 +59,7 @@ import com.pmcl.ui.widget.MiniMusicBar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 @Composable
-fun App(vm: LauncherViewModel) {
-    val themeState = remember { ThemeState(initialDark = vm.preferences.isUseDarkTheme()) }
-
+fun App(vm: LauncherViewModel, themeState: ThemeState) {
     // 直接把 vm.themeState 设为 themeState，让 ViewModel 的 refreshWallpaperColor 能更新它
     SideEffect {
         vm.themeState = themeState

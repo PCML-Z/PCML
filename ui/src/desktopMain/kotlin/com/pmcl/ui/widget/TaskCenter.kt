@@ -1,9 +1,10 @@
 package com.pmcl.ui.widget
 
 import androidx.compose.animation.*
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.updateTransition
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -19,6 +20,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -34,15 +36,15 @@ import java.util.Date
  * 任务中心：从右侧滑入的抽屉面板（内嵌于主窗口，非独立窗口）。
  * - 调度队列：当前活动任务（下载、安装、启动、游戏运行）
  * - 历史通知：近期日志、崩溃事件、状态变更
- * - 入场：slideInHorizontally 300ms + 半透明遮罩
- * - 出场：slideOutHorizontally 200ms + 遮罩淡出
+ * - 入场：连续高速缓出，无关键帧速度断点
+ * - 出场：连续加速退出
  */
 @Composable
 fun TaskCenterPanel(
     visible: Boolean,
     vm: LauncherViewModel,
     onDismiss: () -> Unit,
-    useDark: Boolean = false
+    modifier: Modifier = Modifier
 ) {
     val installing by vm.installing.collectAsState()
     val installProgress by vm.installProgress.collectAsState()
@@ -128,21 +130,33 @@ fun TaskCenterPanel(
     val taskCount = activeTasks.size
     val notifCount = history.size
 
-    val panelBg = if (useDark)
-        Color(0xFF1E1E1E) else Color(0xFFFAFAFA)
+    val panelBg = MaterialTheme.colorScheme.surface
 
-    Box(Modifier.fillMaxSize()) {
-        // 遮罩 alpha：线性 180ms
-        val scrimAlpha by animateFloatAsState(
-            targetValue = if (visible) 0.35f else 0f,
-            animationSpec = tween(180, easing = LinearEasing),
-            label = "scrim"
+    Box(modifier.fillMaxSize()) {
+        val enterEasing = remember { CubicBezierEasing(0.16f, 1f, 0.3f, 1f) }
+        val exitEasing = remember { CubicBezierEasing(0.7f, 0f, 0.84f, 0f) }
+
+        // 动画状态只在 GPU 图层读取，避免每帧重组整个任务列表。
+        val panelTransition = updateTransition(
+            targetState = visible,
+            label = "taskCenterTransition"
         )
-        if (scrimAlpha > 0.01f) {
+        val scrimAlpha = panelTransition.animateFloat(
+            transitionSpec = {
+                if (targetState) {
+                    tween(220, easing = enterEasing)
+                } else {
+                    tween(170, easing = exitEasing)
+                }
+            },
+            label = "scrim"
+        ) { shown -> if (shown) 0.35f else 0f }
+        if (panelTransition.currentState || panelTransition.targetState) {
             Box(
                 Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = scrimAlpha))
+                    .graphicsLayer { alpha = scrimAlpha.value }
+                    .background(Color.Black)
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null
@@ -150,22 +164,32 @@ fun TaskCenterPanel(
             )
         }
 
-        // 面板位移：线性 250ms，GPU 加速 graphicsLayer
-        val slideProgress by animateFloatAsState(
-            targetValue = if (visible) 0f else 1f,
-            animationSpec = tween(250, easing = LinearEasing),
+        // 单段连续曲线保持速度感，同时消除回弹与缩放造成的顿挫。
+        val slideProgress = panelTransition.animateFloat(
+            transitionSpec = {
+                if (targetState) {
+                    tween(300, easing = enterEasing)
+                } else {
+                    tween(210, easing = exitEasing)
+                }
+            },
             label = "panelSlide"
-        )
-        if (slideProgress < 0.999f) {
-            Column(
-                Modifier
-                    .fillMaxHeight()
-                    .width(400.dp)
-                    .align(Alignment.CenterEnd)
-                    .graphicsLayer { translationX = this.size.width * slideProgress }
-                    .clip(RoundedCornerShape(topStart = 14.dp, bottomStart = 14.dp))
-                    .background(panelBg)
-            ) {
+        ) { shown -> if (shown) 0f else 1f }
+        val panelShape = RoundedCornerShape(topStart = 14.dp, bottomStart = 14.dp)
+        Column(
+            Modifier
+                .fillMaxHeight()
+                .width(400.dp)
+                .align(Alignment.CenterEnd)
+                .graphicsLayer {
+                    val progress = slideProgress.value
+                    translationX = this.size.width * progress
+                    alpha = ((1f - progress) * 12.5f).coerceIn(0f, 1f)
+                }
+                .shadow(16.dp, panelShape, clip = false)
+                .clip(panelShape)
+                .background(panelBg)
+        ) {
                 // 标题栏
                 Row(
                     Modifier
@@ -192,7 +216,7 @@ fun TaskCenterPanel(
                     }
                 }
 
-                HorizontalDivider(color = Color.Black.copy(alpha = 0.08f))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
                 LazyColumn(
                     Modifier.weight(1f).fillMaxWidth(),
@@ -210,7 +234,7 @@ fun TaskCenterPanel(
 
                     item { Spacer(Modifier.height(16.dp)) }
                     item {
-                        HorizontalDivider(color = Color.Black.copy(alpha = 0.08f))
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         Spacer(Modifier.height(8.dp))
                     }
 
@@ -224,7 +248,6 @@ fun TaskCenterPanel(
                         }
                     }
                 }
-            }
         }
     }
 }
