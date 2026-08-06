@@ -313,8 +313,9 @@ fun main() = application {
             // 任务中心展开/收起时同步窗口圆角
             LaunchedEffect(showTaskCenter) {
                 javax.swing.SwingUtilities.invokeLater {
-                    if (borderless && !showTaskCenter) {
-                        window.shape = RoundRectangle2D.Double(
+                    if (borderless) {
+                        window.shape = if (showTaskCenter) null
+                        else RoundRectangle2D.Double(
                             0.0, 0.0,
                             window.width.toDouble(), window.height.toDouble(),
                             14.0, 14.0
