@@ -75,7 +75,6 @@ import com.lash.pmcl.core.auth.AuthService
 import com.lash.pmcl.core.auth.DeviceCode
 import com.lash.pmcl.core.auth.GitHubAuthFlow
 import com.lash.pmcl.core.auth.SkinManager
-import com.lash.pmcl.core.auth.YggdrasilAuthFlow
 import com.lash.pmcl.core.preferences.Preferences
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -128,7 +127,6 @@ fun AccountsScreen(
 
     val skinManager = remember { SkinManager() }
     val githubFlow = remember { GitHubAuthFlow() }
-    val yggdrasilFlow = remember { YggdrasilAuthFlow() }
 
     val currentAccount: Account? = accounts.firstOrNull { it.uuid == selectedUuid }
 
@@ -265,7 +263,7 @@ fun AccountsScreen(
         scope.launch {
             try {
                 val account = withContext(Dispatchers.IO) {
-                    yggdrasilFlow.login(yggdrasilApiUrl, yggdrasilUsername, yggdrasilPassword)
+                    authService.yggdrasilLogin(yggdrasilApiUrl, yggdrasilUsername, yggdrasilPassword)
                 }
                 status = "登录成功: ${account.username}"
                 upsertAccount(account)

@@ -268,7 +268,11 @@ class LaunchProfileBuilder(
         val playerUuid = account?.uuid ?: ""
         val accessToken = account?.accessToken ?: ""
         val xuid = account?.xuid ?: ""
-        val userType = if (account?.type == Account.AccountType.MICROSOFT) "msa" else "legacy"
+        val userType = when (account?.type) {
+            Account.AccountType.MICROSOFT -> "msa"
+            Account.AccountType.YGGDRASIL -> "mojang"
+            else -> "legacy"
+        }
         val assetsDir = paths.assets.toString()
         val assetsRoot = paths.assets.resolve("objects").toString()
         val gameDir = profile.gameDir.toString()

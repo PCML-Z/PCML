@@ -32,8 +32,8 @@ import java.util.function.Consumer
  * 与桌面版的差异：
  * - 路径由 [PmclPaths] 提供，不依赖 ~/.pmcl
  * - [TokenEncryptor] 改为实例化（依赖 Android Keystore / Android ID），不再是静态工具类
- * - 移除 GitHub 设备码登录与 authlib-injector（皮肤站）支持，仅保留 OFFLINE + MICROSOFT
- *   GitHub 登录与皮肤站登录可在后续按需迁移
+ * - 移除 GitHub 设备码登录支持，仅保留 OFFLINE + MICROSOFT + YGGDRASIL
+ *   GitHub 登录可在后续按需迁移
  * - 保留 per-account 刷新锁、corruptedAccounts 提示、原子 tmp→rename 写入
  */
 class AuthService(
@@ -43,6 +43,7 @@ class AuthService(
 
     @Volatile
     private var flow: MicrosoftAuthFlow = MicrosoftAuthFlow()
+    private var yggdrasilFlow: YggdrasilAuthFlow = YggdrasilAuthFlow()
 
     private val gson = Gson()
 
@@ -138,6 +139,46 @@ class AuthService(
     fun isMicrosoftAccessTokenValid(account: Account): Boolean {
         if (account.type != Account.AccountType.MICROSOFT) return false
         return flow.isMcAccessTokenValid(account.accessToken)
+    }
+
+    // ============ Yggdrasil 皮肤站认证 ============
+
+    /**
+     * Yggdrasil 皮肤站登录。
+     *
+     * @param apiUrl   皮肤站 API 根地址（如 https://littleskin.cn/api/yggdrasil）
+     * @param username 用户名或邮箱
+     * @param password 密码
+     * @return 登录成功后的 Account
+     */
+    @Throws(IOException::class)
+    fun yggdrasilLogin(apiUrl: String, username: String, password: String): Account {
+        return yggdrasilFlow.login(apiUrl, username, password)
+    }
+
+    /**
+     * 校验 Yggdrasil accessToken 是否仍有效。
+     * @param clientToken 可选，用于会话绑定校验
+     * @return true 有效，false 已失效
+     */
+    @Throws(IOException::class)
+    fun yggdrasilValidate(apiUrl: String, accessToken: String, clientToken: String? = null): Boolean {
+        return if (clientToken != null)
+            yggdrasilFlow.validate(apiUrl, accessToken, clientToken)
+        else
+            yggdrasilFlow.validate(apiUrl, accessToken)
+    }
+
+    /**
+     * 刷新 Yggdrasil accessToken（使用 clientToken 保持会话绑定）。
+     * 成功后返回新的 accessToken，失败返回 null。
+     */
+    @Throws(IOException::class)
+    fun yggdrasilRefresh(apiUrl: String, accessToken: String, clientToken: String? = null): String? {
+        return if (clientToken != null)
+            yggdrasilFlow.refresh(apiUrl, accessToken, clientToken)
+        else
+            yggdrasilFlow.refresh(apiUrl, accessToken)
     }
 
     // ============ 多账号持久化 ============
