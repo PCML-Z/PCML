@@ -14,9 +14,9 @@
 
 **PMCL** (Personal Minecraft Custom Launcher) 是一个基于 Compose Desktop 构建的跨平台 Minecraft 启动器，采用 Material 3 设计语言，内置插件系统、联机功能、模组管理，并支持嵌入 HMCL JavaFX 界面。
 
-## 功能特性
+## 功能特性 (｡•ᴗ•｡)♡
 
-### 启动器核心
+### 启动器核心 (≧◡≦)
 - **Compose Desktop UI** — Material 3 设计，流畅的动画和平滑滚动
 - **版本安装与启动** — 支持从 Alpha 到最新正式版的 Minecraft 版本
 - **微软账户认证** — OAuth 2.0 Device Code 流程登录
@@ -24,34 +24,34 @@
 - **跨平台** — macOS (arm64/x86_64)、Windows (x64)、Linux
 - **GitHub Release 同步更新** — 直接轮询 GitHub Releases API，发现新版本主动通知（见下文）
 
-### 内容管理
+### 内容管理 (◕‿◕✿)
 - **模组管理** — Modrinth / CurseForge 模组市场集成，冲突检测
 - **整合包支持** — 自动扫描 modpack 版本的 mods 目录
 - **世界与截图** — 合并 PMCL / HMCL / 官方启动器目录，去重展示
 - **数据包 / 光影包 / 资源包** — 一键安装与管理
 
-### 联机
+### 联机 (ﾉ´ヮ`)ﾉ*: ･ﾟ
 - **多后端支持** — Terracotta / EasyTier / ConnectX
 - **房间系统** — 创建/加入房间，状态机管理，房间码唯一性保证
 - **中继连接** — 稳定的中继服务器，低丢包率
 
-### 插件系统
+### 插件系统 ฅ^•ﻌ•^ฅ
 - **.ppk 包格式** — 严格规范的 ZIP 包，包含 plugin.xml 清单
 - **多语言源码** — Kotlin（主逻辑）+ Java（辅助功能）+ XML（信息说明）
 - **13 条验证规则** — 路径前缀、文件扩展名、唯一主标记、版本匹配等
 - **插件能力** — 注册命令、GUI 页面、启动钩子、事件监听器
 - **安全默认** — 命令名黑名单（56 个保留字）、zip-slip 防护
 
-### 终端模式
+### 终端模式 (˶◕‿◕˶)
 - **35 条命令** — 版本管理、模组操作、联机、Java 管理、Wiki 搜索等
 - **全英文界面** — 命令历史 (↑/↓)、彩色输出、自动滚动
 - **GUI 终端** — 内嵌在侧边栏的完整终端体验
 
-### JavaFX UI 嵌入插件
+### JavaFX UI 嵌入插件 (っ◔◡◔)っ
 - **JavaFX in Compose** — 通过 JFXPanel + SwingPanel 将 JavaFX UI 嵌入 Compose Desktop
 - **Scene Stealing** — 反射调用 `Launcher.start(stage)`，拦截 `show()` 窃取 Scene
 
-## 项目结构
+## 项目结构 ʕ•ᴥ•ʔ
 
 ```
 PMCL/
@@ -90,11 +90,11 @@ PMCL/
 └── settings.gradle.kts      # 8 个子模块
 ```
 
-## 核心代码示例
+## 核心代码示例 (づ｡◕‿◕｡)づ
 
 下面用启动器里**真实存在**的代码片段，展示四个关键阶段是如何实现的。所有路径相对于仓库根目录。
 
-### 1. 核心初始化（Core Initialization）
+### 1. 核心初始化（Core Initialization） (⸝⸝⸝ᵒ̴̶̷ ω ᵒ̴̶̷⸝⸝⸝)
 
 启动器内核的入口是 `core/.../LauncherCore.java`。它在构造时一次性创建并装配所有子系统，并通过 `initOptional` 让可选模块（插件、联机、翻译等）初始化失败时降级而非中断启动：
 
@@ -155,7 +155,7 @@ class LauncherViewModel {
 }
 ```
 
-### 2. Java 检测（Java Detection）
+### 2. Java 检测（Java Detection） (ﾐ´ω｀ﾐ)
 
 检测系统可用的 Java 运行时由 `core/.../launch/JavaRuntimeFinder.java` 负责。它按「自带 runtimes 目录 → 常见安装路径 → JAVA_HOME → PATH」的优先级查找，并通过 fork `java -version` 解析主版本号：
 
@@ -197,7 +197,7 @@ public static Integer getMajorVersion(String javaExe) {
 }
 ```
 
-### 3. 游戏扫描（Game Scanning）
+### 3. 游戏扫描（Game Scanning） (๑•̀ㅂ•́)و✧
 
 本地已安装版本的扫描在 `core/.../version/VersionManager.java` 中。它会遍历 `versions/` 下的每个子目录，解析 `version.json` 提取 `inheritsFrom` / `mainClass` / `assets`，并合并 PMCL 目录、系统默认目录（如 `~/Library/Application Support/minecraft/versions`）与用户自定义根目录：
 
@@ -238,7 +238,7 @@ public List<LocalVersionInfo> scanAllLocalVersions(Consumer<ScanProgress> onProg
 }
 ```
 
-### 4. 资源完成（Resource Completion）
+### 4. 资源完成（Resource Completion） (◕ᴗ◕✿)
 
 版本安装器 `core/.../install/VersionInstaller.java` 负责把游戏所需的 `client.jar`、`libraries`（含 natives）和 `assets` 全部补齐。资源完整性由 `AssetIndex.parse` 校验——任一资源条目缺少有效 SHA-1 即拒绝安装，避免「装完却缺资源」：
 
@@ -284,7 +284,7 @@ public static AssetIndex parse(String json) throws IOException {
 }
 ```
 
-## 技术栈
+## 技术栈 (´｡• ᵕ •｡`)
 
 | 组件 | 技术 |
 |------|------|
@@ -296,13 +296,13 @@ public static AssetIndex parse(String json) throws IOException {
 | 系统信息 | OSHI 6.6.5 |
 | JavaFX | OpenJFX 25 (mac arm64) |
 
-## 快速开始
+## 快速开始 ♡(˃͈ દ ˂͈ ༶ )
 
-### 环境要求
+### 环境要求 (ﾐᴗﾐ)
 - JDK 21+
 - Gradle 8.10+（项目已包含 gradlew）
 
-### 构建
+### 构建 (｡•ᴗ•｡)♡
 
 ```bash
 # 构建 Fat JAR（Compose 原生库较全，但 JavaFX 原生库与构建主机一致）
@@ -312,7 +312,7 @@ public static AssetIndex parse(String json) throws IOException {
 # 运行: java -jar ui/build/libs/pmcl-1.3.0-all.jar
 ```
 
-### 构建原生安装包
+### 构建原生安装包 (≧◡≦)
 
 ```bash
 # 当前系统的原生安装包（macOS: pkg/dmg，Windows: msi/exe，Linux: deb/rpm）
@@ -321,7 +321,7 @@ public static AssetIndex parse(String json) throws IOException {
 # 发布构建可用 packageReleasePkg / packageReleaseMsi / packageReleaseDeb 等任务
 ```
 
-### 构建插件
+### 构建插件 (◕‿◕✿)
 
 ```bash
 ./gradlew :hmcl-plugin:ppk
@@ -332,11 +332,11 @@ public static AssetIndex parse(String json) throws IOException {
 # 输出: custom-downloader-plugin/build/distributions/custom-downloader-1.1.0.ppk
 ```
 
-## 插件开发
+## 插件开发 (ﾉ´ヮ`)ﾉ*: ･ﾟ
 
 > 完整的插件包格式、描述符字段、签名信任、API 契约与权限声明等要求，请参见 **[PLUGIN_REQUIREMENTS.md](PLUGIN_REQUIREMENTS.md)**。
 
-### 最小示例
+### 最小示例 ฅ^•ﻌ•^ฅ
 
 ```kotlin
 class MyPlugin : PmclPlugin {
@@ -354,7 +354,7 @@ class MyPlugin : PmclPlugin {
 }
 ```
 
-### .ppk 包格式
+### .ppk 包格式 (˶◕‿◕˶)
 
 ```
 my-plugin-1.0.0.ppk
@@ -369,7 +369,7 @@ my-plugin-1.0.0.ppk
     └── java/                           # Java 源码 (文档)
 ```
 
-### 安装插件
+### 安装插件 (っ◔◡◔)っ
 
 ```bash
 # Shell 终端
@@ -381,7 +381,7 @@ plugin package /absolute/path/to/plugin.ppk
 
 插件安装到 `~/.pmcl/plugins/<id>/`，支持 zip-slip 防护。
 
-## 侧边栏导航
+## 侧边栏导航 ʕ•ᴥ•ʔ
 
 | 图标 | 页面 | 功能 |
 |------|------|------|
@@ -396,7 +396,7 @@ plugin package /absolute/path/to/plugin.ppk
 | Terminal | 终端 | 35 条命令的 Shell |
 | Extension | 插件 | 插件管理 + 插件页面 |
 
-## 工程要点
+## 工程要点 (づ｡◕‿◕｡)づ
 
 - **Java 架构检测** — 通过 `java -XshowSettings:properties -version` 检测实际架构，Apple Silicon 优先选择 `natives-*-arm64`
 - **旧版本兼容** — 1.12.2 及更早版本强制使用 Java 8（LaunchWrapper 依赖 URLClassLoader）
@@ -406,11 +406,11 @@ plugin package /absolute/path/to/plugin.ppk
 - **Modpack gameDir** — 整合包的 gameDir 必须设为版本目录本身，而非 mcRoot
 - **Fat JAR module-info** — 排除所有 module-info.class 避免 Java 21 命名模块问题
 
-## GitHub Release 同步更新
+## GitHub Release 同步更新 (⸝⸝⸝ᵒ̴̶̷ ω ᵒ̴̶̷⸝⸝⸝)
 
 PMCL 每次启动都会访问 GitHub Releases API 检查一次最新版本。周期同步开关默认关闭；用户开启后，每 30 分钟追加检查一次。发现新版本时会选择当前操作系统/架构对应的安装包，用户确认后完成下载、摘要与签名校验，并在退出当前进程后自动安装、重启。
 
-### 架构
+### 架构 (ﾐ´ω｀ﾐ)
 
 ```
 GitHub Releases API  ◀──启动检查/可选周期轮询──  PMCL 客户端
@@ -431,7 +431,7 @@ GitHub Releases API  ◀──启动检查/可选周期轮询──  PMCL 客户
 - **安全校验** — 安装包必须有 GitHub SHA-256 digest 和对应的 `.sig` Ed25519 签名资产
 - **速率限制处理** — 未认证 GitHub API 限 60 次/小时；触发限制后自动延长到 2 小时间隔，通过 `X-RateLimit-Remaining` header 检测
 
-### 发布新版本
+### 发布新版本 (๑•̀ㅂ•́)و✧
 
 仓库内置 `.github/workflows/release-desktop.yml`。推送 `v*` tag 后会分别构建 macOS PKG、Windows MSI、Linux DEB/RPM，以及各构建主机对应的 OS/架构 JAR，并上传每个安装包及其同名 `.sig`。
 
@@ -441,7 +441,7 @@ GitHub Releases API  ◀──启动检查/可选周期轮询──  PMCL 客户
 
 工作流通过 `tools/SignUpdateAsset.java` 对版本、下载 URL、SHA-256 和文件大小的规范载荷签名。缺少密钥或签名时发布任务会失败，客户端也会拒绝安装。
 
-### 启动器端配置
+### 启动器端配置 (◕ᴗ◕✿)
 
 1. 打开 PMCL → 设置 → 滚动到底部"GitHub Release 同步"卡片
 2. 默认仓库为 `PCML-Z/PCML`；也可填入其他 `owner/repo`
@@ -451,7 +451,7 @@ GitHub Releases API  ◀──启动检查/可选周期轮询──  PMCL 客户
 
 发现新版本时，启动器任意页面都会弹出版本、平台构建、更新说明和大小。选择“下载并自动安装”后，文件先保存到 `~/.pmcl/updates/` 并完成双重校验；随后辅助安装进程接管，PMCL 优雅退出、安装对应系统构建并重新打开。系统安装包可能触发管理员授权。
 
-### GitHub API 速率限制
+### GitHub API 速率限制 (´｡• ᵕ •｡`)
 
 未认证的 GitHub REST API 限制为 60 次/小时。PMCL 每 30 分钟轮询一次（2 次/小时），正常使用不会触及限制。若因其他原因触发限制：
 
@@ -459,13 +459,13 @@ GitHub Releases API  ◀──启动检查/可选周期轮询──  PMCL 客户
 - 恢复后自动回到 30 分钟的正常间隔
 - 状态栏会显示"GitHub API 速率限制，120分钟后重试"
 
-## 许可证
+## 许可证 ♡(˃͈ દ ˂͈ ༶ )
 
 本项目仅供学习和个人使用。
 
 Minecraft 是 Mojang Studios 的商标。请确保您拥有合法的 Minecraft 副本。
 
-## 致谢
+## 致谢 (ﾐᴗﾐ)
 
 - [Compose Multiplatform](https://github.com/JetBrains/compose-multiplatform) — JetBrains
 - [Modrinth](https://modrinth.com) — 模组市场 API
