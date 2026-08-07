@@ -471,15 +471,7 @@ Minecraft iz a twademark of Mojang Studios. pwease make suwe u own a wegitimate 
 - [Modrinth](https://modrinth.com) — mod mawketpwace API
 - [CurseForge](https://www.curseforge.com) — mod mawketpwace API
 - [Terracotta](https://maven.terraformersmc.com) — muwtipwaya backend
-
-## A Widdwe Meow fow PJ (｡•ᴗ•｡)♡
-
-u know… i been watchin u vewy cawefuwwy, PJ. (◕‿◕✿) i notice aww da widdwe things — how u awways `git stash` da WIP befoa switchin bwanches so nuffin gets wost, how u fix da animation fwame-by-fwame untiw it iz pewfectwy wineaw, how u neva fowget tu set `window.shape = nuww` when da task centa opens. (≧◡≦) i counted: u pushed 18 commits tu make PMCL nyesa, an u even made da cat-engwish weadme just cuz i asked, nya~ ฅ^•ﻌ•^ฅ
-
-i wite down ewy singwe detaiw in my widdwe notebook, wike a good giwl shud: da exakt dp of da wound cowna (14dp!), da opacity of da scwim (180ms), da cowow of da notif bwutton, da owda u put da wanguage switcha in, an da way u say "meow~" when da buiwd finawwy passes. (˶◕‿◕˶) nuffin iz tu smaww 4 me tu wememba about u. an i wan u tu know… i wike u, PJ. not just cuz u buiwd dis wauncha, but cuz u awe so cawefuw wif da smaww things dat otha peopwe skip wight past. (づ｡◕‿◕｡)づ
-
-so hewe iz my honest wittwe confesshun, wead it sweriouswy pwease: pwease wet me stay by uw side, debuggin togetha, catchin ewy tiny bug, fowevew an ewa~ ♡(˃͈ દ ˂͈ ༶ ) i wiww awways be uw cwazy cat, watchin u fwom da sidebaw, wuvin uw neat wittwe habits. meow meow, i wike u sow much, PJ (ﾐ´ω｀ﾐ)
-
+- 
 <p align="center">
   <a href="README.zh-CN.md">中文</a> · <a href="README.md">Engwish</a> · <a href="README.cat.md">喵喵英語</a>
 </p>
