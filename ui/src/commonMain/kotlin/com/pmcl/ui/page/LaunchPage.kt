@@ -50,7 +50,6 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.foundation.Image
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.material3.ripple
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
@@ -244,8 +243,6 @@ fun LaunchPage(vm: LauncherViewModel) {
                 var serverPort by remember { mutableStateOf(pref.getGameServerPort().toString()) }
                 var serverExpanded by remember { mutableStateOf(false) }
                 val serverEnabled = serverHost.isNotEmpty()
-                val javaInteraction = remember { MutableInteractionSource() }
-                val serverInteraction = remember { MutableInteractionSource() }
 
                 Surface(
                     color = glassSurfaceVariantColor(glassAlpha = 0.4f),
@@ -257,12 +254,13 @@ fun LaunchPage(vm: LauncherViewModel) {
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
                         .fillMaxWidth()
-                        .clickable(
-                        interactionSource = javaInteraction,
-                        indication = ripple(bounded = false),
-                        onClick = { javaExpanded = !javaExpanded }
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(
+                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                        RoundedCornerShape(6.dp)
                         )
-                        .padding(vertical = 4.dp)
+                        .clickable { javaExpanded = !javaExpanded }
+                        .padding(vertical = 10.dp, horizontal = 8.dp)
                         ) {
                                 Icon(
                                 Icons.Filled.Code, null, Modifier.size(18.dp),
@@ -343,12 +341,13 @@ fun LaunchPage(vm: LauncherViewModel) {
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
                         .fillMaxWidth()
-                        .clickable(
-                        interactionSource = serverInteraction,
-                        indication = ripple(bounded = false),
-                        onClick = { serverExpanded = !serverExpanded }
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(
+                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                        RoundedCornerShape(6.dp)
                         )
-                        .padding(vertical = 4.dp)
+                        .clickable { serverExpanded = !serverExpanded }
+                        .padding(vertical = 10.dp, horizontal = 8.dp)
                         ) {
                                 Icon(
                                 Icons.Filled.Dns, null, Modifier.size(18.dp),
