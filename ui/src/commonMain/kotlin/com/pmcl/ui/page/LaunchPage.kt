@@ -328,10 +328,7 @@ fun LaunchPage(vm: LauncherViewModel) {
                                      color = MaterialTheme.colorScheme.outline)
                             }
                         }
-                        HorizontalDivider(
-                            modifier = Modifier.padding(vertical = 12.dp),
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                        )
+                        Spacer(Modifier.height(12.dp))
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.fillMaxWidth().clickable { serverExpanded = !serverExpanded }
