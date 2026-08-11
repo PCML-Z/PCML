@@ -149,7 +149,6 @@ fun main() = application {
     // 启动时仅轻量读取窗口/主题偏好（不构造完整 Preferences，避免与 LauncherCore 重复加载）
     val prefPath = Paths.get(System.getProperty("user.home"), ".pmcl", "preferences.json")
     val borderless = remember { readBorderlessPref(prefPath.toString()) }
-    val useDark = remember { readDarkThemePref(prefPath.toString()) }
     val vm = remember { LauncherViewModel() }
     val sharedThemeState = remember {
         ThemeState(initialDark = vm.preferences.isUseDarkTheme())
@@ -327,20 +326,33 @@ fun main() = application {
                     type = customBgType,
                     imagePath = customBgImage,
                     videoPath = customBgVideo,
-                    useDark = useDark,
+                    useDark = sharedThemeState.useDark,
                     modifier = bgModifier
                 )
             } else if (parallaxBg) {
                 com.pmcl.ui.theme.ParallaxBackground(
                     modifier = bgModifier,
-                    useDark = useDark
+                    useDark = sharedThemeState.useDark
                 )
             }
+            val windowDynamicScheme =
+                if (sharedThemeState.dynamicColor || sharedThemeState.customAccentColor != -1) {
+                    sharedThemeState.dynamicColorScheme
+                } else {
+                    null
+                }
+            LauncherTheme(
+                useDarkTheme = sharedThemeState.useDark,
+                dynamicColorScheme = windowDynamicScheme,
+                uiScale = sharedThemeState.uiScale,
+                themePreset = sharedThemeState.themePreset,
+                colorMode = sharedThemeState.colorMode,
+                customThemePack = sharedThemeState.customThemePack
+            ) {
+                CompositionLocalProvider(LocalThemeState provides sharedThemeState) {
             if (borderless) {
                 // 无边框模式：transparent=true 让边缘像素 alpha 混合（抗锯齿），
                 // 圆角 shape 始终保持，AWT 背景始终保持透明让视差/玻璃效果生效
-                val isDark = useDark
-                val scheme = if (isDark) darkColorScheme() else lightColorScheme()
                 val isDragging = remember { mutableStateOf(false) }
 
                 DisposableEffect(Unit) {
@@ -425,29 +437,27 @@ fun main() = application {
                         window.removeComponentListener(listener)
                     }
                 }
-                MaterialTheme(colorScheme = scheme) {
-                    Surface(
-                        modifier = Modifier.fillMaxSize().then(
-                            // 仅最大化时不裁剪；任务中心展开期间继续保持窗口圆角
-                            if (isMaximized) Modifier
-                            else Modifier.clip(RoundedCornerShape(14.dp))
-                        ),
-                        color = if (bgLayerOn) Color.Transparent else MaterialTheme.colorScheme.surface,
-                        tonalElevation = if (bgLayerOn) 0.dp else 1.dp
-                    ) {
-                        Column(Modifier.fillMaxSize()) {
-                            BorderlessTitleBar(
-                                onClose = ::exitApplication,
-                                isDragging = isDragging,
-                                vm = vm,
-                                searchFocusRequester = searchFocusRequester,
-                                onOpenCompanion = { showCompanionDialog.value = true },
-                                onOpenTaskCenter = { showTaskCenter = true },
-                                glassOn = glassOn
-                            )
-                            Box(Modifier.weight(1f).fillMaxWidth()) {
-                                App(vm, sharedThemeState)
-                            }
+                Surface(
+                    modifier = Modifier.fillMaxSize().then(
+                        // 仅最大化时不裁剪；任务中心展开期间继续保持窗口圆角
+                        if (isMaximized) Modifier
+                        else Modifier.clip(RoundedCornerShape(14.dp))
+                    ),
+                    color = if (bgLayerOn) Color.Transparent else MaterialTheme.colorScheme.surface,
+                    tonalElevation = if (bgLayerOn) 0.dp else 1.dp
+                ) {
+                    Column(Modifier.fillMaxSize()) {
+                        BorderlessTitleBar(
+                            onClose = ::exitApplication,
+                            isDragging = isDragging,
+                            vm = vm,
+                            searchFocusRequester = searchFocusRequester,
+                            onOpenCompanion = { showCompanionDialog.value = true },
+                            onOpenTaskCenter = { showTaskCenter = true },
+                            glassOn = glassOn
+                        )
+                        Box(Modifier.weight(1f).fillMaxWidth()) {
+                            App(vm, sharedThemeState)
                         }
                     }
                 }
@@ -468,56 +478,35 @@ fun main() = application {
             }
             // iOS 伴随 App 配对对话框（保持与主窗口主题一致）
             if (showCompanionDialog.value) {
-                val scheme = if (useDark) darkColorScheme() else lightColorScheme()
-                MaterialTheme(colorScheme = scheme) {
-                    com.pmcl.ui.companion.CompanionPairDialog(
-                        pairing = pairingManager,
-                        hostServer = hostServer,
-                        onDismiss = { showCompanionDialog.value = false },
-                        parallaxBg = bgLayerOn,
-                        glassOn = glassOn,
-                        useDark = useDark
-                    )
-                }
+                com.pmcl.ui.companion.CompanionPairDialog(
+                    pairing = pairingManager,
+                    hostServer = hostServer,
+                    onDismiss = { showCompanionDialog.value = false },
+                    parallaxBg = bgLayerOn,
+                    glassOn = glassOn,
+                    useDark = sharedThemeState.useDark
+                )
             }
             // 任务中心：右侧滑入面板（内嵌，非独立窗口）
-            val taskCenterDynamicScheme =
-                if (sharedThemeState.dynamicColor || sharedThemeState.customAccentColor != -1) {
-                    sharedThemeState.dynamicColorScheme
+            TaskCenterPanel(
+                visible = showTaskCenter,
+                vm = vm,
+                onDismiss = { showTaskCenter = false },
+                modifier = if (borderless && !isMaximized) {
+                    Modifier.clip(RoundedCornerShape(14.dp))
                 } else {
-                    null
+                    Modifier
                 }
-            LauncherTheme(
-                useDarkTheme = sharedThemeState.useDark,
-                dynamicColorScheme = taskCenterDynamicScheme,
-                uiScale = sharedThemeState.uiScale,
-                themePreset = sharedThemeState.themePreset,
-                colorMode = sharedThemeState.colorMode,
-                customThemePack = sharedThemeState.customThemePack
-            ) {
-                CompositionLocalProvider(LocalThemeState provides sharedThemeState) {
-                    TaskCenterPanel(
-                        visible = showTaskCenter,
-                        vm = vm,
-                        onDismiss = { showTaskCenter = false },
-                        modifier = if (borderless && !isMaximized) {
-                            Modifier.clip(RoundedCornerShape(14.dp))
-                        } else {
-                            Modifier
-                        }
-                    )
-                }
-            }
+            )
             // Mod 拖放安装对话框：拖入 .jar 文件后展示
             val dropState by vm.dropInstallState.collectAsState()
             if (dropState != null) {
-                val scheme = if (useDark) darkColorScheme() else lightColorScheme()
-                MaterialTheme(colorScheme = scheme) {
-                    com.pmcl.ui.page.ModDropDialog(
-                        state = dropState!!,
-                        vm = vm,
-                        useDark = useDark
-                    )
+                com.pmcl.ui.page.ModDropDialog(
+                    state = dropState!!,
+                    vm = vm,
+                    useDark = sharedThemeState.useDark
+                )
+            }
                 }
             }
         }

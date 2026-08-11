@@ -28,6 +28,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pmcl.ui.theme.glassCardColors
 import com.pmcl.ui.theme.glassCardElevation
+import com.pmcl.ui.theme.glassContainerColor
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -130,7 +131,8 @@ fun TaskCenterPanel(
     val taskCount = activeTasks.size
     val notifCount = history.size
 
-    val panelBg = MaterialTheme.colorScheme.surface
+    // 与窗口共享同一 ThemeState：普通主题使用实色 surface，玻璃主题自动透出背景。
+    val panelBg = glassContainerColor(MaterialTheme.colorScheme.surface, glassAlpha = 0.82f)
 
     Box(modifier.fillMaxSize()) {
         val enterEasing = remember { CubicBezierEasing(0.16f, 1f, 0.3f, 1f) }
