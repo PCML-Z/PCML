@@ -328,7 +328,7 @@ fun LaunchPage(vm: LauncherViewModel) {
                                      color = MaterialTheme.colorScheme.outline)
                             }
                         }
-                        Spacer(Modifier.height(12.dp))
+                        Spacer(Modifier.height(16.dp))
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.fillMaxWidth().clickable { serverExpanded = !serverExpanded }
