@@ -50,6 +50,7 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.foundation.Image
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.material3.ripple
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
@@ -243,6 +244,8 @@ fun LaunchPage(vm: LauncherViewModel) {
                 var serverPort by remember { mutableStateOf(pref.getGameServerPort().toString()) }
                 var serverExpanded by remember { mutableStateOf(false) }
                 val serverEnabled = serverHost.isNotEmpty()
+                val javaInteraction = remember { MutableInteractionSource() }
+                val serverInteraction = remember { MutableInteractionSource() }
 
                 Surface(
                     color = glassSurfaceVariantColor(glassAlpha = 0.4f),
@@ -259,7 +262,11 @@ fun LaunchPage(vm: LauncherViewModel) {
                         MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
                         RoundedCornerShape(6.dp)
                         )
-                        .clickable { javaExpanded = !javaExpanded }
+                        .clickable(
+                        interactionSource = javaInteraction,
+                        indication = ripple(color = MaterialTheme.colorScheme.primary),
+                        onClick = { javaExpanded = !javaExpanded }
+                        )
                         .padding(vertical = 10.dp, horizontal = 8.dp)
                         ) {
                                 Icon(
@@ -346,7 +353,11 @@ fun LaunchPage(vm: LauncherViewModel) {
                         MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
                         RoundedCornerShape(6.dp)
                         )
-                        .clickable { serverExpanded = !serverExpanded }
+                        .clickable(
+                        interactionSource = serverInteraction,
+                        indication = ripple(color = MaterialTheme.colorScheme.primary),
+                        onClick = { serverExpanded = !serverExpanded }
+                        )
                         .padding(vertical = 10.dp, horizontal = 8.dp)
                         ) {
                                 Icon(
