@@ -50,6 +50,8 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.foundation.Image
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.material.ripple.rememberRipple
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
@@ -243,6 +245,8 @@ fun LaunchPage(vm: LauncherViewModel) {
                 var serverPort by remember { mutableStateOf(pref.getGameServerPort().toString()) }
                 var serverExpanded by remember { mutableStateOf(false) }
                 val serverEnabled = serverHost.isNotEmpty()
+                val javaInteraction = remember { MutableInteractionSource() }
+                val serverInteraction = remember { MutableInteractionSource() }
 
                 Surface(
                     color = glassSurfaceVariantColor(glassAlpha = 0.4f),
@@ -250,16 +254,17 @@ fun LaunchPage(vm: LauncherViewModel) {
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(Modifier.padding(12.dp)) {
-                        Surface(
-                        onClick = { javaExpanded = !javaExpanded },
-                        color = Color.Transparent,
-                        shape = RoundedCornerShape(6.dp),
-                        modifier = Modifier.fillMaxWidth()
+                        Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(
+                        interactionSource = javaInteraction,
+                        indication = rememberRipple(bounded = false),
+                        onClick = { javaExpanded = !javaExpanded }
+                        )
+                        .padding(vertical = 4.dp)
                         ) {
-                            Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
-                            ) {
                                 Icon(
                                 Icons.Filled.Code, null, Modifier.size(18.dp),
                                 tint = if (hasVersionJava) MaterialTheme.colorScheme.primary
@@ -285,7 +290,6 @@ fun LaunchPage(vm: LauncherViewModel) {
                                 tint = MaterialTheme.colorScheme.outline
                                 )
                             }
-                        }
                         AnimatedVisibility(visible = javaExpanded) {
                             Column {
                                 Spacer(Modifier.height(12.dp))
@@ -336,16 +340,17 @@ fun LaunchPage(vm: LauncherViewModel) {
                             }
                         }
                         Spacer(Modifier.height(16.dp))
-                        Surface(
-                        onClick = { serverExpanded = !serverExpanded },
-                        color = Color.Transparent,
-                        shape = RoundedCornerShape(6.dp),
-                        modifier = Modifier.fillMaxWidth()
+                        Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(
+                        interactionSource = serverInteraction,
+                        indication = rememberRipple(bounded = false),
+                        onClick = { serverExpanded = !serverExpanded }
+                        )
+                        .padding(vertical = 4.dp)
                         ) {
-                            Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
-                            ) {
                                 Icon(
                                 Icons.Filled.Dns, null, Modifier.size(18.dp),
                                 tint = if (serverEnabled) MaterialTheme.colorScheme.primary
@@ -371,7 +376,6 @@ fun LaunchPage(vm: LauncherViewModel) {
                                 tint = MaterialTheme.colorScheme.outline
                                 )
                             }
-                        }
                         AnimatedVisibility(visible = serverExpanded) {
                             Column {
                                 Spacer(Modifier.height(12.dp))
