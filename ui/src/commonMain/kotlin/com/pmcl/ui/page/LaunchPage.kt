@@ -50,8 +50,7 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.foundation.Image
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.material.ripple.rememberRipple
+import androidx.compose.material3.ripple
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
@@ -260,7 +259,7 @@ fun LaunchPage(vm: LauncherViewModel) {
                         .fillMaxWidth()
                         .clickable(
                         interactionSource = javaInteraction,
-                        indication = rememberRipple(bounded = false),
+                        indication = ripple(bounded = false),
                         onClick = { javaExpanded = !javaExpanded }
                         )
                         .padding(vertical = 4.dp)
@@ -346,7 +345,7 @@ fun LaunchPage(vm: LauncherViewModel) {
                         .fillMaxWidth()
                         .clickable(
                         interactionSource = serverInteraction,
-                        indication = rememberRipple(bounded = false),
+                        indication = ripple(bounded = false),
                         onClick = { serverExpanded = !serverExpanded }
                         )
                         .padding(vertical = 4.dp)
