@@ -250,144 +250,158 @@ fun LaunchPage(vm: LauncherViewModel) {
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(Modifier.padding(12.dp)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth().clickable { javaExpanded = !javaExpanded }
+                        Surface(
+                        onClick = { javaExpanded = !javaExpanded },
+                        color = Color.Transparent,
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier.fillMaxWidth()
                         ) {
-                            Icon(
+                            Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                            ) {
+                                Icon(
                                 Icons.Filled.Code, null, Modifier.size(18.dp),
                                 tint = if (hasVersionJava) MaterialTheme.colorScheme.primary
-                                       else MaterialTheme.colorScheme.outline
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(I18n.t("launch.version_java"),
-                                     style = MaterialTheme.typography.labelLarge,
-                                     fontWeight = FontWeight.SemiBold)
-                                Text(
+                                else MaterialTheme.colorScheme.outline
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(I18n.t("launch.version_java"),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.SemiBold)
+                                    Text(
                                     if (hasVersionJava) versionJava
                                     else I18n.t("launch.version_java_auto"),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.outline,
                                     maxLines = 1
-                                )
-                            }
-                            Icon(
+                                    )
+                                }
+                                Icon(
                                 if (javaExpanded) Icons.Filled.KeyboardArrowUp
                                 else Icons.Filled.KeyboardArrowDown,
                                 null, Modifier.size(20.dp),
                                 tint = MaterialTheme.colorScheme.outline
-                            )
+                                )
+                            }
                         }
                         AnimatedVisibility(visible = javaExpanded) {
                             Column {
                                 Spacer(Modifier.height(12.dp))
                                 OutlinedTextField(
-                                    value = versionJava,
-                                    onValueChange = {
-                                        versionJava = it
-                                        vm.setVersionJavaPath(verId, it)
-                                    },
-                                    label = { Text(I18n.t("launch.version_java_path")) },
-                                    singleLine = true,
-                                    placeholder = { Text(I18n.t("launch.version_java_empty")) },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    trailingIcon = {
-                                        Row {
-                                            IconButton(onClick = {
-                                                val fd = java.awt.FileDialog(
-                                                    null as java.awt.Frame?,
-                                                    I18n.t("launch.version_java_select"),
-                                                    java.awt.FileDialog.LOAD
-                                                )
-                                                fd.isVisible = true
-                                                if (fd.file != null) {
-                                                    val p = java.io.File(fd.directory, fd.file).absolutePath
-                                                    versionJava = p
-                                                    vm.setVersionJavaPath(verId, p)
-                                                }
-                                            }) {
-                                                Icon(Icons.Filled.FolderOpen,
-                                                     contentDescription = I18n.t("common.browse"))
+                                value = versionJava,
+                                onValueChange = {
+                                    versionJava = it
+                                    vm.setVersionJavaPath(verId, it)
+                                },
+                                label = { Text(I18n.t("launch.version_java_path")) },
+                                singleLine = true,
+                                placeholder = { Text(I18n.t("launch.version_java_empty")) },
+                                modifier = Modifier.fillMaxWidth(),
+                                trailingIcon = {
+                                    Row {
+                                        IconButton(onClick = {
+                                            val fd = java.awt.FileDialog(
+                                            null as java.awt.Frame?,
+                                            I18n.t("launch.version_java_select"),
+                                            java.awt.FileDialog.LOAD
+                                            )
+                                            fd.isVisible = true
+                                            if (fd.file != null) {
+                                                val p = java.io.File(fd.directory, fd.file).absolutePath
+                                                versionJava = p
+                                                vm.setVersionJavaPath(verId, p)
                                             }
-                                            if (versionJava.isNotEmpty()) {
-                                                IconButton(onClick = {
-                                                    versionJava = ""
-                                                    vm.setVersionJavaPath(verId, "")
-                                                }) {
-                                                    Icon(Icons.Filled.Clear,
-                                                         contentDescription = I18n.t("common.remove"))
-                                                }
+                                        }) {
+                                            Icon(Icons.Filled.FolderOpen,
+                                            contentDescription = I18n.t("common.browse"))
+                                        }
+                                        if (versionJava.isNotEmpty()) {
+                                            IconButton(onClick = {
+                                                versionJava = ""
+                                                vm.setVersionJavaPath(verId, "")
+                                            }) {
+                                                Icon(Icons.Filled.Clear,
+                                                contentDescription = I18n.t("common.remove"))
                                             }
                                         }
                                     }
+                                }
                                 )
                                 Spacer(Modifier.height(4.dp))
                                 Text(I18n.t("launch.version_java_hint"),
-                                     style = MaterialTheme.typography.labelSmall,
-                                     color = MaterialTheme.colorScheme.outline)
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.outline)
                             }
                         }
                         Spacer(Modifier.height(16.dp))
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth().clickable { serverExpanded = !serverExpanded }
+                        Surface(
+                        onClick = { serverExpanded = !serverExpanded },
+                        color = Color.Transparent,
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier.fillMaxWidth()
                         ) {
-                            Icon(
+                            Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                            ) {
+                                Icon(
                                 Icons.Filled.Dns, null, Modifier.size(18.dp),
                                 tint = if (serverEnabled) MaterialTheme.colorScheme.primary
-                                       else MaterialTheme.colorScheme.outline
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(I18n.t("launch.server_connect"),
-                                     style = MaterialTheme.typography.labelLarge,
-                                     fontWeight = FontWeight.SemiBold)
-                                Text(
+                                else MaterialTheme.colorScheme.outline
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(I18n.t("launch.server_connect"),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.SemiBold)
+                                    Text(
                                     if (serverEnabled) "$serverHost:$serverPort"
                                     else I18n.t("launch.server_empty_hint"),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.outline,
                                     maxLines = 1
-                                )
-                            }
-                            Icon(
+                                    )
+                                }
+                                Icon(
                                 if (serverExpanded) Icons.Filled.KeyboardArrowUp
                                 else Icons.Filled.KeyboardArrowDown,
                                 null, Modifier.size(20.dp),
                                 tint = MaterialTheme.colorScheme.outline
-                            )
+                                )
+                            }
                         }
                         AnimatedVisibility(visible = serverExpanded) {
                             Column {
                                 Spacer(Modifier.height(12.dp))
                                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                     OutlinedTextField(
-                                        value = serverHost,
-                                        onValueChange = {
-                                            serverHost = it
-                                            pref.setGameServerHost(it)
-                                        },
-                                        label = { Text(I18n.t("launch.server_address")) },
-                                        singleLine = true,
-                                        placeholder = { Text(I18n.t("launch.server_leave_empty")) },
-                                        modifier = Modifier.weight(2f)
+                                    value = serverHost,
+                                    onValueChange = {
+                                        serverHost = it
+                                        pref.setGameServerHost(it)
+                                    },
+                                    label = { Text(I18n.t("launch.server_address")) },
+                                    singleLine = true,
+                                    placeholder = { Text(I18n.t("launch.server_leave_empty")) },
+                                    modifier = Modifier.weight(2f)
                                     )
                                     OutlinedTextField(
-                                        value = serverPort,
-                                        onValueChange = {
-                                            serverPort = it
-                                            it.toIntOrNull()?.let { v -> pref.setGameServerPort(v) }
-                                        },
-                                        label = { Text(I18n.t("launch.server_port")) },
-                                        singleLine = true,
-                                        modifier = Modifier.weight(1f)
+                                    value = serverPort,
+                                    onValueChange = {
+                                        serverPort = it
+                                        it.toIntOrNull()?.let { v -> pref.setGameServerPort(v) }
+                                    },
+                                    label = { Text(I18n.t("launch.server_port")) },
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f)
                                     )
                                 }
                                 Spacer(Modifier.height(4.dp))
                                 Text(I18n.t("launch.server_hint"),
-                                     style = MaterialTheme.typography.labelSmall,
-                                     color = MaterialTheme.colorScheme.outline)
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.outline)
                             }
                         }
                     }
