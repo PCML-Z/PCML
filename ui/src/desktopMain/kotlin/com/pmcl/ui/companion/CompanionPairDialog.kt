@@ -1,5 +1,8 @@
 package com.pmcl.ui.companion
 
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -22,6 +25,7 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.input.pointer.PointerEventType
@@ -49,6 +53,8 @@ import java.net.NetworkInterface
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * 配对独立 Window 不在 [com.pmcl.ui.theme.LocalThemeState] 树内，
@@ -91,13 +97,19 @@ fun CompanionPairDialog(
         pairingCode = pairing.getPairingCode()
     }
 
-    // 由当前配对码生成二维码与一维码（配对码变化时重新生成）
-    // bitmap 用更高像素渲染，配合 ContentScale.Fit 在固定显示框内等比放大
-    val qrBitmap = remember(pairingCode) {
-        BarcodeGenerator.generateQrCode(pairingCode, 420).toComposeImageBitmap()
+    // 由当前配对码异步生成二维码与一维码（配对码变化时重新生成）
+    // 生成期间 value 为 null，UI 显示加载动画；完成后 Crossfade 淡入条码
+    val qrBitmap by produceState<ImageBitmap?>(null, pairingCode) {
+        value = null
+        value = withContext(Dispatchers.Default) {
+            BarcodeGenerator.generateQrCode(pairingCode, 420).toComposeImageBitmap()
+        }
     }
-    val barBitmap = remember(pairingCode) {
-        BarcodeGenerator.generateBarcode(pairingCode, 560, 140).toComposeImageBitmap()
+    val barBitmap by produceState<ImageBitmap?>(null, pairingCode) {
+        value = null
+        value = withContext(Dispatchers.Default) {
+            BarcodeGenerator.generateBarcode(pairingCode, 560, 140).toComposeImageBitmap()
+        }
     }
 
     Window(
@@ -234,13 +246,37 @@ fun CompanionPairDialog(
                             Modifier.size(300.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Image(
-                                bitmap = qrBitmap,
-                                contentDescription = "配对码二维码",
-                                contentScale = ContentScale.Fit,
-                                modifier = Modifier.fillMaxSize()
-                                    .then(if (paired) Modifier.blur(16.dp) else Modifier)
-                            )
+                            Crossfade(
+                                targetState = qrBitmap,
+                                animationSpec = tween(300, easing = FastOutSlowInEasing),
+                                label = "qrFade"
+                            ) { bmp ->
+                                if (bmp != null) {
+                                    Image(
+                                        bitmap = bmp,
+                                        contentDescription = "配对码二维码",
+                                        contentScale = ContentScale.Fit,
+                                        modifier = Modifier.fillMaxSize()
+                                            .then(if (paired) Modifier.blur(16.dp) else Modifier)
+                                    )
+                                } else {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(28.dp),
+                                            strokeWidth = 2.dp,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                        Spacer(Modifier.height(8.dp))
+                                        Text(
+                                            "生成二维码中",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
                             if (paired && pairedName != null) {
                                 Column(
                                     horizontalAlignment = Alignment.CenterHorizontally
@@ -299,13 +335,38 @@ fun CompanionPairDialog(
                             Modifier.width(320.dp).height(80.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Image(
-                                bitmap = barBitmap,
-                                contentDescription = "配对码一维码",
-                                contentScale = ContentScale.FillBounds,
-                                modifier = Modifier.fillMaxSize()
-                                    .then(if (paired) Modifier.blur(16.dp) else Modifier)
-                            )
+                            Crossfade(
+                                targetState = barBitmap,
+                                animationSpec = tween(300, easing = FastOutSlowInEasing),
+                                label = "barFade"
+                            ) { bmp ->
+                                if (bmp != null) {
+                                    Image(
+                                        bitmap = bmp,
+                                        contentDescription = "配对码一维码",
+                                        contentScale = ContentScale.FillBounds,
+                                        modifier = Modifier.fillMaxSize()
+                                            .then(if (paired) Modifier.blur(16.dp) else Modifier)
+                                    )
+                                } else {
+                                    Row(
+                                        horizontalArrangement = Arrangement.Center,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(20.dp),
+                                            strokeWidth = 2.dp,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            "生成一维码中",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                     Text(
