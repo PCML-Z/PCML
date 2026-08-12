@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Gavel
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -2561,6 +2562,7 @@ private fun HectMiCard(vm: LauncherViewModel) {
     val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
     var copied by remember { mutableStateOf(false) }
+    var showDecoder by remember { mutableStateOf(false) }
     val hectMi = remember { vm.hectMi }
 
     Column(Modifier.fillMaxWidth()) {
@@ -2574,6 +2576,11 @@ private fun HectMiCard(vm: LauncherViewModel) {
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.weight(1f)
             )
+            TextButton(onClick = { showDecoder = true }) {
+                Icon(Icons.Filled.Search, null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(I18n.t("settings.hect_mi_decode"), style = MaterialTheme.typography.labelSmall)
+            }
             TextButton(
                 onClick = {
                     clipboard.setText(AnnotatedString(hectMi))
@@ -2622,6 +2629,158 @@ private fun HectMiCard(vm: LauncherViewModel) {
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onSurface
                 )
+            }
+        }
+    }
+
+    if (showDecoder) {
+        HectMiDecodeDialog(vm, hectMi, onDismiss = { showDecoder = false })
+    }
+}
+
+/**
+ * HECT-MI 解码器对话框：展示格式解析结果与 8 个生成因子详情。
+ */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun HectMiDecodeDialog(vm: LauncherViewModel, code: String, onDismiss: () -> Unit) {
+    val result = remember {
+        try {
+            com.pmcl.core.identity.HectMiDecoder.decode(vm.core)
+        } catch (t: Throwable) {
+            null
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        modifier = Modifier.fillMaxWidth(0.85f)
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(24.dp)
+        ) {
+            // 标题
+            Text(
+                I18n.t("settings.hect_mi_decode_title"),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(Modifier.height(16.dp))
+
+            if (result == null) {
+                Text(
+                    I18n.t("settings.hect_mi_decode_failed"),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error
+                )
+                Spacer(Modifier.height(16.dp))
+                TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.End)) {
+                    Text(I18n.t("common.close"))
+                }
+                return@Column
+            }
+
+            // ===== 格式校验 =====
+            val fmt = result.formatInfo
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    if (fmt.valid) Icons.Filled.Check else Icons.Filled.Clear,
+                    null,
+                    modifier = Modifier.size(18.dp),
+                    tint = if (fmt.valid) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    if (fmt.valid) I18n.t("settings.hect_mi_format_valid") else I18n.t("settings.hect_mi_format_invalid"),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (fmt.valid) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                )
+            }
+            if (!fmt.valid && fmt.error != null) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    fmt.error,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+
+            if (fmt.valid) {
+                Spacer(Modifier.height(8.dp))
+                // 数字部分
+                Text(
+                    I18n.t("settings.hect_mi_digit_section"),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
+                Text(
+                    fmt.digitSection,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Medium
+                )
+                Spacer(Modifier.height(4.dp))
+                // 字母部分
+                Text(
+                    I18n.t("settings.hect_mi_letter_section") + " (${fmt.letterLength} chars)",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
+                Text(
+                    fmt.letterSection,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 4,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            // ===== 因子详情 =====
+            Spacer(Modifier.height(16.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Spacer(Modifier.height(12.dp))
+            Text(
+                I18n.t("settings.hect_mi_factors"),
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(Modifier.height(8.dp))
+            result.factors.forEach { factor ->
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Text(
+                        "${factor.index}.",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.width(24.dp)
+                    )
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            factor.labelZh,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            factor.displayValue,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+            TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.End)) {
+                Text(I18n.t("common.close"))
             }
         }
     }

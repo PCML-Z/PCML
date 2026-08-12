@@ -52,53 +52,115 @@ public final class HectMiGenerator {
 
     /** 收集 8 个因子，拼接为规范化字符串 */
     private static String buildCanonicalPayload(LauncherCore core) {
+        return buildPayloadFromFactors(collectFactors(core));
+    }
+
+    /** 从因子列表构建规范化 payload 字符串 */
+    static String buildPayloadFromFactors(java.util.List<Factor> factors) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < factors.size(); i++) {
+            if (i > 0) sb.append("|");
+            sb.append(factors.get(i).rawValue);
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 收集当前环境的 8 个因子详情，供解码器展示用。
+     *
+     * @return 有序因子列表，顺序与 payload 拼接顺序一致
+     */
+    public static java.util.List<Factor> collectFactors(LauncherCore core) {
+        java.util.List<Factor> factors = new java.util.ArrayList<>();
+
         // 1. 启动器版本
         String version = safe(core.launcherVersion());
+        factors.add(new Factor(1, "启动器版本", "Launcher Version", version, version));
 
         // 2. 设备：CPU 型号 + 逻辑核心数 + 总内存
-        String device;
+        String deviceDisplay;
+        String deviceRaw;
         try {
             RuntimeManager rt = core.runtime();
-            device = safe(rt.getCpuName()) + "::" + rt.getCpuLogicalCores() + "::" + rt.getTotalMemoryMb();
+            String cpuName = safe(rt.getCpuName());
+            int cores = rt.getCpuLogicalCores();
+            long memMb = rt.getTotalMemoryMb();
+            deviceRaw = cpuName + "::" + cores + "::" + memMb;
+            deviceDisplay = cpuName + " | " + cores + " cores | " + memMb + " MB";
         } catch (Throwable t) {
-            device = "unknown-device";
+            deviceRaw = "unknown-device";
+            deviceDisplay = "未知";
         }
+        factors.add(new Factor(2, "设备", "Device", deviceDisplay, deviceRaw));
 
         // 3. 系统：OS 名称 + 架构
-        String system;
+        String osName;
+        String osArch;
         try {
-            system = safe(core.runtime().getOsName()) + "::" + safe(System.getProperty("os.arch", "?"));
+            osName = safe(core.runtime().getOsName());
+            osArch = safe(System.getProperty("os.arch", "?"));
         } catch (Throwable t) {
-            system = safe(System.getProperty("os.name", "?")) + "::" + safe(System.getProperty("os.arch", "?"));
+            osName = safe(System.getProperty("os.name", "?"));
+            osArch = safe(System.getProperty("os.arch", "?"));
         }
+        String systemRaw = osName + "::" + osArch;
+        factors.add(new Factor(3, "系统", "System", osName + " | " + osArch, systemRaw));
 
         // 4. 启动器内核：Java 运行时
-        String kernel = safe(System.getProperty("java.version", "?")) + "::"
-                + safe(System.getProperty("java.vm.name", "?")) + "::"
-                + safe(System.getProperty("java.vm.version", "?"));
+        String javaVer = safe(System.getProperty("java.version", "?"));
+        String vmName = safe(System.getProperty("java.vm.name", "?"));
+        String vmVer = safe(System.getProperty("java.vm.version", "?"));
+        String kernelRaw = javaVer + "::" + vmName + "::" + vmVer;
+        factors.add(new Factor(4, "启动器内核", "Kernel", javaVer + " | " + vmName + " " + vmVer, kernelRaw));
 
         // 5. 安装日期：preferences.json 文件创建时间（回退到最后修改时间）
-        String installDate = "0";
+        String installDateRaw = "0";
+        String installDateDisplay = "未知";
         try {
             Path prefs = core.getConfig().getWorkDir().resolve("preferences.json");
             if (Files.exists(prefs)) {
                 BasicFileAttributes attrs = Files.readAttributes(prefs, BasicFileAttributes.class);
                 long ts = attrs.creationTime().toMillis();
                 if (ts <= 0) ts = attrs.lastModifiedTime().toMillis();
-                installDate = String.valueOf(ts);
+                installDateRaw = String.valueOf(ts);
+                installDateDisplay = java.time.Instant.ofEpochMilli(ts)
+                        .atZone(java.time.ZoneId.systemDefault())
+                        .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
             }
         } catch (Throwable ignored) {}
+        factors.add(new Factor(5, "安装日期", "Install Date", installDateDisplay, installDateRaw));
 
         // 6. 安装渠道
         String channel = resolveInstallChannel();
+        factors.add(new Factor(6, "安装渠道", "Install Channel", channel, channel));
 
-        // 7. 构建签名：JAR Manifest vendor + code source 路径
+        // 7. 构建签名
         String buildSign = resolveBuildSignature();
+        String buildSignDisplay = buildSign.length() > 80 ? buildSign.substring(0, 80) + "..." : buildSign;
+        factors.add(new Factor(7, "构建签名", "Build Signature", buildSignDisplay, buildSign));
 
         // 8. 存放位置
         String location = safe(core.getConfig().getWorkDir().toString());
+        factors.add(new Factor(8, "存放位置", "Storage Location", location, location));
 
-        return String.join("|", version, device, system, kernel, installDate, channel, buildSign, location);
+        return factors;
+    }
+
+    /** 单个因子信息 */
+    public static final class Factor {
+        public final int index;
+        public final String labelZh;
+        public final String labelEn;
+        public final String displayValue;
+        public final String rawValue;
+
+        public Factor(int index, String labelZh, String labelEn, String displayValue, String rawValue) {
+            this.index = index;
+            this.labelZh = labelZh;
+            this.labelEn = labelEn;
+            this.displayValue = displayValue;
+            this.rawValue = rawValue;
+        }
     }
 
     /** 安装渠道：从 JAR 运行 = OFFICIAL，从 IDE/类目录 = DEV */
