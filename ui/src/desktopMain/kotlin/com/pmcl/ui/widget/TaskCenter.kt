@@ -139,19 +139,21 @@ fun TaskCenterPanel(
             },
             label = "panelSlide"
         ) { shown -> if (shown) 0f else 1f }
-        val panelShape = RoundedCornerShape(topStart = 14.dp, bottomStart = 14.dp)
+        // 浮动卡片：四周留边距，四角圆角，明显阴影
+        val panelShape = RoundedCornerShape(14.dp)
         Column(
             Modifier
-                .fillMaxHeight()
                 .width(400.dp)
                 .align(Alignment.CenterEnd)
+                .padding(16.dp)
+                .fillMaxHeight()
                 .graphicsLayer {
                     val progress = slideProgress.value
-                    translationX = this.size.width * progress
+                    translationX = (this.size.width + 16.dp.toPx()) * progress
                     // alpha 线性跟随滑动，消除前段瞬间变不透明的生硬感
                     alpha = 1f - progress
                 }
-                .shadow(16.dp, panelShape, clip = false)
+                .shadow(20.dp, panelShape, clip = false)
                 .clip(panelShape)
                 .background(panelBg)
         ) {
