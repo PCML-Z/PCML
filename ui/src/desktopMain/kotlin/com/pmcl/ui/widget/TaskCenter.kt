@@ -1,7 +1,7 @@
 package com.pmcl.ui.widget
 
 import androidx.compose.animation.*
-import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
@@ -95,28 +95,26 @@ fun TaskCenterPanel(
     val notifCount = notifications.size
     val selectedVersion = vm.selectedVersion.value
 
-    // 与窗口共享同一 ThemeState：普通主题使用实色 surface，玻璃主题自动透出背景。
-    val panelBg = glassContainerColor(MaterialTheme.colorScheme.surface, glassAlpha = 0.82f)
+    // 纯色背景：与玻璃主题解耦，保证内容可读性
+    val panelBg = MaterialTheme.colorScheme.surface
 
     Box(modifier.fillMaxSize()) {
-        val enterEasing = remember { CubicBezierEasing(0.16f, 1f, 0.3f, 1f) }
-        val exitEasing = remember { CubicBezierEasing(0.7f, 0f, 0.84f, 0f) }
-
         // 动画状态只在 GPU 图层读取，避免每帧重组整个任务列表。
         val panelTransition = updateTransition(
             targetState = visible,
             label = "taskCenterTransition"
         )
+        // scrim 与面板共用 FastOutSlowInEasing + 相近时长，避免遮罩与滑入节奏错位
         val scrimAlpha = panelTransition.animateFloat(
             transitionSpec = {
                 if (targetState) {
-                    tween(220, easing = enterEasing)
+                    tween(240, easing = FastOutSlowInEasing)
                 } else {
-                    tween(170, easing = exitEasing)
+                    tween(200, easing = FastOutSlowInEasing)
                 }
             },
             label = "scrim"
-        ) { shown -> if (shown) 0.35f else 0f }
+        ) { shown -> if (shown) 0.32f else 0f }
         if (panelTransition.currentState || panelTransition.targetState) {
             Box(
                 Modifier
@@ -130,13 +128,13 @@ fun TaskCenterPanel(
             )
         }
 
-        // 单段连续曲线保持速度感，同时消除回弹与缩放造成的顿挫。
+        // FastOutSlowInEasing 对称缓动：起止速度平缓，中段加速，无突兀的冲入/急停
         val slideProgress = panelTransition.animateFloat(
             transitionSpec = {
                 if (targetState) {
-                    tween(300, easing = enterEasing)
+                    tween(260, easing = FastOutSlowInEasing)
                 } else {
-                    tween(210, easing = exitEasing)
+                    tween(200, easing = FastOutSlowInEasing)
                 }
             },
             label = "panelSlide"
@@ -150,7 +148,8 @@ fun TaskCenterPanel(
                 .graphicsLayer {
                     val progress = slideProgress.value
                     translationX = this.size.width * progress
-                    alpha = ((1f - progress) * 12.5f).coerceIn(0f, 1f)
+                    // alpha 线性跟随滑动，消除前段瞬间变不透明的生硬感
+                    alpha = 1f - progress
                 }
                 .shadow(16.dp, panelShape, clip = false)
                 .clip(panelShape)
