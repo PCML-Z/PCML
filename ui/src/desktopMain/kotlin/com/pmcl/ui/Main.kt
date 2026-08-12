@@ -114,9 +114,6 @@ private val coroutinesErrorMachineryPreloaded: Boolean = run {
     true
 }
 
-/** 标题栏搜索框右侧点缀文案 */
-private const val TITLE_BAR_MOTTO = "「あのまばゆい光景は、私が決して忘れることのない唯一のものです。」"
-
 /**
  * 桌面端入口。
  *
@@ -648,17 +645,6 @@ private fun FrameWindowScope.BorderlessTitleBar(
                 focusRequester = searchFocusRequester,
                 compact = true
             )
-            Text(
-                TITLE_BAR_MOTTO,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                modifier = Modifier
-                    .padding(start = 12.dp)
-                    .fillMaxHeight()
-                    .wrapContentHeight(Alignment.CenterVertically)
-                    .then(windowDragModifier(isDragging))
-            )
             Spacer(Modifier.weight(1f).fillMaxHeight().then(windowDragModifier(isDragging)))
             // iOS 伴随 App 配对按钮
             IconButton(onClick = onOpenCompanion, modifier = Modifier.size(32.dp)) {
@@ -735,13 +721,6 @@ private fun SlimSearchBar(
                     vm = vm,
                     focusRequester = searchFocusRequester,
                     compact = true
-                )
-                Text(
-                    TITLE_BAR_MOTTO,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    modifier = Modifier.padding(start = 12.dp)
                 )
                 Spacer(Modifier.weight(1f))
                 IconButton(onClick = onOpenCompanion, modifier = Modifier.size(32.dp)) {
