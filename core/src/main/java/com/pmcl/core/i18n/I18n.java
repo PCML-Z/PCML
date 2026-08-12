@@ -900,6 +900,11 @@ public final class I18n {
         ZH.put("settings.hect_mi_digit_section", "数字部分");
         ZH.put("settings.hect_mi_letter_section", "字母部分");
         ZH.put("settings.hect_mi_factors", "生成因子");
+        ZH.put("settings.hect_mi_decode_hint", "粘贴或输入待解码的 HECT-MI 识别码");
+        ZH.put("settings.hect_mi_paste", "粘贴");
+        ZH.put("settings.hect_mi_fill_local", "填入本机");
+        ZH.put("settings.hect_mi_match_local", "与本机环境匹配");
+        ZH.put("settings.hect_mi_not_match_local", "与本机环境不匹配");
         ZH.put("settings.work_dir", "工作目录");
         ZH.put("settings.language", "语言");
         ZH.put("settings.version_isolation", "版本隔离");
@@ -2950,6 +2955,11 @@ public final class I18n {
         EN.put("settings.hect_mi_digit_section", "Digit section");
         EN.put("settings.hect_mi_letter_section", "Letter section");
         EN.put("settings.hect_mi_factors", "Generation factors");
+        EN.put("settings.hect_mi_decode_hint", "Paste or type a HECT-MI code to decode");
+        EN.put("settings.hect_mi_paste", "Paste");
+        EN.put("settings.hect_mi_fill_local", "Fill local");
+        EN.put("settings.hect_mi_match_local", "Matches local environment");
+        EN.put("settings.hect_mi_not_match_local", "Does not match local environment");
         EN.put("settings.work_dir", "Working directory");
         EN.put("settings.language", "Language");
         EN.put("settings.version_isolation", "Version isolation");
@@ -4936,6 +4946,11 @@ public final class I18n {
         JA.put("settings.hect_mi_digit_section", "数字部分");
         JA.put("settings.hect_mi_letter_section", "文字部分");
         JA.put("settings.hect_mi_factors", "生成因子");
+        JA.put("settings.hect_mi_decode_hint", "デコードするHECT-MI識別コードを入力または貼り付け");
+        JA.put("settings.hect_mi_paste", "貼り付け");
+        JA.put("settings.hect_mi_fill_local", "ローカル入力");
+        JA.put("settings.hect_mi_match_local", "ローカル環境と一致");
+        JA.put("settings.hect_mi_not_match_local", "ローカル環境と不一致");
         JA.put("settings.work_dir", "作業ディレクトリ");
         JA.put("settings.language", "言語");
         JA.put("settings.version_isolation", "バージョン分離");

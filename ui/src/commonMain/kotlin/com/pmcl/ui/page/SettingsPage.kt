@@ -17,7 +17,10 @@ import androidx.compose.material.icons.filled.Article
 import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Cancel
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Folder
@@ -2640,16 +2643,21 @@ private fun HectMiCard(vm: LauncherViewModel) {
 }
 
 /**
- * HECT-MI 解码器对话框：展示格式解析结果与 8 个生成因子详情。
+ * HECT-MI 解码器对话框：输入识别码进行格式解析与环境匹配验证。
  */
 @Composable
 private fun HectMiDecodeDialog(vm: LauncherViewModel, code: String, onDismiss: () -> Unit) {
-    val result = remember {
-        try {
-            com.pmcl.core.identity.HectMiDecoder.decode(vm.core)
-        } catch (t: Throwable) {
-            null
-        }
+    var input by remember { mutableStateOf("") }
+    var parsed by remember { mutableStateOf<com.pmcl.core.identity.HectMiDecoder.FormatInfo?>(null) }
+    var verified by remember { mutableStateOf<Boolean?>(null) }
+    val clipboard = LocalClipboardManager.current
+
+    fun doDecode() {
+        val fmt = com.pmcl.core.identity.HectMiDecoder.parseFormat(input)
+        parsed = fmt
+        verified = if (fmt.valid) {
+            com.pmcl.core.identity.HectMiDecoder.verify(vm.core, input)
+        } else null
     }
 
     Dialog(onDismissRequest = onDismiss) {
@@ -2672,126 +2680,164 @@ private fun HectMiDecodeDialog(vm: LauncherViewModel, code: String, onDismiss: (
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
-                Spacer(Modifier.height(16.dp))
-
-                if (result == null) {
-                    Text(
-                        I18n.t("settings.hect_mi_decode_failed"),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.error
-                    )
-                    Spacer(Modifier.height(16.dp))
-                    TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.End)) {
-                        Text(I18n.t("common.close"))
-                    }
-                    return@Column
-                }
-
-                // ===== 格式校验 =====
-                val fmt = result.formatInfo
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        if (fmt.valid) Icons.Filled.Check else Icons.Filled.Clear,
-                        null,
-                        modifier = Modifier.size(18.dp),
-                        tint = if (fmt.valid) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        if (fmt.valid) I18n.t("settings.hect_mi_format_valid") else I18n.t("settings.hect_mi_format_invalid"),
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (fmt.valid) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
-                    )
-                }
-                if (!fmt.valid && fmt.error != null) {
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        fmt.error,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error
-                    )
-                }
-
-                if (fmt.valid) {
-                    Spacer(Modifier.height(8.dp))
-                    // 数字部分
-                    Text(
-                        I18n.t("settings.hect_mi_digit_section"),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.outline
-                    )
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        fmt.digitSection,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    // 字母部分（横向滚动展示完整 275 字符）
-                    Text(
-                        I18n.t("settings.hect_mi_letter_section") + " (${fmt.letterLength} chars)",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.outline
-                    )
-                    Spacer(Modifier.height(2.dp))
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                    ) {
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState())
-                                .padding(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                fmt.letterSection,
-                                style = MaterialTheme.typography.bodySmall,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                    }
-                }
-
-                // ===== 因子详情 =====
-                Spacer(Modifier.height(16.dp))
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(4.dp))
                 Text(
-                    I18n.t("settings.hect_mi_factors"),
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold
+                    I18n.t("settings.hect_mi_decode_hint"),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
+                Spacer(Modifier.height(12.dp))
+
+                // 输入框
+                OutlinedTextField(
+                    value = input,
+                    onValueChange = {
+                        input = it
+                        parsed = null
+                        verified = null
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("XXXXXX-XXXXXX-XXXXXX-X...", style = MaterialTheme.typography.bodySmall) },
+                    singleLine = false,
+                    minLines = 2,
+                    maxLines = 3,
+                    textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
                 )
                 Spacer(Modifier.height(8.dp))
-                result.factors.forEach { factor ->
-                    Row(
-                        Modifier.fillMaxWidth().padding(vertical = 3.dp),
-                        verticalAlignment = Alignment.Top
+
+                // 按钮行：粘贴 / 填入本机 / 解码
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = {
+                            input = clipboard.getText()?.text ?: ""
+                            parsed = null
+                            verified = null
+                        },
+                        modifier = Modifier.weight(1f)
                     ) {
-                        Text(
-                            "${factor.index}.",
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.width(24.dp)
+                        Icon(Icons.Filled.ContentPaste, null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(I18n.t("settings.hect_mi_paste"), style = MaterialTheme.typography.labelSmall)
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            input = vm.hectMi
+                            parsed = null
+                            verified = null
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Filled.ContentCopy, null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(I18n.t("settings.hect_mi_fill_local"), style = MaterialTheme.typography.labelSmall)
+                    }
+                    Button(
+                        onClick = { doDecode() },
+                        enabled = input.isNotBlank(),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Filled.Search, null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(I18n.t("settings.hect_mi_decode"), style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+
+                // ===== 解码结果 =====
+                val fmt = parsed
+                if (fmt != null) {
+                    Spacer(Modifier.height(16.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    Spacer(Modifier.height(12.dp))
+
+                    // 格式校验
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            if (fmt.valid) Icons.Filled.Check else Icons.Filled.Clear,
+                            null,
+                            modifier = Modifier.size(18.dp),
+                            tint = if (fmt.valid) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
                         )
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                factor.labelZh,
-                                style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Text(
-                                factor.displayValue,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            if (fmt.valid) I18n.t("settings.hect_mi_format_valid") else I18n.t("settings.hect_mi_format_invalid"),
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (fmt.valid) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                        )
+                    }
+                    if (!fmt.valid && fmt.error != null) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            fmt.error,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+
+                    if (fmt.valid) {
+                        Spacer(Modifier.height(8.dp))
+                        // 环境匹配验证
+                        val match = verified
+                        if (match != null) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    if (match) Icons.Filled.CheckCircle else Icons.Filled.Cancel,
+                                    null,
+                                    modifier = Modifier.size(18.dp),
+                                    tint = if (match) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    if (match) I18n.t("settings.hect_mi_match_local")
+                                    else I18n.t("settings.hect_mi_not_match_local"),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = if (match) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                                )
+                            }
+                            Spacer(Modifier.height(8.dp))
+                        }
+
+                        // 数字部分
+                        Text(
+                            I18n.t("settings.hect_mi_digit_section"),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            fmt.digitSection,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        // 字母部分（横向滚动展示完整 275 字符）
+                        Text(
+                            I18n.t("settings.hect_mi_letter_section") + " (${fmt.letterLength} chars)",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        ) {
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState())
+                                    .padding(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    fmt.letterSection,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
                         }
                     }
                 }
