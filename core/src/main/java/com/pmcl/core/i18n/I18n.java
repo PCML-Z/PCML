@@ -889,6 +889,9 @@ public final class I18n {
         ZH.put("settings.chunked_threads", "分片下载连接数");
         ZH.put("settings.enable_resume", "断点续传（.part 文件）");
         ZH.put("settings.system_info", "系统信息");
+        ZH.put("settings.hect_mi", "HECT-MI 产品识别码");
+        ZH.put("settings.hect_mi_desc", "由启动器版本、设备、系统、内核、安装日期、安装渠道、构建签名、存放位置动态生成的唯一标识");
+        ZH.put("settings.hect_mi_copied", "已复制");
         ZH.put("settings.work_dir", "工作目录");
         ZH.put("settings.language", "语言");
         ZH.put("settings.version_isolation", "版本隔离");
@@ -2928,6 +2931,9 @@ public final class I18n {
         EN.put("settings.chunked_threads", "Chunked download threads");
         EN.put("settings.enable_resume", "Resume (.part file)");
         EN.put("settings.system_info", "System Info");
+        EN.put("settings.hect_mi", "HECT-MI Product ID");
+        EN.put("settings.hect_mi_desc", "Unique identifier dynamically generated from launcher version, device, OS, kernel, install date, install channel, build signature, and storage location");
+        EN.put("settings.hect_mi_copied", "Copied");
         EN.put("settings.work_dir", "Working directory");
         EN.put("settings.language", "Language");
         EN.put("settings.version_isolation", "Version isolation");
@@ -4903,6 +4909,9 @@ public final class I18n {
         JA.put("settings.chunked_threads", "分割ダウンロード接続数");
         JA.put("settings.enable_resume", "レジューム（.partファイル）");
         JA.put("settings.system_info", "システム情報");
+        JA.put("settings.hect_mi", "HECT-MI 製品識別コード");
+        JA.put("settings.hect_mi_desc", "ランチャーバージョン、デバイス、OS、カーネル、インストール日、チャネル、ビルド署名、保存場所から動的に生成された一意識別子");
+        JA.put("settings.hect_mi_copied", "コピーしました");
         JA.put("settings.work_dir", "作業ディレクトリ");
         JA.put("settings.language", "言語");
         JA.put("settings.version_isolation", "バージョン分離");

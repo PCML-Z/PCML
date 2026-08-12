@@ -1400,6 +1400,15 @@ class LauncherViewModel {
             "OS: —  |  内存: —  |  推荐: —"
         }
 
+    /** HECT-MI 唯一产品识别码：由版本/设备/系统/内核/安装日期/渠道/签名/位置 8 因子动态生成 */
+    val hectMi: String by lazy {
+        try {
+            com.pmcl.core.identity.HectMiGenerator.generate(core)
+        } catch (t: Throwable) {
+            "000000-000000-000000-0" + "A".repeat(275)
+        }
+    }
+
     val config: LauncherConfig get() = core.getConfig()
     val preferences: Preferences get() = core.getPreferences()
 

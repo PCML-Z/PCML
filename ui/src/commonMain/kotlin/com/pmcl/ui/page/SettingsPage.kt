@@ -38,6 +38,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
 import com.pmcl.ui.animation.TypewriterTitle
@@ -792,6 +794,12 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
                 Text(I18n.t("settings.work_dir_value", vm.config.getWorkDir()),
                      style = MaterialTheme.typography.bodySmall,
                      color = MaterialTheme.colorScheme.outline)
+
+                // HECT-MI 唯一产品识别码
+                Spacer(Modifier.height(16.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Spacer(Modifier.height(12.dp))
+                HectMiCard(vm)
             }
         }
         }
@@ -2540,6 +2548,80 @@ private fun NetworkConfigCard(vm: LauncherViewModel, pref: com.pmcl.core.prefere
                 })
                 Spacer(Modifier.width(8.dp))
                 Text(I18n.t("settings.enable_resume"))
+            }
+        }
+    }
+}
+
+/**
+ * HECT-MI 唯一产品识别码卡片：显示由 8 因子动态生成的 19 位数字 + 275 位字母识别码。
+ */
+@Composable
+private fun HectMiCard(vm: LauncherViewModel) {
+    val clipboard = LocalClipboardManager.current
+    val scope = rememberCoroutineScope()
+    var copied by remember { mutableStateOf(false) }
+    val hectMi = remember { vm.hectMi }
+
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                I18n.t("settings.hect_mi"),
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f)
+            )
+            TextButton(
+                onClick = {
+                    clipboard.setText(AnnotatedString(hectMi))
+                    copied = true
+                    scope.launch {
+                        kotlinx.coroutines.delay(1500)
+                        copied = false
+                    }
+                }
+            ) {
+                Icon(
+                    if (copied) Icons.Filled.Check else Icons.Filled.ContentCopy,
+                    null,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    if (copied) I18n.t("settings.hect_mi_copied") else I18n.t("common.copy"),
+                    style = MaterialTheme.typography.labelSmall
+                )
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(
+            I18n.t("settings.hect_mi_desc"),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.outline
+        )
+        Spacer(Modifier.height(8.dp))
+        // 识别码显示：等宽字体，横向滚动，19 位数字部分 + 275 位字母部分
+        Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        ) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    hectMi,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
             }
         }
     }
