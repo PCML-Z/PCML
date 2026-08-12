@@ -248,7 +248,7 @@ fun CompanionPairDialog(
                         ) {
                             Crossfade(
                                 targetState = qrBitmap,
-                                animationSpec = tween(300, easing = FastOutSlowInEasing),
+                                animationSpec = tween(700, easing = FastOutSlowInEasing),
                                 label = "qrFade"
                             ) { bmp ->
                                 if (bmp != null) {
@@ -337,7 +337,7 @@ fun CompanionPairDialog(
                         ) {
                             Crossfade(
                                 targetState = barBitmap,
-                                animationSpec = tween(300, easing = FastOutSlowInEasing),
+                                animationSpec = tween(700, easing = FastOutSlowInEasing),
                                 label = "barFade"
                             ) { bmp ->
                                 if (bmp != null) {
