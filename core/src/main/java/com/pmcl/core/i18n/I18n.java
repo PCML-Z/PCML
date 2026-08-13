@@ -905,6 +905,9 @@ public final class I18n {
         ZH.put("settings.hect_mi_fill_local", "填入本机");
         ZH.put("settings.hect_mi_match_local", "与本机环境匹配");
         ZH.put("settings.hect_mi_not_match_local", "与本机环境不匹配");
+        ZH.put("settings.hect_mi_decoded_data", "解码数据");
+        ZH.put("settings.hect_mi_crc_ok", "CRC 校验通过");
+        ZH.put("settings.hect_mi_crc_fail", "CRC 校验失败：数据可能已损坏");
         ZH.put("settings.work_dir", "工作目录");
         ZH.put("settings.language", "语言");
         ZH.put("settings.version_isolation", "版本隔离");
@@ -2960,6 +2963,9 @@ public final class I18n {
         EN.put("settings.hect_mi_fill_local", "Fill local");
         EN.put("settings.hect_mi_match_local", "Matches local environment");
         EN.put("settings.hect_mi_not_match_local", "Does not match local environment");
+        EN.put("settings.hect_mi_decoded_data", "Decoded Data");
+        EN.put("settings.hect_mi_crc_ok", "CRC verification passed");
+        EN.put("settings.hect_mi_crc_fail", "CRC verification failed: data may be corrupted");
         EN.put("settings.work_dir", "Working directory");
         EN.put("settings.language", "Language");
         EN.put("settings.version_isolation", "Version isolation");
@@ -4951,6 +4957,9 @@ public final class I18n {
         JA.put("settings.hect_mi_fill_local", "ローカル入力");
         JA.put("settings.hect_mi_match_local", "ローカル環境と一致");
         JA.put("settings.hect_mi_not_match_local", "ローカル環境と不一致");
+        JA.put("settings.hect_mi_decoded_data", "デコードデータ");
+        JA.put("settings.hect_mi_crc_ok", "CRC検証成功");
+        JA.put("settings.hect_mi_crc_fail", "CRC検証失敗：データ破損の可能性");
         JA.put("settings.work_dir", "作業ディレクトリ");
         JA.put("settings.language", "言語");
         JA.put("settings.version_isolation", "バージョン分離");

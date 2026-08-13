@@ -1,18 +1,23 @@
 package com.pmcl.core.identity;
 
 import com.pmcl.core.LauncherCore;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
- * HECT-MI 解码器：解析识别码格式并展示生成因子。
+ * HECT-MI 解码器：从识别码逆向还原 8 个因子的原始数据。
  *
- * <p>由于识别码基于 SHA-256 单向哈希生成，无法从码本身逆向提取因子。
- * 解码器通过重新收集当前环境的 8 个因子来"解码"：
- * <ul>
- *   <li>{@link #decode(LauncherCore)} — 收集当前环境因子 + 生成的识别码 + 格式解析</li>
- *   <li>{@link #verify(LauncherCore, String)} — 验证给定码是否属于当前环境</li>
- *   <li>{@link #parseFormat(String)} — 纯格式解析（长度/字符/分段校验），不依赖环境</li>
- * </ul>
+ * <p>识别码采用可逆编码（DEFLATE + Base-26），解码器可以完整还原因子数据：
+ * <ol>
+ *   <li>解析 19 位数字段：CRC32 校验 + 压缩长度 + 原始长度 + 编码标志</li>
+ *   <li>Base-26 解码 275 位字母段 → 压缩字节数组</li>
+ *   <li>DEFLATE 解压 → 原始 payload 字符串</li>
+ *   <li>按 \n 分割为 13 个因子值</li>
+ *   <li>CRC32 校验验证数据完整性</li>
+ * </ol>
+ *
+ * <p>flag=1 时为哈希回退模式，无法解码因子数据。
  */
 public final class HectMiDecoder {
 
@@ -22,37 +27,47 @@ public final class HectMiDecoder {
 
     private HectMiDecoder() {}
 
-    /** 解码结果 */
-    public static final class DecodeResult {
-        /** 当前环境生成的识别码 */
-        public final String currentCode;
-        /** 当前环境的 8 个因子详情 */
-        public final List<HectMiGenerator.Factor> factors;
-        /** 格式解析结果 */
-        public final FormatInfo formatInfo;
+    // ===== 解码结果类型 =====
 
-        public DecodeResult(String currentCode, List<HectMiGenerator.Factor> factors, FormatInfo formatInfo) {
-            this.currentCode = currentCode;
-            this.factors = factors;
-            this.formatInfo = formatInfo;
+    /** 解码出的因子数据 */
+    public static final class DecodedData {
+        /** 是否可解码（flag=0 = 可解码，flag=1 = 哈希回退不可解码） */
+        public final boolean decodable;
+        /** 不可解码时的错误信息 */
+        public final String error;
+        /** 13 个因子的标签（中英文） */
+        public final String[][] labels;
+        /** 13 个因子的解码值 */
+        public final List<String> values;
+        /** CRC32 校验是否通过 */
+        public final boolean crcValid;
+
+        private DecodedData(boolean decodable, String error, String[][] labels,
+                            List<String> values, boolean crcValid) {
+            this.decodable = decodable;
+            this.error = error;
+            this.labels = labels;
+            this.values = values;
+            this.crcValid = crcValid;
+        }
+
+        static DecodedData error(String msg) {
+            return new DecodedData(false, msg, null, null, false);
+        }
+
+        static DecodedData ok(List<String> values, boolean crcValid) {
+            return new DecodedData(true, null, HectMiGenerator.FACTOR_LABELS, values, crcValid);
         }
     }
 
     /** 格式解析结果 */
     public static final class FormatInfo {
-        /** 输入的原始码 */
         public final String rawCode;
-        /** 是否格式合法 */
         public final boolean valid;
-        /** 失败原因（valid=false 时有值） */
         public final String error;
-        /** 数字部分（含连字符），如 "123456-789012-345678-9" */
         public final String digitSection;
-        /** 字母部分（275 位大写字母） */
         public final String letterSection;
-        /** 数字部分长度 */
         public final int digitLength;
-        /** 字母部分长度 */
         public final int letterLength;
 
         public FormatInfo(String rawCode, boolean valid, String error,
@@ -68,25 +83,68 @@ public final class HectMiDecoder {
         }
     }
 
+    // ===== 核心方法 =====
+
     /**
-     * 解码：收集当前环境因子 + 生成识别码 + 格式解析。
+     * 解码 HECT-MI 识别码，还原 13 个因子值。
      *
-     * @param core 启动器内核实例
-     * @return 解码结果
+     * @param code HECT-MI 识别码
+     * @return 解码结果（DecodedData.decodable=true 时 values 非空）
      */
-    public static DecodeResult decode(LauncherCore core) {
-        List<HectMiGenerator.Factor> factors = HectMiGenerator.collectFactors(core);
-        String code = HectMiGenerator.generate(core);
-        FormatInfo formatInfo = parseFormat(code);
-        return new DecodeResult(code, factors, formatInfo);
+    public static DecodedData decodeFactors(String code) {
+        // 先校验格式
+        FormatInfo fmt = parseFormat(code);
+        if (!fmt.valid) {
+            return DecodedData.error(fmt.error);
+        }
+
+        // 解析数字段（去除连字符）
+        String rawDigits = fmt.digitSection.replace("-", "");
+        long expectedCrc = Long.parseLong(rawDigits.substring(0, 6));
+        int compressedLen = Integer.parseInt(rawDigits.substring(6, 12));
+        int originalLen = Integer.parseInt(rawDigits.substring(12, 18));
+        int flag = rawDigits.charAt(18) - '0';
+
+        if (flag == 1) {
+            return DecodedData.error("此识别码使用哈希回退模式生成，无法解码因子数据");
+        }
+
+        if (flag != 0) {
+            return DecodedData.error("未知的编码标志: " + flag);
+        }
+
+        // Base-26 解码字母段
+        byte[] compressed = HectMiGenerator.base26Decode(fmt.letterSection, compressedLen);
+
+        // DEFLATE 解压
+        byte[] decompressed = HectMiGenerator.inflate(compressed, originalLen);
+        if (decompressed.length == 0) {
+            return DecodedData.error("解压失败：数据可能已损坏");
+        }
+
+        // CRC32 校验
+        long actualCrc = HectMiGenerator.crc32(decompressed) % 1000000;
+        boolean crcValid = (actualCrc == expectedCrc);
+
+        // 转为字符串并分割
+        String payload = new String(decompressed, StandardCharsets.UTF_8);
+        String[] parts = payload.split("\n", -1);
+
+        List<String> values = new ArrayList<>();
+        for (String part : parts) {
+            values.add(part);
+        }
+
+        // 补齐到 13 个值（防止数据不完整）
+        while (values.size() < HectMiGenerator.VALUE_COUNT) {
+            values.add("");
+        }
+
+        return DecodedData.ok(values, crcValid);
     }
 
     /**
      * 验证给定的识别码是否属于当前环境。
-     *
-     * @param core 启动器内核实例
-     * @param code 待验证的识别码
-     * @return true 表示该码由当前环境生成
      */
     public static boolean verify(LauncherCore core, String code) {
         if (code == null || code.isBlank()) return false;
@@ -95,10 +153,7 @@ public final class HectMiDecoder {
     }
 
     /**
-     * 纯格式解析：校验长度、字符集、分段结构，不依赖运行环境。
-     *
-     * @param code 待解析的识别码
-     * @return 格式解析结果
+     * 纯格式解析：校验长度、字符集、分段结构。
      */
     public static FormatInfo parseFormat(String code) {
         if (code == null || code.isBlank()) {
@@ -107,18 +162,15 @@ public final class HectMiDecoder {
 
         String trimmed = code.trim();
 
-        // 总长度校验：19 数字 + 3 连字符 + 275 字母 = 297
         if (trimmed.length() != EXPECTED_TOTAL_LENGTH) {
             return new FormatInfo(trimmed, false,
                     "长度不合法：期望 " + EXPECTED_TOTAL_LENGTH + " 字符，实际 " + trimmed.length() + " 字符",
                     "", "", 0, 0);
         }
 
-        // 数字部分：XXXXXX-XXXXXX-XXXXXX-X（位置 0-21，含 3 个连字符）
-        String digitSection = trimmed.substring(0, 22); // 6+1+6+1+6+1+1 = 22
-        String letterSection = trimmed.substring(22);    // 275 字母
+        String digitSection = trimmed.substring(0, 22);
+        String letterSection = trimmed.substring(22);
 
-        // 校验数字部分格式：^\d{6}-\d{6}-\d{6}-\d$
         if (!digitSection.matches("\\d{6}-\\d{6}-\\d{6}-\\d")) {
             return new FormatInfo(trimmed, false,
                     "数字部分格式错误：期望 XXXXXX-XXXXXX-XXXXXX-X",
@@ -126,9 +178,7 @@ public final class HectMiDecoder {
                     countDigits(digitSection), letterSection.length());
         }
 
-        // 校验字母部分：275 位大写字母
         if (!letterSection.matches("[A-Z]{275}")) {
-            // 找到非法字符
             int badIdx = -1;
             char badChar = 0;
             for (int i = 0; i < letterSection.length(); i++) {
@@ -152,7 +202,6 @@ public final class HectMiDecoder {
                 EXPECTED_DIGIT_COUNT, EXPECTED_LETTER_COUNT);
     }
 
-    /** 计算字符串中数字字符的数量 */
     private static int countDigits(String s) {
         int count = 0;
         for (int i = 0; i < s.length(); i++) {

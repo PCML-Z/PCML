@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -2643,13 +2644,14 @@ private fun HectMiCard(vm: LauncherViewModel) {
 }
 
 /**
- * HECT-MI 解码器对话框：输入识别码进行格式解析与环境匹配验证。
+ * HECT-MI 解码器对话框：输入识别码进行格式解析、环境匹配验证和因子数据解码。
  */
 @Composable
 private fun HectMiDecodeDialog(vm: LauncherViewModel, code: String, onDismiss: () -> Unit) {
     var input by remember { mutableStateOf("") }
     var parsed by remember { mutableStateOf<com.pmcl.core.identity.HectMiDecoder.FormatInfo?>(null) }
     var verified by remember { mutableStateOf<Boolean?>(null) }
+    var decoded by remember { mutableStateOf<com.pmcl.core.identity.HectMiDecoder.DecodedData?>(null) }
     val clipboard = LocalClipboardManager.current
 
     fun doDecode() {
@@ -2658,6 +2660,17 @@ private fun HectMiDecodeDialog(vm: LauncherViewModel, code: String, onDismiss: (
         verified = if (fmt.valid) {
             com.pmcl.core.identity.HectMiDecoder.verify(vm.core, input)
         } else null
+        decoded = if (fmt.valid) {
+            com.pmcl.core.identity.HectMiDecoder.decodeFactors(input)
+        } else null
+    }
+
+    fun formatTimestamp(ts: String): String {
+        return try {
+            val instant = java.time.Instant.ofEpochMilli(ts.toLong())
+            instant.atZone(java.time.ZoneId.systemDefault())
+                .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+        } catch (e: Exception) { ts }
     }
 
     Dialog(onDismissRequest = onDismiss) {
@@ -2674,7 +2687,6 @@ private fun HectMiDecodeDialog(vm: LauncherViewModel, code: String, onDismiss: (
                     .verticalScroll(rememberScrollState())
                     .padding(24.dp)
             ) {
-                // 标题
                 Text(
                     I18n.t("settings.hect_mi_decode_title"),
                     style = MaterialTheme.typography.titleMedium,
@@ -2688,13 +2700,13 @@ private fun HectMiDecodeDialog(vm: LauncherViewModel, code: String, onDismiss: (
                 )
                 Spacer(Modifier.height(12.dp))
 
-                // 输入框
                 OutlinedTextField(
                     value = input,
                     onValueChange = {
                         input = it
                         parsed = null
                         verified = null
+                        decoded = null
                     },
                     modifier = Modifier.fillMaxWidth(),
                     placeholder = { Text("XXXXXX-XXXXXX-XXXXXX-X...", style = MaterialTheme.typography.bodySmall) },
@@ -2705,13 +2717,11 @@ private fun HectMiDecodeDialog(vm: LauncherViewModel, code: String, onDismiss: (
                 )
                 Spacer(Modifier.height(8.dp))
 
-                // 按钮行：粘贴 / 填入本机 / 解码
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(
                         onClick = {
                             input = clipboard.getText()?.text ?: ""
-                            parsed = null
-                            verified = null
+                            parsed = null; verified = null; decoded = null
                         },
                         modifier = Modifier.weight(1f)
                     ) {
@@ -2722,8 +2732,7 @@ private fun HectMiDecodeDialog(vm: LauncherViewModel, code: String, onDismiss: (
                     OutlinedButton(
                         onClick = {
                             input = vm.hectMi
-                            parsed = null
-                            verified = null
+                            parsed = null; verified = null; decoded = null
                         },
                         modifier = Modifier.weight(1f)
                     ) {
@@ -2767,76 +2776,106 @@ private fun HectMiDecodeDialog(vm: LauncherViewModel, code: String, onDismiss: (
                     }
                     if (!fmt.valid && fmt.error != null) {
                         Spacer(Modifier.height(4.dp))
-                        Text(
-                            fmt.error,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error
-                        )
+                        Text(fmt.error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                     }
 
                     if (fmt.valid) {
-                        Spacer(Modifier.height(8.dp))
-                        // 环境匹配验证
+                        // 环境匹配
                         val match = verified
                         if (match != null) {
+                            Spacer(Modifier.height(6.dp))
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
                                     if (match) Icons.Filled.CheckCircle else Icons.Filled.Cancel,
-                                    null,
-                                    modifier = Modifier.size(18.dp),
+                                    null, modifier = Modifier.size(18.dp),
                                     tint = if (match) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
                                 )
                                 Spacer(Modifier.width(8.dp))
                                 Text(
-                                    if (match) I18n.t("settings.hect_mi_match_local")
-                                    else I18n.t("settings.hect_mi_not_match_local"),
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.SemiBold,
+                                    if (match) I18n.t("settings.hect_mi_match_local") else I18n.t("settings.hect_mi_not_match_local"),
+                                    style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold,
                                     color = if (match) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
                                 )
                             }
-                            Spacer(Modifier.height(8.dp))
                         }
 
-                        // 数字部分
-                        Text(
-                            I18n.t("settings.hect_mi_digit_section"),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.outline
-                        )
-                        Spacer(Modifier.height(2.dp))
-                        Text(
-                            fmt.digitSection,
-                            style = MaterialTheme.typography.bodySmall,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Spacer(Modifier.height(6.dp))
-                        // 字母部分（横向滚动展示完整 275 字符）
-                        Text(
-                            I18n.t("settings.hect_mi_letter_section") + " (${fmt.letterLength} chars)",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.outline
-                        )
-                        Spacer(Modifier.height(2.dp))
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                        ) {
-                            Row(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState())
-                                    .padding(8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
+                        // ===== 解码因子数据 =====
+                        val dd = decoded
+                        if (dd != null) {
+                            Spacer(Modifier.height(12.dp))
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                            Spacer(Modifier.height(12.dp))
+
+                            Text(
+                                I18n.t("settings.hect_mi_decoded_data"),
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+
+                            if (!dd.decodable) {
+                                Spacer(Modifier.height(4.dp))
                                 Text(
-                                    fmt.letterSection,
+                                    dd.error ?: "",
                                     style = MaterialTheme.typography.bodySmall,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.Medium,
-                                    color = MaterialTheme.colorScheme.onSurface
+                                    color = MaterialTheme.colorScheme.outline
                                 )
+                            } else {
+                                // CRC 校验状态
+                                Spacer(Modifier.height(4.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        if (dd.crcValid) Icons.Filled.Check else Icons.Filled.Warning,
+                                        null, modifier = Modifier.size(14.dp),
+                                        tint = if (dd.crcValid) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(
+                                        if (dd.crcValid) I18n.t("settings.hect_mi_crc_ok") else I18n.t("settings.hect_mi_crc_fail"),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (dd.crcValid) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                                    )
+                                }
+
+                                // 13 个因子值
+                                Spacer(Modifier.height(8.dp))
+                                val labels = dd.labels
+                                val values = dd.values
+                                val maxIdx = minOf(labels.size, values.size)
+                                for (i in 0 until maxIdx) {
+                                    val labelZh = labels[i][1]
+                                    val rawValue = values[i]
+                                    // 安装日期（索引 9）格式化为可读时间
+                                    val displayValue = if (i == 9 && rawValue.matches(Regex("\\d+"))) {
+                                        formatTimestamp(rawValue)
+                                    } else {
+                                        rawValue
+                                    }
+                                    Row(
+                                        Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                                        verticalAlignment = Alignment.Top
+                                    ) {
+                                        Text(
+                                            "${i + 1}.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.Medium,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.width(24.dp)
+                                        )
+                                        Column(Modifier.weight(1f)) {
+                                            Text(
+                                                labelZh,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                fontWeight = FontWeight.Medium,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                            Text(
+                                                displayValue.ifBlank { "-" },
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
