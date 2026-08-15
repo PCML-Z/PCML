@@ -197,7 +197,9 @@ public final class VersionManager {
         try (var stream = Files.list(versionsDir)) {
             stream.filter(Files::isDirectory).forEach(subDirs::add);
         } catch (IOException e) {
-            throw new RuntimeException("扫描本地版本失败: " + versionsDir, e);
+            // 不再抛出 RuntimeException：单个目录 IO 错误不应导致整个 scanAllLocalVersions 中止
+            System.err.println("[VersionManager] 扫描目录失败（跳过）: " + versionsDir + " - " + e.getMessage());
+            return Collections.emptyList();
         }
         String dirName = versionsDir.getFileName() != null ? versionsDir.getFileName().toString() : versionsDir.toString();
         int total = subDirs.size();
@@ -209,6 +211,27 @@ public final class VersionManager {
             if (VersionStaging.isTransientDirName(id)) continue;
             Path json = p.resolve(id + ".json");
             Path jar = p.resolve(id + ".jar");
+            // 回退：新版 Minecraft 可能使用非 {id}.json 命名（如 client.json），
+            // 如果标准路径不存在，查找目录内任意 .json 文件
+            if (!Files.exists(json)) {
+                try (var jsonStream = Files.list(p)) {
+                    Path found = jsonStream
+                            .filter(f -> f.getFileName().toString().endsWith(".json"))
+                            .findFirst()
+                            .orElse(null);
+                    if (found != null) json = found;
+                } catch (IOException ignored) {}
+            }
+            // 同理回退查找 jar
+            if (!Files.exists(jar)) {
+                try (var jarStream = Files.list(p)) {
+                    Path found = jarStream
+                            .filter(f -> f.getFileName().toString().endsWith(".jar"))
+                            .findFirst()
+                            .orElse(null);
+                    if (found != null) jar = found;
+                } catch (IOException ignored) {}
+            }
             boolean hasJson = Files.exists(json);
             boolean hasJar = Files.exists(jar);
             long mtime = 0;
@@ -286,7 +309,9 @@ public final class VersionManager {
             Path p1 = Paths.get(home, "Library", "Application Support", "minecraft", "versions");
             Path p2 = Paths.get(home, "Library", "Application Support", ".minecraft", "versions");
             Path p3 = Paths.get(home, ".minecraft", "versions");
-            for (Path p : new Path[]{p1, p2, p3}) {
+            // 新版 Minecraft 启动器可能使用的额外路径
+            Path p4 = Paths.get(home, "Library", "Application Support", "mcl", "versions");
+            for (Path p : new Path[]{p1, p2, p3, p4}) {
                 if (Files.isDirectory(p) && !result.contains(p)) result.add(p);
             }
         } else if (os.contains("win")) {
@@ -294,6 +319,13 @@ public final class VersionManager {
             if (appData != null && !appData.isBlank()) {
                 Path p = Paths.get(appData, ".minecraft", "versions");
                 if (Files.isDirectory(p)) result.add(p);
+            }
+            // 新版 Microsoft Store Minecraft Launcher 可能使用的路径
+            String localAppData = System.getenv("LOCALAPPDATA");
+            if (localAppData != null && !localAppData.isBlank()) {
+                Path p2 = Paths.get(localAppData, "Packages",
+                        "Microsoft.4297127D55ECF_8wekyb3d8bbwe", "LocalCache", "Local", "minecraft", "versions");
+                if (Files.isDirectory(p2) && !result.contains(p2)) result.add(p2);
             }
         } else {
             Path p = Paths.get(home, ".minecraft", "versions");
@@ -348,6 +380,36 @@ public final class VersionManager {
     private static volatile long cachedMinecraftDirsTime = 0L;
 
     /**
+     * 恢复 stuck staging 目录：下载中断后版本卡在 {id}.staging/，
+     * 如果 staging 目录中含 {id}.json（下载至少到达写 JSON 步骤），则尝试原子提升为正式版本。
+     * 提升失败（如目标已存在/文件被锁/JSON 缺失）则静默跳过，不影响扫描流程。
+     */
+    private void recoverStagingVersions(Path versionsDir) {
+        if (!Files.isDirectory(versionsDir)) return;
+        try (var stream = Files.list(versionsDir)) {
+            stream.filter(Files::isDirectory).forEach(p -> {
+                String name = p.getFileName().toString();
+                if (!name.endsWith(com.pmcl.core.install.VersionStaging.STAGING_SUFFIX)) return;
+                // 提取版本 id：去掉 .staging 后缀
+                String versionId = name.substring(0, name.length() - com.pmcl.core.install.VersionStaging.STAGING_SUFFIX.length());
+                if (versionId.isBlank()) return;
+                // 仅当 staging 中含 {id}.json 时才尝试提升（确保至少 JSON 已下载）
+                Path stagingJson = p.resolve(versionId + ".json");
+                if (!Files.exists(stagingJson)) return;
+                try {
+                    com.pmcl.core.install.VersionStaging.promote(versionsDir, versionId, p);
+                    System.out.println("[VersionManager] 恢复 stuck staging 版本: " + versionId);
+                } catch (Throwable t) {
+                    // 提升失败：可能是目标目录已存在、文件被锁、或 JSON 不完整
+                    System.err.println("[VersionManager] 恢复 staging 失败（跳过）: " + versionId + " - " + t.getMessage());
+                }
+            });
+        } catch (IOException e) {
+            System.err.println("[VersionManager] 扫描 staging 目录失败: " + versionsDir + " - " + e.getMessage());
+        }
+    }
+
+    /**
      * 扫描所有已知 versions 目录，支持进度回调。
      * 进度统计跨目录累计：先扫 .pmcl/versions，再扫外部目录，回调中的 currentDir 标识当前目录。
      */
@@ -355,13 +417,24 @@ public final class VersionManager {
         // 使用统一的 getAllScanDirs() 获取所有应扫描目录（.pmcl + 系统默认 + 用户自定义）
         List<Path> dirs = getAllScanDirs();
 
+        // 恢复 stuck staging：下载中断后版本卡在 {id}.staging/，尝试提升为正式版本
+        for (Path d : dirs) {
+            recoverStagingVersions(d);
+        }
+
         // 第一遍：逐目录扫描（scanVersionsDir 内部只 list 一次），收集结果和各目录计数
         List<List<LocalVersionInfo>> parts = new ArrayList<>();
         List<String> dirNames = new ArrayList<>();
         for (Path d : dirs) {
             if (!Files.isDirectory(d)) { parts.add(Collections.emptyList()); continue; }
             dirNames.add(d.getFileName() != null ? d.getFileName().toString() : d.toString());
-            parts.add(scanVersionsDir(d, null));
+            try {
+                parts.add(scanVersionsDir(d, null));
+            } catch (Throwable t) {
+                // 单个目录扫描失败不影响其他目录的版本列表
+                System.err.println("[VersionManager] 扫描目录异常（跳过）: " + d + " - " + t.getMessage());
+                parts.add(Collections.emptyList());
+            }
         }
         // 计算总数
         int grandTotal = 0;
