@@ -178,9 +178,15 @@ public final class ForgeInstaller implements ModLoaderInstaller {
                         throw new IOException(loaderName + " processors 需要原版 client.jar，"
                                 + "但未找到可用文件（已尝试 " + gameVersion + " / " + mcVer + "）");
                     }
-                    String java = JavaRuntimeFinder.findJavaExecutable(config.getRuntimesDir());
+                    // 处理器 JAR 通常以父版本要求的 Java 编译（如 MC 26.2 需 Java 25），
+                    // 必须按父版本 javaVersion.majorVersion 选择运行时，否则会触发
+                    // UnsupportedClassVersionError 致安装失败、staging 被清理，版本不入列表。
+                    int requiredJavaVer = readParentJavaRequirement(mcVer);
+                    String java = JavaRuntimeFinder.findJavaExecutable(
+                            config.getRuntimesDir(), requiredJavaVer);
                     if (java == null || java.isBlank()) {
-                        throw new IOException("找不到可用的 Java，无法执行 " + loaderName + " processors");
+                        throw new IOException("找不到满足 Java " + requiredJavaVer
+                                + "+ 的运行时，无法执行 " + loaderName + " processors");
                     }
                     runner = new ForgeProcessorRunner(
                             config.getWorkDir(), config.getLibrariesDir(), config.getVersionsDir(),
@@ -704,6 +710,30 @@ public final class ForgeInstaller implements ModLoaderInstaller {
             if (c instanceof RuntimeException) throw (RuntimeException) c;
             throw new IOException("安装原版父版本失败: " + parentId, c);
         }
+    }
+
+    /**
+     * 从父版本 JSON 读取 javaVersion.majorVersion，用于为 processors 选择匹配的 Java 运行时。
+     * 文件缺失或字段不存在时返回 0（由 findJavaExecutable 走默认策略）。
+     */
+    private int readParentJavaRequirement(String parentId) {
+        try {
+            VersionStaging.assertSafeVersionId(parentId);
+            Path parentJson = config.getVersionsDir()
+                    .resolve(parentId).resolve(parentId + ".json");
+            if (!Files.isRegularFile(parentJson)) return 0;
+            String content = Files.readString(parentJson, StandardCharsets.UTF_8);
+            JsonObject root = JsonParser.parseString(content).getAsJsonObject();
+            if (root.has("javaVersion") && root.get("javaVersion").isJsonObject()) {
+                JsonObject jv = root.getAsJsonObject("javaVersion");
+                if (jv.has("majorVersion") && !jv.get("majorVersion").isJsonNull()) {
+                    return jv.get("majorVersion").getAsInt();
+                }
+            }
+        } catch (Exception ignored) {
+            // 读取失败不影响主流程，回退到默认策略
+        }
+        return 0;
     }
 
     /**

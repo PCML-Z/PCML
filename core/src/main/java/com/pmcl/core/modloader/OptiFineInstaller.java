@@ -132,7 +132,7 @@ public final class OptiFineInstaller implements ModLoaderInstaller {
                         "optifine/Optifine/" + gameVersion + "_" + editionRelease
                                 + "/Optifine-" + gameVersion + "_" + editionRelease + ".jar");
                 Files.createDirectories(optifineLib.getParent());
-                runPatcher(installerJar, clientJar, optifineLib);
+                runPatcher(installerJar, clientJar, optifineLib, gameVersion);
 
                 // 4. 处理 LaunchWrapper（内嵌 launchwrapper-of 或官方 1.12）
                 if (onProgress != null) onProgress.accept(new InstallProgress(
@@ -247,11 +247,39 @@ public final class OptiFineInstaller implements ModLoaderInstaller {
         }
     }
 
+    /**
+     * 从父版本 JSON 读取 javaVersion.majorVersion，用于为 Patcher 选择匹配的 Java 运行时。
+     * 文件缺失或字段不存在时返回 0（由 findJavaExecutable 走默认策略）。
+     */
+    private int readParentJavaRequirement(String parentId) {
+        try {
+            VersionStaging.assertSafeVersionId(parentId);
+            Path parentJson = config.getVersionsDir()
+                    .resolve(parentId).resolve(parentId + ".json");
+            if (!Files.isRegularFile(parentJson)) return 0;
+            String content = Files.readString(parentJson, StandardCharsets.UTF_8);
+            JsonObject root = JsonParser.parseString(content).getAsJsonObject();
+            if (root.has("javaVersion") && root.get("javaVersion").isJsonObject()) {
+                JsonObject jv = root.getAsJsonObject("javaVersion");
+                if (jv.has("majorVersion") && !jv.get("majorVersion").isJsonNull()) {
+                    return jv.get("majorVersion").getAsInt();
+                }
+            }
+        } catch (Exception ignored) {
+            // 读取失败不影响主流程，回退到默认策略
+        }
+        return 0;
+    }
+
     /** 执行 {@code java -cp installer optifine.Patcher <mcJar> <installer> <out>}。 */
-    private void runPatcher(Path installerJar, Path clientJar, Path outJar) throws IOException {
-        String java = JavaRuntimeFinder.findJavaExecutable(config.getRuntimesDir());
+    private void runPatcher(Path installerJar, Path clientJar, Path outJar, String gameVersion)
+            throws IOException {
+        // Patcher JAR 按父版本 Java 编译（如 MC 26.2 需 Java 25），必须匹配否则 UnsupportedClassVersionError
+        int requiredJavaVer = readParentJavaRequirement(gameVersion);
+        String java = JavaRuntimeFinder.findJavaExecutable(config.getRuntimesDir(), requiredJavaVer);
         if (java == null || java.isBlank()) {
-            throw new IOException("找不到可用的 Java，无法运行 OptiFine Patcher");
+            throw new IOException("找不到满足 Java " + requiredJavaVer
+                    + "+ 的运行时，无法运行 OptiFine Patcher");
         }
         Path tmpOut = outJar.resolveSibling(outJar.getFileName() + ".patching");
         Files.deleteIfExists(tmpOut);
