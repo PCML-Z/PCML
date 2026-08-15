@@ -146,43 +146,47 @@ private fun PerfHudContent(
         }
     }
 
-    // FPS 统计：M44 修复——withFrameNanos 在窗口不可见时停止回调，导致 FPS 卡在最后值。
-    // 改为：用 withTimeoutOrNull 等待帧，超时则置 0；窗口恢复可见后自动恢复统计。
+    // FPS 统计：滑动窗口 + 停滞检测
+    // Minecraft 26.2 Graphics API 控制门会导致帧回调间隔不规则（突发帧 + 长暂停），
+    // 固定 1 秒累加窗口在此场景下读数延迟且不准。
+    // 改为：维护最近 1 秒内帧时间戳的滑动窗口，每 250ms 更新一次 FPS。
+    // 超时 500ms 无帧则判定渲染停滞，窗口内时间戳自然过期后 FPS 归零。
     LaunchedEffect(Unit) {
-        var frameCount = 0
-        var lastSecondNanos = 0L
+        val frameTimestamps = java.util.ArrayDeque<Long>()
+        var lastDisplayUpdate = 0L
         while (isActive) {
             try {
-                // 等待下一帧，最多等 2 秒；超时说明窗口不可见或暂停渲染
-                val frameNanos = withTimeoutOrNull(2_000L) {
+                val frameNanos = withTimeoutOrNull(500L) {
                     val result = CompletableDeferred<Long>()
                     withFrameNanos { now -> result.complete(now) }
                     result.await()
                 }
-                if (frameNanos == null) {
-                    // 超时：窗口不可见，FPS 置 0
-                    if (fps != 0) {
-                        fps = 0
-                        fpsHistory.add(0f)
-                        while (fpsHistory.size > 40) fpsHistory.removeAt(0)
-                    }
-                    lastSecondNanos = 0L
-                    frameCount = 0
-                    continue
+
+                val now = System.nanoTime()
+
+                // 有帧到达则记录时间戳
+                if (frameNanos != null) {
+                    frameTimestamps.addLast(now)
                 }
-                val now = frameNanos
-                if (lastSecondNanos == 0L) {
-                    lastSecondNanos = now
-                    continue
+
+                // 移除超过 1 秒的旧时间戳（滑动窗口）
+                val cutoff = now - 1_000_000_000L
+                while (frameTimestamps.isNotEmpty() && frameTimestamps.peekFirst() < cutoff) {
+                    frameTimestamps.removeFirst()
                 }
-                frameCount++
-                val elapsed = now - lastSecondNanos
-                if (elapsed >= 1_000_000_000L) {
-                    fps = (frameCount * 1_000_000_000L / elapsed).toInt()
-                    fpsHistory.add(fps.toFloat())
+
+                // 每 250ms 更新一次显示和图表
+                if (now - lastDisplayUpdate >= 250_000_000L) {
+                    val newFps = frameTimestamps.size
+                    fps = newFps
+                    fpsHistory.add(newFps.toFloat())
                     while (fpsHistory.size > 40) fpsHistory.removeAt(0)
-                    frameCount = 0
-                    lastSecondNanos = now
+                    lastDisplayUpdate = now
+                }
+
+                // 帧停滞时避免忙循环
+                if (frameNanos == null) {
+                    kotlinx.coroutines.delay(50)
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
