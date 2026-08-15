@@ -1594,6 +1594,12 @@ private fun TechStackTable() {
             license = "Licensed under the MIT License.",
             url = "https://github.com/oshi/oshi"
         ),
+        TechDependency(
+            name = "JvmDowngrader",
+            copyright = "Copyright © William Gray / unimined.",
+            license = "Licensed under the GNU Lesser General Public License v2.1.",
+            url = "https://github.com/unimined/JvmDowngrader"
+        ),
     )
 
     Surface(
