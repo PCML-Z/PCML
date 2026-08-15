@@ -2165,7 +2165,7 @@ public final class LaunchProfileBuilder {
     }
 
     /**
-     * 确保 JvmDowngrader-all.jar 存在（不存在则从 Maven Central 下载，失败回退阿里云镜像）。
+     * 确保 JvmDowngrader-all.jar 存在于工作目录（本地集成：从 fatJAR 内嵌资源提取，不联网）。
      * 用于 Java 版本兼容降级兜底：实际 Java 低于版本要求时作为 -javaagent 注入，
      * 在类加载期把高版本字节码降级到当前 JVM 可运行的形式。
      */
@@ -2173,18 +2173,15 @@ public final class LaunchProfileBuilder {
         Path jar = config.getWorkDir().resolve("jvmdowngrader-all.jar");
         if (java.nio.file.Files.isRegularFile(jar)
                 && java.nio.file.Files.size(jar) > 1_000_000L) {
-            return jar;
+            return jar;  // 已提取到工作目录，复用
         }
-        String version = "2.0.1";
-        String mavenUrl = "https://repo1.maven.org/maven2/xyz/wagyourtail/jvmdowngrader/"
-                + "jvmdowngrader/" + version + "/jvmdowngrader-" + version + "-all.jar";
-        try {
-            downloadManager.downloadTo(mavenUrl, jar);
-        } catch (IOException e) {
-            String altUrl = "https://maven.aliyun.com/repository/public/xyz/wagyourtail/"
-                    + "jvmdowngrader/jvmdowngrader/" + version
-                    + "/jvmdowngrader-" + version + "-all.jar";
-            downloadManager.downloadTo(altUrl, jar);
+        // 本地集成：从内嵌资源提取，无需联网下载
+        try (java.io.InputStream in = getClass().getResourceAsStream("/jvmdowngrader-all.jar")) {
+            if (in == null) {
+                throw new IOException("内嵌 jvmdowngrader-all.jar 资源缺失（启动器构建异常）");
+            }
+            java.nio.file.Files.createDirectories(jar.getParent());
+            java.nio.file.Files.copy(in, jar, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
         }
         return jar;
     }
