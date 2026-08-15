@@ -97,22 +97,27 @@ public final class JavaRuntimeFinder {
                 } catch (IOException ignored) {}
             }
             // 兜底常见路径（含 Java 8，alpha/beta 必需）
+            candidates.add("/Library/Java/JavaVirtualMachines/jdk-25.jdk/Contents/Home");
             candidates.add("/Library/Java/JavaVirtualMachines/jdk-21.jdk/Contents/Home");
             candidates.add("/Library/Java/JavaVirtualMachines/jdk-17.jdk/Contents/Home");
             candidates.add("/Library/Java/JavaVirtualMachines/jdk-1.8.jdk/Contents/Home");
             candidates.add("/Library/Java/JavaVirtualMachines/jdk8.jdk/Contents/Home");
+            candidates.add("/Library/Java/JavaVirtualMachines/temurin-25.jdk/Contents/Home");
             candidates.add("/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home");
             candidates.add("/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home");
             candidates.add("/Library/Java/JavaVirtualMachines/temurin-8.jdk/Contents/Home");
         } else if (os.contains("win")) {
+            candidates.add("C:\\Program Files\\Java\\jdk-25");
             candidates.add("C:\\Program Files\\Java\\jdk-21");
             candidates.add("C:\\Program Files\\Java\\jdk-17");
             candidates.add("C:\\Program Files\\Java\\jre-8");
             candidates.add("C:\\Program Files\\Java\\jdk-8");
+            candidates.add("C:\\Program Files\\Eclipse Adoptium\\jdk-25");
             candidates.add("C:\\Program Files\\Eclipse Adoptium\\jdk-21");
             candidates.add("C:\\Program Files\\Eclipse Adoptium\\jdk-17");
             candidates.add("C:\\Program Files\\Eclipse Adoptium\\jdk-8");
         } else {
+            candidates.add("/usr/lib/jvm/java-25-openjdk");
             candidates.add("/usr/lib/jvm/java-21-openjdk");
             candidates.add("/usr/lib/jvm/java-17-openjdk");
             candidates.add("/usr/lib/jvm/java-8-openjdk");
@@ -145,18 +150,23 @@ public final class JavaRuntimeFinder {
         // 不再返回 null，而是继续查找可用的 Java 9+
 
         // 3. JAVA_HOME（如果用户显式设置）
+        // 必须检查版本是否满足要求：required≥11 时低于 required 的 Java 会导致 UnsupportedClassVersionError
         String javaHome = System.getenv("JAVA_HOME");
         if (javaHome != null) {
             String exe = resolveJava(javaHome);
-            if (exe != null) return exe;
+            if (exe != null && meetsRequirement(exe, requiredMajorVersion)) return exe;
         }
 
         // 4. java 命令在 PATH（兜底）
         // M78: try-finally 确保 Process 被销毁（Process 未实现 AutoCloseable，不能用 try-with-resources）
+        // 同样必须检查版本：PATH 上的 java 可能比 required 旧（如 Java 24 跑不了 Java 25 编译的 26.2）
         Process p = null;
         try {
             p = new ProcessBuilder("java", "-version").redirectErrorStream(true).start();
-            if (p.waitFor(5, TimeUnit.SECONDS) && p.exitValue() == 0) return "java";
+            if (p.waitFor(5, TimeUnit.SECONDS) && p.exitValue() == 0
+                    && meetsRequirement("java", requiredMajorVersion)) {
+                return "java";
+            }
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
         } catch (IOException ignored) {

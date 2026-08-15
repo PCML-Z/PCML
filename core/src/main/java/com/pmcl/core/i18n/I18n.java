@@ -1168,7 +1168,7 @@ public final class I18n {
         ZH.put("settings.chunked_download_hint", "分片下载对大于 8MB 的文件启用多连接并行下载");
         ZH.put("settings.java_runtime", "Java 运行时");
         ZH.put("settings.current_java", "当前 Java：{0}");
-        ZH.put("settings.java_version_hint", "MC 1.20.5+ 需要 Java 21；MC 1.17–1.20.4 需要 Java 17；MC 1.12.2 及更早（含 alpha/beta）需要 Java 8。");
+        ZH.put("settings.java_version_hint", "MC 26+ 需要 Java 25；MC 1.20.5–25.x 需要 Java 21；MC 1.17–1.20.4 需要 Java 17；MC 1.12.2 及更早（含 alpha/beta）需要 Java 8。");
         ZH.put("settings.unknown_arch", "未知");
         ZH.put("settings.go_to_loongson", "前往龙芯开源社区");
         ZH.put("settings.go_to_adoptium", "前往 Adoptium");
@@ -3221,7 +3221,7 @@ public final class I18n {
         EN.put("settings.chunked_download_hint", "Chunked download enables multi-connection parallel download for files larger than 8MB");
         EN.put("settings.java_runtime", "Java Runtime");
         EN.put("settings.current_java", "Current Java: {0}");
-        EN.put("settings.java_version_hint", "MC 1.20.5+ requires Java 21; MC 1.17–1.20.4 requires Java 17; MC 1.12.2 and earlier (including alpha/beta) require Java 8.");
+        EN.put("settings.java_version_hint", "MC 26+ requires Java 25; MC 1.20.5–25.x requires Java 21; MC 1.17–1.20.4 requires Java 17; MC 1.12.2 and earlier (including alpha/beta) require Java 8.");
         EN.put("settings.unknown_arch", "Unknown");
         EN.put("settings.go_to_loongson", "Go to Loongson open-source community");
         EN.put("settings.go_to_adoptium", "Go to Adoptium");
@@ -5215,7 +5215,7 @@ public final class I18n {
         JA.put("settings.chunked_download_hint", "分割ダウンロードは 8MB を超えるファイルに対してマルチ接続並行ダウンロードを有効化");
         JA.put("settings.java_runtime", "Java ランタイム");
         JA.put("settings.current_java", "現在の Java: {0}");
-        JA.put("settings.java_version_hint", "MC 1.20.5+ は Java 21 必要; MC 1.17–1.20.4 は Java 17 必要; MC 1.12.2 以前（alpha/beta 含む）は Java 8 必要。");
+        JA.put("settings.java_version_hint", "MC 26+ は Java 25 必要; MC 1.20.5–25.x は Java 21 必要; MC 1.17–1.20.4 は Java 17 必要; MC 1.12.2 以前（alpha/beta 含む）は Java 8 必要。");
         JA.put("settings.unknown_arch", "不明");
         JA.put("settings.go_to_loongson", "Loongson オープンソースコミュニティへ");
         JA.put("settings.go_to_adoptium", "Adoptium へ");

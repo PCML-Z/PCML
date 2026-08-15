@@ -39,19 +39,20 @@ public final class JavaRuntimeDownloader {
     /** 龙芯 LoongArch64 JDK 源：Dragonwell 官方维护，GitHub Releases API */
     private static final String LOONGSON_JDK_RELEASES_API =
             "https://api.github.com/repos/alibaba/dragonwell%s/releases/latest";
-    /** Dragonwell 各 Java 版本对应的仓库版本后缀（8/11/17/21） */
+    /** Dragonwell 各 Java 版本对应的仓库版本后缀（8/17/21/25） */
     private static final java.util.Map<RuntimeType, String> LOONGSON_DRAGONWELL_REPO =
             java.util.Map.of(
                     RuntimeType.JAVA_8, "8",
                     RuntimeType.JAVA_17, "17",
-                    RuntimeType.JAVA_21, "21");
+                    RuntimeType.JAVA_21, "21",
+                    RuntimeType.JAVA_25, "25");
 
-    /** RISC-V 64 JDK 源：Adoptium Temurin 官方 API，支持 JDK 17/21（JDK 8 无 riscv64 构建） */
+    /** RISC-V 64 JDK 源：Adoptium Temurin 官方 API，支持 JDK 17/21/25（JDK 8 无 riscv64 构建） */
     private static final String ADOPTIUM_API_TEMPLATE =
             "https://api.adoptium.net/v3/binary/latest/%d/ga/linux/riscv64/jdk/hotspot/normal/eclipse";
     /** Adoptium 支持的 RISC-V 64 Java 版本（JDK 8 无 riscv64 构建） */
     private static final java.util.Set<RuntimeType> ADOPTIUM_RISCV_SUPPORTED =
-            java.util.Set.of(RuntimeType.JAVA_17, RuntimeType.JAVA_21);
+            java.util.Set.of(RuntimeType.JAVA_17, RuntimeType.JAVA_21, RuntimeType.JAVA_25);
 
     /** 龙芯 MIPS64el JDK 源：龙芯开源社区（HTTPS）；无校验和则拒绝安装 */
     private static final String LOONGSON_MIPS_JDK8_URL =
@@ -73,7 +74,8 @@ public final class JavaRuntimeDownloader {
     public enum RuntimeType {
         JAVA_8("jre-legacy", "Java 8"),
         JAVA_17("java-runtime-gamma", "Java 17"),
-        JAVA_21("java-runtime-delta", "Java 21");
+        JAVA_21("java-runtime-delta", "Java 21"),
+        JAVA_25("java-runtime-epsilon", "Java 25");
 
         private final String mojangId;
         private final String displayName;
@@ -232,7 +234,12 @@ public final class JavaRuntimeDownloader {
             return new ArrayList<>();
         }
         List<RuntimeEntry> result = new ArrayList<>();
-        int majorVersion = type == RuntimeType.JAVA_17 ? 17 : 21;
+        int majorVersion = switch (type) {
+            case JAVA_17 -> 17;
+            case JAVA_21 -> 21;
+            case JAVA_25 -> 25;
+            default -> 21;
+        };
         String apiUrl = String.format(ADOPTIUM_API_TEMPLATE, majorVersion);
         // Adoptium API 返回 302 重定向到 GitHub Releases 下载 URL，
         // DownloadManager 会自动跟随重定向。SHA-1 传空（Adoptium 提供 SHA-256，非 SHA-1）。

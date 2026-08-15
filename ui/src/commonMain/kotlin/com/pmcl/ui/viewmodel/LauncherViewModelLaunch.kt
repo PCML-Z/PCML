@@ -379,11 +379,14 @@ fun LauncherViewModel.launch() {
                     requiredJavaVer in 1..10 && preferTranslation -> 21
                     requiredJavaVer in 1..10 -> 8
                     requiredJavaVer in 11..17 -> 17
+                    requiredJavaVer in 18..24 -> 21
+                    requiredJavaVer >= 25 -> 25
                     else -> 21
                 }
                 val runtimeType = when (downloadVer) {
                     8 -> com.pmcl.core.runtime.JavaRuntimeDownloader.RuntimeType.JAVA_8
                     17 -> com.pmcl.core.runtime.JavaRuntimeDownloader.RuntimeType.JAVA_17
+                    25 -> com.pmcl.core.runtime.JavaRuntimeDownloader.RuntimeType.JAVA_25
                     else -> com.pmcl.core.runtime.JavaRuntimeDownloader.RuntimeType.JAVA_21
                 }
                 _status.value = "未找到 Java 运行时，正在自动下载 Java $downloadVer…"

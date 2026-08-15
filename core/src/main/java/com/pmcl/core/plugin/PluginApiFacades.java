@@ -2093,6 +2093,9 @@ final class PluginApiFacades {
         if (t.contains("21") || t.contains("delta")) {
             return com.pmcl.core.runtime.JavaRuntimeDownloader.RuntimeType.JAVA_21;
         }
+        if (t.contains("25") || t.contains("epsilon")) {
+            return com.pmcl.core.runtime.JavaRuntimeDownloader.RuntimeType.JAVA_25;
+        }
         if (t.contains("17") || t.contains("gamma") || t.contains("beta")) {
             return com.pmcl.core.runtime.JavaRuntimeDownloader.RuntimeType.JAVA_17;
         }
