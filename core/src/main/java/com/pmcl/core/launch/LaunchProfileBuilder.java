@@ -515,6 +515,22 @@ public final class LaunchProfileBuilder {
             }
         }
 
+        // === Java 版本兼容（降级兜底）：实际 Java 低于要求时注入 JvmDowngrader agent ===
+        // 场景：MC 26.2 需 Java 25 但本机仅 Java 21，agent 在加载期把 class file 69 降为 65
+        if (preferences.isJavaDowngradeFallback()
+                && requiredJava > javaMajorVersion
+                && requiredJava >= 17) {
+            try {
+                Path jvmDowngraderJar = ensureJvmDowngraderJar();
+                profile.addJavaAgent(jvmDowngraderJar.toString(), null);
+                System.err.println("[PMCL] Java 降级兜底已启用: 需 Java " + requiredJava
+                        + "，实际 Java " + javaMajorVersion + "，注入 JvmDowngrader agent");
+            } catch (Exception e) {
+                System.err.println("[PMCL] JvmDowngrader 注入失败，启动可能因 "
+                        + "UnsupportedClassVersionError 崩溃: " + e.getMessage());
+            }
+        }
+
         // === 兼容层：让 Java 9+ 能启动使用 LaunchWrapper 的旧版本（MC 1.6-1.12.2） ===
         // LaunchWrapper 将系统类加载器强转为 URLClassLoader，Java 9+ 的 AppClassLoader
         // 不再继承 URLClassLoader，导致 ClassCastException 崩溃。
@@ -2146,5 +2162,30 @@ public final class LaunchProfileBuilder {
             // 同时将警告写入游戏启动日志（通过 profile 的 gameArgs 前缀）
             profile.addJvmArg("-Dpmcl.authlibinjector.warning=" + warn);
         }
+    }
+
+    /**
+     * 确保 JvmDowngrader-all.jar 存在（不存在则从 Maven Central 下载，失败回退阿里云镜像）。
+     * 用于 Java 版本兼容降级兜底：实际 Java 低于版本要求时作为 -javaagent 注入，
+     * 在类加载期把高版本字节码降级到当前 JVM 可运行的形式。
+     */
+    private Path ensureJvmDowngraderJar() throws IOException {
+        Path jar = config.getWorkDir().resolve("jvmdowngrader-all.jar");
+        if (java.nio.file.Files.isRegularFile(jar)
+                && java.nio.file.Files.size(jar) > 1_000_000L) {
+            return jar;
+        }
+        String version = "2.0.1";
+        String mavenUrl = "https://repo1.maven.org/maven2/xyz/wagyourtail/jvmdowngrader/"
+                + "jvmdowngrader/" + version + "/jvmdowngrader-" + version + "-all.jar";
+        try {
+            downloadManager.downloadTo(mavenUrl, jar);
+        } catch (IOException e) {
+            String altUrl = "https://maven.aliyun.com/repository/public/xyz/wagyourtail/"
+                    + "jvmdowngrader/jvmdowngrader/" + version
+                    + "/jvmdowngrader-" + version + "-all.jar";
+            downloadManager.downloadTo(altUrl, jar);
+        }
+        return jar;
     }
 }

@@ -71,6 +71,13 @@ public final class Preferences {
      */
     private String legacyTranslationMode = "AUTO";
 
+    /**
+     * Java 版本兼容（降级兜底）：本机无匹配高版本 Java 时（如 MC 26.2 需 Java 25），
+     * 用 JvmDowngrader agent 在加载期把高版本字节码降级到可用 Java（如 21）运行。
+     * 关闭则严格要求匹配 Java，缺失则报错或触发自动下载。
+     */
+    private boolean javaDowngradeFallback = false;
+
     // 游戏通用行为
     private int gameWindowWidth = 854;       // 窗口初始宽度（--width）
     private int gameWindowHeight = 480;      // 窗口初始高度（--height）
@@ -365,6 +372,9 @@ public final class Preferences {
 
     public synchronized boolean isUseSegmentedLaunchLayout() { return useSegmentedLaunchLayout; }
     public synchronized void setUseSegmentedLaunchLayout(boolean v) { useSegmentedLaunchLayout = v; scheduleSave(); }
+
+    public synchronized boolean isJavaDowngradeFallback() { return javaDowngradeFallback; }
+    public synchronized void setJavaDowngradeFallback(boolean v) { javaDowngradeFallback = v; scheduleSave(); }
 
     public synchronized int getMinMemoryMb() { return minMemoryMb; }
     public synchronized void setMinMemoryMb(int v) { if (v < 128) return; minMemoryMb = v; scheduleSave(); }
@@ -833,6 +843,7 @@ public final class Preferences {
             dynamicColor = loadBool(o, "dynamicColor", false);
             predictiveLaunch = loadBool(o, "predictiveLaunch", true);
             borderlessWindow = loadBool(o, "borderlessWindow", true);
+            javaDowngradeFallback = loadBool(o, "javaDowngradeFallback", false);
             showPerfHud = loadBool(o, "showPerfHud", false);
             parallaxBackground = loadBool(o, "parallaxBackground", true);
             launcherBgType = loadString(o, "launcherBgType", "none");
@@ -1133,6 +1144,7 @@ public final class Preferences {
         o.addProperty("monetSeedColor", monetSeedColor);
         o.addProperty("predictiveLaunch", predictiveLaunch);
         o.addProperty("borderlessWindow", borderlessWindow);
+        o.addProperty("javaDowngradeFallback", javaDowngradeFallback);
         o.addProperty("showPerfHud", showPerfHud);
         o.addProperty("perfHudMetrics", perfHudMetrics);
         o.addProperty("uiScale", uiScale);

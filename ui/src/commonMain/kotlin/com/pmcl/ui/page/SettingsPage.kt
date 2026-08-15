@@ -78,6 +78,7 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
     var language by remember { mutableStateOf(pref.getLanguage()) }
     var borderless by remember { mutableStateOf(pref.isBorderlessWindow()) }
     var segmentedLaunch by remember { mutableStateOf(pref.isUseSegmentedLaunchLayout()) }
+    var javaDowngrade by remember { mutableStateOf(pref.isJavaDowngradeFallback()) }
 
     // 插件主题包 / 设置分区（轮询 PluginManager.revision 变化时刷新）
     var pluginThemePacks by remember { mutableStateOf<List<com.pmcl.plugin.ThemePack>>(emptyList()) }
@@ -466,6 +467,27 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
                 }
                 Spacer(Modifier.height(4.dp))
                 Text(I18n.t("settings.borderless_window_desc"),
+                     style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.outline)
+
+                Spacer(Modifier.height(12.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(12.dp))
+
+                // Java 版本兼容（降级兜底）
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = javaDowngrade,
+                        onCheckedChange = { v ->
+                            javaDowngrade = v
+                            pref.setJavaDowngradeFallback(v)
+                        }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(I18n.t("settings.java_downgrade"), fontWeight = FontWeight.Medium)
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(I18n.t("settings.java_downgrade_desc"),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
 

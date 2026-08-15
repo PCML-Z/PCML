@@ -915,6 +915,8 @@ public final class I18n {
         ZH.put("settings.game_behavior", "游戏行为");
         ZH.put("settings.borderless_window", "无边框窗口");
         ZH.put("settings.borderless_window_desc", "开启后使用自定义标题栏，重启启动器后生效");
+        ZH.put("settings.java_downgrade", "Java 版本兼容");
+        ZH.put("settings.java_downgrade_desc", "本机无匹配 Java 时，用降级代理让新版字节码在旧 Java 上运行（如 MC 26.2 在 Java 21）");
         ZH.put("settings.parallax_background", "视差背景");
         ZH.put("settings.parallax_background_desc", "多层渐变球随鼠标偏移产生 3D 视差效果，实时生效");
         ZH.put("settings.custom_bg", "自定义背景");
@@ -2973,6 +2975,8 @@ public final class I18n {
         EN.put("settings.game_behavior", "Game behavior");
         EN.put("settings.borderless_window", "Borderless window");
         EN.put("settings.borderless_window_desc", "Use custom title bar after restart");
+        EN.put("settings.java_downgrade", "Java version compatibility");
+        EN.put("settings.java_downgrade_desc", "Run newer bytecode on older Java via downgrade agent when no matching Java is found (e.g. MC 26.2 on Java 21)");
         EN.put("settings.parallax_background", "Parallax background");
         EN.put("settings.parallax_background_desc", "Multi-layer gradient orbs shift with mouse for 3D parallax");
         EN.put("settings.custom_bg", "Custom background");
@@ -4967,6 +4971,8 @@ public final class I18n {
         JA.put("settings.game_behavior", "ゲーム動作");
         JA.put("settings.borderless_window", "ボーダーレスウィンドウ");
         JA.put("settings.borderless_window_desc", "有効化するとカスタムタイトルバーを使用、再起動後に有効");
+        JA.put("settings.java_downgrade", "Javaバージョン互換");
+        JA.put("settings.java_downgrade_desc", "対応Javaがない場合、ダウングレードエージェントで新バージョンを旧Javaで実行（例: MC 26.2 を Java 21 で）");
         JA.put("settings.parallax_background", "視差背景");
         JA.put("settings.parallax_background_desc", "マウス移動で3D視差効果を生む多層グラデーション、即時反映");
         JA.put("settings.custom_bg", "カスタム背景");
