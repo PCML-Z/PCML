@@ -39,4 +39,19 @@ dependencies {
         else -> "linux"
     }
     compileOnly("org.openjfx:javafx-graphics:${libs.versions.javafx.get()}:$fxClassifier")
+
+    // 测试：JUnit5 + Compose runtime + JavaFX API。
+    // - Compose runtime：compose-compiler 插件编译 test 源集时要求 runtime 在
+    //   classpath（main 源集是 compileOnly，不传递到 test）
+    // - JavaFX：JavaFxContent 测试 lambda 的签名引用 javafx.scene.Parent；加载/链接
+    //   Parent 及其父类链（javafx-base 的 javafx.event.*）不需要初始化 toolkit，
+    //   不会拉起渲染线程
+    testImplementation(libs.junit.jupiter)
+    testImplementation("org.jetbrains.compose.runtime:runtime:${libs.versions.compose.multiplatform.get()}")
+    testImplementation("org.openjfx:javafx-base:${libs.versions.javafx.get()}:$fxClassifier")
+    testImplementation("org.openjfx:javafx-graphics:${libs.versions.javafx.get()}:$fxClassifier")
+}
+
+tasks.test {
+    useJUnitPlatform()
 }

@@ -107,4 +107,27 @@ tasks.named<Jar>("sourcesJar") {
 
 tasks.test {
     useJUnitPlatform()
+    // 隔离 user.home：LauncherCore 构造会初始化 FriendManager 等直接读写
+    // <user.home>/.pmcl 的组件；重定向到 build 目录避免测试污染真实用户数据
+    val testHome = layout.buildDirectory.dir("test-home")
+    doFirst { testHome.get().asFile.mkdirs() }
+    systemProperty("user.home", testHome.get().asFile.absolutePath)
+}
+
+dependencies {
+    // 测试需要 JavaFX API：PluginManagerJavaFxPageTest 构造 JavaFxContent 代理时，
+    // JDK ProxyBuilder 会解析接口方法签名（引用 javafx.scene.Parent）。
+    // 仅类加载，不初始化 toolkit，不会拉起渲染线程。
+    // openjfx 必须显式指定 OS+架构 classifier（无 classifier 是空壳 pom）。
+    val fxOs = System.getProperty("os.name").lowercase()
+    val fxArch = System.getProperty("os.arch").lowercase()
+    val fxClassifier = when {
+        fxOs.contains("mac") && fxArch.contains("aarch64") -> "mac-aarch64"
+        fxOs.contains("mac") -> "mac"
+        fxOs.contains("windows") -> "win"
+        fxOs.contains("linux") && fxArch.contains("aarch64") -> "linux-aarch64"
+        else -> "linux"
+    }
+    testImplementation("org.openjfx:javafx-base:${libs.versions.javafx.get()}:$fxClassifier")
+    testImplementation("org.openjfx:javafx-graphics:${libs.versions.javafx.get()}:$fxClassifier")
 }
