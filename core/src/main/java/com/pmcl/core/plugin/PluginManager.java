@@ -2486,8 +2486,7 @@ public final class PluginManager {
                         "start with a letter, end with alphanumeric, no consecutive hyphens");
             }
             if (title == null || title.isBlank()) {
-                throw new IllegalArgumentException(
-                        "Page title must not be null or blank (page: " + id + ", plugin: " + pluginId + ")");
+                throw new IllegalArgumentException("Page title must not be null or blank (page: " + id + ", plugin: " + pluginId + ")");
             }
             if (content == null) {
                 throw new NullPointerException("Page content must not be null (page: " + id + ", plugin: " + pluginId + ")");
@@ -2507,6 +2506,24 @@ public final class PluginManager {
                 manager.customPages.computeIfAbsent(pluginId, k -> new ArrayList<>()).add(page);
                 manager.bumpRevision();
             }
+        }
+
+        @Override
+        public void registerJavaFxPage(String id, String title, com.pmcl.plugin.JavaFxContent content) {
+            if (content == null) {
+                throw new NullPointerException(
+                        "JavaFX page content must not be null (page: " + id + ", plugin: " + pluginId + ")");
+            }
+            // 嵌入引擎在 :ui，经 plugin-api 注册表解耦取用（同 WebViewPageFactories 模式）；
+            // 无 UI 宿主（headless CLI）时降级为错误占位页，由 SafePluginPage 渲染。
+            com.pmcl.plugin.JavaFxPageFactory factory = com.pmcl.plugin.JavaFxPageFactories.get();
+            com.pmcl.plugin.ComposableContent embeddable;
+            if (factory != null) {
+                embeddable = manager.callInPlugin(pluginId, () -> factory.create(content));
+            } else {
+                embeddable = com.pmcl.plugin.JavaFxPageFactories.unavailableContent();
+            }
+            registerPage(id, title, embeddable);
         }
 
         @Override

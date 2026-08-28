@@ -125,6 +125,23 @@ interface PluginContext {
     fun registerPage(id: String, title: String, content: ComposableContent)
 
     /**
+     * Register a page whose content is a **JavaFX** scene root, embedded into the
+     * PMCL main window (JFXPanel → SwingPanel) — the same mechanism the HMCL
+     * embed plugin uses, generalized for any plugin.
+     *
+     * The plugin only implements [JavaFxContent.createRoot]; the host handles
+     * JavaFX/Swing/Compose bridging, threading (FX Application Thread),
+     * scene caching across page navigation, and cleanup on dispose.
+     *
+     * `javafx.*` classes resolve to the host-provided JavaFX runtime through the
+     * plugin classloader bridge — plugins must NOT bundle their own JavaFX jars.
+     *
+     * Page id/title rules and sidebar placement are identical to [registerPage].
+     * In headless hosts (no UI), an error placeholder page is registered instead.
+     */
+    fun registerJavaFxPage(id: String, title: String, content: JavaFxContent)
+
+    /**
      * Register a settings section rendered inside Settings > Extensions.
      */
     fun registerSettingsSection(id: String, title: String, content: ComposableContent)
