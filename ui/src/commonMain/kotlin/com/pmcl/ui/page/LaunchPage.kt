@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.IosShare
+import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -2138,6 +2139,62 @@ private fun GameLogPanel(vm: LauncherViewModel) {
                 singleLine = true,
                 textStyle = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace)
             )
+            // 复制游戏日志（面板内提供：默认分栏布局无外部按钮行）
+            var gameLogCopied by remember { mutableStateOf(false) }
+            IconButton(
+                onClick = {
+                    try {
+                        val text = gameLogs.map { it.text }.joinToString("\n")
+                        java.awt.Toolkit.getDefaultToolkit().systemClipboard.setContents(
+                            java.awt.datatransfer.StringSelection(text), null)
+                        gameLogCopied = true
+                    } catch (_: Throwable) {}
+                },
+                enabled = gameLogs.isNotEmpty(),
+                modifier = Modifier.size(32.dp)
+            ) {
+                Icon(
+                    if (gameLogCopied) Icons.Filled.Check else Icons.Filled.ContentCopy,
+                    I18n.t("launch.copy_log"),
+                    modifier = Modifier.size(18.dp),
+                    tint = if (gameLogCopied) MaterialTheme.colorScheme.primary
+                           else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            LaunchedEffect(gameLogCopied) {
+                if (gameLogCopied) {
+                    kotlinx.coroutines.delay(1500)
+                    gameLogCopied = false
+                }
+            }
+            // 复制启动器自身日志（stdout/stderr 收集）
+            var launcherCopied by remember { mutableStateOf(false) }
+            IconButton(
+                onClick = {
+                    try {
+                        val text = com.pmcl.core.util.LauncherLogCollector.getText()
+                        java.awt.Toolkit.getDefaultToolkit().systemClipboard.setContents(
+                            java.awt.datatransfer.StringSelection(text), null)
+                        launcherCopied = true
+                    } catch (_: Throwable) {}
+                },
+                enabled = com.pmcl.core.util.LauncherLogCollector.lineCount() > 0,
+                modifier = Modifier.size(32.dp)
+            ) {
+                Icon(
+                    if (launcherCopied) Icons.Filled.Check else Icons.Filled.Terminal,
+                    I18n.t("log.copy_launcher"),
+                    modifier = Modifier.size(18.dp),
+                    tint = if (launcherCopied) MaterialTheme.colorScheme.primary
+                           else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            LaunchedEffect(launcherCopied) {
+                if (launcherCopied) {
+                    kotlinx.coroutines.delay(1500)
+                    launcherCopied = false
+                }
+            }
             IconButton(onClick = { autoScroll = !autoScroll }, modifier = Modifier.size(32.dp)) {
                 Icon(
                     if (autoScroll) Icons.Filled.KeyboardArrowDown else Icons.Filled.Pause,
