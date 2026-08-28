@@ -120,6 +120,11 @@ private val coroutinesErrorMachineryPreloaded: Boolean = run {
  * 运行方式：./gradlew :ui:run
  */
 fun main() = application {
+    // 启动器自身日志收集：tee stdout/stderr 到内存环形缓冲，
+    // 供日志页「复制启动器日志」使用（异常堆栈/插件错误/Prism 诊断等）。
+    // 越早安装捕获越完整；输出仍原样透传控制台。
+    com.pmcl.core.util.LauncherLogCollector.install()
+
     // JavaFX WebView / HMCL 嵌入（必须在 JavaFX toolkit 初始化前设置）：
     // - javafx.macosx.embed=true：Glass 以嵌入模式运行（JFXPanel 进 Compose SwingPanel）
     // - prism.order=es2：强制 OpenGL ES2 硬件加速管线（默认在 JFXPanel 嵌入场景可能回退到 sw 软件渲染，
@@ -144,7 +149,12 @@ fun main() = application {
     remember { com.pmcl.ui.page.registerDockHostFactory(); Unit }
 
     // 启动时仅轻量读取窗口/主题偏好（不构造完整 Preferences，避免与 LauncherCore 重复加载）
-    val prefPath = Paths.get(System.getProperty("user.home"), ".pmcl", "preferences.json")
+    // 支持 -Dpmcl.workdir 覆盖工作目录（绕过 macOS TCC com.apple.provenance 限制）
+    val pmclDir = System.getProperty("pmcl.workdir")
+        ?.takeIf { it.isNotEmpty() }
+        ?.let { Paths.get(it) }
+        ?: Paths.get(System.getProperty("user.home"), ".pmcl")
+    val prefPath = pmclDir.resolve("preferences.json")
     val borderless = remember { readBorderlessPref(prefPath.toString()) }
     val vm = remember { LauncherViewModel() }
     val sharedThemeState = remember {
@@ -167,9 +177,7 @@ fun main() = application {
     }
 
     // 伴随模式 WebSocket 服务宿主
-    val companionDataFile = remember {
-        Paths.get(System.getProperty("user.home"), ".pmcl", "companion.json")
-    }
+    val companionDataFile = remember { pmclDir.resolve("companion.json") }
     val pairingManager = remember { com.pmcl.ui.companion.PairingManager(companionDataFile) }
     val hostServer = remember { com.pmcl.ui.companion.PmclHostServer(vm, pairingManager) }
     DisposableEffect(Unit) {

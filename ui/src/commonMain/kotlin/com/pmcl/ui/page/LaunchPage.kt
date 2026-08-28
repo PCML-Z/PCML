@@ -1006,6 +1006,40 @@ fun LaunchPage(vm: LauncherViewModel) {
                     }
                 }
 
+                // 复制启动器自身日志（stdout/stderr 收集：异常堆栈/插件错误/渲染诊断）
+                var launcherCopied by remember { mutableStateOf(false) }
+                TextButton(
+                    onClick = {
+                        val text = com.pmcl.core.util.LauncherLogCollector.getText()
+                        try {
+                            val toolkit = java.awt.Toolkit.getDefaultToolkit()
+                            val clipboard = toolkit.systemClipboard
+                            clipboard.setContents(java.awt.datatransfer.StringSelection(text), null)
+                            launcherCopied = true
+                        } catch (_: Throwable) {}
+                    },
+                    enabled = com.pmcl.core.util.LauncherLogCollector.lineCount() > 0,
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                        horizontal = 8.dp, vertical = 0.dp
+                    )
+                ) {
+                    if (launcherCopied) {
+                        Icon(Icons.Filled.Check, null, Modifier.size(14.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(I18n.t("launch.copied"), style = MaterialTheme.typography.labelSmall)
+                    } else {
+                        Icon(Icons.Filled.ContentCopy, null, Modifier.size(14.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(I18n.t("log.copy_launcher"), style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+                LaunchedEffect(launcherCopied) {
+                    if (launcherCopied) {
+                        kotlinx.coroutines.delay(1500)
+                        launcherCopied = false
+                    }
+                }
+
                 // 导出日志到文件
                 var showExportDialog by remember { mutableStateOf(false) }
                 TextButton(

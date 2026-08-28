@@ -995,6 +995,7 @@ public final class I18n {
 
         // ===== 日志导出/分享 =====
         ZH.put("log.export", "导出");
+        ZH.put("log.copy_launcher", "启动器日志");
         ZH.put("log.export_title", "导出日志");
         ZH.put("log.export_hint", "选择保存位置，日志将导出为 .txt 文件");
         ZH.put("log.export_save", "保存日志文件");
@@ -3050,6 +3051,7 @@ public final class I18n {
 
         // ===== 日志导出/分享 =====
         EN.put("log.export", "Export");
+        EN.put("log.copy_launcher", "Launcher Log");
         EN.put("log.export_title", "Export Log");
         EN.put("log.export_hint", "Choose a save location; the log will be exported as a .txt file");
         EN.put("log.export_save", "Save log file");
@@ -5046,6 +5048,7 @@ public final class I18n {
 
         // ===== 日志导出/分享 =====
         JA.put("log.export", "書き出し");
+        JA.put("log.copy_launcher", "ランチャーログ");
         JA.put("log.export_title", "ログ書き出し");
         JA.put("log.export_hint", "保存先を選択すると、ログが .txt ファイルとして書き出されます");
         JA.put("log.export_save", "ログファイルを保存");
