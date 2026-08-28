@@ -13,14 +13,22 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asComposeImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
+import org.bytedeco.ffmpeg.global.avutil
 import org.bytedeco.javacv.FFmpegFrameGrabber
-import org.bytedeco.javacv.Java2DFrameConverter
+import org.jetbrains.skia.Bitmap
+import org.jetbrains.skia.ColorAlphaType
+import org.jetbrains.skia.ColorType
+import org.jetbrains.skia.ImageInfo
+import java.nio.ByteBuffer
 import java.nio.file.Files
 import java.nio.file.Paths
 
@@ -74,24 +82,34 @@ private fun ImageBackgroundLayer(path: String) {
     }
 }
 
-/** 解码宽度上限：更大的视频缩放解码，降低每帧 BufferedImage→ImageBitmap 转换开销 */
+/** 解码宽度上限：更大的视频缩放解码，降低每帧像素搬运量 */
 private const val MAX_DECODE_WIDTH = 1600
 
 /**
  * 视频背景层：后台 IO 协程用 FFmpeg 逐帧解码，按视频帧率节流推送到 Compose 状态。
- * 播放到结尾自动 seek 回开头循环；组件销毁时协程取消并释放解码器。
+ *
+ * 性能要点（视频壁纸卡顿修复）：
+ * - 强制 swscale 输出 BGRA（[avutil.AV_PIX_FMT_BGRA]），与 Skia [ColorType.BGRA_8888]
+ *   内存布局一致，像素可直接批量搬运，彻底移除 Java2DFrameConverter 与
+ *   BufferedImage→ImageBitmap 转换（旧路径逐像素 getRGB 循环 + 每帧 2 次大内存分配）
+ * - 双缓冲 skia [Bitmap] 交替刷新：IO 线程写后台位图、渲染线程读前台位图，
+ *   installPixels 复用同一像素存储，全程零对象分配、无 GC 压力
+ * - 帧状态只在 draw 阶段读取（Canvas 内），新帧仅触发重绘，不触发重组
+ * - 播放到结尾自动 seek 回开头循环；组件销毁时协程取消并释放解码器
  */
 @Composable
 private fun VideoBackgroundLayer(path: String) {
-    var frame by remember(path) { mutableStateOf<ImageBitmap?>(null) }
+    // 当前前台帧位图（首帧建立后仅在 draw 阶段读取；组合阶段不读，避免每帧重组）
+    val frontFrame = remember(path) { mutableStateOf<ImageBitmap?>(null) }
 
     LaunchedEffect(path) {
         withContext(Dispatchers.IO) {
             var grabber: FFmpegFrameGrabber? = null
-            val converter = Java2DFrameConverter()
             try {
                 grabber = FFmpegFrameGrabber(path).apply {
                     audioChannels = 0  // 静音：跳过音频流解码
+                    // 强制输出 BGRA：与 Skia BGRA_8888 字节序一致，像素免转换直接搬运
+                    pixelFormat = avutil.AV_PIX_FMT_BGRA
                     start()
                 }
                 // 高分辨率视频缩放解码，节省 CPU（swscale 在解码侧完成）
@@ -101,6 +119,7 @@ private fun VideoBackgroundLayer(path: String) {
                     grabber.stop(); grabber.release()
                     grabber = FFmpegFrameGrabber(path).apply {
                         audioChannels = 0
+                        pixelFormat = avutil.AV_PIX_FMT_BGRA
                         imageWidth = w
                         imageHeight = h
                         start()
@@ -109,6 +128,12 @@ private fun VideoBackgroundLayer(path: String) {
                 val frameDelayMs =
                     if (grabber.frameRate > 1.0) (1000.0 / grabber.frameRate).toLong() else 33L
                 var consecutiveNulls = 0
+                // 复用资源（仅分配一次）：双缓冲位图 + 各自的 Compose 包装 + 像素中转数组
+                var info: ImageInfo? = null
+                val bitmaps = arrayOfNulls<Bitmap>(2)
+                val wrappers = arrayOfNulls<ImageBitmap>(2)
+                var pixels: ByteArray? = null
+                var front = 0
                 while (isActive) {
                     val t0 = System.nanoTime()
                     val f = grabber.grabImage()
@@ -120,9 +145,36 @@ private fun VideoBackgroundLayer(path: String) {
                         continue
                     }
                     consecutiveNulls = 0
-                    val img = converter.convert(f) ?: continue
-                    // Snapshot 状态线程安全，可直接从 IO 线程赋值
-                    frame = img.toComposeImageBitmap()
+                    val buf = f.image[0] as? ByteBuffer ?: continue
+                    // 首帧：确定尺寸并一次性分配全部复用资源
+                    if (info == null) {
+                        val w = f.imageWidth
+                        val h = f.imageHeight
+                        val stride = f.imageStride
+                        if (w <= 0 || h <= 0 || stride < w * 4) continue
+                        info = ImageInfo(w, h, ColorType.BGRA_8888, ColorAlphaType.OPAQUE)
+                        pixels = ByteArray(stride * h)
+                        for (i in 0..1) {
+                            val bm = Bitmap()
+                            bitmaps[i] = bm
+                            wrappers[i] = bm.asComposeImageBitmap()
+                        }
+                    }
+                    val bm = bitmaps[front xor 1] ?: continue
+                    val arr = pixels ?: continue
+                    // 批量拷贝：帧缓冲（直接内存）→ 复用数组，一次 memcpy
+                    val dup = buf.duplicate()
+                    dup.position(0)
+                    val copyBytes = minOf(dup.remaining(), arr.size)
+                    if (copyBytes <= 0) continue
+                    dup.get(arr, 0, copyBytes)
+                    // 后台位图原地刷新像素并通知 Skia 世代变更（不新建任何位图对象）
+                    bm.installPixels(info!!, arr, f.imageStride)
+                    bm.notifyPixelsChanged()
+                    front = front xor 1
+                    // Snapshot 状态线程安全，可直接从 IO 线程赋值；
+                    // 状态只在 draw 阶段读取 → 仅触发重绘
+                    frontFrame.value = wrappers[front]
                     val elapsedMs = (System.nanoTime() - t0) / 1_000_000
                     val wait = frameDelayMs - elapsedMs
                     if (wait > 0) delay(wait)
@@ -143,12 +195,23 @@ private fun VideoBackgroundLayer(path: String) {
         }
     }
 
-    frame?.let {
-        Image(
-            bitmap = it,
-            contentDescription = null,
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop
-        )
+    // Canvas 无条件组合（视频加载失败时保持透明）；帧状态在 draw 阶段读取
+    Canvas(Modifier.fillMaxSize()) {
+        val bmp = frontFrame.value ?: return@Canvas
+        val srcW = bmp.width.toFloat()
+        val srcH = bmp.height.toFloat()
+        if (srcW > 0f && srcH > 0f && size.width > 0f && size.height > 0f) {
+            // ContentScale.Crop：等比放大填满窗口并居中
+            val scale = maxOf(size.width / srcW, size.height / srcH)
+            val dw = (srcW * scale).toInt().coerceAtLeast(1)
+            val dh = (srcH * scale).toInt().coerceAtLeast(1)
+            val dx = ((size.width - dw) / 2f).toInt()
+            val dy = ((size.height - dh) / 2f).toInt()
+            drawImage(
+                image = bmp,
+                dstOffset = IntOffset(dx, dy),
+                dstSize = IntSize(dw, dh)
+            )
+        }
     }
 }
