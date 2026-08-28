@@ -684,7 +684,8 @@ private val newsImageCache = com.pmcl.ui.util.LruImageCache()
 
 /**
  * 异步从 URL 加载图片，返回 Skia 解码的 ImageBitmap。
- * 带内存缓存，滚动时不会重复下载。失败返回 null（UI 层用占位图）。
+ * 内存缓存 → 磁盘缓存（DiskImageCache，跨会话持久）→ 网络下载。
+ * 失败返回 null（UI 层用占位图）。
  */
 @Composable
 private fun rememberUrlImage(url: String): ImageBitmap? {
@@ -704,8 +705,16 @@ private fun rememberUrlImage(url: String): ImageBitmap? {
         withContext(Dispatchers.IO) {
             try {
                 if (url.isNullOrBlank()) return@withContext
-                val bytes = com.pmcl.ui.util.SafeUrlFetcher.fetchBytes(url)
-                val bmp = decodeSampledBitmap(bytes, 256) ?: throw IllegalStateException("decode failed")
+                // 1) 磁盘缓存命中：免网络，直接解码
+                var bytes = com.pmcl.ui.util.DiskImageCache.readBytes(url)
+                var bmp = bytes?.let { decodeSampledBitmap(it, 256) }
+                // 2) 未命中或缓存字节损坏：网络下载并落盘
+                if (bmp == null) {
+                    bytes = com.pmcl.ui.util.SafeUrlFetcher.fetchBytes(url)
+                    bmp = decodeSampledBitmap(bytes, 256)
+                        ?: throw IllegalStateException("decode failed")
+                    com.pmcl.ui.util.DiskImageCache.writeBytes(url, bytes)
+                }
                 newsImageCache.put(url, bmp)
                 image = bmp
             } catch (_: Throwable) {
