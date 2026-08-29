@@ -147,14 +147,35 @@ interface PluginContext {
     fun registerSettingsSection(id: String, title: String, content: ComposableContent)
 
     /**
-     * Register a lightweight action shown in Plugins page / future command palette.
+     * Register a lightweight action shown in Plugins page / the command palette.
      *
      * @param id Action id (same rules as page id)
      * @param title Display title
      * @param description Optional short description
      * @param handler Invoked on the host UI thread when possible
      */
-    fun registerMenuAction(id: String, title: String, description: String = "", handler: ActionHandler)
+    fun registerMenuAction(id: String, title: String, description: String = "", handler: ActionHandler) =
+        registerMenuAction(id, title, description, emptyList(), handler)
+
+    /**
+     * Register a lightweight action shown in Plugins page / the command palette,
+     * with optional search keywords (API 1.8+).
+     *
+     * Keywords only affect discoverability in the host command palette —
+     * they are matched case-insensitively against the palette query in addition
+     * to title/description. Plugins using this overload should declare
+     * `plugin.api-version=1.8`.
+     *
+     * @param keywords Search hints; blank entries are dropped by the host,
+     *                 which may also cap the total count/length.
+     */
+    fun registerMenuAction(
+        id: String,
+        title: String,
+        description: String,
+        keywords: List<String>,
+        handler: ActionHandler,
+    )
 
     /**
      * Register a compact action shown in the host status / music bar area.

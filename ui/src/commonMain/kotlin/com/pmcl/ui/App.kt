@@ -15,6 +15,7 @@ import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
 import com.pmcl.core.plugin.PluginManager
+import com.pmcl.plugin.api.PluginMenuAction
 import com.pmcl.ui.animation.AnimatedNavSidebar
 import com.pmcl.ui.animation.AnimatedPageSwitch
 import com.pmcl.ui.animation.EntranceAnimation
@@ -56,6 +57,9 @@ import com.pmcl.ui.viewmodel.resumeMusic
 import com.pmcl.ui.viewmodel.setMusicVolume
 import com.pmcl.ui.viewmodel.stopMusic
 import com.pmcl.ui.widget.MiniMusicBar
+import com.pmcl.ui.widget.CommandPaletteOverlay
+import com.pmcl.ui.widget.PaletteEntry
+import com.pmcl.ui.widget.PaletteIcons
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 @Composable
@@ -302,6 +306,9 @@ private fun MainWindowContent(vm: LauncherViewModel) {
     // 二级分区切换方向：1=列表向下，-1=向上，0=交叉淡入（钻入/返回时）
     var secondarySectionDirection by remember { mutableIntStateOf(0) }
     var hasPluginSettings by remember { mutableStateOf(false) }
+    // 命令面板（Cmd/Ctrl+K）：可见性与插件动作数据源
+    var paletteVisible by remember { mutableStateOf(false) }
+    var menuActions by remember { mutableStateOf<List<PluginMenuAction>>(emptyList()) }
 
     fun enterPrimary(target: NavTarget, direction: Int = 0) {
         navDirection = direction
@@ -358,6 +365,9 @@ private fun MainWindowContent(vm: LauncherViewModel) {
             // Non-fatal: plugins are optional
         }
         pluginPages = vm.core.plugins().getCustomPages()
+        menuActions = try {
+            vm.core.plugins().getCustomMenuActions()
+        } catch (_: Throwable) { emptyList() }
         hiddenNavRoutes = try {
             vm.core.plugins().hiddenBuiltinNavRoutes
         } catch (_: Throwable) { emptySet() }
@@ -390,6 +400,9 @@ private fun MainWindowContent(vm: LauncherViewModel) {
             if (rev != lastRevision) {
                 lastRevision = rev
                 pluginPages = vm.core.plugins().getCustomPages()
+                menuActions = try {
+                    vm.core.plugins().getCustomMenuActions()
+                } catch (_: Throwable) { emptyList() }
                 hiddenNavRoutes = try {
                     vm.core.plugins().hiddenBuiltinNavRoutes
                 } catch (_: Throwable) { emptySet() }
@@ -704,6 +717,49 @@ private fun MainWindowContent(vm: LauncherViewModel) {
         if (hasPluginSettings) emptySet() else setOf("extensions")
     }
 
+    // ===== 命令面板条目：内置导航 + 二级分区 + 插件页面 + 插件动作 =====
+    // 不做 remember 缓存：条目数量小（~100），且每次重组重建可保证语言切换后标题即时刷新
+    val paletteEntries = buildPaletteEntries(
+        hiddenRoutes = hiddenNavRoutes,
+        pluginPages = pluginPages,
+        menuActions = menuActions,
+        onNavigateBuiltin = { dest -> enterPrimary(NavTarget.BuiltIn(dest), 0) },
+        onNavigateSection = { dest, sectionId ->
+            enterPrimary(NavTarget.BuiltIn(dest), 0)
+            SecondaryNavRegistry.specFor(dest)?.let { spec -> selectSecondarySection(spec, sectionId) }
+        },
+        onNavigatePluginPage = { page -> enterPrimary(NavTarget.PluginPage(page), 0) },
+        onRunAction = { action ->
+            // 与 PluginPage 保持一致：插件代码在 IO 线程执行，异常不冒泡到 UI
+            pluginUiScope.launch(Dispatchers.IO) {
+                try { action.handler?.run() } catch (_: Throwable) {}
+            }
+        },
+    )
+
+    // ===== 全局快捷键：AWT 层捕获 Cmd/Ctrl+K（toggle 命令面板）=====
+    // 不能用 Compose onPreviewKeyEvent：窗口内没有任何组件持有焦点时
+    // （如刚启动、点了不可聚焦区域），键盘事件不会分发进 Compose 树。
+    // KeyboardFocusManager 的 dispatcher 在所有焦点目标之前拦截，恒定有效。
+    DisposableEffect(Unit) {
+        val dispatcher = java.awt.KeyEventDispatcher { e ->
+            if (e.id == java.awt.event.KeyEvent.KEY_PRESSED &&
+                e.keyCode == java.awt.event.KeyEvent.VK_K &&
+                (e.isMetaDown || e.isControlDown)
+            ) {
+                paletteVisible = !paletteVisible
+                true
+            } else {
+                false
+            }
+        }
+        java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(dispatcher)
+        onDispose {
+            java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().removeKeyEventDispatcher(dispatcher)
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
     Row(Modifier.fillMaxSize()) {
         SlideInFromStart(delayMs = 0, durationMs = 400) {
             // 玻璃主题：侧边栏分层渲染 —— 底层独立模糊背景层（只画颜色），
@@ -972,6 +1028,15 @@ private fun MainWindowContent(vm: LauncherViewModel) {
         }
     } // close Row
 
+        // 命令面板（Cmd/Ctrl+K）：覆盖在主内容之上
+        if (paletteVisible) {
+            CommandPaletteOverlay(
+                entries = paletteEntries,
+                onDismiss = { paletteVisible = false }
+            )
+        }
+    } // close palette overlay Box
+
     // ===== 全局：游戏安装前弹窗（询问是否同时安装模组加载器）=====
     // 放在全局层级，无论用户在哪个页面安装游戏都会触发弹窗，且避免多页面重复弹窗
     val preInstallEvent by vm.preInstallEvent.collectAsState()
@@ -1142,5 +1207,82 @@ private fun applyFileDialogFilters(fd: java.awt.FileDialog, filters: String) {
         val lower = name.lowercase()
         exts.any { lower.endsWith(".$it") }
     }
+}
+
+/**
+ * 构建命令面板的全部可搜索条目：
+ * 内置一级导航 → 二级分区 → 插件页面 → 插件动作。
+ *
+ * 条目 id 以来源前缀命名（nav:/sec:/page:/act:）保证全局唯一；
+ * 用 [HashSet] 去重防御插件注册重复 id 导致 LazyColumn key 冲突崩溃。
+ */
+private fun buildPaletteEntries(
+    hiddenRoutes: Set<String>,
+    pluginPages: List<PluginManager.RegisteredPage>,
+    menuActions: List<PluginMenuAction>,
+    onNavigateBuiltin: (NavDestination) -> Unit,
+    onNavigateSection: (NavDestination, String) -> Unit,
+    onNavigatePluginPage: (PluginManager.RegisteredPage) -> Unit,
+    onRunAction: (PluginMenuAction) -> Unit,
+): List<PaletteEntry> {
+    val seen = HashSet<String>()
+    val out = ArrayList<PaletteEntry>()
+    fun add(entry: PaletteEntry) {
+        if (seen.add(entry.id)) out.add(entry)
+    }
+
+    // 一级导航页（尊重插件隐藏的内置路由）
+    for (dest in allDestinations) {
+        if (dest.route.lowercase() in hiddenRoutes) continue
+        add(PaletteEntry(
+            id = "nav:${dest.route}",
+            title = I18n.t(dest.labelKey),
+            keywords = listOf(dest.route),
+            icon = dest.icon,
+            onSelect = { onNavigateBuiltin(dest) },
+        ))
+    }
+
+    // 二级分区：标题为分区名，副标题为所属一级页面（如「主题 / 设置」）
+    for (dest in allDestinations) {
+        val spec = SecondaryNavRegistry.specFor(dest) ?: continue
+        for (sec in spec.sections) {
+            if (dest.route.lowercase() in hiddenRoutes) continue
+            add(PaletteEntry(
+                id = "sec:${dest.route}:${sec.id}",
+                title = I18n.t(sec.labelKey),
+                subtitle = I18n.t(dest.labelKey),
+                keywords = listOf(dest.route, sec.id),
+                icon = sec.icon ?: dest.icon,
+                onSelect = { onNavigateSection(dest, sec.id) },
+            ))
+        }
+    }
+
+    // 插件注册的页面
+    for (page in pluginPages) {
+        add(PaletteEntry(
+            id = "page:${page.pluginId}:${page.id}",
+            title = page.title,
+            subtitle = page.pluginId,
+            keywords = listOf(page.pluginId, page.id),
+            icon = PaletteIcons.PLUGIN_PAGE,
+            onSelect = { onNavigatePluginPage(page) },
+        ))
+    }
+
+    // 插件注册的动作（含 API 1.8 搜索关键词）
+    for (action in menuActions) {
+        add(PaletteEntry(
+            id = "act:${action.pluginId}:${action.id}",
+            title = action.title,
+            subtitle = action.description.ifBlank { action.pluginId },
+            keywords = action.keywords + action.pluginId,
+            icon = PaletteIcons.ACTION,
+            onSelect = { onRunAction(action) },
+        ))
+    }
+
+    return out
 }
 

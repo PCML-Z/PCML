@@ -230,6 +230,19 @@ class TestPlugin : PmclPlugin {
             }
         }
 
+        // API 1.8 五参重载：带搜索关键词，动作可经 Cmd/Ctrl+K 命令面板用关键词搜到
+        ctx.registerMenuAction(
+            "palette-demo", "Command palette demo",
+            "API 1.8 keywords overload (search: palette, kbd)",
+            listOf("palette", "command", "kbd", "spotlight"),
+        ) {
+            ctx.ui().notify(
+                "Palette",
+                "You found me via the command palette!",
+                NotificationLevel.SUCCESS
+            )
+        }
+
         ctx.registerStatusBarAction("sb-ping", "TP Ping", "Status bar demo") {
             ctx.ui().notify("StatusBar", "Test plugin status action", NotificationLevel.INFO)
         }

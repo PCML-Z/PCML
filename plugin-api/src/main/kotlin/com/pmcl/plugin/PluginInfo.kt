@@ -148,10 +148,10 @@ data class PluginInfo(
     val embed: String? = null
 ) {
     companion object {
-        const val SUPPORTED_API_VERSION = "1.7"
+        const val SUPPORTED_API_VERSION = "1.8"
 
         /** Accepted API versions (additive; newer hosts accept older plugins). */
-        val SUPPORTED_API_VERSIONS: Set<String> = setOf("1.0", "1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7")
+        val SUPPORTED_API_VERSIONS: Set<String> = setOf("1.0", "1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8")
         const val PROPERTIES_PATH = "META-INF/pmcl-plugin.properties"
 
         // ==================== Property Keys ====================

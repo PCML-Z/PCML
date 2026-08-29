@@ -18,7 +18,7 @@ PMCL 插件是**扩展启动器能力的独立模块**。一个插件以 `.ppk` 
 | 默认插件目录 | `~/.pmcl/plugins/` |
 | 启用声明 | `~/.pmcl/plugins/plugins.json` 中的 `enabled` 映射 |
 | 信任指纹列表 | `~/.pmcl/plugins/trusted-signers.txt` 与 `-Dpmcl.plugins.trustedFingerprints` |
-| 支持 API 版本 | `1.0` – `1.7`（向后兼容：更高版本的宿主接受更低版本的插件） |
+| 支持 API 版本 | `1.0` – `1.8`（向后兼容：更高版本的宿主接受更低版本的插件） |
 
 **加载流程**（详见 `PluginManager.loadPluginPackage`）：
 
@@ -148,7 +148,7 @@ PMCL 插件有**两份描述符**，用途不同：
 | `plugin.version` | SemVer `X.Y.Z` 或 `X.Y.Z-pre` |
 | `plugin.author` | 1–64 字符，非空 |
 | `plugin.description` | 1–256 字符，非空 |
-| `plugin.api-version` | `1.0` – `1.7` |
+| `plugin.api-version` | `1.0` – `1.8` |
 | `plugin.main-class` | 合法 Java 全限定名（至少 2 段，如 `com.example.MyPlugin`） |
 | `plugin.dependencies` | 可选，逗号分隔的插件 ID |
 | `plugin.website` | 可选，`http(s)://`，≤ 512 字符 |
@@ -182,7 +182,7 @@ plugin.license=MIT
 - **Version**：`MAJOR.MINOR.PATCH`，可带预发布 `-id`（如 `1.0.0-beta.1`）；**不支持** `+build` 元数据。
 - **Main-Class**：合法 Java FQN，至少 `包.类` 两段，每段以字母/下划线开头。
 - **Description**：≤ **256** 字符（超长直接校验失败）。
-- **API-Version**：必须在 `1.0`–`1.7` 集合内。
+- **API-Version**：必须在 `1.0`–`1.8` 集合内。
 - **外部运行时字段**（v1.7+，见第 9 节）在 `external-runtime` / `embed` 设置时有各自的附加约束。
 
 ---
@@ -292,7 +292,10 @@ public class MyPlugin implements PmclPlugin {
 - `registerCommand(name, desc, handler)` —— 注册命令 `plugin:<id>:<name>`
 - `registerPage(id, title, content)` —— 在侧边栏注册 GUI 页面
 - `registerSettingsSection(id, title, content)` —— 设置 > 扩展 中注册区块
-- `registerMenuAction` / `registerStatusBarAction` / `registerHomeCard` —— 动作 / 状态栏 / 首页卡片
+- `registerMenuAction` / `registerStatusBarAction` / `registerHomeCard` —— 动作 / 状态栏 / 首页卡片。
+  `registerMenuAction` 注册的动作同时进入宿主**命令面板**（主窗口 `Cmd/Ctrl+K` 唤起）；
+  v1.8+ 可用五参重载 `registerMenuAction(id, title, description, keywords, handler)`
+  附加搜索关键词（不区分大小写，宿主会 trim、去空并限制 ≤16 项 / 每项 ≤32 字符）
 - `registerLaunchHook(hook)` —— 游戏启动前后钩子
 - `registerUrlRewriteHook(hook)` —— URL 重写钩子（需 `NETWORK` 权限）
 - `registerThemePack(pack)` —— 注册主题包
@@ -394,7 +397,7 @@ public class MyPlugin implements PmclPlugin {
 | 加载报签名错误 | `.ppk` 未签名或部分 entry 未签名 | `jarsigner` 完整签名关键 entry |
 | 报签名者不被信任 | 签名证书指纹不在信任列表 | 用受信任 keystore 重签，或加入 `trusted-signers.txt` |
 | `validate()` 抛异常 | ID/版本/描述/主类不符格式（如 description > 256）| 按第 4 节修正 |
-| `plugin.api-version` 不支持 | 版本不在 `1.0`–`1.7` | 修正 api-version |
+| `plugin.api-version` 不支持 | 版本不在 `1.0`–`1.8` | 修正 api-version |
 | `embed=web` 但无 `external-runtime` | web 嵌入必须依赖外部运行时 | 补 `external-runtime` + `external-entry` |
 | `embed=web`/`window` 但无 `external-entry` | 嵌入模式必须有入口 | 补 `external-entry` |
 | 普通 JVM 插件无 `main="true"` 的 Kotlin 源 | 源码声明校验失败 | `<sources>` 至少含一个 `main="true"` |
@@ -463,3 +466,69 @@ class HelloPlugin : PmclPlugin {
 
 > 该插件经 `jarsigner` 用受信任 keystore 签名、放入 `~/.pmcl/plugins/` 并在
 > `plugins.json` 启用后，即可在 PMCL 终端通过 `plugin:hello-plugin:greet` 调用。
+
+---
+
+## 12. 卸载与泄漏防护
+
+插件的 `onDisable()` / 卸载路径必须保证其 ClassLoader 可被 GC 回收，否则插件代码
+会以“僵尸”形式残留在进程里（ClassLoader 泄漏 → 类卸不掉 → 内存只增不减）。
+
+### 12.1 卸载时序（宿主侧行为）
+
+```
+disablePlugin(id)
+  → onDisable()            插件清理回调（在插件 ThreadGroup 内执行）
+  → unregisterAllExtensions  清空 host-side 注册表：
+      customCommands / customPages / customSettingsSections
+      customMenuActions / customStatusBarActions / customHomeCards
+      customThemePacks / navBadges / hiddenBuiltinNav
+      eventListeners (Tracked) / launchHooks (Tracked) / urlRewriteHooks
+      pluginStrings / scheduledTasks
+  → shutdownPluginThreads    ThreadGroup.interrupt → join 限时 → forceStop 残留线程
+                            并清空线程的 contextClassLoader（drop CCL）
+unloadPlugin(id)
+  → disablePlugin(id)
+  → 从 loadedPlugins 移除
+  → classLoader.close()     关闭 URLClassLoader 释放 jar 文件句柄
+  → leakDetector.track      用 PhantomReference 跟踪已关闭的 loader
+```
+
+`unregisterAllExtensions` 在 `disablePlugin` 与 `unloadPlugin` 都调用一次（双保险），
+卸载不依赖 disable 的状态机是否完整跑过。
+
+### 12.2 插件作者的责任
+
+宿主能强制中断线程、drop CCL、清注册表，但**无法回收插件自己注册的全局监听**。
+以下行为若不在 `onDisable()` 反注册，会留下指向插件 ClassLoader 的强引用路径，
+导致 loader 卸不掉（`plugin leak-report` 会如实报告）：
+
+| 泄漏源 | 正确做法 |
+|--------|---------|
+| `Runtime.getRuntime().addShutdownHook(Thread)` | 在 `onDisable()` 里 `removeShutdownHook`，或根本不用（插件进程随宿主退出） |
+| `Toolkit.getDefaultToolkit().addPropertyChangeListener(...)` | `onDisable()` 移除 |
+| AWT/Swing 全局 `KeyListener`、`AWTEventListener` | `onDisable()` 通过 `Toolkit.getDefaultToolkit().removeAWTEventListener` 移除 |
+| `java.beans.Introspector` / `PropertyChangeSupport` 全局实例 | 持有引用并在 `onDisable()` 解绑 |
+| `Thread.currentThread().setContextClassLoader(pluginLoader)` | **禁止**：会污染宿主线程池，宿主无法恢复 |
+| 裸 `Thread(Runnable).start()` 非守护线程 | 用 `ctx.newThread` / `ctx.threadFactory`（绑定插件 ThreadGroup，可被 interrupt） |
+
+### 12.3 诊断
+
+终端命令 `plugin leak-report`（别名 `plugin leak`）会：
+
+1. 触发 `System.gc()`
+2. 查询 `PluginManager.getUnreclaimedPluginLoaders()`——返回已关闭但未被 GC 回收的
+   插件 ClassLoader 对应的 plugin id 列表
+3. 列出疑似泄漏的插件，并给出排查提示
+
+空列表 = 无泄漏；非空 = 该插件 `onDisable` 未清干净的强引用仍持有 loader。
+
+### 12.4 宿主侧的防护兜底
+
+- **线程**：插件代码一律在插件 `ThreadGroup` 内执行；卸载时 `interrupt` → 限时 `join`
+  → 仍存活则 `Thread.stop()`（deprecated，最后手段）并 drop CCL。
+- **ClassLoader**：`unloadPlugin` 显式 `close()` 释放 jar 句柄，再用
+  `PhantomReference` 跟踪回收情况。
+- **CCL 污染**：宿主调用插件任务时保存/恢复当前线程的 contextClassLoader，
+  插件任务结束后必还原为宿主系统 loader。
+

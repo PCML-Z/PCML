@@ -93,12 +93,16 @@ data class PluginDialogRequest(
 
 /**
  * Lightweight menu / command-palette style action contributed by a plugin.
+ *
+ * [keywords] (API 1.8+) are optional search hints surfaced in the host
+ * command palette; they only affect discoverability, never execution.
  */
 data class PluginMenuAction(
     val pluginId: String,
     val id: String,
     val title: String,
     val description: String = "",
+    val keywords: List<String> = emptyList(),
     @Transient val handler: ActionHandler? = null,
 )
 

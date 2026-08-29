@@ -976,6 +976,9 @@ public final class I18n {
         ZH.put("plugins.section.actions", "插件动作");
         ZH.put("plugins.section.install", "安装插件");
         ZH.put("plugins.section.actions_empty", "当前没有插件提供的动作。");
+        ZH.put("palette.placeholder", "搜索页面、设置与插件动作…");
+        ZH.put("palette.no_results", "没有匹配的结果");
+        ZH.put("palette.hint", "↑↓ 选择 · Enter 执行 · Esc 关闭");
         ZH.put("plugins.section.install_hint", "从本地 JAR 或 URL 安装插件，也可扫描 ~/.pmcl/plugins/。");
 
         // ===== 终端页 =====
@@ -3033,6 +3036,9 @@ public final class I18n {
         EN.put("plugins.section.actions", "Plugin actions");
         EN.put("plugins.section.install", "Install");
         EN.put("plugins.section.actions_empty", "No plugin-contributed actions yet.");
+        EN.put("palette.placeholder", "Search pages, settings and plugin actions…");
+        EN.put("palette.no_results", "No matching results");
+        EN.put("palette.hint", "↑↓ Navigate · Enter Run · Esc Close");
         EN.put("plugins.section.install_hint", "Install from a local JAR or URL, or scan ~/.pmcl/plugins/.");
 
         EN.put("terminal.title", "Terminal");
@@ -5030,6 +5036,9 @@ public final class I18n {
         JA.put("plugins.section.actions", "プラグイン操作");
         JA.put("plugins.section.install", "インストール");
         JA.put("plugins.section.actions_empty", "プラグイン提供の操作はまだありません。");
+        JA.put("palette.placeholder", "ページ・設定・プラグイン操作を検索…");
+        JA.put("palette.no_results", "一致する結果はありません");
+        JA.put("palette.hint", "↑↓ 選択 · Enter 実行 · Esc 閉じる");
         JA.put("plugins.section.install_hint", "ローカル JAR または URL からインストール、もしくは ~/.pmcl/plugins/ をスキャンできます。");
 
         JA.put("terminal.title", "ターミナル");

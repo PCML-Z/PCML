@@ -1798,10 +1798,11 @@ public final class PmclCli {
             case "info": cmdPluginInfo(rest); break;
             case "reload": cmdPluginReload(rest); break;
             case "discover": cmdPluginDiscover(); break;
+            case "leak-report": case "leak": cmdPluginLeakReport(); break;
             case "package": case "pkg": cmdPluginPackage(rest); break;
             case "package-info": case "pkginfo": cmdPluginPackageInfo(rest); break;
             default:
-                System.err.println("Unknown action: " + action + " (supported: list, install, uninstall, enable, disable, info, reload, discover, package, package-info)");
+                System.err.println("Unknown action: " + action + " (supported: list, install, uninstall, enable, disable, info, reload, discover, leak-report, package, package-info)");
         }
     }
 
@@ -1819,6 +1820,7 @@ public final class PmclCli {
         System.out.println("  plugin info <id>               Show detailed plugin info");
         System.out.println("  plugin reload <id>             Reload a plugin (disable + load + enable)");
         System.out.println("  plugin discover                Scan plugins directory and load all");
+        System.out.println("  plugin leak-report             Detect plugin ClassLoaders not reclaimed by GC");
         System.out.println(SEP);
         System.out.println("Plugin formats:");
         System.out.println("  JAR (.jar): single-file plugin with META-INF/pmcl-plugin.properties");
@@ -2026,6 +2028,35 @@ public final class PmclCli {
         } catch (Exception e) {
             System.err.println("Reload failed: " + e.getMessage());
         }
+    }
+
+    /**
+     * Report plugin ClassLoaders that were closed on unload but have not been
+     * reclaimed by the GC — the signature of a leak (plugin registered a
+     * global listener / shutdown hook it never removed).
+     */
+    private void cmdPluginLeakReport() {
+        PluginManager pm = core.plugins();
+        System.out.println("Requesting GC before leak scan...");
+        System.gc();
+        // 给 finalizer 一点时间处理 phantom-reachable 对象
+        try { Thread.sleep(300); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+        System.gc();
+        List<String> leaked = pm.getUnreclaimedPluginLoaders();
+        System.out.println(SEP);
+        if (leaked.isEmpty()) {
+            System.out.println("[OK] No leaked plugin ClassLoaders detected.");
+            System.out.println("All previously unloaded plugin loaders have been reclaimed by the GC.");
+        } else {
+            System.out.println("[LEAK] " + leaked.size() + " plugin ClassLoader(s) NOT reclaimed:");
+            for (String id : leaked) {
+                System.out.println("  - " + id
+                        + " (check for global listeners, AWT/Beans hooks, or shutdown hooks the plugin forgot to remove)");
+            }
+            System.out.println("Hint: review the plugin's onDisable() — it must unregister any");
+            System.out.println("      Toolkit/PropertyChangeListener and Runtime.removeShutdownHook.");
+        }
+        System.out.println(SEP);
     }
 
     private void cmdPluginPackage(String[] rest) {

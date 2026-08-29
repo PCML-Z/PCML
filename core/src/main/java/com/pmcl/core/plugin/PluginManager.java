@@ -173,6 +173,8 @@ public final class PluginManager {
     private volatile Consumer<String> openUrlHandler;
     private volatile MusicBridge musicBridge;
     private volatile String lastLaunchCancelReason = null;
+    /** Phantom-reference tracker for closed plugin ClassLoaders (leak detection). */
+    private final ClassLoaderLeakDetector leakDetector = new ClassLoaderLeakDetector();
     // Plugin enabled state (persisted)
     private Map<String, Boolean> enabledState = new HashMap<>();
     // Plugin configs (persisted per-plugin)
@@ -544,23 +546,7 @@ public final class PluginManager {
 
         synchronized (this) {
             if (loadedPlugins.get(pluginId) != entry) return;
-            // Unregister extensions
-            customCommands.remove(pluginId);
-            customPages.remove(pluginId);
-            customSettingsSections.remove(pluginId);
-            customMenuActions.remove(pluginId);
-            customStatusBarActions.remove(pluginId);
-            customHomeCards.remove(pluginId);
-            customThemePacks.remove(pluginId);
-            navBadges.remove(pluginId);
-            hiddenBuiltinNav.remove(pluginId);
-            clearPluginStrings(pluginId, "");
-            cancelAllPluginTasks(pluginId);
-            eventListeners.removeIf(l -> l instanceof TrackedEventListener &&
-                    ((TrackedEventListener) l).pluginId.equals(pluginId));
-            launchHooks.removeIf(h -> h instanceof TrackedLaunchHook &&
-                    ((TrackedLaunchHook) h).pluginId.equals(pluginId));
-            urlRewriteHooks.removeIf(h -> h.pluginId.equals(pluginId));
+            unregisterAllExtensions(pluginId);
 
             // Skip thread shutdown for external runtime plugins (no ThreadGroup)
             if (entry.getClassLoader() != null) {
@@ -577,6 +563,32 @@ public final class PluginManager {
     }
 
     /**
+     * Remove every host-side bookkeeping entry for a plugin. Idempotent and
+     * call-site agnostic (used by both [disablePlugin] and [unloadPlugin])
+     * so unload never depends on disable's state-machine having run.
+     *
+     * Must be invoked while holding the PluginManager monitor.
+     */
+    private void unregisterAllExtensions(String pluginId) {
+        customCommands.remove(pluginId);
+        customPages.remove(pluginId);
+        customSettingsSections.remove(pluginId);
+        customMenuActions.remove(pluginId);
+        customStatusBarActions.remove(pluginId);
+        customHomeCards.remove(pluginId);
+        customThemePacks.remove(pluginId);
+        navBadges.remove(pluginId);
+        hiddenBuiltinNav.remove(pluginId);
+        clearPluginStrings(pluginId, "");
+        cancelAllPluginTasks(pluginId);
+        eventListeners.removeIf(l -> l instanceof TrackedEventListener &&
+                ((TrackedEventListener) l).pluginId.equals(pluginId));
+        launchHooks.removeIf(h -> h instanceof TrackedLaunchHook &&
+                ((TrackedLaunchHook) h).pluginId.equals(pluginId));
+        urlRewriteHooks.removeIf(h -> h.pluginId.equals(pluginId));
+    }
+
+    /**
      * Unload a plugin completely (disable + remove from memory).
      */
     public void unloadPlugin(String pluginId) {
@@ -588,22 +600,13 @@ public final class PluginManager {
                 // Ensure threads are torn down even if already DISABLED
                 // (disablePlugin only runs the ENABLED → DISABLED path).
                 // Skip thread shutdown for external runtime plugins (no ThreadGroup)
-            if (entry.getClassLoader() != null) {
-                shutdownPluginThreads(entry);
+                if (entry.getClassLoader() != null) {
+                    shutdownPluginThreads(entry);
+                }
             }
-            }
-            customCommands.remove(pluginId);
-            customPages.remove(pluginId);
-            customSettingsSections.remove(pluginId);
-            customMenuActions.remove(pluginId);
-            customStatusBarActions.remove(pluginId);
-            customHomeCards.remove(pluginId);
-            customThemePacks.remove(pluginId);
-            navBadges.remove(pluginId);
-            hiddenBuiltinNav.remove(pluginId);
-            clearPluginStrings(pluginId, "");
-            cancelAllPluginTasks(pluginId);
-            urlRewriteHooks.removeIf(h -> h.pluginId.equals(pluginId));
+            // 双保险：即使插件从未 enable / disablePlugin 因 state 提前返回，
+            // 这一步也保证所有 host-side 注册表清空（监听器、钩子、命令、页面…）
+            unregisterAllExtensions(pluginId);
             bumpRevision();
         }
         // External runtime plugins (e.g. .NET via ProcessBridge) have a null
@@ -614,6 +617,9 @@ public final class PluginManager {
             } catch (IOException e) {
                 System.err.println("[PluginManager] Failed to close classloader for " + pluginId);
             }
+            // 跟踪已关闭的 loader：之后可用 getUnreclaimedPluginLoaders()
+            // 探测它是否真的被 GC 回收（未被回收 = 存在强引用泄漏）。
+            leakDetector.track(pluginId, entry.getClassLoader());
         }
         System.out.println("[PluginManager] Unloaded plugin: " + pluginId);
     }
@@ -650,8 +656,24 @@ public final class PluginManager {
             clipboardHandler = null;
             openUrlHandler = null;
             musicBridge = null;
+            leakDetector.clear();
             bumpRevision();
         }
+    }
+
+    /**
+     * Plugin ClassLoaders that have been closed on unload but have <em>not</em>
+     * been reclaimed by the GC. A non-empty result means some plugin still holds
+     * a strong reference path to its loader (e.g. a global AWT/Beans listener or
+     * a JVM shutdown hook registered by the plugin and never removed).
+     *
+     * <p>Callers should invoke {@code System.gc()} first so the collector has a
+     * chance to reclaim genuinely-unreachable loaders before this snapshot.
+     *
+     * @return unreclaimed plugin ids (empty list = no leaks detected)
+     */
+    public List<String> getUnreclaimedPluginLoaders() {
+        return leakDetector.drainReclaimedAndReportUnreclaimed();
     }
 
     public void setNavigationHandler(Consumer<String> handler) {
@@ -2559,7 +2581,8 @@ public final class PluginManager {
         }
 
         @Override
-        public void registerMenuAction(String id, String title, String description, ActionHandler handler) {
+        public void registerMenuAction(String id, String title, String description,
+                                       List<String> keywords, ActionHandler handler) {
             if (id == null || id.isBlank()) {
                 throw new IllegalArgumentException("Menu action id must not be blank (plugin: " + pluginId + ")");
             }
@@ -2572,6 +2595,7 @@ public final class PluginManager {
             if (handler == null) {
                 throw new NullPointerException("Menu action handler must not be null");
             }
+            List<String> cleanKeywords = sanitizeKeywords(keywords);
             synchronized (manager) {
                 List<PluginMenuAction> existing = manager.customMenuActions.get(pluginId);
                 if (existing != null) {
@@ -2586,10 +2610,26 @@ public final class PluginManager {
                 PluginMenuAction action = new PluginMenuAction(
                         pluginId, id, title,
                         description != null ? description : "",
+                        cleanKeywords,
                         gated);
                 manager.customMenuActions.computeIfAbsent(pluginId, k -> new ArrayList<>()).add(action);
                 manager.bumpRevision();
             }
+        }
+
+        /** Trim keywords, drop blanks, cap count (16) and per-entry length (32) to prevent abuse. */
+        private static List<String> sanitizeKeywords(List<String> keywords) {
+            if (keywords == null || keywords.isEmpty()) return List.of();
+            List<String> out = new ArrayList<>();
+            for (String k : keywords) {
+                if (k == null) continue;
+                String trimmed = k.trim();
+                if (trimmed.isEmpty()) continue;
+                if (trimmed.length() > 32) trimmed = trimmed.substring(0, 32);
+                out.add(trimmed);
+                if (out.size() >= 16) break;
+            }
+            return out.isEmpty() ? List.of() : List.copyOf(out);
         }
 
         @Override
