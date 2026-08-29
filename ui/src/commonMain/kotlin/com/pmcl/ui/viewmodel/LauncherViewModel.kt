@@ -1387,6 +1387,16 @@ class LauncherViewModel {
     private val _migrationProgress = MutableStateFlow("")
     val migrationProgress: StateFlow<String> = _migrationProgress.asStateFlow()
 
+    private val _migrationScanning = MutableStateFlow(false)
+    val migrationScanning: StateFlow<Boolean> = _migrationScanning.asStateFlow()
+
+    /** 游戏根路径 → 是否成功；用于来源卡片展示导入结果 */
+    private val _migrationOutcome = MutableStateFlow<Map<String, Boolean>>(emptyMap())
+    val migrationOutcome: StateFlow<Map<String, Boolean>> = _migrationOutcome.asStateFlow()
+
+    private val _activeMigrationKey = MutableStateFlow<String?>(null)
+    val activeMigrationKey: StateFlow<String?> = _activeMigrationKey.asStateFlow()
+
     /** 当前会话的 GameLogger 实例 */
     @Volatile
     @PublishedApi internal var gameLogger: GameLogger? = null
@@ -1879,6 +1889,12 @@ class LauncherViewModel {
         }
     }
 
+    fun setFollowSystemTheme(enabled: Boolean, targetThemeState: com.pmcl.ui.theme.ThemeState? = null) {
+        val ts = targetThemeState ?: themeState ?: return
+        ts.applyFollowSystem(enabled)
+        preferences.setFollowSystemTheme(enabled)
+    }
+
     /** 由 App.kt 注入的 ThemeState 引用 */
     var themeState: com.pmcl.ui.theme.ThemeState? = null
 
@@ -2342,7 +2358,10 @@ class LauncherViewModel {
                 val logFile = config.getWorkDir().resolve("logs").resolve("$instanceId.log")
                 val instLogger = withContext(Dispatchers.IO) {
                     try { GameLogger(logFile) } catch (e: Throwable) {
-                        appendGameLog(I18n.t("status.game_log_create_failed", e.message ?: I18n.t("common.unknown")))
+                        val detail = "${e.javaClass.simpleName}: ${e.message ?: "(no message)"}"
+                        System.err.println("[VM] GameLogger 创建失败: $detail")
+                        e.printStackTrace()
+                        appendGameLog(I18n.t("status.game_log_create_failed", "$logFile — $detail"))
                         null
                     }
                 }
@@ -2964,6 +2983,9 @@ class LauncherViewModel {
         _status.value = I18n.t("status.network_prefs_applied")
     }
 
+    /** 用当前代理/镜像探测连通性。成功返回状态描述，失败抛异常。 */
+    fun testProxyConnection(): String = core.testProxyConnection()
+
 
     // ============ Wiki 浏览 ============
 
@@ -3389,12 +3411,15 @@ class LauncherViewModel {
     /** 扫描本机其他启动器的数据目录（HMCL / PCL / 系统 .minecraft） */
     fun detectMigrationSources() {
         scope.launch {
+            _migrationScanning.value = true
             try {
                 val list = withContext(Dispatchers.IO) { core.migration().detectSources() }
                 _migrationSources.value = list
                 _status.value = if (list.isEmpty()) I18n.t("status.no_migration_sources") else I18n.t("status.migration_sources_detected", list.size)
             } catch (e: Throwable) {
                 _status.value = I18n.t("status.scan_failed", e.message ?: I18n.t("common.unknown"))
+            } finally {
+                _migrationScanning.value = false
             }
         }
     }
@@ -3402,9 +3427,12 @@ class LauncherViewModel {
     /** 从指定来源迁移游戏数据到 PMCL 工作目录 */
     fun migrateFrom(source: com.pmcl.core.migration.MigrationManager.Source) {
         if (_migrating.value) return
+        val key = source.getGameRoot()?.toString() ?: source.getName()
         scope.launch {
             _migrating.value = true
-            _migrationProgress.value = "开始从 ${source.getName()} 迁移…"
+            _activeMigrationKey.value = key
+            _migrationOutcome.value = _migrationOutcome.value - key
+            _migrationProgress.value = I18n.t("migration.from", source.getName())
             _status.value = I18n.t("status.migrating_from", source.getName())
             try {
                 withContext(Dispatchers.IO) {
@@ -3412,15 +3440,17 @@ class LauncherViewModel {
                         _migrationProgress.value = msg
                     }
                 }
-                // 迁移完成后刷新本地版本
                 refreshLocalVersions()
                 _status.value = I18n.t("status.migration_complete")
-                _migrationProgress.value = "迁移完成"
+                _migrationProgress.value = I18n.t("migration.done")
+                _migrationOutcome.value = _migrationOutcome.value + (key to true)
             } catch (e: Throwable) {
                 _status.value = I18n.t("status.migration_failed", e.message ?: I18n.t("common.unknown"))
-                _migrationProgress.value = "迁移失败：${e.message}"
+                _migrationProgress.value = I18n.t("status.migration_failed", e.message ?: I18n.t("common.unknown"))
+                _migrationOutcome.value = _migrationOutcome.value + (key to false)
             } finally {
                 _migrating.value = false
+                _activeMigrationKey.value = null
             }
         }
     }

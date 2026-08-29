@@ -39,7 +39,7 @@ public final class WallpaperColorProvider {
     /** 本进程内若截屏被拒 / macOS 禁止截屏，则不再尝试 Robot */
     private static final AtomicBoolean SCREEN_CAPTURE_DISABLED = new AtomicBoolean(false);
 
-    private static final Path LOG_FILE = Paths.get(System.getProperty("user.home"), ".pmcl", "monet-diag.txt");
+    private static final Path LOG_FILE = com.pmcl.core.LauncherConfig.pmclHome().resolve("monet-diag.txt");
 
     private static void diag(String msg) {
         try {

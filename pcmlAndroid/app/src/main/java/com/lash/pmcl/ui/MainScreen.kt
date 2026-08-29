@@ -273,6 +273,8 @@ fun MainScreen(
                                 downloadManager = core.downloadManager,
                                 preferences = core.preferences,
                                 appVersion = appVersion,
+                                onApplyNetwork = { core.applyNetworkPreferences() },
+                                onTestProxy = { core.testProxyConnection() },
                             )
                             NavTarget.NbtEditor -> NbtEditorScreen(worldManager = core.worldManager)
                             NavTarget.Terminal -> TerminalScreen()

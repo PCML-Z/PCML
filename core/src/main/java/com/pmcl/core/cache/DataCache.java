@@ -23,7 +23,7 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class DataCache {
 
-    private static final Path CACHE_DIR = Paths.get(System.getProperty("user.home"), ".pmcl", "cache")
+    private static final Path CACHE_DIR = com.pmcl.core.LauncherConfig.pmclHome().resolve("cache")
             .toAbsolutePath().normalize();
     private static final Gson GSON = new GsonBuilder()
             .setPrettyPrinting()

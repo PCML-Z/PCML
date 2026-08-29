@@ -105,7 +105,7 @@ public final class TerracottaManager {
     private volatile long lastIndex = -1;
 
     public TerracottaManager() {
-        this.binaryDir = Paths.get(System.getProperty("user.home"), ".pmcl", "terracotta");
+        this.binaryDir = com.pmcl.core.LauncherConfig.pmclHome().resolve("terracotta");
         this.binaryPath = binaryDir.resolve(isWindows() ? "terracotta.exe" : "terracotta");
     }
 

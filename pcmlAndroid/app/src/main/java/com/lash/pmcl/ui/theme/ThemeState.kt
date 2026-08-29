@@ -11,6 +11,8 @@ import androidx.compose.runtime.setValue
 class ThemeState(initialDark: Boolean = false) {
     var useDark by mutableStateOf(initialDark)
 
+    var followSystem by mutableStateOf(false)
+
     // 主题预设
     var themePreset by mutableStateOf("default")
     var colorMode by mutableStateOf("normal")
@@ -56,5 +58,9 @@ class ThemeState(initialDark: Boolean = false) {
 
     fun applyLockscreenLaunchTheme(on: Boolean) {
         lockscreenLaunchTheme = on
+    }
+
+    fun applyFollowSystem(on: Boolean) {
+        followSystem = on
     }
 }

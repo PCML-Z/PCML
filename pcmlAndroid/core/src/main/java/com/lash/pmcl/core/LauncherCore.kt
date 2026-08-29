@@ -74,8 +74,7 @@ class LauncherCore(
 
     // ===== 下载 =====
     val downloadManager: DownloadManager = DownloadManager(workDir = paths.minecraftWorkDir).also { dm ->
-        dm.mirror.type = sharedMirror.type
-        dm.mirror.customBase = sharedMirror.customBase
+        applyNetworkTo(dm)
     }
 
     // ===== 鉴权 =====
@@ -148,6 +147,50 @@ class LauncherCore(
         downloadManager, paths, signatureVerifier,
         "https://pmcl.lash.com/update/manifest.json", appVersion
     )
+
+    /** 用户修改网络配置后立即应用到下载客户端。 */
+    fun applyNetworkPreferences() {
+        applyNetworkTo(downloadManager)
+    }
+
+    /**
+     * 用当前代理/镜像探测连通性。
+     */
+    fun testProxyConnection(): String {
+        val url = when (preferences.getMirrorType()) {
+            "BMCLAPI" -> "https://bmclapi2.bangbang93.com/mc/game/version_manifest_v2.json"
+            "CUSTOM" -> {
+                val base = preferences.getCustomMirrorBase().trim().trimEnd('/')
+                if (base.isNotEmpty()) "$base/mc/game/version_manifest_v2.json"
+                else "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
+            }
+            else -> "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
+        }
+        return downloadManager.testConnection(url)
+    }
+
+    private fun applyNetworkTo(dm: DownloadManager) {
+        val pref = preferences
+        val mt = when (pref.getMirrorType()) {
+            "OFFICIAL" -> MirrorManager.MirrorType.OFFICIAL
+            "CUSTOM" -> MirrorManager.MirrorType.CUSTOM
+            else -> MirrorManager.MirrorType.BMCLAPI
+        }
+        sharedMirror.type = mt
+        sharedMirror.customBase = pref.getCustomMirrorBase()
+        dm.reconfigure(
+            mirrorType = mt,
+            customMirrorBase = pref.getCustomMirrorBase(),
+            speedLimitKb = pref.getDownloadSpeedLimitKb(),
+            downloadRetryCount = pref.getDownloadRetryCount(),
+            enableResume = pref.isEnableResume(),
+            chunkedDownloadThreads = pref.getChunkedDownloadThreads(),
+            proxy = pref.toJavaProxy(),
+            useProxyAuth = pref.useHttpProxyAuth(),
+            proxyUser = pref.getProxyUsername(),
+            proxyPass = pref.getProxyPassword(),
+        )
+    }
 
     /**
      * 应用语言偏好。

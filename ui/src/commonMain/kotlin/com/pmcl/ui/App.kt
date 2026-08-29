@@ -1,6 +1,7 @@
 package com.pmcl.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -97,6 +98,7 @@ fun App(vm: LauncherViewModel, themeState: ThemeState) {
         themeState.applyCustomBackground(vm.isCustomBackgroundActive())
         themeState.applyGlassTheme(vm.preferences.isGlassTheme())
         themeState.applyLockscreenLaunchTheme(vm.preferences.isLockscreenLaunchTheme())
+        themeState.applyFollowSystem(vm.preferences.isFollowSystemTheme())
         // 应用主题色彩预设与色彩模式
         themeState.applyThemePreset(vm.preferences.getThemePreset())
         themeState.applyColorMode(vm.preferences.getColorMode())
@@ -109,8 +111,15 @@ fun App(vm: LauncherViewModel, themeState: ThemeState) {
     val effectiveScheme: androidx.compose.material3.ColorScheme? =
         if (themeState.dynamicColor || themeState.customAccentColor != -1) themeState.dynamicColorScheme else null
 
+    val systemDark = isSystemInDarkTheme()
+    LaunchedEffect(themeState.followSystem, systemDark) {
+        if (themeState.followSystem && themeState.useDark != systemDark) {
+            vm.onThemeModeChanged(systemDark, themeState)
+        }
+    }
+
     LauncherTheme(
-        useDarkTheme = themeState.useDark,
+        useDarkTheme = if (themeState.followSystem) systemDark else themeState.useDark,
         dynamicColorScheme = effectiveScheme,
         uiScale = themeState.uiScale,
         themePreset = themeState.themePreset,

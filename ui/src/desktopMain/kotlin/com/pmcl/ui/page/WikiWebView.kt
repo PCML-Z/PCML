@@ -182,6 +182,8 @@ private object WikiProxyBypass {
     private var savedHttpPort: String? = null
     private var savedHttpsHost: String? = null
     private var savedHttpsPort: String? = null
+    private var savedSocksHost: String? = null
+    private var savedSocksPort: String? = null
 
     @Synchronized
     fun enter() {
@@ -190,10 +192,14 @@ private object WikiProxyBypass {
             savedHttpPort = System.getProperty("http.proxyPort")
             savedHttpsHost = System.getProperty("https.proxyHost")
             savedHttpsPort = System.getProperty("https.proxyPort")
+            savedSocksHost = System.getProperty("socksProxyHost")
+            savedSocksPort = System.getProperty("socksProxyPort")
             System.clearProperty("http.proxyHost")
             System.clearProperty("http.proxyPort")
             System.clearProperty("https.proxyHost")
             System.clearProperty("https.proxyPort")
+            System.clearProperty("socksProxyHost")
+            System.clearProperty("socksProxyPort")
         }
         depth++
     }
@@ -207,10 +213,14 @@ private object WikiProxyBypass {
             restore("http.proxyPort", savedHttpPort)
             restore("https.proxyHost", savedHttpsHost)
             restore("https.proxyPort", savedHttpsPort)
+            restore("socksProxyHost", savedSocksHost)
+            restore("socksProxyPort", savedSocksPort)
             savedHttpHost = null
             savedHttpPort = null
             savedHttpsHost = null
             savedHttpsPort = null
+            savedSocksHost = null
+            savedSocksPort = null
         }
     }
 

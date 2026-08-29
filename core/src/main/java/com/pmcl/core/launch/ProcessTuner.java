@@ -137,7 +137,7 @@ public final class ProcessTuner {
             } catch (Exception e) {
                 System.err.println("[MioMode] L3 恢复低电量模式失败: " + e.getMessage());
                 try {
-                    Path backup = Paths.get(System.getProperty("user.home"), ".pmcl", "mio_pmset_backup.txt");
+                    Path backup = com.pmcl.core.LauncherConfig.pmclHome().resolve("mio_pmset_backup.txt");
                     Files.createDirectories(backup.getParent());
                     Files.writeString(backup, String.valueOf(restore));
                 } catch (Exception ignored) {}

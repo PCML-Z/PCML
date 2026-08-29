@@ -49,6 +49,9 @@ private fun presetSchemes(preset: String): Pair<ColorScheme, ColorScheme> {
         "lavender" -> 0xFF6A1B9A.toInt()
         "sakura"   -> 0xFFD81B60.toInt()
         "midnight" -> 0xFF263238.toInt()
+        "ember"    -> 0xFFC62828.toInt()
+        "teal"     -> 0xFF00897B.toInt()
+        "sand"     -> 0xFFF9A825.toInt()
         else       -> 0xFF3D8BFF.toInt()
     }
     // 使用简化的色调映射生成 light/dark scheme

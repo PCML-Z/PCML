@@ -176,7 +176,7 @@ public final class SelfUpdater {
                 requireHttps(info.getUrl(), "更新包");
                 assertChannelTrust(info);
 
-                Path updatesDir = Paths.get(System.getProperty("user.home"), ".pmcl", "updates")
+                Path updatesDir = com.pmcl.core.LauncherConfig.pmclHome().resolve("updates")
                         .toAbsolutePath().normalize();
                 Files.createDirectories(updatesDir);
                 // 私有目录下的临时文件；不先删再建，避免 /tmp TOCTOU / 符号链接竞态

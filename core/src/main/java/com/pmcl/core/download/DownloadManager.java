@@ -16,7 +16,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InterruptedIOException;
 import java.io.RandomAccessFile;
-import java.net.InetSocketAddress;
 import java.net.Proxy;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -111,13 +110,9 @@ public final class DownloadManager {
         this.downloadLimiter = new Semaphore(threads);
         if (pref != null) {
             // 直接按偏好构建，跳过默认 client 的无谓构建+丢弃
-            Proxy proxy = null;
-            if (pref.isUseProxy() && !pref.getProxyHost().isEmpty() && pref.getProxyPort() > 0) {
-                proxy = new Proxy(Proxy.Type.HTTP,
-                        new InetSocketAddress(pref.getProxyHost(), pref.getProxyPort()));
-            }
+            Proxy proxy = com.pmcl.core.util.ProxySupport.fromPreferences(pref);
             this.http = buildClient(proxy, 15,
-                    pref.isUseProxy() && pref.isUseHttpAuth(),
+                    com.pmcl.core.util.ProxySupport.useHttpProxyAuth(pref),
                     pref.getProxyUsername(), pref.getProxyPassword());
             String mt = pref.getMirrorType();
             if ("BMCLAPI".equals(mt)) mirror.setType(MirrorManager.MirrorType.BMCLAPI);
@@ -190,14 +185,10 @@ public final class DownloadManager {
         mirror.setCustomBase(pref.getCustomMirrorBase());
 
         // 客户端
-        Proxy proxy = null;
-        if (pref.isUseProxy() && !pref.getProxyHost().isEmpty() && pref.getProxyPort() > 0) {
-            proxy = new Proxy(Proxy.Type.HTTP,
-                    new InetSocketAddress(pref.getProxyHost(), pref.getProxyPort()));
-        }
+        Proxy proxy = com.pmcl.core.util.ProxySupport.fromPreferences(pref);
         OkHttpClient old = this.http;
         http = buildClient(proxy, 15,
-                pref.isUseProxy() && pref.isUseHttpAuth(),
+                com.pmcl.core.util.ProxySupport.useHttpProxyAuth(pref),
                 pref.getProxyUsername(), pref.getProxyPassword());
 
         // 延迟清理旧客户端：不立即关闭连接池和 dispatcher，避免打断在途请求
@@ -308,6 +299,28 @@ public final class DownloadManager {
      * 自动应用代理配置。
      */
     public OkHttpClient httpClient() { return http; }
+
+    /**
+     * 用当前 HttpClient（含代理）探测连通性。成功返回 {@code HTTP <code>}，失败抛 IOException。
+     */
+    public String testConnection(String url) throws IOException {
+        if (url == null || url.isEmpty()) throw new IOException("empty url");
+        OkHttpClient probe = http.newBuilder()
+                .connectTimeout(java.time.Duration.ofSeconds(8))
+                .readTimeout(java.time.Duration.ofSeconds(8))
+                .callTimeout(java.time.Duration.ofSeconds(12))
+                .build();
+        Request req = new Request.Builder()
+                .url(url)
+                .header("Range", "bytes=0-255")
+                .get()
+                .build();
+        try (Response r = probe.newCall(req).execute()) {
+            int code = r.code();
+            if (code >= 200 && code < 500) return "HTTP " + code;
+            throw new IOException("HTTP " + code);
+        }
+    }
 
     /** 应用镜像重写。插件 UrlRewriteHook 不进入宿主下载管线。 */
     private String rewrite(String url) {

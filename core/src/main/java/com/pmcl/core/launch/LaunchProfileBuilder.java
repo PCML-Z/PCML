@@ -1558,6 +1558,23 @@ public final class LaunchProfileBuilder {
                     throw new IOException("native 解压目标越界（ZipSlip 防护）: " + name
                             + " -> " + target);
                 }
+                // macOS TCC: com.apple.provenance 属性阻止直接覆盖已有文件（Operation not permitted）。
+                // 先尝试删除已有文件，再写入新文件。删除失败则检查已有文件是否可用。
+                try {
+                    java.nio.file.Files.deleteIfExists(target);
+                } catch (IOException delEx) {
+                    // 删除也失败 → 已有文件可能是上次成功提取的，检查是否可用
+                    if (java.nio.file.Files.exists(target) && java.nio.file.Files.size(target) > 0) {
+                        // entry.getSize() == -1 表示 JAR 未记录大小，此时信任已有文件
+                        if (entry.getSize() < 0
+                                || java.nio.file.Files.size(target) == entry.getSize()) {
+                            continue; // 已有文件大小一致或大小未知，跳过提取
+                        }
+                    }
+                    // 文件不存在/大小为0/大小不一致且无法删除 → 报错
+                    throw new IOException("无法覆盖 native 库（macOS TCC 限制）: "
+                            + target + " — 请手动删除该文件后重试", delEx);
+                }
                 try (java.io.InputStream is = jar.getInputStream(entry);
                      java.io.OutputStream os = java.nio.file.Files.newOutputStream(target)) {
                     is.transferTo(os);

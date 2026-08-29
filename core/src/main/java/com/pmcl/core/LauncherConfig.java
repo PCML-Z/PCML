@@ -24,7 +24,30 @@ public final class LauncherConfig {
     private volatile int downloadThreads = 16;
 
     public LauncherConfig() {
-        this(Paths.get(System.getProperty("user.home"), ".pmcl"));
+        this(resolveDefaultWorkDir());
+    }
+
+    /**
+     * 解析默认工作目录：优先使用 -Dpmcl.workdir 系统属性（用于绕过 macOS TCC
+     * 对 ~/.pmcl 目录的 com.apple.provenance 限制），回退到 ~/.pmcl。
+     * 注意：不修改 user.home，确保 TokenEncryptor 的密钥派生不受影响。
+     */
+    private static Path resolveDefaultWorkDir() {
+        return pmclHome();
+    }
+
+    /**
+     * PMCL 主目录：优先 -Dpmcl.workdir（绕过 macOS TCC com.apple.provenance），
+     * 回退到 ~/.pmcl。所有模块应使用此方法替代硬编码 user.home/.pmcl。
+     * 注意：TokenEncryptor 的 .keyfile 例外，必须用 user.home/.pmcl/.keyfile
+     * 保证密钥派生一致性。
+     */
+    public static Path pmclHome() {
+        String override = System.getProperty("pmcl.workdir");
+        if (override != null && !override.isEmpty()) {
+            return Paths.get(override);
+        }
+        return Paths.get(System.getProperty("user.home"), ".pmcl");
     }
 
     public LauncherConfig(Path workDir) {

@@ -269,19 +269,26 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
         }
 
         if (sectionId == "theme") {
-        // 主题系统
-        Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
-            Column(Modifier.padding(16.dp)) {
-                Text(I18n.t("settings.appearance"), style = MaterialTheme.typography.titleSmall,
-                     fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.height(8.dp))
+        ThemeSectionCard(I18n.t("settings.theme.color")) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = themeState.followSystem,
+                        onCheckedChange = { v -> vm.setFollowSystemTheme(v, themeState) }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(I18n.t("settings.follow_system"), fontWeight = FontWeight.Medium)
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(I18n.t("settings.follow_system_desc"),
+                     style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.outline)
+
+                Spacer(Modifier.height(12.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Switch(
                         checked = themeState.useDark,
-                        onCheckedChange = { v ->
-                            // 修复：切换深浅模式时重新生成莫奈/自定义配色
-                            vm.onThemeModeChanged(v, themeState)
-                        }
+                        enabled = !themeState.followSystem,
+                        onCheckedChange = { v -> vm.onThemeModeChanged(v, themeState) }
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(if (themeState.useDark) I18n.t("settings.dark_theme") else I18n.t("settings.light_theme"))
@@ -295,16 +302,13 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
                 HorizontalDivider()
                 Spacer(Modifier.height(12.dp))
 
-                // 主题色彩预设
                 Text(I18n.t("settings.theme_preset"), style = MaterialTheme.typography.labelMedium,
                      fontWeight = FontWeight.Medium)
                 Spacer(Modifier.height(8.dp))
                 ThemePresetPicker(
                     selectedPreset = themeState.themePreset,
-                    // 莫奈/自定义色/插件主题开启时禁用预设选择
                     enabled = !themeState.dynamicColor && themeState.customAccentColor == -1 && themeState.customThemePackId.isEmpty(),
                     onSelect = { preset ->
-                        // 切换预设时清除插件主题
                         if (themeState.customThemePackId.isNotEmpty()) {
                             vm.applyCustomThemePack("", themeState)
                         }
@@ -315,8 +319,11 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
                 Text(I18n.t("settings.theme_preset_desc"),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
+                Spacer(Modifier.height(4.dp))
+                Text(I18n.t("settings.theme_source_hint"),
+                     style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.outline)
 
-                // 插件主题包（仅当存在已注册的插件主题时显示）
                 if (pluginThemePacks.isNotEmpty()) {
                     Spacer(Modifier.height(12.dp))
                     HorizontalDivider()
@@ -328,8 +335,6 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
                     PluginThemePackPicker(
                         packs = pluginThemePacks,
                         selectedPackId = themeState.customThemePackId,
-                        // 莫奈/自定义色开启时禁用（插件主题优先级高于预设但低于动态色）
-                        // 实际上 applyCustomThemePack 会清除动态色，但 UI 上仍允许直接选择
                         enabled = !themeState.dynamicColor && themeState.customAccentColor == -1,
                         onSelect = { packId -> vm.applyCustomThemePack(packId, themeState) }
                     )
@@ -343,7 +348,6 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
                 HorizontalDivider()
                 Spacer(Modifier.height(12.dp))
 
-                // 莫奈取色（主题颜色跟随桌面壁纸）
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Switch(
                         checked = themeState.dynamicColor,
@@ -351,7 +355,6 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
                             themeState.enableDynamicColor(v)
                             pref.setDynamicColor(v)
                             if (v) {
-                                // 开启莫奈时清除自定义强调色，并强制重新取色
                                 vm.clearCustomAccentColor(themeState)
                                 vm.forceRefreshWallpaperColor(themeState)
                             } else {
@@ -380,19 +383,14 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
                 HorizontalDivider()
                 Spacer(Modifier.height(12.dp))
 
-                // 自定义强调色（手动色板选择）
                 Text(I18n.t("settings.custom_accent"), style = MaterialTheme.typography.labelMedium,
                      fontWeight = FontWeight.Medium)
                 Spacer(Modifier.height(8.dp))
                 AccentColorPicker(
                     selectedColor = themeState.customAccentColor,
                     enabled = !themeState.dynamicColor,
-                    onSelect = { argb ->
-                        vm.applyCustomAccentColor(argb, themeState)
-                    },
-                    onClear = {
-                        vm.clearCustomAccentColor(themeState)
-                    }
+                    onSelect = { argb -> vm.applyCustomAccentColor(argb, themeState) },
+                    onClear = { vm.clearCustomAccentColor(themeState) }
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(I18n.t("settings.custom_accent_desc"),
@@ -403,7 +401,6 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
                 HorizontalDivider()
                 Spacer(Modifier.height(12.dp))
 
-                // 色彩模式（AMOLED/高对比/柔护眼）
                 Text(I18n.t("settings.color_mode"), style = MaterialTheme.typography.labelMedium,
                      fontWeight = FontWeight.Medium)
                 Spacer(Modifier.height(4.dp))
@@ -419,104 +416,10 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
                 Text(I18n.t("settings.color_mode_desc"),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
-            }
         }
-        } // end sectionId == theme
+        Spacer(Modifier.height(16.dp))
 
-        if (sectionId == "launcher") {
-        // 启动器设置（语言 / 窗口 / 背景 / HUD 等）
-        Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
-            Column(Modifier.padding(16.dp)) {
-                Text(I18n.t("settings.language_label"), style = MaterialTheme.typography.labelMedium)
-                Spacer(Modifier.height(4.dp))
-                val langItems = listOf(
-                    "zh_CN" to "简体中文",
-                    "zh_TW" to "繁體中文",
-                    "en_US" to "English",
-                    "ja_JP" to "日本語",
-                    "ud_EN" to "uʍop-ǝpᴉsdn"
-                )
-                com.pmcl.ui.animation.AnimatedSegmentedSelector(
-                    items = langItems.map { it.second },
-                    selectedIndex = langItems.indexOfFirst { it.first == language }.coerceAtLeast(0),
-                    onSelect = {
-                        language = langItems[it].first
-                        vm.setLanguage(langItems[it].first)
-                    },
-                    fillWidth = true
-                )
-                Text(I18n.t("settings.language_hint"),
-                     style = MaterialTheme.typography.labelSmall,
-                     color = MaterialTheme.colorScheme.outline)
-
-                Spacer(Modifier.height(12.dp))
-                HorizontalDivider()
-                Spacer(Modifier.height(12.dp))
-
-                // 无边框窗口模式
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Switch(
-                        checked = borderless,
-                        onCheckedChange = { v ->
-                            borderless = v
-                            pref.setBorderlessWindow(v)
-                        }
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(I18n.t("settings.borderless_window"), fontWeight = FontWeight.Medium)
-                }
-                Spacer(Modifier.height(4.dp))
-                Text(I18n.t("settings.borderless_window_desc"),
-                     style = MaterialTheme.typography.labelSmall,
-                     color = MaterialTheme.colorScheme.outline)
-
-                Spacer(Modifier.height(12.dp))
-                HorizontalDivider()
-                Spacer(Modifier.height(12.dp))
-
-                // Java 版本兼容（降级兜底）
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Switch(
-                        checked = javaDowngrade,
-                        onCheckedChange = { v ->
-                            javaDowngrade = v
-                            pref.setJavaDowngradeFallback(v)
-                        }
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(I18n.t("settings.java_downgrade"), fontWeight = FontWeight.Medium)
-                }
-                Spacer(Modifier.height(4.dp))
-                Text(I18n.t("settings.java_downgrade_desc"),
-                     style = MaterialTheme.typography.labelSmall,
-                     color = MaterialTheme.colorScheme.outline)
-
-                Spacer(Modifier.height(12.dp))
-                HorizontalDivider()
-                Spacer(Modifier.height(12.dp))
-
-                // 启动页滑块布局
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Switch(
-                        checked = segmentedLaunch,
-                        onCheckedChange = { v ->
-                            segmentedLaunch = v
-                            pref.setUseSegmentedLaunchLayout(v)
-                        }
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(I18n.t("settings.segmented_launch"), fontWeight = FontWeight.Medium)
-                }
-                Spacer(Modifier.height(4.dp))
-                Text(I18n.t("settings.segmented_launch_desc"),
-                     style = MaterialTheme.typography.labelSmall,
-                     color = MaterialTheme.colorScheme.outline)
-
-                Spacer(Modifier.height(12.dp))
-                HorizontalDivider()
-                Spacer(Modifier.height(12.dp))
-
-                // 视差背景主题
+        ThemeSectionCard(I18n.t("settings.theme.background")) {
                 val parallaxBg by vm.parallaxBackground.collectAsState()
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Switch(
@@ -535,7 +438,6 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
                 HorizontalDivider()
                 Spacer(Modifier.height(12.dp))
 
-                // 自定义背景：本地图片 / 视频（优先级高于视差背景）
                 val customBgType by vm.launcherBgType.collectAsState()
                 val customBgImagePath by vm.launcherBgImagePath.collectAsState()
                 val customBgVideoPath by vm.launcherBgVideoPath.collectAsState()
@@ -640,12 +542,10 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
                         }
                     )
                 }
+        }
+        Spacer(Modifier.height(16.dp))
 
-                Spacer(Modifier.height(12.dp))
-                HorizontalDivider()
-                Spacer(Modifier.height(12.dp))
-
-                // 玻璃主题
+        ThemeSectionCard(I18n.t("settings.theme.effects")) {
                 val glassOn by vm.glassTheme.collectAsState()
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Switch(
@@ -664,7 +564,6 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
                 HorizontalDivider()
                 Spacer(Modifier.height(12.dp))
 
-                // 锁屏启动页主题（Origin OS2 风格方形卡片启动页）
                 val lockscreenOn by vm.lockscreenLaunchTheme.collectAsState()
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Switch(
@@ -678,34 +577,10 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
                 Text(I18n.t("settings.lockscreen_launch_desc"),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
+        }
+        Spacer(Modifier.height(16.dp))
 
-                Spacer(Modifier.height(12.dp))
-                HorizontalDivider()
-                Spacer(Modifier.height(12.dp))
-
-                // 预判启动：贝叶斯模型预测最可能的版本，进入启动页时后台预热资源
-                var predictiveLaunch by remember { mutableStateOf(pref.isPredictiveLaunch()) }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Switch(
-                        checked = predictiveLaunch,
-                        onCheckedChange = { v ->
-                            predictiveLaunch = v
-                            pref.setPredictiveLaunch(v)
-                        }
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(I18n.t("settings.predictive_launch"), fontWeight = FontWeight.Medium)
-                }
-                Spacer(Modifier.height(4.dp))
-                Text(I18n.t("settings.predictive_launch_desc"),
-                     style = MaterialTheme.typography.labelSmall,
-                     color = MaterialTheme.colorScheme.outline)
-
-                Spacer(Modifier.height(12.dp))
-                HorizontalDivider()
-                Spacer(Modifier.height(12.dp))
-
-                // UI 缩放
+        ThemeSectionCard(I18n.t("settings.theme.scale")) {
                 var uiScale by remember { mutableStateOf(pref.getUiScale()) }
                 Text(I18n.t("settings.ui_scale"), style = MaterialTheme.typography.labelMedium,
                      fontWeight = FontWeight.Medium)
@@ -722,7 +597,7 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
                             pref.setUiScale(v)
                         },
                         valueRange = 0.8f..1.5f,
-                        steps = 13,  // 0.05 步长：(1.5-0.8)/0.05 = 14 段 → 13 个步进点
+                        steps = 13,
                         modifier = Modifier.weight(1f)
                     )
                     Spacer(Modifier.width(8.dp))
@@ -750,6 +625,119 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
                     }) { Text(I18n.t("settings.ui_scale_reset")) }
                 }
                 Text(I18n.t("settings.ui_scale_desc"),
+                     style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.outline)
+        }
+        } // end sectionId == theme
+
+        if (sectionId == "launcher") {
+        // 启动器设置（语言 / 窗口 / 背景 / HUD 等）
+        Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
+            Column(Modifier.padding(16.dp)) {
+                Text(I18n.t("settings.language_label"), style = MaterialTheme.typography.labelMedium)
+                Spacer(Modifier.height(4.dp))
+                val langItems = listOf(
+                    "zh_CN" to "简体中文",
+                    "zh_TW" to "繁體中文",
+                    "en_US" to "English",
+                    "ja_JP" to "日本語",
+                    "ud_EN" to "uʍop-ǝpᴉsdn"
+                )
+                com.pmcl.ui.animation.AnimatedSegmentedSelector(
+                    items = langItems.map { it.second },
+                    selectedIndex = langItems.indexOfFirst { it.first == language }.coerceAtLeast(0),
+                    onSelect = {
+                        language = langItems[it].first
+                        vm.setLanguage(langItems[it].first)
+                    },
+                    fillWidth = true
+                )
+                Text(I18n.t("settings.language_hint"),
+                     style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.outline)
+
+                Spacer(Modifier.height(12.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(12.dp))
+
+                // 无边框窗口模式
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = borderless,
+                        onCheckedChange = { v ->
+                            borderless = v
+                            pref.setBorderlessWindow(v)
+                        }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(I18n.t("settings.borderless_window"), fontWeight = FontWeight.Medium)
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(I18n.t("settings.borderless_window_desc"),
+                     style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.outline)
+
+                Spacer(Modifier.height(12.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(12.dp))
+
+                // Java 版本兼容（降级兜底）
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = javaDowngrade,
+                        onCheckedChange = { v ->
+                            javaDowngrade = v
+                            pref.setJavaDowngradeFallback(v)
+                        }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(I18n.t("settings.java_downgrade"), fontWeight = FontWeight.Medium)
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(I18n.t("settings.java_downgrade_desc"),
+                     style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.outline)
+
+                Spacer(Modifier.height(12.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(12.dp))
+
+                // 启动页滑块布局
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = segmentedLaunch,
+                        onCheckedChange = { v ->
+                            segmentedLaunch = v
+                            pref.setUseSegmentedLaunchLayout(v)
+                        }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(I18n.t("settings.segmented_launch"), fontWeight = FontWeight.Medium)
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(I18n.t("settings.segmented_launch_desc"),
+                     style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.outline)
+
+                Spacer(Modifier.height(12.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(12.dp))
+
+                // 预判启动：贝叶斯模型预测最可能的版本，进入启动页时后台预热资源
+                var predictiveLaunch by remember { mutableStateOf(pref.isPredictiveLaunch()) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = predictiveLaunch,
+                        onCheckedChange = { v ->
+                            predictiveLaunch = v
+                            pref.setPredictiveLaunch(v)
+                        }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(I18n.t("settings.predictive_launch"), fontWeight = FontWeight.Medium)
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(I18n.t("settings.predictive_launch_desc"),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
 
@@ -1256,7 +1244,7 @@ private fun AboutCard(vm: LauncherViewModel) {
             Spacer(Modifier.height(8.dp))
             DeveloperList()
 
-            // === 技术栈依赖列表 ===
+            // === 技术栈 ===
             Spacer(Modifier.height(16.dp))
             Text(
                 I18n.t("about.tech_stack"),
@@ -1265,7 +1253,18 @@ private fun AboutCard(vm: LauncherViewModel) {
                 color = MaterialTheme.colorScheme.onSurface
             )
             Spacer(Modifier.height(8.dp))
-            TechStackTable()
+            DependencyTable(techStackDeps())
+
+            // === 引用开源项目 ===
+            Spacer(Modifier.height(16.dp))
+            Text(
+                I18n.t("about.open_source"),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(Modifier.height(8.dp))
+            DependencyTable(openSourceDeps())
 
             Spacer(Modifier.height(12.dp))
             HorizontalDivider()
@@ -1277,14 +1276,15 @@ private fun AboutCard(vm: LauncherViewModel) {
     }
 }
 
-/** 设置 → 许可证与协议：内嵌展示软件许可证 / 用户协议 / 免责协议 */
+/** 设置 → 许可证与协议：软件许可证 / 用户协议 / 免责协议 / 许可证冲突 */
 @Composable
 private fun LicensesAndAgreementsSection() {
     var selected by remember { mutableStateOf(0) }
     val tabs = listOf(
         I18n.t("about.view_license"),
         I18n.t("about.user_agreement"),
-        I18n.t("about.disclaimer")
+        I18n.t("about.disclaimer"),
+        I18n.t("about.license.conflict_tab")
     )
 
     Card(
@@ -1307,7 +1307,8 @@ private fun LicensesAndAgreementsSection() {
                                 imageVector = when (index) {
                                     0 -> Icons.Filled.Article
                                     1 -> Icons.Filled.Gavel
-                                    else -> Icons.Filled.Shield
+                                    2 -> Icons.Filled.Shield
+                                    else -> Icons.Filled.Warning
                                 },
                                 contentDescription = null,
                                 modifier = Modifier.size(16.dp)
@@ -1320,7 +1321,8 @@ private fun LicensesAndAgreementsSection() {
             when (selected) {
                 0 -> LicenseDocumentPanel()
                 1 -> DocumentPanel(resourceName = "USER_AGREEMENT.txt")
-                else -> DocumentPanel(resourceName = "DISCLAIMER.txt")
+                2 -> DocumentPanel(resourceName = "DISCLAIMER.txt")
+                else -> LicenseConflictPanel()
             }
         }
     }
@@ -1339,14 +1341,14 @@ private fun FeatureColumn(
              color = MaterialTheme.colorScheme.primary)
         Spacer(Modifier.height(4.dp))
         items.forEach { f ->
-            Text("·  $f",
+            Text("(=^ω^=)  $f",
                  style = MaterialTheme.typography.bodySmall,
                  color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
 
-/** 技术栈依赖条目：名称 + 版权 + 许可证 + 外链 */
+/** 技术栈 / 开源引用条目：名称 + 版权 + 许可证 + 外链 */
 private data class TechDependency(
     val name: String,
     val copyright: String,
@@ -1536,66 +1538,93 @@ private fun DeveloperAvatar(url: String, name: String) {
     }
 }
 
-/** 关于卡片中的技术栈依赖列表（参考「依赖」卡片样式） */
-@Composable
-private fun TechStackTable() {
-    val deps = listOf(
-        TechDependency(
-            name = "Kotlin ${KotlinVersion.CURRENT}",
-            copyright = "Copyright © JetBrains s.r.o. and Kotlin contributors.",
-            license = "Licensed under the Apache License 2.0.",
-            url = "https://kotlinlang.org/"
-        ),
-        TechDependency(
-            name = "Compose Multiplatform",
-            copyright = "Copyright © JetBrains s.r.o. and contributors.",
-            license = "Licensed under the Apache License 2.0.",
-            url = "https://www.jetbrains.com/compose-multiplatform/"
-        ),
-        TechDependency(
-            name = "Java",
-            copyright = "Copyright © Oracle and/or its affiliates.",
-            license = "Licensed under the GPL 2 with Classpath Exception.",
-            url = "https://openjdk.org/"
-        ),
-        TechDependency(
-            name = "OkHttp",
-            copyright = "Copyright © Square, Inc.",
-            license = "Licensed under the Apache License 2.0.",
-            url = "https://square.github.io/okhttp/"
-        ),
-        TechDependency(
-            name = "FFmpeg",
-            copyright = "Copyright © the FFmpeg developers.",
-            license = "Licensed under the LGPL / GPL.",
-            url = "https://ffmpeg.org/"
-        ),
-        TechDependency(
-            name = "Gradle",
-            copyright = "Copyright © Gradle Inc.",
-            license = "Licensed under the Apache License 2.0.",
-            url = "https://gradle.org/"
-        ),
-        TechDependency(
-            name = "Gson",
-            copyright = "Copyright © 2008 Google Inc.",
-            license = "Licensed under the Apache License 2.0.",
-            url = "https://github.com/google/gson"
-        ),
-        TechDependency(
-            name = "kotlinx-coroutines",
-            copyright = "Copyright © JetBrains s.r.o. and contributors.",
-            license = "Licensed under the Apache License 2.0.",
-            url = "https://github.com/Kotlin/kotlinx.coroutines"
-        ),
-        TechDependency(
-            name = "oshi",
-            copyright = "Copyright © The OSHI Project contributors.",
-            license = "Licensed under the MIT License.",
-            url = "https://github.com/oshi/oshi"
-        ),
-    )
+private fun techStackDeps() = listOf(
+    TechDependency(
+        name = "Kotlin ${KotlinVersion.CURRENT}",
+        copyright = "Copyright © JetBrains s.r.o. and Kotlin contributors.",
+        license = "Licensed under the Apache License 2.0.",
+        url = "https://kotlinlang.org/"
+    ),
+    TechDependency(
+        name = "Compose Multiplatform",
+        copyright = "Copyright © JetBrains s.r.o. and contributors.",
+        license = "Licensed under the Apache License 2.0.",
+        url = "https://www.jetbrains.com/compose-multiplatform/"
+    ),
+    TechDependency(
+        name = "Java",
+        copyright = "Copyright © Oracle and/or its affiliates.",
+        license = "GPL-2.0 + Classpath Exception",
+        url = "https://openjdk.org/"
+    ),
+    TechDependency(
+        name = "JavaFX",
+        copyright = "Copyright © Oracle and/or its affiliates, OpenJFX contributors.",
+        license = "GPL-2.0 + Classpath Exception",
+        url = "https://openjfx.io/"
+    ),
+    TechDependency(
+        name = "Gradle",
+        copyright = "Copyright © Gradle Inc.",
+        license = "Licensed under the Apache License 2.0.",
+        url = "https://gradle.org/"
+    ),
+)
 
+private fun openSourceDeps() = listOf(
+    TechDependency(
+        name = "OkHttp",
+        copyright = "Copyright © Square, Inc.",
+        license = "Licensed under the Apache License 2.0.",
+        url = "https://square.github.io/okhttp/"
+    ),
+    TechDependency(
+        name = "FFmpeg",
+        copyright = "Copyright © the FFmpeg developers.",
+        license = "LGPL / GPL (ByteDeco prebuilds often GPL)",
+        url = "https://ffmpeg.org/"
+    ),
+    TechDependency(
+        name = "JavaCV",
+        copyright = "Copyright © ByteDeco and contributors.",
+        license = "GPL-2.0 (or with Classpath Exception)",
+        url = "https://github.com/bytedeco/javacv"
+    ),
+    TechDependency(
+        name = "Gson",
+        copyright = "Copyright © 2008 Google Inc.",
+        license = "Licensed under the Apache License 2.0.",
+        url = "https://github.com/google/gson"
+    ),
+    TechDependency(
+        name = "kotlinx-coroutines",
+        copyright = "Copyright © JetBrains s.r.o. and contributors.",
+        license = "Licensed under the Apache License 2.0.",
+        url = "https://github.com/Kotlin/kotlinx.coroutines"
+    ),
+    TechDependency(
+        name = "oshi",
+        copyright = "Copyright © The OSHI Project contributors.",
+        license = "Licensed under the MIT License.",
+        url = "https://github.com/oshi/oshi"
+    ),
+    TechDependency(
+        name = "EasyTier",
+        copyright = "Copyright © EasyTier contributors.",
+        license = "LGPL-3.0",
+        url = "https://github.com/EasyTier/EasyTier"
+    ),
+    TechDependency(
+        name = "HMCL",
+        copyright = "Copyright © huanghongxun and HMCL contributors.",
+        license = "GPL-3.0",
+        url = "https://github.com/HMCL-dev/HMCL"
+    ),
+)
+
+/** 关于卡片中的依赖列表（技术栈 / 引用开源项目共用） */
+@Composable
+private fun DependencyTable(deps: List<TechDependency>) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
@@ -2429,9 +2458,11 @@ private fun GameBehaviorCard(pref: com.pmcl.core.preferences.Preferences) {
 
 @Composable
 private fun NetworkConfigCard(vm: LauncherViewModel, pref: com.pmcl.core.preferences.Preferences) {
+    val scope = rememberCoroutineScope()
     var mirrorType by remember { mutableStateOf(pref.getMirrorType()) }
     var customMirror by remember { mutableStateOf(pref.getCustomMirrorBase()) }
     var useProxy by remember { mutableStateOf(pref.isUseProxy()) }
+    var proxyType by remember { mutableStateOf(pref.getProxyType()) }
     var proxyHost by remember { mutableStateOf(pref.getProxyHost()) }
     var proxyPort by remember { mutableStateOf(pref.getProxyPort().toString()) }
     var useAuth by remember { mutableStateOf(pref.isUseHttpAuth()) }
@@ -2441,6 +2472,10 @@ private fun NetworkConfigCard(vm: LauncherViewModel, pref: com.pmcl.core.prefere
     var retryCount by remember { mutableStateOf(pref.getDownloadRetryCount().toString()) }
     var enableResume by remember { mutableStateOf(pref.isEnableResume()) }
     var chunkedThreads by remember { mutableStateOf(pref.getChunkedDownloadThreads().toString()) }
+    var proxyTesting by remember { mutableStateOf(false) }
+    var proxyTestOk by remember { mutableStateOf<Boolean?>(null) }
+    var proxyTestMsg by remember { mutableStateOf<String?>(null) }
+    val isSocks = proxyType.equals("SOCKS5", ignoreCase = true)
 
     Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
         Column(Modifier.padding(16.dp)) {
@@ -2486,6 +2521,20 @@ private fun NetworkConfigCard(vm: LauncherViewModel, pref: com.pmcl.core.prefere
             }
             if (useProxy) {
                 Spacer(Modifier.height(8.dp))
+                Text(I18n.t("settings.proxy_type"), style = MaterialTheme.typography.labelMedium)
+                Spacer(Modifier.height(4.dp))
+                val typeItems = listOf("HTTP" to I18n.t("settings.proxy_type_http"), "SOCKS5" to I18n.t("settings.proxy_type_socks5"))
+                com.pmcl.ui.animation.AnimatedSegmentedSelector(
+                    items = typeItems.map { it.second },
+                    selectedIndex = typeItems.indexOfFirst { it.first == proxyType }.coerceAtLeast(0),
+                    onSelect = {
+                        proxyType = typeItems[it].first
+                        pref.setProxyType(typeItems[it].first)
+                        vm.applyNetworkPreferences()
+                    },
+                    fillWidth = true
+                )
+                Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
                         value = proxyHost,
@@ -2505,33 +2554,77 @@ private fun NetworkConfigCard(vm: LauncherViewModel, pref: com.pmcl.core.prefere
                         modifier = Modifier.weight(1f)
                     )
                 }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Switch(checked = useAuth, onCheckedChange = {
-                        useAuth = it; pref.setUseHttpAuth(it); vm.applyNetworkPreferences()
-                    })
-                    Spacer(Modifier.width(8.dp))
-                    Text(I18n.t("settings.proxy_auth"))
-                }
-                if (useAuth) {
+                if (isSocks) {
                     Spacer(Modifier.height(4.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(
-                            value = proxyUser,
-                            onValueChange = {
-                                proxyUser = it; pref.setProxyUsername(it); vm.applyNetworkPreferences()
-                            },
-                            label = { Text(I18n.t("settings.proxy_username")) }, singleLine = true,
-                            modifier = Modifier.weight(1f)
-                        )
-                        OutlinedTextField(
-                            value = proxyPass,
-                            onValueChange = {
-                                proxyPass = it; pref.setProxyPassword(it); vm.applyNetworkPreferences()
-                            },
-                            label = { Text(I18n.t("settings.proxy_password")) }, singleLine = true,
-                            modifier = Modifier.weight(1f)
-                        )
+                    Text(I18n.t("settings.proxy_socks_hint"),
+                         style = MaterialTheme.typography.labelSmall,
+                         color = MaterialTheme.colorScheme.outline)
+                } else {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Switch(checked = useAuth, onCheckedChange = {
+                            useAuth = it; pref.setUseHttpAuth(it); vm.applyNetworkPreferences()
+                        })
+                        Spacer(Modifier.width(8.dp))
+                        Text(I18n.t("settings.proxy_auth"))
                     }
+                    if (useAuth) {
+                        Spacer(Modifier.height(4.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = proxyUser,
+                                onValueChange = {
+                                    proxyUser = it; pref.setProxyUsername(it); vm.applyNetworkPreferences()
+                                },
+                                label = { Text(I18n.t("settings.proxy_username")) }, singleLine = true,
+                                modifier = Modifier.weight(1f)
+                            )
+                            OutlinedTextField(
+                                value = proxyPass,
+                                onValueChange = {
+                                    proxyPass = it; pref.setProxyPassword(it); vm.applyNetworkPreferences()
+                                },
+                                label = { Text(I18n.t("settings.proxy_password")) }, singleLine = true,
+                                modifier = Modifier.weight(1f),
+                                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation()
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = {
+                        proxyTesting = true
+                        proxyTestOk = null
+                        proxyTestMsg = I18n.t("settings.proxy_testing")
+                        scope.launch {
+                            try {
+                                val msg = withContext(Dispatchers.IO) { vm.testProxyConnection() }
+                                proxyTestOk = true
+                                proxyTestMsg = I18n.t("settings.proxy_test_ok", msg)
+                            } catch (e: Throwable) {
+                                proxyTestOk = false
+                                proxyTestMsg = I18n.t("settings.proxy_test_fail",
+                                    e.message ?: I18n.t("common.unknown"))
+                            } finally {
+                                proxyTesting = false
+                            }
+                        }
+                    },
+                    enabled = !proxyTesting && proxyHost.isNotBlank()
+                ) {
+                    Text(I18n.t("settings.proxy_test"))
+                }
+                proxyTestMsg?.let { msg ->
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        msg,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = when (proxyTestOk) {
+                            true -> MaterialTheme.colorScheme.primary
+                            false -> MaterialTheme.colorScheme.error
+                            null -> MaterialTheme.colorScheme.outline
+                        }
+                    )
                 }
             }
 
@@ -3076,6 +3169,23 @@ private fun JavaRuntimeCard(vm: LauncherViewModel, pref: com.pmcl.core.preferenc
 }
 
 /**
+ * 主题系统分区卡片。
+ */
+@Composable
+private fun ThemeSectionCard(
+    title: String,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
+        Column(Modifier.padding(16.dp)) {
+            Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(8.dp))
+            content()
+        }
+    }
+}
+
+/**
  * 主题色彩预设选择器：预设主题方案（种子色 + 名称），点击切换。
  * 每个预设展示一个圆形色块（带名称），选中态高亮。
  */
@@ -3094,7 +3204,10 @@ private fun ThemePresetPicker(
             "sunset"   to 0xE65100,
             "lavender" to 0x6A1B9A,
             "sakura"   to 0xD81B60,
-            "midnight" to 0x263238
+            "midnight" to 0x263238,
+            "ember"    to 0xC62828,
+            "teal"     to 0x00897B,
+            "sand"     to 0xF9A825
         )
     }
 
@@ -3459,6 +3572,66 @@ private fun DocumentPanel(resourceName: String) {
             )
         }
     }
+}
+
+/** 许可证冲突说明：版式与免责协议相同，可滚动、可复制全文。 */
+@Composable
+private fun LicenseConflictPanel() {
+    val clipboardManager = LocalClipboardManager.current
+    val docText = licenseConflictDocument()
+    val scrollState = rememberScrollState()
+
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End
+        ) {
+            TextButton(onClick = {
+                clipboardManager.setText(AnnotatedString(docText))
+            }) {
+                Icon(Icons.Filled.ContentCopy, null, Modifier.size(14.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(I18n.t("common.copy_all"))
+            }
+        }
+
+        Spacer(Modifier.height(4.dp))
+
+        Surface(
+            color = glassSurfaceVariantColor(),
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 360.dp, max = 560.dp)
+        ) {
+            Text(
+                text = docText,
+                style = MaterialTheme.typography.bodySmall,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier
+                    .verticalScroll(scrollState)
+                    .padding(12.dp)
+            )
+        }
+    }
+}
+
+private fun licenseConflictDocument(): String = buildString {
+    appendLine(I18n.t("about.license.conflict_banner"))
+    appendLine()
+    appendLine("—— ${I18n.t("about.license.conflict_label")} ——")
+    appendConflictItem("FFmpeg", "LGPL / GPL", "about.license.conflict.ffmpeg")
+    appendConflictItem("JavaCV", "GPL-2.0", "about.license.conflict.javacv")
+    appendConflictItem("EasyTier", "LGPL-3.0", "about.license.conflict.easytier")
+    appendConflictItem("HMCL", "GPL-3.0", "about.license.conflict.hmcl")
+    appendLine()
+    appendLine("—— ${I18n.t("about.license.notice_label")} ——")
+    appendConflictItem("Java / OpenJDK", "GPL-2.0 + Classpath Exception", "about.license.conflict.java")
+    appendConflictItem("JavaFX", "GPL-2.0 + Classpath Exception", "about.license.conflict.javafx")
+}
+
+private fun StringBuilder.appendConflictItem(name: String, license: String, key: String) {
+    appendLine()
+    appendLine("$name  ·  $license")
+    appendLine(I18n.t(key))
 }
 
 @Composable

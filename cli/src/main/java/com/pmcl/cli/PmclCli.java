@@ -1686,7 +1686,7 @@ public final class PmclCli {
                     pref.getDownloadRetryCount(), pref.isEnableResume() ? "on" : "off", pref.getChunkedDownloadThreads());
             System.out.println("  Network:");
             System.out.printf("    Proxy: %s%n", pref.isUseProxy()
-                    ? pref.getProxyHost() + ":" + pref.getProxyPort() : "disabled");
+                    ? pref.getProxyType() + " " + pref.getProxyHost() + ":" + pref.getProxyPort() : "disabled");
             System.out.println("  Multiplayer:");
             System.out.printf("    Backend: %s%n", pref.getMpBackend());
             System.out.println("  Appearance:");
@@ -1697,6 +1697,7 @@ public final class PmclCli {
             System.out.println("  config maxMemory 4096");
             System.out.println("  config mirror BMCLAPI");
             System.out.println("  config proxyHost 127.0.0.1");
+            System.out.println("  config proxyType SOCKS5");
             return;
         }
         if (rest.length == 1) {
@@ -1713,6 +1714,12 @@ public final class PmclCli {
         String value = rest[1];
         if (setConfigValue(pref, key, value)) {
             System.out.printf("[OK] Set %s = %s%n", key, value);
+            String k = key.toLowerCase();
+            if (k.contains("proxy") || k.contains("mirror") || k.equals("speedlimit")
+                    || k.equals("downloadspeedlimitkb") || k.equals("retrycount")
+                    || k.equals("enableresume") || k.equals("chunkedthreads")) {
+                try { core.applyNetworkPreferences(); } catch (Exception ignored) {}
+            }
         } else {
             System.err.println("Cannot set config key: " + key + " (unknown or read-only)");
         }
@@ -1737,6 +1744,7 @@ public final class PmclCli {
             case "enableresume": return String.valueOf(pref.isEnableResume());
             case "chunkedthreads": return String.valueOf(pref.getChunkedDownloadThreads());
             case "useproxy": case "proxy": return String.valueOf(pref.isUseProxy());
+            case "proxytype": return pref.getProxyType();
             case "proxyhost": return pref.getProxyHost();
             case "proxyport": return String.valueOf(pref.getProxyPort());
             case "mpbackend": return pref.getMpBackend();
@@ -1767,6 +1775,7 @@ public final class PmclCli {
                 case "enableresume": pref.setEnableResume(Boolean.parseBoolean(value)); return true;
                 case "chunkedthreads": pref.setChunkedDownloadThreads(Integer.parseInt(value)); return true;
                 case "useproxy": case "proxy": pref.setUseProxy(Boolean.parseBoolean(value)); return true;
+                case "proxytype": pref.setProxyType(value); return true;
                 case "proxyhost": pref.setProxyHost(value); return true;
                 case "proxyport": pref.setProxyPort(Integer.parseInt(value)); return true;
                 case "mpbackend": pref.setMpBackend(value); return true;

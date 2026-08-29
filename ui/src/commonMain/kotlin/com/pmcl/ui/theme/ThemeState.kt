@@ -18,6 +18,10 @@ class ThemeState(initialDark: Boolean = false) {
     var useDark by mutableStateOf(initialDark)
         private set
 
+    /** 深浅色跟随系统外观 */
+    var followSystem by mutableStateOf(false)
+        private set
+
     /** 莫奈取色：是否使用动态颜色（跟随桌面壁纸） */
     var dynamicColor by mutableStateOf(false)
         private set
@@ -72,6 +76,10 @@ class ThemeState(initialDark: Boolean = false) {
 
     fun set(value: Boolean) {
         useDark = value
+    }
+
+    fun applyFollowSystem(enabled: Boolean) {
+        followSystem = enabled
     }
 
     fun enableDynamicColor(enabled: Boolean) {

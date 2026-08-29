@@ -62,7 +62,7 @@ public final class ConnectXManager {
     private final AtomicBoolean serverConnected = new AtomicBoolean(false);
 
     public ConnectXManager() {
-        this.workDir = Paths.get(System.getProperty("user.home"), ".pmcl", "connectx");
+        this.workDir = com.pmcl.core.LauncherConfig.pmclHome().resolve("connectx");
     }
 
     public Path getWorkDir() { return workDir; }

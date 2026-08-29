@@ -29,7 +29,6 @@ import javafx.embed.swing.JFXPanel
 import javafx.scene.Parent
 import javafx.scene.Scene
 import javafx.scene.paint.Color as FxColor
-import java.awt.BorderLayout
 import java.awt.Dimension
 import java.util.Collections
 import java.util.WeakHashMap
@@ -86,12 +85,13 @@ fun JavaFxEmbeddedPage(content: JavaFxContent, modifier: Modifier = Modifier) {
                 background = Color.White,
                 modifier = Modifier.fillMaxSize(),
                 factory = {
-                    // 不透明 heavyweight 锚点 + 关闭 AWT 双缓冲（透明窗口合成必需）
-                    val wrapper = javax.swing.JPanel(BorderLayout())
-                    wrapper.isOpaque = true
-                    wrapper.background = java.awt.Color.WHITE
-                    wrapper.isDoubleBuffered = false
-
+                    // 关键（对齐 HmclEmbedder 已验证的嵌入方式）：
+                    // Compose 的 SwingPanel 内部 SwingInteropViewGroup 用 layout=null，
+                    // 只对最外层 component 手动 setBounds，不会触发它内部的 LayoutManager。
+                    // 之前用 wrapper JPanel(BorderLayout) 包 JFXPanel，wrapper 拿到尺寸后
+                    // BorderLayout 从未执行 → JFXPanel 保持 0x0 → 白屏。
+                    // 因此必须直接把 JFXPanel 作为 SwingPanel 的 component（hmcl 同款）。
+                    System.setProperty("javafx.macosx.embed", "true")
                     val jfxPanel = object : JFXPanel() {
                         override fun getPreferredSize(): Dimension {
                             val p = super.getPreferredSize()
@@ -100,10 +100,9 @@ fun JavaFxEmbeddedPage(content: JavaFxContent, modifier: Modifier = Modifier) {
                     }
                     jfxPanel.isOpaque = true
                     jfxPanel.background = java.awt.Color.WHITE
-                    wrapper.add(jfxPanel, BorderLayout.CENTER)
 
                     attachScene(content, jfxPanel) { e -> error = e }
-                    wrapper
+                    jfxPanel
                 }
             )
         }
@@ -136,7 +135,7 @@ private fun attachScene(content: JavaFxContent, panel: JFXPanel, onError: (Strin
         // 二次进入：直接复用（Scene 从上个 panel detach 后可重新挂载）
         Platform.runLater {
             try {
-                panel.scene = cached
+                attachWhenDisplayable(panel, cached, 0)
             } catch (e: Throwable) {
                 e.printStackTrace()
                 onError("Failed to re-attach cached JavaFX scene: ${e.message ?: e.toString()}")
@@ -151,12 +150,43 @@ private fun attachScene(content: JavaFxContent, panel: JFXPanel, onError: (Strin
             val root = buildWithPluginClassloader(content)
             val scene = Scene(root, FxColor.WHITE)
             sceneCache[content] = scene
-            panel.scene = scene
+            attachWhenDisplayable(panel, scene, 0)
         } catch (e: Throwable) {
             e.printStackTrace()
             onError(e.message ?: e.toString())
         }
     }
+}
+
+/**
+ * 关键修复：JFXPanel 必须「真正显示」（addNotify 且尺寸非零）后再挂 scene。
+ *
+ * JFXPanel 内部在 addNotify 时才创建 EmbeddedWindow；若在它尚未显示时就 setScene，
+ * scene.window 为 null、FX pulse 不启动、AnimationTimer 一帧都不跑、尺寸也不传播 ——
+ * 表现为插件页面白屏。hmcl-embed 之所以正常，是因为它的 scene 是 `stage.show()` 之后
+ * 偷来的（渲染循环已跑起来）。这里用 EDT + 轮询 isDisplayable 等待面板真正显示。
+ */
+private fun attachWhenDisplayable(panel: JFXPanel, scene: Scene, attempts: Int) {
+    val ready = panel.isDisplayable && panel.width > 0 && panel.height > 0
+    if (ready) {
+        panel.scene = scene
+        System.err.println(
+            "[JFXEmbed] scene attached: panel=${panel.width}x${panel.height} " +
+            "displayable=${panel.isDisplayable} scene=${scene.width}x${scene.height}"
+        )
+        return
+    }
+    if (attempts < 60) { // 最多约 3 秒
+        javax.swing.SwingUtilities.invokeLater {
+            attachWhenDisplayable(panel, scene, attempts + 1)
+        }
+        return
+    }
+    System.err.println(
+        "[JFXEmbed] WARN: panel never became displayable after ${attempts} attempts " +
+        "(size=${panel.width}x${panel.height} displayable=${panel.isDisplayable}); forcing setScene"
+    )
+    try { panel.scene = scene } catch (_: Throwable) {}
 }
 
 /**

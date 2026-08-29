@@ -43,6 +43,7 @@ import androidx.compose.material.icons.filled.Gavel
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.SportsEsports
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -71,6 +72,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -81,11 +83,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.lash.pmcl.core.download.DownloadManager
 import com.lash.pmcl.core.preferences.Preferences
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -94,6 +98,8 @@ fun SettingsScreen(
     downloadManager: DownloadManager,
     preferences: Preferences,
     appVersion: String,
+    onApplyNetwork: () -> Unit = {},
+    onTestProxy: () -> String = { "" },
 ) {
     val context = LocalContext.current
 
@@ -197,7 +203,7 @@ fun SettingsScreen(
             item { AppearanceCard(preferences) }
 
             item { SectionHeader("网络配置") }
-            item { NetworkConfigCard(preferences, downloadManager) }
+            item { NetworkConfigCard(preferences, downloadManager, onApplyNetwork, onTestProxy) }
 
             item { SectionHeader("系统信息") }
             item { SystemInfoCard(systemInfo, workDir) }
@@ -550,6 +556,7 @@ private fun MioModeCard() {
 @Composable
 private fun AppearanceCard(preferences: Preferences) {
     var dark by remember { mutableStateOf(preferences.isUseDarkTheme()) }
+    var followSystem by remember { mutableStateOf(preferences.isFollowSystemTheme()) }
     var dynamicColor by remember { mutableStateOf(preferences.isDynamicColor()) }
     var themePreset by remember { mutableStateOf(preferences.getThemePreset()) }
     var accentColor by remember { mutableStateOf(preferences.getCustomAccentColor()) }
@@ -560,11 +567,14 @@ private fun AppearanceCard(preferences: Preferences) {
     var uiScale by remember { mutableStateOf(preferences.getUiScale()) }
 
     SettingsCard {
-        Text("外观", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+        Text("配色", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(8.dp))
 
-        // 深浅模式
-        SwitchRow("深色模式", "切换深色 / 浅色主题", dark) {
+        SwitchRow("跟随系统", "深浅色跟随系统外观", followSystem) {
+            followSystem = it; preferences.setFollowSystemTheme(it)
+        }
+
+        SwitchRow("深色模式", "切换深色 / 浅色主题", dark, enabled = !followSystem) {
             dark = it; preferences.setUseDarkTheme(it)
         }
         Spacer(Modifier.height(4.dp))
@@ -722,6 +732,9 @@ private fun AppearanceCard(preferences: Preferences) {
         HorizontalDivider()
         Spacer(Modifier.height(8.dp))
 
+        Text("界面效果", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(8.dp))
+
         // 玻璃主题（与桌面端一致）
         SwitchRow("玻璃主题", "侧边栏与卡片使用毛玻璃效果", glassTheme) {
             glassTheme = it; preferences.setGlassTheme(it)
@@ -731,6 +744,13 @@ private fun AppearanceCard(preferences: Preferences) {
         SwitchRow("锁屏启动页", "启用 Origin OS2 风格的锁屏启动页", lockscreenLaunch) {
             lockscreenLaunch = it; preferences.setLockscreenLaunchTheme(it)
         }
+
+        Spacer(Modifier.height(12.dp))
+        HorizontalDivider()
+        Spacer(Modifier.height(8.dp))
+
+        Text("缩放", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(8.dp))
 
         // UI 缩放（与桌面端一致）
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -762,10 +782,17 @@ private fun AppearanceCard(preferences: Preferences) {
 // ==================== 8. 网络配置 ====================
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun NetworkConfigCard(preferences: Preferences, downloadManager: DownloadManager) {
+private fun NetworkConfigCard(
+    preferences: Preferences,
+    downloadManager: DownloadManager,
+    onApplyNetwork: () -> Unit,
+    onTestProxy: () -> String,
+) {
+    val scope = rememberCoroutineScope()
     var mirrorType by remember { mutableStateOf(preferences.getMirrorType()) }
     var customMirror by remember { mutableStateOf(preferences.getCustomMirrorBase()) }
     var useProxy by remember { mutableStateOf(preferences.isUseProxy()) }
+    var proxyType by remember { mutableStateOf(preferences.getProxyType()) }
     var proxyHost by remember { mutableStateOf(preferences.getProxyHost()) }
     var proxyPort by remember { mutableStateOf(preferences.getProxyPort().toString()) }
     var useAuth by remember { mutableStateOf(preferences.isUseHttpAuth()) }
@@ -775,6 +802,11 @@ private fun NetworkConfigCard(preferences: Preferences, downloadManager: Downloa
     var retryCount by remember { mutableStateOf(preferences.getDownloadRetryCount().toString()) }
     var enableResume by remember { mutableStateOf(preferences.isEnableResume()) }
     var chunkedThreads by remember { mutableStateOf(preferences.getChunkedDownloadThreads().toString()) }
+    var proxyTesting by remember { mutableStateOf(false) }
+    var proxyTestOk by remember { mutableStateOf<Boolean?>(null) }
+    var proxyTestMsg by remember { mutableStateOf<String?>(null) }
+    val isSocks = proxyType.equals("SOCKS5", ignoreCase = true)
+    fun apply() { onApplyNetwork() }
 
     SettingsCard {
         Text("网络配置", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
@@ -785,53 +817,103 @@ private fun NetworkConfigCard(preferences: Preferences, downloadManager: Downloa
         val mValues = listOf("OFFICIAL", "BMCLAPI", "CUSTOM")
         val mLabels = listOf("官方源", "BMCLAPI", "自定义")
         SegmentedSelector(mLabels, mValues.indexOf(mirrorType).coerceAtLeast(0)) {
-            mirrorType = mValues[it]; preferences.setMirrorType(mValues[it])
+            mirrorType = mValues[it]; preferences.setMirrorType(mValues[it]); apply()
         }
         if (mirrorType == "CUSTOM") {
             Spacer(Modifier.height(8.dp))
             OutlinedTextField(
                 value = customMirror,
-                onValueChange = { customMirror = it; preferences.setCustomMirrorBase(it) },
+                onValueChange = { customMirror = it; preferences.setCustomMirrorBase(it); apply() },
                 label = { Text("自定义镜像地址") }, singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
         }
 
         Spacer(Modifier.height(12.dp))
-        SwitchRow("HTTP 代理", null, useProxy) { useProxy = it; preferences.setUseProxy(it) }
+        SwitchRow("使用代理", "下载与市场请求走 HTTP 或 SOCKS5 代理", useProxy) {
+            useProxy = it; preferences.setUseProxy(it); apply()
+        }
         if (useProxy) {
+            Spacer(Modifier.height(8.dp))
+            Text("代理类型", style = MaterialTheme.typography.labelMedium)
+            Spacer(Modifier.height(4.dp))
+            val tValues = listOf("HTTP", "SOCKS5")
+            val tLabels = listOf("HTTP", "SOCKS5")
+            SegmentedSelector(tLabels, tValues.indexOf(proxyType).coerceAtLeast(0)) {
+                proxyType = tValues[it]; preferences.setProxyType(tValues[it]); apply()
+            }
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     value = proxyHost,
-                    onValueChange = { proxyHost = it; preferences.setProxyHost(it) },
+                    onValueChange = { proxyHost = it; preferences.setProxyHost(it); apply() },
                     label = { Text("主机") }, singleLine = true, modifier = Modifier.weight(2f),
                 )
                 OutlinedTextField(
                     value = proxyPort,
                     onValueChange = {
                         proxyPort = it
-                        it.toIntOrNull()?.let { v -> preferences.setProxyPort(v) }
+                        it.toIntOrNull()?.let { v -> preferences.setProxyPort(v); apply() }
                     },
                     label = { Text("端口") }, singleLine = true, modifier = Modifier.weight(1f),
                 )
             }
-            Spacer(Modifier.height(4.dp))
-            SwitchRow("代理认证", null, useAuth) { useAuth = it; preferences.setUseHttpAuth(it) }
-            if (useAuth) {
+            if (isSocks) {
                 Spacer(Modifier.height(4.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = proxyUser,
-                        onValueChange = { proxyUser = it; preferences.setProxyUsername(it) },
-                        label = { Text("用户名") }, singleLine = true, modifier = Modifier.weight(1f),
-                    )
-                    OutlinedTextField(
-                        value = proxyPass,
-                        onValueChange = { proxyPass = it; preferences.setProxyPassword(it) },
-                        label = { Text("密码") }, singleLine = true, modifier = Modifier.weight(1f),
-                    )
+                Text("SOCKS5 适用于 Clash / V2Ray 等本地端口。用户名密码认证仅支持 HTTP 代理。",
+                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+            } else {
+                Spacer(Modifier.height(4.dp))
+                SwitchRow("代理认证", null, useAuth) { useAuth = it; preferences.setUseHttpAuth(it); apply() }
+                if (useAuth) {
+                    Spacer(Modifier.height(4.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = proxyUser,
+                            onValueChange = { proxyUser = it; preferences.setProxyUsername(it); apply() },
+                            label = { Text("用户名") }, singleLine = true, modifier = Modifier.weight(1f),
+                        )
+                        OutlinedTextField(
+                            value = proxyPass,
+                            onValueChange = { proxyPass = it; preferences.setProxyPassword(it); apply() },
+                            label = { Text("密码") }, singleLine = true, modifier = Modifier.weight(1f),
+                            visualTransformation = PasswordVisualTransformation(),
+                        )
+                    }
                 }
+            }
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = {
+                    proxyTesting = true
+                    proxyTestOk = null
+                    proxyTestMsg = "正在测试…"
+                    scope.launch {
+                        try {
+                            val msg = withContext(Dispatchers.IO) { onTestProxy() }
+                            proxyTestOk = true
+                            proxyTestMsg = "连通成功（$msg）"
+                        } catch (e: Throwable) {
+                            proxyTestOk = false
+                            proxyTestMsg = "连通失败：${e.message ?: "未知错误"}"
+                        } finally {
+                            proxyTesting = false
+                        }
+                    }
+                },
+                enabled = !proxyTesting && proxyHost.isNotBlank(),
+            ) { Text("测试连接") }
+            proxyTestMsg?.let { msg ->
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    msg,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = when (proxyTestOk) {
+                        true -> MaterialTheme.colorScheme.primary
+                        false -> MaterialTheme.colorScheme.error
+                        null -> MaterialTheme.colorScheme.outline
+                    },
+                )
             }
         }
 
@@ -841,7 +923,7 @@ private fun NetworkConfigCard(preferences: Preferences, downloadManager: Downloa
                 value = speedLimit,
                 onValueChange = {
                     speedLimit = it
-                    it.toIntOrNull()?.let { v -> preferences.setDownloadSpeedLimitKb(v) }
+                    it.toIntOrNull()?.let { v -> preferences.setDownloadSpeedLimitKb(v); apply() }
                 },
                 label = { Text("限速 (KB/s)") }, singleLine = true, modifier = Modifier.weight(1f),
             )
@@ -849,7 +931,7 @@ private fun NetworkConfigCard(preferences: Preferences, downloadManager: Downloa
                 value = retryCount,
                 onValueChange = {
                     retryCount = it
-                    it.toIntOrNull()?.let { v -> preferences.setDownloadRetryCount(v) }
+                    it.toIntOrNull()?.let { v -> preferences.setDownloadRetryCount(v); apply() }
                 },
                 label = { Text("重试次数") }, singleLine = true, modifier = Modifier.weight(1f),
             )
@@ -857,16 +939,18 @@ private fun NetworkConfigCard(preferences: Preferences, downloadManager: Downloa
                 value = chunkedThreads,
                 onValueChange = {
                     chunkedThreads = it
-                    it.toIntOrNull()?.let { v -> preferences.setChunkedDownloadThreads(v) }
+                    it.toIntOrNull()?.let { v -> preferences.setChunkedDownloadThreads(v); apply() }
                 },
                 label = { Text("分块线程") }, singleLine = true, modifier = Modifier.weight(1f),
                 supportingText = { Text("当前: ${downloadManager.getChunkedDownloadThreads()}") },
             )
         }
-        Text("更改将在下次下载时生效", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+        Text("更改立即应用到后续下载", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
 
         Spacer(Modifier.height(8.dp))
-        SwitchRow("断点续传", "下载中断后可从断点继续", enableResume) { enableResume = it; preferences.setEnableResume(it) }
+        SwitchRow("断点续传", "下载中断后可从断点继续", enableResume) {
+            enableResume = it; preferences.setEnableResume(it); apply()
+        }
     }
 }
 
@@ -992,6 +1076,7 @@ private fun AboutCard(appVersion: String) {
     var showLicense by remember { mutableStateOf(false) }
     var showAgreement by remember { mutableStateOf(false) }
     var showDisclaimer by remember { mutableStateOf(false) }
+    var showConflict by remember { mutableStateOf(false) }
 
     fun openUrl(url: String) {
         runCatching {
@@ -1011,23 +1096,44 @@ private fun AboutCard(appVersion: String) {
             }
         }
         Spacer(Modifier.height(12.dp))
-        Text("PMCL 是一款跨平台 Minecraft 启动器，提供账号管理、版本安装、模组市场、游戏内容管理等一站式能力。",
+        Text("喵～ 这是 PMCL，一只会帮你开 Minecraft 的猫猫启动器 (=^･ω･^=)ﾉ",
             style = MaterialTheme.typography.bodySmall)
 
         Spacer(Modifier.height(16.dp))
-        Text("主要功能", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+        Text("本猫会这些 ฅ^•ﻌ•^ฅ", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(8.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            FeatureColumn("核心", listOf("账号管理", "版本管理", "加载器", "启动预设"), Modifier.weight(1f))
-            FeatureColumn("内容", listOf("模组市场", "游戏内容", "配置编辑"), Modifier.weight(1f))
-            FeatureColumn("工具", listOf("存档管理", "崩溃分析", "Java 运行时"), Modifier.weight(1f))
-            FeatureColumn("扩展", listOf("联机", "新闻", "整合包", "实例"), Modifier.weight(1f))
+            FeatureColumn("开游戏 (=^･ω･^=)", listOf("账号直接登", "版本想装就装", "加载器", "启动预设"), Modifier.weight(1f))
+            FeatureColumn("找资源 ฅ^•ﻌ•^ฅ", listOf("模组市场逛街", "游戏内容全收着", "配置直接改"), Modifier.weight(1f))
+            FeatureColumn("修修补补 (=；ェ；=)", listOf("存档和截图", "崩了帮你瞅瞅", "Java 自己挑"), Modifier.weight(1f))
+            FeatureColumn("更多好玩的 (=｀ω´=)", listOf("联机开黑", "新鲜事", "整合包", "实例"), Modifier.weight(1f))
         }
 
         Spacer(Modifier.height(16.dp))
         Text("技术栈", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(6.dp))
-        TechStackTable()
+        DependencyTable(
+            listOf(
+                Triple("Kotlin", KotlinVersion.CURRENT.toString(), "主开发语言"),
+                Triple("Jetpack Compose", "BOM", "声明式 UI 框架"),
+                Triple("Material 3", "3.x", "设计系统组件"),
+                Triple("Android SDK", "API ${Build.VERSION.SDK_INT}", "系统平台"),
+            )
+        )
+
+        Spacer(Modifier.height(16.dp))
+        Text("引用开源项目", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(6.dp))
+        DependencyTable(
+            rows = listOf(
+                Triple("OkHttp", "Apache-2.0", "HTTP 客户端"),
+                Triple("Gson", "Apache-2.0", "JSON 序列化"),
+                Triple("kotlinx-coroutines", "Apache-2.0", "异步与协程"),
+                Triple("EasyTier", "LGPL-3.0", "P2P 联机"),
+            ),
+            col2 = "许可证",
+            col3 = "说明",
+        )
 
         Spacer(Modifier.height(16.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1046,6 +1152,9 @@ private fun AboutCard(appVersion: String) {
         }
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { showConflict = true }) {
+                Icon(Icons.Filled.Warning, null, Modifier.size(14.dp)); Spacer(Modifier.width(4.dp)); Text("许可证冲突")
+            }
             OutlinedButton(onClick = { openUrl("https://github.com/EasyTier/EasyTier") }) { Text("EasyTier") }
             OutlinedButton(onClick = { openUrl("https://modrinth.com") }) { Text("Modrinth") }
         }
@@ -1053,7 +1162,7 @@ private fun AboutCard(appVersion: String) {
         Spacer(Modifier.height(12.dp))
         HorizontalDivider()
         Spacer(Modifier.height(8.dp))
-        Text("© PMCL. 基于 LGPL-3.0 许可证开源。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+        Text("© 2026 PMCL  ·  自定义非商业许可证  ·  Minecraft 为 Mojang AB 商标", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
     }
 
     if (showLicense) {
@@ -1065,6 +1174,14 @@ private fun AboutCard(appVersion: String) {
     if (showDisclaimer) {
         AssetDocumentDialog(title = "免责协议", assetName = "DISCLAIMER.txt", onDismiss = { showDisclaimer = false }, onCopy = { clipboard.setText(AnnotatedString(it)) })
     }
+    if (showConflict) {
+        TextDocumentDialog(
+            title = "许可证冲突",
+            text = ANDROID_LICENSE_CONFLICT_DOC,
+            onDismiss = { showConflict = false },
+            onCopy = { clipboard.setText(AnnotatedString(it)) },
+        )
+    }
 }
 
 @Composable
@@ -1072,21 +1189,16 @@ private fun FeatureColumn(title: String, items: List<String>, modifier: Modifier
     Column(modifier) {
         Text(title, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
         Spacer(Modifier.height(4.dp))
-        items.forEach { Text("·  $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        items.forEach { Text("(=^ω^=)  $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
     }
 }
 
 @Composable
-private fun TechStackTable() {
-    val rows = listOf(
-        Triple("Kotlin", KotlinVersion.CURRENT.toString(), "主开发语言"),
-        Triple("Jetpack Compose", "BOM", "声明式 UI 框架"),
-        Triple("Material 3", "3.x", "设计系统组件"),
-        Triple("Android SDK", "API ${Build.VERSION.SDK_INT}", "系统平台"),
-        Triple("OkHttp", "4.12.0", "HTTP 客户端"),
-        Triple("Gson", "2.11.0", "JSON 序列化"),
-        Triple("kotlinx-coroutines", "1.9.0", "异步与协程"),
-    )
+private fun DependencyTable(
+    rows: List<Triple<String, String, String>>,
+    col2: String = "版本",
+    col3: String = "用途",
+) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),
@@ -1096,8 +1208,8 @@ private fun TechStackTable() {
         Column {
             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("组件", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(0.3f))
-                Text("版本", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(0.3f))
-                Text("用途", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(0.4f))
+                Text(col2, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(0.3f))
+                Text(col3, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(0.4f))
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
             rows.forEachIndexed { index, (name, version, purpose) ->
@@ -1171,6 +1283,64 @@ private fun AssetDocumentDialog(
     )
 }
 
+@Composable
+private fun TextDocumentDialog(
+    title: String,
+    text: String,
+    onDismiss: () -> Unit,
+    onCopy: (String) -> Unit,
+) {
+    val scrollState = rememberScrollState()
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.Warning, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.error)
+                Spacer(Modifier.width(8.dp))
+                Text(title)
+            }
+        },
+        text = {
+            Column(Modifier.fillMaxWidth()) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = { onCopy(text) }) {
+                        Icon(Icons.Filled.ContentCopy, null, Modifier.size(14.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("复制全文")
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth().height(440.dp),
+                ) {
+                    Text(
+                        text = text,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier.verticalScroll(scrollState).padding(12.dp),
+                    )
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } },
+    )
+}
+
+private val ANDROID_LICENSE_CONFLICT_DOC = """
+本软件用的是自定义非商业许可证，不是 GPL / MIT / Apache。GPL、LGPL 不允许再加「不得商用」这类限制。许可证第 8.4 条写「以第三方许可证为准、只限该组件」，这挡不住 GPL 对组合作品的要求。
+
+—— 可能冲突 ——
+
+EasyTier  ·  LGPL-3.0
+LGPL-3.0（不是 Apache 2.0）。LGPL-3 要求保留对该库的替换/再链接权利，且不得用额外条款限制对该库的 GPL/LGPL 权利。EasyTier 虽以独立进程运行，若把其二进制算进「本软件」并套用非商业限制，即构成冲突。须单独保留 LGPL-3.0、提供源码或书面要约，并允许用户替换该二进制。
+
+—— 注意 ——
+
+本页所列 OkHttp / Gson / kotlinx-coroutines 为 Apache-2.0，无 copyleft 冲突。
+""".trimIndent()
+
 // ==================== 通用组件 ====================
 @Composable
 private fun SettingsCard(content: @Composable () -> Unit) {
@@ -1191,9 +1361,9 @@ private fun SectionHeader(title: String) {
 }
 
 @Composable
-private fun SwitchRow(title: String, desc: String?, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+private fun SwitchRow(title: String, desc: String?, checked: Boolean, enabled: Boolean = true, onCheckedChange: (Boolean) -> Unit) {
     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
         Spacer(Modifier.width(8.dp))
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
@@ -1277,11 +1447,15 @@ private val THEME_PRESETS = listOf(
     "lavender" to 0x6A1B9A,
     "sakura" to 0xD81B60,
     "midnight" to 0x263238,
+    "ember" to 0xC62828,
+    "teal" to 0x00897B,
+    "sand" to 0xF9A825,
 )
 
 private val THEME_PRESET_NAMES = mapOf(
-    "default" to "默认", "ocean" to "海洋", "forest" to "森林",
-    "sunset" to "日落", "lavender" to "薰衣草", "sakura" to "樱花", "midnight" to "午夜",
+    "default" to "天空蓝", "ocean" to "深海蓝", "forest" to "森林绿",
+    "sunset" to "夕阳橙", "lavender" to "薰衣草", "sakura" to "樱花粉", "midnight" to "极夜灰",
+    "ember" to "赤焰红", "teal" to "青绿", "sand" to "沙金",
 )
 
 private val ACCENT_PRESETS = listOf(

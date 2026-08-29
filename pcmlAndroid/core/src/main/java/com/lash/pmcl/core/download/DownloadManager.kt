@@ -193,6 +193,24 @@ class DownloadManager(
 
     fun getChunkedDownloadThreads(): Int = chunkedDownloadThreads
 
+    /**
+     * 用当前 HttpClient（含代理）探测连通性。成功返回 HTTP 状态码描述。
+     */
+    fun testConnection(url: String): String {
+        if (url.isEmpty()) throw IOException("empty url")
+        val probe = http.newBuilder()
+            .connectTimeout(java.time.Duration.ofSeconds(8))
+            .readTimeout(java.time.Duration.ofSeconds(8))
+            .callTimeout(java.time.Duration.ofSeconds(12))
+            .build()
+        val req = Request.Builder().url(url).header("Range", "bytes=0-255").get().build()
+        probe.newCall(req).execute().use { r ->
+            val code = r.code
+            if (code in 200..499) return "HTTP $code"
+            throw IOException("HTTP $code")
+        }
+    }
+
     /** 关闭所有线程池与连接池 */
     fun shutdown() {
         try {

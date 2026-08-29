@@ -98,7 +98,7 @@ public final class LauncherCore {
     public LauncherCore(LauncherConfig config) {
         this.config = config;
         this.preferences = new Preferences(
-                Paths.get(System.getProperty("user.home"), ".pmcl", "preferences.json"));
+                config.getWorkDir().resolve("preferences.json"));
         this.instanceManager = new InstanceManager(config);
 
         this.versionManager = new VersionManager(config, preferences);
@@ -107,8 +107,7 @@ public final class LauncherCore {
         this.authService = new AuthService();
         // 读取自定义 Azure / GitHub client_id（若存在）
         try {
-            java.nio.file.Path clientIdFile = Paths.get(
-                    System.getProperty("user.home"), ".pmcl", "azure_client_id.txt");
+            java.nio.file.Path clientIdFile = config.getWorkDir().resolve("azure_client_id.txt");
             if (java.nio.file.Files.exists(clientIdFile)) {
                 String customId = java.nio.file.Files.readString(clientIdFile,
                         java.nio.charset.StandardCharsets.UTF_8).trim();
@@ -120,8 +119,7 @@ public final class LauncherCore {
             System.err.println("[LauncherCore] 读取 azure_client_id.txt 失败: " + t.getMessage());
         }
         try {
-            java.nio.file.Path ghIdFile = Paths.get(
-                    System.getProperty("user.home"), ".pmcl", "github_client_id.txt");
+            java.nio.file.Path ghIdFile = config.getWorkDir().resolve("github_client_id.txt");
             if (java.nio.file.Files.exists(ghIdFile)) {
                 String customId = java.nio.file.Files.readString(ghIdFile,
                         java.nio.charset.StandardCharsets.UTF_8).trim();
@@ -147,9 +145,9 @@ public final class LauncherCore {
         this.metalRenderInstaller = new MetalRenderInstaller(
                 config, preferences, modMarketManager.getModrinthClient(), downloadManager);
         this.modTagStore = new com.pmcl.core.mods.ModTagStore(
-                Paths.get(System.getProperty("user.home"), ".pmcl", "mod_tags.json"));
+                config.getWorkDir().resolve("mod_tags.json"));
         this.playTimeTracker = new PlayTimeTracker(
-                Paths.get(System.getProperty("user.home"), ".pmcl", "playtime.json"));
+                config.getWorkDir().resolve("playtime.json"));
         this.pastebinClient = new PastebinClient(downloadManager.httpClient());
         this.profileBuilder = new LaunchProfileBuilder(config, preferences, downloadManager);
         this.javaRuntimeDownloader = new JavaRuntimeDownloader(config, downloadManager);
@@ -215,6 +213,12 @@ public final class LauncherCore {
         } catch (Throwable e) {
             System.err.println("[LauncherCore] 语言设置失败: " + e.getMessage());
         }
+        // CLI 等不经过 ViewModel 的入口也需要 JVM 代理属性
+        try {
+            applyJvmProxyProperties();
+        } catch (Throwable e) {
+            System.err.println("[LauncherCore] 应用代理系统属性失败: " + e.getMessage());
+        }
     }
 
     /** 初始化可选子系统，失败时记录日志并返回 null，不中断启动流程 */
@@ -258,80 +262,29 @@ public final class LauncherCore {
     }
 
     /**
-     * 设置 Java 全局代理系统属性（http.proxyHost / https.proxyHost 等）。
-     * 优先使用 Preferences 配置；若未配置则回退到环境变量 HTTP_PROXY/HTTPS_PROXY。
-     * 用于头像、皮肤图片等使用 java.net.URL 的下载场景。
+     * 用当前网络配置探测连通性（走代理/镜像）。成功返回状态描述。
      */
-    private void applyJvmProxyProperties() {
-        String host = null;
-        String port = null;
-        if (preferences.isUseProxy()) {
-            host = preferences.getProxyHost();
-            int p = preferences.getProxyPort();
-            if (p > 0) port = String.valueOf(p);
-        } else {
-            // 回退到环境变量
-            String env = System.getenv("HTTPS_PROXY");
-            if (env == null || env.isEmpty()) env = System.getenv("https_proxy");
-            if (env == null || env.isEmpty()) env = System.getenv("HTTP_PROXY");
-            if (env == null || env.isEmpty()) env = System.getenv("http_proxy");
-            if (env != null && !env.isEmpty()) {
-                try {
-                    java.net.URI uri = java.net.URI.create(env);
-                    host = uri.getHost();
-                    int p = uri.getPort();
-                    if (p > 0) port = String.valueOf(p);
-                } catch (Exception ignored) {}
+    public String testProxyConnection() throws java.io.IOException {
+        String url = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
+        String mt = preferences.getMirrorType();
+        if ("BMCLAPI".equals(mt)) {
+            url = "https://bmclapi2.bangbang93.com/mc/game/version_manifest_v2.json";
+        } else if ("CUSTOM".equals(mt)) {
+            String base = preferences.getCustomMirrorBase();
+            if (base != null && !base.isEmpty()) {
+                if (!base.endsWith("/")) base = base + "/";
+                url = base + "mc/game/version_manifest_v2.json";
             }
         }
-        if (host != null && !host.isEmpty() && port != null) {
-            // M71 修复：校验 host 字符合法性，防止 null 字节注入等攻击
-            // 合法 host 仅允许字母、数字、点、连字符、冒号（IPv6 地址）
-            // 拒绝包含空格、控制字符、换行等可能导致系统属性注入的字符
-            if (!isSafeProxyHost(host)) {
-                System.err.println("[LauncherCore] 拒绝设置代理系统属性：host 包含非法字符");
-                System.clearProperty("http.proxyHost");
-                System.clearProperty("http.proxyPort");
-                System.clearProperty("https.proxyHost");
-                System.clearProperty("https.proxyPort");
-                return;
-            }
-            System.setProperty("http.proxyHost", host);
-            System.setProperty("http.proxyPort", port);
-            System.setProperty("https.proxyHost", host);
-            System.setProperty("https.proxyPort", port);
-        } else {
-            System.clearProperty("http.proxyHost");
-            System.clearProperty("http.proxyPort");
-            System.clearProperty("https.proxyHost");
-            System.clearProperty("https.proxyPort");
-        }
+        return downloadManager.testConnection(url);
     }
 
     /**
-     * M71：校验代理 host 字符集，防止 null 字节、控制字符、空白字符注入。
-     * <p>
-     * 合法字符：
-     * <ul>
-     *   <li>字母 a-z A-Z</li>
-     *   <li>数字 0-9</li>
-     *   <li>点（.）、连字符（-）、冒号（:）—— 支持 IPv6 地址</li>
-     *   <li>方括号 [ ] —— 支持 [IPv6] 格式</li>
-     * </ul>
-     * 拒绝空格、换行、tab、null 字节（\0）及其他控制字符。
+     * 设置 Java 全局代理系统属性（HTTP CONNECT 或 SOCKS5）。
+     * 优先使用 Preferences；未启用时回退环境变量 HTTP_PROXY / HTTPS_PROXY / ALL_PROXY。
      */
-    private static boolean isSafeProxyHost(String host) {
-        if (host == null || host.isEmpty()) return false;
-        for (int i = 0; i < host.length(); i++) {
-            char c = host.charAt(i);
-            if (c == '.' || c == '-' || c == ':' || c == '[' || c == ']') continue;
-            if (c >= 'a' && c <= 'z') continue;
-            if (c >= 'A' && c <= 'Z') continue;
-            if (c >= '0' && c <= '9') continue;
-            // 非法字符：空格、控制字符、null 字节、换行等
-            return false;
-        }
-        return true;
+    private void applyJvmProxyProperties() {
+        com.pmcl.core.util.ProxySupport.applyJvmProperties(preferences);
     }
 
     public AuthService auth() { return authService; }

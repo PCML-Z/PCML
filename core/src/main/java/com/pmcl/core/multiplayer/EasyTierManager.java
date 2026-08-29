@@ -80,7 +80,7 @@ public final class EasyTierManager {
     private static final int RECENT_LOG_LIMIT = 40;
 
     public EasyTierManager() {
-        this.binaryDir = Paths.get(System.getProperty("user.home"), ".pmcl", "easytier");
+        this.binaryDir = com.pmcl.core.LauncherConfig.pmclHome().resolve("easytier");
         this.binaryPath = binaryDir.resolve(isWindows() ? "easytier-core.exe" : "easytier-core");
     }
 

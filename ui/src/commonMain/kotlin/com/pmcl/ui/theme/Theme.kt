@@ -45,6 +45,9 @@ private fun presetSchemes(preset: String): Pair<ColorScheme, ColorScheme> {
         "lavender" -> 0x6A1B9A
         "sakura"   -> 0xD81B60
         "midnight" -> 0x263238
+        "ember"    -> 0xC62828
+        "teal"     -> 0x00897B
+        "sand"     -> 0xF9A825
         else       -> 0x3D8BFF  // default
     }
     val paletteLight = com.pmcl.core.theme.WallpaperColorProvider.generateFullPalette(seedRgb, false)

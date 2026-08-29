@@ -134,12 +134,22 @@ internal suspend fun LauncherViewModel.resolveJavaExe(versionId: String, require
             if (JavaRuntimeFinder.meetsRequirement(versionPath, requiredJavaVer)) {
                 return@withContext versionPath
             }
+            // 降级兜底：开关开启时接受低于要求的 Java（agent 会降级字节码）
+            if (preferences.isJavaDowngradeFallback()) {
+                System.err.println("[PMCL] 版本 Java 路径不满足 Java $requiredJavaVer+，降级兜底已启用，接受: $versionPath")
+                return@withContext versionPath
+            }
             System.err.println("[PMCL] 版本 Java 路径不满足要求（需要 Java "
                     + requiredJavaVer + "+），已忽略: $versionPath")
         }
         val globalPath = preferences.getJavaPath()
         if (globalPath.isNotEmpty()) {
             if (JavaRuntimeFinder.meetsRequirement(globalPath, requiredJavaVer)) {
+                return@withContext globalPath
+            }
+            // 降级兜底：开关开启时接受低于要求的 Java（agent 会降级字节码）
+            if (preferences.isJavaDowngradeFallback()) {
+                System.err.println("[PMCL] 全局 Java 路径不满足 Java $requiredJavaVer+，降级兜底已启用，接受: $globalPath")
                 return@withContext globalPath
             }
             System.err.println("[PMCL] 全局 Java 路径不满足要求（需要 Java "
@@ -367,6 +377,15 @@ fun LauncherViewModel.launch() {
                 core.profileBuilder().getRequiredJavaVersion(versionId)
             }
             var javaExe = resolveJavaExe(versionId, requiredJavaVer)
+            // 降级兜底：开关开启时跳过下载，用本机次优 Java + JvmDowngrader agent
+            if (javaExe.isEmpty() && preferences.isJavaDowngradeFallback()) {
+                javaExe = withContext(Dispatchers.IO) {
+                    JavaRuntimeFinder.findJavaExecutable(config.getRuntimesDir()) ?: ""
+                }
+                if (javaExe.isNotEmpty()) {
+                    appendGameLog("Java $requiredJavaVer 兼容兜底：用次优 Java（$javaExe）+ JvmDowngrader 启动，跳过下载")
+                }
+            }
             if (javaExe.isEmpty()) {
                 // 自动下载缺失的 Java 运行时，避免用户手动安装
                 // 老版本（1.12.2-）且开启了转译模式 → 下载 Java 21（RetroWrapper 兼容层自动处理）
@@ -669,12 +688,12 @@ fun LauncherViewModel.launch() {
             val logFile = config.getWorkDir().resolve("logs").resolve("$instanceId.log")
             val instLogger = withContext(Dispatchers.IO) {
                 try { GameLogger(logFile) } catch (e: Throwable) {
-                    System.err.println("[VM] GameLogger 创建失败: ${e.message}")
+                    val detail = "${e.javaClass.simpleName}: ${e.message ?: "(no message)"}"
+                    System.err.println("[VM] GameLogger 创建失败: $detail")
+                    e.printStackTrace()
+                    appendGameLog(I18n.t("status.game_log_create_failed", "$logFile — $detail"))
                     null
                 }
-            }
-            if (instLogger == null) {
-                appendGameLog(I18n.t("status.game_log_create_failed", logFile.toString()))
             }
             instanceLoggers[instanceId] = instLogger
             gameLogger = instLogger
@@ -824,11 +843,15 @@ fun LauncherViewModel.launch() {
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Throwable) {
-            _status.value = I18n.t("status.launch_failed", e.message ?: I18n.t("common.unknown"))
-            appendGameLog("[错误] ${e.message}")
+            // 解包 CompletionException（launchAsync 异常路径包装），显示根因
+            val root = if (e is java.util.concurrent.CompletionException && e.cause != null) e.cause!! else e
+            val errMsg = root.message ?: root.javaClass.simpleName
+            _status.value = I18n.t("status.launch_failed", errMsg)
+            appendGameLog("[错误] $errMsg")
+            root.printStackTrace()
             instanceId?.let { id ->
                 instanceLogs[id]?.let { logs ->
-                    synchronized(logs) { logs.add("[错误] ${e.message}") }
+                    synchronized(logs) { logs.add("[错误] $errMsg") }
                 }
             }
         } finally {

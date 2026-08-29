@@ -27,6 +27,7 @@ public final class Preferences {
 
     // 默认值
     private boolean useDarkTheme = false;
+    private boolean followSystemTheme = false; // 深浅色跟随系统外观
     private boolean dynamicColor = false; // 莫奈取色：主题颜色跟随桌面壁纸
     private int customAccentColor = -1;   // 自定义强调色 ARGB，-1 表示未设置（使用默认配色）
     private int monetSeedColor = -1;      // 莫奈取色最后成功的种子色，启动时立即应用避免截图污染
@@ -95,6 +96,7 @@ public final class Preferences {
     private String mirrorType = "OFFICIAL";        // OFFICIAL / BMCLAPI / CUSTOM
     private String customMirrorBase = "";          // 自定义镜像基址
     private boolean useProxy = false;
+    private String proxyType = "HTTP";         // HTTP / SOCKS5
     private String proxyHost = "";
     private int proxyPort = 0;
     private boolean useHttpAuth = false;
@@ -172,6 +174,8 @@ public final class Preferences {
 
     public synchronized boolean isUseDarkTheme() { return useDarkTheme; }
     public synchronized void setUseDarkTheme(boolean v) { useDarkTheme = v; scheduleSave(); }
+    public synchronized boolean isFollowSystemTheme() { return followSystemTheme; }
+    public synchronized void setFollowSystemTheme(boolean v) { followSystemTheme = v; scheduleSave(); }
     public synchronized boolean isDynamicColor() { return dynamicColor; }
     public synchronized void setDynamicColor(boolean v) { dynamicColor = v; scheduleSave(); }
     public synchronized int getCustomAccentColor() { return customAccentColor; }
@@ -524,8 +528,17 @@ public final class Preferences {
     public synchronized boolean isUseProxy() { return useProxy; }
     public synchronized void setUseProxy(boolean v) { useProxy = v; scheduleSave(); }
 
+    public synchronized String getProxyType() { return proxyType; }
+    public synchronized void setProxyType(String v) {
+        proxyType = com.pmcl.core.util.ProxySupport.normalizeType(v);
+        scheduleSave();
+    }
+
     public synchronized String getProxyHost() { return proxyHost; }
-    public synchronized void setProxyHost(String v) { proxyHost = v == null ? "" : v.trim(); scheduleSave(); }
+    public synchronized void setProxyHost(String v) {
+        proxyHost = com.pmcl.core.util.ProxySupport.sanitizeProxyHost(v);
+        scheduleSave();
+    }
 
     public synchronized int getProxyPort() { return proxyPort; }
     public synchronized void setProxyPort(int v) { if (v < 0 || v > 65535) return; proxyPort = v; scheduleSave(); }
@@ -840,6 +853,7 @@ public final class Preferences {
         try {
             // 布尔字段
             useDarkTheme = loadBool(o, "useDarkTheme", false);
+            followSystemTheme = loadBool(o, "followSystemTheme", false);
             dynamicColor = loadBool(o, "dynamicColor", false);
             predictiveLaunch = loadBool(o, "predictiveLaunch", true);
             borderlessWindow = loadBool(o, "borderlessWindow", true);
@@ -919,6 +933,7 @@ public final class Preferences {
             customNativesPath = loadString(o, "customNativesPath", "");
             mirrorType = loadString(o, "mirrorType", "OFFICIAL");
             customMirrorBase = loadString(o, "customMirrorBase", "");
+            proxyType = com.pmcl.core.util.ProxySupport.normalizeType(loadString(o, "proxyType", "HTTP"));
             proxyHost = loadString(o, "proxyHost", "");
             proxyUsername = loadString(o, "proxyUsername", "");
             String rawProxyPassword = loadString(o, "proxyPassword", "");
@@ -1139,6 +1154,7 @@ public final class Preferences {
     private JsonObject buildJson() {
         JsonObject o = new JsonObject();
         o.addProperty("useDarkTheme", useDarkTheme);
+        o.addProperty("followSystemTheme", followSystemTheme);
         o.addProperty("dynamicColor", dynamicColor);
         o.addProperty("customAccentColor", customAccentColor);
         o.addProperty("monetSeedColor", monetSeedColor);
@@ -1215,6 +1231,7 @@ public final class Preferences {
         o.addProperty("mirrorType", mirrorType);
         o.addProperty("customMirrorBase", customMirrorBase);
         o.addProperty("useProxy", useProxy);
+        o.addProperty("proxyType", proxyType);
         o.addProperty("proxyHost", proxyHost);
         o.addProperty("proxyPort", proxyPort);
         o.addProperty("useHttpAuth", useHttpAuth);

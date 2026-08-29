@@ -35,6 +35,7 @@ class Preferences(
 
     // ===== 主题 / 语言 =====
     private var useDarkTheme: Boolean = false
+    private var followSystemTheme: Boolean = false
     private var dynamicColor: Boolean = false          // Android 12+ Material You 取色
     private var customAccentColor: Int = -1            // 自定义强调色 ARGB，-1 表示未设置
     private var themePreset: String = "default"        // default/ocean/forest/sunset/lavender/sakura/midnight
@@ -82,6 +83,7 @@ class Preferences(
     private var mirrorType: String = "BMCLAPI"         // OFFICIAL / BMCLAPI / CUSTOM（国内默认 BMCLAPI）
     private var customMirrorBase: String = ""
     private var useProxy: Boolean = false
+    private var proxyType: String = "HTTP"              // HTTP / SOCKS5
     private var proxyHost: String = ""
     private var proxyPort: Int = 0
     private var useHttpAuth: Boolean = false
@@ -119,6 +121,9 @@ class Preferences(
     // ==================== 主题 / 语言 ====================
     @Synchronized fun isUseDarkTheme(): Boolean = useDarkTheme
     @Synchronized fun setUseDarkTheme(v: Boolean) { useDarkTheme = v; scheduleSave() }
+
+    @Synchronized fun isFollowSystemTheme(): Boolean = followSystemTheme
+    @Synchronized fun setFollowSystemTheme(v: Boolean) { followSystemTheme = v; scheduleSave() }
 
     @Synchronized fun isDynamicColor(): Boolean = dynamicColor
     @Synchronized fun setDynamicColor(v: Boolean) { dynamicColor = v; scheduleSave() }
@@ -276,8 +281,24 @@ class Preferences(
     @Synchronized fun isUseProxy(): Boolean = useProxy
     @Synchronized fun setUseProxy(v: Boolean) { useProxy = v; scheduleSave() }
 
+    @Synchronized fun getProxyType(): String = proxyType
+    @Synchronized fun setProxyType(v: String) {
+        proxyType = if (v.equals("SOCKS5", ignoreCase = true)) "SOCKS5" else "HTTP"
+        scheduleSave()
+    }
+
     @Synchronized fun getProxyHost(): String = proxyHost
-    @Synchronized fun setProxyHost(v: String) { proxyHost = v ?: ""; scheduleSave() }
+    @Synchronized fun setProxyHost(v: String) {
+        var h = v?.trim().orEmpty()
+        if (h.contains("://")) {
+            try {
+                val host = java.net.URI(h).host
+                if (!host.isNullOrEmpty()) h = host
+            } catch (_: Exception) {}
+        }
+        proxyHost = h
+        scheduleSave()
+    }
 
     @Synchronized fun getProxyPort(): Int = proxyPort
     @Synchronized fun setProxyPort(v: Int) { proxyPort = v; scheduleSave() }
@@ -290,6 +311,18 @@ class Preferences(
 
     @Synchronized fun getProxyPassword(): String = proxyPassword
     @Synchronized fun setProxyPassword(v: String) { proxyPassword = v ?: ""; scheduleSave() }
+
+    /** 构建 OkHttp 代理；未启用或 host/port 无效时返回 null。 */
+    @Synchronized fun toJavaProxy(): java.net.Proxy? {
+        if (!useProxy || proxyHost.isEmpty() || proxyPort <= 0) return null
+        val type = if (proxyType.equals("SOCKS5", ignoreCase = true))
+            java.net.Proxy.Type.SOCKS else java.net.Proxy.Type.HTTP
+        return java.net.Proxy(type, java.net.InetSocketAddress(proxyHost, proxyPort))
+    }
+
+    /** HTTP 代理 Basic 认证（SOCKS 不可用）。 */
+    @Synchronized fun useHttpProxyAuth(): Boolean =
+        useProxy && useHttpAuth && !proxyType.equals("SOCKS5", ignoreCase = true) && proxyUsername.isNotEmpty()
 
     @Synchronized fun getDownloadSpeedLimitKb(): Int = downloadSpeedLimitKb
     @Synchronized fun setDownloadSpeedLimitKb(v: Int) { downloadSpeedLimitKb = v.coerceAtLeast(0); scheduleSave() }
@@ -326,6 +359,7 @@ class Preferences(
             if (json.isBlank()) return
             val root = JsonParser.parseString(json).asJsonObject
             useDarkTheme = root.optBool("useDarkTheme", false)
+            followSystemTheme = root.optBool("followSystemTheme", false)
             dynamicColor = root.optBool("dynamicColor", false)
             customAccentColor = root.optInt("customAccentColor", -1)
             themePreset = root.optStr("themePreset", "default")
@@ -354,6 +388,7 @@ class Preferences(
             mirrorType = root.optStr("mirrorType", "BMCLAPI")
             customMirrorBase = root.optStr("customMirrorBase", "")
             useProxy = root.optBool("useProxy", false)
+            proxyType = if (root.optStr("proxyType", "HTTP").equals("SOCKS5", ignoreCase = true)) "SOCKS5" else "HTTP"
             proxyHost = root.optStr("proxyHost", "")
             proxyPort = root.optInt("proxyPort", 0)
             useHttpAuth = root.optBool("useHttpAuth", false)
@@ -384,6 +419,7 @@ class Preferences(
     fun save() {
         val root = JsonObject().apply {
             addProperty("useDarkTheme", useDarkTheme)
+            addProperty("followSystemTheme", followSystemTheme)
             addProperty("dynamicColor", dynamicColor)
             addProperty("customAccentColor", customAccentColor)
             addProperty("themePreset", themePreset)
@@ -412,6 +448,7 @@ class Preferences(
             addProperty("mirrorType", mirrorType)
             addProperty("customMirrorBase", customMirrorBase)
             addProperty("useProxy", useProxy)
+            addProperty("proxyType", proxyType)
             addProperty("proxyHost", proxyHost)
             addProperty("proxyPort", proxyPort)
             addProperty("useHttpAuth", useHttpAuth)

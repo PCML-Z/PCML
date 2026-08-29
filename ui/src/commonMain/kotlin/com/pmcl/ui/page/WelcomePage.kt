@@ -1,102 +1,90 @@
 package com.pmcl.ui.page
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.pmcl.core.i18n.I18n
 import com.pmcl.core.migration.MigrationManager
-import com.pmcl.ui.theme.LocalThemeState
 import com.pmcl.ui.theme.glassCardBorder
 import com.pmcl.ui.theme.glassCardColors
 import com.pmcl.ui.theme.glassCardElevation
 import com.pmcl.ui.viewmodel.LauncherViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
- * 首次启动欢迎页：展示欢迎信息 + 从 HMCL / Launcher X 迁移游戏数据。
- * 完成后调用 [LauncherViewModel.completeFirstLaunch] 进入主界面。
+ * 首次启动：可选从其他启动器拷 versions / libraries / assets。
  */
 @Composable
 fun WelcomePage(vm: LauncherViewModel) {
     val sources by vm.migrationSources.collectAsState()
+    val scanning by vm.migrationScanning.collectAsState()
     val migrating by vm.migrating.collectAsState()
     val progress by vm.migrationProgress.collectAsState()
+    val outcome by vm.migrationOutcome.collectAsState()
+    val activeKey by vm.activeMigrationKey.collectAsState()
 
-    // 进入页面时自动扫描一次
     LaunchedEffect(Unit) {
-        if (sources.isEmpty()) vm.detectMigrationSources()
+        if (sources.isEmpty() && !scanning) vm.detectMigrationSources()
     }
 
-    Box(
-        Modifier.fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    listOf(
-                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
-                        MaterialTheme.colorScheme.surface
-                    )
-                )
-            )
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState())
     ) {
-        Column(
-            Modifier.fillMaxSize().padding(32.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            // === 标题 ===
-            Text(I18n.t("launch.welcome"),
-                 style = MaterialTheme.typography.headlineMedium,
-                 fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(4.dp))
-            Text(I18n.t("launch.subtitle"),
-                 style = MaterialTheme.typography.bodyMedium,
-                 color = MaterialTheme.colorScheme.outline)
+        Text(
+            I18n.t("migration.heading"),
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold
+        )
 
-            Spacer(Modifier.height(32.dp))
+        Spacer(Modifier.height(16.dp))
 
-            // === 迁移控件 ===
-            // 仅显示 HMCL 与 Launcher X 来源
-            val targetSources = sources.filter { s ->
-                (s.getName() ?: "").contains("HMCL") || (s.getName() ?: "").contains("Launcher X")
+        when {
+            scanning && sources.isEmpty() -> {
+                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
             }
-
-            if (targetSources.isEmpty()) {
-                Text(I18n.t("migration.no_source"),
-                     style = MaterialTheme.typography.bodyMedium,
-                     color = MaterialTheme.colorScheme.outline)
-            } else {
-                targetSources.forEach { src ->
-                    MigrationCard(
-                        source = src,
-                        migrating = migrating,
-                        progress = progress,
-                        onMigrate = { vm.migrateFrom(src) }
-                    )
-                    Spacer(Modifier.height(10.dp))
+            sources.isEmpty() -> {
+                Text(
+                    I18n.t("migration.no_source"),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.outline
+                )
+            }
+            else -> {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    sources.forEach { src ->
+                        val key = src.getGameRoot()?.toString() ?: src.getName()
+                        MigrationCard(
+                            source = src,
+                            migrating = migrating,
+                            isActive = activeKey == key,
+                            progress = progress,
+                            imported = outcome[key],
+                            onImport = { vm.migrateFrom(src) }
+                        )
+                    }
                 }
             }
+        }
 
-            Spacer(Modifier.height(32.dp))
+        Spacer(Modifier.height(20.dp))
 
-            // === 进入按钮 ===
-            Button(
-                onClick = { vm.completeFirstLaunch() },
-                enabled = !migrating,
-                modifier = Modifier.fillMaxWidth(0.5f).height(48.dp),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Text(I18n.t("launch.enter"),
-                     style = MaterialTheme.typography.titleMedium, fontSize = 16.sp)
-            }
+        Button(
+            onClick = { vm.completeFirstLaunch() },
+            enabled = !migrating
+        ) {
+            Text(I18n.t("migration.skip"))
         }
     }
 }
@@ -105,72 +93,93 @@ fun WelcomePage(vm: LauncherViewModel) {
 private fun MigrationCard(
     source: MigrationManager.Source,
     migrating: Boolean,
+    isActive: Boolean,
     progress: String,
-    onMigrate: () -> Unit
+    imported: Boolean?,
+    onImport: () -> Unit
 ) {
-    // 跟踪用户是否点击了此卡片的迁移按钮
-    var migrateClicked by remember { mutableStateOf(false) }
-    // 迁移结果：null=未完成, true=成功, false=失败
-    var migrateResult by remember { mutableStateOf<Boolean?>(null) }
-
-    // 监听 migrating 状态变化：当从 true->false 且本卡片曾点击过迁移时，判定结果
-    LaunchedEffect(migrating) {
-        if (migrateClicked && !migrating && migrateResult == null) {
-            // 通过 progress 文本判断成功/失败
-            migrateResult = !progress.contains("失败")
+    val sizeBytes by produceState(source.getEstimatedSize(), source) {
+        value = source.getEstimatedSize()
+        if (value <= 0L) {
+            runCatching {
+                value = withContext(Dispatchers.IO) { source.getEstimatedSizeFuture().get() }
+            }
         }
     }
+    val path = source.getGameRoot()?.toString().orEmpty()
 
-    Card(Modifier.fillMaxWidth().glassCardBorder(12.dp), shape = RoundedCornerShape(12.dp), colors = glassCardColors(), elevation = glassCardElevation()) {
-        Column(Modifier.padding(16.dp)) {
-            Text(I18n.t("migration.from", source.getName()),
-                 style = MaterialTheme.typography.titleSmall,
-                 fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(4.dp))
-            Text("${source.getGameRoot()}",
-                 style = MaterialTheme.typography.labelSmall,
-                 color = MaterialTheme.colorScheme.outline)
-            Spacer(Modifier.height(2.dp))
-            Text(I18n.t("migration.size", MigrationManager.formatSize(source.getEstimatedSize())),
-                 style = MaterialTheme.typography.labelSmall,
-                 color = MaterialTheme.colorScheme.primary,
-                 fontWeight = FontWeight.Medium)
-
-            Spacer(Modifier.height(12.dp))
-
-            when {
-                migrateResult == true -> {
-                    Text("已完成迁移",
-                         style = MaterialTheme.typography.bodySmall,
-                         color = MaterialTheme.colorScheme.primary,
-                         fontWeight = FontWeight.Medium)
-                }
-                migrateResult == false -> {
-                    Text("迁移失败：$progress",
-                         style = MaterialTheme.typography.bodySmall,
-                         color = MaterialTheme.colorScheme.error,
-                         fontWeight = FontWeight.Medium)
-                }
-                migrateClicked && migrating -> {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
-                        Spacer(Modifier.width(8.dp))
-                        Text(progress.ifEmpty { I18n.t("migration.processing") },
-                             style = MaterialTheme.typography.bodySmall,
-                             modifier = Modifier.weight(1f))
+    Card(
+        modifier = Modifier.fillMaxWidth().glassCardBorder(),
+        shape = RoundedCornerShape(8.dp),
+        colors = glassCardColors(),
+        elevation = glassCardElevation()
+    ) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        source.getName(),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    if (path.isNotEmpty()) {
+                        Text(
+                            path,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    if (sizeBytes > 0L) {
+                        Text(
+                            MigrationManager.formatSize(sizeBytes),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
                     }
                 }
-                else -> {
-                    // 未点击迁移，或正在迁移其他来源（按钮禁用）
-                    Button(
-                        onClick = { migrateClicked = true; migrateResult = null; onMigrate() },
-                        enabled = !migrating
-                    ) {
-                        Icon(Icons.Filled.Refresh, null, Modifier.size(14.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(I18n.t("migration.title"))
+                Spacer(Modifier.width(8.dp))
+                when {
+                    imported == true -> {
+                        Text(
+                            I18n.t("migration.done"),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    imported == false && !isActive -> {
+                        TextButton(
+                            onClick = onImport,
+                            enabled = !migrating,
+                            contentPadding = PaddingValues(horizontal = 8.dp)
+                        ) {
+                            Text(I18n.t("common.retry"))
+                        }
+                    }
+                    isActive -> {
+                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                    }
+                    else -> {
+                        OutlinedButton(
+                            onClick = onImport,
+                            enabled = !migrating,
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text(I18n.t("common.import"))
+                        }
                     }
                 }
+            }
+            if (isActive && progress.isNotBlank()) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    progress,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
     }

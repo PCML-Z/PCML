@@ -125,7 +125,7 @@ public final class FriendManager implements AutoCloseable {
     // ---------------------------------------------------------------------------
 
     public FriendManager() {
-        this(Paths.get(System.getProperty("user.home"), ".pmcl", "friend-data"));
+        this(com.pmcl.core.LauncherConfig.pmclHome().resolve("friend-data"));
     }
 
     public FriendManager(Path dataDir) {

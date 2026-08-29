@@ -5,6 +5,7 @@ import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -42,10 +43,14 @@ class MainActivity : ComponentActivity() {
                 themeState.applyUiScale(core.preferences.getUiScale())
                 themeState.applyGlassTheme(core.preferences.isGlassTheme())
                 themeState.applyLockscreenLaunchTheme(core.preferences.isLockscreenLaunchTheme())
+                themeState.applyFollowSystem(core.preferences.isFollowSystemTheme())
             }
 
+            val systemDark = isSystemInDarkTheme()
+            val dark = if (themeState.followSystem) systemDark else themeState.useDark
+
             PmclTheme(
-                darkTheme = themeState.useDark,
+                darkTheme = dark,
                 themeState = themeState,
             ) {
                 // 全局系统栏 insets — 防止内容被状态栏/导航栏遮挡
