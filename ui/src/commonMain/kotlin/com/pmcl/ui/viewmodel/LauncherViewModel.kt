@@ -1227,16 +1227,23 @@ class LauncherViewModel {
 
     /** 游戏异常退出事件（null 表示无崩溃，UI 监听此流弹出崩溃窗口） */
     data class CrashEvent(
-        val exitCode: Int,
-        val report: CrashAnalyzer.CrashReport?,   // 崩溃报告（可能为 null，如 crash-reports 无新增）
-        val recentLogs: List<String>,              // 最近日志片段
-        val versionId: String
+        val exitCode: Int,                         // 进程未退出时为 -1
+        val report: CrashAnalyzer.CrashReport?,
+        val recentLogs: List<String>,
+        val versionId: String,
+        val live: Boolean = false
     )
     @PublishedApi internal val _crashEvent = MutableStateFlow<CrashEvent?>(null)
     val crashEvent: StateFlow<CrashEvent?> = _crashEvent.asStateFlow()
 
     /** 清除崩溃事件（UI 关闭弹窗时调用） */
     fun clearCrashEvent() { _crashEvent.value = null }
+
+    @PublishedApi internal val _supportPackBusy = MutableStateFlow(false)
+    val supportPackBusy: StateFlow<Boolean> = _supportPackBusy.asStateFlow()
+    @PublishedApi internal val _supportPackPath = MutableStateFlow<String?>(null)
+    val supportPackPath: StateFlow<String?> = _supportPackPath.asStateFlow()
+    fun clearSupportPackPath() { _supportPackPath.value = null }
 
     /** 恢复操作执行后的用户反馈消息（UI 可监听显示 snackbar） */
     private val _recoveryMessage = MutableStateFlow<String?>(null)

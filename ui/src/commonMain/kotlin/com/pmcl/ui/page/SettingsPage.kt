@@ -61,6 +61,7 @@ import com.pmcl.ui.viewmodel.removeAccount
 import com.pmcl.ui.viewmodel.loginOffline
 import com.pmcl.ui.viewmodel.startMicrosoftLogin
 import com.pmcl.ui.viewmodel.lastOfflineUsername
+import com.pmcl.ui.viewmodel.setVersionIsolation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -248,7 +249,7 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
 
         if (sectionId == "game") {
         // 游戏通用行为
-        GameBehaviorCard(pref)
+        GameBehaviorCard(vm, pref)
         Spacer(Modifier.height(16.dp))
 
         // Minecraft 根目录管理
@@ -1080,6 +1081,7 @@ private fun AccountManagementPage(
                         Text(I18n.t("launch.microsoft_login"))
                     }
                 }
+                OfflineChildhoodTicketHint()
             }
         }
     }
@@ -2172,7 +2174,7 @@ private fun MinecraftRootsCard(vm: LauncherViewModel) {
 }
 
 @Composable
-private fun GameBehaviorCard(pref: com.pmcl.core.preferences.Preferences) {
+private fun GameBehaviorCard(vm: LauncherViewModel, pref: com.pmcl.core.preferences.Preferences) {
     var width by remember { mutableStateOf(pref.getGameWindowWidth().toString()) }
     var height by remember { mutableStateOf(pref.getGameWindowHeight().toString()) }
     var renderer by remember { mutableStateOf(pref.getGameRenderer()) }
@@ -2197,7 +2199,8 @@ private fun GameBehaviorCard(pref: com.pmcl.core.preferences.Preferences) {
             Spacer(Modifier.height(12.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Switch(checked = versionIsolation, onCheckedChange = {
-                    versionIsolation = it; pref.setVersionIsolation(it)
+                    versionIsolation = it
+                    vm.setVersionIsolation(it)
                 })
                 Spacer(Modifier.width(8.dp))
                 Column {

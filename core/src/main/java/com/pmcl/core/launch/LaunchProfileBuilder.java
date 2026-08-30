@@ -38,6 +38,7 @@ public final class LaunchProfileBuilder {
     private final LauncherConfig config;
     private final Preferences preferences;
     private final DownloadManager downloadManager;
+    private final GameDirResolver gameDirResolver;
 
     /** 主菜单背景视频处理器（可选，由 UI 层注入 video 模块实现）。null 时该功能降级不可用 */
     private com.pmcl.core.gamecontent.MenuBackgroundProvider menuBackgroundProvider;
@@ -55,6 +56,7 @@ public final class LaunchProfileBuilder {
         this.config = config;
         this.preferences = preferences;
         this.downloadManager = downloadManager;
+        this.gameDirResolver = new GameDirResolver(config, preferences);
     }
 
     /** 注入主菜单背景视频处理器。UI 层启动时调用，传入 video 模块的 JavaCV 实现 */
@@ -138,44 +140,15 @@ public final class LaunchProfileBuilder {
     }
 
     /**
-     * 推导游戏工作目录（gameDir）。
-     * <p>
-     * 优先级：
-     * <ol>
-     *   <li>版本隔离开启：{@code ~/.pmcl/instances/<versionId>/}，自动创建 mods/saves/config/
-     *       resourcepacks/shaderpacks/screenshots/logs 子目录</li>
-     *   <li>整合包（版本目录内含 mods/）：版本目录本身</li>
-     *   <li>普通版本：mcRoot（与 libraries/assets 同级）</li>
-     * </ol>
+     * 推导游戏工作目录（gameDir）。见 {@link GameDirResolver}。
      */
     private Path resolveGameDir(String versionId, Path mcRoot) {
-        if (versionId == null || versionId.contains("..") || versionId.contains("/") || versionId.contains("\\") || versionId.indexOf('\0') >= 0) {
-            throw new IllegalArgumentException("非法版本 ID: " + versionId);
-        }
-        // 版本隔离：每个版本独立的游戏目录
-        if (preferences.isVersionIsolation()) {
-            Path instanceDir = config.getWorkDir().resolve("instances").resolve(versionId);
-            // 自动创建子目录
-            try {
-                java.nio.file.Files.createDirectories(instanceDir);
-                for (String sub : new String[]{"mods", "saves", "config", "resourcepacks",
-                        "shaderpacks", "screenshots", "logs"}) {
-                    java.nio.file.Files.createDirectories(instanceDir.resolve(sub));
-                }
-            } catch (IOException e) {
-                throw new RuntimeException("无法创建版本隔离目录: " + instanceDir, e);
-            }
-            return instanceDir;
-        }
-        Path jsonPath = findVersionJson(versionId);
-        if (jsonPath != null) {
-            Path versionDir = jsonPath.getParent(); // versions/{id}/
-            // 整合包判定：版本目录内存在 mods/ 子目录
-            if (java.nio.file.Files.isDirectory(versionDir.resolve("mods"))) {
-                return versionDir;
-            }
-        }
-        return mcRoot;
+        return gameDirResolver.resolveGameDir(versionId, mcRoot);
+    }
+
+    /** 与启动时相同的 gameDir，供崩溃扫描 / 支持包使用。 */
+    public Path resolveGameDirectory(String versionId) {
+        return gameDirResolver.resolveGameDir(versionId);
     }
 
     /**

@@ -98,6 +98,8 @@ class LaunchProfileBuilder(
         // 7. 占位符替换（${auth_player_name} → 实际用户名等）
         replacePlaceholders(profile, account, versionId, vj.assets)
 
+        profile.setGameDir(GameDirResolver(paths, preferences).resolveGameDir(versionId))
+
         return profile
     }
 

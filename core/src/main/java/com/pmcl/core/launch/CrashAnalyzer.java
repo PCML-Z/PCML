@@ -268,4 +268,17 @@ public final class CrashAnalyzer {
 
         return new CrashReport(file, content, causes, suggestions, actions);
     }
+
+    /**
+     * 日志行是否像 Minecraft 正在写出崩溃报告。
+     * 用于游戏还没退出时就弹出崩溃窗。
+     */
+    public static boolean looksLikeCrash(String line) {
+        if (line == null || line.isEmpty()) return false;
+        return line.contains("---- Minecraft Crash Report ----")
+                || line.contains("#@!@# Game crashed")
+                || line.contains("Minecraft has crashed")
+                || line.contains("Game crashed! Crash report saved")
+                || line.contains("---- Minecraft has crashed ----");
+    }
 }

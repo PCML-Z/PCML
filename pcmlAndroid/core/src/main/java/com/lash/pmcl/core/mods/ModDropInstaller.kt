@@ -156,29 +156,10 @@ class ModDropInstaller(
      */
     @Throws(IOException::class)
     fun installTo(info: ModDropInfo, versionId: String?, gameVersion: String?): Path {
-        val modsDir: Path
-        if (!versionId.isNullOrEmpty()) {
-            // 版本隔离模式：instances/<versionId>/mods
-            requireSafeName(versionId)
-            val instancesRoot = paths.instances.toAbsolutePath().normalize()
-            val instanceDir = instancesRoot.resolve(versionId).normalize()
-            if (!instanceDir.startsWith(instancesRoot)) {
-                throw IOException("versionId path escapes instances dir: $versionId")
-            }
-            modsDir = instanceDir.resolve("mods")
+        val modsDir = if (!versionId.isNullOrEmpty()) {
+            com.lash.pmcl.core.launch.GameDirResolver(paths, preferences).resolveModsDir(versionId)
         } else {
-            val baseModsDir = paths.minecraftWorkDir.resolve("mods")
-            modsDir = if (!gameVersion.isNullOrEmpty()) {
-                requireSafeName(gameVersion)
-                val modsRoot = baseModsDir.toAbsolutePath().normalize()
-                val resolved = modsRoot.resolve(gameVersion).normalize()
-                if (!resolved.startsWith(modsRoot)) {
-                    throw IOException("gameVersion path escapes mods dir: $gameVersion")
-                }
-                resolved
-            } else {
-                baseModsDir
-            }
+            paths.minecraftWorkDir.resolve("mods")
         }
         val modsAbs = modsDir.toAbsolutePath().normalize()
         Files.createDirectories(modsAbs)
@@ -199,15 +180,6 @@ class ModDropInstaller(
     }
 
     // ==================== 辅助 ====================
-
-    /** 校验名称不含路径穿越字符（替代桌面版 InstanceManager.requireSafeInstanceId） */
-    private fun requireSafeName(name: String) {
-        if (name.contains("..") || name.contains("/") ||
-            name.contains("\\") || name.indexOf('\u0000') >= 0
-        ) {
-            throw IOException("非法名称: $name")
-        }
-    }
 
     /** 计算文件 SHA1（hex 小写） */
     @Throws(IOException::class)

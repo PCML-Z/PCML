@@ -502,46 +502,13 @@ public final class MetalRenderInstaller {
     }
 
     /**
-     * mods 目录解析：与 {@link com.pmcl.core.launch.LaunchProfileBuilder} 的 gameDir/mods 对齐，
-     * 确保游戏能加载（尤其是外部 .minecraft 整合包：versions/&lt;id&gt;/mods/）。
-     * <ul>
-     *   <li>版本隔离：{@code instances/<versionId>/mods/}</li>
-     *   <li>整合包（版本目录含 mods/）：该目录下的 mods/</li>
-     *   <li>普通版本：版本所属 mcRoot/mods/（PMCL 或 ~/.minecraft）</li>
-     * </ul>
+     * mods 目录解析：与 {@link com.pmcl.core.launch.GameDirResolver} / 启动 gameDir 对齐。
      */
     Path resolveModsDir(String versionId, String gameVersion) {
-        if (preferences != null && preferences.isVersionIsolation()
-                && versionId != null && !versionId.isEmpty()) {
-            InstanceManager.requireSafeInstanceId(versionId);
-            Path instancesRoot = config.getWorkDir().resolve("instances").toAbsolutePath().normalize();
-            Path instanceDir = instancesRoot.resolve(versionId).normalize();
-            if (!instanceDir.startsWith(instancesRoot)) {
-                throw new IllegalArgumentException("versionId path escapes instances dir: " + versionId);
-            }
-            return instanceDir.resolve("mods");
-        }
-
         if (versionId != null && !versionId.isEmpty()) {
-            Path jsonPath = findVersionJson(versionId);
-            if (jsonPath != null) {
-                Path versionDir = jsonPath.getParent();
-                // 整合包：版本目录内已有 mods/，启动时 gameDir=versionDir
-                if (Files.isDirectory(versionDir.resolve("mods"))) {
-                    return versionDir.resolve("mods");
-                }
-                // 普通版本：gameDir=mcRoot → mods 在 mcRoot/mods
-                Path versionsDir = versionDir.getParent();
-                if (versionsDir != null) {
-                    Path mcRoot = versionsDir.getParent();
-                    if (mcRoot != null) {
-                        return mcRoot.resolve("mods");
-                    }
-                }
-            }
+            return new com.pmcl.core.launch.GameDirResolver(config, preferences)
+                    .resolveModsDir(versionId);
         }
-
-        // 回退：PMCL 工作目录 mods/
         return config.getWorkDir().resolve("mods");
     }
 

@@ -39,6 +39,11 @@ class LaunchManager(
     fun buildProfile(versionId: String, account: com.lash.pmcl.core.auth.Account?): LaunchProfile =
         profileBuilder.build(versionId, account)
 
+    fun resolveGameDir(versionId: String): java.nio.file.Path =
+        GameDirResolver(paths, preferences).resolveGameDir(versionId)
+
+    fun workDir(): java.nio.file.Path = paths.root
+
     /** 活跃游戏进程集合（应用退出时强制清理） */
     private val activeProcesses: MutableSet<GameProcess> =
         java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap())

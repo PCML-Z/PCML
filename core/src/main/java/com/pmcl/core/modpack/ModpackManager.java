@@ -641,13 +641,8 @@ public final class ModpackManager {
 
     private void doExport(String versionId, Path targetPath,
                           Consumer<InstallProgress> progress) throws Exception {
-        // 确定 gameDir
-        Path gameDir;
-        if (preferences.isVersionIsolation()) {
-            gameDir = config.getWorkDir().resolve("instances").resolve(versionId);
-        } else {
-            gameDir = config.getWorkDir();
-        }
+        Path gameDir = new com.pmcl.core.launch.GameDirResolver(config, preferences)
+                .resolveGameDir(versionId);
 
         if (!Files.isDirectory(gameDir)) {
             throw new IOException("版本目录不存在: " + gameDir);
@@ -773,13 +768,8 @@ public final class ModpackManager {
 
     private void doExportCurseForge(String versionId, Path targetPath,
                                     Consumer<InstallProgress> progress) throws Exception {
-        // 确定 gameDir（与 doExport 一致）
-        Path gameDir;
-        if (preferences.isVersionIsolation()) {
-            gameDir = config.getWorkDir().resolve("instances").resolve(versionId);
-        } else {
-            gameDir = config.getWorkDir();
-        }
+        Path gameDir = new com.pmcl.core.launch.GameDirResolver(config, preferences)
+                .resolveGameDir(versionId);
         if (!Files.isDirectory(gameDir)) {
             throw new IOException("版本目录不存在: " + gameDir);
         }
@@ -1536,12 +1526,10 @@ public final class ModpackManager {
         }
     }
 
-    /** 解析版本目录（版本隔离或共享） */
+    /** 解析版本目录（版本隔离或共享），与启动 gameDir 对齐 */
     private Path resolveGameDir(String versionId) {
-        if (preferences.isVersionIsolation()) {
-            return config.getWorkDir().resolve("instances").resolve(versionId);
-        }
-        return config.getWorkDir();
+        return new com.pmcl.core.launch.GameDirResolver(config, preferences)
+                .resolveGameDir(versionId);
     }
 
     // ===== 列出已安装整合包 =====

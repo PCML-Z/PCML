@@ -4,7 +4,6 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.pmcl.core.LauncherConfig;
-import com.pmcl.core.instance.InstanceManager;
 import com.pmcl.core.market.ModrinthClient;
 import com.pmcl.core.preferences.Preferences;
 
@@ -151,8 +150,7 @@ public final class ModDropInstaller {
      * <p>
      * 路径推导：
      * <ul>
-     *   <li>版本隔离开启且 versionId 非空：{@code ~/.pmcl/instances/<versionId>/mods/}</li>
-     *   <li>否则：{@code ~/.pmcl/mods/<gameVersion>/}（gameVersion 为空则直接 mods/）</li>
+     *   <li>与启动 gameDir 对齐：隔离目录 / 整合包 versions/&lt;id&gt; / 共享 mcRoot</li>
      * </ul>
      * 同名文件存在时覆盖（让用户能拖入新版 jar 更新）。
      *
@@ -164,26 +162,11 @@ public final class ModDropInstaller {
      */
     public Path installTo(ModDropInfo info, String versionId, String gameVersion) throws IOException {
         Path modsDir;
-        if (preferences != null && preferences.isVersionIsolation()
-                && versionId != null && !versionId.isEmpty()) {
-            // H22: versionId / 目标路径校验
-            InstanceManager.requireSafeInstanceId(versionId);
-            Path instancesRoot = config.getWorkDir().resolve("instances").toAbsolutePath().normalize();
-            Path instanceDir = instancesRoot.resolve(versionId).normalize();
-            if (!instanceDir.startsWith(instancesRoot)) {
-                throw new IOException("versionId path escapes instances dir: " + versionId);
-            }
-            modsDir = instanceDir.resolve("mods");
+        if (preferences != null && versionId != null && !versionId.isEmpty()) {
+            modsDir = new com.pmcl.core.launch.GameDirResolver(config, preferences)
+                    .resolveModsDir(versionId);
         } else {
             modsDir = config.getWorkDir().resolve("mods");
-            if (gameVersion != null && !gameVersion.isEmpty()) {
-                InstanceManager.requireSafeInstanceId(gameVersion);
-                Path modsRoot = modsDir.toAbsolutePath().normalize();
-                modsDir = modsRoot.resolve(gameVersion).normalize();
-                if (!modsDir.startsWith(modsRoot)) {
-                    throw new IOException("gameVersion path escapes mods dir: " + gameVersion);
-                }
-            }
         }
         Path modsAbs = modsDir.toAbsolutePath().normalize();
         Files.createDirectories(modsAbs);

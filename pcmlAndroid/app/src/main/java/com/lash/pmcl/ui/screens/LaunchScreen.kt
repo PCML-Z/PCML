@@ -3,6 +3,7 @@ package com.lash.pmcl.ui.screens
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
@@ -80,13 +82,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lash.pmcl.core.auth.Account
@@ -98,13 +102,16 @@ import com.lash.pmcl.core.install.VersionInstaller
 import com.lash.pmcl.core.launch.CrashAnalyzer
 import com.lash.pmcl.core.launch.GameProcess
 import com.lash.pmcl.core.launch.LaunchManager
+import com.lash.pmcl.core.launch.SupportPackGenerator
 import com.lash.pmcl.core.preferences.Preferences
 import com.lash.pmcl.core.version.McVersion
 import com.lash.pmcl.core.version.VersionManager
+import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -123,11 +130,12 @@ private class RunningInstance(
     val process: GameProcess,
 )
 
-private class CrashEventInfo(
+private data class CrashEventInfo(
     val versionId: String,
     val exitCode: Int,
     val report: CrashAnalyzer.CrashReport?,
     val recentLogs: List<String>,
+    val live: Boolean = false,
 )
 
 private data class CompatOption(val title: String, val description: String)
@@ -188,6 +196,9 @@ fun LaunchScreen(
     var renameTarget by remember { mutableStateOf<String?>(null) }
     var deleteTarget by remember { mutableStateOf<String?>(null) }
     var crashEvent by remember { mutableStateOf<CrashEventInfo?>(null) }
+    var launchingVersionId by remember { mutableStateOf<String?>(null) }
+    var packBusy by remember { mutableStateOf(false) }
+    var packStatus by remember { mutableStateOf<String?>(null) }
     var msDeviceCode by remember { mutableStateOf<DeviceCode?>(null) }
     var msStatus by remember { mutableStateOf("") }
     var msLoggingIn by remember { mutableStateOf(false) }
@@ -246,6 +257,26 @@ fun LaunchScreen(
         logs.add(LogEntry(logSeq.incrementAndGet(), text))
         while (logs.size > 500) logs.removeAt(0)
         com.lash.pmcl.core.launch.LogCollector.add(text)
+        val vid = launchingVersionId ?: return
+        if (CrashAnalyzer.looksLikeCrash(text)) {
+            val current = crashEvent
+            if (current == null || current.versionId != vid || !current.live) {
+                val recent = logs.map { it.text }.takeLast(160)
+                crashEvent = CrashEventInfo(
+                    versionId = vid,
+                    exitCode = -1,
+                    report = try {
+                        crashAnalyzer.analyze(recent.joinToString("\n"), null)
+                    } catch (_: Exception) { null },
+                    recentLogs = recent,
+                    live = true,
+                )
+            }
+        }
+        val live = crashEvent
+        if (live != null && live.live && live.versionId == vid) {
+            crashEvent = live.copy(recentLogs = logs.map { it.text }.takeLast(200))
+        }
     }
 
     fun refreshPinnedLabels() {
@@ -330,6 +361,7 @@ fun LaunchScreen(
             status = "请先登录账号"
             return
         }
+        launchingVersionId = versionId
         status = "正在构造启动配置..."
         scope.launch {
             try {
@@ -348,6 +380,7 @@ fun LaunchScreen(
                 launchManager.launchAsync(profile, javaPath) { line -> addLog(line) }
                     .whenComplete { proc, err ->
                         if (err != null) {
+                            launchingVersionId = null
                             status = "启动失败: ${err.message}"
                             addLog("[PMCL] 启动失败: ${err.message}")
                         } else {
@@ -369,13 +402,15 @@ fun LaunchScreen(
                                 try {
                                     val exitCode = proc.waitFor()
                                     runningInstances.remove(inst)
-                                    if (exitCode != 0 && exitCode != LaunchManager.EXIT_CANCELLED) {
-                                        val recentLogLines = logs.map { it.text }
+                                    launchingVersionId = null
+                                    val recentLogLines = logs.map { it.text }
+                                    val liveOpen = crashEvent?.let { it.versionId == versionId && it.live } == true
+                                    if ((exitCode != 0 && exitCode != LaunchManager.EXIT_CANCELLED) || liveOpen) {
                                         val report = try {
                                             crashAnalyzer.analyze(recentLogLines.joinToString("\n"), null)
-                                        } catch (_: Exception) { null }
+                                        } catch (_: Exception) { crashEvent?.report }
                                         crashEvent = CrashEventInfo(
-                                            versionId, exitCode, report, recentLogLines.takeLast(50)
+                                            versionId, exitCode, report, recentLogLines.takeLast(200), live = false
                                         )
                                     }
                                 } catch (_: InterruptedException) {
@@ -385,6 +420,7 @@ fun LaunchScreen(
                         }
                     }
             } catch (e: Exception) {
+                launchingVersionId = null
                 status = "构造启动配置失败: ${e.message}"
                 addLog("[PMCL] 错误: ${e.message}")
             }
@@ -495,6 +531,61 @@ fun LaunchScreen(
         }
         try {
             context.startActivity(Intent.createChooser(shareIntent, "分享日志"))
+        } catch (_: Exception) {}
+    }
+
+    fun doGenerateSupportPack(ev: CrashEventInfo) {
+        if (packBusy) return
+        packBusy = true
+        packStatus = null
+        scope.launch {
+            try {
+                val zip = File(context.cacheDir, "PMCL-Support-${ev.versionId}.zip")
+                withContext(Dispatchers.IO) {
+                    val gameDir = launchManager.resolveGameDir(ev.versionId)
+                    SupportPackGenerator.write(
+                        zip.toPath(),
+                        ev.versionId,
+                        launchManager.workDir(),
+                        gameDir,
+                        ev.recentLogs,
+                        "",
+                        "",
+                    )
+                }
+                val uri = FileProvider.getUriForFile(
+                    context, "${context.packageName}.fileprovider", zip
+                )
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "application/zip"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                context.startActivity(Intent.createChooser(intent, "支持包"))
+                packStatus = "支持包已生成"
+            } catch (e: Exception) {
+                packStatus = "生成支持包失败: ${e.message}"
+                status = packStatus ?: ""
+            } finally {
+                packBusy = false
+            }
+        }
+    }
+
+    fun doCrashHelp(ev: CrashEventInfo) {
+        val body = buildString {
+            append("游戏崩溃了，版本 ").append(ev.versionId)
+            if (ev.exitCode >= 0) append(" 退出码 ").append(ev.exitCode)
+            append("\n\n")
+            append(ev.recentLogs.takeLast(80).joinToString("\n"))
+        }
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, "Minecraft 崩溃 · ${ev.versionId}")
+            putExtra(Intent.EXTRA_TEXT, body)
+        }
+        try {
+            context.startActivity(Intent.createChooser(intent, "联机解决问题"))
         } catch (_: Exception) {}
     }
 
@@ -725,6 +816,14 @@ fun LaunchScreen(
     crashEvent?.let { ev ->
         CrashReportDialog(
             event = ev,
+            packBusy = packBusy,
+            packStatus = packStatus,
+            onGeneratePack = { doGenerateSupportPack(ev) },
+            onHelp = { doCrashHelp(ev) },
+            onRelaunch = {
+                crashEvent = null
+                doLaunch(ev.versionId, account)
+            },
             onRecovery = { action ->
                 when (action.type) {
                     CrashAnalyzer.RecoveryType.SHARE_LOGS -> doShareLogs()
@@ -1779,114 +1878,145 @@ private fun RenameTileDialog(
     )
 }
 
+private val CrashRed = Color(0xFF9B1C1C)
+private val CrashRedDark = Color(0xFF2A0B0B)
+private val CrashOnRed = Color(0xFFFFF5F5)
+
 @Composable
 private fun CrashReportDialog(
     event: CrashEventInfo,
+    packBusy: Boolean,
+    packStatus: String?,
+    onGeneratePack: () -> Unit,
+    onHelp: () -> Unit,
+    onRelaunch: () -> Unit,
     onRecovery: (CrashAnalyzer.RecoveryAction) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var showLogs by remember { mutableStateOf(false) }
     val report = event.report
-    val causes = report?.causes ?: listOf("游戏异常退出（退出码 ${event.exitCode}），未生成崩溃报告")
-    val suggestions = report?.suggestions ?: listOf("查看日志详细内容寻找异常堆栈")
+    val causes = report?.causes ?: emptyList()
     val recoveryActions = report?.recoveryActions ?: emptyList()
+    val reportBody = remember(event) {
+        val fromFile = report?.content?.takeIf { it.isNotBlank() }
+        if (!event.live && fromFile != null) fromFile
+        else {
+            val idx = event.recentLogs.indexOfFirst { CrashAnalyzer.looksLikeCrash(it) }
+            val slice = if (idx >= 0) event.recentLogs.drop(idx) else event.recentLogs.takeLast(160)
+            slice.joinToString("\n")
+        }
+    }
+    val scroll = rememberScrollState()
+    LaunchedEffect(reportBody.length, event.live) {
+        if (event.live) scroll.scrollTo(scroll.maxValue)
+    }
+    val infoLine = if (event.live || event.exitCode < 0) {
+        "版本 ${event.versionId} · 崩溃报告输出中"
+    } else {
+        "版本 ${event.versionId} · 退出码 ${event.exitCode}"
+    }
 
-    AlertDialog(
+    Dialog(
         onDismissRequest = onDismiss,
-        title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    Icons.Filled.Refresh,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(20.dp),
-                )
-                Spacer(Modifier.width(8.dp))
-                Text("游戏崩溃", color = MaterialTheme.colorScheme.error)
-            }
-        },
-        text = {
-            Column {
-                Text("版本: ${event.versionId}  退出码: ${event.exitCode}",
-                     style = MaterialTheme.typography.labelMedium,
-                     color = MaterialTheme.colorScheme.outline)
-                Spacer(Modifier.height(8.dp))
-                Text("可能原因", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
-                causes.forEach { c ->
-                    Text("• $c", style = MaterialTheme.typography.bodySmall)
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = CrashRed,
+            modifier = Modifier.widthIn(max = 640.dp).fillMaxWidth(0.94f),
+        ) {
+            Column(Modifier.padding(18.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Filled.Warning,
+                        contentDescription = null,
+                        tint = CrashOnRed,
+                        modifier = Modifier.size(22.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "游戏崩溃了",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = CrashOnRed,
+                    )
                 }
-                Spacer(Modifier.height(8.dp))
-                Text("修复建议", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
-                suggestions.forEach { s ->
-                    Text("• $s", style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(6.dp))
+                Text(infoLine, style = MaterialTheme.typography.labelMedium, color = CrashOnRed.copy(alpha = 0.85f))
+                if (causes.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    causes.take(3).forEach { c ->
+                        Text("· $c", style = MaterialTheme.typography.bodySmall, color = CrashOnRed)
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+                Text("崩溃报告", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = CrashOnRed)
+                Spacer(Modifier.height(4.dp))
+                Surface(
+                    color = CrashRedDark,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 140.dp, max = 240.dp),
+                ) {
+                    Text(
+                        reportBody.ifBlank { event.recentLogs.joinToString("\n") },
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = FontFamily.Monospace,
+                        color = Color(0xFFFFCDD2),
+                        modifier = Modifier.padding(10.dp).verticalScroll(scroll),
+                    )
                 }
                 if (recoveryActions.isNotEmpty()) {
-                    Spacer(Modifier.height(10.dp))
-                    Text("恢复操作",
-                         style = MaterialTheme.typography.labelLarge,
-                         fontWeight = FontWeight.SemiBold,
-                         color = MaterialTheme.colorScheme.primary)
-                    Spacer(Modifier.height(6.dp))
-                    recoveryActions.forEach { action ->
+                    Spacer(Modifier.height(8.dp))
+                    recoveryActions.take(3).forEach { action ->
                         Surface(
                             onClick = { onRecovery(action) },
                             shape = RoundedCornerShape(6.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                            color = Color.White.copy(alpha = 0.12f),
                             modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
                         ) {
-                            Row(
-                                Modifier.padding(8.dp).fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Icon(
-                                    Icons.Filled.Refresh,
-                                    contentDescription = null,
-                                    Modifier.size(16.dp),
-                                    tint = MaterialTheme.colorScheme.primary,
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                Column(Modifier.weight(1f)) {
-                                    Text(action.title,
-                                         style = MaterialTheme.typography.labelMedium,
-                                         fontWeight = FontWeight.SemiBold)
-                                    Text(action.description,
-                                         style = MaterialTheme.typography.labelSmall,
-                                         color = MaterialTheme.colorScheme.outline)
-                                }
-                            }
+                            Text(
+                                action.title,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = CrashOnRed,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                            )
                         }
                     }
                 }
-                if (showLogs) {
-                    Spacer(Modifier.height(8.dp))
-                    Text("最近日志（${event.recentLogs.size} 行）",
-                         style = MaterialTheme.typography.labelLarge,
-                         fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.height(4.dp))
-                    Surface(
-                        color = MaterialTheme.colorScheme.surfaceVariant,
-                        shape = RoundedCornerShape(6.dp),
-                        modifier = Modifier.fillMaxWidth().heightIn(max = 180.dp),
-                    ) {
-                        Column(Modifier.padding(8.dp).verticalScroll(rememberScrollState())) {
-                            event.recentLogs.forEach { line ->
-                                Text(line, style = MaterialTheme.typography.labelSmall,
-                                     fontFamily = FontFamily.Monospace)
-                            }
-                        }
+                if (packStatus != null) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(packStatus, style = MaterialTheme.typography.labelSmall, color = CrashOnRed)
+                }
+                Spacer(Modifier.height(12.dp))
+                val outline = ButtonDefaults.outlinedButtonColors(contentColor = CrashOnRed)
+                val fill = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = CrashRed)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = onGeneratePack,
+                        enabled = !packBusy,
+                        modifier = Modifier.weight(1f),
+                        colors = outline,
+                        border = BorderStroke(1.dp, CrashOnRed.copy(alpha = 0.75f)),
+                    ) { Text(if (packBusy) "正在打包…" else "生成支持包") }
+                    OutlinedButton(
+                        onClick = onHelp,
+                        modifier = Modifier.weight(1f),
+                        colors = outline,
+                        border = BorderStroke(1.dp, CrashOnRed.copy(alpha = 0.75f)),
+                    ) { Text("联机解决问题") }
+                    Button(
+                        onClick = onRelaunch,
+                        modifier = Modifier.weight(1f),
+                        colors = fill,
+                    ) { Text("重启游戏") }
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = onDismiss) {
+                        Text("关闭", color = CrashOnRed)
                     }
                 }
-            }
-        },
-        confirmButton = {
-            Button(onClick = onDismiss) { Text("关闭") }
-        },
-        dismissButton = {
-            OutlinedButton(onClick = { showLogs = !showLogs }) {
-                Text(if (showLogs) "隐藏日志" else "查看日志")
             }
         }
-    )
+    }
 }
 
 @Composable

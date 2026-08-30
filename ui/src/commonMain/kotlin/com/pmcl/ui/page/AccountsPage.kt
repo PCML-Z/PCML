@@ -1,6 +1,7 @@
 package com.pmcl.ui.page
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -26,6 +27,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -57,6 +59,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.skia.Image as SkiaImage
 import com.pmcl.ui.util.decodeSampledBitmap
+import java.awt.Desktop
+import java.net.URI
 import java.util.concurrent.ConcurrentHashMap
 
 @Composable
@@ -277,6 +281,7 @@ fun AccountsPage(vm: LauncherViewModel, sectionId: String = "list") {
                        enabled = username.isNotBlank() && !loggingIn) {
                     Text(I18n.t("accounts.login"))
                 }
+                OfflineChildhoodTicketHint()
             }
         }
         } // end sectionId == offline
@@ -868,5 +873,32 @@ private fun SkinUploadCard(
                 }
             }
         }
+    }
+}
+
+@Composable
+internal fun OfflineChildhoodTicketHint() {
+    Spacer(Modifier.height(12.dp))
+    Text(
+        I18n.t("accounts.offline.buy_hint"),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.outline
+    )
+    Text(
+        I18n.t("accounts.offline.buy_link"),
+        style = MaterialTheme.typography.bodySmall.copy(
+            textDecoration = TextDecoration.Underline
+        ),
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.clickable { openMinecraftOfficialStore() }
+    )
+}
+
+private fun openMinecraftOfficialStore() {
+    try {
+        if (Desktop.isDesktopSupported()) {
+            Desktop.getDesktop().browse(URI(I18n.t("accounts.offline.buy_url")))
+        }
+    } catch (_: Throwable) {
     }
 }

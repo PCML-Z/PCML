@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -63,6 +64,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -594,6 +596,9 @@ fun AccountsScreen(
                         onClick = { startOfflineLogin() },
                         enabled = offlineUsername.isNotBlank() && !loggingIn,
                     ) { Text("登录") }
+                    ChildhoodTicketHint(onOpenStore = {
+                        openBrowser("https://www.minecraft.net/zh-hans/store/minecraft-java-bedrock-edition-pc")
+                    })
                 }
             }
             Spacer(Modifier.height(16.dp))
@@ -1099,6 +1104,24 @@ private fun SkinUploadCard(
             }
         }
     }
+}
+
+@Composable
+private fun ChildhoodTicketHint(onOpenStore: () -> Unit) {
+    Spacer(Modifier.height(12.dp))
+    Text(
+        "给童年补一张票，买一份正版我的世界",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.outline,
+    )
+    Text(
+        "官网购买",
+        style = MaterialTheme.typography.bodySmall.copy(
+            textDecoration = TextDecoration.Underline,
+        ),
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.clickable(onClick = onOpenStore),
+    )
 }
 
 private fun typeText(type: Account.AccountType): String = when (type) {

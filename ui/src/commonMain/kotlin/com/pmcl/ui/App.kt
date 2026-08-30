@@ -31,6 +31,7 @@ import com.pmcl.ui.page.AccountsPage
 import com.pmcl.ui.page.AgreementGatePage
 import com.pmcl.ui.page.ContentHubPage
 import com.pmcl.ui.page.DownloadHubPage
+import com.pmcl.ui.page.GameCrashPopup
 import com.pmcl.ui.page.InstancesPage
 import com.pmcl.ui.page.LaunchPage
 import com.pmcl.ui.page.LockscreenLaunchPage
@@ -169,6 +170,7 @@ fun App(vm: LauncherViewModel, themeState: ThemeState) {
                     PushedUpdateDialog(vm)
                     // P2-1: 账号 keyfile 丢失/损坏警告（任意页面都可见）
                     CorruptedAccountsDialog(vm)
+                    GameCrashPopup(vm)
                 }
             }
         }

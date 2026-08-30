@@ -735,11 +735,11 @@ fun LauncherViewModel.launch() {
                 _status.value = I18n.t("status.large_pack_loading")
             }
 
-            // 记录启动前的崩溃报告快照（用于退出后对比新增）
+            // 记录启动前的崩溃报告快照（gameDir + 工作目录，隔离后报告不在 ~/.pmcl 根下）
             val crashDirBefore = withContext(Dispatchers.IO) {
-                try { core.crashAnalyzer().scanReports(config.getWorkDir()).map { it.getFile().toString() }.toSet() }
-                catch (t: Throwable) { emptySet<String>() }
+                snapshotCrashReportPaths(versionId)
             }
+            val crashLiveShown = java.util.concurrent.atomic.AtomicBoolean(false)
 
             // 记录启动：最近使用列表 + 最后游玩时间戳 + 时长追踪
             val launchTime = System.currentTimeMillis()
@@ -767,6 +767,35 @@ fun LauncherViewModel.launch() {
                     // 仅当此实例为活跃时增量追加 UI（避免每行全量重建）
                     if (_runningInstances.value.any { it.id == instanceId && it.active }) {
                         appendGameLog(line)
+                    }
+                    if (com.pmcl.core.launch.CrashAnalyzer.looksLikeCrash(line)
+                        && crashLiveShown.compareAndSet(false, true)
+                    ) {
+                        val recent = instanceId?.let { id ->
+                            instanceLogs[id]?.let { logs ->
+                                synchronized(logs) { logs.takeLast(160).toList() }
+                            }
+                        } ?: _gameLogs.value.takeLast(160).map { it.text }
+                        val report = try {
+                            core.crashAnalyzer().analyze(recent.joinToString("\n"), null)
+                        } catch (_: Throwable) { null }
+                        _crashEvent.value = LauncherViewModel.CrashEvent(
+                            exitCode = -1,
+                            report = report,
+                            recentLogs = recent,
+                            versionId = versionId,
+                            live = true
+                        )
+                    } else if (crashLiveShown.get()) {
+                        val ev = _crashEvent.value
+                        if (ev != null && ev.live && ev.versionId == versionId) {
+                            val recent = instanceId?.let { id ->
+                                instanceLogs[id]?.let { logs ->
+                                    synchronized(logs) { logs.takeLast(200).toList() }
+                                }
+                            } ?: _gameLogs.value.takeLast(200).map { it.text }
+                            _crashEvent.value = ev.copy(recentLogs = recent)
+                        }
                     }
                     // 解析游戏日志，更新会话上下文（服务器地址 / 世界名）用于细分统计
                     try {
@@ -810,33 +839,40 @@ fun LauncherViewModel.launch() {
             }
             _status.value = I18n.t("status.game_exited_with_version", exitCode, versionId)
 
-            // 异常退出检测：非 0 退出码视为崩溃（用退出实例自身日志，勿用当前 UI 活跃缓冲）
-            // EXIT_CANCELLED 已在上方处理，不得弹崩溃 UI
-            if (exitCode != 0) {
-                val recentLogs = instanceId?.let { id ->
-                    instanceLogs[id]?.let { logs ->
-                        synchronized(logs) { logs.takeLast(80).toList() }
-                    }
-                } ?: _gameLogs.value.takeLast(80).map { it.text }
+            // 异常退出，或游戏已在日志里写出崩溃报告：弹出 / 刷新红色崩溃窗
+            val recentLogs = instanceId?.let { id ->
+                instanceLogs[id]?.let { logs ->
+                    synchronized(logs) { logs.takeLast(200).toList() }
+                }
+            } ?: _gameLogs.value.takeLast(200).map { it.text }
+            val liveOpen = _crashEvent.value?.let { it.versionId == versionId && it.live } == true
+            if (exitCode != 0 || liveOpen) {
                 val report = withContext(Dispatchers.IO) {
                     try {
-                        val after = core.crashAnalyzer().scanReports(config.getWorkDir())
-                        val newReport = after.firstOrNull { it.getFile().toString() !in crashDirBefore }
-                        if (newReport != null) {
-                            newReport
-                        } else {
+                        val newer = findNewCrashReport(versionId, crashDirBefore)
+                        if (newer != null) newer
+                        else {
                             val logText = recentLogs.joinToString("\n")
                             if (logText.isNotBlank()) core.crashAnalyzer().analyze(logText, null)
-                            else null
+                            else _crashEvent.value?.report
                         }
                     } catch (t: kotlinx.coroutines.CancellationException) {
                         throw t
-                    } catch (_: Throwable) { null }
+                    } catch (_: Throwable) { _crashEvent.value?.report }
                 }
-                _crashEvent.value = LauncherViewModel.CrashEvent(exitCode, report, recentLogs, versionId)
+                if (exitCode != 0 || report != null || liveOpen) {
+                    _crashEvent.value = LauncherViewModel.CrashEvent(
+                        exitCode = exitCode,
+                        report = report,
+                        recentLogs = recentLogs,
+                        versionId = versionId,
+                        live = false
+                    )
+                }
                 _crashReports.value = withContext(Dispatchers.IO) {
-                    try { core.crashAnalyzer().scanReports(config.getWorkDir()) }
-                    catch (t: kotlinx.coroutines.CancellationException) { throw t }
+                    try {
+                        snapshotCrashReports(versionId)
+                    } catch (t: kotlinx.coroutines.CancellationException) { throw t }
                     catch (_: Throwable) { emptyList() }
                 }
             }
@@ -954,5 +990,89 @@ fun LauncherViewModel.openGameLogFolder() {
             _status.value = I18n.t("log.open_folder_failed", e.message ?: I18n.t("common.unknown"))
         }
     }
+}
+
+@PublishedApi
+internal fun LauncherViewModel.snapshotCrashReportPaths(versionId: String): Set<String> {
+    return snapshotCrashReports(versionId).mapNotNull { it.file?.toString() }.toSet()
+}
+
+@PublishedApi
+internal fun LauncherViewModel.snapshotCrashReports(versionId: String): List<com.pmcl.core.launch.CrashAnalyzer.CrashReport> {
+    val dirs = linkedSetOf<java.nio.file.Path>()
+    try { dirs.add(core.profileBuilder().resolveGameDirectory(versionId)) } catch (_: Throwable) {}
+    dirs.add(config.getWorkDir())
+    val seen = linkedSetOf<String>()
+    val out = mutableListOf<com.pmcl.core.launch.CrashAnalyzer.CrashReport>()
+    for (dir in dirs) {
+        try {
+            for (r in core.crashAnalyzer().scanReports(dir)) {
+                val key = r.file?.toString() ?: continue
+                if (seen.add(key)) out.add(r)
+            }
+        } catch (_: Throwable) {}
+    }
+    return out
+}
+
+@PublishedApi
+internal fun LauncherViewModel.findNewCrashReport(
+    versionId: String,
+    before: Set<String>
+): com.pmcl.core.launch.CrashAnalyzer.CrashReport? {
+    return snapshotCrashReports(versionId).firstOrNull { r ->
+        val p = r.file?.toString() ?: return@firstOrNull false
+        p !in before
+    }
+}
+
+/** 生成崩溃支持包 zip 到指定路径。 */
+fun LauncherViewModel.generateSupportPack(targetPath: String, versionId: String) {
+    if (_supportPackBusy.value) return
+    _supportPackBusy.value = true
+    _supportPackPath.value = null
+    scope.launch {
+        try {
+            val logs = _crashEvent.value?.takeIf { it.versionId == versionId }?.recentLogs
+                ?: _gameLogs.value.map { it.text }
+            val extra = buildString {
+                append(systemInfo).append('\n')
+                append("launcher=").append(core.launcherVersion()).append('\n')
+            }
+            withContext(Dispatchers.IO) {
+                val gameDir = try {
+                    core.profileBuilder().resolveGameDirectory(versionId)
+                } catch (_: Throwable) { config.getWorkDir() }
+                com.pmcl.core.launch.SupportPackGenerator.write(
+                    java.nio.file.Paths.get(targetPath),
+                    versionId,
+                    config.getWorkDir(),
+                    gameDir,
+                    logs,
+                    com.pmcl.core.util.LauncherLogCollector.getText(),
+                    extra
+                )
+            }
+            _supportPackPath.value = targetPath
+            _status.value = I18n.t("crash.popup.pack_ok", targetPath)
+            _recoveryMessage.value = I18n.t("crash.popup.pack_ok", targetPath)
+        } catch (e: Throwable) {
+            _status.value = I18n.t("crash.popup.pack_fail", e.message ?: I18n.t("common.unknown"))
+        } finally {
+            _supportPackBusy.value = false
+        }
+    }
+}
+
+/** 关掉崩溃窗并按崩溃时的版本再启一局。 */
+fun LauncherViewModel.relaunchAfterCrash(versionId: String) {
+    clearCrashEvent()
+    selectVersion(versionId)
+    launch()
+}
+
+/** 联机页帮助：把崩溃现场交给能一起看的人。 */
+fun LauncherViewModel.openCrashHelp() {
+    requestSecondaryNav("multiplayer", "help")
 }
 

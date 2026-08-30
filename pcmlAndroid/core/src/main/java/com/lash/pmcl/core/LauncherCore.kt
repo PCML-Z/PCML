@@ -91,7 +91,7 @@ class LauncherCore(
     // ===== 市场 =====
     val modrinthClient: ModrinthClient = ModrinthClient(downloadManager)
     val curseForgeClient: CurseForgeClient = CurseForgeClient("", downloadManager)
-    val modMarketManager: ModMarketManager = ModMarketManager(paths, downloadManager, "")
+    val modMarketManager: ModMarketManager = ModMarketManager(paths, downloadManager, "", preferences)
 
     // ===== 模组加载器 =====
     val modLoaderManager: ModLoaderManager = ModLoaderManager(paths, downloadManager, versionInstaller)

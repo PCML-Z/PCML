@@ -13,14 +13,35 @@ import com.pmcl.core.gamecontent.ConfigFileManager
 
 // ============ 配置文件编辑器 ============
 
-/** 获取当前选中版本的 config 目录 */
+/** 当前选中版本的 config 目录；版本隔离时与启动 gameDir 对齐并灌入已有配置 */
 fun LauncherViewModel.getConfigDir(): java.nio.file.Path {
     val versionId = _selectedVersion.value
-    val pref = preferences
-    if (pref.isVersionIsolation() && versionId != null) {
-        return config.getWorkDir().resolve("instances").resolve(versionId).resolve("config")
+    if (versionId != null) {
+        return com.pmcl.core.launch.GameDirResolver(config, preferences)
+            .resolveGameDir(versionId)
+            .resolve("config")
     }
     return config.getWorkDir().resolve("config")
+}
+
+/** 开关版本隔离：打开时把当前版本已有模组/配置灌进隔离目录 */
+fun LauncherViewModel.setVersionIsolation(enabled: Boolean) {
+    preferences.setVersionIsolation(enabled)
+    if (!enabled) return
+    val versionId = _selectedVersion.value
+    scope.launch {
+        withContext(Dispatchers.IO) {
+            if (versionId != null) {
+                runCatching {
+                    com.pmcl.core.launch.GameDirResolver(config, preferences)
+                        .resolveGameDir(versionId)
+                }.onFailure {
+                    System.err.println("[setVersionIsolation] 灌入隔离目录失败: ${it.message}")
+                }
+            }
+        }
+        refreshInstalledMods()
+    }
 }
 
 /** 创建 ConfigFileManager 实例（基于当前选中版本的 config 目录） */

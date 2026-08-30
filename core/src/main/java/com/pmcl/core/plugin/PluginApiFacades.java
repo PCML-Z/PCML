@@ -460,23 +460,12 @@ final class PluginApiFacades {
 
             @Override
             public Path resolveModsDir(String versionOrInstanceId) {
-                var pref = core.getPreferences();
-                Path work = core.getConfig().getWorkDir();
-                if (pref.isVersionIsolation() && versionOrInstanceId != null
-                        && !versionOrInstanceId.isBlank()) {
-                    Path instanceMods = work.resolve("instances")
-                            .resolve(versionOrInstanceId).resolve("mods");
-                    if (Files.isDirectory(instanceMods)
-                            || Files.isDirectory(work.resolve("instances").resolve(versionOrInstanceId))) {
-                        return instanceMods;
-                    }
-                    return work.resolve("versions").resolve(versionOrInstanceId).resolve("mods");
+                if (versionOrInstanceId == null || versionOrInstanceId.isBlank()) {
+                    return core.getConfig().getWorkDir().resolve("mods");
                 }
-                Path mods = work.resolve("mods");
-                if (versionOrInstanceId != null && !versionOrInstanceId.isBlank()) {
-                    return mods.resolve(versionOrInstanceId);
-                }
-                return mods;
+                return new com.pmcl.core.launch.GameDirResolver(
+                        core.getConfig(), core.getPreferences())
+                        .resolveModsDir(versionOrInstanceId);
             }
 
             @Override

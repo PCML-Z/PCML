@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Label
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -82,9 +83,13 @@ import com.pmcl.ui.viewmodel.updateMod
 import com.pmcl.ui.viewmodel.updateAllMods
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.awt.Desktop
 import java.awt.FileDialog
 import java.awt.Frame
 import java.io.FilenameFilter
+import java.net.URI
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 
 @Composable
 fun ModsPage(vm: LauncherViewModel) {
@@ -947,6 +952,11 @@ private fun ModRow(
                             )
                         }
                     }
+                    Spacer(Modifier.height(4.dp))
+                    ModWebSearchChips(
+                        keyword = m.getName() ?: m.getModId().orEmpty(),
+                        compact = true
+                    )
                 }
             }
 
@@ -1054,6 +1064,14 @@ private fun ModDetailDialog(
                 Text(I18n.t("mods.detail_conflicts",
                      m.getConflicts().joinToString(", ").ifEmpty { "-" }),
                      style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    I18n.t("mods.search_web"),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(Modifier.height(6.dp))
+                ModWebSearchChips(keyword = m.getName() ?: m.getModId().orEmpty())
             }
         },
         confirmButton = {
@@ -1254,3 +1272,65 @@ private fun TagEditDialog(
         }
     )
 }
+
+private enum class ModWebSearchSite(val labelKey: String) {
+    MCMOD("mods.search_mcmod"),
+    MC_CHINA("mods.search_mc_china"),
+    MCBBS("mods.search_mcbbs");
+
+    fun url(keyword: String): String {
+        val q = keyword.trim()
+        val encoded = if (q.isEmpty()) ""
+            else URLEncoder.encode(q, StandardCharsets.UTF_8)
+        return when (this) {
+            MCMOD ->
+                if (encoded.isEmpty()) "https://www.mcmod.cn/"
+                else "https://search.mcmod.cn/s?key=$encoded"
+            MC_CHINA ->
+                if (encoded.isEmpty()) "https://www.minecraft.net/zh-hans"
+                else "https://www.minecraft.net/zh-hans/search?term=$encoded"
+            MCBBS ->
+                if (encoded.isEmpty()) "https://www.mcbbs.co/"
+                else "https://www.mcbbs.co/search.php?mod=forum&searchsubmit=yes&srchtxt=$encoded"
+        }
+    }
+}
+
+private fun openModWebSearch(site: ModWebSearchSite, keyword: String) {
+    try {
+        if (Desktop.isDesktopSupported()) {
+            Desktop.getDesktop().browse(URI(site.url(keyword)))
+        }
+    } catch (_: Throwable) {
+    }
+}
+
+@Composable
+private fun ModWebSearchChips(keyword: String, compact: Boolean = false) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        ModWebSearchSite.entries.forEach { site ->
+            AssistChip(
+                onClick = { openModWebSearch(site, keyword) },
+                label = {
+                    Text(
+                        I18n.t(site.labelKey),
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                },
+                leadingIcon = if (compact) null else {
+                    {
+                        Icon(
+                            Icons.Filled.OpenInNew,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+                }
+            )
+        }
+    }
+}
+

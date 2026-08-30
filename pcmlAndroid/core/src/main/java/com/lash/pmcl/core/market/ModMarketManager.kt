@@ -2,6 +2,7 @@ package com.lash.pmcl.core.market
 
 import com.lash.pmcl.core.download.DownloadManager
 import com.lash.pmcl.core.paths.PmclPaths
+import com.lash.pmcl.core.preferences.Preferences
 import okhttp3.OkHttpClient
 import java.io.IOException
 import java.nio.file.Files
@@ -23,7 +24,8 @@ import java.util.function.Consumer
 class ModMarketManager(
     private val paths: PmclPaths,
     private val downloads: DownloadManager,
-    curseForgeApiKey: String
+    curseForgeApiKey: String,
+    private val preferences: Preferences? = null
 ) {
 
     private val clients: MutableList<ModMarketClient> = CopyOnWriteArrayList()
@@ -210,27 +212,11 @@ class ModMarketManager(
                    onStatus: Consumer<String>?): CompletableFuture<Void> =
         CompletableFuture.runAsync {
             try {
-                var modsDir: Path
-                if (versionIsolation == true && !versionId.isNullOrEmpty()) {
-                    // H20: versionId path traversal 防护
-                    requireSafeInstanceId(versionId)
-                    val instancesRoot = paths.instances.toAbsolutePath().normalize()
-                    val instanceDir = instancesRoot.resolve(versionId).normalize()
-                    if (!instanceDir.startsWith(instancesRoot)) {
-                        throw IOException("versionId path escapes instances dir: $versionId")
-                    }
-                    // 版本隔离：安装到 instances/<versionId>/mods/
-                    modsDir = instanceDir.resolve("mods")
+                val modsDir = if (!versionId.isNullOrEmpty()) {
+                    com.lash.pmcl.core.launch.GameDirResolver(paths, preferences)
+                        .resolveModsDir(versionId)
                 } else {
-                    modsDir = paths.minecraftWorkDir.resolve("mods")
-                    if (gameVersion.isNotEmpty()) {
-                        requireSafeInstanceId(gameVersion)
-                        val modsRoot = modsDir.toAbsolutePath().normalize()
-                        modsDir = modsRoot.resolve(gameVersion).normalize()
-                        if (!modsDir.startsWith(modsRoot)) {
-                            throw IOException("gameVersion path escapes mods dir: $gameVersion")
-                        }
-                    }
+                    paths.minecraftWorkDir.resolve("mods")
                 }
                 val fileName = file.fileName
                 if (fileName.isBlank() || fileName.contains("..") ||
@@ -261,16 +247,6 @@ class ModMarketManager(
                 throw RuntimeException("模组下载失败: ${file.fileName}", e)
             }
         }
-
-    /** 校验实例 ID 不含路径穿越字符（替代桌面版 InstanceManager.requireSafeInstanceId） */
-    @Throws(IOException::class)
-    private fun requireSafeInstanceId(id: String) {
-        if (id.contains("..") || id.contains("/") ||
-            id.contains("\\") || id.indexOf('\u0000') >= 0
-        ) {
-            throw IOException("非法实例 ID: $id")
-        }
-    }
 
     /** 单源失败时记录日志，避免 UI 把"源故障"误当成"无结果"却无从排查 */
     private fun logMarketFailure(client: ModMarketClient?, op: String, ex: Throwable) {

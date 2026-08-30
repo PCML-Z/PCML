@@ -1,7 +1,9 @@
 package com.lash.pmcl.ui.screens
 
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.net.Uri
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
@@ -45,6 +47,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Label
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sort
@@ -1046,6 +1049,11 @@ private fun ModRow(
                             tint = MaterialTheme.colorScheme.error)
                     }
                 }
+                Spacer(Modifier.height(4.dp))
+                ModWebSearchChips(
+                    keyword = m.name.ifEmpty { m.modId },
+                    compact = true
+                )
             }
 
             if (!selectionMode) {
@@ -1169,6 +1177,10 @@ private fun ModDetailDialog(m: ModMeta, onDismiss: () -> Unit) {
                 Spacer(Modifier.height(4.dp))
                 Text("冲突: ${m.conflicts.joinToString(", ").ifEmpty { "-" }}",
                     style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(10.dp))
+                Text("网上搜", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(6.dp))
+                ModWebSearchChips(keyword = m.name.ifEmpty { m.modId })
             }
         },
         confirmButton = {
@@ -1339,6 +1351,58 @@ private fun TagEditDialog(
             TextButton(onClick = onDismiss) { Text("取消") }
         }
     )
+}
+
+private enum class ModWebSearchSite(val label: String) {
+    MCMOD("MC百科"),
+    MC_CHINA("MC中国站"),
+    MCBBS("MCBBS");
+
+    fun url(keyword: String): String {
+        val q = keyword.trim()
+        val encoded = if (q.isEmpty()) "" else java.net.URLEncoder.encode(q, "UTF-8")
+        return when (this) {
+            MCMOD ->
+                if (encoded.isEmpty()) "https://www.mcmod.cn/"
+                else "https://search.mcmod.cn/s?key=$encoded"
+            MC_CHINA ->
+                if (encoded.isEmpty()) "https://www.minecraft.net/zh-hans"
+                else "https://www.minecraft.net/zh-hans/search?term=$encoded"
+            MCBBS ->
+                if (encoded.isEmpty()) "https://www.mcbbs.co/"
+                else "https://www.mcbbs.co/search.php?mod=forum&searchsubmit=yes&srchtxt=$encoded"
+        }
+    }
+}
+
+@Composable
+private fun ModWebSearchChips(keyword: String, compact: Boolean = false) {
+    val context = LocalContext.current
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        ModWebSearchSite.entries.forEach { site ->
+            AssistChip(
+                onClick = {
+                    try {
+                        context.startActivity(
+                            Intent(Intent.ACTION_VIEW, Uri.parse(site.url(keyword)))
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    } catch (_: Throwable) {
+                        Toast.makeText(context, "打不开浏览器", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                label = { Text(site.label, style = MaterialTheme.typography.labelSmall) },
+                leadingIcon = if (compact) null else {
+                    {
+                        Icon(Icons.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(14.dp))
+                    }
+                }
+            )
+        }
+    }
 }
 
 // 将 CompletableFuture 转为可挂起的结果（异常返回 null）

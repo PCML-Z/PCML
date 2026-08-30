@@ -106,7 +106,6 @@ fun LaunchPage(vm: LauncherViewModel) {
     val gameRunning by vm.gameRunning.collectAsState()
     val installing by vm.installing.collectAsState()
     val installProgress by vm.installProgress.collectAsState()
-    val crashEvent by vm.crashEvent.collectAsState()
     val compatOptions by vm.compatOptions.collectAsState()
     val compatTitle by vm.compatTitle.collectAsState()
     val format = remember { SimpleDateFormat("yyyy-MM-dd HH:mm") }
@@ -1290,15 +1289,6 @@ fun LaunchPage(vm: LauncherViewModel) {
         )
     }
 
-    // ===== 游戏崩溃报错窗口 =====
-    crashEvent?.let { ev ->
-        CrashReportDialog(
-            event = ev,
-            onRecovery = { action -> vm.executeRecoveryAction(action, ev.versionId) },
-            onDismiss = { vm.clearCrashEvent() }
-        )
-    }
-
     // ===== 兼容性选项对话框 =====
     if (compatOptions.isNotEmpty()) {
         AlertDialog(
@@ -1395,127 +1385,6 @@ private fun RenameTileDialog(
         },
         dismissButton = {
             OutlinedButton(onClick = onDismiss) { Text(I18n.t("common.cancel")) }
-        }
-    )
-}
-
-/**
- * 游戏崩溃报错窗口：展示退出码、崩溃原因、修复建议。
- * 支持查看最近日志片段，复制崩溃信息到剪贴板，并显示可执行的恢复操作。
- */
-@Composable
-private fun CrashReportDialog(
-    event: LauncherViewModel.CrashEvent,
-    onRecovery: (com.pmcl.core.launch.CrashAnalyzer.RecoveryAction) -> Unit,
-    onDismiss: () -> Unit
-) {
-    var showLogs by remember { mutableStateOf(false) }
-    val report = event.report
-    val causes = report?.getCauses() ?: listOf(I18n.t("launch.crash_no_report", event.exitCode))
-    val suggestions = report?.getSuggestions() ?: listOf(I18n.t("launch.crash_no_report_hint"))
-    val recoveryActions = report?.getRecoveryActions() ?: emptyList()
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    Icons.Filled.Refresh,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(I18n.t("launch.game_crashed"), color = MaterialTheme.colorScheme.error)
-            }
-        },
-        text = {
-            Column {
-                Text(I18n.t("launch.crash_info", event.versionId, event.exitCode),
-                     style = MaterialTheme.typography.labelMedium,
-                     color = MaterialTheme.colorScheme.outline)
-                Spacer(Modifier.height(8.dp))
-                Text(I18n.t("launch.possible_causes"), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
-                causes.forEach { c ->
-                    Text("• $c", style = MaterialTheme.typography.bodySmall)
-                }
-                Spacer(Modifier.height(8.dp))
-                Text(I18n.t("launch.fix_suggestions"), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
-                suggestions.forEach { s ->
-                    Text("• $s", style = MaterialTheme.typography.bodySmall)
-                }
-                // ===== 可执行的恢复操作 =====
-                if (recoveryActions.isNotEmpty()) {
-                    Spacer(Modifier.height(10.dp))
-                    Text(I18n.t("crash.recovery_title"),
-                         style = MaterialTheme.typography.labelLarge,
-                         fontWeight = FontWeight.SemiBold,
-                         color = MaterialTheme.colorScheme.primary)
-                    Spacer(Modifier.height(4.dp))
-                    Text(I18n.t("crash.recovery_hint"),
-                         style = MaterialTheme.typography.labelSmall,
-                         color = MaterialTheme.colorScheme.outline)
-                    Spacer(Modifier.height(6.dp))
-                    recoveryActions.forEach { action ->
-                        Surface(
-                            onClick = {
-                                onRecovery(action)
-                            },
-                            shape = RoundedCornerShape(6.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
-                        ) {
-                            Row(
-                                Modifier.padding(8.dp).fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    Icons.Filled.Refresh,
-                                    contentDescription = null,
-                                    Modifier.size(16.dp),
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                Column(Modifier.weight(1f)) {
-                                    Text(action.getTitle(),
-                                         style = MaterialTheme.typography.labelMedium,
-                                         fontWeight = FontWeight.SemiBold)
-                                    Text(action.getDescription(),
-                                         style = MaterialTheme.typography.labelSmall,
-                                         color = MaterialTheme.colorScheme.outline)
-                                }
-                            }
-                        }
-                    }
-                }
-                if (showLogs) {
-                    Spacer(Modifier.height(8.dp))
-                    Text(I18n.t("launch.recent_logs", event.recentLogs.size),
-                         style = MaterialTheme.typography.labelLarge,
-                         fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.height(4.dp))
-                    Surface(
-                        color = glassSurfaceVariantColor(),
-                        shape = RoundedCornerShape(6.dp),
-                        modifier = Modifier.fillMaxWidth().heightIn(max = 180.dp)
-                    ) {
-                        Column(Modifier.padding(8.dp).verticalScroll(rememberScrollState())) {
-                            event.recentLogs.forEach { line ->
-                                Text(line, style = MaterialTheme.typography.labelSmall,
-                                     fontFamily = FontFamily.Monospace)
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            Button(onClick = onDismiss) { Text(I18n.t("common.close")) }
-        },
-        dismissButton = {
-            OutlinedButton(onClick = { showLogs = !showLogs }) {
-                Text(if (showLogs) I18n.t("launch.hide_log") else I18n.t("launch.view_log"))
-            }
         }
     )
 }

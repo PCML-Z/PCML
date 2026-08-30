@@ -292,5 +292,14 @@ class CrashAnalyzer {
         private const val MAX_SCAN_REPORTS = 20
         /** 单份报告最大读取字节数（防超大文件 OOM） */
         private const val MAX_REPORT_BYTES = 2L * 1024 * 1024
+
+        fun looksLikeCrash(line: String?): Boolean {
+            if (line.isNullOrEmpty()) return false
+            return line.contains("---- Minecraft Crash Report ----")
+                || line.contains("#@!@# Game crashed")
+                || line.contains("Minecraft has crashed")
+                || line.contains("Game crashed! Crash report saved")
+                || line.contains("---- Minecraft has crashed ----")
+        }
     }
 }

@@ -2,7 +2,6 @@ package com.pmcl.core.market;
 
 import com.pmcl.core.LauncherConfig;
 import com.pmcl.core.download.DownloadManager;
-import com.pmcl.core.instance.InstanceManager;
 import com.pmcl.core.preferences.Preferences;
 import okhttp3.OkHttpClient;
 
@@ -212,8 +211,10 @@ public final class ModMarketManager {
     /**
      * 安装模组到 mods 目录。
      * <p>
-     * 版本隔离开启时，模组安装到 {@code instances/<versionId>/mods/}；
-     * 否则安装到 {@code mods/<gameVersion>/}。
+     * 安装到启动时实际读取的 mods 目录：
+     * 版本隔离 → {@code instances/<versionId>/mods/}（首次会灌入已有模组）；
+     * 整合包 → {@code versions/<id>/mods/}；
+     * 否则 → 该版本 mcRoot/mods。
      *
      * @param file         模组文件
      * @param gameVersion  目标 MC 版本（非隔离模式下决定 mods 子目录）
@@ -226,29 +227,7 @@ public final class ModMarketManager {
                                               Consumer<String> onStatus) {
         return CompletableFuture.runAsync(() -> {
             try {
-                Path modsDir;
-                if (preferences != null && preferences.isVersionIsolation()
-                        && versionId != null && !versionId.isEmpty()) {
-                    // H20: versionId path traversal 防护
-                    InstanceManager.requireSafeInstanceId(versionId);
-                    Path instancesRoot = config.getWorkDir().resolve("instances").toAbsolutePath().normalize();
-                    Path instanceDir = instancesRoot.resolve(versionId).normalize();
-                    if (!instanceDir.startsWith(instancesRoot)) {
-                        throw new IOException("versionId path escapes instances dir: " + versionId);
-                    }
-                    // 版本隔离：安装到 instances/<versionId>/mods/
-                    modsDir = instanceDir.resolve("mods");
-                } else {
-                    modsDir = config.getWorkDir().resolve("mods");
-                    if (gameVersion != null && !gameVersion.isEmpty()) {
-                        InstanceManager.requireSafeInstanceId(gameVersion);
-                        Path modsRoot = modsDir.toAbsolutePath().normalize();
-                        modsDir = modsRoot.resolve(gameVersion).normalize();
-                        if (!modsDir.startsWith(modsRoot)) {
-                            throw new IOException("gameVersion path escapes mods dir: " + gameVersion);
-                        }
-                    }
-                }
+                Path modsDir = resolveInstallModsDir(versionId, preferences);
                 String fileName = file.getFileName();
                 if (fileName == null || fileName.isBlank()
                         || fileName.contains("..")
@@ -284,6 +263,14 @@ public final class ModMarketManager {
                 throw new RuntimeException("模组下载失败: " + file.getFileName(), e);
             }
         });
+    }
+
+    /** 安装路径与启动时 gameDir/mods 对齐（含版本隔离首次灌入）。 */
+    private Path resolveInstallModsDir(String versionId, Preferences preferences) {
+        if (versionId != null && !versionId.isEmpty() && preferences != null) {
+            return new com.pmcl.core.launch.GameDirResolver(config, preferences).resolveModsDir(versionId);
+        }
+        return config.getWorkDir().resolve("mods");
     }
 
     /** 单源失败时记录日志，避免 UI 把“源故障”误当成“无结果”却无从排查 */
