@@ -12,7 +12,7 @@
   <img src="repo-stats.png" alt="PMCL repo stats">
 </p>
 
-**PMCL** (Personal Minecraft Custom Launcher) 是一個基於 Compose Desktop 構建的跨平臺 Minecraft 啟動器，採用 Material 3 設計語言，內建外掛系統、聯機功能、模組管理，並支援嵌入 HMCL JavaFX 介面。
+**PMCL** (Personal Minecraft Custom Launcher) 是一個基於 Compose Desktop 構建的跨平臺 Minecraft 啟動器，採用 Material 3 設計語言，內建外掛系統、聯機功能、模組管理，並支援嵌入 JavaFX 介面。
 
 ## 功能特性
 
