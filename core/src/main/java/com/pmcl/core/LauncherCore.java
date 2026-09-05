@@ -353,7 +353,7 @@ public final class LauncherCore {
     private static String currentLauncherVersion() {
         String version = LauncherCore.class.getPackage().getImplementationVersion();
         if (version == null || version.isBlank()) {
-            version = System.getProperty("pmcl.version", "1.3.0");
+            version = System.getProperty("pmcl.version", "1.3.0c");
         }
         return version;
     }

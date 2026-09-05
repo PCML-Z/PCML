@@ -56,14 +56,13 @@ private val CrashOnRed = Color(0xFFFFF5F5)
 @Composable
 fun GameCrashPopup(vm: LauncherViewModel) {
     val event by vm.crashEvent.collectAsState()
-    val ev = event ?: return
     val packBusy by vm.supportPackBusy.collectAsState()
     val packPath by vm.supportPackPath.collectAsState()
-    val gameLogs by vm.gameLogs.collectAsState()
+    val ev = event ?: return
 
-    val reportBody = remember(ev, gameLogs) {
+    val reportBody = remember(ev) {
         val fromFile = ev.report?.content?.takeIf { it.isNotBlank() && !ev.live }
-        fromFile ?: crashReportText(ev.recentLogs.ifEmpty { gameLogs.map { it.text } })
+        fromFile ?: crashReportText(ev.recentLogs)
     }
     val scroll = rememberScrollState()
     LaunchedEffect(reportBody.length, ev.live) {
@@ -264,5 +263,5 @@ private fun pickSupportPackPath(versionId: String): String? {
     val file = fd.file ?: return null
     if (dir.isEmpty() || file.isEmpty()) return null
     val name = if (file.endsWith(".zip", ignoreCase = true)) file else "$file.zip"
-    return dir + name
+    return java.io.File(dir, name).absolutePath
 }

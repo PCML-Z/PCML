@@ -308,8 +308,8 @@ public static AssetIndex parse(String json) throws IOException {
 # 构建 Fat JAR（Compose 原生库较全，但 JavaFX 原生库与构建主机一致）
 ./gradlew :ui:fatJar
 
-# 输出: ui/build/libs/pmcl-1.3.0-all.jar
-# 运行: java -jar ui/build/libs/pmcl-1.3.0-all.jar
+# 输出: ui/build/libs/pmcl-1.3.0c-all.jar
+# 运行: java -jar ui/build/libs/pmcl-1.3.0c-all.jar
 ```
 
 ### 构建原生安装包 (≧◡≦)

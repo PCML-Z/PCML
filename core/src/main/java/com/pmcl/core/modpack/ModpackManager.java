@@ -1432,7 +1432,7 @@ public final class ModpackManager {
         pmclMeta.addProperty("loader", loader);
         pmclMeta.addProperty("loaderVersion", loaderVersion);
         pmclMeta.addProperty("author", author);
-        pmclMeta.addProperty("pmclVersion", "1.3.0");
+        pmclMeta.addProperty("pmclVersion", "1.3.0c");
         pmclMeta.addProperty("exportTime", java.time.Instant.now().toString());
         pmclMeta.add("mods", modsList);
 

@@ -9,7 +9,7 @@ java {
     withSourcesJar()
 }
 
-val pmclVersion = providers.gradleProperty("pmcl.version").orElse("1.3.0")
+val pmclVersion = providers.gradleProperty("pmcl.version").orElse("1.3.0c")
 tasks.withType<Jar>().configureEach {
     manifest {
         attributes("Implementation-Version" to pmclVersion.get())
@@ -48,6 +48,7 @@ tasks.named<JavaCompile>("compileGlfwAgentJava") {
     sourceCompatibility = "1.8"
     targetCompatibility = "1.8"
     options.release.set(8)
+    options.compilerArgs.add("-Xlint:-options")
 }
 
 val glfwAgentJar by tasks.registering(Jar::class) {

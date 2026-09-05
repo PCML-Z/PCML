@@ -308,8 +308,8 @@ public static AssetIndex parse(String json) throws IOException {
 # Buiwd da Fat JAR (Compose native wibs awe faiwwy compwete, but JavaFX native wibs match da buiwd host)
 ./gradlew :ui:fatJar
 
-# Output: ui/build/libs/pmcl-1.3.0-all.jar
-# Wun: java -jar ui/build/libs/pmcl-1.3.0-all.jar
+# Output: ui/build/libs/pmcl-1.3.0c-all.jar
+# Wun: java -jar ui/build/libs/pmcl-1.3.0c-all.jar
 ```
 
 ### Buiwd native instawwews (｡•ᴗ•｡)♡

@@ -1231,13 +1231,23 @@ class LauncherViewModel {
         val report: CrashAnalyzer.CrashReport?,
         val recentLogs: List<String>,
         val versionId: String,
-        val live: Boolean = false
+        val live: Boolean = false,
+        val session: Long = 0L
     )
     @PublishedApi internal val _crashEvent = MutableStateFlow<CrashEvent?>(null)
     val crashEvent: StateFlow<CrashEvent?> = _crashEvent.asStateFlow()
 
+    /** 本局启动序号：关掉/重启后，旧进程退出不得再弹窗 */
+    @PublishedApi internal val crashSessionSeq = java.util.concurrent.atomic.AtomicLong(0)
+    @PublishedApi internal val ignoredCrashSessions =
+        java.util.concurrent.ConcurrentHashMap.newKeySet<Long>()
+
     /** 清除崩溃事件（UI 关闭弹窗时调用） */
-    fun clearCrashEvent() { _crashEvent.value = null }
+    fun clearCrashEvent() {
+        _crashEvent.value?.session?.let { if (it != 0L) ignoredCrashSessions.add(it) }
+        _crashEvent.value = null
+        _supportPackPath.value = null
+    }
 
     @PublishedApi internal val _supportPackBusy = MutableStateFlow(false)
     val supportPackBusy: StateFlow<Boolean> = _supportPackBusy.asStateFlow()
@@ -1246,7 +1256,7 @@ class LauncherViewModel {
     fun clearSupportPackPath() { _supportPackPath.value = null }
 
     /** 恢复操作执行后的用户反馈消息（UI 可监听显示 snackbar） */
-    private val _recoveryMessage = MutableStateFlow<String?>(null)
+    @PublishedApi internal val _recoveryMessage = MutableStateFlow<String?>(null)
     val recoveryMessage: StateFlow<String?> = _recoveryMessage.asStateFlow()
     fun clearRecoveryMessage() { _recoveryMessage.value = null }
 

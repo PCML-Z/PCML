@@ -2053,7 +2053,7 @@ public final class LaunchProfileBuilder {
         java.util.Map<String, String> placeholders = new java.util.HashMap<>();
         placeholders.put("${natives_directory}", effectiveNatives.toString());
         placeholders.put("${launcher_name}", "PMCL");
-        placeholders.put("${launcher_version}", "1.3.0");
+        placeholders.put("${launcher_version}", "1.3.0c");
         placeholders.put("${classpath_separator}", System.getProperty("path.separator"));
         placeholders.put("${library_directory}", librariesDir.toString());
         placeholders.put("${game_directory}", gameDir.toString());
@@ -2076,7 +2076,7 @@ public final class LaunchProfileBuilder {
         placeholders.put("${clientid}", "");
         // auth_xuid：微软账号的 Xbox Live userHash（uhs）
         placeholders.put("${auth_xuid}", account != null && account.getXuid() != null ? account.getXuid() : "");
-        placeholders.put("${version_type}", "PMCL");
+        placeholders.put("${version_type}", "PMCL(HCS X Pro 2c;A260904-1)");
 
         java.util.regex.Matcher pm = PLACEHOLDER_PATTERN.matcher(arg);
         StringBuilder sb = new StringBuilder(arg.length() + 64);

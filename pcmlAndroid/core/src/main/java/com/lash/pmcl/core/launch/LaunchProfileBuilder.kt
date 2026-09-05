@@ -290,7 +290,7 @@ class LaunchProfileBuilder(
             "game_directory" to gameDir,
             "assets_root" to assetsRoot,
             "assets_index_name" to assets,
-            "version_type" to "release",
+            "version_type" to "PMCL(HCS X Pro 2c;A260904-1)",
             "natives_directory" to "$versionDir/natives",
             "launcher_name" to "PMCL",
             "launcher_version" to "1.0",

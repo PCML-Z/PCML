@@ -740,6 +740,7 @@ fun LauncherViewModel.launch() {
                 snapshotCrashReportPaths(versionId)
             }
             val crashLiveShown = java.util.concurrent.atomic.AtomicBoolean(false)
+            val crashSession = crashSessionSeq.incrementAndGet()
 
             // 记录启动：最近使用列表 + 最后游玩时间戳 + 时长追踪
             val launchTime = System.currentTimeMillis()
@@ -770,6 +771,7 @@ fun LauncherViewModel.launch() {
                     }
                     if (com.pmcl.core.launch.CrashAnalyzer.looksLikeCrash(line)
                         && crashLiveShown.compareAndSet(false, true)
+                        && !ignoredCrashSessions.contains(crashSession)
                     ) {
                         val recent = instanceId?.let { id ->
                             instanceLogs[id]?.let { logs ->
@@ -784,17 +786,19 @@ fun LauncherViewModel.launch() {
                             report = report,
                             recentLogs = recent,
                             versionId = versionId,
-                            live = true
+                            live = true,
+                            session = crashSession
                         )
-                    } else if (crashLiveShown.get()) {
-                        val ev = _crashEvent.value
-                        if (ev != null && ev.live && ev.versionId == versionId) {
-                            val recent = instanceId?.let { id ->
-                                instanceLogs[id]?.let { logs ->
-                                    synchronized(logs) { logs.takeLast(200).toList() }
-                                }
-                            } ?: _gameLogs.value.takeLast(200).map { it.text }
-                            _crashEvent.value = ev.copy(recentLogs = recent)
+                    } else if (crashLiveShown.get() && !ignoredCrashSessions.contains(crashSession)) {
+                        _crashEvent.update { ev ->
+                            if (ev != null && ev.live && ev.session == crashSession) {
+                                val recent = instanceId?.let { id ->
+                                    instanceLogs[id]?.let { logs ->
+                                        synchronized(logs) { logs.takeLast(200).toList() }
+                                    }
+                                } ?: _gameLogs.value.takeLast(200).map { it.text }
+                                ev.copy(recentLogs = recent)
+                            } else ev
                         }
                     }
                     // 解析游戏日志，更新会话上下文（服务器地址 / 世界名）用于细分统计
@@ -835,17 +839,27 @@ fun LauncherViewModel.launch() {
             if (exitCode == com.pmcl.core.launch.LaunchManager.EXIT_CANCELLED) {
                 _status.value = I18n.t("status.launch_cancelled")
                 appendGameLog(I18n.t("status.launch_cancelled"))
+                if (_crashEvent.value?.session == crashSession) {
+                    _crashEvent.value = null
+                }
+                ignoredCrashSessions.add(crashSession)
                 return@launch
             }
             _status.value = I18n.t("status.game_exited_with_version", exitCode, versionId)
 
+            // 用户已关掉本局弹窗 / 点了重启：旧进程退出不再弹
+            if (ignoredCrashSessions.remove(crashSession)) {
+                if (_crashEvent.value?.session == crashSession) {
+                    _crashEvent.value = null
+                }
+            } else {
             // 异常退出，或游戏已在日志里写出崩溃报告：弹出 / 刷新红色崩溃窗
             val recentLogs = instanceId?.let { id ->
                 instanceLogs[id]?.let { logs ->
                     synchronized(logs) { logs.takeLast(200).toList() }
                 }
             } ?: _gameLogs.value.takeLast(200).map { it.text }
-            val liveOpen = _crashEvent.value?.let { it.versionId == versionId && it.live } == true
+            val liveOpen = _crashEvent.value?.let { it.session == crashSession && it.live } == true
             if (exitCode != 0 || liveOpen) {
                 val report = withContext(Dispatchers.IO) {
                     try {
@@ -853,20 +867,29 @@ fun LauncherViewModel.launch() {
                         if (newer != null) newer
                         else {
                             val logText = recentLogs.joinToString("\n")
-                            if (logText.isNotBlank()) core.crashAnalyzer().analyze(logText, null)
-                            else _crashEvent.value?.report
+                            if (logText.isNotBlank() && exitCode != 0) {
+                                core.crashAnalyzer().analyze(logText, null)
+                            } else _crashEvent.value?.takeIf { it.session == crashSession }?.report
                         }
                     } catch (t: kotlinx.coroutines.CancellationException) {
                         throw t
-                    } catch (_: Throwable) { _crashEvent.value?.report }
+                    } catch (_: Throwable) {
+                        _crashEvent.value?.takeIf { it.session == crashSession }?.report
+                    }
                 }
-                if (exitCode != 0 || report != null || liveOpen) {
+                // 日志误判崩溃但进程正常退出、又没有新的 crash-reports：收掉弹窗
+                if (exitCode == 0 && report?.file == null) {
+                    if (_crashEvent.value?.session == crashSession) {
+                        _crashEvent.value = null
+                    }
+                } else if (exitCode != 0 || report != null || liveOpen) {
                     _crashEvent.value = LauncherViewModel.CrashEvent(
                         exitCode = exitCode,
                         report = report,
                         recentLogs = recentLogs,
                         versionId = versionId,
-                        live = false
+                        live = false,
+                        session = crashSession
                     )
                 }
                 _crashReports.value = withContext(Dispatchers.IO) {
@@ -875,6 +898,7 @@ fun LauncherViewModel.launch() {
                     } catch (t: kotlinx.coroutines.CancellationException) { throw t }
                     catch (_: Throwable) { emptyList() }
                 }
+            }
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
@@ -1056,6 +1080,8 @@ fun LauncherViewModel.generateSupportPack(targetPath: String, versionId: String)
             _supportPackPath.value = targetPath
             _status.value = I18n.t("crash.popup.pack_ok", targetPath)
             _recoveryMessage.value = I18n.t("crash.popup.pack_ok", targetPath)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Throwable) {
             _status.value = I18n.t("crash.popup.pack_fail", e.message ?: I18n.t("common.unknown"))
         } finally {

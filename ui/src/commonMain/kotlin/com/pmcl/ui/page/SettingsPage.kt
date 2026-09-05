@@ -799,7 +799,7 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
 
         if (sectionId == "system") {
         // 系统信息
-        Card(Modifier.fillMaxWidth().glassCardBorder(8.dp), shape = RoundedCornerShape(8.dp), colors = glassCardColors(), elevation = glassCardElevation()) {
+        Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
             Column(Modifier.padding(16.dp)) {
                 Text(I18n.t("settings.system_info"), style = MaterialTheme.typography.titleSmall,
                      fontWeight = FontWeight.SemiBold)
@@ -1156,7 +1156,7 @@ private fun AccountRow(
 
 @Composable
 private fun AboutCard(vm: LauncherViewModel) {
-    Card(Modifier.fillMaxWidth().glassCardBorder(8.dp), shape = RoundedCornerShape(8.dp), colors = glassCardColors(), elevation = glassCardElevation()) {
+    Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
         Column(Modifier.padding(16.dp)) {
             // === 头部：Logo + 名称 + 版本 ===
             Row(verticalAlignment = Alignment.CenterVertically) {

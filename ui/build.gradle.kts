@@ -4,7 +4,18 @@ plugins {
     alias(libs.plugins.compose.compiler)
 }
 
-val pmclVersion = providers.gradleProperty("pmcl.version").orElse("1.3.0")
+val pmclVersion = providers.gradleProperty("pmcl.version").orElse("1.3.0c")
+
+/** Compose native packages only accept numeric x.y.z (e.g. 1.3.0c → 1.3.1). */
+fun nativePackageVersion(raw: String): String {
+    val match = Regex("""^(\d+)\.(\d+)\.(\d+)""").find(raw.trim())
+        ?: return "1.0.0"
+    val major = match.groupValues[1]
+    val minor = match.groupValues[2]
+    val patch = match.groupValues[3].toInt()
+    val suffix = raw.trim().substring(match.range.last + 1)
+    return if (suffix.isEmpty()) "$major.$minor.$patch" else "$major.$minor.${patch + 1}"
+}
 
 kotlin {
     jvm("desktop") {
@@ -94,7 +105,7 @@ compose.desktop {
                 org.jetbrains.compose.desktop.application.dsl.TargetFormat.Rpm
             )
             packageName = "pmcl"
-            packageVersion = pmclVersion.get()
+            packageVersion = nativePackageVersion(pmclVersion.get())
 
             // jlink 默认仅按显式 module 依赖打包，反射/运行时加载的模块需手动声明
             // 缺失会导致 NoClassDefFoundError: java/lang/management/ManagementFactory 等

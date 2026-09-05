@@ -297,7 +297,7 @@ class CrashAnalyzer {
             if (line.isNullOrEmpty()) return false
             return line.contains("---- Minecraft Crash Report ----")
                 || line.contains("#@!@# Game crashed")
-                || line.contains("Minecraft has crashed")
+                || line.contains("Minecraft has crashed!")
                 || line.contains("Game crashed! Crash report saved")
                 || line.contains("---- Minecraft has crashed ----")
         }

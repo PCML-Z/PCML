@@ -213,6 +213,8 @@ fun LaunchScreen(
     // 日志
     val logs = remember { mutableStateListOf<LogEntry>() }
     val logSeq = remember { AtomicInteger(0) }
+    val launchGen = remember { AtomicInteger(0) }
+    var dismissedCrashEpoch by remember { mutableStateOf(-1) }
 
     val crashAnalyzer = remember { CrashAnalyzer() }
     val format = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
@@ -258,8 +260,12 @@ fun LaunchScreen(
         while (logs.size > 500) logs.removeAt(0)
         com.lash.pmcl.core.launch.LogCollector.add(text)
         val vid = launchingVersionId ?: return
+        if (dismissedCrashEpoch == launchGen.get()) return
+        val current = crashEvent
+        if (current != null && current.versionId == vid && !current.live) {
+            return
+        }
         if (CrashAnalyzer.looksLikeCrash(text)) {
-            val current = crashEvent
             if (current == null || current.versionId != vid || !current.live) {
                 val recent = logs.map { it.text }.takeLast(160)
                 crashEvent = CrashEventInfo(
@@ -362,6 +368,7 @@ fun LaunchScreen(
             return
         }
         launchingVersionId = versionId
+        val epoch = launchGen.incrementAndGet()
         status = "正在构造启动配置..."
         scope.launch {
             try {
@@ -370,6 +377,7 @@ fun LaunchScreen(
                 }
                 val deny = launchManager.verifyBeforeLaunch(profile)
                 if (deny != null) {
+                    launchingVersionId = null
                     status = deny
                     addLog(deny)
                     return@launch
@@ -402,13 +410,24 @@ fun LaunchScreen(
                                 try {
                                     val exitCode = proc.waitFor()
                                     runningInstances.remove(inst)
+                                    if (epoch != launchGen.get()) return@Thread
                                     launchingVersionId = null
+                                    if (dismissedCrashEpoch == epoch) return@Thread
                                     val recentLogLines = logs.map { it.text }
                                     val liveOpen = crashEvent?.let { it.versionId == versionId && it.live } == true
-                                    if ((exitCode != 0 && exitCode != LaunchManager.EXIT_CANCELLED) || liveOpen) {
+                                    if (exitCode == LaunchManager.EXIT_CANCELLED) {
+                                        if (crashEvent?.versionId == versionId) crashEvent = null
+                                        return@Thread
+                                    }
+                                    if ((exitCode != 0) || liveOpen) {
+                                        if (exitCode == 0 && !liveOpen) return@Thread
                                         val report = try {
                                             crashAnalyzer.analyze(recentLogLines.joinToString("\n"), null)
                                         } catch (_: Exception) { crashEvent?.report }
+                                        if (exitCode == 0 && report == null) {
+                                            crashEvent = null
+                                            return@Thread
+                                        }
                                         crashEvent = CrashEventInfo(
                                             versionId, exitCode, report, recentLogLines.takeLast(200), live = false
                                         )
@@ -821,6 +840,7 @@ fun LaunchScreen(
             onGeneratePack = { doGenerateSupportPack(ev) },
             onHelp = { doCrashHelp(ev) },
             onRelaunch = {
+                dismissedCrashEpoch = launchGen.get()
                 crashEvent = null
                 doLaunch(ev.versionId, account)
             },
@@ -829,9 +849,13 @@ fun LaunchScreen(
                     CrashAnalyzer.RecoveryType.SHARE_LOGS -> doShareLogs()
                     else -> status = "已执行: ${action.title}"
                 }
+                dismissedCrashEpoch = launchGen.get()
                 crashEvent = null
             },
-            onDismiss = { crashEvent = null },
+            onDismiss = {
+                dismissedCrashEpoch = launchGen.get()
+                crashEvent = null
+            },
         )
     }
 

@@ -21,6 +21,8 @@ class SupportPackGeneratorTest {
     void looksLikeCrashDetectsVanillaAndForgeMarkers() {
         assertTrue(CrashAnalyzer.looksLikeCrash("---- Minecraft Crash Report ----"));
         assertTrue(CrashAnalyzer.looksLikeCrash("#@!@# Game crashed! Crash report saved to:"));
+        assertTrue(CrashAnalyzer.looksLikeCrash("Minecraft has crashed!"));
+        assertFalse(CrashAnalyzer.looksLikeCrash("if Minecraft has crashed, send logs"));
         assertFalse(CrashAnalyzer.looksLikeCrash("[Render thread/INFO]: Opened"));
         assertFalse(CrashAnalyzer.looksLikeCrash(""));
         assertFalse(CrashAnalyzer.looksLikeCrash(null));

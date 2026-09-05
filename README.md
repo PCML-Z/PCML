@@ -308,8 +308,8 @@ public static AssetIndex parse(String json) throws IOException {
 # Build the Fat JAR (Compose native libs are fairly complete, but JavaFX native libs match the build host)
 ./gradlew :ui:fatJar
 
-# Output: ui/build/libs/pmcl-1.3.0-all.jar
-# Run: java -jar ui/build/libs/pmcl-1.3.0-all.jar
+# Output: ui/build/libs/pmcl-1.3.0c-all.jar
+# Run: java -jar ui/build/libs/pmcl-1.3.0c-all.jar
 ```
 
 ### Build native installers
