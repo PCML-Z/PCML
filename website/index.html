@@ -5,61 +5,79 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PMCL — 让每一次启动，都成为仪式</title>
 <meta name="description" content="PMCL 是一款跨平台、全版本、插件化的 Minecraft 启动器。支持 x86_64、ARM64、LoongArch64、RISC-V 64 与 MIPS64el。">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%232E5A3C'/%3E%3Ctext x='32' y='45' font-family='Georgia,serif' font-size='36' fill='%23F3F0E7' text-anchor='middle'%3EP%3C/text%3E%3C/svg%3E">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@300;400;500;700&family=Noto+Serif+SC:wght@500;700;900&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%233B60C5'/%3E%3Ctext x='32' y='45' font-family='Archivo,Arial,sans-serif' font-weight='900' font-size='36' fill='%23FDF2DE' text-anchor='middle'%3EP%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="vendor/fonts/fonts.css">
 <style>
-/* ============ 基础 ============ */
+/* ============ 设计变量 ============ */
 :root{
-  --paper:#F3F0E7; --paper-2:#EAE6D8;
-  --ink:#191813; --ink-soft:#5D5A4E;
-  --moss:#2E5A3C; --moss-bright:#8CB98F;
-  --dark:#0F110E; --dark-2:#121411; --dark-3:#0C0E0B;
-  --cream:#EAE7DB; --cream-soft:#8F8D80;
-  --hairline:rgba(25,24,19,.16);
-  --hairline-l:rgba(234,231,219,.16);
-  --serif:"Instrument Serif","Noto Serif SC",Georgia,serif;
-  --sans:"Archivo","Noto Sans SC","PingFang SC",sans-serif;
-  --mono:"JetBrains Mono","Noto Sans SC",ui-monospace,monospace;
+  --blue:#3B60C5; --blue-2:#5B7FD9; --blue-soft:#9DB4E8; --blue-deep:#22398F;
+  --navy:#0C1230; --navy-2:#111A3E; --navy-3:#090E24;
+  --cream:#FDF2DE; --cream-2:#F3E3C3;
+  --ink:#10162E; --ink-soft:#5A6180;
+  --line:rgba(16,22,46,.14); --line-l:rgba(253,242,222,.15);
+  --serif:"Instrument Serif",Georgia,serif;
+  --sans:"Archivo","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  --black:"Archivo Black","Archivo","PingFang SC","Microsoft YaHei",sans-serif;
+  --mono:"JetBrains Mono","PingFang SC","Microsoft YaHei",ui-monospace,monospace;
   --ease:cubic-bezier(.16,1,.3,1);
-  --container:min(1220px,calc(100% - 48px));
-  --container-wide:min(1400px,calc(100% - 48px));
+  --container:min(1240px,calc(100% - 48px));
+  --container-wide:min(1440px,calc(100% - 48px));
 }
 *{margin:0;padding:0;box-sizing:border-box}
-html{scroll-behavior:smooth;scroll-padding-top:96px}
+html{-webkit-text-size-adjust:100%}
 body{
-  font-family:var(--sans);background:var(--paper);color:var(--ink);
-  font-size:17px;line-height:1.85;-webkit-font-smoothing:antialiased;
-  overflow-x:hidden;
+  font-family:var(--sans);background:var(--cream);color:var(--ink);
+  font-size:17px;line-height:1.85;-webkit-font-smoothing:antialiased;overflow-x:hidden;
 }
-::selection{background:var(--moss);color:var(--paper)}
+::selection{background:var(--blue);color:var(--cream)}
 img{display:block;max-width:100%}
 a{color:inherit;text-decoration:none}
 .mono{font-family:var(--mono)}
 .container{width:var(--container);margin-inline:auto}
 .container-wide{width:var(--container-wide);margin-inline:auto}
-.latin{font-family:var(--serif);font-style:italic;font-weight:400}
-.h-em{color:var(--moss)}
-.sec-dark .h-em{color:var(--moss-bright)}
+em,.latin{font-family:var(--serif);font-style:italic;font-weight:400}
+@media (pointer:fine){
+  body.fancy-cursor,body.fancy-cursor a,body.fancy-cursor button{cursor:none}
+}
 
 /* 颗粒 */
 .grain{
-  position:fixed;inset:0;z-index:60;pointer-events:none;opacity:.05;
+  position:fixed;inset:0;z-index:130;pointer-events:none;opacity:.05;mix-blend-mode:multiply;
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
-/* ============ 进度条 / 导航 ============ */
-#progress{position:fixed;top:0;left:0;right:0;height:2px;background:var(--moss);transform:scaleX(0);transform-origin:left;z-index:100}
+/* ============ 自定义光标 ============ */
+.cursor-dot,.cursor-ring{display:none}
+@media (pointer:fine){
+  .cursor-dot,.cursor-ring{display:block;position:fixed;top:0;left:0;pointer-events:none;z-index:140;transform:translate(-50%,-50%)}
+  .cursor-dot{width:8px;height:8px;border-radius:50%;background:var(--blue)}
+  .cursor-ring{
+    width:38px;height:38px;border-radius:50%;border:1.5px solid rgba(59,96,197,.6);
+    display:flex;align-items:center;justify-content:center;
+    transition:width .35s var(--ease),height .35s var(--ease),background .35s,border-color .35s;
+  }
+  .cursor-ring .cursor-label{
+    font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.18em;color:var(--cream);
+    opacity:0;transition:opacity .25s;text-transform:uppercase;
+  }
+  .cursor-ring.grow{width:64px;height:64px;background:rgba(59,96,197,.14);border-color:rgba(59,96,197,.9)}
+  .cursor-ring.view{width:76px;height:76px;background:var(--blue);border-color:var(--blue)}
+  .cursor-ring.view .cursor-label{opacity:1}
+}
+
+/* 进度条 */
+#progress{position:fixed;top:0;left:0;right:0;height:3px;background:var(--blue);transform:scaleX(0);transform-origin:left;z-index:135}
+
+/* ============ 导航 ============ */
 nav{
-  position:fixed;top:0;left:0;right:0;z-index:90;
+  position:fixed;top:0;left:0;right:0;z-index:110;
   mix-blend-mode:difference;color:#fff;
   display:flex;align-items:center;justify-content:space-between;
   padding:22px 32px;
 }
-.brand{font-family:var(--sans);font-weight:700;font-size:20px;letter-spacing:-.02em}
-.brand sup{font-size:9px;vertical-align:super;opacity:.7;margin-left:2px}
-.nav-links{display:flex;gap:34px;font-size:13px;font-weight:500;letter-spacing:.04em}
+.brand{font-family:var(--black);font-size:21px;letter-spacing:-.02em}
+.brand sup{font-size:9px;vertical-align:super;opacity:.7;margin-left:2px;font-family:var(--sans)}
+.nav-links{display:flex;gap:32px;font-size:13px;font-weight:500;letter-spacing:.04em}
 .nav-links a{position:relative;padding-bottom:3px}
 .nav-links a::after{content:"";position:absolute;left:0;bottom:0;width:0;height:1px;background:#fff;transition:width .4s var(--ease)}
 .nav-links a:hover::after{width:100%}
@@ -72,27 +90,32 @@ nav{
 
 /* ============ 通用节 ============ */
 section{position:relative}
-.sec{padding-block:clamp(110px,17vh,190px)}
+.sec{padding-block:clamp(110px,16vh,180px)}
 .sec-head{
-  display:flex;align-items:center;gap:20px;margin-bottom:clamp(40px,6vh,72px);
+  display:flex;align-items:center;gap:20px;margin-bottom:clamp(36px,6vh,64px);
   font-family:var(--mono);font-size:11px;letter-spacing:.22em;text-transform:uppercase;
 }
-.sec-head .rule{flex:1;height:1px;background:var(--hairline)}
-.sec-dark .sec-head .rule{background:var(--hairline-l)}
-.sec-dark{background:var(--dark);color:var(--cream)}
-.sec-dark .sec-head{color:var(--cream-soft)}
-.sec-light .sec-head{color:var(--ink-soft)}
+.sec-head .rule{flex:1;height:1px;background:var(--line)}
 h2{
-  font-family:var(--serif);font-weight:900;
-  font-size:clamp(42px,6vw,92px);line-height:1.08;letter-spacing:-.015em;
+  font-family:var(--sans);font-weight:900;
+  font-size:clamp(40px,5.6vw,86px);line-height:1.12;letter-spacing:-.02em;
 }
+h2 em{color:var(--blue)}
+.sec-dark{background:var(--navy);color:var(--cream)}
+.sec-dark .sec-head{color:var(--blue-soft)}
+.sec-dark .sec-head .rule{background:var(--line-l)}
+.sec-light .sec-head{color:var(--ink-soft)}
 .sec-body{font-size:17px;max-width:52ch;color:var(--ink-soft);font-weight:300}
-.sec-dark .sec-body{color:var(--cream-soft)}
-.sec-index{
-  position:absolute;top:clamp(30px,6vh,70px);right:3vw;z-index:0;
-  font-family:var(--serif);font-size:clamp(150px,22vw,300px);line-height:1;
-  color:transparent;-webkit-text-stroke:1px rgba(234,231,219,.09);
-  user-select:none;pointer-events:none;font-style:italic;
+.sec-dark .sec-body{color:var(--blue-soft)}
+
+/* 图片框 */
+figure.fig{position:relative}
+.fig .frame{overflow:hidden;border-radius:20px;background:var(--cream-2)}
+.fig img{width:100%;height:100%;object-fit:cover;transform:scale(1.03);transition:transform 1.6s var(--ease)}
+.fig:hover .frame img{transform:scale(1.08)}
+.fig figcaption{
+  display:flex;justify-content:space-between;gap:16px;padding:13px 4px 0;
+  font-family:var(--mono);font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-soft);
 }
 .feature-grid{
   display:grid;grid-template-columns:minmax(0,7fr) minmax(0,5fr);
@@ -102,555 +125,571 @@ h2{
 .feature-grid .col-text{padding-top:8px}
 .feature-grid h2{margin-bottom:28px}
 
-/* 图片框 */
-figure.fig{position:relative;z-index:1}
-.fig .frame{overflow:hidden;position:relative;background:var(--paper-2)}
-.fig img{width:100%;height:100%;object-fit:cover;transform:scale(1.03);transition:transform 1.8s var(--ease)}
-.fig:hover .frame img{transform:scale(1.08)}
-.fig figcaption{
-  display:flex;justify-content:space-between;gap:16px;
-  padding:13px 2px;border-bottom:1px solid var(--hairline);
-  font-family:var(--mono);font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-soft);
-}
-.sec-dark .fig figcaption{border-color:var(--hairline-l);color:var(--cream-soft)}
-.fig-45 .frame{aspect-ratio:4/5}
-.fig-34 .frame{aspect-ratio:3/4}
-.fig-43 .frame{aspect-ratio:4/3}
-
-/* 揭示动画 */
-.js .r{opacity:0;transform:translateY(40px);transition:opacity 1s var(--ease) var(--d,0s),transform 1s var(--ease) var(--d,0s)}
-.js .in-view .r{opacity:1;transform:none}
-.js .r-clip{opacity:0;clip-path:inset(12% 6%);transition:clip-path 1.5s var(--ease) var(--d,0s),opacity 1.1s ease var(--d,0s)}
-.js .in-view .r-clip{opacity:1;clip-path:inset(0 0)}
-@keyframes up{from{opacity:0;transform:translateY(52px)}to{opacity:1;transform:none}}
-
 /* ============ HERO ============ */
-.hero{padding-top:clamp(150px,22vh,230px)}
+.hero{position:relative;min-height:100vh;display:flex;flex-direction:column;justify-content:center;overflow:hidden;padding-top:120px}
+#webgl{position:absolute;inset:0;width:100%;height:100%;z-index:0}
+body.no-webgl .hero::before{
+  content:"";position:absolute;inset:0;z-index:0;
+  background:
+    radial-gradient(38% 46% at 76% 30%,rgba(59,96,197,.22),transparent 70%),
+    radial-gradient(30% 36% at 18% 76%,rgba(59,96,197,.12),transparent 70%);
+}
+.hero-inner{position:relative;z-index:2}
+.hero-status{
+  display:inline-flex;align-items:center;gap:10px;
+  font-family:var(--mono);font-size:11px;letter-spacing:.18em;color:var(--ink-soft);text-transform:uppercase;
+  border:1px solid var(--line);border-radius:999px;padding:8px 18px;background:rgba(253,242,222,.72);backdrop-filter:blur(6px);
+}
+.hero-status i{width:7px;height:7px;border-radius:50%;background:var(--blue);animation:pulse 2.2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
 .hero-eyebrow{
   font-family:var(--mono);font-size:11px;letter-spacing:.26em;text-transform:uppercase;
-  color:var(--ink-soft);display:flex;align-items:center;gap:18px;
-  animation:up 1s .05s var(--ease) both;
+  color:var(--ink-soft);display:flex;align-items:center;gap:18px;margin-top:34px;
 }
 .hero-eyebrow::before{content:"";width:44px;height:1px;background:var(--ink);opacity:.4}
 h1{
-  font-family:var(--serif);font-weight:900;
-  font-size:clamp(54px,9.6vw,158px);line-height:1.04;letter-spacing:-.02em;
-  margin-top:clamp(24px,4vh,44px);
-  animation:up 1.1s .15s var(--ease) both;
+  font-family:var(--sans);font-weight:900;
+  font-size:clamp(52px,9vw,150px);line-height:1.06;letter-spacing:-.025em;
+  margin-top:clamp(20px,3.5vh,40px);
+}
+h1 .em{color:var(--blue)}
+.hero-latin{
+  font-family:var(--serif);font-style:italic;font-size:clamp(19px,2.2vw,30px);
+  color:var(--ink-soft);margin-top:16px;
 }
 .hero-sub{
   display:flex;justify-content:space-between;align-items:flex-end;gap:40px;
-  margin-top:clamp(30px,5vh,54px);animation:up 1.1s .3s var(--ease) both;
+  margin-top:clamp(26px,4.5vh,48px);
 }
-.hero-sub p{max-width:46ch;font-weight:300;color:var(--ink-soft);font-size:clamp(15px,1.4vw,18px)}
+.hero-sub p{max-width:44ch;font-weight:300;color:var(--ink-soft);font-size:clamp(15px,1.4vw,18px)}
 .hero-cta{display:flex;gap:14px;flex-shrink:0;flex-wrap:wrap}
 .btn{
   display:inline-flex;align-items:center;gap:12px;
-  padding:17px 34px;border-radius:999px;font-weight:500;font-size:15px;
-  border:1px solid var(--ink);cursor:pointer;transition:all .4s var(--ease);
+  padding:17px 34px;border-radius:999px;font-weight:600;font-size:15px;
+  border:1px solid var(--ink);cursor:pointer;transition:background .4s var(--ease),color .4s var(--ease),border-color .4s var(--ease);
+  will-change:transform;
 }
-.btn .mono{font-size:10px;letter-spacing:.14em;opacity:.6}
-.btn-solid{background:var(--ink);color:var(--paper)}
-.btn-solid:hover{background:var(--moss);border-color:var(--moss)}
-.btn-ghost:hover{background:var(--ink);color:var(--paper)}
-.btn-arrow{transition:transform .4s var(--ease)}
-.btn:hover .btn-arrow{transform:translateY(3px)}
+.btn-solid{background:var(--blue);color:var(--cream);border-color:var(--blue)}
+.btn-solid:hover{background:var(--blue-deep);border-color:var(--blue-deep)}
+.btn-ghost:hover{background:var(--ink);color:var(--cream)}
+.btn .arr{transition:transform .4s var(--ease)}
+.btn:hover .arr{transform:translateY(3px)}
 
-.hero-figure{margin-top:clamp(64px,10vh,110px)}
-.hero-figure .frame{aspect-ratio:21/9;overflow:hidden}
-.hero-figure img{width:100%;height:100%;object-fit:cover;will-change:transform}
-.scroll-hint{
-  display:flex;justify-content:center;padding:34px 0 40px;
-  animation:up 1s .9s var(--ease) both;
+/* 漂浮图卡 */
+.float-a{
+  position:absolute;right:5vw;top:16vh;width:min(400px,30vw);z-index:1;
+  border-radius:24px;box-shadow:0 44px 90px -24px rgba(16,22,46,.35);
+  transform:rotate(-2deg);will-change:transform;
 }
+.float-a img{border-radius:24px;aspect-ratio:4/3;object-fit:cover}
+.float-a .chip{
+  position:absolute;left:18px;bottom:18px;
+  font-family:var(--mono);font-size:10px;letter-spacing:.18em;text-transform:uppercase;
+  background:rgba(12,18,48,.78);color:var(--cream);backdrop-filter:blur(6px);
+  border-radius:999px;padding:8px 16px;
+}
+.float-b{
+  position:absolute;right:24vw;bottom:13vh;width:min(190px,15vw);z-index:1;
+  border-radius:20px;box-shadow:0 34px 70px -20px rgba(16,22,46,.4);
+  transform:rotate(4deg);will-change:transform;
+}
+.float-b img{border-radius:20px;aspect-ratio:1;object-fit:cover}
+.scroll-hint{display:flex;justify-content:center;padding:30px 0 36px;position:relative;z-index:2}
 .scroll-hint span{
   font-family:var(--mono);font-size:10px;letter-spacing:.3em;color:var(--ink-soft);
   animation:bob 2.6s ease-in-out infinite;
 }
 @keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(8px)}}
 
-/* ============ 宣言 ============ */
-.manifesto{border-top:1px solid var(--hairline)}
-.manifesto blockquote{
-  font-family:var(--serif);font-weight:700;
-  font-size:clamp(30px,4.4vw,68px);line-height:1.42;letter-spacing:-.01em;
-  max-width:22em;
+/* ============ 跑马灯 ============ */
+.marquee{overflow:hidden;background:var(--blue);color:var(--cream);padding:19px 0;position:relative;z-index:3}
+.marquee-track{display:flex;width:max-content;animation:mq 42s linear infinite}
+.marquee-track span{
+  font-family:var(--black);font-size:15px;letter-spacing:.14em;text-transform:uppercase;
+  white-space:nowrap;padding:0 22px;opacity:.94;
 }
-.manifesto blockquote .h-em{font-weight:900}
-.manifesto-note{margin-top:44px;display:grid;grid-template-columns:1fr 1fr;gap:48px;align-items:start}
-.manifesto-note p{font-weight:300;color:var(--ink-soft);max-width:46ch}
-.manifesto-note .mono-tag{font-family:var(--mono);font-size:10px;letter-spacing:.2em;color:var(--ink-soft);text-transform:uppercase}
-.stats{display:grid;grid-template-columns:repeat(4,1fr);margin-top:clamp(70px,10vh,110px);border-top:1px solid var(--hairline)}
-.stat{padding:34px 26px 6px;border-left:1px solid var(--hairline)}
+.marquee-track span::after{content:"—";margin-left:44px;opacity:.45;font-family:var(--mono)}
+@keyframes mq{to{transform:translateX(-50%)}}
+
+/* ============ 01 能力积木 ============ */
+.blocks-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:clamp(48px,8vh,84px)}
+.blk{
+  position:relative;border:1px solid var(--line);border-radius:22px;
+  padding:30px 28px;min-height:252px;display:flex;flex-direction:column;
+  background:rgba(253,242,222,.55);overflow:hidden;
+  transition:transform .5s var(--ease),border-color .5s,background .5s;
+}
+.blk:hover{transform:translateY(-6px);border-color:rgba(59,96,197,.5);background:rgba(253,242,222,.9)}
+.blk::after{
+  content:"";position:absolute;inset:0;opacity:0;transition:opacity .5s;pointer-events:none;
+  background:radial-gradient(520px circle at var(--mx,50%) var(--my,50%),rgba(59,96,197,.16),transparent 45%);
+}
+.blk:hover::after{opacity:1}
+.blk .idx{font-family:var(--mono);font-size:10px;letter-spacing:.2em;color:var(--ink-soft)}
+.blk .b-icon{
+  width:44px;height:44px;border-radius:13px;display:grid;place-items:center;
+  background:var(--ink);color:var(--cream);margin:18px 0 16px;transition:background .4s;
+}
+.blk:hover .b-icon{background:var(--blue)}
+.blk .b-icon svg{width:20px;height:20px}
+.blk h3{font-size:20px;font-weight:700;letter-spacing:-.01em;margin-bottom:8px}
+.blk p{font-size:14px;font-weight:300;color:var(--ink-soft);line-height:1.75}
+.blk-feature{background:var(--blue);border-color:var(--blue);color:var(--cream)}
+.blk-feature .idx{color:var(--blue-soft)}
+.blk-feature p{color:var(--blue-soft)}
+.blk-feature .b-icon{background:rgba(253,242,222,.16);color:var(--cream)}
+.blk-feature:hover{background:var(--blue-deep);border-color:var(--blue-deep)}
+.blk-feature::after{background:radial-gradient(520px circle at var(--mx,50%) var(--my,50%),rgba(253,242,222,.14),transparent 45%)}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);margin-top:clamp(60px,9vh,100px);border-top:1px solid var(--line)}
+.stat{padding:32px 26px 4px;border-left:1px solid var(--line)}
 .stat:first-child{border-left:none;padding-left:2px}
-.stat b{font-family:var(--serif);font-weight:900;font-size:clamp(40px,4.6vw,64px);line-height:1;display:block;letter-spacing:-.02em}
+.stat b{font-family:var(--black);font-size:clamp(38px,4.4vw,60px);line-height:1;display:block;letter-spacing:-.02em;color:var(--blue)}
 .stat span{font-family:var(--mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink-soft);display:block;margin-top:14px}
 
-/* ============ 跑马灯 ============ */
-.marquee{overflow:hidden;border-block:1px solid var(--hairline);padding:17px 0;background:var(--paper)}
-.marquee-track{display:flex;width:max-content;animation:scroll 46s linear infinite}
-.marquee-track span{
-  font-family:var(--mono);font-size:11px;letter-spacing:.24em;text-transform:uppercase;
-  color:var(--ink-soft);white-space:nowrap;padding:0 18px;
+/* ============ 02 时间轴（横向滚动） ============ */
+.hscroll{background:var(--navy);color:var(--cream)}
+.hs-pin{min-height:100vh;display:flex;flex-direction:column;justify-content:center;padding-block:90px;overflow:hidden}
+.hs-head{width:var(--container);margin:0 auto clamp(30px,5vh,54px)}
+.hs-head .sec-head{margin-bottom:22px;color:var(--blue-soft)}
+.hs-head .sec-head .rule{background:var(--line-l)}
+.hs-head h2{color:var(--cream)}
+.hs-wrap{overflow:hidden}
+.hs-track{display:flex;gap:18px;padding:0 max(6vw,calc((100vw - var(--container))/2));width:max-content}
+.hs-card{
+  width:min(430px,82vw);flex-shrink:0;border:1px solid var(--line-l);border-radius:24px;
+  padding:30px 30px 26px;display:flex;flex-direction:column;min-height:340px;
+  background:linear-gradient(165deg,rgba(59,96,197,.13),rgba(59,96,197,.03));
+  transition:border-color .4s,background .4s;
 }
-.marquee-track span::after{content:"·";margin-left:36px;color:var(--moss)}
-@keyframes scroll{to{transform:translateX(-50%)}}
-
-/* ============ 架构列表 ============ */
-.arch-list{list-style:none;margin-top:clamp(64px,10vh,110px)}
-.arch-list li{
-  display:grid;grid-template-columns:minmax(190px,.9fr) 2fr auto;gap:24px;align-items:baseline;
-  padding:26px 4px;border-top:1px solid var(--hairline-l);
-  transition:padding-left .45s var(--ease),background .45s;
+.hs-card:hover{border-color:rgba(59,96,197,.65)}
+.hs-card .c-year{font-family:var(--mono);font-size:10px;letter-spacing:.24em;color:var(--blue-soft);text-transform:uppercase}
+.hs-card .c-ver{font-family:var(--black);font-size:clamp(34px,3.6vw,52px);letter-spacing:-.02em;margin-top:14px;line-height:1.05}
+.hs-card .c-tag{
+  font-family:var(--mono);font-size:10px;letter-spacing:.12em;color:var(--cream);
+  border:1px solid rgba(59,96,197,.55);border-radius:999px;padding:5px 13px;
+  align-self:flex-start;margin-top:14px;text-transform:uppercase;
 }
-.arch-list li:last-child{border-bottom:1px solid var(--hairline-l)}
-.arch-list li:hover{padding-left:22px;background:rgba(234,231,219,.03)}
-.arch-list .arch{font-family:var(--mono);font-weight:500;font-size:clamp(17px,2vw,24px);letter-spacing:-.01em}
-.arch-list .arch i{font-style:normal;color:var(--moss-bright);margin-left:10px;font-size:12px}
-.arch-list .desc{font-weight:300;color:var(--cream-soft);font-size:15px}
-.arch-list .idx{font-family:var(--mono);font-size:10px;color:var(--cream-soft);opacity:.6;letter-spacing:.15em}
-
-/* ============ 时间线 ============ */
-.timeline{display:grid;grid-template-columns:repeat(4,1fr);gap:30px;margin-top:clamp(56px,9vh,92px);position:relative}
-.timeline::before{content:"";position:absolute;top:5px;left:0;right:0;height:1px;background:var(--hairline)}
-.tl-item{padding-top:30px;position:relative}
-.tl-item::before{content:"";position:absolute;top:0;left:0;width:11px;height:11px;border-radius:50%;background:var(--paper);border:1.5px solid var(--moss)}
-.tl-item .tl-year{font-family:var(--mono);font-size:10px;letter-spacing:.22em;color:var(--moss)}
-.tl-item strong{display:block;font-family:var(--serif);font-size:clamp(20px,2.2vw,28px);font-weight:700;margin:8px 0 6px;letter-spacing:-.01em}
-.tl-item p{font-size:14px;font-weight:300;color:var(--ink-soft);line-height:1.75}
-.chips{display:flex;flex-wrap:wrap;gap:10px;margin-top:36px}
-.chips span{
-  font-family:var(--mono);font-size:11px;letter-spacing:.14em;
-  border:1px solid var(--hairline);border-radius:999px;padding:9px 18px;color:var(--ink-soft);
-  transition:all .35s var(--ease);
+.hs-card p{font-size:14px;font-weight:300;color:var(--blue-soft);margin-top:auto;line-height:1.8;padding-top:20px}
+.hs-card .c-java{font-family:var(--mono);font-size:10px;letter-spacing:.16em;color:var(--blue-soft);margin-top:14px}
+.hs-intro{
+  justify-content:space-between;background:transparent;border-style:dashed;
 }
-.chips span:hover{border-color:var(--moss);color:var(--moss)}
-.chips .chip-note{border-style:dashed;border-color:transparent;background:rgba(46,90,60,.07);color:var(--moss)}
-
-/* ============ 代码卡片 ============ */
-.code-card{
-  background:var(--dark-3);border:1px solid var(--hairline-l);border-radius:14px;
-  overflow:hidden;margin-top:44px;
-}
-.code-card-bar{display:flex;align-items:center;justify-content:space-between;padding:13px 18px;border-bottom:1px solid var(--hairline-l)}
-.code-card-bar span{font-family:var(--mono);font-size:10px;letter-spacing:.18em;color:var(--cream-soft);text-transform:uppercase}
-.code-card pre{
-  font-family:var(--mono);font-size:13px;line-height:2;padding:22px 24px;
-  overflow-x:auto;color:var(--cream);
-}
-.code-card .t{color:var(--moss-bright)}
-.code-card .a{color:var(--cream-soft)}
-.code-card .v{color:#D8C79A}
-.anatomy{display:flex;gap:10px;flex-wrap:wrap;margin-top:24px}
-.anatomy span{
-  font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;
-  border:1px solid var(--hairline-l);border-radius:999px;padding:8px 16px;color:var(--cream-soft);
+.hs-intro .c-big{font-family:var(--black);font-size:clamp(40px,4.6vw,64px);line-height:1.06;letter-spacing:-.02em;margin-top:14px}
+.hs-outro{background:var(--blue);border-color:var(--blue)}
+.hs-outro:hover{background:var(--blue-deep)}
+.hs-outro .c-big{font-family:var(--sans);font-weight:900;font-size:clamp(28px,3vw,40px);line-height:1.3}
+.hs-outro p{color:var(--blue-soft)}
+@media (max-width:700px){
+  .hs-pin{min-height:0;padding-block:80px}
+  .hs-wrap{overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none}
+  .hs-wrap::-webkit-scrollbar{display:none}
+  .hs-card{scroll-snap-align:center;min-height:380px}
 }
 
-/* ============ 功能列表（浅色） ============ */
-.feat-list{list-style:none;margin-top:clamp(56px,9vh,92px)}
-.feat-list li{
-  display:grid;grid-template-columns:minmax(220px,1fr) 2fr;gap:28px;align-items:baseline;
-  padding:26px 4px;border-top:1px solid var(--hairline);
-  transition:padding-left .45s var(--ease);
-}
-.feat-list li:last-child{border-bottom:1px solid var(--hairline)}
-.feat-list li:hover{padding-left:22px}
-.feat-list .f-name{font-family:var(--mono);font-weight:500;font-size:clamp(15px,1.6vw,19px);letter-spacing:-.01em}
-.feat-list .f-name i{font-style:normal;color:var(--moss);margin-left:10px;font-size:12px}
-.feat-list .f-desc{font-weight:300;color:var(--ink-soft);font-size:15px}
-
-/* ============ 应用窗口 ============ */
-.showcase-wrap{display:flex;flex-direction:column;align-items:center;margin-top:clamp(40px,7vh,80px)}
+/* ============ 03 界面演示 ============ */
+.demo{background:var(--cream);overflow:hidden}
+.demo-inner{min-height:100vh;display:flex;flex-direction:column;justify-content:center;align-items:center;padding-block:100px;width:var(--container);margin-inline:auto}
+.demo-head{text-align:center;margin-bottom:clamp(36px,6vh,60px)}
+.demo-head .sec-head{justify-content:center}
+.demo-head .sec-head .rule{max-width:100px}
+.demo-head h2{font-size:clamp(38px,5vw,72px)}
+.demo-stage{position:relative;width:min(900px,100%)}
 .app-window{
-  position:relative;width:min(880px,100%);border-radius:14px;
-  background:linear-gradient(160deg,#1C1E1A 0%,#131511 100%);
-  border:1px solid rgba(234,231,219,.10);
-  box-shadow:0 60px 120px -30px rgba(0,0,0,.65),0 0 0 1px rgba(0,0,0,.4);
-  overflow:hidden;z-index:1;
-}
-.pin{
-  position:absolute;width:24px;height:24px;border-radius:50%;
-  border:1px solid rgba(234,231,219,.45);background:var(--dark);
-  display:grid;place-items:center;font-family:var(--mono);font-size:10px;color:var(--cream);z-index:5;
+  position:relative;width:100%;border-radius:14px;
+  background:linear-gradient(160deg,#151E48 0%,#0C1230 100%);
+  border:1px solid rgba(253,242,222,.12);
+  box-shadow:0 60px 120px -30px rgba(16,22,46,.5),0 0 80px -20px rgba(59,96,197,.35);
+  overflow:hidden;will-change:transform;
 }
 .app-titlebar{
   display:flex;align-items:center;gap:16px;padding:15px 22px;
-  border-bottom:1px solid rgba(234,231,219,.08);
-  background:rgba(255,255,255,.02);
+  border-bottom:1px solid rgba(253,242,222,.09);background:rgba(253,242,222,.02);
 }
 .dots{display:flex;gap:7px}
-.dots i{width:10px;height:10px;border-radius:50%;background:rgba(234,231,219,.16);border:1px solid rgba(234,231,219,.14)}
+.dots i{width:10px;height:10px;border-radius:50%;background:rgba(253,242,222,.16);border:1px solid rgba(253,242,222,.14)}
 .app-title{font-size:13px;font-weight:500;color:var(--cream);opacity:.85}
-.app-ver{margin-left:auto;font-family:var(--mono);font-size:10px;letter-spacing:.14em;color:var(--cream-soft)}
-.app-body{display:grid;grid-template-columns:172px 1fr;min-height:420px}
-.app-side{border-right:1px solid rgba(234,231,219,.07);padding:18px 0;display:flex;flex-direction:column}
-.as{
-  padding:11px 24px;font-size:13.5px;color:var(--cream-soft);
-  position:relative;transition:color .3s,background .3s;
-}
+.app-ver{margin-left:auto;font-family:var(--mono);font-size:10px;letter-spacing:.14em;color:var(--blue-soft)}
+.app-body{display:grid;grid-template-columns:172px 1fr;min-height:400px}
+.app-side{border-right:1px solid rgba(253,242,222,.08);padding:18px 0;display:flex;flex-direction:column}
+.as{padding:11px 24px;font-size:13.5px;color:var(--blue-soft);position:relative;transition:color .3s,background .3s}
 .as:hover{color:var(--cream)}
 .as.active{color:var(--cream)}
-.as.active::before{content:"";position:absolute;left:0;top:20%;bottom:20%;width:2.5px;border-radius:2px;background:var(--moss-bright)}
-.as.active::after{content:"";display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--moss-bright);margin-left:10px;vertical-align:2px}
+.as.active::before{content:"";position:absolute;left:0;top:20%;bottom:20%;width:2.5px;border-radius:2px;background:var(--blue)}
+.as.active::after{content:"";display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--blue-2);margin-left:10px;vertical-align:2px}
 .app-main{padding:26px 30px;display:flex;flex-direction:column;gap:22px}
 .am-head{display:flex;align-items:center;justify-content:space-between;gap:20px}
-.am-label{font-size:9px;letter-spacing:.24em;color:var(--cream-soft);display:block;margin-bottom:6px}
-.am-title strong{font-family:var(--serif);font-weight:700;font-size:26px;color:var(--cream);letter-spacing:-.01em}
+.am-label{font-size:9px;letter-spacing:.24em;color:var(--blue-soft);display:block;margin-bottom:6px;font-family:var(--mono)}
+.am-title strong{font-family:var(--sans);font-weight:900;font-size:26px;color:var(--cream);letter-spacing:-.01em}
 .am-title .tag{
-  font-family:var(--mono);font-style:normal;font-size:10px;letter-spacing:.1em;color:var(--moss-bright);
-  border:1px solid rgba(140,185,143,.35);border-radius:999px;padding:4px 11px;margin-left:10px;vertical-align:4px;
+  font-family:var(--mono);font-style:normal;font-size:10px;letter-spacing:.1em;color:var(--blue-soft);
+  border:1px solid rgba(91,127,217,.45);border-radius:999px;padding:4px 11px;margin-left:10px;vertical-align:4px;
 }
 .app-play{
-  width:52px;height:52px;border-radius:50%;background:var(--moss);flex-shrink:0;
+  width:52px;height:52px;border-radius:50%;background:var(--blue);flex-shrink:0;
   display:grid;place-items:center;color:var(--cream);
-  box-shadow:0 8px 28px rgba(46,90,60,.45),inset 0 1px 0 rgba(255,255,255,.15);
+  box-shadow:0 8px 28px rgba(59,96,197,.5),inset 0 1px 0 rgba(253,242,222,.2);
   transition:transform .4s var(--ease),background .3s;
 }
 .app-window:hover .app-play{transform:scale(1.08)}
-.app-play:hover{background:#3A6E4A}
+.app-play:hover{background:var(--blue-deep)}
 .am-cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
-.ac{
-  border:1px solid rgba(234,231,219,.09);border-radius:10px;padding:15px 14px;
-  background:rgba(255,255,255,.015);transition:all .3s;
-}
-.ac:hover{border-color:rgba(234,231,219,.22)}
-.ac.active{border-color:rgba(140,185,143,.5);background:rgba(140,185,143,.06)}
+.ac{border:1px solid rgba(253,242,222,.1);border-radius:10px;padding:15px 14px;background:rgba(253,242,222,.015);transition:all .3s}
+.ac:hover{border-color:rgba(253,242,222,.24)}
+.ac.active{border-color:rgba(91,127,217,.55);background:rgba(59,96,197,.1)}
 .ac b{font-family:var(--mono);font-weight:500;font-size:14px;color:var(--cream);display:block}
-.ac i{font-family:var(--mono);font-style:normal;font-size:10px;letter-spacing:.12em;color:var(--cream-soft);text-transform:uppercase}
-.am-foot{
-  display:flex;align-items:center;gap:14px;margin-top:auto;
-  border-top:1px solid rgba(234,231,219,.07);padding-top:18px;
-}
+.ac i{font-family:var(--mono);font-style:normal;font-size:10px;letter-spacing:.12em;color:var(--blue-soft);text-transform:uppercase}
+.am-foot{display:flex;align-items:center;gap:14px;margin-top:auto;border-top:1px solid rgba(253,242,222,.08);padding-top:18px}
 .avatar{
   width:36px;height:36px;border-radius:50%;
-  background:linear-gradient(135deg,var(--moss),#1E3A28);
+  background:linear-gradient(135deg,var(--blue),var(--blue-deep));
   display:grid;place-items:center;font-family:var(--serif);font-size:16px;color:var(--cream);
-  border:1px solid rgba(234,231,219,.15);
+  border:1px solid rgba(253,242,222,.18);
 }
 .am-user b{display:block;font-size:13.5px;color:var(--cream);font-weight:500}
-.am-user i{font-style:normal;font-size:11px;color:var(--cream-soft);font-weight:300}
-.am-ok{margin-left:auto;font-size:9px;letter-spacing:.24em;color:var(--moss-bright)}
+.am-user i{font-style:normal;font-size:11px;color:var(--blue-soft);font-weight:300}
+.am-ok{margin-left:auto;font-family:var(--mono);font-size:9px;letter-spacing:.24em;color:var(--blue-soft)}
 .am-log{
   display:flex;flex-direction:column;gap:7px;
-  border:1px solid rgba(234,231,219,.08);border-radius:10px;
-  padding:16px 18px;font-size:11px;line-height:1.7;color:var(--cream-soft);
-  background:rgba(0,0,0,.22);
+  border:1px solid rgba(253,242,222,.09);border-radius:10px;
+  padding:16px 18px;font-size:11px;line-height:1.7;color:var(--blue-soft);
+  background:rgba(9,14,36,.55);font-family:var(--mono);
 }
-.am-log .ok{color:var(--moss-bright)}
-.anno-row{display:grid;grid-template-columns:repeat(3,1fr);gap:clamp(24px,4vw,60px);width:min(880px,100%);margin-top:46px}
-.anno{border-top:1px solid var(--hairline-l);padding-top:18px}
-.anno b{font-family:var(--mono);font-size:10px;letter-spacing:.22em;color:var(--moss-bright);display:block;margin-bottom:10px}
-.anno p{font-size:14px;font-weight:300;color:var(--cream-soft)}
+.am-log .ok{color:var(--blue-soft)}
+.am-log .ok::before{content:"● ";color:var(--blue)}
+.demo-annos{display:grid;grid-template-columns:repeat(3,1fr);gap:clamp(22px,4vw,56px);width:min(900px,100%);margin-top:42px}
+.demo-anno{border-top:1px solid var(--line);padding-top:16px}
+.demo-anno b{font-family:var(--mono);font-size:10px;letter-spacing:.22em;color:var(--blue);display:block;margin-bottom:8px}
+.demo-anno p{font-size:14px;font-weight:300;color:var(--ink-soft)}
+
+/* ============ 04 平台 ============ */
+.platforms{overflow:hidden}
+.platforms .sec-index{
+  position:absolute;top:clamp(30px,6vh,70px);right:3vw;z-index:0;
+  font-family:var(--black);font-size:clamp(150px,22vw,300px);line-height:1;
+  color:transparent;-webkit-text-stroke:1px rgba(253,242,222,.07);
+  user-select:none;pointer-events:none;
+}
+.arch-list{list-style:none;margin-top:clamp(56px,9vh,96px);position:relative;z-index:1}
+.arch-list li{
+  display:grid;grid-template-columns:minmax(190px,.9fr) 2fr auto;gap:24px;align-items:baseline;
+  padding:26px 4px;border-top:1px solid var(--line-l);
+  transition:padding-left .45s var(--ease),background .45s;
+}
+.arch-list li:last-child{border-bottom:1px solid var(--line-l)}
+.arch-list li:hover{padding-left:22px;background:rgba(59,96,197,.07)}
+.arch-list .arch{font-family:var(--black);font-size:clamp(17px,2vw,23px);letter-spacing:-.01em;color:var(--cream)}
+.arch-list .arch i{font-style:normal;font-family:var(--mono);font-weight:400;color:var(--blue-soft);margin-left:10px;font-size:11px;letter-spacing:.1em}
+.arch-list .desc{font-weight:300;color:var(--blue-soft);font-size:15px}
+.arch-list .idx{font-family:var(--mono);font-size:10px;color:var(--blue-soft);opacity:.6;letter-spacing:.15em}
+.arch-note{font-family:var(--mono);font-size:11px;letter-spacing:.18em;color:var(--blue-soft);margin-top:36px;text-transform:uppercase}
+/* 悬停预览图 */
+.arch-preview{
+  position:fixed;top:0;left:0;width:290px;aspect-ratio:4/3;z-index:85;
+  border-radius:18px;overflow:hidden;pointer-events:none;
+  opacity:0;transform:translate(-50%,-56%) rotate(-3deg) scale(.82);
+  transition:opacity .35s var(--ease),transform .45s var(--ease);
+  box-shadow:0 40px 80px -20px rgba(0,0,0,.5);
+}
+.arch-preview.on{opacity:1;transform:translate(-50%,-56%) rotate(-3deg) scale(1)}
+.arch-preview img{width:100%;height:100%;object-fit:cover}
+@media (pointer:coarse){.arch-preview{display:none}}
+
+/* ============ 05 插件 ============ */
+.code-card{background:var(--navy-3);border:1px solid var(--line-l);border-radius:14px;overflow:hidden;margin-top:40px}
+.code-card-bar{display:flex;align-items:center;justify-content:space-between;padding:13px 18px;border-bottom:1px solid var(--line-l)}
+.code-card-bar span{font-family:var(--mono);font-size:10px;letter-spacing:.18em;color:var(--blue-soft);text-transform:uppercase}
+.code-card pre{font-family:var(--mono);font-size:13px;line-height:2;padding:22px 24px;overflow-x:auto;color:var(--cream)}
+.code-card .t{color:var(--blue-2)}
+.code-card .a{color:var(--blue-soft)}
+.code-card .v{color:#E8C87A}
+.anatomy{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}
+.anatomy span{
+  font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  border:1px solid var(--line);border-radius:999px;padding:8px 16px;color:var(--ink-soft);
+}
 
 /* ============ 下载 ============ */
-.download{text-align:center;overflow:hidden}
-.download .sec-head{justify-content:center}
-.download .sec-head .rule{max-width:120px}
-.download .sec-head .rule:last-child{order:3}
-.download h2{font-size:clamp(48px,7vw,116px);margin-inline:auto}
-.dl-note{
-  font-family:var(--mono);font-size:11px;letter-spacing:.24em;text-transform:uppercase;
-  color:var(--ink-soft);margin-top:30px;
-}
-.dl-row{display:flex;justify-content:center;gap:16px;flex-wrap:wrap;margin-top:clamp(52px,8vh,84px)}
+.download{background:var(--blue);color:var(--cream);overflow:hidden;text-align:center}
+.download .sec-head{justify-content:center;color:var(--blue-soft)}
+.download .sec-head .rule{max-width:110px;background:rgba(253,242,222,.3)}
+.download h2{color:var(--cream)}
+.download h2 em{color:var(--cream-2)}
+.dl-note{font-family:var(--mono);font-size:11px;letter-spacing:.24em;text-transform:uppercase;color:var(--blue-soft);margin-top:30px}
+.dl-row{display:flex;justify-content:center;gap:16px;flex-wrap:wrap;margin-top:clamp(48px,8vh,80px)}
 .dl-btn{
   display:flex;flex-direction:column;gap:8px;align-items:flex-start;
-  border:1px solid var(--ink);border-radius:16px;padding:24px 34px;min-width:220px;
-  transition:all .4s var(--ease);cursor:pointer;text-align:left;
+  border:1px solid rgba(253,242,222,.45);border-radius:18px;padding:24px 34px;min-width:225px;
+  transition:background .4s var(--ease),transform .4s var(--ease),border-color .4s;
+  cursor:pointer;text-align:left;will-change:transform;
 }
-.dl-btn .os{font-family:var(--mono);font-size:10px;letter-spacing:.24em;color:var(--ink-soft);transition:color .4s}
-.dl-btn .file{font-family:var(--serif);font-weight:700;font-size:22px;display:flex;align-items:center;gap:12px;transition:gap .4s var(--ease)}
+.dl-btn .os{font-family:var(--mono);font-size:10px;letter-spacing:.24em;color:var(--blue-soft);transition:color .4s}
+.dl-btn .file{font-family:var(--black);font-size:21px;display:flex;align-items:center;gap:12px;transition:gap .4s var(--ease)}
 .dl-btn .file svg{width:15px;height:15px;transition:transform .4s var(--ease)}
-.dl-btn:hover{background:var(--ink);color:var(--paper)}
-.dl-btn:hover .os{color:var(--moss-bright)}
+.dl-btn:hover{background:var(--navy-3);border-color:var(--navy-3)}
+.dl-btn:hover .os{color:var(--cream-2)}
 .dl-btn:hover .file{gap:18px}
 .dl-btn:hover .file svg{transform:translateY(3px)}
-.dl-verify{font-family:var(--mono);font-size:10px;letter-spacing:.18em;color:var(--moss);margin-top:36px;text-transform:uppercase}
+.dl-verify{font-family:var(--mono);font-size:10px;letter-spacing:.2em;color:var(--blue-soft);margin-top:36px;text-transform:uppercase}
 .dl-word{
-  position:absolute;left:50%;bottom:-6vw;transform:translateX(-50%);
-  font-family:var(--sans);font-weight:700;font-size:clamp(160px,26vw,420px);line-height:1;
-  color:transparent;-webkit-text-stroke:1px rgba(25,24,19,.07);
+  position:absolute;left:50%;bottom:-7vw;transform:translateX(-50%);
+  font-family:var(--black);font-size:clamp(160px,26vw,430px);line-height:1;
+  color:transparent;-webkit-text-stroke:1px rgba(253,242,222,.16);
   pointer-events:none;user-select:none;letter-spacing:-.03em;white-space:nowrap;
 }
 
-/* ============ 页脚 ============ */
-footer{background:var(--dark-3);color:var(--cream);padding:clamp(80px,12vh,130px) 0 40px;position:relative;overflow:hidden}
+/* ============ 页脚（交叠） ============ */
+footer{
+  position:relative;z-index:5;
+  background:var(--navy);color:var(--cream);
+  margin-top:-48px;border-radius:48px 48px 0 0;
+  padding:clamp(80px,12vh,130px) 0 40px;overflow:hidden;
+}
 .foot-word{
-  font-family:var(--sans);font-weight:700;letter-spacing:-.04em;
-  font-size:clamp(110px,19vw,300px);line-height:.9;
-  color:rgba(234,231,219,.07);user-select:none;text-align:center;
+  font-family:var(--black);letter-spacing:-.04em;
+  font-size:clamp(100px,18vw,290px);line-height:.9;
+  color:rgba(253,242,222,.06);user-select:none;text-align:center;
 }
 .foot-grid{
   display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:40px;
-  margin-top:clamp(56px,9vh,90px);padding-top:48px;border-top:1px solid var(--hairline-l);
+  margin-top:clamp(52px,8vh,84px);padding-top:48px;border-top:1px solid var(--line-l);
 }
-.foot-brand .brand{color:var(--cream);font-size:24px}
-.foot-brand p{margin-top:16px;font-weight:300;color:var(--cream-soft);font-size:14px;max-width:30ch}
-.foot-col h4{font-family:var(--mono);font-size:10px;letter-spacing:.24em;text-transform:uppercase;color:var(--cream-soft);margin-bottom:20px}
-.foot-col a{display:block;font-size:14px;font-weight:300;color:var(--cream);opacity:.8;padding:5px 0;transition:opacity .3s,padding-left .3s}
-.foot-col a:hover{opacity:1;padding-left:6px;color:var(--moss-bright)}
+.foot-brand .brand{font-family:var(--black);color:var(--cream);font-size:24px}
+.foot-brand p{margin-top:16px;font-weight:300;color:var(--blue-soft);font-size:14px;max-width:30ch}
+.foot-col h4{font-family:var(--mono);font-size:10px;letter-spacing:.24em;text-transform:uppercase;color:var(--blue-soft);margin-bottom:20px}
+.foot-col a{display:block;font-size:14px;font-weight:300;color:var(--cream);opacity:.8;padding:5px 0;transition:opacity .3s,padding-left .3s,color .3s}
+.foot-col a:hover{opacity:1;padding-left:6px;color:var(--blue-soft)}
 .foot-fine{
-  margin-top:64px;padding-top:24px;border-top:1px solid var(--hairline-l);
+  margin-top:64px;padding-top:24px;border-top:1px solid var(--line-l);
   display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap;
-  font-family:var(--mono);font-size:9px;letter-spacing:.14em;color:var(--cream-soft);text-transform:uppercase;line-height:2;
+  font-family:var(--mono);font-size:9px;letter-spacing:.14em;color:var(--blue-soft);text-transform:uppercase;line-height:2;
 }
 
 /* ============ 响应式 ============ */
 @media (max-width:1000px){
   .feature-grid,.feature-grid.flip{grid-template-columns:1fr;gap:48px}
   .feature-grid .col-img{order:-1}
+  .blocks-grid{grid-template-columns:1fr 1fr}
   .stats{grid-template-columns:repeat(2,1fr)}
-  .stat{padding:26px 20px 6px}
+  .stat{padding:26px 20px 4px}
   .stat:nth-child(odd){border-left:none;padding-left:2px}
   .foot-grid{grid-template-columns:1fr 1fr}
   .app-body{grid-template-columns:140px 1fr}
+  .float-a,.float-b{display:none}
   .sec-index{display:none}
+  .platforms .sec-index{display:none}
 }
 @media (max-width:700px){
   .nav-links{display:none}
   nav{padding:18px 22px}
   .hero-sub{flex-direction:column;align-items:flex-start}
+  .blocks-grid{grid-template-columns:1fr}
   .arch-list li{grid-template-columns:1fr;gap:6px}
-  .feat-list li{grid-template-columns:1fr;gap:8px}
-  .timeline{grid-template-columns:1fr 1fr;gap:36px 22px}
-  .manifesto-note{grid-template-columns:1fr}
-  .anno-row{grid-template-columns:1fr}
+  .demo-annos{grid-template-columns:1fr}
   .app-body{grid-template-columns:1fr}
-  .app-side{flex-direction:row;overflow-x:auto;border-right:none;border-bottom:1px solid rgba(234,231,219,.07);padding:6px 10px}
+  .app-side{flex-direction:row;overflow-x:auto;border-right:none;border-bottom:1px solid rgba(253,242,222,.08);padding:6px 10px}
   .as{padding:10px 14px;white-space:nowrap}
   .as.active::before{left:10%;right:10%;top:auto;bottom:0;width:auto;height:2.5px}
   .am-cards{grid-template-columns:1fr 1fr}
   .dl-btn{width:100%}
-  .hero-figure .frame{aspect-ratio:4/3}
-  .foot-grid{grid-template-columns:1fr}
+  footer{border-radius:32px 32px 0 0;margin-top:-32px}
 }
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation:none!important;transition:none!important}
-  .js .r,.js .r-clip{opacity:1;transform:none;clip-path:none}
 }
 </style>
 </head>
 <body>
 <div class="grain" aria-hidden="true"></div>
 <div id="progress" aria-hidden="true"></div>
+<div class="cursor-dot" aria-hidden="true"></div>
+<div class="cursor-ring" aria-hidden="true"><span class="cursor-label">预览</span></div>
 
 <nav aria-label="主导航">
   <a class="brand" href="#top">PMCL<sup>®</sup></a>
   <div class="nav-links">
-    <a href="#platforms">平台</a>
+    <a href="#features">能力</a>
     <a href="#versions">版本</a>
+    <a href="#demo">界面</a>
+    <a href="#platforms">平台</a>
     <a href="#plugins">插件</a>
-    <a href="#engine">引擎</a>
-    <a href="#showcase">界面</a>
   </div>
   <a class="nav-cta" href="#download">下载 v4.2</a>
 </nav>
 
 <!-- ============ HERO ============ -->
-<header class="hero container-wide obs" id="top">
-  <div class="container">
-    <p class="hero-eyebrow">PMCL — Minecraft Launcher · Est. 2024 · Free &amp; Open</p>
-    <h1>让每一次启动，<br>都成为<span class="h-em">仪式</span><span class="latin">.</span></h1>
+<header class="hero" id="top">
+  <canvas id="webgl" aria-hidden="true"></canvas>
+  <figure class="float-a hero-anim" aria-hidden="false">
+    <img src="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Premium%203D%20render%20of%20floating%20glossy%20geometric%20voxel%20cubes%20cluster%2C%20one%20large%20rounded%20cube%20levitating%20above%20smaller%20ones%2C%20vivid%20blue%20and%20warm%20cream%20palette%2C%20soft%20studio%20lighting%20with%20long%20soft%20shadows%2C%20minimal%20high-end%20product%20render%2C%20subtle%20grain%2C%20no%20text&image_size=landscape_4_3" alt="悬浮的蓝色体素立方体簇" width="1200" height="900">
+    <span class="chip">Fig. 00 — Voxel Cluster</span>
+  </figure>
+  <figure class="float-b hero-anim">
+    <img src="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Abstract%203D%20render%20of%20a%20translucent%20blue%20glass%20sphere%20resting%20on%20a%20small%20cream%20pedestal%2C%20vivid%20blue%20and%20warm%20cream%20palette%2C%20soft%20studio%20lighting%2C%20minimal%20high-end%20render%2C%20subtle%20grain%2C%20no%20text&image_size=square" alt="奶油底座上的蓝色玻璃球" width="800" height="800">
+  </figure>
+  <div class="hero-inner container-wide">
+    <span class="hero-status hero-anim"><i></i>v4.2.1 — Stable · Windows / macOS / Linux</span>
+    <p class="hero-eyebrow hero-anim">PMCL — Minecraft Launcher · Est. 2024 · Free &amp; Open</p>
+    <h1 class="hero-anim">让每一次启动，<br>都成为<span class="em">仪式</span>。</h1>
+    <p class="hero-latin hero-anim">A ritual, not a routine.</p>
     <div class="hero-sub">
-      <p>为热爱而生的 Minecraft 启动器 —— 跨五种 CPU 架构，纵览十余年版本，以插件重塑一切。把复杂的留给我们，把世界留给你。</p>
-      <div class="hero-cta">
-        <a class="btn btn-solid" href="#download">下载 PMCL <span class="btn-arrow">↓</span></a>
-        <a class="btn btn-ghost" href="#platforms">探索特性 <span class="btn-arrow">↓</span></a>
+      <p class="hero-anim">跨五种 CPU 架构，纵览十五年版本，以插件重塑一切 —— 把复杂留给我们，把世界留给你。</p>
+      <div class="hero-cta hero-anim">
+        <a class="btn btn-solid magnet" href="#download">下载 PMCL <span class="arr">↓</span></a>
+        <a class="btn btn-ghost magnet" href="#demo">观看演示 <span class="arr">↓</span></a>
       </div>
     </div>
   </div>
-  <figure class="hero-figure container-wide">
-    <div class="frame r-clip" style="--d:.5s">
-      <img src="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Cinematic%20minimalist%20render%20of%20floating%20voxel%20islands%20at%20golden%20dusk%2C%20soft%20volumetric%20fog%20between%20blocky%20geometric%20landforms%2C%20muted%20warm%20earth%20tones%20with%20deep%20emerald%20shadows%2C%20vast%20serene%20sky%2C%20high-end%20product%20marketing%20aesthetic%2C%20photorealistic%20lighting%2C%20no%20text&image_size=landscape_16_9" alt="黄昏雾气中的浮岛体素景观" width="1600" height="900">
-    </div>
-    <figcaption>
-      <span>Fig. 00 — 浮岛 / Floating Islands</span>
-      <span>Rendered for PMCL · 2026</span>
-    </figcaption>
-  </figure>
-  <div class="scroll-hint" aria-hidden="true"><span>SCROLL ↓</span></div>
+  <div class="scroll-hint"><span>SCROLL ↓</span></div>
 </header>
-
-<main>
-<!-- ============ 宣言 ============ -->
-<section class="sec sec-light manifesto obs">
-  <div class="container">
-    <div class="sec-head r">
-      <span>00 / Manifesto</span>
-      <span class="rule"></span>
-      <span>宣言</span>
-    </div>
-    <blockquote class="r" style="--d:.1s">
-      工具应当<span class="h-em">隐于无形</span>。当启动器足够好，你记住的只会是 Minecraft 本身的美好。
-    </blockquote>
-    <div class="manifesto-note">
-      <p class="r" style="--d:.2s">PMCL 的一切设计，都围绕一件事：让「启动」这个动作，快得几乎不被察觉，又美得值得被看见。于是有了跨架构的原生运行、全版本的 Java 匹配、经过签名校验的下载引擎，以及一个由 .ppk 插件构成的开放生态。</p>
-      <p class="mono-tag r" style="--d:.3s">Design Principle — Speed as silence, beauty as ritual.</p>
-    </div>
-    <div class="stats">
-      <div class="stat r" style="--d:.1s"><b>5</b><span>CPU 架构</span></div>
-      <div class="stat r" style="--d:.2s"><b>15<span class="latin">+</span></b><span>年版本跨度</span></div>
-      <div class="stat r" style="--d:.3s"><b>3</b><span>桌面平台</span></div>
-      <div class="stat r" style="--d:.4s"><b>100<span class="latin">%</span></b><span>免费开放</span></div>
-    </div>
-  </div>
-</section>
 
 <!-- 跑马灯 -->
 <div class="marquee" aria-hidden="true">
   <div class="marquee-track">
-    <span>Cross-Platform</span><span>x86_64</span><span>ARM64</span><span>LoongArch64</span><span>RISC-V 64</span><span>MIPS64EL</span><span>Java 8 — 25</span><span>CurseForge</span><span>Modrinth</span><span>MultiMC</span><span>FTB</span><span>LSL3</span><span>Ed25519</span><span>.ppk Plugins</span>
-    <span>Cross-Platform</span><span>x86_64</span><span>ARM64</span><span>LoongArch64</span><span>RISC-V 64</span><span>MIPS64EL</span><span>Java 8 — 25</span><span>CurseForge</span><span>Modrinth</span><span>MultiMC</span><span>FTB</span><span>LSL3</span><span>Ed25519</span><span>.ppk Plugins</span>
+    <span>x86_64</span><span>ARM64</span><span>LoongArch64</span><span>RISC-V 64</span><span>MIPS64el</span><span>Java 8 → 25</span><span>CurseForge</span><span>Modrinth</span><span>MultiMC</span><span>FTB</span><span>LSL3</span><span>Ed25519</span><span>.ppk Plugins</span><span>Open Source</span>
+    <span>x86_64</span><span>ARM64</span><span>LoongArch64</span><span>RISC-V 64</span><span>MIPS64el</span><span>Java 8 → 25</span><span>CurseForge</span><span>Modrinth</span><span>MultiMC</span><span>FTB</span><span>LSL3</span><span>Ed25519</span><span>.ppk Plugins</span><span>Open Source</span>
   </div>
 </div>
 
-<!-- ============ 01 平台 ============ -->
-<section class="sec sec-dark obs" id="platforms">
-  <span class="sec-index" aria-hidden="true">01</span>
+<main>
+<!-- ============ 01 能力积木 ============ -->
+<section class="sec sec-light obs" id="features">
   <div class="container">
-    <div class="sec-head r">
-      <span>01 / Platforms</span>
+    <div class="sec-head reveal">
+      <span>01 / Capabilities</span>
       <span class="rule"></span>
-      <span>无界平台</span>
+      <span>能力</span>
     </div>
-    <div class="feature-grid">
-      <div class="col-text">
-        <h2 class="r" style="--d:.1s">从 Apple Silicon，<br><span class="h-em">到龙芯。</span></h2>
-        <p class="sec-body r" style="--d:.2s">PMCL 原生运行于 Windows、macOS 与 Linux。在 Apple Silicon 上，古老的 Alpha 版本经由 Rosetta 2 调度 x86_64 Java 悉心呵护；在国产架构上，LoongArch64 与 RISC-V 64 拥有专属的运行时与社区原生库。哪里有热爱，哪里就有 PMCL。</p>
+    <h2 class="reveal" style="--d:.1s">需要的一切，<br><em>无需更多。</em></h2>
+    <div class="blocks-grid">
+      <div class="blk blk-feature reveal" style="--d:.05s">
+        <span class="idx">/ 01</span>
+        <span class="b-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg></span>
+        <h3>跨架构原生</h3>
+        <p>x86_64 到 MIPS64el —— 龙芯与 RISC-V 的专属运行时开箱即用，Apple Silicon 原生疾驰。</p>
       </div>
-      <figure class="fig fig-45 col-img r-clip" style="--d:.15s">
-        <div class="frame">
-          <img loading="lazy" src="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Moody%20minimalist%20product%20photography%20of%20a%20matte%20black%20laptop%20and%20compact%20single%20board%20computer%20on%20raw%20concrete%20desk%2C%20dramatic%20single%20side%20light%2C%20deep%20green-black%20atmosphere%2C%20subtle%20mist%2C%20high%20contrast%20editorial%20style%2C%20no%20text&image_size=landscape_4_3" alt="混凝土桌上的笔记本电脑与单板机" width="1200" height="900">
-        </div>
-        <figcaption><span>Fig. 01 — 机器们 / The Machines</span><span>Everywhere</span></figcaption>
-      </figure>
-    </div>
-    <ul class="arch-list">
-      <li class="r" style="--d:.05s"><span class="arch">x86_64 <i>AMD64</i></span><span class="desc">最广泛的兼容 —— 工作站、台式机与主流笔记本的第一选择。</span><span class="idx">/01</span></li>
-      <li class="r" style="--d:.12s"><span class="arch">ARM64 <i>AArch64</i></span><span class="desc">Apple Silicon 与树莓派的原生速度，无需任何转译。</span><span class="idx">/02</span></li>
-      <li class="r" style="--d:.19s"><span class="arch">LOONGARCH64</span><span class="desc">龙芯架构 —— 阿里 Dragonwell 运行时自动就位，Java 8 / 17 / 21 开箱即用。</span><span class="idx">/03</span></li>
-      <li class="r" style="--d:.26s"><span class="arch">RISC-V 64</span><span class="desc">面向新兴架构，Temurin 运行时与社区原生库双向奔赴。</span><span class="idx">/04</span></li>
-      <li class="r" style="--d:.33s"><span class="arch">MIPS64EL</span><span class="desc">老而弥坚 —— 龙芯社区 FTP 精心托管，经典硬件再战十年。</span><span class="idx">/05</span></li>
-    </ul>
-  </div>
-</section>
-
-<!-- ============ 02 版本 ============ -->
-<section class="sec sec-light obs" id="versions">
-  <div class="container">
-    <div class="sec-head r">
-      <span>02 / Versions</span>
-      <span class="rule"></span>
-      <span>全版本</span>
-    </div>
-    <div class="feature-grid flip">
-      <figure class="fig fig-34 col-img r-clip" style="--d:.15s">
-        <div class="frame">
-          <img loading="lazy" src="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Minimalist%20still%20life%20of%20translucent%20frosted%20glass%20cubes%20stacked%20in%20ascending%20steps%20on%20warm%20cream%20background%2C%20soft%20studio%20lighting%2C%20long%20elegant%20shadows%2C%20tiny%20green%20sprout%20on%20top%20cube%2C%20editorial%20product%20photography%2C%20beige%20and%20moss%20green%20palette%2C%20no%20text&image_size=portrait_4_3" alt="暖米色背景上逐级堆叠的磨砂玻璃立方体" width="900" height="1200">
-        </div>
-        <figcaption><span>Fig. 02 — 阶梯 / Ascension</span><span>Alpha → Now</span></figcaption>
-      </figure>
-      <div class="col-text">
-        <h2 class="r" style="--d:.1s">从 <span class="latin">2010</span>，<br><span class="h-em">到现在。</span></h2>
-        <p class="sec-body r" style="--d:.2s">Alpha、Beta、Release、快照 —— 每一个时代的 Minecraft 都值得被再次打开。PMCL 为每个版本自动匹配合适的 Java：从 Java 8 到 Java 25，缺什么就下载什么；版本之间彼此隔离、互不干扰。Apple Silicon 上运行远古版本？Rosetta 2 与 x86_64 运行时已替你安排妥当。</p>
-        <div class="chips r" style="--d:.3s">
-          <span>Java 8</span><span>Java 17</span><span>Java 21</span><span>Java 25</span>
-          <span class="chip-note">自动匹配 · 自动下载 · 版本隔离</span>
-        </div>
+      <div class="blk reveal" style="--d:.1s">
+        <span class="idx">/ 02</span>
+        <span class="b-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5"/></svg></span>
+        <h3>全版本管理</h3>
+        <p>Alpha 到最新快照，Java 8–25 自动匹配、自动下载，版本之间彼此隔离。</p>
+      </div>
+      <div class="blk reveal" style="--d:.15s">
+        <span class="idx">/ 03</span>
+        <span class="b-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M10 4h4v4a2 2 0 01-2 2 2 2 0 00-2 2v4h4"/><path d="M14 20h-4"/><path d="M4 4v4M4 8h4M20 12v4M16 16h4"/></svg></span>
+        <h3>.ppk 插件生态</h3>
+        <p>Kotlin 书写主体，Java 打理边角 —— 界面、下载、账号，皆可重塑。</p>
+      </div>
+      <div class="blk reveal" style="--d:.2s">
+        <span class="idx">/ 04</span>
+        <span class="b-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 4v12m0 0l-5-5m5 5l5-5"/><path d="M5 20h14"/></svg></span>
+        <h3>六格式下载引擎</h3>
+        <p>CurseForge、Modrinth、MultiMC、FTB、LSL3、服务器包 —— 照单全收。</p>
+      </div>
+      <div class="blk reveal" style="--d:.25s">
+        <span class="idx">/ 05</span>
+        <span class="b-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1"/></svg></span>
+        <h3>莫奈动态主题</h3>
+        <p>取色于壁纸，流动于窗口 —— 14dp 圆角无边框玻璃质感。</p>
+      </div>
+      <div class="blk reveal" style="--d:.3s">
+        <span class="idx">/ 06</span>
+        <span class="b-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 11a3 3 0 013 3v1a3 3 0 01-6 0v-1a3 3 0 013-3z"/><path d="M12 11V7"/><path d="M7 5.5A9 9 0 005 12"/><path d="M17 5.5A9 9 0 0119 12"/></svg></span>
+        <h3>HECT-MI 指纹</h3>
+        <p>可逆编码的十三维环境指纹 —— 解码即校验，一格不差。</p>
       </div>
     </div>
-    <div class="timeline">
-      <div class="tl-item r" style="--d:.1s"><span class="tl-year">2010 — 2011</span><strong>Alpha</strong><p>最初的世界。x86_64 Java 8 经 Rosetta 2 精心护航。</p></div>
-      <div class="tl-item r" style="--d:.2s"><span class="tl-year">2010 — 2011</span><strong>Beta</strong><p>黄金时代。b1.7.3 至今仍被整日游玩的传奇。</p></div>
-      <div class="tl-item r" style="--d:.3s"><span class="tl-year">2011</span><strong>Release 1.0</strong><p>正式发布。冒险模式的起点，一切的开始。</p></div>
-      <div class="tl-item r" style="--d:.4s"><span class="tl-year">Now</span><strong>现代 1.x</strong><p>最新快照与正式版，Java 21 / 25 即刻就绪。</p></div>
+    <div class="stats">
+      <div class="stat reveal" style="--d:.1s"><b>5</b><span>CPU 架构</span></div>
+      <div class="stat reveal" style="--d:.18s"><b>15+</b><span>年版本跨度</span></div>
+      <div class="stat reveal" style="--d:.26s"><b>3</b><span>桌面平台</span></div>
+      <div class="stat reveal" style="--d:.34s"><b>100%</b><span>开源免费</span></div>
     </div>
   </div>
 </section>
 
-<!-- ============ 03 插件 ============ -->
-<section class="sec sec-dark obs" id="plugins">
-  <span class="sec-index" aria-hidden="true">03</span>
-  <div class="container">
-    <div class="sec-head r">
-      <span>03 / Plugins</span>
-      <span class="rule"></span>
-      <span>插件生态</span>
-    </div>
-    <div class="feature-grid">
-      <div class="col-text">
-        <h2 class="r" style="--d:.1s">以 <span class="latin">.ppk</span> 之名。</h2>
-        <p class="sec-body r" style="--d:.2s">用 Kotlin 书写主体，用 Java 打理边角。PMCL 的插件系统开放了界面、下载、账号与启动的每一个环节 —— 你的启动器，理应由你定义。</p>
-        <div class="code-card r" style="--d:.3s">
-          <div class="code-card-bar"><span>plugin.xml</span><span>PMCL Plugin Package</span></div>
-          <pre><code><span class="t">&lt;plugin&gt;</span>
-  <span class="t">&lt;id&gt;</span><span class="v">dev.pmcl.example</span><span class="t">&lt;/id&gt;</span>
-  <span class="t">&lt;name&gt;</span><span class="v">我的第一个插件</span><span class="t">&lt;/name&gt;</span>
-  <span class="t">&lt;version&gt;</span><span class="v">1.0.0</span><span class="t">&lt;/version&gt;</span>
-  <span class="t">&lt;entry&gt;</span><span class="v">ExamplePlugin.kt</span><span class="t">&lt;/entry&gt;</span>
-<span class="t">&lt;/plugin&gt;</span></code></pre>
-        </div>
-        <div class="anatomy r" style="--d:.4s">
-          <span>plugin.xml — 信息与版本</span><span>Kotlin — 插件主体</span><span>Java — 辅助功能</span>
-        </div>
+<!-- ============ 02 时间轴（横向滚动） ============ -->
+<section class="hscroll obs" id="versions">
+  <div class="hs-pin">
+    <div class="hs-head">
+      <div class="sec-head">
+        <span>02 / Timeline</span>
+        <span class="rule"></span>
+        <span>时间轴</span>
       </div>
-      <figure class="fig fig-45 col-img r-clip" style="--d:.15s">
-        <div class="frame">
-          <img loading="lazy" src="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Modular%20matte%20ceramic%20and%20dark%20stone%20blocks%20arranged%20in%20asymmetric%20floating%20composition%20on%20charcoal%20backdrop%2C%20single%20warm%20spotlight%20from%20above%2C%20gallery%20exhibition%20aesthetic%2C%20moss%20green%20and%20bronze%20accents%2C%20dramatic%20depth%2C%20no%20text&image_size=portrait_4_3" alt="炭色背景下聚光灯下的模块化陶瓷积木" width="900" height="1125">
-        </div>
-        <figcaption><span>Fig. 03 — 积木 / Blocks</span><span>.ppk Ecosystem</span></figcaption>
-      </figure>
+      <h2>一次滚动，<em>十五年。</em></h2>
+    </div>
+    <div class="hs-wrap">
+      <div class="hs-track">
+        <article class="hs-card hs-intro">
+          <span class="c-year">Scroll →</span>
+          <span class="c-big">向右滚动，<br>回到 2010。</span>
+          <p>每一个时代的 Minecraft，都值得被再次打开。</p>
+        </article>
+        <article class="hs-card">
+          <span class="c-year">2010 — 2011</span>
+          <span class="c-ver">ALPHA</span>
+          <span class="c-tag">最初的世界</span>
+          <p>a1.2.6 及更早 —— Rosetta 2 与 x86_64 Java 8 悉心护航，远古版本照常苏醒。</p>
+          <span class="c-java">JAVA 8 · ROSETTA 2</span>
+        </article>
+        <article class="hs-card">
+          <span class="c-year">2010 — 2011</span>
+          <span class="c-ver">BETA</span>
+          <span class="c-tag">黄金年代</span>
+          <p>b1.7.3 —— 至今仍被整日游玩的传奇， Terrain 生成最后的纯粹。</p>
+          <span class="c-java">JAVA 8 · ROSETTA 2</span>
+        </article>
+        <article class="hs-card">
+          <span class="c-year">2011</span>
+          <span class="c-ver">1.0</span>
+          <span class="c-tag">一切的开始</span>
+          <p>正式发布 —— 冒险模式来临，Minecraft 从游戏变成现象。</p>
+          <span class="c-java">JAVA 8</span>
+        </article>
+        <article class="hs-card">
+          <span class="c-year">2012 — 2017</span>
+          <span class="c-ver">1.7 — 1.12</span>
+          <span class="c-tag">Mod 黄金期</span>
+          <p>1.7.10 与 1.12.2 双璧并立，Forge 时代的工业与魔法在此生根。</p>
+          <span class="c-java">JAVA 8</span>
+        </article>
+        <article class="hs-card">
+          <span class="c-year">2020 — 2024</span>
+          <span class="c-ver">1.17 — 1.21</span>
+          <span class="c-tag">现代纪元</span>
+          <p>洞穴与山崖重构世界，Java 17 / 21 接力护航，光影与生电并存。</p>
+          <span class="c-java">JAVA 17 — 21</span>
+        </article>
+        <article class="hs-card">
+          <span class="c-year">Now</span>
+          <span class="c-ver">SNAPSHOT</span>
+          <span class="c-tag">此刻进行时</span>
+          <p>最新快照与 Fabric / NeoForge 并进，Java 25 就绪， 字节码降级兜底。</p>
+          <span class="c-java">JAVA 21 — 25</span>
+        </article>
+        <article class="hs-card hs-outro">
+          <span class="c-year">All Covered</span>
+          <span class="c-big">而 PMCL，<br>覆盖以上全部。</span>
+          <p>一个启动器，十五年 —— 逐版本隔离，逐架构适配。</p>
+        </article>
+      </div>
     </div>
   </div>
 </section>
 
-<!-- ============ 04 引擎 ============ -->
-<section class="sec sec-light obs" id="engine">
-  <div class="container">
-    <div class="sec-head r">
-      <span>04 / Engine</span>
-      <span class="rule"></span>
-      <span>下载引擎</span>
-    </div>
-    <div class="feature-grid flip">
-      <figure class="fig fig-43 col-img r-clip" style="--d:.15s">
-        <div class="frame">
-          <img loading="lazy" src="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Long%20exposure%20aerial%20night%20view%20of%20glowing%20emerald%20light%20streams%20flowing%20like%20rivers%20over%20dark%20terrain%20converging%20toward%20bright%20horizon%2C%20cinematic%20abstract%20data%20flow%2C%20subtle%20amber%20highlights%2C%20clean%20composition%2C%20no%20text&image_size=landscape_16_9" alt="夜晚深色地形上翡翠色光流汇向地平线" width="1200" height="900">
-        </div>
-        <figcaption><span>Fig. 04 — 河流 / Rivers</span><span>Verified Downloads</span></figcaption>
-      </figure>
-      <div class="col-text">
-        <h2 class="r" style="--d:.1s">快，<br><span class="h-em">且可靠。</span></h2>
-        <p class="sec-body r" style="--d:.2s">CurseForge、Modrinth、MultiMC、FTB —— 各家整合包格式照单全收；PMCL 私有的 LSL3 格式更支持 SHA-1 校验与增量更新。每一份文件都经原子写入，每一次更新都经 Ed25519 签名验证。不损坏，不回退，不将就。</p>
+<!-- ============ 03 界面演示 ============ -->
+<section class="demo obs" id="demo">
+  <div class="demo-inner">
+    <div class="demo-head">
+      <div class="sec-head reveal">
+        <span class="rule"></span>
+        <span>03 / Interface</span>
+        <span class="rule"></span>
       </div>
+      <h2 class="reveal" style="--d:.1s">界面，<em>即品质。</em></h2>
     </div>
-    <ul class="feat-list">
-      <li class="r" style="--d:.05s"><span class="f-name">CurseForge <i>+ Modrinth</i></span><span class="f-desc">两大生态，一键安装 —— 指纹 API 自动补全元数据。</span></li>
-      <li class="r" style="--d:.12s"><span class="f-name">MultiMC <i>+ FTB</i></span><span class="f-desc">老牌格式平滑迁移，mmc-pack.json 与组件映射悉数保留。</span></li>
-      <li class="r" style="--d:.19s"><span class="f-name">LSL3 <i>Private</i></span><span class="f-desc">PMCL 私有格式 —— SHA-1 校验、增量更新、断点续传。</span></li>
-      <li class="r" style="--d:.26s"><span class="f-name">Security</span><span class="f-desc">Ed25519 签名校验 · 原子写入 · 文件级锁 —— 拒绝一切损坏。</span></li>
-    </ul>
-  </div>
-</section>
-
-<!-- ============ 05 界面 ============ -->
-<section class="sec sec-dark obs" id="showcase" style="background:var(--dark-3)">
-  <div class="container">
-    <div class="sec-head r">
-      <span>05 / Interface</span>
-      <span class="rule"></span>
-      <span>界面</span>
-    </div>
-    <div style="max-width:640px">
-      <h2 class="r" style="--d:.1s;margin-bottom:28px">界面，<br><span class="h-em">即品质。</span></h2>
-      <p class="sec-body r" style="--d:.2s">无边框玻璃窗口、14dp 圆角、随壁纸流动的莫奈主题 —— 每一处像素，都为长时间的凝视而设计。</p>
-    </div>
-    <div class="showcase-wrap">
-      <div class="app-window r" style="--d:.15s" role="img" aria-label="PMCL 应用界面示意图">
-        <span class="pin" style="top:-12px;left:40px">A</span>
-        <span class="pin" style="top:38px;right:-12px">B</span>
-        <span class="pin" style="bottom:110px;left:-12px">C</span>
+    <div class="demo-stage">
+      <div class="app-window" role="img" aria-label="PMCL 应用界面示意图">
         <div class="app-titlebar">
           <span class="dots"><i></i><i></i><i></i></span>
           <span class="app-title">PMCL — 主页</span>
@@ -663,7 +702,7 @@ footer{background:var(--dark-3);color:var(--cream);padding:clamp(80px,12vh,130px
           <div class="app-main">
             <div class="am-head">
               <div class="am-title">
-                <span class="am-label mono">Selected Version</span>
+                <span class="am-label">Selected Version</span>
                 <strong>1.21.4 <span class="tag">Fabric 0.16.9</span></strong>
               </div>
               <span class="app-play"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg></span>
@@ -677,9 +716,9 @@ footer{background:var(--dark-3);color:var(--cream);padding:clamp(80px,12vh,130px
             <div class="am-foot">
               <span class="avatar">S</span>
               <span class="am-user"><b>Steve</b><i>微软账号 · 已登录</i></span>
-              <span class="am-ok mono">Ready</span>
+              <span class="am-ok">Ready</span>
             </div>
-            <div class="am-log mono">
+            <div class="am-log">
               <span>[14:32:07] 准备启动 — 1.21.4 (Fabric)</span>
               <span>[14:32:09] Java 21 (Temurin) 就绪 — 8192 MB</span>
               <span class="ok">[14:32:11] 启动中 …</span>
@@ -687,41 +726,103 @@ footer{background:var(--dark-3);color:var(--cream);padding:clamp(80px,12vh,130px
           </div>
         </div>
       </div>
-      <div class="anno-row">
-        <div class="anno r" style="--d:.3s"><b>A — 窗口</b><p>14dp 圆角 · 无边框玻璃质感，拖拽时效果始终如一。</p></div>
-        <div class="anno r" style="--d:.4s"><b>B — 主题</b><p>莫奈动态取色，主题色彩随壁纸与季节流动。</p></div>
-        <div class="anno r" style="--d:.5s"><b>C — 生态</b><p>界面本身亦为插件而开 —— .ppk 可重塑每一页。</p></div>
+      <div class="demo-annos">
+        <div class="demo-anno"><b>A — 玻璃窗口</b><p>14dp 圆角 · 无边框，拖拽时效果始终如一。</p></div>
+        <div class="demo-anno"><b>B — 莫奈主题</b><p>动态取色，主题色彩随壁纸与季节流动。</p></div>
+        <div class="demo-anno"><b>C — 插件可塑</b><p>.ppk 插件可以重塑每一个页面。</p></div>
       </div>
     </div>
   </div>
 </section>
 
+<!-- ============ 04 平台 ============ -->
+<section class="sec sec-dark platforms obs" id="platforms">
+  <span class="sec-index" aria-hidden="true">04</span>
+  <div class="container">
+    <div class="sec-head reveal">
+      <span>04 / Platforms</span>
+      <span class="rule"></span>
+      <span>无界平台</span>
+    </div>
+    <div class="feature-grid">
+      <div class="col-text">
+        <h2 class="reveal" style="--d:.1s">从 Apple Silicon，<br>到<em>龙芯</em>。</h2>
+        <p class="sec-body reveal" style="--d:.2s">PMCL 原生运行于 Windows、macOS 与 Linux。在 Apple Silicon 上，远古版本经由 Rosetta 2 调度 x86_64 Java 悉心呵护；在国产架构上，龙芯与 RISC-V 拥有专属运行时与社区原生库。哪里有热爱，哪里就有 PMCL。</p>
+      </div>
+      <ul class="arch-list" style="margin-top:0">
+        <li class="reveal" data-img="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Minimal%203D%20render%20of%20a%20powerful%20desktop%20workstation%20tower%20on%20cream%20studio%20backdrop%2C%20vivid%20blue%20material%20accents%2C%20soft%20long%20shadows%2C%20high-end%20product%20render%2C%20subtle%20grain%2C%20no%20text&image_size=landscape_4_3" style="--d:.05s"><span class="arch">x86_64 <i>AMD64</i></span><span class="desc">最广泛的兼容 —— 工作站、台式机与主流笔记本的第一选择。</span><span class="idx">/01</span></li>
+        <li class="reveal" data-img="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Minimal%203D%20render%20of%20a%20sleek%20thin%20laptop%20and%20a%20tiny%20single-board%20computer%20beside%20it%2C%20cream%20studio%20backdrop%2C%20vivid%20blue%20accents%2C%20soft%20long%20shadows%2C%20high-end%20product%20render%2C%20subtle%20grain%2C%20no%20text&image_size=landscape_4_3" style="--d:.12s"><span class="arch">ARM64 <i>AArch64</i></span><span class="desc">Apple Silicon 与树莓派的原生速度，无需任何转译。</span><span class="idx">/02</span></li>
+        <li class="reveal" data-img="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Elegant%20abstract%203D%20render%20of%20a%20flowing%20curved%20architectural%20ribbon%20structure%20inspired%20by%20oriental%20jade%20carving%2C%20vivid%20blue%20and%20cream%20palette%2C%20soft%20studio%20light%2C%20minimal%20composition%2C%20subtle%20grain%2C%20no%20text&image_size=landscape_4_3" style="--d:.19s"><span class="arch">LOONGARCH64</span><span class="desc">龙芯架构 —— 阿里 Dragonwell 运行时自动就位，Java 8 / 17 / 21 开箱即用。</span><span class="idx">/03</span></li>
+        <li class="reveal" data-img="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Macro%203D%20render%20of%20an%20open%20modular%20chip%20with%20exposed%20geometric%20circuit%20traces%2C%20vivid%20blue%20on%20cream%20background%2C%20soft%20depth%20of%20field%2C%20high-end%20tech%20render%2C%20subtle%20grain%2C%20no%20text&image_size=landscape_4_3" style="--d:.26s"><span class="arch">RISC-V 64</span><span class="desc">面向新兴架构 —— Temurin 运行时与社区原生库双向奔赴。</span><span class="idx">/04</span></li>
+        <li class="reveal" data-img="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Minimal%203D%20render%20of%20a%20retro%20vintage%201990s%20workstation%20computer%2C%20cream%20body%20with%20vivid%20blue%20screen%20glow%2C%20cream%20studio%20backdrop%2C%20soft%20long%20shadows%2C%20subtle%20grain%2C%20no%20text&image_size=landscape_4_3" style="--d:.33s"><span class="arch">MIPS64EL</span><span class="desc">老而弥坚 —— 龙芯社区 FTP 精心托管，经典硬件再战十年。</span><span class="idx">/05</span></li>
+      </ul>
+    </div>
+    <p class="arch-note reveal">以上架构均有原生构建或专属运行时 — Hover to preview</p>
+  </div>
+</section>
+<div class="arch-preview" id="archPreview" aria-hidden="true"><img alt=""></div>
+
+<!-- ============ 05 插件 ============ -->
+<section class="sec sec-light obs" id="plugins">
+  <div class="container">
+    <div class="sec-head reveal">
+      <span>05 / Plugins</span>
+      <span class="rule"></span>
+      <span>插件生态</span>
+    </div>
+    <div class="feature-grid">
+      <div class="col-text">
+        <h2 class="reveal" style="--d:.1s">以 <em>.ppk</em> 之名。</h2>
+        <p class="sec-body reveal" style="--d:.2s">用 Kotlin 书写主体，用 Java 打理边角。PMCL 的插件系统开放了界面、下载、账号与启动的每一个环节 —— 你的启动器，理应由你定义。</p>
+        <div class="code-card reveal" style="--d:.3s">
+          <div class="code-card-bar"><span>plugin.xml</span><span>PMCL Plugin Package</span></div>
+          <pre><code><span class="t">&lt;plugin&gt;</span>
+  <span class="t">&lt;id&gt;</span><span class="v">dev.pmcl.example</span><span class="t">&lt;/id&gt;</span>
+  <span class="t">&lt;name&gt;</span><span class="v">我的第一个插件</span><span class="t">&lt;/name&gt;</span>
+  <span class="t">&lt;version&gt;</span><span class="v">1.0.0</span><span class="t">&lt;/version&gt;</span>
+  <span class="t">&lt;entry&gt;</span><span class="v">ExamplePlugin.kt</span><span class="t">&lt;/entry&gt;</span>
+<span class="t">&lt;/plugin&gt;</span></code></pre>
+        </div>
+        <div class="anatomy reveal" style="--d:.4s">
+          <span>plugin.xml — 信息与版本</span><span>Kotlin — 插件主体</span><span>Java — 辅助功能</span>
+        </div>
+      </div>
+      <figure class="fig col-img reveal" style="--d:.15s">
+        <div class="frame" style="aspect-ratio:4/5">
+          <img loading="lazy" src="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Exploded%20view%203D%20render%20of%20modular%20cubes%20floating%20apart%20in%20precise%20formation%2C%20vivid%20blue%20and%20warm%20cream%20palette%20on%20cream%20background%2C%20soft%20studio%20lighting%2C%20minimal%20high-end%20render%2C%20subtle%20grain%2C%20no%20text&image_size=portrait_4_3" alt="奶油背景上精密排列的分解积木立方体" width="900" height="1125">
+        </div>
+        <figcaption><span>Fig. 03 — Blocks</span><span>.ppk Ecosystem</span></figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
 <!-- ============ 下载 ============ -->
-<section class="sec sec-light download obs" id="download">
+<section class="sec download obs" id="download">
   <span class="dl-word" aria-hidden="true">PMCL</span>
   <div class="container">
-    <div class="sec-head r">
+    <div class="sec-head reveal">
       <span class="rule"></span>
       <span>Download</span>
       <span class="rule"></span>
     </div>
-    <h2 class="r" style="--d:.1s">现在，开始<br><span class="h-em">你的世界。</span></h2>
-    <p class="dl-note r" style="--d:.2s">v4.2.1 — Windows / macOS / Linux · 免费 · 无广告</p>
+    <h2 class="reveal" style="--d:.1s">现在，开始<br><em>你的世界。</em></h2>
+    <p class="dl-note reveal" style="--d:.2s">v4.2.1 — Windows / macOS / Linux · 免费 · 无广告</p>
     <div class="dl-row">
-      <a class="dl-btn r" style="--d:.3s" href="#" onclick="return false">
+      <a class="dl-btn magnet reveal" style="--d:.3s" href="#" onclick="return false">
         <span class="os">Windows 10 / 11</span>
         <span class="file">下载 .exe <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 4v14m0 0l-6-6m6 6l6-6"/></svg></span>
       </a>
-      <a class="dl-btn r" style="--d:.4s" href="#" onclick="return false">
+      <a class="dl-btn magnet reveal" style="--d:.4s" href="#" onclick="return false">
         <span class="os">macOS · Apple Silicon / Intel</span>
         <span class="file">下载 .dmg <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 4v14m0 0l-6-6m6 6l6-6"/></svg></span>
       </a>
-      <a class="dl-btn r" style="--d:.5s" href="#" onclick="return false">
+      <a class="dl-btn magnet reveal" style="--d:.5s" href="#" onclick="return false">
         <span class="os">Linux · x64 / ARM / LoongArch</span>
         <span class="file">下载 .AppImage <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 4v14m0 0l-6-6m6 6l6-6"/></svg></span>
       </a>
     </div>
-    <p class="dl-verify r" style="--d:.6s">SHA-256 · Ed25519 Signed · Incremental Update</p>
+    <p class="dl-verify reveal" style="--d:.6s">SHA-256 · Ed25519 Signed · Incremental Update</p>
   </div>
 </section>
 </main>
@@ -731,19 +832,19 @@ footer{background:var(--dark-3);color:var(--cream);padding:clamp(80px,12vh,130px
   <div class="foot-word" aria-hidden="true">PMCL</div>
   <div class="container">
     <div class="foot-grid">
-      <div class="foot-brand r" style="--d:.1s">
+      <div class="foot-brand reveal" style="--d:.1s">
         <span class="brand">PMCL<sup>®</sup></span>
         <p>以热爱，造工具。<br>一个为 Minecraft 而生的开源启动器。</p>
       </div>
-      <div class="foot-col r" style="--d:.2s">
+      <div class="foot-col reveal" style="--d:.2s">
         <h4>产品</h4>
-        <a href="#download">下载</a><a href="#">更新日志</a><a href="#">路线图</a><a href="#showcase">界面</a>
+        <a href="#download">下载</a><a href="#">更新日志</a><a href="#">路线图</a><a href="#demo">界面</a>
       </div>
-      <div class="foot-col r" style="--d:.3s">
+      <div class="foot-col reveal" style="--d:.3s">
         <h4>资源</h4>
         <a href="#">GitHub</a><a href="#">文档</a><a href="#">插件市场</a><a href="#">HECT-MI</a>
       </div>
-      <div class="foot-col r" style="--d:.4s">
+      <div class="foot-col reveal" style="--d:.4s">
         <h4>法律</h4>
         <a href="#">隐私政策</a><a href="#">用户协议</a><a href="#">免责声明</a>
       </div>
@@ -755,36 +856,286 @@ footer{background:var(--dark-3);color:var(--cream);padding:clamp(80px,12vh,130px
   </div>
 </footer>
 
+<script src="vendor/three.min.js"></script>
+<script src="vendor/gsap.min.js"></script>
+<script src="vendor/ScrollTrigger.min.js"></script>
+<script src="vendor/lenis.min.js"></script>
 <script>
-document.documentElement.classList.add('js');
+(function(){
+'use strict';
+var prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+var hasGsap = !!(window.gsap && window.ScrollTrigger);
+if (hasGsap) gsap.registerPlugin(ScrollTrigger);
+var isFine = window.matchMedia('(pointer: fine)').matches;
 
-/* 阅读进度条 */
-const bar=document.getElementById('progress');
+/* ============ 进度条 ============ */
+var bar = document.getElementById('progress');
+function onScrollBar(){
+  var h = document.documentElement;
+  var max = h.scrollHeight - h.clientHeight;
+  bar.style.transform = 'scaleX(' + (max > 0 ? h.scrollTop / max : 0) + ')';
+}
+document.addEventListener('scroll', onScrollBar, {passive:true});
+onScrollBar();
 
-/* HERO 视差 */
-const heroImg=document.querySelector('.hero-figure img');
+/* ============ 平滑滚动（Lenis） ============ */
+var lenis = null;
+if (window.Lenis && !prefersReduced) {
+  try {
+    lenis = new Lenis({ duration: 1.15, smoothWheel: true });
+    if (hasGsap) {
+      lenis.on('scroll', function(){ ScrollTrigger.update(); });
+      gsap.ticker.add(function(t){ lenis.raf(t * 1000); });
+      gsap.ticker.lagSmoothing(0);
+    } else {
+      (function raf(t){ lenis.raf(t); requestAnimationFrame(raf); })(0);
+    }
+  } catch(e){ lenis = null; }
+}
+/* 锚点导航 */
+document.querySelectorAll('a[href^="#"]').forEach(function(a){
+  a.addEventListener('click', function(e){
+    var id = a.getAttribute('href');
+    if (id.length < 2) return;
+    var el = document.querySelector(id);
+    if (!el) return;
+    e.preventDefault();
+    if (lenis) { lenis.scrollTo(el, {offset:-70}); }
+    else { el.scrollIntoView({behavior:'smooth'}); }
+  });
+});
 
-function onScroll(){
-  const h=document.documentElement;
-  const max=h.scrollHeight-h.clientHeight;
-  bar.style.transform='scaleX('+(max>0?h.scrollTop/max:0)+')';
-  if(heroImg){
-    const y=Math.min(h.scrollTop,1200);
-    heroImg.style.transform='translateY('+(y*0.05)+'px) scale(1.06)';
+/* ============ 自定义光标 ============ */
+if (isFine && !prefersReduced) {
+  document.body.classList.add('fancy-cursor');
+  var dot = document.querySelector('.cursor-dot');
+  var ring = document.querySelector('.cursor-ring');
+  var rx = innerWidth/2, ry = innerHeight/2, tx = rx, ty = ry;
+  document.addEventListener('mousemove', function(e){
+    tx = e.clientX; ty = e.clientY;
+    dot.style.transform = 'translate(' + (tx-4) + 'px,' + (ty-4) + 'px)';
+  }, {passive:true});
+  (function loop(){
+    rx += (tx-rx)*.16; ry += (ty-ry)*.16;
+    ring.style.transform = 'translate(' + (rx - ring.offsetWidth/2) + 'px,' + (ry - ring.offsetHeight/2) + 'px)';
+    requestAnimationFrame(loop);
+  })();
+  /* 悬停状态：链接放大 / 架构行显示"预览" */
+  document.addEventListener('mouseover', function(e){
+    if (e.target.closest('.arch-list li')) { ring.classList.add('view'); ring.classList.remove('grow'); }
+    else if (e.target.closest('a,button,.blk,.hs-card')) { ring.classList.add('grow'); ring.classList.remove('view'); }
+    else { ring.classList.remove('grow','view'); }
+  });
+}
+
+/* ============ 磁性按钮 ============ */
+if (isFine && hasGsap && !prefersReduced) {
+  document.querySelectorAll('.magnet').forEach(function(btn){
+    btn.addEventListener('mousemove', function(e){
+      var r = btn.getBoundingClientRect();
+      gsap.to(btn, {x:(e.clientX-r.left-r.width/2)*.32, y:(e.clientY-r.top-r.height/2)*.32, duration:.4, ease:'power2.out'});
+    });
+    btn.addEventListener('mouseleave', function(){
+      gsap.to(btn, {x:0, y:0, duration:.7, ease:'elastic.out(1,.45)'});
+    });
+  });
+}
+
+/* ============ 积木卡片聚光灯 ============ */
+document.querySelectorAll('.blk').forEach(function(card){
+  card.addEventListener('mousemove', function(e){
+    var r = card.getBoundingClientRect();
+    card.style.setProperty('--mx', (e.clientX-r.left)+'px');
+    card.style.setProperty('--my', (e.clientY-r.top)+'px');
+  });
+});
+
+/* ============ WebGL 体素波浪 ============ */
+function initWebGL(){
+  if (!window.THREE || prefersReduced) { document.body.classList.add('no-webgl'); return; }
+  var canvas = document.getElementById('webgl');
+  var renderer = new THREE.WebGLRenderer({canvas:canvas, alpha:true, antialias:true});
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio||1, 2));
+  var scene = new THREE.Scene();
+  scene.fog = new THREE.Fog(0xFDF2DE, 15, 34);
+  var camera = new THREE.PerspectiveCamera(45, 1, .1, 100);
+  camera.position.set(0, 5.5, 13);
+  camera.lookAt(0, -.8, 0);
+  scene.add(new THREE.AmbientLight(0xffffff, .75));
+  var key = new THREE.DirectionalLight(0xffffff, .85); key.position.set(6, 10, 8); scene.add(key);
+  var pt = new THREE.PointLight(0x3B60C5, 1.15, 34); pt.position.set(-6, 5, 6); scene.add(pt);
+  /* 体素阵列 */
+  var cols = 44, rows = 18, N = cols*rows;
+  var geo = new THREE.BoxGeometry(.5, .5, .5);
+  var mat = new THREE.MeshLambertMaterial();
+  var mesh = new THREE.InstancedMesh(geo, mat, N);
+  var c1 = new THREE.Color(0x3B60C5), c2 = new THREE.Color(0x9DB4E8), c3 = new THREE.Color(0xFDF2DE);
+  var col = new THREE.Color();
+  var P = [], i = 0, r, c;
+  for (r = 0; r < rows; r++) for (c = 0; c < cols; c++) {
+    P.push({
+      x:(c/(cols-1)-.5)*30,
+      z:(r/(rows-1)-.5)*13,
+      ph:Math.random()*Math.PI*2
+    });
+    var t = r/rows;
+    col.copy(c1).lerp(c2, t*.85 + Math.random()*.15);
+    if (Math.random() < .06) col.copy(c3);
+    mesh.setColorAt(i++, col);
+  }
+  scene.add(mesh);
+  /* 鼠标 → 平面坐标 */
+  var mx=0, mz=0, tmx=0, tmz=0;
+  window.addEventListener('pointermove', function(e){
+    tmx = (e.clientX/innerWidth - .5)*30;
+    tmz = (e.clientY/innerHeight - .5)*13;
+  }, {passive:true});
+  function resize(){
+    var w = canvas.clientWidth || innerWidth, h = canvas.clientHeight || innerHeight;
+    renderer.setSize(w, h, false);
+    camera.aspect = w/h; camera.updateProjectionMatrix();
+  }
+  var visible = true;
+  new IntersectionObserver(function(en){ visible = en[0].isIntersecting; }).observe(canvas);
+  var tmp = new THREE.Object3D();
+  var clock = new THREE.Clock();
+  function frame(){
+    requestAnimationFrame(frame);
+    if (!visible) return;
+    var t = clock.getElapsedTime();
+    mx += (tmx-mx)*.06; mz += (tmz-mz)*.06;
+    var i = 0;
+    for (var k = 0; k < P.length; k++){
+      var p = P[k];
+      var dx = p.x-mx, dz = p.z-mz;
+      var infl = Math.exp(-(dx*dx+dz*dz)/16);
+      var y = (Math.sin(p.x*.55 + t*1.2)*.5 + Math.cos(p.z*.7 + t*.9)*.42) * (.55 + infl*1.5) + infl*1.9 - 1.1;
+      tmp.position.set(p.x, y, p.z);
+      tmp.rotation.set(infl*t*.4, .3*Math.sin(t*.35 + p.ph) + infl*.7, 0);
+      var s = 1 + infl*.45;
+      tmp.scale.set(s, s, s);
+      tmp.updateMatrix();
+      mesh.setMatrixAt(i++, tmp.matrix);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    renderer.render(scene, camera);
+  }
+  resize();
+  window.addEventListener('resize', resize);
+  frame();
+}
+try { initWebGL(); } catch(e){ document.body.classList.add('no-webgl'); }
+
+/* ============ HERO 漂浮图视差 + 入场 ============ */
+if (isFine && hasGsap && !prefersReduced) {
+  var fa = document.querySelector('.float-a'), fb = document.querySelector('.float-b');
+  if (fa && fb) {
+    var qa = gsap.quickTo(fa, 'y', {duration:.9, ease:'power3.out'});
+    var qb = gsap.quickTo(fb, 'y', {duration:1.1, ease:'power3.out'});
+    document.addEventListener('mousemove', function(e){
+      var cy = e.clientY/innerHeight - .5;
+      qa(cy*-34); qb(cy*24);
+    }, {passive:true});
   }
 }
-document.addEventListener('scroll',onScroll,{passive:true});
-onScroll();
+if (hasGsap && !prefersReduced) {
+  gsap.from('.hero-anim', {y:56, opacity:0, duration:1.15, ease:'power3.out', stagger:.11, delay:.15});
+}
 
-/* 滚动揭示 */
-const io=new IntersectionObserver(function(entries){
-  entries.forEach(function(e){
-    if(e.isIntersecting){e.target.classList.add('in-view');io.unobserve(e.target);}
+/* ============ 滚动揭示 ============ */
+if (hasGsap && !prefersReduced) {
+  gsap.utils.toArray('.obs').forEach(function(sec){
+    var els = sec.querySelectorAll('.reveal');
+    if (!els.length) return;
+    gsap.from(els, {
+      y:44, opacity:0, duration:1, ease:'power3.out',
+      stagger:.08,
+      scrollTrigger:{ trigger:sec, start:'top 78%', once:true }
+    });
   });
-},{threshold:0.10,rootMargin:'0px 0px -6% 0px'});
-document.querySelectorAll('.obs').forEach(function(el){io.observe(el);});
+}
 
-/* 平滑锚点已在 CSS 中处理 */
+/* ============ 横向时间轴（桌面） ============ */
+if (hasGsap && !prefersReduced) {
+  var mm = gsap.matchMedia();
+  mm.add('(min-width: 701px)', function(){
+    var track = document.querySelector('.hs-track');
+    var wrap = document.querySelector('.hs-wrap');
+    if (!track || !wrap) return;
+    var dist = function(){ return track.scrollWidth - wrap.clientWidth; };
+    gsap.to(track, {
+      x: function(){ return -dist(); },
+      ease: 'none',
+      scrollTrigger: {
+        trigger: '.hscroll', start: 'top top',
+        end: function(){ return '+=' + (dist() + 200); },
+        scrub: 1, pin: true, anticipatePin: 1, invalidateOnRefresh: true
+      }
+    });
+  });
+
+  /* ============ 界面演示拉出（桌面） ============ */
+  mm.add('(min-width: 701px)', function(){
+    var stage = document.querySelector('.demo-stage');
+    if (!stage) return;
+    var tl = gsap.timeline({
+      scrollTrigger: { trigger:'.demo', start:'top top', end:'+=110%', scrub:1, pin:true, anticipatePin:1 }
+    });
+    tl.fromTo('.app-window', {scale:.62, y:130, opacity:0}, {scale:1, y:0, opacity:1, ease:'power2.out', duration:.55})
+      .from('.demo-anno', {y:34, opacity:0, stagger:.16, duration:.28}, '-=.12');
+  });
+}
+
+/* ============ 大字底纹视差 ============ */
+if (hasGsap && !prefersReduced) {
+  gsap.utils.toArray('.dl-word').forEach(function(w){
+    gsap.fromTo(w, {xPercent:-50, y:0}, {
+      yPercent:26, ease:'none',
+      scrollTrigger:{ trigger:w.closest('section'), start:'top bottom', end:'bottom top', scrub:1 }
+    });
+  });
+  gsap.utils.toArray('.foot-word').forEach(function(w){
+    gsap.from(w, {yPercent:36, ease:'none',
+      scrollTrigger:{ trigger:'footer', start:'top bottom', end:'top 30%', scrub:1 }});
+  });
+  gsap.utils.toArray('.sec-index').forEach(function(w){
+    gsap.fromTo(w, {y:-30}, {y:60, ease:'none',
+      scrollTrigger:{ trigger:w.closest('section'), start:'top bottom', end:'bottom top', scrub:1 }});
+  });
+}
+
+/* ============ 架构行悬停预览图 ============ */
+(function(){
+  if (!isFine || prefersReduced) return;
+  var list = document.querySelector('.arch-list');
+  var prev = document.getElementById('archPreview');
+  var img = prev ? prev.querySelector('img') : null;
+  if (!list || !prev || !img) return;
+  var px = 0, py = 0, tx = 0, ty = 0, on = false;
+  list.querySelectorAll('li').forEach(function(li){
+    /* 预加载 */
+    var pre = new Image(); pre.src = li.getAttribute('data-img');
+    li.addEventListener('mouseenter', function(){
+      img.src = li.getAttribute('data-img');
+      prev.classList.add('on'); on = true;
+    });
+    li.addEventListener('mouseleave', function(){
+      prev.classList.remove('on'); on = false;
+    });
+  });
+  list.addEventListener('mousemove', function(e){ tx = e.clientX; ty = e.clientY; }, {passive:true});
+  (function loop(){
+    px += (tx-px)*.12; py += (ty-py)*.12;
+    if (on || Math.abs(tx-px) > .5) prev.style.left = px + 'px', prev.style.top = py + 'px';
+    requestAnimationFrame(loop);
+  })();
+})();
+
+/* ============ 图片加载后刷新滚动度量 ============ */
+window.addEventListener('load', function(){
+  if (hasGsap) ScrollTrigger.refresh();
+});
+})();
 </script>
 </body>
 </html>
