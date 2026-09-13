@@ -16,6 +16,10 @@ tasks.withType<Jar>().configureEach {
     }
 }
 
+val bindGate: SourceSet by sourceSets.creating {
+    java.srcDir("src/bindGate/java")
+}
+
 val glfwAgent: SourceSet by sourceSets.creating {
     java.srcDir("src/glfwAgent/java")
 }
@@ -87,16 +91,40 @@ val syncGlfwAgentResource by tasks.registering(Copy::class) {
     rename { "pmcl-glfw-icon-agent.jar" }
 }
 
-sourceSets.named("main") {
-    resources.srcDir(layout.buildDirectory.dir("generated/glfwAgentResource"))
+tasks.named<JavaCompile>("compileBindGateJava") {
+    // 游戏自带 JRE 可能是 8/17，绑定校验必须能在其上运行
+    sourceCompatibility = "1.8"
+    targetCompatibility = "1.8"
+    options.release.set(8)
+    options.compilerArgs.add("-Xlint:-options")
 }
 
+val bindGateForMain = layout.buildDirectory.dir("generated/bindGateMain")
+val syncBindGateClasses by tasks.registering(Copy::class) {
+    dependsOn(tasks.named("compileBindGateJava"))
+    from(bindGate.output)
+    into(bindGateForMain)
+}
+
+sourceSets.named("main") {
+    compileClasspath += bindGate.output
+    runtimeClasspath += bindGate.output
+    output.dir(mapOf("builtBy" to "syncBindGateClasses"), bindGateForMain)
+    resources.srcDir(layout.buildDirectory.dir("generated/glfwAgentResource"))
+}
+sourceSets.named("test") {
+    compileClasspath += bindGate.output
+    runtimeClasspath += bindGate.output
+}
+
+tasks.named<JavaCompile>("compileJava") {
+    dependsOn(tasks.named("compileBindGateJava"))
+}
 tasks.named("processResources") {
     dependsOn(syncGlfwAgentResource)
 }
-
 tasks.named<Jar>("jar") {
-    dependsOn(syncGlfwAgentResource)
+    dependsOn(syncGlfwAgentResource, syncBindGateClasses)
 }
 
 // sourcesJar（withSourcesJar 生成）会包含 main 资源集，而 main 资源集已把

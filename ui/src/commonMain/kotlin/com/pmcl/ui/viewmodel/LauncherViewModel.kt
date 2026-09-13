@@ -438,6 +438,9 @@ class LauncherViewModel {
     private val _installProgress = MutableStateFlow<InstallProgress?>(null)
     val installProgress: StateFlow<InstallProgress?> = _installProgress.asStateFlow()
 
+    @PublishedApi internal val _standaloneExport = MutableStateFlow<StandaloneExportUi?>(null)
+    val standaloneExport: StateFlow<StandaloneExportUi?> = _standaloneExport.asStateFlow()
+
     private val _installing = MutableStateFlow(false)
     val installing: StateFlow<Boolean> = _installing.asStateFlow()
 

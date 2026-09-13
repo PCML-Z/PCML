@@ -522,6 +522,13 @@ private fun InstanceCard(
                     Icon(Icons.Filled.IosShare, contentDescription = I18n.t("instance.export"),
                         modifier = Modifier.size(18.dp))
                 }
+                StandaloneAppExportButton(
+                    vm = vm,
+                    versionId = info.getBaseVersionId(),
+                    instanceDir = info.getInstanceDir(),
+                    defaultName = info.getName(),
+                    enabled = info.isLaunchable()
+                )
                 // 重命名
                 IconButton(onClick = onRename, modifier = Modifier.size(36.dp)) {
                     Icon(Icons.Filled.Edit, contentDescription = I18n.t("instance.rename"),
