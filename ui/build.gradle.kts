@@ -95,6 +95,14 @@ compose.desktop {
     application {
         mainClass = "com.pmcl.ui.MainKt"
 
+        // Compose 1.7 默认 ProGuard 7.2.2 最高只到 classfile 62（Java 18）。
+        // 本项目 jvmTarget=21，packageRelease* 会在 :ui:proguardReleaseJars 失败。
+        // 先关掉 release ProGuard，保证安装包能打出来；版本钉到 7.6.1 方便以后再开。
+        buildTypes.release.proguard {
+            version.set("7.6.1")
+            isEnabled.set(false)
+        }
+
         nativeDistributions {
             targetFormats(
                 org.jetbrains.compose.desktop.application.dsl.TargetFormat.Dmg,
