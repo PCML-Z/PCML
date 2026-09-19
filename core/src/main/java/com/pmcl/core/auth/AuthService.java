@@ -112,6 +112,10 @@ public final class AuthService {
     private final java.util.concurrent.ConcurrentHashMap<String, Object> refreshLocks =
             new java.util.concurrent.ConcurrentHashMap<>();
 
+    /** 锁内最新微软会话：第二路必须读已轮换的 refresh_token，不能用进锁前的旧值 */
+    private final java.util.concurrent.ConcurrentHashMap<String, Account> lastMsRefresh =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
     /**
      * 启动前刷新微软账号 MC token（需已持久化 refresh_token）。
      * 使用 per-account 锁防止并发刷新同一 refresh_token 导致 token 轮换竞态。
@@ -123,18 +127,53 @@ public final class AuthService {
         if (account.getMsRefreshToken().isEmpty()) {
             throw new IOException("无 refresh_token，请重新登录微软账号");
         }
-        Object lock = refreshLocks.computeIfAbsent(account.getUuid(), k -> new Object());
+        String uuid = account.getUuid();
+        Object lock = refreshLocks.computeIfAbsent(uuid, k -> new Object());
         synchronized (lock) {
-            Account refreshed = flow.refreshLogin(account.getMsRefreshToken());
-            // 若 refresh 后 UUID 变化（极少见），仍采用刷新结果；否则保留皮肤站字段等
+            Account cached = lastMsRefresh.get(uuid);
+            String token = account.getMsRefreshToken();
+            if (cached != null && !cached.getMsRefreshToken().isEmpty()) {
+                boolean sameToken = cached.getMsRefreshToken().equals(token);
+                boolean cacheNewerOrEqual = cached.getExpiresAt() >= account.getExpiresAt();
+                if (!sameToken && cacheNewerOrEqual) {
+                    token = cached.getMsRefreshToken();
+                }
+                if (canReuseMsRefreshCache(account, cached, System.currentTimeMillis())) {
+                    Account reused = account.withMicrosoftSession(
+                            cached.getAccessToken(),
+                            cached.getMsRefreshToken(),
+                            cached.getExpiresAt());
+                    lastMsRefresh.put(uuid, reused);
+                    return reused;
+                }
+            }
+            Account refreshed = flow.refreshLogin(token);
+            Account result;
             if (account.getUuid().equals(refreshed.getUuid())) {
-                return account.withMicrosoftSession(
+                result = account.withMicrosoftSession(
                         refreshed.getAccessToken(),
                         refreshed.getMsRefreshToken(),
                         refreshed.getExpiresAt());
+            } else {
+                result = refreshed;
             }
-            return refreshed;
+            lastMsRefresh.put(result.getUuid(), result);
+            if (!uuid.equals(result.getUuid())) {
+                lastMsRefresh.remove(uuid);
+            }
+            return result;
         }
+    }
+
+    /**
+     * 仅当缓存里已是「别人刚刷出来的新 access token」时才复用。
+     * 调用方自己的 token 仍等于缓存时（401 探测后的同会话重试）必须再走 refreshLogin。
+     */
+    static boolean canReuseMsRefreshCache(Account caller, Account cached, long nowMs) {
+        if (caller == null || cached == null) return false;
+        if (cached.getAccessToken() == null || cached.getAccessToken().isEmpty()) return false;
+        if (cached.getExpiresAt() <= nowMs + 30_000L) return false;
+        return !cached.getAccessToken().equals(caller.getAccessToken());
     }
 
     /**

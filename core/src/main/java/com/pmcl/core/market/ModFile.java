@@ -19,6 +19,8 @@ public final class ModFile {
     private List<String> dependencies;   // 依赖的 project ID 列表（来自 Modrinth API），可为空
     private String sha1 = "";
     private String sha512 = "";
+    /** 市场版本号（Modrinth version_number / CF displayName），可空。 */
+    private String versionNumber = "";
 
     public ModFile(String source, String projectId, String fileId, String fileName,
                    long fileSize, String downloadUrl, List<String> gameVersions,
@@ -49,6 +51,11 @@ public final class ModFile {
         return this;
     }
 
+    public ModFile versionNumber(String versionNumber) {
+        this.versionNumber = versionNumber != null ? versionNumber : "";
+        return this;
+    }
+
     public String getSource() { return source; }
     public String getProjectId() { return projectId; }
     public String getFileId() { return fileId; }
@@ -62,4 +69,5 @@ public final class ModFile {
     public List<String> getDependencies() { return dependencies; }
     public String getSha1() { return sha1; }
     public String getSha512() { return sha512; }
+    public String getVersionNumber() { return versionNumber != null ? versionNumber : ""; }
 }

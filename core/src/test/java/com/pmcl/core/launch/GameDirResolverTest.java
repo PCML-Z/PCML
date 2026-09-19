@@ -82,4 +82,66 @@ class GameDirResolverTest {
         assertFalse(Files.exists(isolatedMods.resolve("a.jar")),
                 "用户删掉的模组不应在再次解析时从全局目录冒回来");
     }
+
+    @Test
+    void resolveModsDirPrefersExistingUuidInstance() throws Exception {
+        Path work = tmp.resolve("pmcl");
+        String instanceId = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+        Path instanceDir = work.resolve("instances").resolve(instanceId);
+        Files.createDirectories(instanceDir.resolve("mods"));
+        Files.writeString(instanceDir.resolve("mods").resolve("from-instance.jar"), "x", StandardCharsets.UTF_8);
+
+        Preferences pref = new Preferences(work.resolve("preferences.json"));
+        GameDirResolver resolver = new GameDirResolver(new LauncherConfig(work), pref);
+
+        Path mods = resolver.resolveModsDir("1.20.1", instanceId);
+        assertEquals(instanceDir.resolve("mods"), mods);
+    }
+
+    @Test
+    void resolveModsDirFindsLegacyNamedInstanceByJsonId() throws Exception {
+        Path work = tmp.resolve("pmcl");
+        Path named = work.resolve("instances").resolve("MyPack");
+        Files.createDirectories(named.resolve("mods"));
+        String id = "11111111-2222-3333-4444-555555555555";
+        Files.writeString(named.resolve("instance.json"),
+                "{\"instanceId\":\"" + id + "\",\"name\":\"MyPack\",\"baseVersionId\":\"1.20.1\"}",
+                StandardCharsets.UTF_8);
+
+        Preferences pref = new Preferences(work.resolve("preferences.json"));
+        GameDirResolver resolver = new GameDirResolver(new LauncherConfig(work), pref);
+
+        Path mods = resolver.resolveModsDir("1.20.1", id);
+        assertEquals(named.resolve("mods"), mods);
+    }
+
+    @Test
+    void resolveModsDirFindsLegacyModpackJsonOnlyDir() throws Exception {
+        Path work = tmp.resolve("pmcl");
+        Path named = work.resolve("instances").resolve("OldPack");
+        Files.createDirectories(named.resolve("mods"));
+        Files.writeString(named.resolve("modpack.json"),
+                "{\"name\":\"OldPack\",\"gameVersion\":\"1.20.1\",\"loader\":\"fabric\"}",
+                StandardCharsets.UTF_8);
+        String id = java.util.UUID.nameUUIDFromBytes(
+                named.toAbsolutePath().normalize().toString().getBytes(StandardCharsets.UTF_8)
+        ).toString();
+
+        Preferences pref = new Preferences(work.resolve("preferences.json"));
+        GameDirResolver resolver = new GameDirResolver(new LauncherConfig(work), pref);
+
+        Path mods = resolver.resolveModsDir("1.20.1", id);
+        assertEquals(named.resolve("mods"), mods);
+    }
+
+    @Test
+    void resolveModsDirRejectsPathTraversalInstanceId() throws Exception {
+        Path work = tmp.resolve("pmcl");
+        Files.createDirectories(work.resolve("mods"));
+        Preferences pref = new Preferences(work.resolve("preferences.json"));
+        GameDirResolver resolver = new GameDirResolver(new LauncherConfig(work), pref);
+
+        Path mods = resolver.resolveModsDir(null, "../etc");
+        assertEquals(work.resolve("mods"), mods);
+    }
 }

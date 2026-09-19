@@ -380,47 +380,15 @@ public final class VersionManager {
     private static volatile long cachedMinecraftDirsTime = 0L;
 
     /**
-     * 恢复 stuck staging 目录：下载中断后版本卡在 {id}.staging/，
-     * 如果 staging 目录中含 {id}.json（下载至少到达写 JSON 步骤），则尝试原子提升为正式版本。
-     * 提升失败（如目标已存在/文件被锁/JSON 缺失）则静默跳过，不影响扫描流程。
-     */
-    private void recoverStagingVersions(Path versionsDir) {
-        if (!Files.isDirectory(versionsDir)) return;
-        try (var stream = Files.list(versionsDir)) {
-            stream.filter(Files::isDirectory).forEach(p -> {
-                String name = p.getFileName().toString();
-                if (!name.endsWith(com.pmcl.core.install.VersionStaging.STAGING_SUFFIX)) return;
-                // 提取版本 id：去掉 .staging 后缀
-                String versionId = name.substring(0, name.length() - com.pmcl.core.install.VersionStaging.STAGING_SUFFIX.length());
-                if (versionId.isBlank()) return;
-                // 仅当 staging 中含 {id}.json 时才尝试提升（确保至少 JSON 已下载）
-                Path stagingJson = p.resolve(versionId + ".json");
-                if (!Files.exists(stagingJson)) return;
-                try {
-                    com.pmcl.core.install.VersionStaging.promote(versionsDir, versionId, p);
-                    System.out.println("[VersionManager] 恢复 stuck staging 版本: " + versionId);
-                } catch (Throwable t) {
-                    // 提升失败：可能是目标目录已存在、文件被锁、或 JSON 不完整
-                    System.err.println("[VersionManager] 恢复 staging 失败（跳过）: " + versionId + " - " + t.getMessage());
-                }
-            });
-        } catch (IOException e) {
-            System.err.println("[VersionManager] 扫描 staging 目录失败: " + versionsDir + " - " + e.getMessage());
-        }
-    }
-
-    /**
      * 扫描所有已知 versions 目录，支持进度回调。
      * 进度统计跨目录累计：先扫 .pmcl/versions，再扫外部目录，回调中的 currentDir 标识当前目录。
+     * <p>
+     * staging 目录只由安装成功后 {@code VersionStaging.promote} 提升；扫描不得把半成品
+     * 当成已安装，也不得和正在写入的安装抢目录。
      */
     public List<LocalVersionInfo> scanAllLocalVersions(java.util.function.Consumer<ScanProgress> onProgress) {
         // 使用统一的 getAllScanDirs() 获取所有应扫描目录（.pmcl + 系统默认 + 用户自定义）
         List<Path> dirs = getAllScanDirs();
-
-        // 恢复 stuck staging：下载中断后版本卡在 {id}.staging/，尝试提升为正式版本
-        for (Path d : dirs) {
-            recoverStagingVersions(d);
-        }
 
         // 第一遍：逐目录扫描（scanVersionsDir 内部只 list 一次），收集结果和各目录计数
         List<List<LocalVersionInfo>> parts = new ArrayList<>();

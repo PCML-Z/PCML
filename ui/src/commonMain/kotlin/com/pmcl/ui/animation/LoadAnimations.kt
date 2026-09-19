@@ -173,14 +173,28 @@ fun Modifier.pulseLoading(): Modifier = composed {
 fun Modifier.pressScale(
     pressed: Boolean,
     scale: Float = 0.97f
+): Modifier = hoverPressScale(hovered = false, pressed = pressed, pressScale = scale)
+
+/**
+ * 悬停放大、按下缩小。桌面端按钮的主要指针反馈。
+ */
+fun Modifier.hoverPressScale(
+    hovered: Boolean,
+    pressed: Boolean,
+    hoverScale: Float = 1.045f,
+    pressScale: Float = 0.96f
 ): Modifier = composed {
     val animScale by animateFloatAsState(
-        targetValue = if (pressed) scale else 1f,
+        targetValue = when {
+            pressed -> pressScale
+            hovered -> hoverScale
+            else -> 1f
+        },
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessMedium
         ),
-        label = "pressScale"
+        label = "hoverPressScale"
     )
     this.graphicsLayer {
         scaleX = animScale

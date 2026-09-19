@@ -21,10 +21,10 @@ import java.util.stream.Stream;
 /**
  * Mod 元数据解析器：扫描 mods 目录下所有 jar（含 .disabled 禁用文件），
  * 优先按以下顺序解析：
- *   1) fabric.mod.json     → Fabric mod
- *   2) quilt.mod.json      → Quilt mod
- *   3) META-INF/mods.toml  → Forge mod（1.13+）
- *   4) META-INF/neoforge.mods.toml → NeoForge mod
+ *   1) quilt.mod.json      → Quilt mod（常同时带 fabric.mod.json）
+ *   2) fabric.mod.json     → Fabric mod
+ *   3) META-INF/neoforge.mods.toml → NeoForge mod
+ *   4) META-INF/mods.toml  → Forge mod（1.13+）
  *   5) META-INF/MANIFEST.MF → 通用兜底
  * <p>
  * Forge/NeoForge 的 [[dependencies.<modId>]] 段做完整段解析，
@@ -50,34 +50,61 @@ public final class ModScanner {
 
     private ModScanner() {}
 
+    /** 与 LaunchProfileBuilder 一致：覆盖 Forge 的 mods/&lt;version&gt;/ 子目录。 */
+    public static final int SCAN_MAX_DEPTH = 4;
+    public static final int SCAN_MAX_JARS = 2000;
+
     /**
-     * 扫描某目录下所有 .jar 文件，返回解析后的 mod 元数据列表。
-     * 同时识别 .disabled 后缀的禁用 mod（disabled=true）。
+     * 扫描某目录下所有 .jar 文件（含一层到四层子目录），返回解析后的 mod 元数据列表。
+     * 同时识别 .disabled 后缀的禁用 mod（disabled=true）。跳过符号链接。
      */
     public static List<ModMeta> scanDirectory(Path modsDir) throws IOException {
         List<ModMeta> result = new ArrayList<>();
         if (!Files.isDirectory(modsDir)) return result;
-        try (Stream<Path> stream = Files.list(modsDir)) {
+        Path base = modsDir.toAbsolutePath().normalize();
+        try (Stream<Path> stream = Files.walk(modsDir, SCAN_MAX_DEPTH)) {
             stream.forEach(p -> {
+                if (result.size() >= SCAN_MAX_JARS) return;
                 try {
-                    String name = p.getFileName().toString().toLowerCase();
-                    if (name.endsWith(".jar") || name.endsWith(".jar.disabled")) {
-                        ModMeta meta = parseJar(p);
-                        if (meta != null) {
-                            meta.setJarPath(p.toAbsolutePath().toString());
-                            result.add(meta);
-                        }
+                    if (Files.isSymbolicLink(p) || !Files.isRegularFile(p)) return;
+                    Path abs = p.toAbsolutePath().normalize();
+                    if (!abs.startsWith(base)) return;
+                    String name = p.getFileName().toString().toLowerCase(java.util.Locale.ROOT);
+                    if (name.endsWith(".pmcl-bak")) return;
+                    if (!(name.endsWith(".jar") || name.endsWith(".jar.disabled"))) return;
+                    ModMeta meta = parseJar(p);
+                    if (meta != null) {
+                        meta.setJarPath(abs.toString());
+                        result.add(meta);
                     }
                 } catch (Throwable t) {
-                    // 单个 jar 解析异常不能中断整个目录扫描
-                    // （Gson 解析可能抛 RuntimeException，如 getAsString() 作用于非字符串）
-                    // 仍记录日志便于排查：静默吞异常会让用户无法定位为何 mod 未出现在列表中
                     System.err.println("[ModScanner] 解析 jar 失败: " + p + " - " + t.getClass().getSimpleName()
                             + ": " + t.getMessage());
                 }
             });
         }
+        if (result.size() >= SCAN_MAX_JARS) {
+            System.err.println("[ModScanner] 已达 " + SCAN_MAX_JARS + " 上限，部分 jar 未列入: " + modsDir);
+        }
         return result;
+    }
+
+    /** 目录树最大 mtime，用于扫描缓存；子目录增删 jar 也能失效。 */
+    public static long directoryFingerprint(Path modsDir) {
+        if (modsDir == null || !Files.isDirectory(modsDir)) return 0L;
+        long[] max = {0L};
+        try (Stream<Path> stream = Files.walk(modsDir, SCAN_MAX_DEPTH)) {
+            stream.forEach(p -> {
+                try {
+                    long t = Files.getLastModifiedTime(p).toMillis();
+                    if (t > max[0]) max[0] = t;
+                } catch (Throwable ignored) {
+                }
+            });
+        } catch (IOException e) {
+            return 0L;
+        }
+        return max[0];
     }
 
     /**
@@ -85,17 +112,15 @@ public final class ModScanner {
      */
     public static ModMeta parseJar(Path jarPath) {
         String fileName = jarPath.getFileName().toString();
-        boolean disabled = fileName.toLowerCase().endsWith(".disabled");
         try (JarFile jar = new JarFile(jarPath.toFile())) {
-            // 1) fabric.mod.json
-            JarEntry fabric = jar.getJarEntry("fabric.mod.json");
-            if (fabric != null) {
-                return parseFabric(jar, fabric, fileName);
-            }
-            // 2) quilt.mod.json
+            // Quilt 包常同时带 fabric.mod.json，必须先认 quilt，否则会被标成 fabric
             JarEntry quilt = jar.getJarEntry("quilt.mod.json");
             if (quilt != null) {
                 return parseQuilt(jar, quilt, fileName);
+            }
+            JarEntry fabric = jar.getJarEntry("fabric.mod.json");
+            if (fabric != null) {
+                return parseFabric(jar, fabric, fileName);
             }
             // 3) NeoForge neoforge.mods.toml（优先于 mods.toml，NeoForge 1.20.2+）
             JarEntry neoforge = jar.getJarEntry("META-INF/neoforge.mods.toml");
@@ -126,12 +151,20 @@ public final class ModScanner {
     private static ModMeta parseFabric(JarFile jar, JarEntry entry, String fileName) throws IOException {
         JsonObject o = JsonParser.parseString(readEntryLimited(jar, entry)).getAsJsonObject();
         String id = safeStr(o, "id", fileName);
-        String version = safeStr(o, "version", "unknown");
+        String version = resolvePlaceholderVersion(safeStr(o, "version", "unknown"), jar, fileName);
         String name = safeStr(o, "name", id);
         String desc = safeStr(o, "description", "");
         String authors = extractAuthors(o);
         List<String> deps = jsonArrToStrings(o, "depends");
         List<String> conflicts = jsonArrToStrings(o, "conflicts");
+        List<String> breaks = jsonArrToStrings(o, "breaks");
+        if (!breaks.isEmpty()) {
+            List<String> merged = new ArrayList<>(conflicts);
+            for (String b : breaks) {
+                if (!merged.contains(b)) merged.add(b);
+            }
+            conflicts = merged;
+        }
         ModMeta meta = new ModMeta(id, version, name, desc, authors, "fabric",
                 deps, conflicts, fileName);
         meta.setIconEntry(extractFabricIcon(o));
@@ -181,7 +214,7 @@ public final class ModScanner {
         JsonObject o = JsonParser.parseString(readEntryLimited(jar, entry)).getAsJsonObject();
         JsonObject ql = o.has("quilt_loader") ? o.getAsJsonObject("quilt_loader") : o;
         String id = safeStr(ql, "id", fileName);
-        String version = safeStr(ql, "version", "unknown");
+        String version = resolvePlaceholderVersion(safeStr(ql, "version", "unknown"), jar, fileName);
         String name = safeStr(ql, "name", id);
         String desc = safeStr(ql, "description", "");
         String authors = extractAuthors(ql);
@@ -234,7 +267,8 @@ public final class ModScanner {
         String[] lines = content.split("\n");
         // === 提取 [[mods]] 段内的字段 ===
         String modId = tomlValueInSection(lines, "modId", "mods");
-        String version = tomlValueInSection(lines, "version", "mods");
+        String version = resolvePlaceholderVersion(
+                tomlValueInSection(lines, "version", "mods"), jar, fileName);
         String name = tomlValueInSection(lines, "displayName", "mods");
         if (name == null) name = tomlValueInSection(lines, "name", "mods");
         String desc = tomlValueInSection(lines, "description", "mods");
@@ -380,6 +414,37 @@ public final class ModScanner {
         return out;
     }
 
+    /** 展开 ${version} / ${file.jarVersion}：MANIFEST Implementation-Version，再文件名。 */
+    private static String resolvePlaceholderVersion(String version, JarFile jar, String fileName) {
+        if (version == null || version.isBlank()) return "unknown";
+        if (!version.contains("${")) return version;
+        try {
+            JarEntry mf = jar.getJarEntry("META-INF/MANIFEST.MF");
+            if (mf != null) {
+                String impl = manifestAttr(readEntryLimited(jar, mf), "Implementation-Version");
+                if (impl != null && !impl.isBlank() && !impl.contains("${")) return impl;
+            }
+        } catch (Exception ignored) {
+        }
+        String hint = versionHintFromFileName(fileName);
+        return hint != null ? hint : version;
+    }
+
+    private static String versionHintFromFileName(String fileName) {
+        if (fileName == null || fileName.isBlank()) return null;
+        String base = fileName;
+        int dot = base.toLowerCase(java.util.Locale.ROOT).lastIndexOf(".jar");
+        if (dot > 0) base = base.substring(0, dot);
+        String[] parts = base.split("[-_]");
+        for (int i = parts.length - 1; i >= 0; i--) {
+            String p = parts[i];
+            if (p.isEmpty()) continue;
+            char c = p.charAt(0);
+            if (c >= '0' && c <= '9') return p;
+        }
+        return null;
+    }
+
     // ==================== 通用解析辅助 ====================
 
     private static String extractAuthors(JsonObject o) {
@@ -406,7 +471,12 @@ public final class ModScanner {
         }
         if (e.isJsonArray()) {
             List<String> list = new ArrayList<>();
-            for (JsonElement x : e.getAsJsonArray()) list.add(x.getAsString());
+            for (JsonElement x : e.getAsJsonArray()) {
+                if (x != null && !x.isJsonNull() && x.isJsonPrimitive()) list.add(x.getAsString());
+                else if (x != null && x.isJsonObject() && x.getAsJsonObject().has("id")) {
+                    list.add(x.getAsJsonObject().get("id").getAsString());
+                }
+            }
             return list;
         }
         return Collections.emptyList();

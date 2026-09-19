@@ -141,10 +141,20 @@ public final class LaunchManager {
     Process launch(LaunchProfile profile, String javaExecutable,
                           Consumer<String> onLog, GameLogger logger,
                           Thread[] readerHolder) throws IOException {
-        // 同步路径（含 Companion）与 launchAsync 共用门禁，禁止旁路
-        String deny = verifyBeforeLaunch(profile, onLog, logger);
-        if (deny != null) {
-            throw new IOException(deny);
+        return launch(profile, javaExecutable, onLog, logger, readerHolder, true);
+    }
+
+    /**
+     * @param runVerify {@code false} 时跳过门禁（调用方已 verify，避免 beforeLaunch 跑两次）
+     */
+    Process launch(LaunchProfile profile, String javaExecutable,
+                          Consumer<String> onLog, GameLogger logger,
+                          Thread[] readerHolder, boolean runVerify) throws IOException {
+        if (runVerify) {
+            String deny = verifyBeforeLaunch(profile, onLog, logger);
+            if (deny != null) {
+                throw new IOException(deny);
+            }
         }
         if (pluginManager != null) {
             pluginManager.applyLaunchContributions(profile);
@@ -301,7 +311,7 @@ public final class LaunchManager {
                 Consumer<String> tracedOnLog = tracer != null
                         ? line -> { tracer.detectMcMilestone(line); if (onLog != null) onLog.accept(line); }
                         : onLog;
-                process = launch(profile, javaExecutable, tracedOnLog, logger, readerHolder);
+                process = launch(profile, javaExecutable, tracedOnLog, logger, readerHolder, false);
                 if (tracer != null) tracer.mark("process_started");
 
                 // 澪模式：游戏进程已启动后再做提权调优，避免启动前卡在管理员密码框

@@ -11,6 +11,9 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 /**
@@ -45,7 +48,14 @@ public final class ModMarketManager {
         return clients.stream().anyMatch(c -> "curseforge".equals(c.source()));
     }
 
-    /** 获取 Modrinth 客户端实例（用于整合包更新检查等高级 API） */
+    /** 获取 CurseForge 客户端（未配置 API Key 时为 null） */
+    public CurseForgeClient getCurseForgeClient() {
+        return (CurseForgeClient) clients.stream()
+                .filter(c -> "curseforge".equals(c.source()))
+                .findFirst()
+                .orElse(null);
+    }
+
     public ModrinthClient getModrinthClient() {
         return (ModrinthClient) clients.stream()
                 .filter(c -> "modrinth".equals(c.source()))
@@ -66,6 +76,98 @@ public final class ModMarketManager {
         for (ModMarketClient c : clients) {
             c.updateHttpClient(http);
         }
+    }
+
+    /**
+     * 分页搜索。source 为空则聚合所有已启用源；同 offset/limit 分别请求后按所选排序合并。
+     * 总页数取各源页数的最大值。单源失败向上抛，避免被显示成「没有匹配」。
+     */
+    public CompletableFuture<MarketSearchPage> searchPage(MarketSearchQuery query) {
+        MarketSearchQuery q = query != null ? query : new MarketSearchQuery();
+        String source = q.getSource();
+        List<ModMarketClient> targets = new ArrayList<>();
+        for (ModMarketClient c : clients) {
+            if (source == null || source.isBlank() || source.equalsIgnoreCase(c.source())) {
+                targets.add(c);
+            }
+        }
+        if (targets.isEmpty()) {
+            return CompletableFuture.completedFuture(
+                    new MarketSearchPage(Collections.emptyList(), 0, q.getOffset(), q.getLimit()));
+        }
+        if (targets.size() == 1) {
+            return targets.get(0).searchPage(q);
+        }
+        AtomicReference<Throwable> lastFail = new AtomicReference<>();
+        AtomicInteger ok = new AtomicInteger();
+        List<CompletableFuture<MarketSearchPage>> futures = new ArrayList<>();
+        for (ModMarketClient c : targets) {
+            futures.add(c.searchPage(q).handle((page, ex) -> {
+                if (ex != null) {
+                    logMarketFailure(c, "searchPage", ex);
+                    lastFail.set(ex);
+                    return new MarketSearchPage(Collections.emptyList(), 0, q.getOffset(), q.getLimit());
+                }
+                ok.incrementAndGet();
+                return page != null ? page
+                        : new MarketSearchPage(Collections.emptyList(), 0, q.getOffset(), q.getLimit());
+            }));
+        }
+        return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+                .thenApply(v -> {
+                    if (ok.get() == 0 && lastFail.get() != null) {
+                        throw new CompletionException(lastFail.get());
+                    }
+                    List<MarketSearchPage> pages = new ArrayList<>();
+                    for (CompletableFuture<MarketSearchPage> f : futures) {
+                        pages.add(f.join());
+                    }
+                    return mergePages(pages, q);
+                });
+    }
+
+    static MarketSearchPage mergePages(List<MarketSearchPage> pages, MarketSearchQuery q) {
+        MarketSearchQuery query = q != null ? q : new MarketSearchQuery();
+        if (pages == null || pages.isEmpty()) {
+            return new MarketSearchPage(Collections.emptyList(), 0, query.getOffset(), query.getLimit());
+        }
+        int total = 0;
+        List<List<ModProject>> groups = new ArrayList<>();
+        for (MarketSearchPage page : pages) {
+            if (page == null) continue;
+            groups.add(new ArrayList<>(page.getItems()));
+            total = Math.max(total, page.getTotal());
+        }
+        String sort = query.getSort() != null ? query.getSort().toLowerCase(java.util.Locale.ROOT) : "";
+        List<ModProject> merged;
+        if ("downloads".equals(sort)) {
+            merged = flattenGroups(groups);
+            merged.sort((a, b) -> Long.compare(b.getDownloadCount(), a.getDownloadCount()));
+        } else if ("updated".equals(sort) || "newest".equals(sort)) {
+            merged = flattenGroups(groups);
+            merged.sort((a, b) -> Long.compare(b.getDateModified(), a.getDateModified()));
+        } else {
+            merged = interleaveGroups(groups);
+        }
+        return new MarketSearchPage(merged, total, query.getOffset(), query.getLimit());
+    }
+
+    private static List<ModProject> flattenGroups(List<List<ModProject>> groups) {
+        List<ModProject> out = new ArrayList<>();
+        for (List<ModProject> g : groups) out.addAll(g);
+        return out;
+    }
+
+    private static List<ModProject> interleaveGroups(List<List<ModProject>> groups) {
+        List<ModProject> out = new ArrayList<>();
+        int max = 0;
+        for (List<ModProject> g : groups) max = Math.max(max, g.size());
+        for (int i = 0; i < max; i++) {
+            for (List<ModProject> g : groups) {
+                if (i < g.size()) out.add(g.get(i));
+            }
+        }
+        return out;
     }
 
     /**
@@ -178,9 +280,14 @@ public final class ModMarketManager {
      * 列出某项目所有文件（按来源分发到对应客户端）。
      */
     public CompletableFuture<List<ModFile>> listFiles(ModProject project) {
+        return listFiles(project, null, null);
+    }
+
+    public CompletableFuture<List<ModFile>> listFiles(ModProject project,
+                                                      String gameVersion, String loader) {
         for (ModMarketClient c : clients) {
             if (c.source().equals(project.getSource())) {
-                return c.listFiles(project.getId());
+                return c.listFiles(project.getId(), gameVersion, loader);
             }
         }
         return CompletableFuture.completedFuture(new ArrayList<>());
@@ -225,50 +332,77 @@ public final class ModMarketManager {
     public CompletableFuture<Void> installMod(ModFile file, String gameVersion,
                                               String versionId, Preferences preferences,
                                               Consumer<String> onStatus) {
+        return installMod(file, gameVersion, versionId, null, preferences, onStatus);
+    }
+
+    public CompletableFuture<Void> installMod(ModFile file, String gameVersion,
+                                              String versionId, String instanceId,
+                                              Preferences preferences,
+                                              Consumer<String> onStatus) {
         return CompletableFuture.runAsync(() -> {
             try {
-                Path modsDir = resolveInstallModsDir(versionId, preferences);
-                String fileName = file.getFileName();
-                if (fileName == null || fileName.isBlank()
-                        || fileName.contains("..")
-                        || fileName.contains("/")
-                        || fileName.contains("\\")
-                        || fileName.indexOf('\0') >= 0) {
-                    throw new IOException("非法模组文件名: " + fileName);
-                }
-                Path modsAbs = modsDir.toAbsolutePath().normalize();
-                Path target = modsAbs.resolve(fileName).normalize();
-                if (!target.startsWith(modsAbs)) {
-                    throw new IOException("模组路径越界: " + fileName);
-                }
-                // 重复安装检测：覆盖下载
-                if (java.nio.file.Files.exists(target)) {
-                    if (onStatus != null) onStatus.accept("覆盖已存在: " + fileName);
-                }
-                java.nio.file.Files.createDirectories(modsAbs);
-                if (onStatus != null) {
-                    onStatus.accept("正在下载: " + file.getFileName()
-                            + " (" + (file.getFileSize() / 1024) + " KB)");
-                }
-                String sha1 = file.getSha1();
-                String sha512 = file.getSha512();
-                if ((sha1 == null || sha1.isBlank()) && (sha512 == null || sha512.isBlank())) {
-                    throw new IOException("模组缺少 SHA-1/SHA-512，拒绝安装未校验文件: "
-                            + file.getFileName());
-                }
-                downloads.downloadToVerified(
-                        file.getDownloadUrl(), target, sha1, sha512);
-                if (onStatus != null) onStatus.accept("完成: " + file.getFileName());
+                Path modsDir = resolveInstallModsDir(versionId, instanceId, preferences);
+                doInstallMod(file, modsDir, onStatus);
             } catch (Exception e) {
                 throw new RuntimeException("模组下载失败: " + file.getFileName(), e);
             }
         });
     }
 
-    /** 安装路径与启动时 gameDir/mods 对齐（含版本隔离首次灌入）。 */
-    private Path resolveInstallModsDir(String versionId, Preferences preferences) {
-        if (versionId != null && !versionId.isEmpty() && preferences != null) {
-            return new com.pmcl.core.launch.GameDirResolver(config, preferences).resolveModsDir(versionId);
+    /** 下载到指定 mods 目录（更新时跟旧 jar 同目录）。 */
+    public CompletableFuture<Void> installModTo(ModFile file, Path modsDir,
+                                                Consumer<String> onStatus) {
+        return CompletableFuture.runAsync(() -> {
+            try {
+                doInstallMod(file, modsDir, onStatus);
+            } catch (Exception e) {
+                throw new RuntimeException("模组下载失败: " + file.getFileName(), e);
+            }
+        });
+    }
+
+    private void doInstallMod(ModFile file, Path modsDir, Consumer<String> onStatus) throws IOException {
+        String fileName = file.getFileName();
+        if (fileName == null || fileName.isBlank()
+                || fileName.contains("..")
+                || fileName.contains("/")
+                || fileName.contains("\\")
+                || fileName.indexOf('\0') >= 0) {
+            throw new IOException("非法模组文件名: " + fileName);
+        }
+        Path modsAbs = modsDir.toAbsolutePath().normalize();
+        Path target = modsAbs.resolve(fileName).normalize();
+        if (!target.startsWith(modsAbs)) {
+            throw new IOException("模组路径越界: " + fileName);
+        }
+        if (java.nio.file.Files.exists(target)) {
+            if (onStatus != null) onStatus.accept("覆盖已存在: " + fileName);
+        }
+        java.nio.file.Files.createDirectories(modsAbs);
+        if (onStatus != null) {
+            onStatus.accept("正在下载: " + file.getFileName()
+                    + " (" + (file.getFileSize() / 1024) + " KB)");
+        }
+        String sha1 = file.getSha1();
+        String sha512 = file.getSha512();
+        if ((sha1 == null || sha1.isBlank()) && (sha512 == null || sha512.isBlank())) {
+            throw new IOException("模组缺少 SHA-1/SHA-512，拒绝安装未校验文件: "
+                    + file.getFileName());
+        }
+        String url = file.getDownloadUrl();
+        if (url == null || url.isBlank()) {
+            throw new IOException("模组缺少下载地址: " + file.getFileName());
+        }
+        downloads.downloadToVerified(url, target, sha1, sha512);
+        if (onStatus != null) onStatus.accept("完成: " + file.getFileName());
+    }
+
+    /** 安装路径与启动时 gameDir/mods 对齐（含版本隔离首次灌入、自定义实例）。 */
+    private Path resolveInstallModsDir(String versionId, String instanceId, Preferences preferences) {
+        if (preferences != null && ((versionId != null && !versionId.isEmpty())
+                || (instanceId != null && !instanceId.isEmpty()))) {
+            return new com.pmcl.core.launch.GameDirResolver(config, preferences)
+                    .resolveModsDir(versionId, instanceId);
         }
         return config.getWorkDir().resolve("mods");
     }

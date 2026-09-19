@@ -322,21 +322,29 @@ internal suspend fun LauncherViewModel.ensureLaunchAccount(
     }
 }
 
-fun LauncherViewModel.launch() {
-    val versionId = _selectedVersion.value ?: run {
+fun LauncherViewModel.launch(
+    forcedVersionId: String? = null,
+    instanceDir: java.nio.file.Path? = null,
+    instanceInfo: com.pmcl.core.instance.InstanceInfo? = null,
+    accountOverride: com.pmcl.core.auth.Account? = null
+) {
+    val versionId = forcedVersionId ?: _selectedVersion.value ?: run {
         _status.value = I18n.t("status.version_select_first")
         clearLaunchInstanceContext()
         return
     }
-    if ((_launchAccountOverride ?: _account.value) == null) {
+    val snapDir = instanceDir ?: _pendingInstanceDir
+    val snapInfo = instanceInfo ?: _pendingInstanceInfo
+    val snapAccount = accountOverride ?: _launchAccountOverride
+    // 立刻清空全局槽，避免第二次 launchInstance 覆盖正在准备的这次启动
+    clearLaunchInstanceContext()
+    if ((snapAccount ?: _account.value) == null) {
         _status.value = I18n.t("status.login_first")
-        clearLaunchInstanceContext()
         return
     }
     // Companion 占用启动槽时禁止桌面再开，避免双开 MC / UI 状态分叉
     if (isCompanionLaunchBusy()) {
         _status.value = I18n.t("status.launch_busy_companion")
-        clearLaunchInstanceContext()
         return
     }
     // 准备阶段互斥：双击不会并行构建两套 profile；进程启动后即释放，允许多开
@@ -368,9 +376,11 @@ fun LauncherViewModel.launch() {
         val tracer = com.pmcl.core.launch.LaunchTracer()
         tracer.mark("launch_start")
         try {
-            var account = _launchAccountOverride ?: _account.value
+            var account = snapAccount ?: _account.value
                 ?: throw IllegalStateException(I18n.t("status.login_first"))
+            if (snapInfo != null) _instanceLaunching.value = snapInfo.instanceId
             account = ensureLaunchAccount(account)
+            if (snapInfo != null) launchedInstance = snapInfo
             // 先读取版本要求的 Java 版本，用于选择合适的 Java 运行时
             // alpha/beta/1.7- 无 javaVersion 字段时由 builder 返回 8；IO/解析失败不得吞成 0
             val requiredJavaVer = withContext(Dispatchers.IO) {
@@ -477,7 +487,7 @@ fun LauncherViewModel.launch() {
                                     "若已安装 LATX 二进制翻译 + x86_64 Java，native 库可通过翻译层运行。\n游戏可能崩溃，请知悉风险。"
                                 else
                                     "MIPS64el 龙芯无 x86 二进制翻译能力，旧版本大概率无法运行。\n游戏可能崩溃，请知悉风险。",
-                        action = { launchWithSpecificJava(versionId, javaExe, javaMajorVer, javaArch) }
+                        action = { launchWithSpecificJava(versionId, javaExe, javaMajorVer, javaArch, snapDir, snapInfo, snapAccount) }
                     ))
 
                     // 选项2：安装龙芯版 JDK（打开龙芯开源社区）
@@ -520,7 +530,7 @@ fun LauncherViewModel.launch() {
                         description = "RISC-V 64 上旧版本 Minecraft 的 LWJGL 2.x 原生库无 RISC-V 版本。\n" +
                                 "若已安装 QEMU 用户态翻译 + x86_64 Java，native 库可通过翻译层运行。\n" +
                                 "游戏可能崩溃或性能较差，请知悉风险。",
-                        action = { launchWithSpecificJava(versionId, javaExe, javaMajorVer, javaArch) }
+                        action = { launchWithSpecificJava(versionId, javaExe, javaMajorVer, javaArch, snapDir, snapInfo, snapAccount) }
                     ))
 
                     // 选项2：安装 RISC-V 版 JDK（打开 Adoptium）
@@ -594,7 +604,7 @@ fun LauncherViewModel.launch() {
                                 + "原生启动 Classic～1.12，无需安装 x86 Java 8（Rosetta）",
                         action = {
                             preferences.setLegacyTranslationMode("ON")
-                            launchWithSpecificJava(versionId, javaExe, javaMajorVer, javaArch)
+                            launchWithSpecificJava(versionId, javaExe, javaMajorVer, javaArch, snapDir, snapInfo, snapAccount)
                         }
                     ))
                 }
@@ -606,7 +616,7 @@ fun LauncherViewModel.launch() {
                         description = "路径: ${java.javaPath}\n"
                                 + "1.13–1.16 的 LWJGL natives 仅为 x86_64，须通过 Rosetta 运行",
                         action = {
-                            launchWithSpecificJava(versionId, java.javaPath, java.majorVersion, "x86_64")
+                            launchWithSpecificJava(versionId, java.javaPath, java.majorVersion, "x86_64", snapDir, snapInfo, snapAccount)
                         }
                     ))
                 }
@@ -616,7 +626,7 @@ fun LauncherViewModel.launch() {
                     title = "自动下载 x86_64 Java 8（Rosetta）",
                     description = "通过 PMCL 下载官方清单中的 macOS x86_64 Java 8，\n"
                             + "并用现代 GLFW 修复后以 Rosetta 启动（适合 1.13–1.16）",
-                    action = { downloadX86Java8AndLaunch(versionId) }
+                    action = { downloadX86Java8AndLaunch(versionId, snapDir, snapInfo, snapAccount) }
                 ))
 
                 for (launcher in externalLaunchers) {
@@ -657,27 +667,16 @@ fun LauncherViewModel.launch() {
             // 尝试采用预判启动的预热 profile：版本一致则复用预热的 profile，跳过 build 阶段
             // （build 内部含 verifyLibraries 全量文件校验，是最耗时的 IO 步骤）
             // 实例启动（_pendingInstanceDir != null）不采用预热，因为实例有独立的 gameDir/libraries
-            val adopted = if (_pendingInstanceDir == null) {
+            val adopted = if (snapDir == null) {
                 tryAdoptPreheated(versionId, javaMajorVer)
             } else null
             var profile = adopted?.first ?: withContext(Dispatchers.IO) {
-                val instDir = _pendingInstanceDir
-                val instInfo = _pendingInstanceInfo
-                if (instDir != null && instInfo != null) {
-                    // 实例启动：用基础版本的 JSON/jar/库，但 gameDir 指向实例目录
-                    launchedInstance = instInfo
+                if (snapDir != null && snapInfo != null) {
+                    launchedInstance = snapInfo
                     core.profileBuilder().buildInstance(
-                        versionId, instDir, account, javaMajorVer, javaArch
+                        versionId, snapDir, account, javaMajorVer, javaArch
                     )
                 } else {
-                    core.profileBuilder().build(versionId, account, javaMajorVer, javaArch)
-                }
-            }
-            // 防御：Java 9+ 仍以 LaunchWrapper 为 JVM 主类（旧预热 javaMajor=0）→ 强制重建
-            if (javaMajorVer >= 9
-                && profile.mainClass?.contains("launchwrapper", ignoreCase = true) == true
-            ) {
-                profile = withContext(Dispatchers.IO) {
                     core.profileBuilder().build(versionId, account, javaMajorVer, javaArch)
                 }
             }
@@ -787,7 +786,8 @@ fun LauncherViewModel.launch() {
                             recentLogs = recent,
                             versionId = versionId,
                             live = true,
-                            session = crashSession
+                            session = crashSession,
+                            instanceId = snapInfo?.instanceId
                         )
                     } else if (crashLiveShown.get() && !ignoredCrashSessions.contains(crashSession)) {
                         _crashEvent.update { ev ->
@@ -889,7 +889,8 @@ fun LauncherViewModel.launch() {
                         recentLogs = recentLogs,
                         versionId = versionId,
                         live = false,
-                        session = crashSession
+                        session = crashSession,
+                        instanceId = snapInfo?.instanceId
                     )
                 }
                 _crashReports.value = withContext(Dispatchers.IO) {
@@ -917,6 +918,7 @@ fun LauncherViewModel.launch() {
         } finally {
             // 准备失败或提前 return 时也要释放；成功路径已在 launchAsync 后释放
             launchPreparing.set(false)
+            _instanceLaunching.value = null
             // 确保 recordEnd 被调用：即使 launchAsync 抛异常也要记录时长
             if (timeTracked) {
                 core.playTimeTracker().recordEnd(versionId)
@@ -1091,8 +1093,17 @@ fun LauncherViewModel.generateSupportPack(targetPath: String, versionId: String)
 }
 
 /** 关掉崩溃窗并按崩溃时的版本再启一局。 */
-fun LauncherViewModel.relaunchAfterCrash(versionId: String) {
+fun LauncherViewModel.relaunchAfterCrash(versionId: String, instanceId: String? = null) {
     clearCrashEvent()
+    if (!instanceId.isNullOrEmpty()) {
+        val info = instances.value.find { it.getInstanceId() == instanceId }
+        if (info == null) {
+            _status.value = I18n.t("status.crash_relaunch_missing_instance")
+            return
+        }
+        launchInstance(instanceId)
+        return
+    }
     selectVersion(versionId)
     launch()
 }

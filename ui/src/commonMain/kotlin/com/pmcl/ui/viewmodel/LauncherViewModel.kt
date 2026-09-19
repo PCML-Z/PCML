@@ -65,6 +65,7 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.nio.file.Path
 import java.nio.file.Paths
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * 启动器主 ViewModel：UI 与 Java 内核之间的桥接层。
@@ -349,6 +350,10 @@ class LauncherViewModel {
     @PublishedApi internal val _selectedVersion = MutableStateFlow<String?>(null)
     val selectedVersion: StateFlow<String?> = _selectedVersion.asStateFlow()
 
+    /** 最近启动的自定义实例；选中版本时清空，市场安装优先写入该实例 mods。 */
+    @PublishedApi internal val _selectedInstanceId = MutableStateFlow<String?>(null)
+    val selectedInstanceId: StateFlow<String?> = _selectedInstanceId.asStateFlow()
+
     // ===== 状态/账号 =====
     @PublishedApi internal val _status = MutableStateFlow(I18n.t("status.ready"))
     val status: StateFlow<String> = _status.asStateFlow()
@@ -460,11 +465,25 @@ class LauncherViewModel {
     @PublishedApi internal val _marketResults = MutableStateFlow<List<ModProject>>(emptyList())
     val marketResults: StateFlow<List<ModProject>> = _marketResults.asStateFlow()
 
+    @PublishedApi internal val _marketTotal = MutableStateFlow(0)
+    val marketTotal: StateFlow<Int> = _marketTotal.asStateFlow()
+
     @PublishedApi internal val _currentModFiles = MutableStateFlow<List<ModFile>>(emptyList())
     val currentModFiles: StateFlow<List<ModFile>> = _currentModFiles.asStateFlow()
 
     @PublishedApi internal val _marketLoading = MutableStateFlow(false)
     val marketLoading: StateFlow<Boolean> = _marketLoading.asStateFlow()
+
+    @PublishedApi internal val _marketFilesLoading = MutableStateFlow(false)
+    val marketFilesLoading: StateFlow<Boolean> = _marketFilesLoading.asStateFlow()
+
+    @PublishedApi internal val _marketFilesError = MutableStateFlow<String?>(null)
+    val marketFilesError: StateFlow<String?> = _marketFilesError.asStateFlow()
+
+    @PublishedApi @Volatile internal var marketSearchJob: Job? = null
+    @PublishedApi @Volatile internal var marketFilesJob: Job? = null
+    @PublishedApi internal val marketSearchSeq = AtomicInteger()
+    @PublishedApi internal val marketFilesSeq = AtomicInteger()
 
     @PublishedApi internal val _popularMods = MutableStateFlow<List<ModProject>>(emptyList())
     val popularMods: StateFlow<List<ModProject>> = _popularMods.asStateFlow()
@@ -846,6 +865,10 @@ class LauncherViewModel {
         scope.launch {
             try {
                 val results = withContext(Dispatchers.IO) {
+                    val instanceId = _selectedInstanceId.value
+                    val instanceBase = instances.value
+                        .find { it.getInstanceId() == instanceId }?.baseVersionId
+                    val inst = instances.value.find { it.getInstanceId() == instanceId }
                     val localInfos = _localVersionInfos.value.associateBy { it.getId() }
                     val summary = StringBuilder()
                     var ok = 0
@@ -854,8 +877,11 @@ class LauncherViewModel {
                         for (versionId in versionIds) {
                             val lvi = localInfos[versionId]
                             val gameVersion = deriveGameVersion(lvi)
+                            val dropInstanceId = dropTargetInstanceId(
+                                versionId, instanceId, instanceBase, inst, lvi
+                            )
                             try {
-                                installer.installTo(info, versionId, gameVersion)
+                                installer.installTo(info, versionId, gameVersion, dropInstanceId)
                                 ok++
                             } catch (e: Throwable) {
                                 fail++
@@ -880,6 +906,29 @@ class LauncherViewModel {
     /** 关闭拖放对话框 */
     fun cancelDropInstall() {
         _dropInstallState.value = null
+    }
+
+    private fun dropTargetInstanceId(
+        versionId: String,
+        instanceId: String?,
+        instanceBase: String?,
+        inst: InstanceInfo?,
+        lvi: com.pmcl.core.version.VersionManager.LocalVersionInfo?
+    ): String? {
+        if (instanceId.isNullOrBlank()) return null
+        if (versionId == instanceId || versionId == instanceBase) return instanceId
+        if (inst != null && versionId == inst.baseVersionId) return instanceId
+        val instGv = inst?.let {
+            _localVersionInfos.value.firstOrNull { v -> v.getId() == it.baseVersionId }
+                ?.let { v -> deriveGameVersion(v) }
+                ?: it.baseVersionId.substringBefore('-').substringBefore('+')
+        }.orEmpty()
+        val verGv = deriveGameVersion(lvi)
+        if (instGv.isBlank() || verGv.isBlank() || instGv != verGv) return null
+        val instLoader = inst?.loader?.lowercase().orEmpty()
+        val verLoader = deriveLoader(lvi)
+        if (instLoader.isNotBlank() && verLoader.isNotBlank() && instLoader != verLoader) return null
+        return instanceId
     }
 
     /**
@@ -922,12 +971,23 @@ class LauncherViewModel {
      * 无选中或原版时 loader 为空（不限加载器）。
      */
     fun resolveMarketFilters(): MarketFilters {
-        val selected = _selectedVersion.value ?: return MarketFilters("", "")
-        val lvi = _localVersionInfos.value.firstOrNull { it.getId() == selected }
-        return MarketFilters(
-            gameVersion = deriveGameVersion(lvi),
-            loader = deriveLoader(lvi)
-        )
+        val selected = _selectedVersion.value
+        val inst = _instances.value.find { it.getInstanceId() == _selectedInstanceId.value }
+        val lvi = when {
+            !selected.isNullOrBlank() -> _localVersionInfos.value.firstOrNull { it.getId() == selected }
+            inst != null -> _localVersionInfos.value.firstOrNull { it.getId() == inst.baseVersionId }
+            else -> null
+        }
+        if (lvi != null) {
+            val loader = deriveLoader(lvi).ifBlank { inst?.loader ?: "" }
+            return MarketFilters(deriveGameVersion(lvi), loader)
+        }
+        if (inst != null) {
+            val raw = inst.baseVersionId ?: ""
+            val gv = raw.substringBefore('-').substringBefore('+')
+            return MarketFilters(gv, inst.loader ?: "")
+        }
+        return MarketFilters("", "")
     }
 
     /** 本地已安装实例推导出的可用 MC 版本列表（降序） */
@@ -1137,10 +1197,20 @@ class LauncherViewModel {
 
     /**
      * 兼容性对话框：下载 x86_64 Java 8（Apple Silicon 强制 amd64）并启动指定版本。
+     * 实例启动须带上 snap 上下文，避免 pending 槽被清空后落到共享版本目录。
      */
-    fun downloadX86Java8AndLaunch(versionId: String) {
+    fun downloadX86Java8AndLaunch(
+        versionId: String,
+        instanceDir: java.nio.file.Path? = null,
+        instanceInfo: InstanceInfo? = null,
+        accountOverride: Account? = null
+    ) {
         if (_javaDownloading.value) return
         dismissCompatOptions()
+        val snapDir = instanceDir ?: _pendingInstanceDir
+        val snapInfo = instanceInfo ?: _pendingInstanceInfo
+        val snapAccount = accountOverride ?: _launchAccountOverride
+        clearLaunchInstanceContext()
         scope.launch {
             _javaDownloading.value = true
             _javaDownloadStatus.value = "正在拉取 x86_64 Java 8 清单…"
@@ -1176,7 +1246,7 @@ class LauncherViewModel {
                 }
                 _javaDownloadStatus.value = "完成：$found"
                 _javaDownloading.value = false
-                launchWithSpecificJava(versionId, found, maj, "x86_64")
+                launchWithSpecificJava(versionId, found, maj, "x86_64", snapDir, snapInfo, snapAccount)
             } catch (e: Throwable) {
                 val cause = e.cause?.message
                 val detail = when {
@@ -1235,7 +1305,8 @@ class LauncherViewModel {
         val recentLogs: List<String>,
         val versionId: String,
         val live: Boolean = false,
-        val session: Long = 0L
+        val session: Long = 0L,
+        val instanceId: String? = null
     )
     @PublishedApi internal val _crashEvent = MutableStateFlow<CrashEvent?>(null)
     val crashEvent: StateFlow<CrashEvent?> = _crashEvent.asStateFlow()
@@ -1726,7 +1797,7 @@ class LauncherViewModel {
 
     fun selectVersion(id: String) {
         _selectedVersion.value = id
-        // 持久化上次选中，重启时自动恢复
+        _selectedInstanceId.value = null
         preferences.setLastSelectedVersion(id)
     }
 
@@ -2255,7 +2326,7 @@ class LauncherViewModel {
     /** 提交模组下载到队列 */
     fun enqueueModDownload(modFile: ModFile, gameVersion: String, versionId: String? = null) {
         val vid = versionId ?: _selectedVersion.value
-        core.downloadQueue().submitModDownload(modFile, gameVersion, vid)
+        core.downloadQueue().submitModDownload(modFile, gameVersion, vid, _selectedInstanceId.value)
         _status.value = I18n.t("status.queued_mod", modFile.fileName)
         // 若该模组有 API 声明的依赖，提醒用户可使用"带依赖下载"
         val deps = modFile.getDependencies()
@@ -2349,9 +2420,22 @@ class LauncherViewModel {
      * 使用指定的 Java 路径启动游戏（兼容性选项触发）。
      * 临时使用指定的 Java 路径，不修改用户偏好设置。
      * 与主 launch() 对齐：多实例列表 + finally 重置 running，避免异常后 UI 卡在「运行中」。
+     * 实例启动须走 buildInstance，否则会落到共享版本目录。
      */
-    fun launchWithSpecificJava(versionId: String, javaPath: String, javaMajorVer: Int, javaArch: String) {
+    fun launchWithSpecificJava(
+        versionId: String,
+        javaPath: String,
+        javaMajorVer: Int,
+        javaArch: String,
+        instanceDir: java.nio.file.Path? = null,
+        instanceInfo: InstanceInfo? = null,
+        accountOverride: Account? = null
+    ) {
         dismissCompatOptions()
+        val snapDir = instanceDir ?: _pendingInstanceDir
+        val snapInfo = instanceInfo ?: _pendingInstanceInfo
+        val snapAccount = accountOverride ?: _launchAccountOverride
+        clearLaunchInstanceContext()
         if (isCompanionLaunchBusy()) {
             _status.value = I18n.t("status.launch_busy_companion")
             return
@@ -2360,19 +2444,27 @@ class LauncherViewModel {
             _status.value = I18n.t("status.launch_busy")
             return
         }
+        val launchedInstance = snapInfo
         scope.launch {
             _status.value = I18n.t("status.launching_with_specific_java")
             var timeTracked = false
             var instanceId: String? = null
             try {
-                var account = _launchAccountOverride ?: _account.value
+                if (snapInfo != null) _instanceLaunching.value = snapInfo.instanceId
+                var account = snapAccount ?: _account.value
                 if (account == null) {
                     _status.value = I18n.t("status.login_first")
                     return@launch
                 }
                 account = ensureLaunchAccount(account)
                 val profile = withContext(Dispatchers.IO) {
-                    core.profileBuilder().build(versionId, account, javaMajorVer, javaArch)
+                    if (snapDir != null && snapInfo != null) {
+                        core.profileBuilder().buildInstance(
+                            versionId, snapDir, account, javaMajorVer, javaArch
+                        )
+                    } else {
+                        core.profileBuilder().build(versionId, account, javaMajorVer, javaArch)
+                    }
                 }
                 instanceId = "${versionId}_compat_${System.currentTimeMillis()}"
                 val logFile = config.getWorkDir().resolve("logs").resolve("$instanceId.log")
@@ -2460,8 +2552,27 @@ class LauncherViewModel {
                 appendGameLog("启动失败: ${e.message}")
             } finally {
                 launchPreparing.set(false)
+                _instanceLaunching.value = null
                 if (timeTracked) {
                     core.playTimeTracker().recordEnd(versionId)
+                }
+                if (launchedInstance != null && timeTracked) {
+                    try {
+                        val startedAt = instanceId?.let { id ->
+                            _runningInstances.value.firstOrNull { it.id == id }?.startTime
+                        }
+                        val now = System.currentTimeMillis()
+                        val sessionSeconds = if (startedAt != null)
+                            ((now - startedAt) / 1000).coerceAtLeast(0) else 0L
+                        launchedInstance.setLastPlayedAt(now)
+                        launchedInstance.setTotalPlayTimeSeconds(
+                            launchedInstance.getTotalPlayTimeSeconds() + sessionSeconds
+                        )
+                        withContext(Dispatchers.IO) { core.instances().updateInstance(launchedInstance) }
+                        loadInstances()
+                    } catch (t: Throwable) {
+                        System.err.println("[VM] 实例游玩时长回写失败: ${t.message}")
+                    }
                 }
                 clearLaunchInstanceContext()
                 instanceId?.let { id ->
@@ -3190,8 +3301,12 @@ class LauncherViewModel {
     private val _instances = MutableStateFlow<List<InstanceInfo>>(emptyList())
     val instances: StateFlow<List<InstanceInfo>> = _instances.asStateFlow()
 
-    private val _instanceLaunching = MutableStateFlow<String?>(null)
+    @PublishedApi internal val _instanceLaunching = MutableStateFlow<String?>(null)
     val instanceLaunching: StateFlow<String?> = _instanceLaunching.asStateFlow()
+
+    /** 实例页专用状态，避免扫描/启动的全局 status 拖着整页重组 */
+    private val _instanceStatus = MutableStateFlow("")
+    val instanceStatus: StateFlow<String> = _instanceStatus.asStateFlow()
 
     // 实例启动上下文：launch() 读取此字段决定是否按实例模式启动
     @PublishedApi @Volatile internal var _pendingInstanceDir: java.nio.file.Path? = null
@@ -3204,7 +3319,7 @@ class LauncherViewModel {
                 val list = withContext(Dispatchers.IO) { core.instances().listInstances() }
                 _instances.value = list
             } catch (e: Throwable) {
-                _status.value = I18n.t("status.load_instances_failed", e.message ?: I18n.t("common.unknown"))
+                _instanceStatus.value = I18n.t("status.load_instances_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -3217,9 +3332,9 @@ class LauncherViewModel {
                     core.instances().createInstance(name, baseVersionId, loader, loaderVersion)
                 }
                 loadInstances()
-                _status.value = I18n.t("status.instance_created", name)
+                _instanceStatus.value = I18n.t("status.instance_created", name)
             } catch (e: Throwable) {
-                _status.value = I18n.t("status.instance_create_failed", e.message ?: I18n.t("common.unknown"))
+                _instanceStatus.value = I18n.t("status.instance_create_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -3232,9 +3347,9 @@ class LauncherViewModel {
                     core.instances().copyInstance(instanceId, newName)
                 }
                 loadInstances()
-                _status.value = I18n.t("status.instance_copied", newName)
+                _instanceStatus.value = I18n.t("status.instance_copied", newName)
             } catch (e: Throwable) {
-                _status.value = I18n.t("status.instance_copy_failed", e.message ?: I18n.t("common.unknown"))
+                _instanceStatus.value = I18n.t("status.instance_copy_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -3247,9 +3362,9 @@ class LauncherViewModel {
                     core.instances().renameInstance(instanceId, newName)
                 }
                 loadInstances()
-                _status.value = I18n.t("status.instance_renamed", newName)
+                _instanceStatus.value = I18n.t("status.instance_renamed", newName)
             } catch (e: Throwable) {
-                _status.value = I18n.t("status.rename_failed", e.message ?: I18n.t("common.unknown"))
+                _instanceStatus.value = I18n.t("status.rename_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -3261,10 +3376,13 @@ class LauncherViewModel {
                 withContext(Dispatchers.IO) {
                     core.instances().deleteInstance(instanceId)
                 }
+                if (_selectedInstanceId.value == instanceId) {
+                    _selectedInstanceId.value = null
+                }
                 loadInstances()
-                _status.value = I18n.t("status.instance_deleted")
+                _instanceStatus.value = I18n.t("status.instance_deleted")
             } catch (e: Throwable) {
-                _status.value = I18n.t("status.instance_delete_failed", e.message ?: I18n.t("common.unknown"))
+                _instanceStatus.value = I18n.t("status.instance_delete_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -3273,20 +3391,15 @@ class LauncherViewModel {
     fun launchInstance(instanceId: String) {
         val info = _instances.value.find { it.getInstanceId() == instanceId } ?: return
         if (!info.isLaunchable()) {
-            _status.value = I18n.t("status.instance_missing_base_version", info.getName())
+            _instanceStatus.value = I18n.t("status.instance_missing_base_version", info.getName())
             return
         }
-        // 实例绑定账户：仅覆盖本次 launch，不改动全局选中账号
+        _selectedInstanceId.value = instanceId
         val boundUuid = info.getBoundAccountUuid()
-        _launchAccountOverride = if (boundUuid.isNotEmpty()) {
+        val override = if (boundUuid.isNotEmpty()) {
             _accounts.value.find { it.getUuid() == boundUuid }
         } else null
-        // 设置实例上下文，launch() 会读取此字段用 buildInstance 代替 build
-        _pendingInstanceDir = info.getInstanceDir()
-        _pendingInstanceInfo = info
-        // 选中基础版本并调用现有 launch 流程
-        selectVersion(info.getBaseVersionId())
-        launch()
+        launch(info.getBaseVersionId(), info.getInstanceDir(), info, override)
     }
 
     /** 清除实例启动上下文与单次账户覆盖 */
@@ -3307,10 +3420,10 @@ class LauncherViewModel {
                     core.instances().updateInstance(info)
                 }
                 loadInstances()
-                _status.value = if (uuid.isEmpty()) I18n.t("status.instance_account_unbound", info.getName())
+                _instanceStatus.value = if (uuid.isEmpty()) I18n.t("status.instance_account_unbound", info.getName())
                                 else I18n.t("status.instance_account_bound", info.getName())
             } catch (e: Throwable) {
-                _status.value = I18n.t("status.instance_account_bind_failed", e.message ?: I18n.t("common.unknown"))
+                _instanceStatus.value = I18n.t("status.instance_account_bind_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -3330,9 +3443,9 @@ class LauncherViewModel {
                     core.instances().setInstanceIcon(instanceId, imagePath)
                 }
                 loadInstances()
-                _status.value = I18n.t("status.instance_icon_set")
+                _instanceStatus.value = I18n.t("status.instance_icon_set")
             } catch (e: Throwable) {
-                _status.value = I18n.t("status.instance_icon_set_failed", e.message ?: I18n.t("common.unknown"))
+                _instanceStatus.value = I18n.t("status.instance_icon_set_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -3345,9 +3458,9 @@ class LauncherViewModel {
                     core.instances().clearInstanceIcon(instanceId)
                 }
                 loadInstances()
-                _status.value = I18n.t("status.instance_icon_cleared")
+                _instanceStatus.value = I18n.t("status.instance_icon_cleared")
             } catch (e: Throwable) {
-                _status.value = I18n.t("status.instance_icon_set_failed", e.message ?: I18n.t("common.unknown"))
+                _instanceStatus.value = I18n.t("status.instance_icon_set_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -3369,9 +3482,9 @@ class LauncherViewModel {
                 val modCount = withContext(Dispatchers.IO) {
                     core.instances().exportInstance(instanceId, outputPath)
                 }
-                _status.value = I18n.t("status.instance_exported", modCount)
+                _instanceStatus.value = I18n.t("status.instance_exported", modCount)
             } catch (e: Throwable) {
-                _status.value = I18n.t("status.instance_export_failed", e.message ?: I18n.t("common.unknown"))
+                _instanceStatus.value = I18n.t("status.instance_export_failed", e.message ?: I18n.t("common.unknown"))
             }
         }
     }
@@ -3383,14 +3496,14 @@ class LauncherViewModel {
                 core.instances().importInstance(zipPath)
             }
             loadInstances()
-            _status.value = if (result.mods.isEmpty()) {
+            _instanceStatus.value = if (result.mods.isEmpty()) {
                 I18n.t("status.instance_imported_no_mods", result.info.getName())
             } else {
                 I18n.t("status.instance_imported", result.info.getName(), result.mods.size)
             }
             result
         } catch (e: Throwable) {
-            _status.value = I18n.t("status.instance_import_failed", e.message ?: I18n.t("common.unknown"))
+            _instanceStatus.value = I18n.t("status.instance_import_failed", e.message ?: I18n.t("common.unknown"))
             null
         }
     }

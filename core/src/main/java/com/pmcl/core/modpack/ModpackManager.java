@@ -10,6 +10,7 @@ import com.pmcl.core.install.InstallInterruptedException;
 import com.pmcl.core.install.InstallProgress;
 import com.pmcl.core.install.VersionInstaller;
 import com.pmcl.core.instance.InstanceInfo;
+import com.pmcl.core.instance.InstanceManager;
 import com.pmcl.core.market.CurseForgeClient;
 import com.pmcl.core.market.ModMarketManager;
 import com.pmcl.core.modloader.ModLoader;
@@ -61,18 +62,29 @@ public final class ModpackManager {
     private final ModLoaderManager modLoaderManager;
     private final Preferences preferences;
     private final ModMarketManager modMarketManager;
+    private final InstanceManager instanceManager;
 
     public ModpackManager(LauncherConfig config, DownloadManager downloads,
                           VersionInstaller versionInstaller,
                           ModLoaderManager modLoaderManager,
                           Preferences preferences,
                           ModMarketManager modMarketManager) {
+        this(config, downloads, versionInstaller, modLoaderManager, preferences, modMarketManager, null);
+    }
+
+    public ModpackManager(LauncherConfig config, DownloadManager downloads,
+                          VersionInstaller versionInstaller,
+                          ModLoaderManager modLoaderManager,
+                          Preferences preferences,
+                          ModMarketManager modMarketManager,
+                          InstanceManager instanceManager) {
         this.config = config;
         this.downloads = downloads;
         this.versionInstaller = versionInstaller;
         this.modLoaderManager = modLoaderManager;
         this.preferences = preferences;
         this.modMarketManager = modMarketManager;
+        this.instanceManager = instanceManager;
     }
 
     // ===== 数据类 =====
@@ -109,20 +121,28 @@ public final class ModpackManager {
         public final List<String> mirrors;
         /** 该文件是否为必需项；CurseForge required:false 的可选 mod 允许下载失败。 */
         public final boolean required;
+        /** SHA-512（Modrinth 规范要求；可空）。 */
+        public final String sha512;
 
         public ModpackFile(String path, String hash, long size, String downloadUrl,
                            String projectId, String fileId) {
-            this(path, hash, size, downloadUrl, projectId, fileId, null, true);
+            this(path, hash, size, downloadUrl, projectId, fileId, null, true, "");
         }
 
         public ModpackFile(String path, String hash, long size, String downloadUrl,
                            String projectId, String fileId, List<String> mirrors) {
-            this(path, hash, size, downloadUrl, projectId, fileId, mirrors, true);
+            this(path, hash, size, downloadUrl, projectId, fileId, mirrors, true, "");
         }
 
         public ModpackFile(String path, String hash, long size, String downloadUrl,
                            String projectId, String fileId,
                            List<String> mirrors, boolean required) {
+            this(path, hash, size, downloadUrl, projectId, fileId, mirrors, required, "");
+        }
+
+        public ModpackFile(String path, String hash, long size, String downloadUrl,
+                           String projectId, String fileId,
+                           List<String> mirrors, boolean required, String sha512) {
             this.path = path;
             this.hash = hash;
             this.size = size;
@@ -140,6 +160,7 @@ public final class ModpackManager {
             }
             this.mirrors = java.util.Collections.unmodifiableList(m);
             this.required = required;
+            this.sha512 = sha512 != null ? sha512 : "";
         }
     }
 
@@ -191,10 +212,18 @@ public final class ModpackManager {
         public final Path instanceDir;
         public final long modCount;
         public final String source;         // 来源标签（"PMCL" / "外部" / 版本 ID）
+        public final String directoryName;  // 实际目录名（删除/更新必须用这个，不是显示名）
 
         public InstalledModpack(String name, String gameVersion, String loader,
                                 String loaderVersion, Path instanceDir, long modCount,
                                 String source) {
+            this(name, gameVersion, loader, loaderVersion, instanceDir, modCount, source,
+                    instanceDir != null ? instanceDir.getFileName().toString() : "");
+        }
+
+        public InstalledModpack(String name, String gameVersion, String loader,
+                                String loaderVersion, Path instanceDir, long modCount,
+                                String source, String directoryName) {
             this.name = name;
             this.gameVersion = gameVersion;
             this.loader = loader;
@@ -202,6 +231,7 @@ public final class ModpackManager {
             this.instanceDir = instanceDir;
             this.modCount = modCount;
             this.source = source;
+            this.directoryName = directoryName != null ? directoryName : "";
         }
 
         public String getSource() { return source; }
@@ -250,23 +280,20 @@ public final class ModpackManager {
                         : "（清单缺少 gameVersion 字段，文件可能已损坏）"));
         }
 
-        String instanceName = sanitizeName(manifest.name);
-        Path instanceDir = config.getWorkDir().resolve("instances").resolve(instanceName);
-
-        // 如果实例目录已存在，追加序号
-        int suffix = 1;
-        while (Files.exists(instanceDir)) {
-            instanceDir = config.getWorkDir().resolve("instances")
-                    .resolve(instanceName + "-" + suffix);
-            suffix++;
+        String instanceId = java.util.UUID.randomUUID().toString();
+        Path instanceDir;
+        if (instanceManager != null) {
+            instanceDir = instanceManager.getInstanceDir(instanceId);
+        } else {
+            instanceDir = config.getWorkDir().resolve("instances").resolve(instanceId);
         }
 
         Files.createDirectories(instanceDir);
         // P0-3: 目录一旦创建，后续任何失败都必须清理，否则重试会不断堆积
-        // name-1 / name-2 半成品目录。用 try-catch 包住剩余全部步骤。
+        // 半成品目录。用 try-catch 包住剩余全部步骤。
         boolean ok = false;
         try {
-            doImportInto(file, instanceDir, manifest, progress);
+            doImportInto(file, instanceDir, instanceId, manifest, progress);
             ok = true;
         } finally {
             if (!ok) {
@@ -276,11 +303,16 @@ public final class ModpackManager {
     }
 
     /** 实际执行导入的各阶段；任何异常都会由调用方触发实例目录清理。 */
-    private void doImportInto(Path file, Path instanceDir, ParsedManifest manifest,
+    private void doImportInto(Path file, Path instanceDir, String instanceId, ParsedManifest manifest,
                               Consumer<InstallProgress> progress) throws Exception {
         for (String sub : new String[]{"mods", "saves", "config", "resourcepacks",
                 "shaderpacks", "screenshots", "logs"}) {
             Files.createDirectories(instanceDir.resolve(sub));
+        }
+
+        if ("curseforge".equals(manifest.format) && !manifest.files.isEmpty()
+                && (modMarketManager == null || modMarketManager.getCurseForgeClient() == null)) {
+            throw new IOException("CurseForge 整合包需要配置 CURSEFORGE_API_KEY（或 -Dcurseforge.api.key）");
         }
 
         // 2. 安装原版 Minecraft
@@ -292,20 +324,11 @@ public final class ModpackManager {
             if (progress != null) progress.accept(p);
         }).join();
 
-        // 3. 安装模组加载器
-        if (manifest.loader != null && !manifest.loader.isEmpty()
-                && manifest.loaderVersion != null && !manifest.loaderVersion.isEmpty()) {
-            if (progress != null) progress.accept(new InstallProgress(
-                    InstallProgress.Stage.DOWNLOAD_LIBRARIES, 0, 0,
-                    "正在安装 " + manifest.loader + " " + manifest.loaderVersion + "..."));
+        // 3. 安装模组加载器（声明了加载器就必须装上，禁止静默跳过变成原版启动）
+        installDeclaredLoaders(manifest, progress);
 
-            ModLoader ml = parseLoader(manifest.loader);
-            if (ml != null && modLoaderManager.supports(ml)) {
-                modLoaderManager.get(ml).install(manifest.gameVersion,
-                        manifest.loaderVersion, p -> {
-                            if (progress != null) progress.accept(p);
-                        }).join();
-            }
+        if ("curseforge".equals(manifest.format) && !manifest.files.isEmpty()) {
+            prefetchCurseForgeFiles(manifest.files);
         }
 
         // 4. 下载 mods（任一下载失败则整体失败，避免「导入成功但零模组」）
@@ -384,10 +407,10 @@ public final class ModpackManager {
                 InstallProgress.Stage.DOWNLOAD_ASSET_INDEX, 0, 0,
                 "正在解压配置文件..."));
 
-        extractOverrides(file, instanceDir, manifest.format);
+        extractOverrides(file, instanceDir, manifest);
 
         // 6. 保存实例信息
-        saveInstanceInfo(instanceDir, manifest);
+        saveInstanceInfo(instanceDir, instanceId, manifest);
 
         if (progress != null) progress.accept(new InstallProgress(
                 InstallProgress.Stage.DONE, 0, 0,
@@ -398,20 +421,23 @@ public final class ModpackManager {
     private void downloadModpackFile(ModpackFile mf, Path instanceDirAbs) throws IOException {
         List<String> candidates = new ArrayList<>(mf.mirrors);
         String sha1 = mf.hash != null ? mf.hash : "";
+        String sha512 = mf.sha512 != null ? mf.sha512 : "";
         String relPath = mf.path;
 
-        // S12: CF 整合包 manifest 不含 downloadUrl/hash/文件名，需通过 API 查询
         if ((candidates.isEmpty() || sha1.isBlank())
                 && mf.projectId != null && !mf.projectId.isEmpty()
                 && mf.fileId != null && !mf.fileId.isEmpty()) {
             CfResolved resolved = resolveCurseForgeFile(mf.projectId, mf.fileId);
-            if (candidates.isEmpty() && !resolved.url.isEmpty()) candidates.add(resolved.url);
+            if (!resolved.url.isEmpty() && !candidates.contains(resolved.url)) {
+                candidates.add(0, resolved.url);
+            }
+            for (String extra : resolved.mirrors) {
+                if (!extra.isEmpty() && !candidates.contains(extra)) candidates.add(extra);
+            }
             if (sha1.isBlank()) sha1 = resolved.sha1;
-            // P1: 用 API 返回的真实文件名替换 "{projectId}_{fileId}.jar" 占位名，
-            // 并按扩展名把非 mod 资源（资源包/光影）放进正确目录，
-            // 避免 .zip 资源包被强塞进 mods/ 导致加载器报错。
+            if (sha512.isBlank()) sha512 = resolved.sha512;
             if (!resolved.fileName.isEmpty()) {
-                relPath = routeCurseForgeFile(resolved.fileName);
+                relPath = routeCurseForgeFile(resolved.fileName, resolved.gameVersions);
             }
         }
 
@@ -430,20 +456,18 @@ public final class ModpackManager {
         Path parent = target.getParent();
         if (parent != null) Files.createDirectories(parent);
 
-        // P1: 逐个镜像回退，全部失败才抛出最后一次异常
         IOException last = null;
         for (String url : candidates) {
             try {
                 validateDownloadUrl(url);
-                if (sha1 == null || sha1.isBlank()) {
-                    // 最后手段：无哈希则下载后拒绝过小文件
+                if ((sha1 == null || sha1.isBlank()) && (sha512 == null || sha512.isBlank())) {
                     downloads.downloadTo(url, target);
                     if (Files.size(target) < 32) {
                         Files.deleteIfExists(target);
-                        throw new IOException("下载文件过小且无 SHA-1");
+                        throw new IOException("下载文件过小且无完整性哈希");
                     }
                 } else {
-                    downloads.downloadToVerified(url, target, sha1, null);
+                    downloads.downloadToVerified(url, target, sha1, sha512);
                 }
                 return;
             } catch (IOException e) {
@@ -462,18 +486,35 @@ public final class ModpackManager {
      * 全部塞进 mods/ 会让加载器在启动时报错。
      */
     private String routeCurseForgeFile(String fileName) {
+        return routeCurseForgeFile(fileName, List.of());
+    }
+
+    private String routeCurseForgeFile(String fileName, List<String> gameVersions) {
         String safe = fileName.replace('\\', '/');
         int slash = safe.lastIndexOf('/');
         if (slash >= 0) safe = safe.substring(slash + 1);
         String lower = safe.toLowerCase(java.util.Locale.ROOT);
+        boolean shaderHint = false;
+        if (gameVersions != null) {
+            for (String gv : gameVersions) {
+                if (gv == null) continue;
+                String g = gv.toLowerCase(java.util.Locale.ROOT);
+                if (g.contains("shader") || g.equals("iris") || g.equals("optifine")) {
+                    shaderHint = true;
+                    break;
+                }
+            }
+        }
         if (lower.endsWith(".jar")) {
             return "mods/" + safe;
         }
         if (lower.endsWith(".zip")) {
-            // 光影包通常带 shader/iris/optifine 关键字，其余 zip 视为资源包
-            if (lower.contains("shader") || lower.contains("iris")
+            if (shaderHint || lower.contains("shader") || lower.contains("iris")
                     || lower.contains("seus") || lower.contains("bsl")
-                    || lower.contains("complementary")) {
+                    || lower.contains("complementary") || lower.contains("sildur")
+                    || lower.contains("chocapic") || lower.contains("bliss")
+                    || lower.contains("occulus") || lower.contains("solas")
+                    || lower.contains("makkor")) {
                 return "shaderpacks/" + safe;
             }
             return "resourcepacks/" + safe;
@@ -556,62 +597,112 @@ public final class ModpackManager {
     }
 
     /**
-     * S12: 通过 CurseForge API 查询模组文件的下载 URL 与 SHA-1。
-     * CF 整合包 manifest 只含 projectID/fileID。
+     * P1: 每个 fileId 的精确解析缓存。批量 prefetch 后下载线程只读此表。
      */
-    /**
-     * P1: 每个 projectId 的文件列表缓存。
-     * 同一整合包内同一 project 可能出现多次（主 mod + 依赖），
-     * 缓存可避免对同一 projectId 重复拉取全量文件列表。
-     */
-    private final Map<String, List<com.pmcl.core.market.ModFile>> cfFileListCache =
-            new ConcurrentHashMap<>();
+    private final Map<String, CfResolved> cfFileCache = new ConcurrentHashMap<>();
+
+    private void prefetchCurseForgeFiles(List<ModpackFile> files) {
+        CurseForgeClient cf = modMarketManager != null ? modMarketManager.getCurseForgeClient() : null;
+        if (cf == null) {
+            throw new RuntimeException("CurseForge 整合包需要配置 CURSEFORGE_API_KEY（或 curseforge.api.key）");
+        }
+        List<String> ids = new ArrayList<>();
+        java.util.Map<String, ModpackFile> byFileId = new java.util.LinkedHashMap<>();
+        for (ModpackFile mf : files) {
+            if (mf.fileId == null || mf.fileId.isEmpty()) continue;
+            if (byFileId.putIfAbsent(mf.fileId, mf) == null) ids.add(mf.fileId);
+        }
+        if (ids.isEmpty()) return;
+        List<com.pmcl.core.market.ModFile> batch = cf.getFilesByIds(ids);
+        java.util.Set<String> hit = new java.util.HashSet<>();
+        for (com.pmcl.core.market.ModFile f : batch) {
+            if (f == null || f.getFileId() == null) continue;
+            cfFileCache.put(f.getFileId(), fromModFile(f));
+            hit.add(f.getFileId());
+        }
+        for (String id : ids) {
+            if (hit.contains(id)) continue;
+            ModpackFile mf = byFileId.get(id);
+            com.pmcl.core.market.ModFile one = cf.getFile(mf.projectId, id);
+            if (one != null) {
+                cfFileCache.put(id, fromModFile(one));
+            }
+        }
+    }
+
+    private CfResolved fromModFile(com.pmcl.core.market.ModFile f) {
+        List<String> mirrors = new ArrayList<>();
+        String url = f.getDownloadUrl() != null ? f.getDownloadUrl() : "";
+        long fileIdNum = 0;
+        try { fileIdNum = Long.parseLong(f.getFileId()); } catch (NumberFormatException ignored) {}
+        if (fileIdNum > 0 && f.getFileName() != null && !f.getFileName().isEmpty()) {
+            for (String cdn : forgeCdnUrls(fileIdNum, f.getFileName())) {
+                if (!cdn.equals(url) && !mirrors.contains(cdn)) mirrors.add(cdn);
+            }
+        }
+        if (url.isEmpty() && !f.getProjectId().isEmpty()) {
+            String fallback = "https://www.curseforge.com/api/v1/mods/" + f.getProjectId()
+                    + "/files/" + f.getFileId() + "/download";
+            if (!mirrors.contains(fallback)) mirrors.add(fallback);
+        }
+        List<String> gv = f.getGameVersions() != null ? f.getGameVersions() : List.of();
+        return new CfResolved(url, f.getSha1() != null ? f.getSha1() : "",
+                f.getSha512() != null ? f.getSha512() : "",
+                f.getFileName() != null ? f.getFileName() : "", mirrors, gv);
+    }
+
+    private static List<String> forgeCdnUrls(long fileId, String fileName) {
+        String encoded;
+        try {
+            encoded = java.net.URLEncoder.encode(fileName, java.nio.charset.StandardCharsets.UTF_8)
+                    .replace("+", "%20");
+        } catch (Exception e) {
+            encoded = fileName;
+        }
+        long n1 = fileId / 1000;
+        long n2 = fileId % 1000;
+        String path = n1 + "/" + n2 + "/" + encoded;
+        return List.of(
+                "https://edge.forgecdn.net/files/" + path,
+                "https://mediafilez.forgecdn.net/files/" + path,
+                "https://media.forgecdn.net/files/" + path
+        );
+    }
 
     private CfResolved resolveCurseForgeFile(String projectId, String fileId) {
+        CfResolved cached = cfFileCache.get(fileId);
+        if (cached != null) return cached;
         try {
-            List<com.pmcl.core.market.ModFile> files = cfFileListCache.computeIfAbsent(
-                    projectId, pid -> {
-                        for (com.pmcl.core.market.ModMarketClient c : modMarketManager.getClients()) {
-                            if (!"curseforge".equals(c.source())) continue;
-                            try {
-                                List<com.pmcl.core.market.ModFile> r = c.listFiles(pid).join();
-                                if (r != null) return r;
-                            } catch (Exception e) {
-                                System.err.println("[ModpackManager] CF 文件列表拉取失败: "
-                                        + pid + " - " + Exceptions.rootMessage(e));
-                            }
-                        }
-                        return java.util.Collections.emptyList();
-                    });
-
-            for (var f : files) {
-                if (fileId.equals(f.getFileId())) {
-                    return new CfResolved(
-                            f.getDownloadUrl() != null ? f.getDownloadUrl() : "",
-                            f.getSha1() != null ? f.getSha1() : "",
-                            f.getFileName() != null ? f.getFileName() : "");
-                }
-            }
-            if (!files.isEmpty()) {
-                // 目标 fileId 不在返回列表中：CF 分页或该文件已被下架
-                System.err.println("[ModpackManager] CF 文件 " + projectId + "/" + fileId
-                        + " 未出现在文件列表中（共 " + files.size() + " 条），可能已下架或分页截断");
+            CurseForgeClient cf = modMarketManager != null ? modMarketManager.getCurseForgeClient() : null;
+            if (cf == null) return new CfResolved("", "", "", "", List.of(), List.of());
+            com.pmcl.core.market.ModFile f = cf.getFile(projectId, fileId);
+            if (f != null) {
+                CfResolved r = fromModFile(f);
+                cfFileCache.put(fileId, r);
+                return r;
             }
         } catch (Exception e) {
             System.err.println("[ModpackManager] CF 模组查询失败: "
                     + projectId + "/" + fileId + " - " + Exceptions.rootMessage(e));
         }
-        return new CfResolved("", "", "");
+        return new CfResolved("", "", "", "", List.of(), List.of());
     }
 
     private static final class CfResolved {
         final String url;
         final String sha1;
+        final String sha512;
         final String fileName;
-        CfResolved(String url, String sha1, String fileName) {
+        final List<String> mirrors;
+        final List<String> gameVersions;
+        CfResolved(String url, String sha1, String sha512, String fileName, List<String> mirrors,
+                   List<String> gameVersions) {
             this.url = url == null ? "" : url;
             this.sha1 = sha1 == null ? "" : sha1;
+            this.sha512 = sha512 == null ? "" : sha512;
             this.fileName = fileName == null ? "" : fileName;
+            this.mirrors = mirrors != null ? mirrors : List.of();
+            this.gameVersions = gameVersions != null ? gameVersions : List.of();
         }
     }
 
@@ -1587,15 +1678,29 @@ public final class ModpackManager {
     /** 解析单个实例目录的 modpack.json，失败返回 null */
     private InstalledModpack parseInstance(Path dir, String source) {
         Path infoFile = dir.resolve("modpack.json");
-        if (!Files.exists(infoFile)) return null;
+        Path instFile = dir.resolve("instance.json");
+        if (!Files.exists(infoFile) && !Files.exists(instFile)) return null;
         try {
-            String json = Files.readString(infoFile,
-                    java.nio.charset.StandardCharsets.UTF_8);
-            JsonObject o = JsonParser.parseString(json).getAsJsonObject();
-            String name = safeStr(o, "name", dir.getFileName().toString());
-            String gameVersion = safeStr(o, "gameVersion", "");
-            String loader = safeStr(o, "loader", "");
-            String loaderVersion = safeStr(o, "loaderVersion", "");
+            String name = dir.getFileName().toString();
+            String gameVersion = "";
+            String loader = "";
+            String loaderVersion = "";
+            if (Files.exists(infoFile)) {
+                String json = Files.readString(infoFile, java.nio.charset.StandardCharsets.UTF_8);
+                JsonObject o = JsonParser.parseString(json).getAsJsonObject();
+                name = safeStr(o, "name", name);
+                gameVersion = safeStr(o, "gameVersion", "");
+                loader = safeStr(o, "loader", "");
+                loaderVersion = safeStr(o, "loaderVersion", "");
+            } else {
+                InstanceInfo info = InstanceInfo.fromJson(
+                        Files.readString(instFile, java.nio.charset.StandardCharsets.UTF_8), dir);
+                if (info.getType() != InstanceInfo.Type.MODPACK) return null;
+                name = info.getName();
+                loader = info.getLoader() != null ? info.getLoader() : "";
+                loaderVersion = info.getLoaderVersion() != null ? info.getLoaderVersion() : "";
+                gameVersion = info.getBaseVersionId() != null ? info.getBaseVersionId() : "";
+            }
 
             long modCount = 0;
             Path modsDir = dir.resolve("mods");
@@ -1605,7 +1710,7 @@ public final class ModpackManager {
                 }
             }
             return new InstalledModpack(name, gameVersion, loader,
-                    loaderVersion, dir, modCount, source);
+                    loaderVersion, dir, modCount, source, dir.getFileName().toString());
         } catch (Throwable ignored) {
             // 跳过损坏的实例
             return null;
@@ -1615,18 +1720,42 @@ public final class ModpackManager {
     // ===== 删除整合包实例 =====
 
     public void deleteModpack(String name) throws IOException {
-        if (name == null || name.contains("..") || name.contains("/") || name.contains("\\") || name.indexOf('\0') >= 0) {
-            throw new IOException("非法整合包名称: " + name);
-        }
-        Path instancesRoot = config.getWorkDir().resolve("instances").toAbsolutePath().normalize();
-        Path dir = instancesRoot.resolve(name).normalize();
-        if (!dir.startsWith(instancesRoot)) {
-            throw new IOException("路径越界: " + name);
-        }
+        Path dir = resolvePackDirectory(name);
         if (!Files.isDirectory(dir)) {
             throw new IOException("整合包实例不存在: " + name);
         }
         deleteRecursive(dir);
+    }
+
+    /** 目录名优先；显示名仅在唯一命中时回退（兼容旧调用）。 */
+    private Path resolvePackDirectory(String key) throws IOException {
+        if (key == null || key.isBlank()
+                || key.contains("..") || key.contains("/") || key.contains("\\")
+                || key.indexOf('\0') >= 0) {
+            throw new IOException("非法整合包名称: " + key);
+        }
+        Path instancesRoot = config.getWorkDir().resolve("instances").toAbsolutePath().normalize();
+        Path dir = instancesRoot.resolve(key).normalize();
+        if (!dir.startsWith(instancesRoot)) {
+            throw new IOException("路径越界: " + key);
+        }
+        if (Files.isDirectory(dir)) return dir;
+        Path named = null;
+        int hits = 0;
+        if (Files.isDirectory(instancesRoot)) {
+            try (var stream = Files.list(instancesRoot)) {
+                for (Path p : (Iterable<Path>) stream::iterator) {
+                    if (!Files.isDirectory(p)) continue;
+                    InstalledModpack mp = parseInstance(p, "PMCL");
+                    if (mp != null && key.equals(mp.name)) {
+                        named = p;
+                        hits++;
+                    }
+                }
+            }
+        }
+        if (hits == 1) return named;
+        return dir;
     }
 
     private void deleteRecursive(Path path) throws IOException {
@@ -1674,7 +1803,12 @@ public final class ModpackManager {
                 throw new IllegalArgumentException("illegal instanceName: " + instanceName);
             }
             Path instancesRoot = config.getWorkDir().resolve("instances").toAbsolutePath().normalize();
-            Path instanceDir = instancesRoot.resolve(instanceName).normalize();
+            Path instanceDir;
+            try {
+                instanceDir = resolvePackDirectory(instanceName);
+            } catch (IOException e) {
+                return new ModpackUpdateResult(instanceName, new ArrayList<>(), 0, e.getMessage());
+            }
             if (!instanceDir.startsWith(instancesRoot)) {
                 throw new IllegalArgumentException("instance path escapes instances dir: " + instanceName);
             }
@@ -1819,47 +1953,127 @@ public final class ModpackManager {
 
     // ===== 内部方法 =====
 
+    private static ZipFile openZipFile(Path file) throws IOException {
+        ZipFile utf8 = new ZipFile(file.toFile(), java.nio.charset.StandardCharsets.UTF_8);
+        if (!zipNamesLookMojibake(utf8)) return utf8;
+        utf8.close();
+        return new ZipFile(file.toFile(), java.nio.charset.Charset.forName("IBM437"));
+    }
+
+    private static boolean zipNamesLookMojibake(ZipFile zf) {
+        var en = zf.entries();
+        int n = 0;
+        while (en.hasMoreElements() && n++ < 64) {
+            String name = en.nextElement().getName();
+            if (name != null && name.indexOf('\uFFFD') >= 0) return true;
+        }
+        return false;
+    }
+
     private ParsedManifest parseManifest(Path file) throws IOException {
-        try (ZipFile zf = new ZipFile(file.toFile())) {
-            // 尝试 Modrinth 格式
-            ZipEntry modrinthEntry = zf.getEntry("modrinth.index.json");
-            if (modrinthEntry != null) {
-                return parseModrinthManifest(zf, modrinthEntry);
+        try (ZipFile zf = openZipFile(file)) {
+            ManifestLocation loc = findManifestLocation(zf);
+            if (loc != null) {
+                return switch (loc.kind) {
+                    case "modrinth" -> parseModrinthManifest(zf, loc.entry, loc.zipPrefix);
+                    case "curseforge" -> parseCurseForgeManifest(zf, loc.entry, loc.zipPrefix);
+                    case "lsl3" -> parseLsl3Manifest(zf, loc.entry, loc.zipPrefix);
+                    case "multimc" -> parseMultiMCManifest(zf, loc.entry, loc.zipPrefix);
+                    case "ftb" -> parseFtbManifest(zf, loc.entry, loc.zipPrefix);
+                    default -> throw new IOException("未知整合包格式: " + loc.kind);
+                };
             }
-            // 尝试 CurseForge 格式
-            ZipEntry cfEntry = zf.getEntry("manifest.json");
-            if (cfEntry != null) {
-                return parseCurseForgeManifest(zf, cfEntry);
-            }
-            // 尝试 PMCL LSL3 格式（pmcl.json）
-            ZipEntry lsl3Entry = zf.getEntry("pmcl.json");
-            if (lsl3Entry != null) {
-                return parseLsl3Manifest(zf, lsl3Entry);
-            }
-            // 尝试 MultiMC 格式（mmc-pack.json + instance.cfg）
-            ZipEntry mmcEntry = zf.getEntry("mmc-pack.json");
-            if (mmcEntry != null) {
-                return parseMultiMCManifest(zf, mmcEntry);
-            }
-            // 尝试 FTB 格式（modpack.json，内容目录前缀为 minecraft/ 或 overrides/）
-            // P1: 原先此处按有无 minecraft/ 目录分成两个分支，但两路返回完全相同，
-            // 属于死代码，已合并为单一路径。
-            ZipEntry ftbEntry = zf.getEntry("modpack.json");
-            if (ftbEntry != null) {
-                return parseFtbManifest(zf, ftbEntry);
-            }
-            // 尝试纯 zip/服务器包（无 manifest，检测 mods/ 目录）
-            if (zf.getEntry("mods/") != null || zf.stream()
-                    .anyMatch(e -> e.getName().startsWith("mods/") && e.getName().endsWith(".jar"))) {
-                return parseServerPackManifest(zf);
+            String serverPrefix = detectServerPackPrefix(zf);
+            if (serverPrefix != null) {
+                return parseServerPackManifest(zf, serverPrefix);
             }
             throw new IOException("无法识别的整合包格式：缺少 modrinth.index.json、manifest.json、"
                     + "pmcl.json、mmc-pack.json、modpack.json 或 mods/ 目录");
         }
     }
 
+    private static final String[][] MANIFEST_KINDS = {
+            {"modrinth.index.json", "modrinth"},
+            {"manifest.json", "curseforge"},
+            {"pmcl.json", "lsl3"},
+            {"mmc-pack.json", "multimc"},
+            {"modpack.json", "ftb"}
+    };
+
+    private static final class ManifestLocation {
+        final ZipEntry entry;
+        final String kind;
+        final String zipPrefix;
+        ManifestLocation(ZipEntry entry, String kind, String zipPrefix) {
+            this.entry = entry;
+            this.kind = kind;
+            this.zipPrefix = zipPrefix;
+        }
+    }
+
+    private ManifestLocation findManifestLocation(ZipFile zf) {
+        for (String[] k : MANIFEST_KINDS) {
+            ZipEntry e = zf.getEntry(k[0]);
+            if (e != null && !e.isDirectory()) {
+                return new ManifestLocation(e, k[1], "");
+            }
+        }
+        ManifestLocation[] byKind = new ManifestLocation[MANIFEST_KINDS.length];
+        var en = zf.entries();
+        while (en.hasMoreElements()) {
+            ZipEntry e = en.nextElement();
+            if (e.isDirectory()) continue;
+            String name = e.getName().replace('\\', '/');
+            int slash = name.lastIndexOf('/');
+            if (slash <= 0) continue;
+            String file = name.substring(slash + 1);
+            String prefix = name.substring(0, slash + 1);
+            if (isContentDirPrefix(prefix)) continue;
+            for (int i = 0; i < MANIFEST_KINDS.length; i++) {
+                if (file.equals(MANIFEST_KINDS[i][0]) && byKind[i] == null) {
+                    byKind[i] = new ManifestLocation(e, MANIFEST_KINDS[i][1], prefix);
+                    break;
+                }
+            }
+        }
+        for (ManifestLocation loc : byKind) {
+            if (loc != null) return loc;
+        }
+        return null;
+    }
+
+    /** 内容目录里的同名 json 不是清单（避免 zipPrefix 变成 minecraft/ 再叠一层）。 */
+    private static boolean isContentDirPrefix(String prefix) {
+        String p = prefix.toLowerCase(java.util.Locale.ROOT);
+        return p.endsWith("overrides/") || p.endsWith("client-overrides/")
+                || p.endsWith("minecraft/") || p.endsWith(".minecraft/")
+                || p.endsWith("files/") || p.endsWith("mods/");
+    }
+
+    /** 根 mods/ 返回 ""；一层子目录 Pack/mods/ 返回 "Pack/"；否则 null。 */
+    private String detectServerPackPrefix(ZipFile zf) {
+        if (zf.getEntry("mods/") != null) return "";
+        boolean rootJar = zf.stream().anyMatch(e -> {
+            String n = e.getName().replace('\\', '/');
+            return n.startsWith("mods/") && n.endsWith(".jar") && n.indexOf('/', 5) < 0;
+        });
+        if (rootJar) return "";
+        java.util.Set<String> prefixes = new java.util.LinkedHashSet<>();
+        zf.stream().forEach(e -> {
+            String n = e.getName().replace('\\', '/');
+            if (!n.endsWith(".jar")) return;
+            int first = n.indexOf('/');
+            if (first <= 0) return;
+            String rest = n.substring(first + 1);
+            if (rest.startsWith("mods/") && rest.indexOf('/', 5) < 0) {
+                prefixes.add(n.substring(0, first + 1));
+            }
+        });
+        return prefixes.size() == 1 ? prefixes.iterator().next() : null;
+    }
+
     /** 解析 PMCL LSL3 格式清单 */
-    private ParsedManifest parseLsl3Manifest(ZipFile zf, ZipEntry entry) throws IOException {
+    private ParsedManifest parseLsl3Manifest(ZipFile zf, ZipEntry entry, String zipPrefix) throws IOException {
         String json;
         try (InputStream in = zf.getInputStream(entry)) {
             json = new String(com.pmcl.core.util.SafeZipExtractor.readLimited(in, MAX_MANIFEST_BYTES),
@@ -1896,11 +2110,11 @@ public final class ModpackManager {
         }
 
         return new ParsedManifest(name, gameVersion, loader, loaderVersion,
-                "lsl3", files, author);
+                "lsl3", files, author, zipPrefix, List.of());
     }
 
     /** 解析 MultiMC 格式清单（mmc-pack.json + instance.cfg） */
-    private ParsedManifest parseMultiMCManifest(ZipFile zf, ZipEntry entry) throws IOException {
+    private ParsedManifest parseMultiMCManifest(ZipFile zf, ZipEntry entry, String zipPrefix) throws IOException {
         String json;
         try (InputStream in = zf.getInputStream(entry)) {
             json = new String(com.pmcl.core.util.SafeZipExtractor.readLimited(in, MAX_MANIFEST_BYTES),
@@ -1911,6 +2125,7 @@ public final class ModpackManager {
         String gameVersion = "";
         String loader = "";
         String loaderVersion = "";
+        List<String[]> extraLoaders = new ArrayList<>();
 
         if (root.has("components") && root.get("components").isJsonArray()) {
             for (JsonElement e : root.getAsJsonArray("components")) {
@@ -1928,22 +2143,23 @@ public final class ModpackManager {
                 } else if ("org.quiltmc.quilt-loader".equals(uid)) {
                     loader = "quilt";
                     loaderVersion = ver;
-                } else if ("net.neoforged".equals(uid)) {
+                } else if ("net.neoforged".equals(uid) || "net.neoforged.neoforge".equals(uid)) {
                     loader = "neoforge";
                     loaderVersion = ver;
+                } else if (uid.toLowerCase(java.util.Locale.ROOT).contains("optifine")) {
+                    extraLoaders.add(new String[]{"optifine", encodeOptiFineVersion(ver, gameVersion)});
+                } else if (uid.toLowerCase(java.util.Locale.ROOT).contains("liteloader")) {
+                    extraLoaders.add(new String[]{"liteloader", ver});
                 }
             }
         }
 
-        // 从 instance.cfg 读取实例名
         String name = "MultiMC 整合包";
-        ZipEntry cfgEntry = zf.getEntry("instance.cfg");
+        ZipEntry cfgEntry = zf.getEntry((zipPrefix != null ? zipPrefix : "") + "instance.cfg");
         if (cfgEntry != null) {
             try (InputStream in = zf.getInputStream(cfgEntry)) {
                 String cfg = new String(com.pmcl.core.util.SafeZipExtractor.readLimited(in, MAX_MANIFEST_BYTES),
                         java.nio.charset.StandardCharsets.UTF_8);
-                // P1: 按 \r\n / \r / \n 通用换行拆分，避免 CRLF 残留 \r
-                // 被 sanitizeName 转成下划线（实例名尾部多一个 "_"）
                 for (String line : cfg.split("\\R")) {
                     if (line.startsWith("name=")) {
                         String v = line.substring(5).trim();
@@ -1954,14 +2170,10 @@ public final class ModpackManager {
             }
         }
 
-        // P0-1: MultiMC 包内的 .minecraft/mods/*.jar 是「已在 zip 中」的文件，
-        // 没有任何下载 URL。过去把它们塞进 files 会让第 4 步必然抛「无下载 URL」，
-        // 导致 MultiMC 整合包 100% 导入失败。这些 jar 由 extractOverrides
-        // 从 .minecraft/ 前缀解压即可，files 必须留空。
         List<ModpackFile> files = new ArrayList<>();
 
         return new ParsedManifest(name, gameVersion, loader, loaderVersion,
-                "multimc", files, "MultiMC");
+                "multimc", files, "MultiMC", zipPrefix, extraLoaders);
     }
 
     /**
@@ -1973,38 +2185,38 @@ public final class ModpackManager {
      * P1: 服务器包无 manifest，游戏版本只能从 mod 文件名启发式推断；
      * 推断不出时返回空串，由 doImport 显式拦截并给出可读错误。
      */
-    private ParsedManifest parseServerPackManifest(ZipFile zf) throws IOException {
+    private ParsedManifest parseServerPackManifest(ZipFile zf, String zipPrefix) throws IOException {
         String gameVersion = "";
         String loader = "";
+        String prefix = zipPrefix != null ? zipPrefix : "";
 
         java.util.Enumeration<? extends ZipEntry> entries = zf.entries();
         while (entries.hasMoreElements()) {
             ZipEntry e = entries.nextElement();
-            String name = e.getName();
+            String name = e.getName().replace('\\', '/');
             if (e.isDirectory()) continue;
-            String lower = name.toLowerCase(java.util.Locale.ROOT);
+            String rel = name.startsWith(prefix) ? name.substring(prefix.length()) : name;
+            String relLower = rel.toLowerCase(java.util.Locale.ROOT);
 
-            // 从 mod 文件名推断 MC 版本，例如 "sodium-fabric-0.5.8+mc1.20.1.jar"
-            if (gameVersion.isEmpty() && lower.startsWith("mods/") && lower.endsWith(".jar")) {
-                java.util.regex.Matcher m = MC_VERSION_IN_NAME.matcher(lower);
+            if (gameVersion.isEmpty() && relLower.startsWith("mods/") && relLower.endsWith(".jar")) {
+                java.util.regex.Matcher m = MC_VERSION_IN_NAME.matcher(relLower);
                 if (m.find()) gameVersion = m.group(1);
             }
-            // 从加载器特征文件推断
             if (loader.isEmpty()) {
-                if (lower.contains("fabric-loader") || lower.equals("fabric-server-launch.jar")) {
+                if (relLower.contains("fabric-loader") || relLower.equals("fabric-server-launch.jar")) {
                     loader = "fabric";
-                } else if (lower.contains("neoforge")) {
+                } else if (relLower.contains("neoforge")) {
                     loader = "neoforge";
-                } else if (lower.contains("forge-") && lower.endsWith(".jar")) {
+                } else if (relLower.contains("forge-") && relLower.endsWith(".jar")) {
                     loader = "forge";
-                } else if (lower.contains("quilt-loader")) {
+                } else if (relLower.contains("quilt-loader")) {
                     loader = "quilt";
                 }
             }
         }
 
         return new ParsedManifest("服务器包", gameVersion, loader, "",
-                "serverpack", new ArrayList<>(), "Server");
+                "serverpack", new ArrayList<>(), "Server", prefix, List.of());
     }
 
     /** 从文件名中提取 Minecraft 版本，如 "...+mc1.20.1.jar" / "...-1.20.1-..." */
@@ -2013,7 +2225,7 @@ public final class ModpackManager {
 
     private static final long MAX_MANIFEST_BYTES = 8L * 1024 * 1024;
 
-    private ParsedManifest parseModrinthManifest(ZipFile zf, ZipEntry entry) throws IOException {
+    private ParsedManifest parseModrinthManifest(ZipFile zf, ZipEntry entry, String zipPrefix) throws IOException {
         String json;
         try (InputStream in = zf.getInputStream(entry)) {
             json = new String(com.pmcl.core.util.SafeZipExtractor.readLimited(in, MAX_MANIFEST_BYTES),
@@ -2064,9 +2276,11 @@ public final class ModpackManager {
                 }
 
                 String hash = "";
+                String sha512 = "";
                 if (f.has("hashes") && f.get("hashes").isJsonObject()) {
                     JsonObject h = f.getAsJsonObject("hashes");
                     hash = safeStr(h, "sha1", "");
+                    sha512 = safeStr(h, "sha512", "");
                 }
                 long size = f.has("size") && !f.get("size").isJsonNull()
                         ? f.get("size").getAsLong() : 0;
@@ -2082,15 +2296,15 @@ public final class ModpackManager {
                     }
                 }
                 String downloadUrl = mirrors.isEmpty() ? "" : mirrors.get(0);
-                files.add(new ModpackFile(path, hash, size, downloadUrl, null, null, mirrors));
+                files.add(new ModpackFile(path, hash, size, downloadUrl, null, null, mirrors, true, sha512));
             }
         }
 
         return new ParsedManifest(name, gameVersion, loader, loaderVersion,
-                "modrinth", files, null);
+                "modrinth", files, null, zipPrefix, List.of());
     }
 
-    private ParsedManifest parseCurseForgeManifest(ZipFile zf, ZipEntry entry) throws IOException {
+    private ParsedManifest parseCurseForgeManifest(ZipFile zf, ZipEntry entry, String zipPrefix) throws IOException {
         String json;
         try (InputStream in = zf.getInputStream(entry)) {
             json = new String(com.pmcl.core.util.SafeZipExtractor.readLimited(in, MAX_MANIFEST_BYTES),
@@ -2109,25 +2323,25 @@ public final class ModpackManager {
         String loader = null;
         String loaderVersion = null;
         if (minecraft.has("modLoaders") && minecraft.get("modLoaders").isJsonArray()) {
+            JsonObject chosen = null;
+            JsonObject first = null;
             for (var ml : minecraft.getAsJsonArray("modLoaders")) {
+                if (!ml.isJsonObject()) continue;
                 JsonObject mlObj = ml.getAsJsonObject();
-                String id = safeStr(mlObj, "id", "");
-                if (id.startsWith("fabric-")) {
-                    loader = "fabric";
-                    loaderVersion = id.substring("fabric-".length());
+                if (first == null) first = mlObj;
+                if (mlObj.has("primary") && !mlObj.get("primary").isJsonNull()
+                        && mlObj.get("primary").getAsBoolean()) {
+                    chosen = mlObj;
                     break;
-                } else if (id.startsWith("forge-")) {
-                    loader = "forge";
-                    loaderVersion = id.substring("forge-".length());
-                    break;
-                } else if (id.startsWith("quilt-")) {
-                    loader = "quilt";
-                    loaderVersion = id.substring("quilt-".length());
-                    break;
-                } else if (id.startsWith("neoforge-")) {
-                    loader = "neoforge";
-                    loaderVersion = id.substring("neoforge-".length());
-                    break;
+                }
+            }
+            if (chosen == null) chosen = first;
+            if (chosen != null) {
+                String[] lv = splitModLoaderId(safeStr(chosen, "id", ""));
+                loader = lv[0].isEmpty() ? null : lv[0];
+                loaderVersion = lv[1];
+                if (loaderVersion == null || loaderVersion.isEmpty()) {
+                    loaderVersion = safeStr(chosen, "version", "");
                 }
             }
         }
@@ -2163,7 +2377,7 @@ public final class ModpackManager {
         }
 
         return new ParsedManifest(name, gameVersion, loader, loaderVersion,
-                "curseforge", files, author);
+                "curseforge", files, author, zipPrefix, List.of());
     }
 
     /**
@@ -2177,7 +2391,7 @@ public final class ModpackManager {
      * 内容目录前缀为 {@code minecraft/}（而非 overrides/），但也可能使用 overrides/。
      * FTB 包通常将 mods 直接打包在 minecraft/mods/ 中，无需通过 API 下载。
      */
-    private ParsedManifest parseFtbManifest(ZipFile zf, ZipEntry entry) throws IOException {
+    private ParsedManifest parseFtbManifest(ZipFile zf, ZipEntry entry, String zipPrefix) throws IOException {
         String json;
         try (InputStream in = zf.getInputStream(entry)) {
             json = new String(com.pmcl.core.util.SafeZipExtractor.readLimited(in, MAX_MANIFEST_BYTES),
@@ -2196,25 +2410,26 @@ public final class ModpackManager {
             JsonObject mc = root.getAsJsonObject("minecraft");
             gameVersion = safeStr(mc, "version", "");
             if (mc.has("modLoaders") && mc.get("modLoaders").isJsonArray()) {
+                JsonObject chosen = null;
+                JsonObject first = null;
                 for (var ml : mc.getAsJsonArray("modLoaders")) {
+                    if (!ml.isJsonObject()) continue;
                     JsonObject mlObj = ml.getAsJsonObject();
-                    String id = safeStr(mlObj, "id", "");
-                    if (id.startsWith("fabric-")) {
-                        loader = "fabric";
-                        loaderVersion = id.substring("fabric-".length());
+                    if (first == null) first = mlObj;
+                    if (mlObj.has("primary") && !mlObj.get("primary").isJsonNull()
+                            && mlObj.get("primary").getAsBoolean()) {
+                        chosen = mlObj;
                         break;
-                    } else if (id.startsWith("forge-")) {
-                        loader = "forge";
-                        loaderVersion = id.substring("forge-".length());
-                        break;
-                    } else if (id.startsWith("quilt-")) {
-                        loader = "quilt";
-                        loaderVersion = id.substring("quilt-".length());
-                        break;
-                    } else if (id.startsWith("neoforge-")) {
-                        loader = "neoforge";
-                        loaderVersion = id.substring("neoforge-".length());
-                        break;
+                    }
+                }
+                if (chosen == null) chosen = first;
+                if (chosen != null) {
+                    String[] lv = splitModLoaderId(safeStr(chosen, "id", ""));
+                    loader = lv[0].isEmpty() ? null : lv[0];
+                    loaderVersion = lv[1];
+                    if (loaderVersion == null || loaderVersion.isEmpty()) {
+                        loaderVersion = safeStr(chosen, "version",
+                                safeStr(chosen, "modLoaderVersion", ""));
                     }
                 }
             }
@@ -2224,7 +2439,7 @@ public final class ModpackManager {
             String ml = safeStr(root, "modLoader", safeStr(root, "loader", ""));
             String mlv = safeStr(root, "modLoaderVersion", safeStr(root, "loaderVersion", ""));
             if (!ml.isEmpty()) {
-                loader = ml.toLowerCase();
+                loader = normalizeLoaderId(ml);
                 loaderVersion = mlv;
             }
         }
@@ -2234,76 +2449,75 @@ public final class ModpackManager {
         List<ModpackFile> files = new ArrayList<>();
 
         return new ParsedManifest(name, gameVersion, loader, loaderVersion,
-                "ftb", files, author);
+                "ftb", files, author, zipPrefix, List.of());
     }
 
-    private void extractOverrides(Path file, Path instanceDir, String format) throws IOException {
-        // modrinth/curseforge 用 "overrides/" 前缀
-        // FTB 用 "minecraft/" 前缀，但某些 FTB 包也可能用 "overrides/"，所以两者都尝试
-        // MultiMC 用 ".minecraft/" 前缀
-        // LSL3 用 "files/" 前缀
-        // serverpack 无前缀，直接是 mods/ config/ 等
-        // P1: 补上 client-overrides/。Modrinth 规范中它在 overrides/ 之后应用，
-        // 用于覆盖客户端专属配置；过去被完全忽略，导致整合包作者针对客户端的
-        // 配置（键位、性能选项等）不生效。server-overrides/ 是服务端专用，
-        // 客户端必须忽略，故不加入列表。
-        List<String> prefixes;
+    private void extractOverrides(Path file, Path instanceDir, ParsedManifest manifest) throws IOException {
+        String format = manifest.format;
+        String zipPrefix = manifest.zipPrefix != null ? manifest.zipPrefix : "";
+        List<String> formatPrefixes;
         if (format.equals("ftb")) {
-            prefixes = List.of("minecraft/", "overrides/", "client-overrides/");
+            formatPrefixes = List.of("minecraft/", "overrides/", "client-overrides/");
         } else if (format.equals("multimc")) {
-            prefixes = List.of(".minecraft/");
+            formatPrefixes = List.of(".minecraft/", "minecraft/");
         } else if (format.equals("lsl3")) {
-            prefixes = List.of("files/");
+            formatPrefixes = List.of("files/");
         } else if (format.equals("serverpack")) {
-            prefixes = List.of("");  // 无前缀，直接解压到根目录
+            formatPrefixes = List.of("");
         } else {
-            prefixes = List.of("overrides/", "client-overrides/");
+            formatPrefixes = List.of("overrides/", "client-overrides/");
+        }
+        List<String> prefixes = new ArrayList<>();
+        for (String fp : formatPrefixes) {
+            prefixes.add(zipPrefix + fp);
         }
 
-        // S22 安全修复：ZipBomb 防护阈值（含单 entry + 压缩比）
         final long MAX_TOTAL = com.pmcl.core.util.SafeZipExtractor.DEFAULT_MAX_TOTAL_SIZE;
         final long MAX_ENTRY = com.pmcl.core.util.SafeZipExtractor.DEFAULT_MAX_ENTRY_SIZE;
         final int MAX_ENTRIES = com.pmcl.core.util.SafeZipExtractor.DEFAULT_MAX_ENTRIES;
         final int MAX_RATIO = com.pmcl.core.util.SafeZipExtractor.DEFAULT_MAX_RATIO;
-        long totalSize = 0;
-        int entryCount = 0;
 
-        try (ZipFile zf = new ZipFile(file.toFile())) {
-            var entries = zf.entries();
-            while (entries.hasMoreElements()) {
-                ZipEntry entry = entries.nextElement();
+        try (ZipFile zf = openZipFile(file)) {
+            int entryCount = 0;
+            var scan = zf.entries();
+            while (scan.hasMoreElements()) {
+                scan.nextElement();
                 if (++entryCount > MAX_ENTRIES) {
                     throw new IOException("ZipBomb detected: entry count exceeds limit " + MAX_ENTRIES);
                 }
-                if (entry.isDirectory()) continue;
-                String name = entry.getName();
+            }
 
-                String relative = null;
-                for (String prefix : prefixes) {
-                    if (name.startsWith(prefix)) {
-                        relative = name.substring(prefix.length());
-                        break;
+            // 按前缀顺序收集；后者覆盖同名相对路径（client-overrides 覆盖 overrides）
+            java.util.LinkedHashMap<String, ZipEntry> planned = new java.util.LinkedHashMap<>();
+            for (String prefix : prefixes) {
+                var entries = zf.entries();
+                while (entries.hasMoreElements()) {
+                    ZipEntry entry = entries.nextElement();
+                    if (entry.isDirectory()) continue;
+                    String name = entry.getName().replace('\\', '/');
+                    if (!name.startsWith(prefix)) continue;
+                    String relative = name.substring(prefix.length());
+                    if (relative.isEmpty()) continue;
+                    if ("serverpack".equals(format) && !isClientRelevantServerPackEntry(relative)) {
+                        continue;
                     }
+                    if (relative.contains("..") || relative.startsWith("/") || relative.startsWith("\\")
+                            || relative.matches("^[A-Za-z]:[\\\\/].*")) {
+                        throw new IOException("ZipSlip: overrides 包含非法路径条目: " + name);
+                    }
+                    planned.put(relative, entry);
                 }
-                if (relative == null || relative.isEmpty()) continue;
+            }
 
-                // P1: 服务器包前缀为空，会把整包内容（含 server.jar、eula.txt、
-                // 启动脚本等纯服务端文件）全部倒进实例目录。仅保留客户端有意义的内容。
-                if ("serverpack".equals(format) && !isClientRelevantServerPackEntry(relative)) {
-                    continue;
-                }
-
-                // H27: ZipSlip 失败即中止（与 InstanceImporter 一致，禁止静默跳过）
-                if (relative.contains("..") || relative.startsWith("/") || relative.startsWith("\\")
-                        || relative.matches("^[A-Za-z]:[\\\\/].*")) {
-                    throw new IOException("ZipSlip: overrides 包含非法路径条目: " + name);
-                }
-                Path instanceDirAbs = instanceDir.toAbsolutePath().normalize();
+            Path instanceDirAbs = instanceDir.toAbsolutePath().normalize();
+            long totalSize = 0;
+            for (var e : planned.entrySet()) {
+                String relative = e.getKey();
+                ZipEntry entry = e.getValue();
                 Path target = instanceDirAbs.resolve(relative).normalize();
                 if (!target.startsWith(instanceDirAbs)) {
-                    throw new IOException("ZipSlip: overrides 路径越界: " + name);
+                    throw new IOException("ZipSlip: overrides 路径越界: " + entry.getName());
                 }
-
                 Files.createDirectories(target.getParent());
                 long compressed = entry.getCompressedSize();
                 try (InputStream in = zf.getInputStream(entry)) {
@@ -2311,12 +2525,12 @@ public final class ModpackManager {
                     totalSize += entrySize;
                     if (totalSize > MAX_TOTAL) {
                         throw new IOException("ZipBomb detected: total extracted size exceeds "
-                                + MAX_TOTAL + " bytes in " + file);
+                                + MAX_TOTAL + " bytes");
                     }
                     if (compressed > 0 && entrySize > compressed * (long) MAX_RATIO) {
                         try { Files.deleteIfExists(target); } catch (IOException ignored) {}
                         throw new IOException("ZipBomb detected: compression ratio exceeds "
-                                + MAX_RATIO + ":1 for " + name);
+                                + MAX_RATIO + ":1 for " + entry.getName());
                     }
                 }
             }
@@ -2353,15 +2567,17 @@ public final class ModpackManager {
         return lower.contains("/");
     }
 
-    private void saveInstanceInfo(Path instanceDir, ParsedManifest manifest) throws IOException {
+    private void saveInstanceInfo(Path instanceDir, String instanceId, ParsedManifest manifest) throws IOException {
+        String baseVersionId = InstanceInfo.resolveInstalledBaseVersionId(
+                config.getVersionsDir(), manifest.gameVersion,
+                manifest.loader, manifest.loaderVersion);
+
         JsonObject info = new JsonObject();
         info.addProperty("name", manifest.name);
         info.addProperty("gameVersion", manifest.gameVersion);
         info.addProperty("loader", manifest.loader != null ? manifest.loader : "");
         info.addProperty("loaderVersion", manifest.loaderVersion != null ? manifest.loaderVersion : "");
-        info.addProperty("baseVersionId", InstanceInfo.resolveInstalledBaseVersionId(
-                config.getVersionsDir(), manifest.gameVersion,
-                manifest.loader, manifest.loaderVersion));
+        info.addProperty("baseVersionId", baseVersionId);
         info.addProperty("format", manifest.format);
         if (manifest.author != null) {
             info.addProperty("author", manifest.author);
@@ -2371,13 +2587,42 @@ public final class ModpackManager {
         Files.writeString(instanceDir.resolve("modpack.json"),
                 info.toString(), java.nio.charset.StandardCharsets.UTF_8);
 
-        // 保存完整 source manifest（含 files 数组及 SHA1 哈希），用于更新检查
+        InstanceInfo inst = new InstanceInfo(instanceId, manifest.name, baseVersionId,
+                InstanceInfo.Type.MODPACK);
+        inst.setLoader(manifest.loader != null ? manifest.loader : "");
+        inst.setLoaderVersion(manifest.loaderVersion != null ? manifest.loaderVersion : "");
+        if (manifest.author != null) inst.setDescription(manifest.author);
+        inst.setInstanceDir(instanceDir);
+        if (instanceManager != null) {
+            instanceManager.saveInstanceInfo(inst);
+        } else {
+            Files.writeString(instanceDir.resolve("instance.json"),
+                    inst.toJson(), java.nio.charset.StandardCharsets.UTF_8);
+        }
+
         JsonObject source = info.deepCopy();
         JsonArray filesArr = new JsonArray();
         for (ModpackFile mf : manifest.files) {
             JsonObject fo = new JsonObject();
-            fo.addProperty("path", mf.path);
-            fo.addProperty("hash", mf.hash != null ? mf.hash : "");
+            CfResolved resolved = (mf.fileId != null && !mf.fileId.isEmpty())
+                    ? cfFileCache.get(mf.fileId) : null;
+            String path = mf.path != null ? mf.path : "";
+            if (resolved != null && !resolved.fileName.isEmpty()
+                    && (path.isBlank() || path.contains(mf.projectId + "_" + mf.fileId))) {
+                String safeName = resolved.fileName.replace("\\", "").replace("/", "");
+                if (!safeName.isBlank() && !safeName.contains("..")) {
+                    path = "mods/" + safeName;
+                }
+            }
+            String hash = (mf.hash != null && !mf.hash.isBlank())
+                    ? mf.hash
+                    : (resolved != null ? resolved.sha1 : "");
+            String sha512 = (mf.sha512 != null && !mf.sha512.isBlank())
+                    ? mf.sha512
+                    : (resolved != null ? resolved.sha512 : "");
+            fo.addProperty("path", path);
+            fo.addProperty("hash", hash != null ? hash : "");
+            fo.addProperty("sha512", sha512 != null ? sha512 : "");
             fo.addProperty("size", mf.size);
             fo.addProperty("downloadUrl", mf.downloadUrl != null ? mf.downloadUrl : "");
             if (mf.projectId != null) fo.addProperty("projectId", mf.projectId);
@@ -2389,14 +2634,104 @@ public final class ModpackManager {
                 source.toString(), java.nio.charset.StandardCharsets.UTF_8);
     }
 
-    private ModLoader parseLoader(String loader) {
-        switch (loader.toLowerCase()) {
-            case "fabric": return ModLoader.FABRIC;
-            case "forge": return ModLoader.FORGE;
-            case "quilt": return ModLoader.QUILT;
-            case "neoforge": return ModLoader.NEOFORGE;
-            default: return null;
+    private void installDeclaredLoaders(ParsedManifest manifest, Consumer<InstallProgress> progress)
+            throws Exception {
+        String loader = normalizeLoaderId(manifest.loader);
+        if (loader != null && !loader.isEmpty()) {
+            if (manifest.loaderVersion == null || manifest.loaderVersion.isBlank()) {
+                throw new IOException("整合包声明了加载器 " + loader + " 但未给出版本，无法安装");
+            }
+            installOneLoader(loader, manifest.loaderVersion, manifest.gameVersion, progress);
         }
+        if (manifest.extraLoaders != null) {
+            for (String[] extra : manifest.extraLoaders) {
+                if (extra == null || extra.length < 2) continue;
+                String el = normalizeLoaderId(extra[0]);
+                String ev = extra[1];
+                if (el == null || el.isEmpty() || ev == null || ev.isBlank()) continue;
+                installOneLoader(el, ev, manifest.gameVersion, progress);
+            }
+        }
+    }
+
+    private void installOneLoader(String loader, String loaderVersion, String gameVersion,
+                                  Consumer<InstallProgress> progress) throws Exception {
+        ModLoader ml = parseLoader(loader);
+        if (ml == null || !modLoaderManager.supports(ml)) {
+            throw new IOException("不支持的模组加载器: " + loader);
+        }
+        if (progress != null) progress.accept(new InstallProgress(
+                InstallProgress.Stage.DOWNLOAD_LIBRARIES, 0, 0,
+                "正在安装 " + loader + " " + loaderVersion + "..."));
+        try {
+            modLoaderManager.get(ml).install(gameVersion, loaderVersion, p -> {
+                if (progress != null) progress.accept(p);
+            }).join();
+        } catch (java.util.concurrent.CompletionException ce) {
+            Throwable c = ce.getCause() != null ? ce.getCause() : ce;
+            if (c instanceof Exception) throw (Exception) c;
+            throw new IOException("安装加载器失败: " + loader + " " + loaderVersion, c);
+        }
+    }
+
+    private static String normalizeLoaderId(String loader) {
+        if (loader == null) return null;
+        String s = loader.trim().toLowerCase(java.util.Locale.ROOT);
+        if (s.isEmpty()) return "";
+        if (s.contains("neoforge")) return "neoforge";
+        if (s.contains("fabric")) return "fabric";
+        if (s.contains("quilt")) return "quilt";
+        if (s.contains("optifine")) return "optifine";
+        if (s.contains("liteloader")) return "liteloader";
+        if (s.contains("forge")) return "forge";
+        return s.replace(' ', '_');
+    }
+
+    /** 解析 "fabric-0.15.7" / "Fabric Loader" 为 [loaderId, version]。 */
+    private static String[] splitModLoaderId(String id) {
+        if (id == null || id.isBlank()) return new String[]{"", ""};
+        String s = id.trim();
+        String lower = s.toLowerCase(java.util.Locale.ROOT);
+        String[][] prefixes = {
+                {"neoforge-", "neoforge"},
+                {"fabric-", "fabric"},
+                {"quilt-", "quilt"},
+                {"forge-", "forge"},
+                {"optifine-", "optifine"},
+                {"liteloader-", "liteloader"}
+        };
+        for (String[] p : prefixes) {
+            if (lower.startsWith(p[0])) {
+                return new String[]{p[1], s.substring(p[0].length())};
+            }
+        }
+        return new String[]{normalizeLoaderId(s), ""};
+    }
+
+    private static String encodeOptiFineVersion(String raw, String gameVersion) {
+        if (raw == null) return "";
+        if (raw.contains("|")) return raw;
+        String s = raw.trim();
+        if (gameVersion != null && !gameVersion.isEmpty() && s.startsWith(gameVersion + "_")) {
+            s = s.substring(gameVersion.length() + 1);
+        }
+        int last = s.lastIndexOf('_');
+        if (last > 0) return s.substring(0, last) + "|" + s.substring(last + 1);
+        return raw;
+    }
+
+    private ModLoader parseLoader(String loader) {
+        String id = normalizeLoaderId(loader);
+        if (id == null) return null;
+        return switch (id) {
+            case "fabric" -> ModLoader.FABRIC;
+            case "forge" -> ModLoader.FORGE;
+            case "quilt" -> ModLoader.QUILT;
+            case "neoforge" -> ModLoader.NEOFORGE;
+            case "optifine" -> ModLoader.OPTIFINE;
+            case "liteloader" -> ModLoader.LITELOADER;
+            default -> null;
+        };
     }
 
     private String sanitizeName(String name) {
@@ -2509,9 +2844,19 @@ public final class ModpackManager {
         final List<ModpackFile> files;
         final String author;
 
+        final String zipPrefix;
+        final List<String[]> extraLoaders;
+
         ParsedManifest(String name, String gameVersion, String loader,
                        String loaderVersion, String format,
                        List<ModpackFile> files, String author) {
+            this(name, gameVersion, loader, loaderVersion, format, files, author, "", List.of());
+        }
+
+        ParsedManifest(String name, String gameVersion, String loader,
+                       String loaderVersion, String format,
+                       List<ModpackFile> files, String author,
+                       String zipPrefix, List<String[]> extraLoaders) {
             this.name = name;
             this.gameVersion = gameVersion;
             this.loader = loader;
@@ -2519,6 +2864,8 @@ public final class ModpackManager {
             this.format = format;
             this.files = files;
             this.author = author;
+            this.zipPrefix = zipPrefix != null ? zipPrefix : "";
+            this.extraLoaders = extraLoaders != null ? extraLoaders : List.of();
         }
     }
 }

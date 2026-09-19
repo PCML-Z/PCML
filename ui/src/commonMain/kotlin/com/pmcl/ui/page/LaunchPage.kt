@@ -131,18 +131,6 @@ fun LaunchPage(vm: LauncherViewModel) {
     var renameTarget by remember { mutableStateOf<String?>(null) }
     var deleteTarget by remember { mutableStateOf<String?>(null) }
 
-    // 扫描中刷新图标旋转动画
-    val infiniteTransition = rememberInfiniteTransition(label = "scanRotate")
-    val rotationAngle by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "rotation"
-    )
-
     LaunchedEffect(Unit) {
         if (versions.isEmpty()) vm.refreshVersions()
         vm.loadInstances()
@@ -607,14 +595,15 @@ fun LaunchPage(vm: LauncherViewModel) {
                         onClick = { vm.refreshLocalVersions() },
                         enabled = !scanning
                     ) {
-                        Icon(
-                            Icons.Filled.Refresh,
-                            I18n.t("launch.scan"),
-                            Modifier.size(16.dp).then(
-                                if (scanning) Modifier.rotate(rotationAngle)
-                                else Modifier
+                        if (scanning) {
+                            ScanRefreshingIcon()
+                        } else {
+                            Icon(
+                                Icons.Filled.Refresh,
+                                I18n.t("launch.scan"),
+                                Modifier.size(16.dp)
                             )
-                        )
+                        }
                         Spacer(Modifier.width(4.dp))
                         Text(if (scanning) I18n.t("launch.scanning") else I18n.t("launch.scan"))
                     }
@@ -2190,4 +2179,24 @@ private fun colorForLogLine(
         lower.contains("/info]") || lower.contains("[info") -> info.copy(alpha = 0.85f)
         else -> normal
     }
+}
+
+/** 仅扫描中才挂无限旋转，避免绑在整页根上每帧重组 */
+@Composable
+private fun ScanRefreshingIcon() {
+    val infiniteTransition = rememberInfiniteTransition(label = "scanRotate")
+    val rotationAngle by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "rotation"
+    )
+    Icon(
+        Icons.Filled.Refresh,
+        I18n.t("launch.scan"),
+        Modifier.size(16.dp).rotate(rotationAngle)
+    )
 }

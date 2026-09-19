@@ -35,6 +35,13 @@ public final class LaunchProfileBuilder {
     private static final java.util.regex.Pattern PLACEHOLDER_PATTERN =
             java.util.regex.Pattern.compile("\\$\\{[^}]+\\}");
 
+    /** 库 SHA-1 缓存：path → size|mtime|sha1，避免每次启动整文件哈希 */
+    private static final java.util.concurrent.ConcurrentHashMap<String, String> LIBRARY_SHA1_CACHE =
+            new java.util.concurrent.ConcurrentHashMap<>();
+    /** mods kotlin 分类缓存：path → size|mtime|KIND */
+    private static final java.util.concurrent.ConcurrentHashMap<String, String> KOTLIN_JAR_KIND_CACHE =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
     private final LauncherConfig config;
     private final Preferences preferences;
     private final DownloadManager downloadManager;
@@ -1078,6 +1085,26 @@ public final class LaunchProfileBuilder {
         if (fileName.contains("kotlinforforge") || fileName.contains("kotlin-for-forge")) {
             return KotlinJarKind.PROVIDES_RUNTIME;
         }
+        String fp = fileFingerprint(jarPath);
+        String cacheKey = jarPath.toAbsolutePath().toString();
+        if (!fp.equals("0|0")) {
+            String cached = KOTLIN_JAR_KIND_CACHE.get(cacheKey);
+            if (cached != null && cached.startsWith(fp + "|")) {
+                try {
+                    return KotlinJarKind.valueOf(cached.substring(fp.length() + 1));
+                } catch (IllegalArgumentException ignored) {
+                    KOTLIN_JAR_KIND_CACHE.remove(cacheKey);
+                }
+            }
+        }
+        KotlinJarKind kind = classifyKotlinJarUncached(jarPath);
+        if (!fp.equals("0|0")) {
+            KOTLIN_JAR_KIND_CACHE.put(cacheKey, fp + "|" + kind.name());
+        }
+        return kind;
+    }
+
+    private KotlinJarKind classifyKotlinJarUncached(Path jarPath) {
         try (var zip = new java.util.zip.ZipFile(jarPath.toFile())) {
             var manifestEntry = zip.getEntry("META-INF/MANIFEST.MF");
             if (manifestEntry != null) {
@@ -1224,29 +1251,44 @@ public final class LaunchProfileBuilder {
     /**
      * 文件存在且（有 sha1 则匹配；无 sha1 则至少为合法 zip）视为健康。
      * 有 sha1 但不匹配时隔离损坏文件并返回 false，触发重下。
+     * 已校验过的 jar 用 size|mtime 命中缓存，避免每次启动整文件 SHA-1。
      */
     private static boolean isLibraryHealthy(Path path, String expectedSha1) {
         if (!Files.isRegularFile(path)) return false;
+        String fp = fileFingerprint(path);
+        if (fp.equals("0|0")) return false;
         try {
-            if (Files.size(path) < 16) {
+            int sep = fp.indexOf('|');
+            long size = sep > 0 ? Long.parseLong(fp.substring(0, sep)) : -1L;
+            if (size >= 0 && size < 16) {
                 quarantineCorrupt(path);
                 return false;
             }
-        } catch (IOException e) {
+        } catch (NumberFormatException e) {
             return false;
         }
         if (expectedSha1 == null || expectedSha1.isBlank()) {
-            // 无哈希：拒绝截断/非 zip 半成品被当成健康
             if (!looksLikeZip(path)) {
                 quarantineCorrupt(path);
                 return false;
             }
             return true;
         }
+        String key = path.toAbsolutePath().toString();
+        String want = expectedSha1.toLowerCase(java.util.Locale.ROOT);
+        String cached = LIBRARY_SHA1_CACHE.get(key);
+        if (cached != null && cached.startsWith(fp + "|")) {
+            String cachedSha1 = cached.substring(fp.length() + 1);
+            if (want.equals(cachedSha1)) return true;
+        }
         String actual = sha1File(path);
-        if (expectedSha1.equalsIgnoreCase(actual)) return true;
+        if (expectedSha1.equalsIgnoreCase(actual)) {
+            LIBRARY_SHA1_CACHE.put(key, fp + "|" + actual.toLowerCase(java.util.Locale.ROOT));
+            return true;
+        }
         System.err.println("[LaunchProfileBuilder] 库 SHA-1 不匹配，将重下: " + path
                 + " expected=" + expectedSha1 + " actual=" + actual);
+        LIBRARY_SHA1_CACHE.remove(key);
         quarantineCorrupt(path);
         return false;
     }
@@ -1263,6 +1305,8 @@ public final class LaunchProfileBuilder {
     /** 将损坏文件移到 {@code .corrupt} 后缀，避免启动继续使用。 */
     private static void quarantineCorrupt(Path path) {
         if (path == null || !Files.exists(path)) return;
+        LIBRARY_SHA1_CACHE.remove(path.toAbsolutePath().toString());
+        KOTLIN_JAR_KIND_CACHE.remove(path.toAbsolutePath().toString());
         try {
             Path corrupt = path.resolveSibling(path.getFileName() + ".corrupt");
             Files.deleteIfExists(corrupt);
@@ -1389,8 +1433,13 @@ public final class LaunchProfileBuilder {
      * 比 hash 快（无读文件开销），对"安装后不变"的 native jar 足够可靠。
      */
     private static String nativeFingerprint(Path jar) {
+        return fileFingerprint(jar);
+    }
+
+    /** size|mtime，用于跳过未变更文件的 SHA-1 / Zip 扫描。失败返回 {@code 0|0}。 */
+    private static String fileFingerprint(Path file) {
         try {
-            var attrs = java.nio.file.Files.readAttributes(jar, "size,lastModifiedTime");
+            var attrs = java.nio.file.Files.readAttributes(file, "size,lastModifiedTime");
             return attrs.get("size") + "|" + attrs.get("lastModifiedTime");
         } catch (Exception e) {
             return "0|0";

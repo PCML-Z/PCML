@@ -1,490 +1,315 @@
 package com.pmcl.ui.page
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.itemsIndexed
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Translate
-import androidx.compose.material.icons.outlined.Translate
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.lerp as lerpRect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.lerp as lerpColor
-import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.lerp as lerpDp
+import androidx.compose.ui.unit.sp
 import com.pmcl.core.i18n.I18n
-import com.pmcl.ui.animation.TypewriterTitle
 import com.pmcl.core.market.ModProject
+import com.pmcl.ui.animation.AnimatedSegmentedSelector
 import com.pmcl.ui.animation.MotionTokens
 import com.pmcl.ui.theme.glassContainerColor
 import com.pmcl.ui.theme.glassSurfaceVariantColor
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import com.pmcl.ui.viewmodel.searchMods
-import com.pmcl.ui.viewmodel.loadPopularMods
-import com.pmcl.ui.viewmodel.loadCategoryMods
-import com.pmcl.ui.viewmodel.clearCategory
 import com.pmcl.ui.viewmodel.openModDetail
 import com.pmcl.ui.viewmodel.closeModDetail
 import com.pmcl.ui.viewmodel.listProjectFiles
 import com.pmcl.ui.viewmodel.installModWithDeps
 import com.pmcl.ui.viewmodel.clearDepInstallResult
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.jetbrains.skia.Image as SkiaImage
 import com.pmcl.ui.util.decodeSampledBitmap
 import java.awt.Desktop
 import java.net.URI
+import kotlin.math.ceil
 import kotlin.math.max
-import kotlin.math.roundToInt
+
+private const val MARKET_PAGE_SIZE = 20
+private val ModrinthGreen = Color(0xFF1BD96A)
+private val CurseForgeOrange = Color(0xFFF16436)
+private val MarketFilterHeight = 36.dp
+private val MarketFilterShape = RoundedCornerShape(8.dp)
 
 @Composable
 fun ModsMarketPage(vm: LauncherViewModel) {
     val results by vm.marketResults.collectAsState()
+    val total by vm.marketTotal.collectAsState()
     val loading by vm.marketLoading.collectAsState()
-    val status by vm.status.collectAsState()
-    val installedMods by vm.installedMods.collectAsState()
-    val popularMods by vm.popularMods.collectAsState()
-    val popularLoading by vm.popularLoading.collectAsState()
-    val categoryResults by vm.categoryResults.collectAsState()
-    val categoryLoading by vm.categoryLoading.collectAsState()
-    val selectedCategory by vm.selectedCategory.collectAsState()
     val detailProject by vm.detailProject.collectAsState()
-    val currentModFiles by vm.currentModFiles.collectAsState()
     val translationCache by vm.translationCache.collectAsState()
-    val translating by vm.translating.collectAsState()
     val depResult by vm.depInstallResult.collectAsState()
-    val selectedVersion by vm.selectedVersion.collectAsState()
     val localVersionInfos by vm.localVersionInfos.collectAsState()
-    var translateEnabled by remember { mutableStateOf(false) }
 
-    // 默认按当前选中实例的游戏版本 + 加载器筛选
-    val initialFilters = remember { vm.resolveMarketFilters() }
-    var query by remember { mutableStateOf("") }
-    var gameVersion by remember { mutableStateOf(initialFilters.gameVersion) }
-    var loader by remember { mutableStateOf(initialFilters.loader) }
     val knownVersions = remember(localVersionInfos) { vm.knownMarketGameVersions() }
+    val seeded = remember { vm.resolveMarketFilters() }
 
-    // 本地版本列表异步加载完成后，若筛选仍为空则补全当前实例条件
-    LaunchedEffect(selectedVersion, localVersionInfos) {
-        if (gameVersion.isBlank() && loader.isBlank()) {
-            val f = vm.resolveMarketFilters()
-            if (f.gameVersion.isNotBlank() || f.loader.isNotBlank()) {
-                gameVersion = f.gameVersion
-                loader = f.loader
-            }
-        }
+    var query by remember { mutableStateOf("") }
+    var gameVersion by remember { mutableStateOf(seeded.gameVersion) }
+    var loader by remember { mutableStateOf(seeded.loader) }
+    var projectType by remember { mutableStateOf("") }
+    var sort by remember { mutableStateOf("default") }
+    var sourceTab by remember { mutableStateOf(1) } // 1 聚合 / 2 CF / 3 MR
+    var pageIndex by remember { mutableStateOf(0) }
+    var filesOnly by remember { mutableStateOf(false) }
+
+    fun sourceFilter(): String? = when (sourceTab) {
+        2 -> "curseforge"
+        3 -> "modrinth"
+        else -> null
     }
 
-    // 筛选变化时自动刷新当前视图（防抖，避免版本输入框逐字请求）
-    LaunchedEffect(gameVersion, loader, selectedCategory) {
-        kotlinx.coroutines.delay(350)
-        when {
-            query.isNotBlank() && results.isNotEmpty() ->
-                vm.searchMods(query, gameVersion.ifBlank { null }, loader.ifBlank { null }, selectedCategory)
-            selectedCategory.isNotEmpty() ->
-                vm.loadCategoryMods(selectedCategory, gameVersion.ifBlank { null }, loader.ifBlank { null })
-            else ->
-                vm.loadPopularMods(gameVersion.ifBlank { null }, loader.ifBlank { null })
-        }
+    fun runSearch(page: Int) {
+        pageIndex = page
+        val effectiveSort = if (sourceTab == 2 && sort == "newest") "updated" else sort
+        vm.searchMods(
+            query = query,
+            gameVersion = gameVersion.ifBlank { null },
+            loader = loader.ifBlank { null },
+            sort = effectiveSort,
+            projectType = projectType.ifBlank { null },
+            source = sourceFilter(),
+            offset = page * MARKET_PAGE_SIZE,
+            limit = MARKET_PAGE_SIZE,
+        )
     }
 
-    // iOS 风格卡片放大动画状态
-    // 点击卡片时，卡片从其原始位置/大小平滑放大到全屏（overlay），完成后切换到详情页
-    // 返回时反向：详情页淡出，overlay 从全屏缩回到卡片原位置
-    var transitionProject by remember { mutableStateOf<ModProject?>(null) }
-    var transitionStartBounds by remember { mutableStateOf<Rect?>(null) }
-    var transitionTarget by remember { mutableStateOf(0f) }
-    var transitionActive by remember { mutableStateOf(false) }
-    var detailOpened by remember { mutableStateOf(false) }
-    val cardBoundsCache = remember { mutableStateMapOf<String, Rect>() }
+    LaunchedEffect(sourceTab) { runSearch(0) }
 
-    val expandProgress by animateFloatAsState(
-        targetValue = transitionTarget,
-        animationSpec = tween(380, easing = MotionTokens.EasingEmphasizedDecelerate),
-        finishedListener = { value ->
-            if (value >= 0.99f) {
-                // 放大完成：overlay 消失，详情页已提前加载并淡入完成
-                transitionActive = false
-            } else if (value <= 0.01f && transitionActive) {
-                // 缩回完成：关闭详情页
-                vm.closeModDetail()
-                detailOpened = false
-                transitionActive = false
-            }
-        }
-    )
+    val pageCount = max(1, ceil(total / MARKET_PAGE_SIZE.toDouble()).toInt())
 
-    // 提前加载详情页数据（progress > 0.85），让详情页在 overlay 消失前就开始渲染
-    // 避免 overlay 消失瞬间详情页尚未加载导致的卡顿
-    LaunchedEffect(expandProgress, transitionActive, transitionTarget) {
-        if (transitionActive && transitionTarget > 0.5f && expandProgress > 0.85f && !detailOpened) {
-            transitionProject?.let { vm.openModDetail(it) }
-            detailOpened = true
-        }
-    }
-
-    // 详情页 alpha 直接跟随 expandProgress，与 overlay 淡出完美互补，消除交接间隙：
-    // 打开时 progress 0.85→1，alpha 0→1（overlay contentAlpha 同步 1→0）
-    // 关闭时 progress 1→0，alpha 1→0
-    val detailAlpha = when {
-        !detailOpened -> 0f
-        !transitionActive -> 1f
-        transitionTarget > 0.5f -> ((expandProgress - 0.85f) / 0.15f).coerceIn(0f, 1f)
-        else -> expandProgress.coerceIn(0f, 1f)
-    }
-
-    val onCardClick: (ModProject) -> Unit = { project ->
-        if (!transitionActive) {
-            val key = project.getSource() + "/" + project.getId()
-            val bounds = cardBoundsCache[key]
-            if (bounds != null) {
-                transitionProject = project
-                transitionStartBounds = bounds
-                transitionTarget = 1f
-                transitionActive = true
-            } else {
-                vm.openModDetail(project)
-                detailOpened = true
-            }
-        }
-    }
-
-    val onBack: () -> Unit = {
-        if (!transitionActive) {
-            val proj = detailProject
-            if (proj != null) {
-                val key = proj.getSource() + "/" + proj.getId()
-                val bounds = cardBoundsCache[key]
-                if (bounds != null) {
-                    transitionProject = proj
-                    transitionStartBounds = bounds
-                    transitionTarget = 0f
-                    transitionActive = true
-                    // detailOpened 保持 true，关闭动画期间详情页淡出
-                } else {
-                    vm.closeModDetail()
-                    detailOpened = false
-                }
-            } else {
-                vm.closeModDetail()
-                detailOpened = false
-            }
-        }
-    }
-
-    Box(Modifier.fillMaxSize()) {
-        // 列表层在卡片放大动画期间应用高斯模糊（iOS 风格：背景逐渐模糊）
-        // 降低到 14dp 平衡视觉效果与渲染性能
-        val listBlurRadius = if (transitionActive) (expandProgress * 14f).dp else 0.dp
-        Column(
-            Modifier
-                .fillMaxSize()
-                .padding(16.dp)
-                .blur(listBlurRadius)
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                TypewriterTitle(I18n.t("market.title"))
-                Spacer(Modifier.weight(1f))
-                FilterChip(
-                    selected = translateEnabled,
-                    onClick = {
-                        translateEnabled = !translateEnabled
-                        if (translateEnabled) {
-                            val texts = (popularMods + categoryResults + results).flatMap {
-                                listOfNotNull(it.getName(), it.getSummary())
-                            }.distinct()
-                            vm.translateBatch(texts)
-                        }
-                    },
-                    label = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                if (translateEnabled) Icons.Filled.Translate else Icons.Outlined.Translate,
-                                contentDescription = null,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(Modifier.width(4.dp))
-                            Text(if (translating) I18n.t("market.translating") else I18n.t("market.translate"))
-                        }
+    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        if (detailProject != null) {
+            val dp = detailProject
+            if (dp != null) {
+                ModDetailView(
+                    project = dp,
+                    vm = vm,
+                    searchGameVersion = gameVersion,
+                    searchLoader = loader,
+                    knownVersions = knownVersions,
+                    translateEnabled = false,
+                    translationCache = translationCache,
+                    filesOnly = filesOnly,
+                    onBack = { vm.closeModDetail() },
+                    onFiltersChanged = { gv, ld ->
+                        gameVersion = gv
+                        loader = ld
                     }
                 )
             }
-            Spacer(Modifier.height(8.dp))
-            Text(I18n.t("market.aggregator_hint"),
-                 style = MaterialTheme.typography.labelSmall,
-                 color = MaterialTheme.colorScheme.outline)
-
-            // 搜索栏 + 分类标签：仅列表视图显示，进入详情页时隐藏
-            if (detailProject == null) {
-                Spacer(Modifier.height(16.dp))
-
-                // 搜索栏
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(
-                        value = query, onValueChange = { query = it },
-                        label = { Text(I18n.t("market.search_mods_hint")) }, singleLine = true,
-                        modifier = Modifier.weight(1f),
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                        keyboardActions = KeyboardActions(
-                            onSearch = {
-                                if (query.isNotBlank() && !loading) {
-                                    vm.searchMods(query, gameVersion.ifBlank { null }, loader.ifBlank { null }, selectedCategory)
-                                }
-                            }
-                        )
-                    )
-                    Spacer(Modifier.width(12.dp))
-                    GameVersionFilterField(
-                        value = gameVersion,
-                        knownVersions = knownVersions,
-                        onValueChange = { gameVersion = it }
-                    )
-                    Spacer(Modifier.width(12.dp))
-                    LoaderDropdown(loader) { loader = it }
-                    Spacer(Modifier.width(8.dp))
-                    OutlinedButton(
-                        onClick = {
-                            val f = vm.resolveMarketFilters()
-                            gameVersion = f.gameVersion
-                            loader = f.loader
-                        },
-                        enabled = !selectedVersion.isNullOrBlank()
-                    ) {
-                        Text(I18n.t("market.use_current_instance"))
-                    }
-                    Spacer(Modifier.width(8.dp))
-                    Button(onClick = {
-                        vm.searchMods(query, gameVersion.ifBlank { null }, loader.ifBlank { null }, selectedCategory)
-                    }, enabled = !loading && query.isNotBlank()) {
-                        Text(if (loading) I18n.t("market.searching") else I18n.t("market.search"))
-                    }
+        } else {
+            MarketTabRow(
+                selectedTab = sourceTab,
+                onSelectGame = { vm.requestSecondaryNav("download", "versions") },
+                onSelectSource = { tab ->
+                    if (tab == 2 && sort == "newest") sort = "updated"
+                    sourceTab = tab
                 }
-
-                Spacer(Modifier.height(12.dp))
-
-                // 分类推荐标签栏（横向滚动）
-                CategoryBar(
-                    selectedCategory = selectedCategory,
-                    onSelect = { cat ->
-                        if (cat.isEmpty()) {
-                            vm.clearCategory()
-                        } else {
-                            vm.loadCategoryMods(cat, gameVersion.ifBlank { null }, loader.ifBlank { null })
-                        }
-                    }
-                )
-
-                Spacer(Modifier.height(12.dp))
-            }
-
-            val installedModIds = remember(installedMods) { installedMods.map { it.getModId() }.toSet() }
-
-            when {
-                // 详情视图：点击卡片后进入（带淡入，与 overlay 放大衔接）
-                detailProject != null -> {
-                    val dp = detailProject
-                    if (dp != null) {
-                        // 详情页从模糊状态淡入到清晰，与 overlay 放大衔接避免硬切
-                        // blur 跟随 expandProgress：打开时 14→0，关闭时 0→14
-                        val detailBlurRadius = if (transitionActive) ((1f - expandProgress) * 14f).dp else 0.dp
-                        Column(
-                            Modifier
-                                .fillMaxSize()
-                                .alpha(detailAlpha)
-                                .blur(detailBlurRadius)
-                        ) {
-                            ModDetailView(
-                                project = dp,
-                                vm = vm,
-                                searchGameVersion = gameVersion,
-                                searchLoader = loader,
-                                knownVersions = knownVersions,
-                                translateEnabled = translateEnabled,
-                                translationCache = translationCache,
-                                onBack = onBack,
-                                onFiltersChanged = { gv, ld ->
-                                    gameVersion = gv
-                                    loader = ld
-                                }
-                            )
-                        }
-                    }
-                }
-                // 搜索结果视图（用户主动搜索后）
-                results.isNotEmpty() -> {
-                    Text(I18n.t("market.search_results", results.size),
-                         style = MaterialTheme.typography.titleMedium,
-                         fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.height(8.dp))
-                    LazyColumn(
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        items(results, key = { p -> p.getSource() + "/" + p.getId() }) { project ->
-                            SearchResultCard(
-                                project = project,
-                                onClick = { onCardClick(project) },
-                                installedModIds = installedModIds,
-                                translateEnabled = translateEnabled,
-                                translationCache = translationCache,
-                                onPositioned = { rect ->
-                                    cardBoundsCache[project.getSource() + "/" + project.getId()] = rect
-                                }
-                            )
-                        }
-                    }
-                }
-                // 分类推荐网格（用户选择分类标签后）
-                selectedCategory.isNotEmpty() -> {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(I18n.t("market.category_picks", categoryLabel(selectedCategory)),
-                             style = MaterialTheme.typography.titleMedium,
-                             fontWeight = FontWeight.SemiBold,
-                             modifier = Modifier.weight(1f))
-                        if (categoryLoading) {
-                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                        } else {
-                            TextButton(onClick = {
-                                vm.loadCategoryMods(selectedCategory, gameVersion.ifBlank { null }, loader.ifBlank { null })
-                            }) { Text(I18n.t("common.refresh")) }
-                        }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    if (categoryResults.isEmpty() && !categoryLoading) {
-                        Surface(
-                            color = glassSurfaceVariantColor(),
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.fillMaxWidth().weight(1f)
-                        ) {
-                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Text(I18n.t("market.category_empty"),
-                                     color = MaterialTheme.colorScheme.outline)
-                            }
-                        }
-                    } else {
-                        LazyVerticalGrid(
-                            columns = GridCells.Adaptive(220.dp),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            itemsIndexed(categoryResults,
-                                    key = { _, p -> p.getSource() + "/" + p.getId() }) { _, project ->
-                                PopularCard(
-                                    project = project,
-                                    onClick = { onCardClick(project) },
-                                    translateEnabled = translateEnabled,
-                                    translationCache = translationCache,
-                                    onPositioned = { rect ->
-                                        cardBoundsCache[project.getSource() + "/" + project.getId()] = rect
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-                // 热门推荐网格（默认视图）
-                else -> {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(I18n.t("market.popular"),
-                             style = MaterialTheme.typography.titleMedium,
-                             fontWeight = FontWeight.SemiBold,
-                             modifier = Modifier.weight(1f))
-                        if (popularLoading) {
-                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                        } else {
-                            TextButton(onClick = {
-                                vm.loadPopularMods(gameVersion.ifBlank { null }, loader.ifBlank { null })
-                            }) {
-                                Text(I18n.t("common.refresh"))
-                            }
-                        }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    if (popularMods.isEmpty() && !popularLoading) {
-                        Surface(
-                            color = glassSurfaceVariantColor(),
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.fillMaxWidth().weight(1f)
-                        ) {
-                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Text(I18n.t("market.load_failed_or_empty"),
-                                     color = MaterialTheme.colorScheme.outline)
-                            }
-                        }
-                    } else {
-                        LazyVerticalGrid(
-                            columns = GridCells.Adaptive(220.dp),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            itemsIndexed(popularMods,
-                                    key = { _, p -> p.getSource() + "/" + p.getId() }) { _, project ->
-                                PopularCard(
-                                    project = project,
-                                    onClick = { onCardClick(project) },
-                                    translateEnabled = translateEnabled,
-                                    translationCache = translationCache,
-                                    onPositioned = { rect ->
-                                        cardBoundsCache[project.getSource() + "/" + project.getId()] = rect
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(8.dp))
-            Text(I18n.t("market.status_value", status), style = MaterialTheme.typography.labelSmall,
-                 color = MaterialTheme.colorScheme.outline)
-        }
-
-        // iOS 风格卡片放大 overlay：覆盖在 Column 之上，不被 grid 的 clip 裁剪
-        // 卡片从其原始位置/大小平滑放大到全屏，完成后移除 overlay 由详情页接管
-        if (transitionActive && transitionProject != null && transitionStartBounds != null) {
-            CardExpandOverlay(
-                project = transitionProject!!,
-                startBounds = transitionStartBounds!!,
-                progress = expandProgress,
-                modifier = Modifier.fillMaxSize()
             )
+
+            Spacer(Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                FilterBarLabel(I18n.t("market.name"))
+                CompactSearchField(
+                    value = query,
+                    onValueChange = { query = it },
+                    placeholder = I18n.t("market.search_name_hint"),
+                    onSearch = { if (!loading) runSearch(0) },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            Spacer(Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilterBarLabel(I18n.t("market.search_options"))
+                CompactVersionField(
+                    value = gameVersion,
+                    knownVersions = knownVersions,
+                    onValueChange = { gameVersion = it },
+                    placeholder = I18n.t("market.game_version_hint"),
+                    modifier = Modifier.width(200.dp)
+                )
+                CompactFilterDropdown(
+                    label = I18n.t("market.type"),
+                    selectedValue = projectType,
+                    options = listOf(
+                        "" to I18n.t("market.all"),
+                        "mod" to I18n.t("market.type.mod"),
+                        "resourcepack" to I18n.t("market.type.resourcepack"),
+                        "shader" to I18n.t("market.type.shader"),
+                    ),
+                    onSelect = { projectType = it },
+                    modifier = Modifier.width(132.dp)
+                )
+                CompactFilterDropdown(
+                    label = I18n.t("market.sort"),
+                    selectedValue = sort,
+                    options = buildList {
+                        add("default" to I18n.t("market.sort.default"))
+                        add("downloads" to I18n.t("market.sort.downloads"))
+                        add("updated" to I18n.t("market.sort.updated"))
+                        if (sourceTab != 2) add("newest" to I18n.t("market.sort.newest"))
+                    },
+                    onSelect = { sort = it },
+                    modifier = Modifier.width(132.dp)
+                )
+                CompactFilterDropdown(
+                    label = I18n.t("market.loader"),
+                    selectedValue = loader,
+                    options = listOf(
+                        "" to I18n.t("market.all"),
+                        "fabric" to "Fabric",
+                        "forge" to "Forge",
+                        "quilt" to "Quilt",
+                        "neoforge" to "NeoForge",
+                    ),
+                    onSelect = { loader = it },
+                    modifier = Modifier.width(140.dp)
+                )
+                MarketPrimaryButton(
+                    onClick = { if (!loading) runSearch(0) },
+                    enabled = !loading
+                ) {
+                    if (loading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(14.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
+                        Spacer(Modifier.width(6.dp))
+                    }
+                    Text(if (loading) I18n.t("market.searching") else I18n.t("market.search"))
+                }
+            }
+
+            if (loading) {
+                LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
+            } else {
+                Spacer(Modifier.height(8.dp))
+            }
+
+            val cfMissing = sourceTab == 2 && !vm.core.modMarket().hasCurseForge()
+            when {
+                cfMissing -> {
+                    Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                        Text(I18n.t("market.curseforge_disabled"), color = MaterialTheme.colorScheme.outline)
+                    }
+                }
+                results.isEmpty() && !loading -> {
+                    Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                        Text(I18n.t("market.empty"), color = MaterialTheme.colorScheme.outline)
+                    }
+                }
+                else -> {
+                    LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                        itemsIndexed(results, key = { _, p -> p.getSource() + "/" + p.getId() }) { index, project ->
+                            MarketListRow(
+                                project = project,
+                                onClick = {
+                                    vm.openModDetail(
+                                        project,
+                                        gameVersion.ifBlank { null },
+                                        loader.ifBlank { null }
+                                    )
+                                }
+                            )
+                            if (index < results.lastIndex) {
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+                            }
+                        }
+                    }
+                }
+            }
+
+            Row(
+                Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                MarketIconButton(
+                    onClick = { if (pageIndex > 0 && !loading) runSearch(pageIndex - 1) },
+                    enabled = pageIndex > 0 && !loading,
+                    hoverNudgeX = -6
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
+                }
+                Text(
+                    I18n.t("market.page_indicator", pageIndex + 1, pageCount),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                MarketIconButton(
+                    onClick = { if (pageIndex + 1 < pageCount && !loading) runSearch(pageIndex + 1) },
+                    enabled = pageIndex + 1 < pageCount && !loading,
+                    hoverNudgeX = 6
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null)
+                }
+                Spacer(Modifier.weight(1f))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.clip(RoundedCornerShape(8.dp))
+                ) {
+                    Checkbox(checked = filesOnly, onCheckedChange = { filesOnly = it })
+                    Text(
+                        I18n.t("market.files_only"),
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.clickable { filesOnly = !filesOnly }.padding(end = 8.dp)
+                    )
+                }
+            }
         }
     }
 
-    // 依赖安装结果对话框
     if (depResult != null) {
         DependencyResultDialog(
             result = depResult!!,
@@ -493,9 +318,1090 @@ fun ModsMarketPage(vm: LauncherViewModel) {
     }
 }
 
-/**
- * 依赖安装结果对话框：展示已安装依赖、跳过的系统依赖、未找到的依赖等。
- */
+@Composable
+private fun MarketTabRow(
+    selectedTab: Int,
+    onSelectGame: () -> Unit,
+    onSelectSource: (Int) -> Unit
+) {
+    AnimatedSegmentedSelector(
+        items = listOf(
+            I18n.t("market.tab.game"),
+            I18n.t("market.tab.aggregate"),
+            I18n.t("market.tab.curseforge"),
+            I18n.t("market.tab.modrinth"),
+        ),
+        selectedIndex = selectedTab,
+        onSelect = { index ->
+            if (index == 0) onSelectGame() else onSelectSource(index)
+        },
+        modifier = Modifier.fillMaxWidth(),
+        fillWidth = true,
+        height = 36.dp
+    )
+}
+
+@Composable
+private fun MarketListRow(project: ModProject, onClick: () -> Unit) {
+    val tags = remember(project) { marketRowTags(project) }
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val hovered by interaction.collectIsHoveredAsState()
+    val bgAlpha by animateFloatAsState(
+        targetValue = when {
+            pressed -> 0.45f
+            hovered -> 0.28f
+            else -> 0f
+        },
+        animationSpec = tween(MotionTokens.DURATION_SHORT),
+        label = "marketRowBg"
+    )
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = bgAlpha))
+            .hoverable(interaction)
+            .clickable(
+                interactionSource = interaction,
+                indication = null,
+                onClick = onClick
+            )
+            .padding(horizontal = 8.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        val image = rememberUrlImage(project.getIconUrl() ?: "")
+        Box(
+            modifier = Modifier
+                .size(52.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.surface)
+                .border(
+                    BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
+                    RoundedCornerShape(8.dp)
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            if (image != null) {
+                Image(
+                    bitmap = image,
+                    contentDescription = project.getName(),
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize().padding(2.dp)
+                )
+            } else {
+                Text(
+                    project.getName().take(1).ifBlank { "?" },
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.outline
+                )
+            }
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                project.getName() ?: "",
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                project.getSummary() ?: "",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(Modifier.height(4.dp))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp))
+            ) {
+                tags.take(8).forEach { tag ->
+                    Box(
+                        Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
+                            .padding(horizontal = 6.dp, vertical = 1.dp)
+                    ) {
+                        Text(
+                            tag,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(2.dp))
+            Text(
+                I18n.t(
+                    "market.downloads_updated",
+                    formatDownloads(project.getDownloadCount()),
+                    relativeTimeLabel(project.getDateModified())
+                ),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Spacer(Modifier.width(8.dp))
+        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            TypeBadge(project.getProjectType())
+            SourceBadge(project.getSource())
+        }
+        HoverSlideArrow(visible = hovered, modifier = Modifier.padding(start = 6.dp))
+    }
+}
+
+@Composable
+private fun TypeBadge(projectType: String) {
+    val label = when (projectType) {
+        "resourcepack" -> I18n.t("market.type.resourcepack")
+        "shader" -> I18n.t("market.type.shader")
+        else -> I18n.t("market.type.mod")
+    }
+    Row(
+        Modifier
+            .clip(RoundedCornerShape(4.dp))
+            .border(
+                BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)),
+                RoundedCornerShape(4.dp)
+            )
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            Icons.Outlined.Download,
+            contentDescription = null,
+            modifier = Modifier.size(14.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.width(4.dp))
+        Text(label, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+    }
+}
+
+@Composable
+private fun SourceBadge(source: String) {
+    val isMr = source.equals("modrinth", ignoreCase = true)
+    Box(
+        Modifier
+            .clip(RoundedCornerShape(4.dp))
+            .background(if (isMr) ModrinthGreen else CurseForgeOrange)
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+    ) {
+        Text(
+            if (isMr) "Modrinth" else "CurseForge",
+            color = Color.White,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun FilterBarLabel(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.widthIn(min = 48.dp)
+    )
+}
+
+@Composable
+private fun compactFieldBorder(focused: Boolean): Color {
+    return if (focused) MaterialTheme.colorScheme.primary
+    else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.85f)
+}
+
+@Composable
+private fun CompactSearchField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    onSearch: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    val border by animateColorAsState(
+        compactFieldBorder(focused),
+        tween(MotionTokens.DURATION_SHORT),
+        label = "searchBorder"
+    )
+    BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        singleLine = true,
+        textStyle = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurface),
+        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+        interactionSource = interaction,
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        keyboardActions = KeyboardActions(onSearch = { onSearch() }),
+        modifier = modifier.height(MarketFilterHeight),
+        decorationBox = { inner ->
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .clip(MarketFilterShape)
+                    .background(glassContainerColor(MaterialTheme.colorScheme.surface))
+                    .border(1.dp, border, MarketFilterShape)
+                    .padding(horizontal = 12.dp),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                if (value.isEmpty()) {
+                    Text(
+                        placeholder,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                inner()
+            }
+        }
+    )
+}
+
+@Composable
+private fun CompactVersionField(
+    value: String,
+    knownVersions: List<String>,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    modifier: Modifier = Modifier
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    val border by animateColorAsState(
+        compactFieldBorder(focused || expanded),
+        tween(MotionTokens.DURATION_SHORT),
+        label = "versionBorder"
+    )
+    Box(modifier.height(MarketFilterHeight)) {
+        Row(
+            Modifier
+                .fillMaxSize()
+                .clip(MarketFilterShape)
+                .background(glassContainerColor(MaterialTheme.colorScheme.surface))
+                .border(1.dp, border, MarketFilterShape)
+                .padding(start = 10.dp, end = 2.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurface),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                interactionSource = interaction,
+                modifier = Modifier.weight(1f),
+                decorationBox = { inner ->
+                    Box(contentAlignment = Alignment.CenterStart) {
+                        if (value.isEmpty()) {
+                            Text(
+                                placeholder,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.outline,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        inner()
+                    }
+                }
+            )
+            if (knownVersions.isNotEmpty()) {
+                val iconInteraction = remember { MutableInteractionSource() }
+                Icon(
+                    Icons.Filled.ArrowDropDown,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.outline,
+                    modifier = Modifier
+                        .size(28.dp)
+                        .hoverable(iconInteraction)
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable(
+                            interactionSource = iconInteraction,
+                            indication = null
+                        ) { expanded = true }
+                        .padding(4.dp)
+                )
+            }
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(
+                text = { Text(I18n.t("market.all")) },
+                onClick = { onValueChange(""); expanded = false }
+            )
+            knownVersions.forEach { ver ->
+                DropdownMenuItem(
+                    text = { Text(ver) },
+                    onClick = { onValueChange(ver); expanded = false }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CompactFilterDropdown(
+    label: String,
+    selectedValue: String,
+    options: List<Pair<String, String>>,
+    onSelect: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val selectedLabel = options.firstOrNull { it.first == selectedValue }?.second
+        ?: options.firstOrNull()?.second
+        ?: selectedValue
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val hovered by interaction.collectIsHoveredAsState()
+    val border by animateColorAsState(
+        compactFieldBorder(expanded || hovered),
+        tween(MotionTokens.DURATION_SHORT),
+        label = "filterBorder"
+    )
+    Box(modifier.height(MarketFilterHeight)) {
+        Row(
+            Modifier
+                .fillMaxSize()
+                .hoverable(interaction)
+                .clip(MarketFilterShape)
+                .background(glassContainerColor(MaterialTheme.colorScheme.surface))
+                .border(1.dp, border, MarketFilterShape)
+                .clickable(
+                    interactionSource = interaction,
+                    indication = null
+                ) { expanded = true }
+                .padding(start = 10.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "$label: $selectedLabel",
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            Icon(
+                Icons.Filled.ArrowDropDown,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.outline,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            options.forEach { (value, text) ->
+                DropdownMenuItem(
+                    text = { Text(text) },
+                    onClick = {
+                        onSelect(value)
+                        expanded = false
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MarketPrimaryButton(
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier,
+    content: @Composable RowScope.() -> Unit
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val hovered by interaction.collectIsHoveredAsState()
+    val primary = MaterialTheme.colorScheme.primary
+    val fillAlpha by animateFloatAsState(
+        targetValue = when {
+            !enabled -> 0.45f
+            pressed -> 0.88f
+            else -> 1f
+        },
+        animationSpec = tween(MotionTokens.DURATION_SHORT),
+        label = "primaryBtn"
+    )
+    Row(
+        modifier
+            .height(MarketFilterHeight)
+            .hoverable(interaction, enabled = enabled)
+            .clip(MarketFilterShape)
+            .background(primary.copy(alpha = fillAlpha))
+            .clickable(
+                interactionSource = interaction,
+                indication = null,
+                enabled = enabled,
+                onClick = onClick
+            )
+            .padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center
+    ) {
+        CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onPrimary) {
+            content()
+            HoverSlideArrow(visible = hovered && enabled)
+        }
+    }
+}
+
+@Composable
+private fun MarketOutlinedButton(
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier,
+    content: @Composable RowScope.() -> Unit
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val hovered by interaction.collectIsHoveredAsState()
+    val fillAlpha by animateFloatAsState(
+        targetValue = when {
+            !enabled -> 0f
+            pressed -> 0.16f
+            hovered -> 0.10f
+            else -> 0f
+        },
+        animationSpec = tween(MotionTokens.DURATION_SHORT),
+        label = "outlinedBtn"
+    )
+    val border by animateColorAsState(
+        targetValue = when {
+            pressed || hovered -> MaterialTheme.colorScheme.primary
+            else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.85f)
+        },
+        animationSpec = tween(MotionTokens.DURATION_SHORT),
+        label = "outlinedBorder"
+    )
+    Row(
+        modifier
+            .height(MarketFilterHeight)
+            .hoverable(interaction, enabled = enabled)
+            .clip(MarketFilterShape)
+            .background(MaterialTheme.colorScheme.primary.copy(alpha = fillAlpha))
+            .border(1.dp, border, MarketFilterShape)
+            .clickable(
+                interactionSource = interaction,
+                indication = null,
+                enabled = enabled,
+                onClick = onClick
+            )
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center
+    ) {
+        content()
+        HoverSlideArrow(visible = hovered && enabled)
+    }
+}
+
+@Composable
+private fun MarketIconButton(
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    hoverNudgeX: Int = 0,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val hovered by interaction.collectIsHoveredAsState()
+    val fillAlpha by animateFloatAsState(
+        targetValue = when {
+            !enabled -> 0f
+            pressed -> 0.18f
+            hovered -> 0.12f
+            else -> 0f
+        },
+        animationSpec = tween(MotionTokens.DURATION_SHORT),
+        label = "iconBtnBg"
+    )
+    val nudge by animateFloatAsState(
+        targetValue = if (hovered && enabled) hoverNudgeX.toFloat() else 0f,
+        animationSpec = tween(MotionTokens.DURATION_SHORT, easing = MotionTokens.EasingEmphasized),
+        label = "iconNudge"
+    )
+    Box(
+        modifier
+            .size(40.dp)
+            .hoverable(interaction, enabled = enabled)
+            .clip(RoundedCornerShape(20.dp))
+            .background(MaterialTheme.colorScheme.primary.copy(alpha = fillAlpha))
+            .clickable(
+                interactionSource = interaction,
+                indication = null,
+                enabled = enabled,
+                onClick = onClick
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(Modifier.offset { IntOffset(nudge.roundToInt(), 0) }) {
+            content()
+        }
+    }
+}
+
+@Composable
+private fun MarketTextButton(
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier,
+    content: @Composable RowScope.() -> Unit
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val hovered by interaction.collectIsHoveredAsState()
+    val fillAlpha by animateFloatAsState(
+        targetValue = when {
+            !enabled -> 0f
+            pressed -> 0.14f
+            hovered -> 0.08f
+            else -> 0f
+        },
+        animationSpec = tween(MotionTokens.DURATION_SHORT),
+        label = "textBtnBg"
+    )
+    Row(
+        modifier
+            .hoverable(interaction, enabled = enabled)
+            .clip(MarketFilterShape)
+            .background(MaterialTheme.colorScheme.primary.copy(alpha = fillAlpha))
+            .clickable(
+                interactionSource = interaction,
+                indication = null,
+                enabled = enabled,
+                onClick = onClick
+            )
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.primary) {
+            content()
+            HoverSlideArrow(visible = hovered && enabled)
+        }
+    }
+}
+
+@Composable
+private fun HoverSlideArrow(
+    visible: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val shown by animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = tween(MotionTokens.DURATION_SHORT, easing = MotionTokens.EasingEmphasized),
+        label = "arrowShown"
+    )
+    val nudge by rememberInfiniteTransition(label = "arrowNudge").animateFloat(
+        initialValue = 0f,
+        targetValue = 4f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(480, easing = MotionTokens.EasingStandard),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "nudge"
+    )
+    val tint = LocalContentColor.current
+    Icon(
+        Icons.AutoMirrored.Filled.ArrowForward,
+        contentDescription = null,
+        tint = tint.copy(alpha = tint.alpha * shown),
+        modifier = modifier
+            .padding(start = 4.dp)
+            .size(16.dp)
+            .offset {
+                IntOffset(
+                    (((1f - shown) * -8f) + shown * nudge).roundToInt(),
+                    0
+                )
+            }
+    )
+}
+
+@Composable
+private fun ColumnScope.ModDetailView(
+    project: ModProject,
+    vm: LauncherViewModel,
+    searchGameVersion: String,
+    searchLoader: String = "",
+    knownVersions: List<String> = emptyList(),
+    translateEnabled: Boolean = false,
+    translationCache: Map<String, String> = emptyMap(),
+    filesOnly: Boolean = false,
+    onBack: () -> Unit,
+    onFiltersChanged: (gameVersion: String, loader: String) -> Unit = { _, _ -> }
+) {
+    val selectedVersion by vm.selectedVersion.collectAsState()
+    var filterGameVersion by remember(project.getId()) { mutableStateOf(searchGameVersion) }
+    var filterLoader by remember(project.getId()) { mutableStateOf(searchLoader) }
+    var targetGameVersion by remember(project.getId()) { mutableStateOf(searchGameVersion) }
+    var showAllFiles by remember(project.getId()) { mutableStateOf(false) }
+    var filterCompatible by remember(project.getId()) { mutableStateOf(true) }
+    val files by vm.currentModFiles.collectAsState()
+    val filesLoading by vm.marketFilesLoading.collectAsState()
+    val filesError by vm.marketFilesError.collectAsState()
+
+    LaunchedEffect(searchGameVersion, searchLoader) {
+        filterGameVersion = searchGameVersion
+        filterLoader = searchLoader
+        if (searchGameVersion.isNotBlank()) {
+            targetGameVersion = searchGameVersion
+        }
+    }
+
+    LaunchedEffect(filterGameVersion) {
+        if (filterGameVersion.isNotBlank()) {
+            targetGameVersion = filterGameVersion
+        }
+    }
+
+    val compatibleFiles = remember(files, filterGameVersion, filterLoader, filterCompatible) {
+        if (!filterCompatible) files
+        else files.filter { fileMatchesMarketFilter(it, filterGameVersion, filterLoader) }
+    }
+    val displayFiles = if (showAllFiles) compatibleFiles else compatibleFiles.take(15)
+
+    val displayName = if (translateEnabled) translationCache[project.getName()] ?: project.getName() else project.getName()
+    val displaySummary = if (translateEnabled) translationCache[project.getSummary()] ?: project.getSummary() else project.getSummary()
+
+    if (filesOnly) {
+        Column(Modifier.fillMaxWidth().weight(1f)) {
+            MarketTextButton(onClick = onBack) { Text(I18n.t("market.back")) }
+            Text(
+                displayName,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                CompactVersionField(
+                    value = filterGameVersion,
+                    knownVersions = knownVersions,
+                    onValueChange = {
+                        filterGameVersion = it
+                        filterCompatible = true
+                        showAllFiles = false
+                        onFiltersChanged(it, filterLoader)
+                    },
+                    placeholder = I18n.t("market.game_version_hint"),
+                    modifier = Modifier.width(200.dp)
+                )
+                CompactFilterDropdown(
+                    label = I18n.t("market.loader"),
+                    selectedValue = filterLoader,
+                    options = listOf(
+                        "" to I18n.t("market.all"),
+                        "fabric" to "Fabric",
+                        "forge" to "Forge",
+                        "quilt" to "Quilt",
+                        "neoforge" to "NeoForge",
+                    ),
+                    onSelect = {
+                        filterLoader = it
+                        filterCompatible = true
+                        showAllFiles = false
+                        onFiltersChanged(filterGameVersion, it)
+                    },
+                    modifier = Modifier.width(140.dp)
+                )
+                CompactSearchField(
+                    value = targetGameVersion,
+                    onValueChange = { targetGameVersion = it },
+                    placeholder = I18n.t("market.target_mc_version"),
+                    onSearch = {},
+                    modifier = Modifier.width(160.dp)
+                )
+                MarketOutlinedButton(
+                    onClick = {
+                        val f = vm.resolveMarketFilters()
+                        filterGameVersion = f.gameVersion
+                        filterLoader = f.loader
+                        filterCompatible = true
+                        showAllFiles = false
+                        onFiltersChanged(f.gameVersion, f.loader)
+                    },
+                    enabled = true
+                ) {
+                    Text(I18n.t("market.use_current_instance"))
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            FileListPane(
+                files = files,
+                compatibleFiles = compatibleFiles,
+                displayFiles = displayFiles,
+                filterGameVersion = filterGameVersion,
+                filterLoader = filterLoader,
+                filterCompatible = filterCompatible,
+                showAllFiles = showAllFiles,
+                targetGameVersion = targetGameVersion,
+                filesLoading = filesLoading,
+                filesError = filesError,
+                vm = vm,
+                onToggleCompatible = {
+                    filterCompatible = !filterCompatible
+                    showAllFiles = false
+                },
+                onShowAll = { filterCompatible = false },
+                onToggleShowAll = { showAllFiles = !showAllFiles }
+            )
+        }
+        return
+    }
+
+    Row(
+        modifier = Modifier.fillMaxWidth().weight(1f),
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .weight(0.42f)
+                .fillMaxHeight()
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            MarketTextButton(onClick = onBack) { Text(I18n.t("market.back")) }
+
+            Surface(
+        shadowElevation = 0.dp,
+        tonalElevation = 0.dp,
+                color = glassSurfaceVariantColor(),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(Modifier.padding(12.dp)) {
+                    val image = rememberUrlImage(project.getIconUrl() ?: "")
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(140.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.surface),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (image != null) {
+                            Image(
+                                image,
+                                project.getName(),
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            Text(
+                                displayName.take(1).ifBlank { "?" },
+                                style = MaterialTheme.typography.headlineMedium,
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        displayName,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        displaySummary,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "${project.getAuthor()}  ·  ${formatCount(project.getDownloadCount())}  ·  ${project.getSource()}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        MarketTextButton(onClick = {
+                            try {
+                                val url = project.getWebsiteUrl()
+                                if (!url.isNullOrBlank() && Desktop.isDesktopSupported()) {
+                                    Desktop.getDesktop().browse(URI(url))
+                                }
+                            } catch (_: Throwable) {
+                            }
+                        }) { Text(I18n.t("market.open_web")) }
+                        MarketTextButton(onClick = {
+                            vm.listProjectFiles(
+                                project,
+                                filterGameVersion.ifBlank { null },
+                                filterLoader.ifBlank { null }
+                            )
+                        }) {
+                            Text(I18n.t("market.refresh_versions"))
+                        }
+                    }
+                }
+            }
+
+            Surface(
+        shadowElevation = 0.dp,
+        tonalElevation = 0.dp,
+                color = glassContainerColor(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        I18n.t("market.detail_filter_title"),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    GameVersionFilterField(
+                        value = filterGameVersion,
+                        knownVersions = knownVersions,
+                        onValueChange = {
+                            filterGameVersion = it
+                            filterCompatible = true
+                            showAllFiles = false
+                            onFiltersChanged(it, filterLoader)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    LoaderDropdown(
+                        selected = filterLoader,
+                        onSelect = {
+                            filterLoader = it
+                            filterCompatible = true
+                            showAllFiles = false
+                            onFiltersChanged(filterGameVersion, it)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    MarketOutlinedButton(
+                        onClick = {
+                            val f = vm.resolveMarketFilters()
+                            filterGameVersion = f.gameVersion
+                            filterLoader = f.loader
+                            filterCompatible = true
+                            showAllFiles = false
+                            onFiltersChanged(f.gameVersion, f.loader)
+                        },
+                        enabled = !selectedVersion.isNullOrBlank(),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(I18n.t("market.use_current_instance"))
+                    }
+                    if (filterGameVersion.isNotBlank() || filterLoader.isNotBlank()) {
+                        Text(
+                            buildString {
+                                append(I18n.t("market.detail_filter_hint"))
+                                if (filterGameVersion.isNotBlank()) append(" · MC $filterGameVersion")
+                                if (filterLoader.isNotBlank()) append(" · $filterLoader")
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                    }
+                }
+            }
+
+            Surface(
+        shadowElevation = 0.dp,
+        tonalElevation = 0.dp,
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        I18n.t("market.download_to_version"),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    OutlinedTextField(
+                        value = targetGameVersion,
+                        onValueChange = { targetGameVersion = it },
+                        label = { Text(I18n.t("market.target_mc_version")) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Text(
+                        I18n.t("market.download_dir_hint", targetGameVersion),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                }
+            }
+        }
+
+        Column(
+            modifier = Modifier
+                .weight(0.58f)
+                .fillMaxHeight()
+        ) {
+            FileListPane(
+                files = files,
+                compatibleFiles = compatibleFiles,
+                displayFiles = displayFiles,
+                filterGameVersion = filterGameVersion,
+                filterLoader = filterLoader,
+                filterCompatible = filterCompatible,
+                showAllFiles = showAllFiles,
+                targetGameVersion = targetGameVersion,
+                filesLoading = filesLoading,
+                filesError = filesError,
+                vm = vm,
+                onToggleCompatible = {
+                    filterCompatible = !filterCompatible
+                    showAllFiles = false
+                },
+                onShowAll = { filterCompatible = false },
+                onToggleShowAll = { showAllFiles = !showAllFiles }
+            )
+        }
+    }
+}
+
+@Composable
+private fun ColumnScope.FileListPane(
+    files: List<com.pmcl.core.market.ModFile>,
+    compatibleFiles: List<com.pmcl.core.market.ModFile>,
+    displayFiles: List<com.pmcl.core.market.ModFile>,
+    filterGameVersion: String,
+    filterLoader: String,
+    filterCompatible: Boolean,
+    showAllFiles: Boolean,
+    targetGameVersion: String,
+    filesLoading: Boolean,
+    filesError: String?,
+    vm: LauncherViewModel,
+    onToggleCompatible: () -> Unit,
+    onShowAll: () -> Unit,
+    onToggleShowAll: () -> Unit
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text(
+            if (filterCompatible && (filterGameVersion.isNotBlank() || filterLoader.isNotBlank()))
+                I18n.t("market.compatible_files", compatibleFiles.size, files.size)
+            else
+                I18n.t("market.version_files", files.size),
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.weight(1f)
+        )
+        if (filterGameVersion.isNotBlank() || filterLoader.isNotBlank()) {
+            MarketTextButton(onClick = onToggleCompatible) {
+                Text(
+                    if (filterCompatible) I18n.t("market.show_all_versions")
+                    else I18n.t("market.filter_compatible")
+                )
+            }
+        }
+    }
+    Spacer(Modifier.height(8.dp))
+
+    when {
+        filesLoading && files.isEmpty() -> {
+            Surface(
+        shadowElevation = 0.dp,
+        tonalElevation = 0.dp,
+                color = glassSurfaceVariantColor(),
+                shape = RoundedCornerShape(6.dp),
+                modifier = Modifier.weight(1f).fillMaxWidth()
+            ) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(I18n.t("common.loading"), color = MaterialTheme.colorScheme.outline)
+                }
+            }
+        }
+        !filesError.isNullOrBlank() && files.isEmpty() -> {
+            Surface(
+        shadowElevation = 0.dp,
+        tonalElevation = 0.dp,
+                color = glassSurfaceVariantColor(),
+                shape = RoundedCornerShape(6.dp),
+                modifier = Modifier.weight(1f).fillMaxWidth()
+            ) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(filesError ?: I18n.t("status.fetch_failed", I18n.t("common.unknown")),
+                        color = MaterialTheme.colorScheme.outline)
+                }
+            }
+        }
+        files.isEmpty() -> {
+            Surface(
+        shadowElevation = 0.dp,
+        tonalElevation = 0.dp,
+                color = glassSurfaceVariantColor(),
+                shape = RoundedCornerShape(6.dp),
+                modifier = Modifier.weight(1f).fillMaxWidth()
+            ) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(I18n.t("market.files_empty"), color = MaterialTheme.colorScheme.outline)
+                }
+            }
+        }
+        compatibleFiles.isEmpty() -> {
+            Surface(
+        shadowElevation = 0.dp,
+        tonalElevation = 0.dp,
+                color = glassSurfaceVariantColor(),
+                shape = RoundedCornerShape(6.dp),
+                modifier = Modifier.weight(1f).fillMaxWidth()
+            ) {
+                Column(
+                    Modifier.fillMaxSize().padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text(I18n.t("market.no_compatible_files"), color = MaterialTheme.colorScheme.outline)
+                    Spacer(Modifier.height(8.dp))
+                    MarketTextButton(onClick = onShowAll) {
+                        Text(I18n.t("market.show_all_versions"))
+                    }
+                }
+            }
+        }
+        else -> {
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.weight(1f).fillMaxWidth()
+            ) {
+                items(displayFiles.size, key = { i ->
+                    val f = displayFiles[i]
+                    f.getSource() + "/" + f.getFileId()
+                }) { i ->
+                    FileRow(displayFiles[i], targetGameVersion, vm)
+                }
+                if (compatibleFiles.size > 15) {
+                    item {
+                        MarketTextButton(onClick = onToggleShowAll) {
+                            Text(
+                                if (showAllFiles) I18n.t("market.collapse_files", compatibleFiles.size)
+                                else I18n.t("market.show_all_files", compatibleFiles.size)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun DependencyResultDialog(
     result: com.pmcl.core.mods.ModDependencyResolver.DependencyResult,
@@ -578,562 +1484,9 @@ private fun DependencyResultDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text(I18n.t("common.ok")) }
+            MarketTextButton(onClick = onDismiss) { Text(I18n.t("common.ok")) }
         }
     )
-}
-
-/**
- * 热门推荐卡片：图标 + 名字 + 简介 + 来源标签 + 下载量。
- * 点击整个卡片进入详情界面。onPositioned 回调报告卡片在窗口中的位置用于放大动画。
- */
-@Composable
-private fun PopularCard(
-    project: ModProject,
-    onClick: () -> Unit,
-    translateEnabled: Boolean = false,
-    translationCache: Map<String, String> = emptyMap(),
-    onPositioned: ((Rect) -> Unit)? = null
-) {
-    val displayName = if (translateEnabled) translationCache[project.getName()] ?: project.getName() else project.getName()
-    val displaySummary = if (translateEnabled) translationCache[project.getSummary()] ?: project.getSummary() else project.getSummary()
-
-    Surface(
-        onClick = onClick,
-        color = glassSurfaceVariantColor(),
-        shape = RoundedCornerShape(10.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .onGloballyPositioned { coords ->
-                onPositioned?.invoke(coords.boundsInWindow())
-            }
-    ) {
-        Column(Modifier.padding(10.dp)) {
-            // 图标
-            val image = rememberUrlImage(project.getIconUrl())
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(120.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(MaterialTheme.colorScheme.surface),
-                contentAlignment = Alignment.Center
-            ) {
-                if (image != null) {
-                    Image(
-                        bitmap = image,
-                        contentDescription = displayName,
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                } else if (!project.getIconUrl().isNullOrEmpty()) {
-                    CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
-                } else {
-                    Text(
-                        displayName.take(1).ifBlank { "?" },
-                        style = MaterialTheme.typography.headlineMedium,
-                        color = MaterialTheme.colorScheme.outline
-                    )
-                }
-            }
-            Spacer(Modifier.height(6.dp))
-            Text(displayName,
-                 fontWeight = FontWeight.SemiBold,
-                 maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Spacer(Modifier.height(2.dp))
-            Text(displaySummary,
-                 style = MaterialTheme.typography.bodySmall,
-                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                 maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Spacer(Modifier.height(4.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                AssistChip(onClick = {}, label = { Text(project.getSource()) })
-                Spacer(Modifier.width(6.dp))
-                Text(formatCount(project.getDownloadCount()),
-                     style = MaterialTheme.typography.labelSmall,
-                     color = MaterialTheme.colorScheme.outline)
-            }
-        }
-    }
-}
-
-/**
- * Mod 详情界面：左右布局。
- * 左侧：返回、项目信息、筛选与下载目标；右侧：版本文件列表与下载。
- */
-@Composable
-private fun ColumnScope.ModDetailView(
-    project: ModProject,
-    vm: LauncherViewModel,
-    searchGameVersion: String,
-    searchLoader: String = "",
-    knownVersions: List<String> = emptyList(),
-    translateEnabled: Boolean = false,
-    translationCache: Map<String, String> = emptyMap(),
-    onBack: () -> Unit,
-    onFiltersChanged: (gameVersion: String, loader: String) -> Unit = { _, _ -> }
-) {
-    val selectedVersion by vm.selectedVersion.collectAsState()
-    var filterGameVersion by remember(project.getId()) { mutableStateOf(searchGameVersion) }
-    var filterLoader by remember(project.getId()) { mutableStateOf(searchLoader) }
-    var targetGameVersion by remember(project.getId()) { mutableStateOf(searchGameVersion) }
-    var showAllFiles by remember(project.getId()) { mutableStateOf(false) }
-    var filterCompatible by remember(project.getId()) { mutableStateOf(true) }
-    val files by vm.currentModFiles.collectAsState()
-
-    LaunchedEffect(searchGameVersion, searchLoader) {
-        filterGameVersion = searchGameVersion
-        filterLoader = searchLoader
-        if (searchGameVersion.isNotBlank()) {
-            targetGameVersion = searchGameVersion
-        }
-    }
-
-    LaunchedEffect(filterGameVersion) {
-        if (filterGameVersion.isNotBlank()) {
-            targetGameVersion = filterGameVersion
-        }
-    }
-
-    val compatibleFiles = remember(files, filterGameVersion, filterLoader, filterCompatible) {
-        if (!filterCompatible) files
-        else files.filter { fileMatchesMarketFilter(it, filterGameVersion, filterLoader) }
-    }
-    val displayFiles = if (showAllFiles) compatibleFiles else compatibleFiles.take(15)
-
-    val displayName = if (translateEnabled) translationCache[project.getName()] ?: project.getName() else project.getName()
-    val displaySummary = if (translateEnabled) translationCache[project.getSummary()] ?: project.getSummary() else project.getSummary()
-
-    Row(
-        modifier = Modifier.fillMaxWidth().weight(1f),
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        // ===== 左侧：信息 + 筛选 =====
-        Column(
-            modifier = Modifier
-                .weight(0.42f)
-                .fillMaxHeight()
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            TextButton(onClick = onBack) { Text(I18n.t("market.back_to_popular")) }
-
-            Surface(
-                color = glassSurfaceVariantColor(),
-                shape = RoundedCornerShape(10.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(Modifier.padding(12.dp)) {
-                    val image = rememberUrlImage(project.getIconUrl())
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(140.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(MaterialTheme.colorScheme.surface),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (image != null) {
-                            Image(
-                                image,
-                                project.getName(),
-                                contentScale = ContentScale.Fit,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        } else {
-                            Text(
-                                displayName.take(1).ifBlank { "?" },
-                                style = MaterialTheme.typography.headlineMedium,
-                                color = MaterialTheme.colorScheme.outline
-                            )
-                        }
-                    }
-                    Spacer(Modifier.height(10.dp))
-                    Text(
-                        displayName,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        displaySummary,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        "${project.getAuthor()}  ·  ${formatCount(project.getDownloadCount())}  ·  ${project.getSource()}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.outline
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextButton(onClick = {
-                            try {
-                                val url = project.getWebsiteUrl()
-                                if (!url.isNullOrBlank() && Desktop.isDesktopSupported()) {
-                                    Desktop.getDesktop().browse(URI(url))
-                                }
-                            } catch (_: Throwable) {
-                            }
-                        }) { Text(I18n.t("market.open_web")) }
-                        TextButton(onClick = { vm.listProjectFiles(project) }) {
-                            Text(I18n.t("market.refresh_versions"))
-                        }
-                    }
-                }
-            }
-
-            Surface(
-                color = glassContainerColor(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
-                shape = RoundedCornerShape(8.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        I18n.t("market.detail_filter_title"),
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    GameVersionFilterField(
-                        value = filterGameVersion,
-                        knownVersions = knownVersions,
-                        onValueChange = {
-                            filterGameVersion = it
-                            filterCompatible = true
-                            showAllFiles = false
-                            onFiltersChanged(it, filterLoader)
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    LoaderDropdown(
-                        selected = filterLoader,
-                        onSelect = {
-                            filterLoader = it
-                            filterCompatible = true
-                            showAllFiles = false
-                            onFiltersChanged(filterGameVersion, it)
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedButton(
-                        onClick = {
-                            val f = vm.resolveMarketFilters()
-                            filterGameVersion = f.gameVersion
-                            filterLoader = f.loader
-                            filterCompatible = true
-                            showAllFiles = false
-                            onFiltersChanged(f.gameVersion, f.loader)
-                        },
-                        enabled = !selectedVersion.isNullOrBlank(),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(I18n.t("market.use_current_instance"))
-                    }
-                    if (filterGameVersion.isNotBlank() || filterLoader.isNotBlank()) {
-                        Text(
-                            buildString {
-                                append(I18n.t("market.detail_filter_hint"))
-                                if (filterGameVersion.isNotBlank()) append(" · MC $filterGameVersion")
-                                if (filterLoader.isNotBlank()) append(" · $filterLoader")
-                            },
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.outline
-                        )
-                    }
-                }
-            }
-
-            Surface(
-                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
-                shape = RoundedCornerShape(8.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(
-                        I18n.t("market.download_to_version"),
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    OutlinedTextField(
-                        value = targetGameVersion,
-                        onValueChange = { targetGameVersion = it },
-                        label = { Text(I18n.t("market.target_mc_version")) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Text(
-                        I18n.t("market.download_dir_hint", targetGameVersion),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.outline
-                    )
-                }
-            }
-        }
-
-        // ===== 右侧：版本下载列表 =====
-        Column(
-            modifier = Modifier
-                .weight(0.58f)
-                .fillMaxHeight()
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(
-                    if (filterCompatible && (filterGameVersion.isNotBlank() || filterLoader.isNotBlank()))
-                        I18n.t("market.compatible_files", compatibleFiles.size, files.size)
-                    else
-                        I18n.t("market.version_files", files.size),
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.weight(1f)
-                )
-                if (filterGameVersion.isNotBlank() || filterLoader.isNotBlank()) {
-                    TextButton(onClick = {
-                        filterCompatible = !filterCompatible
-                        showAllFiles = false
-                    }) {
-                        Text(
-                            if (filterCompatible) I18n.t("market.show_all_versions")
-                            else I18n.t("market.filter_compatible")
-                        )
-                    }
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-
-            when {
-                files.isEmpty() -> {
-                    Surface(
-                        color = glassSurfaceVariantColor(),
-                        shape = RoundedCornerShape(6.dp),
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text(I18n.t("common.loading"), color = MaterialTheme.colorScheme.outline)
-                        }
-                    }
-                }
-                compatibleFiles.isEmpty() -> {
-                    Surface(
-                        color = glassSurfaceVariantColor(),
-                        shape = RoundedCornerShape(6.dp),
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        Column(
-                            Modifier.fillMaxSize().padding(16.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            Text(I18n.t("market.no_compatible_files"), color = MaterialTheme.colorScheme.outline)
-                            Spacer(Modifier.height(8.dp))
-                            TextButton(onClick = { filterCompatible = false }) {
-                                Text(I18n.t("market.show_all_versions"))
-                            }
-                        }
-                    }
-                }
-                else -> {
-                    LazyColumn(
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        items(displayFiles, key = { f -> f.getSource() + "/" + f.getFileId() }) { f ->
-                            FileRow(f, targetGameVersion, vm)
-                        }
-                        if (compatibleFiles.size > 15) {
-                            item {
-                                TextButton(onClick = { showAllFiles = !showAllFiles }) {
-                                    Text(
-                                        if (showAllFiles) I18n.t("market.collapse_files", compatibleFiles.size)
-                                        else I18n.t("market.show_all_files", compatibleFiles.size)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/**
- * 搜索结果卡片（用于主动搜索后的列表展示），点击也可进入详情。
- * onPositioned 回调报告卡片在窗口中的位置用于放大动画。
- */
-@Composable
-private fun SearchResultCard(
-    project: ModProject,
-    onClick: () -> Unit,
-    installedModIds: Set<String>,
-    translateEnabled: Boolean = false,
-    translationCache: Map<String, String> = emptyMap(),
-    onPositioned: ((Rect) -> Unit)? = null
-) {
-    val isInstalled = installedModIds.contains(project.getSlug())
-            || installedModIds.contains(project.getId())
-
-    val displayName = if (translateEnabled) translationCache[project.getName()] ?: project.getName() else project.getName()
-    val displaySummary = if (translateEnabled) translationCache[project.getSummary()] ?: project.getSummary() else project.getSummary()
-
-    Surface(
-        onClick = onClick,
-        color = glassSurfaceVariantColor(),
-        shape = RoundedCornerShape(8.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .onGloballyPositioned { coords ->
-                onPositioned?.invoke(coords.boundsInWindow())
-            }
-    ) {
-        Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            // 小图标
-            val image = rememberUrlImage(project.getIconUrl())
-            Box(
-                modifier = Modifier.size(48.dp)
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(MaterialTheme.colorScheme.surface),
-                contentAlignment = Alignment.Center
-            ) {
-                if (image != null) {
-                    Image(image, displayName,
-                          contentScale = ContentScale.Fit,
-                          modifier = Modifier.fillMaxSize())
-                } else {
-                    Text(
-                        displayName.take(1).ifBlank { "?" },
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.outline
-                    )
-                }
-            }
-            Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(displayName, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                    if (isInstalled) {
-                        Spacer(Modifier.width(6.dp))
-                        Text(I18n.t("market.installed"),
-                             style = MaterialTheme.typography.labelSmall,
-                             color = MaterialTheme.colorScheme.primary)
-                    }
-                }
-                Text(displaySummary,
-                     style = MaterialTheme.typography.bodySmall,
-                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                     maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text("${project.getAuthor()}  ·  ${formatCount(project.getDownloadCount())}  ·  ${project.getSource()}",
-                     style = MaterialTheme.typography.labelSmall,
-                     color = MaterialTheme.colorScheme.outline)
-            }
-            Text("›", style = MaterialTheme.typography.titleLarge,
-                 color = MaterialTheme.colorScheme.outline)
-        }
-    }
-}
-
-/**
- * iOS 风格卡片放大 overlay：从卡片原始位置/大小平滑放大到全屏。
- *
- * - progress=0：位于卡片原位（startBounds），保持卡片外观（圆角、背景色）
- * - progress=1：铺满全屏，圆角归零，背景色切换为详情页色
- * - 内部渲染图标作为视觉锚点，放大接近全屏时图标淡出，为详情页接管做准备
- *
- * 配合外层状态机：放大完成后调用 openModDetail 由详情页接管，
- * 返回时反向缩回至卡片原位置，实现 iOS「app 从图标位置展开」的连续动画。
- */
-@Composable
-private fun CardExpandOverlay(
-    project: ModProject,
-    startBounds: Rect,
-    progress: Float,
-    modifier: Modifier = Modifier
-) {
-    // overlay 容器在窗口中的位置和大小，用于把 startBounds（窗口坐标）转换到容器本地坐标
-    var containerBounds by remember { mutableStateOf(Rect.Zero) }
-    val density = LocalDensity.current
-
-    Box(
-        modifier.onGloballyPositioned { coords ->
-            containerBounds = coords.boundsInWindow()
-        }
-    ) {
-        // 背景遮罩：随放大进度加深，模拟 app 覆盖桌面
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.scrim.copy(alpha = progress * 0.35f))
-        )
-
-        // 把 startBounds 从窗口坐标转换为容器本地坐标
-        val localStart = Rect(
-            left = startBounds.left - containerBounds.left,
-            top = startBounds.top - containerBounds.top,
-            right = startBounds.right - containerBounds.left,
-            bottom = startBounds.bottom - containerBounds.top
-        )
-
-        // 目标 bounds（容器本地坐标，铺满 overlay 区域）
-        val targetBounds = if (containerBounds.width > 0f) {
-            Rect(0f, 0f, containerBounds.width, containerBounds.height)
-        } else localStart
-
-        // 插值当前 bounds：从卡片原位（本地坐标）到全屏
-        val current = lerpRect(localStart, targetBounds, progress)
-
-        val widthDp = with(density) { current.width.toDp() }
-        val heightDp = with(density) { current.height.toDp() }
-
-        // 背景色从卡片色（surfaceVariant）渐变到详情页色（surface）
-        val bgColor = lerpColor(
-            MaterialTheme.colorScheme.surfaceVariant,
-            MaterialTheme.colorScheme.surface,
-            progress
-        )
-
-        // 圆角从 10dp 渐变到 0dp（放大到全屏时变成直角）
-        val cornerRadius = lerpDp(10.dp, 0.dp, progress)
-
-        // 内容 alpha：progress < 0.9 时完全可见，之后快速淡出
-        // 与详情页 alpha（progress 0.85→1 对应 0→1）完美互补，消除交接间隙
-        val contentAlpha = (1f - max(0f, (progress - 0.9f) / 0.1f)).coerceIn(0f, 1f)
-
-        Surface(
-            color = bgColor,
-            shape = RoundedCornerShape(cornerRadius),
-            modifier = Modifier
-                .offset { IntOffset(current.left.roundToInt(), current.top.roundToInt()) }
-                .size(widthDp, heightDp)
-        ) {
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .alpha(contentAlpha)
-                    .padding(20.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                // 图标作为视觉锚点：放大过程中保持可见，让用户看到「卡片在被放大」
-                val image = rememberUrlImage(project.getIconUrl())
-                if (image != null) {
-                    Image(
-                        bitmap = image,
-                        contentDescription = project.getName(),
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                } else {
-                    Text(
-                        project.getName().take(1).ifBlank { "?" },
-                        style = MaterialTheme.typography.displayLarge,
-                        color = MaterialTheme.colorScheme.outline
-                    )
-                }
-            }
-        }
-    }
 }
 
 @Composable
@@ -1143,9 +1496,10 @@ private fun FileRow(
     vm: LauncherViewModel
 ) {
     val installingDeps by vm.installingDeps.collectAsState()
-    // 追踪卡片在窗口中的位置（供飞入动画使用）
     var cardRect by remember { mutableStateOf<com.pmcl.ui.animation.Rect?>(null) }
     Surface(
+        shadowElevation = 0.dp,
+        tonalElevation = 0.dp,
         color = glassContainerColor(MaterialTheme.colorScheme.surface),
         shape = RoundedCornerShape(6.dp),
         modifier = Modifier.fillMaxWidth()
@@ -1169,7 +1523,7 @@ private fun FileRow(
                     color = MaterialTheme.colorScheme.outline
                 )
             }
-            Button(onClick = {
+            MarketPrimaryButton(onClick = {
                 val rect = cardRect
                 val gv = targetGameVersion.ifBlank {
                     (f.getGameVersions() ?: emptyList()).firstOrNull() ?: ""
@@ -1183,8 +1537,8 @@ private fun FileRow(
                     vm.enqueueModDownload(f, gv)
                 }
             }) { Text(I18n.t("market.download")) }
-            Spacer(Modifier.width(4.dp))
-            OutlinedButton(
+            Spacer(Modifier.width(8.dp))
+            MarketOutlinedButton(
                 onClick = {
                     vm.installModWithDeps(f, targetGameVersion.ifBlank {
                         (f.getGameVersions() ?: emptyList()).firstOrNull() ?: ""
@@ -1197,6 +1551,7 @@ private fun FileRow(
                         modifier = Modifier.size(14.dp),
                         strokeWidth = 2.dp
                     )
+                    Spacer(Modifier.width(6.dp))
                 }
                 Text(I18n.t("mods.with_deps"))
             }
@@ -1210,7 +1565,9 @@ private fun GameVersionFilterField(
     value: String,
     knownVersions: List<String>,
     modifier: Modifier = Modifier.width(130.dp),
-    onValueChange: (String) -> Unit
+    onValueChange: (String) -> Unit,
+    showLabel: Boolean = true,
+    placeholder: String = I18n.t("market.all")
 ) {
     var expanded by remember { mutableStateOf(false) }
     ExposedDropdownMenuBox(
@@ -1221,7 +1578,7 @@ private fun GameVersionFilterField(
         OutlinedTextField(
             value = value,
             onValueChange = onValueChange,
-            label = { Text(I18n.t("market.target_version")) },
+            label = if (showLabel) ({ Text(I18n.t("market.target_version")) }) else null,
             singleLine = true,
             trailingIcon = {
                 if (knownVersions.isNotEmpty()) {
@@ -1229,7 +1586,9 @@ private fun GameVersionFilterField(
                 }
             },
             modifier = Modifier.menuAnchor().fillMaxWidth(),
-            placeholder = { Text(I18n.t("market.all")) }
+            placeholder = {
+                Text(placeholder, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
         )
         if (knownVersions.isNotEmpty()) {
             ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
@@ -1248,7 +1607,6 @@ private fun GameVersionFilterField(
     }
 }
 
-/** 文件是否匹配市场页的游戏版本 + 加载器筛选 */
 private fun fileMatchesMarketFilter(
     file: com.pmcl.core.market.ModFile,
     gameVersion: String,
@@ -1300,11 +1658,6 @@ private fun LoaderDropdown(
     }
 }
 
-/**
- * 模组分类列表：i18n 键 → Modrinth 原生 category slug。
- * slug 已通过 https://api.modrinth.com/v2/tag/category 校验为有效分类。
- * 「全部」对应空字符串，表示不按分类过滤（显示热门推荐）。
- */
 private val MOD_CATEGORIES: List<Pair<String, String>> = listOf(
     "market.cat.all" to "",
     "market.cat.optimization" to "optimization",
@@ -1313,6 +1666,7 @@ private val MOD_CATEGORIES: List<Pair<String, String>> = listOf(
     "market.cat.adventure" to "adventure",
     "market.cat.decoration" to "decoration",
     "market.cat.utility" to "utility",
+    "market.cat.library" to "library",
     "market.cat.mobs" to "mobs",
     "market.cat.food" to "food",
     "market.cat.worldgen" to "worldgen",
@@ -1323,44 +1677,51 @@ private val MOD_CATEGORIES: List<Pair<String, String>> = listOf(
     "market.cat.game_mechanics" to "game-mechanics"
 )
 
-/** 根据 slug 反查本地化标签（用于分类网格标题）。 */
 private fun categoryLabel(slug: String): String {
-    val entry = MOD_CATEGORIES.firstOrNull { it.second == slug } ?: return slug
+    val key = when (slug.lowercase()) {
+        "performance" -> "optimization"
+        "game_mechanics" -> "game-mechanics"
+        else -> slug.lowercase()
+    }
+    val entry = MOD_CATEGORIES.firstOrNull { it.second == key } ?: return slug
     return I18n.t(entry.first)
 }
 
-/**
- * 分类推荐标签栏：横向滚动的流体滑动指示器选择器。
- * 点击「全部」回到热门推荐；点击具体分类加载该分类下的热门模组。
- * 分类较多时启用横向滚动，指示器随之滚动保持对齐。
- */
-@Composable
-private fun CategoryBar(
-    selectedCategory: String,
-    onSelect: (String) -> Unit
-) {
-    val labels = MOD_CATEGORIES.map { I18n.t(it.first) }
-    val selectedIndex = MOD_CATEGORIES.indexOfFirst { it.second == selectedCategory }.coerceAtLeast(0)
-    com.pmcl.ui.animation.AnimatedSegmentedSelector(
-        items = labels,
-        selectedIndex = selectedIndex,
-        onSelect = { i -> onSelect(MOD_CATEGORIES[i].second) },
-        modifier = Modifier.fillMaxWidth(),
-        scrollable = true,
-        height = 36.dp
-    )
+private fun isLoaderTag(tag: String): Boolean {
+    val s = tag.lowercase()
+    return s == "fabric" || s == "forge" || s == "quilt" || s == "neoforge"
+            || s == "rift" || s == "liteloader" || s == "datapack"
 }
 
-/**
- * 图片内存缓存：URL → ImageBitmap。避免滚动时重复下载与解码。
- */
-// M32 修复：复用全局 LruImageCache
+private fun marketRowTags(project: ModProject): List<String> {
+    val out = LinkedHashSet<String>()
+    project.getLoaders().forEach { if (it.isNotBlank()) out.add(it.lowercase()) }
+    project.getCategories().forEach { cat ->
+        if (cat.isBlank() || isLoaderTag(cat)) return@forEach
+        out.add(categoryLabel(cat))
+    }
+    return out.toList()
+}
+
+private fun formatDownloads(n: Long): String = "%,d".format(n)
+
+private fun relativeTimeLabel(epochMs: Long): String {
+    if (epochMs <= 0L) return I18n.t("market.rel_unknown")
+    val diff = System.currentTimeMillis() - epochMs
+    if (diff < 60_000L) return I18n.t("market.rel_just_now")
+    val minutes = diff / 60_000L
+    if (minutes < 60) return I18n.t("market.rel_minutes", minutes)
+    val hours = minutes / 60
+    if (hours < 24) return I18n.t("market.rel_hours", hours)
+    val days = hours / 24
+    if (days < 30) return I18n.t("market.rel_days", days)
+    val months = days / 30
+    if (months < 12) return I18n.t("market.rel_months", months)
+    return I18n.t("market.rel_years", months / 12)
+}
+
 private val modImageCache = com.pmcl.ui.util.LruImageCache()
 
-/**
- * 异步加载网络图片为 ImageBitmap（基于 Skia）。
- * 失败或空 URL 返回 null。
- */
 @Composable
 private fun rememberUrlImage(url: String): ImageBitmap? {
     var image by remember(url) { mutableStateOf<ImageBitmap?>(modImageCache.get(url)) }
@@ -1387,7 +1748,6 @@ private fun rememberUrlImage(url: String): ImageBitmap? {
     return image
 }
 
-/** 格式化下载量：1000 → 1k，1000000 → 1M */
 private fun formatCount(n: Long): String {
     return when {
         n >= 1_000_000 -> String.format("%.1fM", n / 1_000_000.0)

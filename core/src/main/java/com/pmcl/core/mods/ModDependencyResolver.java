@@ -1,5 +1,6 @@
 package com.pmcl.core.mods;
 
+import com.google.gson.JsonParser;
 import com.pmcl.core.LauncherConfig;
 import com.pmcl.core.market.ModFile;
 import com.pmcl.core.market.ModMarketManager;
@@ -87,10 +88,40 @@ public final class ModDependencyResolver {
     private final ExecutorService depPool;
 
     /** 系统依赖 modId 集合（这些不需要安装） */
-    private static final Set<String> SYSTEM_DEPS = Set.of(
-            "minecraft", "java", "fabricloader", "quilt_loader", "quiltloader",
-            "forge", "neoforge", "fmlonly"
-    );
+    private static final Set<String> SYSTEM_DEPS = loadSystemDeps();
+
+    private static Set<String> loadSystemDeps() {
+        Set<String> fallback = new HashSet<>(Set.of(
+                "minecraft", "java", "fabricloader", "fabric_loader", "quilt_loader",
+                "quiltloader", "forge", "neoforge", "fmlonly", "fml"
+        ));
+        try (var in = ModDependencyResolver.class.getResourceAsStream(
+                "/com/pmcl/core/mods/system_deps.json")) {
+            if (in == null) return Collections.unmodifiableSet(normalizeDepSet(fallback));
+            String content = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            var arr = JsonParser.parseString(content).getAsJsonArray();
+            Set<String> set = new HashSet<>();
+            for (var e : arr) {
+                if (e != null && e.isJsonPrimitive()) set.add(e.getAsString());
+            }
+            return Collections.unmodifiableSet(normalizeDepSet(set.isEmpty() ? fallback : set));
+        } catch (Exception e) {
+            System.err.println("[ModDependencyResolver] 加载 system_deps.json 失败: " + e.getMessage());
+            return Collections.unmodifiableSet(normalizeDepSet(fallback));
+        }
+    }
+
+    private static Set<String> normalizeDepSet(Set<String> raw) {
+        Set<String> out = new HashSet<>();
+        for (String s : raw) {
+            if (s == null || s.isBlank()) continue;
+            String low = s.toLowerCase(java.util.Locale.ROOT).trim();
+            out.add(low);
+            out.add(low.replace('-', '_'));
+            out.add(low.replace('_', '-'));
+        }
+        return out;
+    }
 
     public ModDependencyResolver(LauncherConfig config,
                                  ModMarketManager marketManager,
@@ -129,6 +160,12 @@ public final class ModDependencyResolver {
     public CompletableFuture<DependencyResult> installWithDependencies(
             ModFile modFile, String gameVersion, String versionId,
             Consumer<String> onStatus) {
+        return installWithDependencies(modFile, gameVersion, versionId, null, onStatus);
+    }
+
+    public CompletableFuture<DependencyResult> installWithDependencies(
+            ModFile modFile, String gameVersion, String versionId, String instanceId,
+            Consumer<String> onStatus) {
         return CompletableFuture.supplyAsync(() -> {
             List<String> installed = new ArrayList<>();
             List<String> skippedInstalled = new ArrayList<>();
@@ -140,7 +177,7 @@ public final class ModDependencyResolver {
             try {
                 // 1. 安装主模组
                 if (onStatus != null) onStatus.accept("正在下载: " + modFile.getFileName());
-                marketManager.installMod(modFile, gameVersion, versionId, preferences, onStatus).join();
+                marketManager.installMod(modFile, gameVersion, versionId, instanceId, preferences, onStatus).join();
 
                 // 2. 优先使用 API 提供的依赖信息（无需解析 jar）
                 List<String> deps = modFile.getDependencies();
@@ -148,7 +185,7 @@ public final class ModDependencyResolver {
 
                 if (deps == null || deps.isEmpty()) {
                     // API 未提供依赖信息，回退到解析 jar 内元数据
-                    Path jarPath = resolveModsDir(versionId, gameVersion).resolve(modFile.getFileName());
+                    Path jarPath = resolveModsDir(versionId, instanceId).resolve(modFile.getFileName());
                     if (!Files.exists(jarPath)) {
                         return new DependencyResult(modName, installed, skippedInstalled,
                                 skippedSystem, failed, notFound);
@@ -175,9 +212,9 @@ public final class ModDependencyResolver {
                 if (onStatus != null) onStatus.accept("检测到 " + deps.size() + " 个依赖，开始解析...");
 
                 // 3. 递归处理依赖（仅在此处调用一次 getInstalledModIds，递归内增量更新集合）
-                Set<String> installedModIds = getInstalledModIds(versionId, gameVersion);
+                Set<String> installedModIds = getInstalledModIds(versionId, instanceId);
                 List<String> preferredLoaders = modFile.getLoaders();
-                resolveDependencies(deps, gameVersion, versionId, preferredLoaders, processing,
+                resolveDependencies(deps, gameVersion, versionId, instanceId, preferredLoaders, processing,
                         installed, skippedInstalled, skippedSystem, failed, notFound,
                         onStatus, 0, installedModIds);
 
@@ -206,7 +243,7 @@ public final class ModDependencyResolver {
      * @param installedModIds  已安装 mod 的 modId 集合（可变，递归过程中增量更新）
      */
     private void resolveDependencies(List<String> deps, String gameVersion, String versionId,
-                                     List<String> preferredLoaders, Set<String> processing,
+                                     String instanceId, List<String> preferredLoaders, Set<String> processing,
                                      List<String> installed, List<String> skippedInstalled,
                                      List<String> skippedSystem, List<String> failed,
                                      List<String> notFound, Consumer<String> onStatus,
@@ -258,19 +295,18 @@ public final class ModDependencyResolver {
                 if (onStatus != null) {
                     onStatus.accept("安装依赖: " + depFile.getFileName());
                 }
-                marketManager.installMod(depFile, gameVersion, versionId, preferences, null).join();
+                marketManager.installMod(depFile, gameVersion, versionId, instanceId, preferences, null).join();
                 installed.add(depId);
                 installedModIds.add(depId); // 更新已安装集合
 
-                // 递归解析依赖的依赖（沿用父侧 preferredLoaders）
-                Path depJarPath = resolveModsDir(versionId, gameVersion).resolve(depFile.getFileName());
+                Path depJarPath = resolveModsDir(versionId, instanceId).resolve(depFile.getFileName());
                 if (Files.exists(depJarPath)) {
                     ModMeta depMeta = ModScanner.parseJar(depJarPath);
                     if (depMeta != null && depMeta.getDepends() != null && !depMeta.getDepends().isEmpty()) {
                         List<String> nextLoaders = (depFile.getLoaders() != null
                                 && !depFile.getLoaders().isEmpty())
                                 ? depFile.getLoaders() : preferredLoaders;
-                        resolveDependencies(depMeta.getDepends(), gameVersion, versionId,
+                        resolveDependencies(depMeta.getDepends(), gameVersion, versionId, instanceId,
                                 nextLoaders, processing, installed, skippedInstalled, skippedSystem,
                                 failed, notFound, onStatus, depth + 1, installedModIds);
                     }
@@ -302,7 +338,16 @@ public final class ModDependencyResolver {
             for (com.pmcl.core.market.ModMarketClient client : clients) {
                 try {
                     // 尝试用 modId 作为 projectId/slug 直接获取版本列表
-                    List<ModFile> files = client.listFiles(modId).join();
+                    String loaderFilter = null;
+                    if (preferredLoaders != null) {
+                        for (String want : preferredLoaders) {
+                            if (want != null && !want.isBlank()) {
+                                loaderFilter = want;
+                                break;
+                            }
+                        }
+                    }
+                    List<ModFile> files = client.listFiles(modId, gameVersion, loaderFilter).join();
                     if (files == null || files.isEmpty()) continue;
 
                     // 按 gameVersion + loader 过滤，取第一个兼容文件
@@ -341,9 +386,9 @@ public final class ModDependencyResolver {
     /**
      * 获取已安装 mod 的 modId 集合。
      */
-    private Set<String> getInstalledModIds(String versionId, String gameVersion) {
+    private Set<String> getInstalledModIds(String versionId, String instanceId) {
         Set<String> ids = new HashSet<>();
-        Path modsDir = resolveModsDir(versionId, gameVersion);
+        Path modsDir = resolveModsDir(versionId, instanceId);
         if (!Files.isDirectory(modsDir)) return ids;
         try {
             List<ModMeta> mods = ModScanner.scanDirectory(modsDir);
@@ -361,12 +406,9 @@ public final class ModDependencyResolver {
      * 解析 mods 目录（与 ModMarketManager.installMod 逻辑一致）。
      * H21: versionId / gameVersion path traversal 防护。
      */
-    private Path resolveModsDir(String versionId, String gameVersion) {
-        if (versionId != null && !versionId.isEmpty()) {
-            return new com.pmcl.core.launch.GameDirResolver(config, preferences)
-                    .resolveModsDir(versionId);
-        }
-        return config.getWorkDir().resolve("mods");
+    private Path resolveModsDir(String versionId, String instanceId) {
+        return new com.pmcl.core.launch.GameDirResolver(config, preferences)
+                .resolveModsDir(versionId, instanceId);
     }
 
     /**
@@ -400,7 +442,10 @@ public final class ModDependencyResolver {
      */
     private boolean isSystemDep(String modId) {
         if (modId == null) return false;
-        return SYSTEM_DEPS.contains(modId.toLowerCase());
+        String low = modId.toLowerCase(java.util.Locale.ROOT).trim();
+        return SYSTEM_DEPS.contains(low)
+                || SYSTEM_DEPS.contains(low.replace('-', '_'))
+                || SYSTEM_DEPS.contains(low.replace('_', '-'));
     }
 
     /** 关闭线程池 */

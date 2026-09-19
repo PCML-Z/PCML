@@ -7,6 +7,7 @@ import com.pmcl.core.market.ModMarketManager;
 import com.pmcl.core.market.ModProject;
 import com.pmcl.core.preferences.Preferences;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -25,9 +26,9 @@ import java.util.function.Consumer;
  * 检测策略：
  * <ol>
  *   <li>用 modId 作为 slug 直接调用 Modrinth {@code /project/{slug}/version}（多数 fabric mod 的 modId 即 slug）</li>
- *   <li>失败则用 {@code search(modId)} 搜索，取 slug 完全匹配或首个结果</li>
+ *   <li>失败则用 {@code search(modId)} 搜索，仅接受 slug/id 精确匹配</li>
  *   <li>按 gameVersion + loader 过滤版本列表，取首个（API 默认按日期倒序）</li>
- *   <li>比较本地 mod 版本号与远程文件名中的版本提示；无可靠版本则不提示更新</li>
+ *   <li>比较本地与远程 semver；无可靠版本则不提示更新</li>
  * </ol>
  * <p>
  * 一键更新：删除旧 jar 文件 + 下载新 jar（复用 {@link ModMarketManager#installMod}）。
@@ -179,8 +180,9 @@ public final class ModUpdateChecker {
         // 步骤1：尝试用 modId 作为 projectId/slug 直接 listFiles
         ModProject project = null;
         List<ModFile> files = null;
+        String loader = normalizeLoader(mod.getLoader());
         try {
-            files = client.listFiles(modId).join();
+            files = client.listFiles(modId, gameVersion, loader).join();
             // 构造一个虚拟的 ModProject（listFiles 成功说明 modId 即 slug/id）
             project = new ModProject(source, modId, modId,
                     mod.getName(), mod.getDescription(), mod.getAuthors(),
@@ -192,7 +194,7 @@ public final class ModUpdateChecker {
         // 步骤2：search 查找项目
         if (project == null) {
             List<ModProject> results = client.search(modId, gameVersion,
-                    normalizeLoader(mod.getLoader()), 5).join();
+                    loader, 5).join();
             if (results == null || results.isEmpty()) return null;
 
             // 仅接受 slug/id 精确匹配，禁止「取第一个」误更新为无关模组
@@ -206,7 +208,7 @@ public final class ModUpdateChecker {
                 return new UpdateInfo(mod, null, null, source, false,
                         "未找到与 modId 匹配的项目（已拒绝模糊匹配）");
             }
-            files = client.listFiles(project.getId()).join();
+            files = client.listFiles(project.getId(), gameVersion, loader).join();
         }
 
         if (files == null || files.isEmpty()) {
@@ -214,14 +216,13 @@ public final class ModUpdateChecker {
         }
 
         // 步骤3：按 gameVersion + loader 过滤
-        String loader = normalizeLoader(mod.getLoader());
         List<ModFile> compatible = new ArrayList<>();
         for (ModFile f : files) {
             boolean gvMatch = gameVersion == null || gameVersion.isEmpty()
                     || (f.getGameVersions() != null && f.getGameVersions().contains(gameVersion));
             // 要求显式 loader 匹配；空 loaders 不再视为通配（避免 Forge jar 推给 Fabric）
             boolean loaderMatch = loader == null || loader.isEmpty()
-                    || (f.getLoaders() != null && f.getLoaders().contains(loader));
+                    || (f.getLoaders() != null && loaderCompatible(f.getLoaders(), loader));
             if (gvMatch && loaderMatch) {
                 compatible.add(f);
             }
@@ -235,35 +236,127 @@ public final class ModUpdateChecker {
         // 步骤4：取最新文件（列表通常按日期倒序，取第一个）
         ModFile latest = compatible.get(0);
 
-        // 步骤5：优先用版本号判断；禁止仅凭文件名不同就判定有更新（重命名误报）
+        // 步骤5：用版本号 semver 比较；禁止仅凭文件名不同就判定有更新
         String localJar = mod.getJarFile() != null ? mod.getJarFile() : "";
         String remoteName = latest.getFileName() != null ? latest.getFileName() : "";
-        String localVer = mod.getVersion();
+        String localVer = stripPlaceholderVersion(mod.getVersion());
+        String remoteVer = latest.getVersionNumber();
+        if (remoteVer == null || remoteVer.isBlank()) {
+            remoteVer = extractVersionHint(remoteName);
+        }
         boolean hasUpdate;
         String reason;
         if (!localJar.isEmpty() && localJar.equalsIgnoreCase(remoteName)) {
             hasUpdate = false;
             reason = "已是最新";
         } else if (localVer != null && !localVer.isBlank()
-                && !"unknown".equalsIgnoreCase(localVer)) {
-            String remoteVer = extractVersionHint(remoteName);
-            if (remoteVer != null && localVer.equalsIgnoreCase(remoteVer)) {
-                hasUpdate = false;
-                reason = "已是最新 (v" + localVer + ")";
-            } else if (remoteVer != null) {
+                && remoteVer != null && !remoteVer.isBlank()) {
+            int cmp = compareVersions(remoteVer, localVer);
+            if (cmp > 0) {
                 hasUpdate = true;
                 reason = "新版本: " + remoteVer + " (" + remoteName + ")";
-            } else {
-                // 远程文件名无法解析版本：不因文件名不同而 fail-open
+            } else if (cmp == 0) {
                 hasUpdate = false;
-                reason = "无法从远程文件名解析版本，跳过更新提示";
+                reason = "已是最新 (v" + localVer + ")";
+            } else {
+                hasUpdate = false;
+                reason = "本地版本更新 (v" + localVer + ")";
             }
         } else {
             hasUpdate = false;
-            reason = "本地无可靠版本号，跳过文件名比对";
+            reason = "无法可靠比较版本号，跳过更新提示";
         }
 
         return new UpdateInfo(mod, project, latest, source, hasUpdate, reason);
+    }
+
+    private static String stripPlaceholderVersion(String version) {
+        if (version == null || version.isBlank() || "unknown".equalsIgnoreCase(version)) return null;
+        if (version.contains("${")) return null;
+        return version.trim();
+    }
+
+    /**
+     * 比较版本号：&gt;0 表示 a 更新。无法解析时返回 0（不提示更新）。
+     * Forge/NeoForge 常见 {@code 1.20.1-10.2.0}，不能把第一个 {@code -} 当成预发布分隔。
+     */
+    static int compareVersions(String a, String b) {
+        if (a == null || b == null) return 0;
+        String as = stripVPrefix(a.trim());
+        String bs = stripVPrefix(b.trim());
+        as = stripMcVersionPrefix(as);
+        bs = stripMcVersionPrefix(bs);
+        List<String> ap = versionTokens(as);
+        List<String> bp = versionTokens(bs);
+        int n = Math.max(ap.size(), bp.size());
+        for (int i = 0; i < n; i++) {
+            boolean aHas = i < ap.size();
+            boolean bHas = i < bp.size();
+            if (!aHas) return isNumericToken(bp.get(i)) ? -1 : 1;
+            if (!bHas) return isNumericToken(ap.get(i)) ? 1 : -1;
+            String at = ap.get(i);
+            String bt = bp.get(i);
+            boolean aNum = isNumericToken(at);
+            boolean bNum = isNumericToken(bt);
+            if (aNum && bNum) {
+                int cmp = Long.compare(parseVersionPart(at), parseVersionPart(bt));
+                if (cmp != 0) return cmp;
+                continue;
+            }
+            if (aNum != bNum) return aNum ? 1 : -1;
+            int cmp = at.compareToIgnoreCase(bt);
+            if (cmp != 0) return cmp;
+        }
+        return 0;
+    }
+
+    private static String stripVPrefix(String s) {
+        if (s.regionMatches(true, 0, "v", 0, 1) && s.length() > 1) return s.substring(1);
+        return s;
+    }
+
+    /** 去掉 Minecraft 版本前缀，并把 forge/fabric 等加载器段剥掉。 */
+    static String stripMcVersionPrefix(String v) {
+        if (v == null || v.isEmpty()) return v;
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("^(1\\.\\d+(?:\\.\\d+)?)[-_](.+)$")
+                .matcher(v);
+        if (!m.matches()) return v;
+        String rest = m.group(2);
+        rest = rest.replaceFirst("(?i)^(forge|fabric|quilt|neoforge)[-_]", "");
+        if (!rest.isEmpty() && rest.charAt(0) >= '0' && rest.charAt(0) <= '9') return rest;
+        return v;
+    }
+
+    private static List<String> versionTokens(String v) {
+        List<String> out = new ArrayList<>();
+        if (v == null || v.isEmpty()) return out;
+        for (String p : v.split("[.+\\-_]")) {
+            if (!p.isEmpty()) out.add(p);
+        }
+        return out;
+    }
+
+    private static boolean isNumericToken(String p) {
+        if (p == null || p.isEmpty()) return false;
+        char c = p.charAt(0);
+        return c >= '0' && c <= '9';
+    }
+
+    private static long parseVersionPart(String p) {
+        if (p == null || p.isEmpty()) return 0;
+        StringBuilder digits = new StringBuilder();
+        for (int i = 0; i < p.length(); i++) {
+            char c = p.charAt(i);
+            if (c >= '0' && c <= '9') digits.append(c);
+            else break;
+        }
+        if (digits.length() == 0) return 0;
+        try {
+            return Long.parseLong(digits.toString());
+        } catch (NumberFormatException e) {
+            return 0;
+        }
     }
 
     /** 从 jar 文件名提取版本提示：取最后一个以数字开头的 `-` 分段。 */
@@ -293,6 +386,19 @@ public final class ModUpdateChecker {
         return loader.toLowerCase();
     }
 
+    /** Quilt 能跑 Fabric 模组，市场文件常常只标 fabric。 */
+    static boolean loaderCompatible(List<String> fileLoaders, String want) {
+        if (fileLoaders == null || want == null || want.isEmpty()) return true;
+        String w = want.toLowerCase(java.util.Locale.ROOT);
+        for (String l : fileLoaders) {
+            if (l == null) continue;
+            String fl = l.toLowerCase(java.util.Locale.ROOT);
+            if (fl.equals(w)) return true;
+            if ("quilt".equals(w) && "fabric".equals(fl)) return true;
+        }
+        return false;
+    }
+
     /**
      * 更新单个模组：删除旧 jar + 下载新 jar。
      *
@@ -307,57 +413,80 @@ public final class ModUpdateChecker {
             return CompletableFuture.failedFuture(new IllegalStateException("无可用更新"));
         }
 
-        return CompletableFuture.runAsync(() -> {
-            try {
-                // S13: 先备份旧 jar，下载成功后才删除，失败时恢复
-                // 原实现先删后下，下载失败时旧 jar 已丢失，无法回滚
-                ModMeta mod = info.getInstalled();
-                Path modsDir = resolveModsDir(versionId, gameVersion);
-                Path oldJar = modsDir.resolve(mod.getJarFile());
-
-                Path backup = null;
-                if (Files.exists(oldJar)) {
-                    backup = oldJar.resolveSibling(oldJar.getFileName() + ".pmcl-bak");
-                    Files.move(oldJar, backup, StandardCopyOption.REPLACE_EXISTING);
-                    if (onStatus != null) onStatus.accept("已备份旧版本: " + mod.getJarFile());
-                }
-
-                try {
-                    // 下载新 jar
-                    if (onStatus != null) onStatus.accept("正在下载: " + info.getLatestFile().getFileName());
-                    marketManager.installMod(info.getLatestFile(), gameVersion, versionId,
-                            preferences, onStatus).join();
-                    // 下载成功，删除备份
-                    if (backup != null) {
-                        Files.deleteIfExists(backup);
-                    }
-                    if (onStatus != null) onStatus.accept("更新完成: " + info.displayName());
-                } catch (Exception e) {
-                    // 下载失败，恢复备份
-                    if (backup != null && Files.exists(backup)) {
-                        try {
-                            Files.move(backup, oldJar, StandardCopyOption.REPLACE_EXISTING);
-                        } catch (Exception restoreErr) {
-                            System.err.println("[ModUpdateChecker] 恢复备份失败: " + restoreErr.getMessage());
-                        }
-                    }
-                    throw e;
-                }
-            } catch (Exception e) {
-                throw new RuntimeException("更新失败: " + info.displayName(), e);
-            }
-        }, checkPool);
+        return CompletableFuture.runAsync(() -> updateModNow(info, onStatus), checkPool);
     }
 
-    /**
-     * 解析 mods 目录（与启动 gameDir/mods 对齐）。
-     */
-    private Path resolveModsDir(String versionId, String gameVersion) {
-        if (versionId != null && !versionId.isEmpty()) {
-            return new com.pmcl.core.launch.GameDirResolver(config, preferences)
-                    .resolveModsDir(versionId);
+    private void updateModNow(UpdateInfo info, Consumer<String> onStatus) {
+        try {
+            ModMeta mod = info.getInstalled();
+            Path oldJar = resolveInstalledJar(mod);
+            if (oldJar == null) {
+                throw new IOException("找不到已安装模组: " + mod.getJarFile());
+            }
+            Path modsDir = oldJar.getParent();
+
+            Path backup = null;
+            if (Files.exists(oldJar)) {
+                backup = oldJar.resolveSibling(oldJar.getFileName() + ".pmcl-bak");
+                Files.move(oldJar, backup, StandardCopyOption.REPLACE_EXISTING);
+                if (onStatus != null) onStatus.accept("已备份旧版本: " + mod.getJarFile());
+            }
+
+            try {
+                if (onStatus != null) onStatus.accept("正在下载: " + info.getLatestFile().getFileName());
+                marketManager.installModTo(info.getLatestFile(), modsDir, onStatus).join();
+                if (backup != null) {
+                    Files.deleteIfExists(backup);
+                }
+                if (onStatus != null) onStatus.accept("更新完成: " + info.displayName());
+            } catch (Exception e) {
+                if (backup != null && Files.exists(backup)) {
+                    try {
+                        Files.move(backup, oldJar, StandardCopyOption.REPLACE_EXISTING);
+                    } catch (Exception restoreErr) {
+                        System.err.println("[ModUpdateChecker] 恢复备份失败: " + restoreErr.getMessage());
+                    }
+                }
+                throw e;
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("更新失败: " + info.displayName(), e);
         }
-        return config.getWorkDir().resolve("mods");
+    }
+
+    /** 优先 jarPath；否则按文件名在常见 mods 目录里找。 */
+    private Path resolveInstalledJar(ModMeta mod) {
+        if (mod == null) return null;
+        String abs = mod.getJarPath();
+        if (abs != null && !abs.isBlank()) {
+            Path p = Path.of(abs);
+            if (Files.isRegularFile(p)) return p;
+        }
+        String name = mod.getJarFile();
+        if (name == null || name.isBlank()
+                || name.contains("..") || name.contains("/") || name.contains("\\")
+                || name.indexOf('\0') >= 0) {
+            return null;
+        }
+        Path work = config.getWorkDir();
+        Path[] candidates = new Path[] {
+                work.resolve("mods").resolve(name),
+                work.resolve("versions").resolve(String.valueOf(mod.getModId())).resolve("mods").resolve(name)
+        };
+        for (Path p : candidates) {
+            if (Files.isRegularFile(p)) return p;
+        }
+        Path instances = work.resolve("instances");
+        if (Files.isDirectory(instances)) {
+            try (java.nio.file.DirectoryStream<Path> stream = java.nio.file.Files.newDirectoryStream(instances)) {
+                for (Path inst : stream) {
+                    Path jar = inst.resolve("mods").resolve(name);
+                    if (Files.isRegularFile(jar)) return jar;
+                }
+            } catch (IOException ignored) {
+            }
+        }
+        return null;
     }
 
     /**
@@ -389,7 +518,7 @@ public final class ModUpdateChecker {
         for (UpdateInfo info : toUpdate) {
             futures.add(CompletableFuture.runAsync(() -> {
                 try {
-                    updateMod(info, gameVersion, versionId, null).join();
+                    updateModNow(info, null);
                 } catch (Throwable ignored) {
                     // 单个更新失败不影响整体
                 } finally {

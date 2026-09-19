@@ -41,7 +41,7 @@ import kotlinx.coroutines.Dispatchers
 @Composable
 fun InstancesPage(vm: LauncherViewModel) {
     val instances by vm.instances.collectAsState()
-    val status by vm.status.collectAsState()
+    val status by vm.instanceStatus.collectAsState()
     val instanceLaunching by vm.instanceLaunching.collectAsState()
     val localInfos by vm.localVersionInfos.collectAsState()
 

@@ -44,6 +44,8 @@ public final class ModTagStore {
         if (jarFile == null || jarFile.isEmpty()) return;
         if (tags == null || tags.isEmpty()) {
             tagMap.remove(jarFile);
+            String base = fileNameOf(jarFile);
+            if (base != null && !base.equals(jarFile)) tagMap.remove(base);
         } else {
             List<String> clean = new ArrayList<>();
             for (String t : tags) {
@@ -51,8 +53,16 @@ public final class ModTagStore {
                 if (!trimmed.isEmpty() && !clean.contains(trimmed)) clean.add(trimmed);
             }
             tagMap.put(jarFile, clean);
+            String base = fileNameOf(jarFile);
+            if (base != null && !base.equals(jarFile)) tagMap.remove(base);
         }
         save();
+    }
+
+    private static String fileNameOf(String jarFile) {
+        if (jarFile == null || jarFile.isEmpty()) return null;
+        int slash = Math.max(jarFile.lastIndexOf('/'), jarFile.lastIndexOf('\\'));
+        return slash >= 0 && slash < jarFile.length() - 1 ? jarFile.substring(slash + 1) : jarFile;
     }
 
     /** 获取所有已使用的标签（去重排序） */
@@ -68,7 +78,9 @@ public final class ModTagStore {
     public synchronized void applyTags(List<ModMeta> mods) {
         if (mods == null) return;
         for (ModMeta mod : mods) {
-            mod.setTags(getTags(mod.getJarFile()));
+            List<String> tags = getTags(mod.getJarPath());
+            if (tags.isEmpty()) tags = getTags(mod.getJarFile());
+            mod.setTags(tags);
         }
     }
 

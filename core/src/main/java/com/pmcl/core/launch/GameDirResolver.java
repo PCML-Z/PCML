@@ -87,6 +87,59 @@ public final class GameDirResolver {
         return resolveGameDir(versionId).resolve("mods");
     }
 
+    /**
+     * 安装/更新目标 mods 目录：已有自定义实例（UUID 或旧包名目录）优先，
+     * 否则按 versionId 走隔离 / 整合包 / 共享根。
+     */
+    public Path resolveModsDir(String versionId, String instanceId) {
+        Path instanceMods = findExistingInstanceMods(instanceId);
+        if (instanceMods != null) return instanceMods;
+        if (versionId != null && !versionId.isBlank()) {
+            return resolveModsDir(versionId);
+        }
+        return config.getWorkDir().resolve("mods");
+    }
+
+    private Path findExistingInstanceMods(String instanceId) {
+        if (instanceId == null || instanceId.isBlank()) return null;
+        if (instanceId.contains("..") || instanceId.contains("/") || instanceId.contains("\\")
+                || instanceId.indexOf('\0') >= 0) {
+            return null;
+        }
+        Path root = config.getWorkDir().resolve("instances").toAbsolutePath().normalize();
+        if (!Files.isDirectory(root)) return null;
+        Path direct = root.resolve(instanceId).normalize();
+        if (direct.startsWith(root) && Files.isDirectory(direct)) {
+            ensureGameSubdirs(direct);
+            return direct.resolve("mods");
+        }
+        try (Stream<Path> stream = Files.list(root)) {
+            for (Path p : (Iterable<Path>) stream::iterator) {
+                if (!Files.isDirectory(p)) continue;
+                    Path marker = p.resolve("instance.json");
+                    Path legacy = p.resolve("modpack.json");
+                    if (!Files.isRegularFile(marker) && !Files.isRegularFile(legacy)) continue;
+                    try {
+                        com.pmcl.core.instance.InstanceInfo info = null;
+                        if (Files.isRegularFile(marker)) {
+                            info = com.pmcl.core.instance.InstanceInfo.fromJson(
+                                    Files.readString(marker, StandardCharsets.UTF_8), p);
+                        }
+                        if (info == null && Files.isRegularFile(legacy)) {
+                            info = com.pmcl.core.instance.InstanceInfo.fromModpackJson(
+                                    Files.readString(legacy, StandardCharsets.UTF_8), p);
+                        }
+                        if (info != null && instanceId.equals(info.getInstanceId())) {
+                            return p.resolve("mods");
+                        }
+                    } catch (Exception ignored) {
+                    }
+            }
+        } catch (IOException ignored) {
+        }
+        return null;
+    }
+
     public static void requireSafeVersionId(String versionId) {
         if (versionId == null || versionId.isBlank()) {
             throw new IllegalArgumentException("非法版本 ID: " + versionId);

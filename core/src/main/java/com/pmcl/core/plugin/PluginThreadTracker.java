@@ -134,7 +134,7 @@ final class PluginThreadTracker {
                 Thread.currentThread().interrupt();
             }
             if (worker.isAlive()) {
-                forceStopThread(worker, "call-timeout");
+                abandonStuckThread(worker, "call-timeout");
             }
             throw new RuntimeException("Plugin '" + pluginId + "' call timed out after " + limit + "ms");
         }
@@ -149,8 +149,9 @@ final class PluginThreadTracker {
 
     /**
      * Interrupt all live threads in the group and wait briefly for them to exit.
-     * After the wait, forcibly stops any remaining threads so the plugin ClassLoader
-     * can become unreachable for GC. Safe to call multiple times.
+     * Remaining threads are interrupted again, stripped of the plugin ClassLoader,
+     * and left as daemons — {@link Thread#stop()} is not used (removed in modern JDKs).
+     * Safe to call multiple times.
      */
     void shutdown(long waitMs) {
         destroyed = true;
@@ -189,7 +190,7 @@ final class PluginThreadTracker {
         int remaining = activeAliveCount();
         if (remaining > 0) {
             System.err.println("[Plugin:" + pluginId + "] WARNING: " + remaining
-                    + " thread(s) still alive after ThreadGroup shutdown — forcing stop");
+                    + " thread(s) still alive after ThreadGroup shutdown — abandoning after interrupt");
             try {
                 group.interrupt();
             } catch (Throwable ignored) {}
@@ -211,26 +212,26 @@ final class PluginThreadTracker {
                     Thread.currentThread().interrupt();
                 }
                 if (t.isAlive()) {
-                    forceStopThread(t, "shutdown");
+                    abandonStuckThread(t, "shutdown");
                 }
             }
         }
     }
 
     /**
-     * Last-resort {@link Thread#stop()} so a non-cooperative plugin thread releases
-     * the isolating ClassLoader. Deprecated and unsafe; only used after interrupt timeout.
+     * Last resort after interrupt+join: drop the plugin ClassLoader and leave the
+     * (already daemon) thread. Cannot forcibly kill it without {@code Thread.stop()}.
      */
-    @SuppressWarnings("deprecation")
-    private void forceStopThread(Thread t, String reason) {
+    private void abandonStuckThread(Thread t, String reason) {
         try {
-            System.err.println("[Plugin:" + pluginId + "] Forcing Thread.stop on "
-                    + t.getName() + " (" + reason + ")");
-            t.stop();
-        } catch (Throwable err) {
-            System.err.println("[Plugin:" + pluginId + "] Thread.stop failed for "
-                    + t.getName() + ": " + err.getMessage());
-        }
+            t.setContextClassLoader(null);
+        } catch (Throwable ignored) {}
+        try {
+            t.setDaemon(true);
+        } catch (Throwable ignored) {}
+        t.interrupt();
+        System.err.println("[Plugin:" + pluginId + "] Abandoned non-cooperative thread "
+                + t.getName() + " state=" + t.getState() + " (" + reason + ")");
     }
 
     private Runnable wrap(Runnable task) {

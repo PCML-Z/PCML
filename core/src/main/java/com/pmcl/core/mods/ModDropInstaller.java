@@ -161,10 +161,16 @@ public final class ModDropInstaller {
      * @throws IOException 拷贝失败
      */
     public Path installTo(ModDropInfo info, String versionId, String gameVersion) throws IOException {
+        return installTo(info, versionId, gameVersion, null);
+    }
+
+    public Path installTo(ModDropInfo info, String versionId, String gameVersion, String instanceId)
+            throws IOException {
         Path modsDir;
-        if (preferences != null && versionId != null && !versionId.isEmpty()) {
+        if (preferences != null && ((versionId != null && !versionId.isEmpty())
+                || (instanceId != null && !instanceId.isEmpty()))) {
             modsDir = new com.pmcl.core.launch.GameDirResolver(config, preferences)
-                    .resolveModsDir(versionId);
+                    .resolveModsDir(versionId, instanceId);
         } else {
             modsDir = config.getWorkDir().resolve("mods");
         }

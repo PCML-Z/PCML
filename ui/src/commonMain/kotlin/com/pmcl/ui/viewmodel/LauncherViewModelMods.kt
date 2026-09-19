@@ -6,6 +6,7 @@ import kotlinx.coroutines.withContext
 import com.google.gson.reflect.TypeToken
 import com.pmcl.core.cache.DataCache
 import com.pmcl.core.i18n.I18n
+import com.pmcl.core.market.MarketSearchQuery
 import com.pmcl.core.market.ModFile
 import com.pmcl.core.market.ModProject
 import com.pmcl.core.mods.ModMeta
@@ -23,27 +24,62 @@ import java.nio.file.Path
 
 // ============ 模组市场 ============
 
-fun LauncherViewModel.searchMods(query: String, gameVersion: String? = null, loader: String? = null,
-               category: String? = null) {
-    scope.launch {
+fun LauncherViewModel.searchMods(
+    query: String,
+    gameVersion: String? = null,
+    loader: String? = null,
+    category: String? = null,
+    sort: String? = null,
+    projectType: String? = null,
+    source: String? = null,
+    offset: Int = 0,
+    limit: Int = 20,
+) {
+    val seq = marketSearchSeq.incrementAndGet()
+    marketSearchJob?.cancel()
+    marketSearchJob = scope.launch {
         _marketLoading.value = true
         _status.value = I18n.t("status.searching", query)
         try {
-            val list = withContext(Dispatchers.IO) {
-                if (category != null && category.isNotEmpty()) {
-                    core.modMarket().search(query, gameVersion, loader, category, 30).join()
+            val page = withContext(Dispatchers.IO) {
+                if (category != null && category.isNotEmpty()
+                    && (projectType.isNullOrBlank() && source.isNullOrBlank() && offset == 0)
+                ) {
+                    val list = core.modMarket().search(query, gameVersion, loader, category, limit).join()
+                    com.pmcl.core.market.MarketSearchPage(list, list.size, 0, limit)
                 } else {
-                    core.modMarket().search(query, gameVersion, loader, 30).join()
+                    core.modMarket().searchPage(
+                        MarketSearchQuery()
+                            .query(query)
+                            .gameVersion(gameVersion)
+                            .loader(loader)
+                            .sort(sort)
+                            .projectType(projectType)
+                            .source(source)
+                            .offset(offset)
+                            .limit(limit)
+                    ).join()
                 }
             }
-            _marketResults.value = list
-            _status.value = I18n.t("status.mods_found", list.size, if (core.modMarket().hasCurseForge()) I18n.t("common.enabled") else I18n.t("common.disabled"))
+            if (seq != marketSearchSeq.get()) return@launch
+            _marketResults.value = page.getItems()
+            _marketTotal.value = page.getTotal()
+            _status.value = I18n.t(
+                "status.mods_found",
+                page.getItems().size,
+                if (core.modMarket().hasCurseForge()) I18n.t("common.enabled") else I18n.t("common.disabled")
+            )
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Throwable) {
+            if (seq != marketSearchSeq.get()) return@launch
+            _marketResults.value = emptyList()
+            _marketTotal.value = 0
             _status.value = I18n.t("status.search_failed", e.message ?: I18n.t("common.unknown"))
         } finally {
-            _marketLoading.value = false
+            if (seq == marketSearchSeq.get()) {
+                _marketLoading.value = false
+            }
         }
     }
 }
@@ -159,30 +195,55 @@ fun LauncherViewModel.clearCategory() {
  * 点击热门卡片进入该 mod 的详情界面（展开版本文件列表）。
  * 在 UI 层会把 _detailProject 设置为该 project，并触发 listProjectFiles。
  */
-fun LauncherViewModel.openModDetail(project: ModProject) {
+fun LauncherViewModel.openModDetail(
+    project: ModProject,
+    gameVersion: String? = null,
+    loader: String? = null,
+) {
     _detailProject.value = project
-    listProjectFiles(project)
+    listProjectFiles(project, gameVersion, loader)
 }
 
 /** 返回热门推荐网格（关闭详情） */
 fun LauncherViewModel.closeModDetail() {
     _detailProject.value = null
     _currentModFiles.value = emptyList()
+    _marketFilesLoading.value = false
+    _marketFilesError.value = null
+    marketFilesJob?.cancel()
 }
 
-fun LauncherViewModel.listProjectFiles(project: ModProject) {
-    scope.launch {
-        // 立即清空旧的文件列表，避免切换 project 时残留
+fun LauncherViewModel.listProjectFiles(
+    project: ModProject,
+    gameVersion: String? = null,
+    loader: String? = null,
+) {
+    val seq = marketFilesSeq.incrementAndGet()
+    val requestedId = project.getId()
+    marketFilesJob?.cancel()
+    marketFilesJob = scope.launch {
         _currentModFiles.value = emptyList()
+        _marketFilesError.value = null
+        _marketFilesLoading.value = true
         _status.value = I18n.t("status.fetching_project_files", project.getName())
         try {
             val files = withContext(Dispatchers.IO) {
-                core.modMarket().listFiles(project).join()
+                core.modMarket().listFiles(project, gameVersion, loader).join()
             }
+            if (seq != marketFilesSeq.get()) return@launch
+            if (_detailProject.value?.getId() != requestedId) return@launch
             _currentModFiles.value = files
             _status.value = I18n.t("status.project_files_loaded", project.getName(), files.size)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Throwable) {
+            if (seq != marketFilesSeq.get()) return@launch
+            _marketFilesError.value = e.message ?: I18n.t("common.unknown")
             _status.value = I18n.t("status.fetch_failed", e.message ?: I18n.t("common.unknown"))
+        } finally {
+            if (seq == marketFilesSeq.get()) {
+                _marketFilesLoading.value = false
+            }
         }
     }
 }
@@ -193,7 +254,7 @@ fun LauncherViewModel.installMod(file: ModFile, gameVersion: String) {
         try {
             withContext(Dispatchers.IO) {
                 core.modMarket().installMod(file, gameVersion,
-                    _selectedVersion.value, preferences) { msg ->
+                    _selectedVersion.value, _selectedInstanceId.value, preferences) { msg ->
                     _status.value = msg
                 }.join()
             }
@@ -225,7 +286,7 @@ fun LauncherViewModel.installModWithDeps(file: ModFile, gameVersion: String) {
         _status.value = I18n.t("status.installing_mod_with_deps", file.getFileName())
         try {
             val result = core.modDependencyResolver().installWithDependencies(
-                file, gameVersion, _selectedVersion.value
+                file, gameVersion, _selectedVersion.value, _selectedInstanceId.value
             ) { msg -> _status.value = msg }.join()
             _depInstallResult.value = result
             _status.value = if (result.hasInstalled()) {
@@ -308,12 +369,17 @@ fun LauncherViewModel.refreshInstalledMods() {
                 for (modsDir in modsDirs) {
                     try {
                         // 基于目录 mtime 的缓存：未变化则复用上次扫描结果
-                        val dirMtime = try { java.nio.file.Files.getLastModifiedTime(modsDir).toMillis() } catch (_: Throwable) { 0L }
+                        val dirMtime = try {
+                            ModScanner.directoryFingerprint(modsDir)
+                        } catch (_: Throwable) { 0L }
                         val cached = modScanCache[modsDir]
                         val part = if (cached != null && cached.dirMtime == dirMtime && dirMtime > 0L) {
                             cached.mods
                         } else {
                             val scanned = ModScanner.scanDirectory(modsDir)
+                            if (scanned.size >= ModScanner.SCAN_MAX_JARS) {
+                                System.err.println("[refreshInstalledMods] $modsDir 达到扫描上限 ${ModScanner.SCAN_MAX_JARS}")
+                            }
                             modScanCache[modsDir] = ModScanCacheEntry(dirMtime, scanned)
                             scanned
                         }
@@ -321,7 +387,8 @@ fun LauncherViewModel.refreshInstalledMods() {
                         val sourceLabel = sourceLabelFor(modsDir)
                         for (m in part) {
                             // 用「目录路径 + 文件名」去重，避免不同目录的同名文件误去重
-                            val dedupKey = "$modsDir/${m.getJarFile()}"
+                            val dedupKey = m.getJarPath()?.takeIf { it.isNotBlank() }
+                                ?: "$modsDir/${m.getJarFile()}"
                             if (seenFiles.add(dedupKey)) {
                                 m.setSource(sourceLabel)
                                 allMods.add(m)
@@ -372,16 +439,15 @@ fun LauncherViewModel.setModTags(jarFile: String, tags: List<String>) {
         withContext(Dispatchers.IO) {
             core.modTagStore().setTags(jarFile, tags)
         }
-        // 更新内存中的 ModMeta
         _installedMods.value = _installedMods.value.map { mod ->
-            if (mod.getJarFile() == jarFile) {
+            val key = mod.jarPath?.takeIf { it.isNotBlank() } ?: mod.jarFile
+            if (key == jarFile || mod.getJarFile() == jarFile) {
                 mod.setTags(tags)
                 mod
             } else {
                 mod
             }
         }
-        // 刷新标签列表
         _allModTags.value = core.modTagStore().getAllTags()
     }
 }
@@ -395,6 +461,7 @@ internal fun LauncherViewModel.modsDirsCount(mods: List<ModMeta>): String {
  * 根据 mods 目录路径推断来源标签：
  * - PMCL 全局 mods → "全局"
  * - versions/<id>/mods → <id>（版本/整合包名）
+ * - instances/<id>/mods → instance.json 显示名（否则目录名）
  * - 系统 .minecraft/mods → "系统"
  */
 @PublishedApi
@@ -408,9 +475,26 @@ internal fun LauncherViewModel.sourceLabelFor(modsDir: java.nio.file.Path): Stri
         if (grandParentName == "versions") {
             return parent.fileName?.toString() ?: "版本"
         }
+        if (grandParentName == "instances") {
+            return instanceSourceLabel(parent)
+        }
     }
     // 系统目录
     return "系统"
+}
+
+private fun instanceSourceLabel(instanceDir: java.nio.file.Path): String {
+    val fallback = instanceDir.fileName?.toString() ?: "实例"
+    val marker = instanceDir.resolve("instance.json")
+    if (!java.nio.file.Files.isRegularFile(marker)) return fallback
+    return try {
+        val info = com.pmcl.core.instance.InstanceInfo.fromJson(
+            java.nio.file.Files.readString(marker), instanceDir
+        )
+        info?.name?.takeIf { it.isNotBlank() } ?: fallback
+    } catch (_: Throwable) {
+        fallback
+    }
 }
 
 /** 解析 mod jar 绝对路径：优先 jarPath，否则按文件名在已扫描列表 / 全局 mods 中定位 */
@@ -426,7 +510,7 @@ internal fun LauncherViewModel.resolveModJarPath(jarFile: String?): java.nio.fil
     if (jarFile.isNullOrBlank()) return null
     val asPath = java.nio.file.Path.of(jarFile)
     if (asPath.isAbsolute && java.nio.file.Files.exists(asPath)) return asPath
-    _installedMods.value.firstOrNull { it.jarFile == jarFile }?.jarPath
+    _installedMods.value.firstOrNull { it.jarFile == jarFile || it.jarPath == jarFile }?.jarPath
         ?.takeIf { it.isNotBlank() }
         ?.let { return java.nio.file.Path.of(it) }
     val global = config.getWorkDir().resolve("mods").resolve(jarFile)
@@ -538,11 +622,15 @@ fun LauncherViewModel.importMod(filePath: String) {
         try {
             val fileName = withContext(Dispatchers.IO) {
                 val src = java.nio.file.Paths.get(filePath)
-                val targetDir = config.getWorkDir().resolve("mods")
+                val targetDir = currentModsDir()
                 java.nio.file.Files.createDirectories(targetDir)
-                val target = targetDir.resolve(src.fileName)
+                val name = src.fileName.toString()
+                if (name.isBlank() || name.contains("..") || name.contains("/") || name.contains("\\")) {
+                    throw java.io.IOException("非法模组文件名: $name")
+                }
+                val target = targetDir.resolve(name)
                 java.nio.file.Files.copy(src, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-                src.fileName.toString()
+                name
             }
             _status.value = I18n.t("status.mod_imported", fileName)
             refreshInstalledMods()
@@ -688,6 +776,26 @@ fun LauncherViewModel.openModFolder(mod: ModMeta) {
  * 用于在市场列表中显示"已安装"标记。
  */
 fun LauncherViewModel.isModInstalled(modId: String): Boolean {
-    return _installedMods.value.any { it.getModId() == modId && !it.isDisabled() }
+    val dir = try {
+        currentModsDir().toAbsolutePath().normalize()
+    } catch (_: Throwable) {
+        return _installedMods.value.any { it.getModId() == modId && !it.isDisabled() }
+    }
+    return _installedMods.value.any { m ->
+        if (m.getModId() != modId || m.isDisabled()) return@any false
+        val path = m.jarPath
+        if (path.isNullOrBlank()) return@any false
+        try {
+            java.nio.file.Path.of(path).toAbsolutePath().normalize().startsWith(dir)
+        } catch (_: Throwable) {
+            false
+        }
+    }
+}
+
+@PublishedApi
+internal fun LauncherViewModel.currentModsDir(): java.nio.file.Path {
+    return com.pmcl.core.launch.GameDirResolver(config, preferences)
+        .resolveModsDir(_selectedVersion.value, _selectedInstanceId.value)
 }
 

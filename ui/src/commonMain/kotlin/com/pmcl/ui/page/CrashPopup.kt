@@ -226,7 +226,7 @@ fun GameCrashPopup(vm: LauncherViewModel) {
                         Text(I18n.t("crash.popup.help"))
                     }
                     Button(
-                        onClick = { vm.relaunchAfterCrash(ev.versionId) },
+                        onClick = { vm.relaunchAfterCrash(ev.versionId, ev.instanceId) },
                         modifier = Modifier.weight(1f),
                         colors = fill
                     ) {

@@ -62,54 +62,93 @@ public final class CurseForgeClient implements ModMarketClient {
     @Override
     public CompletableFuture<List<ModProject>> search(String query, String gameVersion,
                                                      String loader, int limit) {
-        return doSearch(query, gameVersion, loader, limit);
+        return searchPage(new MarketSearchQuery().query(query).gameVersion(gameVersion)
+                .loader(loader).limit(limit).projectType("mod"))
+                .thenApply(MarketSearchPage::getItems);
     }
 
     /**
-     * 获取 CurseForge 热门项目。
-     * 通过 sort=Popularity + 空 searchFilter 实现。
+     * 获取 CurseForge 热门项目（模组 classId=6，按人气）。
      */
     @Override
     public CompletableFuture<List<ModProject>> popular(String gameVersion, String loader, int limit) {
-        return CompletableFuture.supplyAsync(() -> {
-            HttpUrl parsed = HttpUrl.parse(BASE + "/mods/search");
-            if (parsed == null) throw new RuntimeException("无效的 URL: " + BASE + "/mods/search");
-            HttpUrl.Builder ub = parsed.newBuilder()
-                    .addQueryParameter("gameId", String.valueOf(MINECRAFT_GAME_ID))
-                    .addQueryParameter("pageSize", String.valueOf(limit))
-                    .addQueryParameter("sort", "Popularity");
-            if (gameVersion != null && !gameVersion.isEmpty()) {
-                ub.addQueryParameter("gameVersion", gameVersion);
-            }
-            if (loader != null && !loader.isEmpty()) {
-                ub.addQueryParameter("modLoaderType", capitalize(loader));
-            }
-            return executeSearch(ub);
-        });
+        return searchPage(new MarketSearchQuery().gameVersion(gameVersion).loader(loader)
+                .limit(limit).sort("downloads").projectType("mod"))
+                .thenApply(MarketSearchPage::getItems);
     }
 
-    private CompletableFuture<List<ModProject>> doSearch(String query, String gameVersion,
-                                                        String loader, int limit) {
-        return CompletableFuture.supplyAsync(() -> {
-            HttpUrl parsed = HttpUrl.parse(BASE + "/mods/search");
-            if (parsed == null) throw new RuntimeException("无效的 URL: " + BASE + "/mods/search");
-            HttpUrl.Builder ub = parsed.newBuilder()
-                    .addQueryParameter("gameId", String.valueOf(MINECRAFT_GAME_ID))
-                    .addQueryParameter("searchFilter", query == null ? "" : query)
-                    .addQueryParameter("pageSize", String.valueOf(limit));
-            if (gameVersion != null && !gameVersion.isEmpty()) {
-                ub.addQueryParameter("gameVersion", gameVersion);
-            }
-            if (loader != null && !loader.isEmpty()) {
-                // CurseForge modLoaderType 接受首字母大写：Fabric / Forge / Quilt
-                ub.addQueryParameter("modLoaderType", capitalize(loader));
-            }
-            return executeSearch(ub);
-        });
+    @Override
+    public CompletableFuture<MarketSearchPage> searchPage(MarketSearchQuery query) {
+        MarketSearchQuery q = query != null ? query : new MarketSearchQuery();
+        return CompletableFuture.supplyAsync(() -> doSearchPage(q));
     }
 
-    /** 执行搜索请求并解析响应为 ModProject 列表 */
-    private List<ModProject> executeSearch(HttpUrl.Builder ub) {
+    private MarketSearchPage doSearchPage(MarketSearchQuery q) {
+        int limit = q.getLimit();
+        int offset = q.getOffset();
+        Integer classId = classIdForType(q.getProjectType());
+        if (classId == null) {
+            int[] classIds = {6, 12, 6552};
+            List<ModProject> merged = new ArrayList<>();
+            int total = 0;
+            RuntimeException last = null;
+            int ok = 0;
+            for (int cid : classIds) {
+                try {
+                    MarketSearchPage page = executeSearchPage(
+                            buildSearchUrl(q, cid), offset, limit, false);
+                    merged.addAll(page.getItems());
+                    total = Math.max(total, page.getTotal());
+                    ok++;
+                } catch (RuntimeException e) {
+                    last = e;
+                }
+            }
+            if (ok == 0 && last != null) throw last;
+            String sort = q.getSort() != null ? q.getSort().toLowerCase(java.util.Locale.ROOT) : "";
+            if ("downloads".equals(sort)) {
+                merged.sort((a, b) -> Long.compare(b.getDownloadCount(), a.getDownloadCount()));
+            } else if ("updated".equals(sort) || "newest".equals(sort)) {
+                merged.sort((a, b) -> Long.compare(b.getDateModified(), a.getDateModified()));
+            }
+            return new MarketSearchPage(merged, total, offset, limit);
+        }
+        return executeSearchPage(buildSearchUrl(q, classId), offset, limit, false);
+    }
+
+    private HttpUrl.Builder buildSearchUrl(MarketSearchQuery q, Integer classId) {
+        HttpUrl parsed = HttpUrl.parse(BASE + "/mods/search");
+        if (parsed == null) throw new RuntimeException("无效的 URL: " + BASE + "/mods/search");
+        HttpUrl.Builder ub = parsed.newBuilder()
+                .addQueryParameter("gameId", String.valueOf(MINECRAFT_GAME_ID))
+                .addQueryParameter("searchFilter", q.getQuery())
+                .addQueryParameter("pageSize", String.valueOf(q.getLimit()))
+                .addQueryParameter("index", String.valueOf(q.getOffset()))
+                .addQueryParameter("sortField", String.valueOf(sortFieldId(q.getSort())))
+                .addQueryParameter("sortOrder", "desc");
+        if (classId != null) {
+            ub.addQueryParameter("classId", String.valueOf(classId));
+        }
+        boolean hasGv = q.getGameVersion() != null && !q.getGameVersion().isEmpty();
+        if (hasGv) {
+            ub.addQueryParameter("gameVersion", q.getGameVersion());
+        }
+        Integer loaderType = modLoaderTypeId(q.getLoader());
+        if (shouldSendModLoaderType(q.getGameVersion(), q.getLoader()) && loaderType != null) {
+            ub.addQueryParameter("modLoaderType", String.valueOf(loaderType));
+        }
+        return ub;
+    }
+
+    /** CurseForge：modLoaderType 必须搭配 gameVersion。 */
+    static boolean shouldSendModLoaderType(String gameVersion, String loader) {
+        return gameVersion != null && !gameVersion.isBlank()
+                && modLoaderTypeId(loader) != null;
+    }
+
+    /** 执行搜索请求并解析为分页结果 */
+    private MarketSearchPage executeSearchPage(HttpUrl.Builder ub, int offset, int limit,
+                                               boolean filterToContentClasses) {
         Request req = new Request.Builder().url(ub.build())
                 .header("X-API-Key", apiKey)
                 .header("User-Agent", "PMCL/1.0")
@@ -132,33 +171,23 @@ public final class CurseForgeClient implements ModMarketClient {
                 }
                 JsonObject root = JsonParser.parseString(body).getAsJsonObject();
                 JsonArray data = root.has("data") ? root.getAsJsonArray("data") : new JsonArray();
+                int total = data.size();
+                if (root.has("pagination") && root.get("pagination").isJsonObject()) {
+                    JsonObject pg = root.getAsJsonObject("pagination");
+                    if (pg.has("totalCount") && !pg.get("totalCount").isJsonNull()) {
+                        total = pg.get("totalCount").getAsInt();
+                    }
+                }
                 List<ModProject> result = new ArrayList<>();
                 for (JsonElement e : data) {
+                    if (e == null || !e.isJsonObject()) continue;
                     JsonObject o = e.getAsJsonObject();
-                    long downloads = o.has("downloadCount")
-                            ? o.get("downloadCount").getAsLong() : 0;
-                    String iconUrl = "";
-                    if (o.has("logo") && !o.get("logo").isJsonNull()) {
-                        JsonObject logo = o.getAsJsonObject("logo");
-                        iconUrl = logo.has("thumbnailUrl") ? logo.get("thumbnailUrl").getAsString() : "";
-                    }
-                    result.add(new ModProject(
-                            "curseforge",
-                            safeStr(o, "id"),
-                            o.has("slug") ? o.get("slug").getAsString() : "",
-                            safeStr(o, "name"),
-                            o.has("summary") ? o.get("summary").getAsString() : "",
-                            o.has("authors") && o.getAsJsonArray("authors").size() > 0
-                                    ? (o.getAsJsonArray("authors").get(0).getAsJsonObject().has("name")
-                                        ? o.getAsJsonArray("authors").get(0).getAsJsonObject().get("name").getAsString()
-                                        : "")
-                                    : "",
-                            downloads,
-                            iconUrl,
-                            o.has("websiteUrl") ? o.get("websiteUrl").getAsString() : ""
-                    ));
+                    int cid = o.has("classId") && !o.get("classId").isJsonNull()
+                            ? o.get("classId").getAsInt() : 6;
+                    if (filterToContentClasses && !isContentClassId(cid)) continue;
+                    result.add(parseProject(o, cid));
                 }
-                return result;
+                return new MarketSearchPage(result, total, offset, limit);
             } catch (Throwable e) {
                 last = e;
                 if (attempt < RETRY) {
@@ -173,6 +202,122 @@ public final class CurseForgeClient implements ModMarketClient {
         }
         String msg = last != null ? last.getMessage() : "未知错误";
         throw new RuntimeException("CurseForge 搜索失败：" + friendlyError(msg), last);
+    }
+
+    private static ModProject parseProject(JsonObject o, int classId) {
+        long downloads = o.has("downloadCount") ? o.get("downloadCount").getAsLong() : 0;
+        String iconUrl = "";
+        if (o.has("logo") && o.get("logo").isJsonObject()) {
+            JsonObject logo = o.getAsJsonObject("logo");
+            iconUrl = logo.has("thumbnailUrl") ? logo.get("thumbnailUrl").getAsString() : "";
+            if (iconUrl.isEmpty() && logo.has("url")) iconUrl = logo.get("url").getAsString();
+        }
+        String website = safeStr(o, "websiteUrl");
+        if (website.isEmpty() && o.has("links") && o.get("links").isJsonObject()) {
+            website = safeStr(o.getAsJsonObject("links"), "websiteUrl");
+        }
+        String author = "";
+        if (o.has("authors") && o.get("authors").isJsonArray() && o.getAsJsonArray("authors").size() > 0) {
+            JsonElement a0 = o.getAsJsonArray("authors").get(0);
+            if (a0 != null && a0.isJsonObject() && a0.getAsJsonObject().has("name")) {
+                author = a0.getAsJsonObject().get("name").getAsString();
+            }
+        }
+        return new ModProject(
+                "curseforge",
+                safeStr(o, "id"),
+                o.has("slug") ? o.get("slug").getAsString() : "",
+                safeStr(o, "name"),
+                o.has("summary") ? o.get("summary").getAsString() : "",
+                author,
+                downloads,
+                iconUrl,
+                website
+        ).categories(parseCategoryNames(o))
+                .loaders(parseLoaderNames(o))
+                .projectType(projectTypeFromClassId(classId))
+                .dateModified(parseCfMillis(safeStr(o, "dateModified")));
+    }
+
+    private static List<String> parseCategoryNames(JsonObject o) {
+        if (!o.has("categories") || !o.get("categories").isJsonArray()) return Collections.emptyList();
+        List<String> names = new ArrayList<>();
+        for (JsonElement e : o.getAsJsonArray("categories")) {
+            if (e == null || !e.isJsonObject()) continue;
+            String name = safeStr(e.getAsJsonObject(), "slug");
+            if (name.isEmpty()) name = safeStr(e.getAsJsonObject(), "name");
+            if (!name.isEmpty() && !names.contains(name)) names.add(name);
+        }
+        return names;
+    }
+
+    private static List<String> parseLoaderNames(JsonObject o) {
+        if (!o.has("latestFilesIndexes") || !o.get("latestFilesIndexes").isJsonArray()) {
+            return Collections.emptyList();
+        }
+        List<String> loaders = new ArrayList<>();
+        for (JsonElement e : o.getAsJsonArray("latestFilesIndexes")) {
+            if (e == null || !e.isJsonObject()) continue;
+            JsonObject idx = e.getAsJsonObject();
+            if (!idx.has("modLoader") || idx.get("modLoader").isJsonNull()) continue;
+            String name = loaderName(idx.get("modLoader").getAsInt());
+            if (name != null && !loaders.contains(name)) loaders.add(name);
+        }
+        return loaders;
+    }
+
+    static Integer classIdForType(String projectType) {
+        if (projectType == null || projectType.isBlank()) return null;
+        return switch (projectType.toLowerCase(java.util.Locale.ROOT)) {
+            case "mod" -> 6;
+            case "resourcepack", "resource_pack" -> 12;
+            case "shader", "shaderpack" -> 6552;
+            default -> null;
+        };
+    }
+
+    static String projectTypeFromClassId(int classId) {
+        return switch (classId) {
+            case 12 -> "resourcepack";
+            case 6552 -> "shader";
+            default -> "mod";
+        };
+    }
+
+    static boolean isContentClassId(int classId) {
+        return classId == 6 || classId == 12 || classId == 6552;
+    }
+
+    static int sortFieldId(String sort) {
+        if (sort == null || sort.isBlank() || "default".equalsIgnoreCase(sort)
+                || "relevance".equalsIgnoreCase(sort)) {
+            return 2; // Popularity
+        }
+        return switch (sort.toLowerCase(java.util.Locale.ROOT)) {
+            case "downloads" -> 6;
+            case "updated", "newest" -> 3;
+            case "name" -> 4;
+            default -> 2;
+        };
+    }
+
+    static String loaderName(int modLoaderType) {
+        return switch (modLoaderType) {
+            case 1 -> "forge";
+            case 4 -> "fabric";
+            case 5 -> "quilt";
+            case 6 -> "neoforge";
+            default -> null;
+        };
+    }
+
+    private static long parseCfMillis(String iso) {
+        if (iso == null || iso.isBlank()) return 0;
+        try {
+            return java.time.Instant.parse(iso).toEpochMilli();
+        } catch (Exception e) {
+            return 0;
+        }
     }
 
     /**
@@ -195,82 +340,256 @@ public final class CurseForgeClient implements ModMarketClient {
 
     @Override
     public CompletableFuture<List<ModFile>> listFiles(String projectId) {
+        return listFiles(projectId, null, null);
+    }
+
+    @Override
+    public CompletableFuture<List<ModFile>> listFiles(String projectId, String gameVersion, String loader) {
         return CompletableFuture.supplyAsync(() -> {
-            String url = BASE + "/mods/" + projectId + "/files";
-            Request req = new Request.Builder().url(url)
-                    .header("X-API-Key", apiKey)
-                    .header("User-Agent", "PMCL/1.0").get().build();
+            List<ModFile> result = new ArrayList<>();
+            int index = 0;
+            final int pageSize = 50;
+            final int maxFiles = 500;
+            Integer total = null;
             Exception last = null;
-            for (int attempt = 0; attempt <= RETRY; attempt++) {
-                try (Response resp = http.newCall(req).execute()) {
-                    String body = resp.body() != null ? resp.body().string() : "{}";
-                    if (!resp.isSuccessful()) {
+            Integer loaderType = modLoaderTypeId(loader);
+            while (result.size() < maxFiles) {
+                HttpUrl parsed = HttpUrl.parse(BASE + "/mods/" + projectId + "/files");
+                if (parsed == null) throw new RuntimeException("无效的 URL");
+                HttpUrl.Builder ub = parsed.newBuilder()
+                        .addQueryParameter("index", String.valueOf(index))
+                        .addQueryParameter("pageSize", String.valueOf(pageSize));
+                if (safeQueryToken(gameVersion)) {
+                    ub.addQueryParameter("gameVersion", gameVersion);
+                }
+                if (shouldSendModLoaderType(gameVersion, loader) && loaderType != null) {
+                    ub.addQueryParameter("modLoaderType", String.valueOf(loaderType));
+                }
+                String url = ub.build().toString();
+                Request req = new Request.Builder().url(url)
+                        .header("X-API-Key", apiKey)
+                        .header("User-Agent", "PMCL/1.0").get().build();
+                boolean pageOk = false;
+                for (int attempt = 0; attempt <= RETRY; attempt++) {
+                    try (Response resp = http.newCall(req).execute()) {
+                        String body = resp.body() != null ? resp.body().string() : "{}";
                         if (resp.code() == 429) {
-                            String retryAfter = resp.header("Retry-After");
-                            long waitMs = 5000; // 默认 5s
-                            if (retryAfter != null) {
-                                try { waitMs = Long.parseLong(retryAfter) * 1000L; } catch (NumberFormatException ignored) {}
-                            }
-                            try { Thread.sleep(Math.min(waitMs, 60000)); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); throw new IOException("中断", ie); }
-                            continue; // 重试
+                            sleepRetryAfter(resp);
+                            continue;
                         }
-                        throw new IOException("HTTP " + resp.code() + ": " + body);
-                    }
-                    JsonObject root = JsonParser.parseString(body).getAsJsonObject();
-                    JsonArray data = root.has("data") ? root.getAsJsonArray("data") : new JsonArray();
-                    List<ModFile> result = new ArrayList<>();
-                    for (JsonElement e : data) {
-                        JsonObject o = e.getAsJsonObject();
-                        List<String> gameVersions = jsonArrToStrings(o, "gameVersions");
-                        List<String> loaders = new ArrayList<>();
-                        if (o.has("gameVersions")) {
-                            for (JsonElement gv : o.getAsJsonArray("gameVersions")) {
-                                String s = gv.getAsString();
-                                if (s.equalsIgnoreCase("Fabric") || s.equalsIgnoreCase("Forge")
-                                        || s.equalsIgnoreCase("Quilt")) {
-                                    loaders.add(s.toLowerCase());
-                                }
+                        if (!resp.isSuccessful()) {
+                            throw new IOException("HTTP " + resp.code() + ": " + body);
+                        }
+                        JsonObject root = JsonParser.parseString(body).getAsJsonObject();
+                        JsonArray data = root.has("data") ? root.getAsJsonArray("data") : new JsonArray();
+                        if (total == null && root.has("pagination") && root.get("pagination").isJsonObject()) {
+                            JsonObject pg = root.getAsJsonObject("pagination");
+                            if (pg.has("totalCount") && !pg.get("totalCount").isJsonNull()) {
+                                total = pg.get("totalCount").getAsInt();
                             }
                         }
-                        String releaseType = o.has("releaseType")
-                                ? cfReleaseType(o.get("releaseType").getAsInt()) : "release";
-                        // CurseForge hashes: algo 1=SHA1, 2=MD5
-                        String sha1 = "";
-                        if (o.has("hashes") && o.get("hashes").isJsonArray()) {
-                            for (JsonElement he : o.getAsJsonArray("hashes")) {
-                                JsonObject ho = he.getAsJsonObject();
-                                int algo = ho.has("algo") ? ho.get("algo").getAsInt() : -1;
-                                if (algo == 1) {
-                                    sha1 = safeStr(ho, "value");
-                                    break;
-                                }
-                            }
+                        int added = 0;
+                        for (JsonElement e : data) {
+                            if (!e.isJsonObject()) continue;
+                            result.add(parseCfFile(e.getAsJsonObject(), projectId));
+                            added++;
                         }
-                        result.add(new ModFile(
-                                "curseforge", projectId,
-                                safeStr(o, "id"),
-                                safeStr(o, "fileName"),
-                                o.has("fileLength") ? o.get("fileLength").getAsLong() : 0,
-                                safeStr(o, "downloadUrl"),
-                                gameVersions, loaders, releaseType
-                        ).hashes(sha1, ""));
-                    }
-                    return result;
-                } catch (Exception e) {
-                    last = e;
-                    if (attempt < RETRY) {
-                        try {
-                            Thread.sleep(RETRY_BASE_MS * (1L << attempt));
-                        } catch (InterruptedException ie) {
-                            Thread.currentThread().interrupt();
-                            break;
+                        pageOk = true;
+                        if (added == 0) return result;
+                        index += added;
+                        break;
+                    } catch (Exception e) {
+                        last = e;
+                        if (attempt < RETRY) {
+                            try {
+                                Thread.sleep(RETRY_BASE_MS * (1L << attempt));
+                            } catch (InterruptedException ie) {
+                                Thread.currentThread().interrupt();
+                                break;
+                            }
                         }
                     }
                 }
+                if (!pageOk) {
+                    if (!result.isEmpty()) return result;
+                    String msg = last != null ? last.getMessage() : "未知错误";
+                    throw new RuntimeException("CurseForge 拉取文件失败：" + friendlyError(msg), last);
+                }
+                if (total != null && index >= total) return result;
             }
-            String msg = last != null ? last.getMessage() : "未知错误";
-            throw new RuntimeException("CurseForge 拉取文件失败：" + friendlyError(msg), last);
+            return result;
         });
+    }
+
+    /**
+     * 按 fileId 批量查询（POST /mods/files）。整合包应走这条，而不是 listFiles 首页。
+     * 每批最多 50 个 id。
+     */
+    public List<ModFile> getFilesByIds(List<String> fileIds) {
+        if (fileIds == null || fileIds.isEmpty()) return Collections.emptyList();
+        List<ModFile> out = new ArrayList<>();
+        for (int i = 0; i < fileIds.size(); i += 50) {
+            List<String> chunk = fileIds.subList(i, Math.min(i + 50, fileIds.size()));
+            out.addAll(postFilesByIds(chunk));
+        }
+        return out;
+    }
+
+    /** GET /mods/{modId}/files/{fileId}，批量未命中时的单条回退。 */
+    public ModFile getFile(String projectId, String fileId) {
+        if (projectId == null || projectId.isEmpty() || fileId == null || fileId.isEmpty()) {
+            return null;
+        }
+        String url = BASE + "/mods/" + projectId + "/files/" + fileId;
+        Request req = new Request.Builder().url(url)
+                .header("X-API-Key", apiKey)
+                .header("User-Agent", "PMCL/1.0").get().build();
+        Exception last = null;
+        for (int attempt = 0; attempt <= RETRY; attempt++) {
+            try (Response resp = http.newCall(req).execute()) {
+                String body = resp.body() != null ? resp.body().string() : "{}";
+                if (resp.code() == 429) {
+                    sleepRetryAfter(resp);
+                    continue;
+                }
+                if (!resp.isSuccessful()) {
+                    throw new IOException("HTTP " + resp.code() + ": " + body);
+                }
+                JsonObject root = JsonParser.parseString(body).getAsJsonObject();
+                JsonObject data = root.has("data") && root.get("data").isJsonObject()
+                        ? root.getAsJsonObject("data") : null;
+                if (data == null) return null;
+                return parseCfFile(data, projectId);
+            } catch (Exception e) {
+                last = e;
+                if (attempt < RETRY) {
+                    try {
+                        Thread.sleep(RETRY_BASE_MS * (1L << attempt));
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+            }
+        }
+        if (last != null) {
+            System.err.println("[CurseForgeClient] getFile " + projectId + "/" + fileId
+                    + " 失败: " + last.getMessage());
+        }
+        return null;
+    }
+
+    private List<ModFile> postFilesByIds(List<String> fileIds) {
+        JsonObject body = new JsonObject();
+        JsonArray arr = new JsonArray();
+        for (String id : fileIds) {
+            try {
+                arr.add(Long.parseLong(id.trim()));
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        if (arr.isEmpty()) return Collections.emptyList();
+        body.add("fileIds", arr);
+        okhttp3.RequestBody rb = okhttp3.RequestBody.create(body.toString(),
+                okhttp3.MediaType.get("application/json; charset=utf-8"));
+        Request req = new Request.Builder()
+                .url(BASE + "/mods/files")
+                .header("X-API-Key", apiKey)
+                .header("User-Agent", "PMCL/1.0")
+                .header("Accept", "application/json")
+                .post(rb)
+                .build();
+        Exception last = null;
+        for (int attempt = 0; attempt <= RETRY; attempt++) {
+            try (Response resp = http.newCall(req).execute()) {
+                String json = resp.body() != null ? resp.body().string() : "{}";
+                if (resp.code() == 429) {
+                    sleepRetryAfter(resp);
+                    continue;
+                }
+                if (!resp.isSuccessful()) {
+                    throw new IOException("HTTP " + resp.code() + ": " + json);
+                }
+                JsonObject root = JsonParser.parseString(json).getAsJsonObject();
+                JsonArray data = root.has("data") ? root.getAsJsonArray("data") : new JsonArray();
+                List<ModFile> result = new ArrayList<>();
+                for (JsonElement e : data) {
+                    if (!e.isJsonObject()) continue;
+                    result.add(parseCfFile(e.getAsJsonObject(), ""));
+                }
+                return result;
+            } catch (Exception e) {
+                last = e;
+                if (attempt < RETRY) {
+                    try {
+                        Thread.sleep(RETRY_BASE_MS * (1L << attempt));
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+            }
+        }
+        throw new RuntimeException("CurseForge 批量文件查询失败："
+                + (last != null ? friendlyError(last.getMessage()) : "未知错误"), last);
+    }
+
+    private void sleepRetryAfter(Response resp) throws IOException {
+        String retryAfter = resp.header("Retry-After");
+        long waitMs = 5000;
+        if (retryAfter != null) {
+            try { waitMs = Long.parseLong(retryAfter) * 1000L; } catch (NumberFormatException ignored) {}
+        }
+        try {
+            Thread.sleep(Math.min(waitMs, 60_000));
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            throw new IOException("中断", ie);
+        }
+    }
+
+    private ModFile parseCfFile(JsonObject o, String fallbackProjectId) {
+        String projectId = safeStr(o, "modId");
+        if (projectId.isEmpty()) projectId = fallbackProjectId != null ? fallbackProjectId : "";
+        List<String> gameVersions = jsonArrToStrings(o, "gameVersions");
+        List<String> loaders = new ArrayList<>();
+        for (String s : gameVersions) {
+            if (s.equalsIgnoreCase("Fabric") || s.equalsIgnoreCase("Forge")
+                    || s.equalsIgnoreCase("Quilt") || s.equalsIgnoreCase("NeoForge")) {
+                loaders.add(s.toLowerCase());
+            }
+        }
+        String releaseType = o.has("releaseType") && !o.get("releaseType").isJsonNull()
+                ? cfReleaseType(o.get("releaseType").getAsInt()) : "release";
+        String sha1 = "";
+        if (o.has("hashes") && o.get("hashes").isJsonArray()) {
+            for (JsonElement he : o.getAsJsonArray("hashes")) {
+                if (!he.isJsonObject()) continue;
+                JsonObject ho = he.getAsJsonObject();
+                int algo = ho.has("algo") ? ho.get("algo").getAsInt() : -1;
+                // HashAlgo: 1 = SHA-1，2 = MD5。禁止把 MD5 写进 sha512 字段，
+                // downloadToVerified 会优先按 SHA-512 校验并直接失败。
+                if (algo == 1) sha1 = safeStr(ho, "value");
+            }
+        }
+        String fileName = safeStr(o, "fileName");
+        String fileId = safeStr(o, "id");
+        String downloadUrl = safeStr(o, "downloadUrl");
+        if (downloadUrl.isEmpty() && !fileName.isEmpty()) {
+            try {
+                downloadUrl = forgeCdnUrl(Long.parseLong(fileId), fileName);
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return new ModFile(
+                "curseforge", projectId,
+                fileId,
+                fileName,
+                o.has("fileLength") && !o.get("fileLength").isJsonNull()
+                        ? o.get("fileLength").getAsLong() : 0,
+                downloadUrl,
+                gameVersions, loaders, releaseType
+        ).hashes(sha1, "").versionNumber(versionHintFromFileName(fileName));
     }
 
     private static String cfReleaseType(int code) {
@@ -282,19 +601,78 @@ public final class CurseForgeClient implements ModMarketClient {
     }
 
     private List<String> jsonArrToStrings(JsonObject o, String key) {
-        if (!o.has(key)) return Collections.emptyList();
+        if (!o.has(key) || !o.get(key).isJsonArray()) return Collections.emptyList();
         List<String> list = new ArrayList<>();
-        for (JsonElement e : o.getAsJsonArray(key)) list.add(e.getAsString());
+        for (JsonElement e : o.getAsJsonArray(key)) {
+            if (e != null && !e.isJsonNull() && e.isJsonPrimitive()) list.add(e.getAsString());
+        }
         return list;
+    }
+
+    private static boolean safeQueryToken(String s) {
+        if (s == null || s.isBlank()) return false;
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == '"' || c == '\\' || c == '&' || c == '?' || c == '#' || c < 32) return false;
+        }
+        return true;
+    }
+
+    /** Get Mod Files 的 modLoaderType 是整数枚举，不是搜索接口的 "Fabric" 字符串。 */
+    static Integer modLoaderTypeId(String loader) {
+        if (loader == null || loader.isBlank()) return null;
+        return switch (loader.toLowerCase(java.util.Locale.ROOT)) {
+            case "forge" -> 1;
+            case "fabric" -> 4;
+            case "quilt" -> 5;
+            case "neoforge" -> 6;
+            default -> null;
+        };
     }
 
     private static String capitalize(String s) {
         if (s == null || s.isEmpty()) return s;
+        if ("neoforge".equalsIgnoreCase(s)) return "NeoForge";
         return Character.toUpperCase(s.charAt(0)) + s.substring(1).toLowerCase();
     }
 
+    private static String forgeCdnUrl(long fileId, String fileName) {
+        String encoded;
+        try {
+            encoded = java.net.URLEncoder.encode(fileName, java.nio.charset.StandardCharsets.UTF_8)
+                    .replace("+", "%20");
+        } catch (Exception e) {
+            encoded = fileName;
+        }
+        long n1 = fileId / 1000;
+        long n2 = fileId % 1000;
+        return "https://edge.forgecdn.net/files/" + n1 + "/" + n2 + "/" + encoded;
+    }
+
+    /** 从 jar 文件名取数字开头的末段，供 semver 比较；displayName 常含空格标题，不能当版本号。 */
+    static String versionHintFromFileName(String fileName) {
+        if (fileName == null || fileName.isBlank()) return "";
+        String base = fileName;
+        int dot = base.toLowerCase(java.util.Locale.ROOT).lastIndexOf(".jar");
+        if (dot > 0) base = base.substring(0, dot);
+        String[] parts = base.split("[-_]");
+        for (int i = parts.length - 1; i >= 0; i--) {
+            String p = parts[i];
+            if (p.isEmpty()) continue;
+            char c = p.charAt(0);
+            if (c >= '0' && c <= '9') return p;
+        }
+        return "";
+    }
+
     private static String safeStr(JsonObject o, String key) {
-        return o.has(key) && !o.get(key).isJsonNull() ? o.get(key).getAsString() : "";
+        if (!o.has(key) || o.get(key).isJsonNull()) return "";
+        JsonElement e = o.get(key);
+        if (e.isJsonPrimitive()) {
+            com.google.gson.JsonPrimitive p = e.getAsJsonPrimitive();
+            return p.isString() ? p.getAsString() : p.toString();
+        }
+        return "";
     }
 
     /**

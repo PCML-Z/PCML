@@ -58,6 +58,13 @@ public interface ModMarketClient {
     CompletableFuture<List<ModFile>> listFiles(String projectId);
 
     /**
+     * 按游戏版本 / 加载器过滤文件列表。默认忽略过滤（拉全量再由调用方筛选）。
+     */
+    default CompletableFuture<List<ModFile>> listFiles(String projectId, String gameVersion, String loader) {
+        return listFiles(projectId);
+    }
+
+    /**
      * 获取热门项目（按下载量/流行度排序，无关键字）。
      *
      * @param gameVersion 可选 MC 版本过滤，null 表示不过滤
@@ -76,4 +83,17 @@ public interface ModMarketClient {
      * 默认空实现，支持复用 DownloadManager http 客户端的客户端可覆盖。
      */
     default void updateHttpClient(OkHttpClient http) {}
+
+    /**
+     * 分页搜索。默认把 {@link #search} 结果包成单页。
+     */
+    default CompletableFuture<MarketSearchPage> searchPage(MarketSearchQuery query) {
+        String q = query != null ? query.getQuery() : "";
+        String gv = query != null ? query.getGameVersion() : null;
+        String loader = query != null ? query.getLoader() : null;
+        int limit = query != null ? query.getLimit() : 20;
+        int offset = query != null ? query.getOffset() : 0;
+        return search(q, gv, loader, limit)
+                .thenApply(list -> new MarketSearchPage(list, list.size(), offset, limit));
+    }
 }

@@ -119,9 +119,12 @@ fun ModsPage(vm: LauncherViewModel) {
     var statusFilter by remember { mutableStateOf(ModStatusFilter.ALL) }
     var toolsExpanded by remember { mutableStateOf(false) }
 
-    // 更新信息映射：modId → UpdateInfo
+    // 更新信息映射：jarPath 优先（同 modId 多份 jar 互不覆盖）
     val updateInfoMap = remember(modUpdates) {
-        modUpdates.associateBy { it.installed.modId ?: "" }
+        modUpdates.associateBy { info ->
+            val inst = info.installed
+            inst.jarPath?.takeIf { it.isNotBlank() } ?: inst.modId ?: ""
+        }
     }
     val updateCount = remember(modUpdates) { modUpdates.count { it.hasUpdate() } }
 
@@ -167,7 +170,7 @@ fun ModsPage(vm: LauncherViewModel) {
             ModStatusFilter.ENABLED -> list.filter { !it.isDisabled() }
             ModStatusFilter.DISABLED -> list.filter { it.isDisabled() }
             ModStatusFilter.UPDATES -> list.filter {
-                val info = updateInfoMap[it.getModId() ?: ""]
+                val info = updateInfoMap[modKey(it).ifEmpty { it.getModId() ?: "" }]
                 info != null && info.hasUpdate()
             }
         }
@@ -576,21 +579,21 @@ fun ModsPage(vm: LauncherViewModel) {
                 modifier = Modifier.weight(1f)
             ) {
                 itemsIndexed(processedMods, key = { idx, m ->
-                    // 修复：modId 不唯一（同一 mod 的多版本或内嵌依赖会重复，如 architectury），
-                    // 改用 jar 文件路径作为首选 key（文件系统保证唯一），回退到 modId+索引避免冲突。
-                    m.getJarFile() ?: (m.getModId() ?: m.toString()) + "#" + idx
+                    // jarPath 唯一；同名 jar 在不同目录不能用文件名当 key
+                    val k = modKey(m)
+                    k.ifEmpty { (m.getModId() ?: m.toString()) + "#" + idx }
                 }) { index, m ->
                     Box(Modifier.animateItemPlacement()) {
                         StaggeredAppear(index) {
-                            val updateInfo = updateInfoMap[m.getModId() ?: ""]
-                            val isSelected = selectionMode && (m.getJarFile() in selectedMods)
+                            val updateInfo = updateInfoMap[modKey(m).ifEmpty { m.getModId() ?: "" }]
+                            val isSelected = selectionMode && (modKey(m) in selectedMods)
                             ModRow(
                                 m, vm, translateEnabled, translationCache, updateInfo, updatingMod,
                                 selectionMode = selectionMode,
                                 isSelected = isSelected,
                                 onToggleSelect = {
-                                    val key = m.getJarFile()
-                                    if (key != null) {
+                                    val key = modKey(m)
+                                    if (key.isNotEmpty()) {
                                         selectedMods = if (key in selectedMods) selectedMods - key
                                                        else selectedMods + key
                                     }
@@ -653,20 +656,26 @@ fun ModsPage(vm: LauncherViewModel) {
 
     // 标签编辑对话框
     editingTagMod?.let { mod ->
-        val jarFile = mod.getJarFile() ?: ""
+        val key = modKey(mod)
         TagEditDialog(
-            modName = mod.getName() ?: jarFile,
+            modName = mod.getName() ?: key,
             initialTags = mod.getTags(),
             candidateTags = allTags,
             onDismiss = { editingTagMod = null },
             onConfirm = { tags ->
-                if (jarFile.isNotEmpty()) {
-                    vm.setModTags(jarFile, tags)
+                if (key.isNotEmpty()) {
+                    vm.setModTags(key, tags)
                 }
                 editingTagMod = null
             }
         )
     }
+}
+
+private fun modKey(m: ModMeta): String {
+    val path = m.jarPath
+    if (!path.isNullOrBlank()) return path
+    return m.getJarFile().orEmpty()
 }
 
 enum class ModSort {
@@ -721,7 +730,7 @@ private fun ModRow(
     }
 
     val shape = RoundedCornerShape(12.dp)
-    val jarKey = m.getJarFile()
+    val jarKey = modKey(m).ifEmpty { null }
     Surface(
         onClick = { if (selectionMode) onToggleSelect() else onShowDetail() },
         color = if (m.isDisabled()) glassContainerColor(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))

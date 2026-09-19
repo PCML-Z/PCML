@@ -18,14 +18,26 @@ import com.pmcl.core.mods.ModUpdateChecker
  * 自动从当前选中版本推断 gameVersion。
  */
 fun LauncherViewModel.checkModUpdates() {
-    val mods = _installedMods.value
+    val versionId = _selectedVersion.value
+        ?: instances.value.find { it.getInstanceId() == _selectedInstanceId.value }?.baseVersionId
+    val gameVersion = inferGameVersion(versionId)
+    val modsDir = try { currentModsDir() } catch (_: Throwable) { null }
+    val mods = if (modsDir != null) {
+        val dir = modsDir.toAbsolutePath().normalize()
+        _installedMods.value.filter { m ->
+            val path = m.jarPath
+            if (path.isNullOrBlank()) return@filter false
+            try {
+                java.nio.file.Path.of(path).toAbsolutePath().normalize().startsWith(dir)
+            } catch (_: Throwable) {
+                false
+            }
+        }
+    } else _installedMods.value
     if (mods.isEmpty()) {
         _status.value = I18n.t("status.no_installed_mods")
         return
     }
-    // 从选中版本推断 gameVersion
-    val versionId = _selectedVersion.value
-    val gameVersion = inferGameVersion(versionId)
     _updateGameVersion.value = gameVersion
 
     if (_checkingUpdates.value) return // 防止重复检测

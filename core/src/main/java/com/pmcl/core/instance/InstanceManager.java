@@ -42,9 +42,25 @@ public final class InstanceManager {
         return config.getWorkDir().resolve("instances");
     }
 
-    /** 获取指定实例的目录路径（校验 instanceId，防路径穿越） */
+    /** 新实例目录（按 ID 直接解析，不扫描）。 */
     public Path getInstanceDir(String instanceId) {
         return resolveSafeInstanceDir(instanceId);
+    }
+
+    /**
+     * 已存在实例的目录：先 {@code instances/<id>}，再按 instanceId 扫描
+     * （旧整合包用包名作目录，UUID 只在 metadata 里）。
+     */
+    public Path locateExistingInstanceDir(String instanceId) {
+        Path direct = resolveSafeInstanceDir(instanceId);
+        if (Files.isDirectory(direct)) return direct;
+        for (InstanceInfo info : listInstances()) {
+            if (instanceId.equals(info.getInstanceId()) && info.getInstanceDir() != null
+                    && Files.isDirectory(info.getInstanceDir())) {
+                return info.getInstanceDir();
+            }
+        }
+        return direct;
     }
 
     /**
@@ -106,7 +122,14 @@ public final class InstanceManager {
             }
             if (Files.exists(legacyMarker)) {
                 String json = Files.readString(legacyMarker, java.nio.charset.StandardCharsets.UTF_8);
-                return InstanceInfo.fromModpackJson(json, instanceDir);
+                InstanceInfo info = InstanceInfo.fromModpackJson(json, instanceDir);
+                try {
+                    saveInstanceInfo(info);
+                } catch (IOException saveErr) {
+                    System.err.println("[InstanceManager] 从 modpack.json 迁移 instance.json 失败 "
+                            + instanceDir + ": " + saveErr.getMessage());
+                }
+                return info;
             }
             // 无标记文件但存在 mods/ 子目录（versionIsolation 创建的目录）
             if (Files.isDirectory(instanceDir.resolve("mods"))) {
@@ -169,7 +192,7 @@ public final class InstanceManager {
      * @return 新实例信息
      */
     public InstanceInfo copyInstance(String sourceId, String newName) throws IOException {
-        Path sourceDir = getInstanceDir(sourceId);
+        Path sourceDir = locateExistingInstanceDir(sourceId);
         if (!Files.isDirectory(sourceDir)) throw new IOException("源实例不存在: " + sourceId);
 
         InstanceInfo source = loadInstanceInfo(sourceDir);
@@ -204,7 +227,7 @@ public final class InstanceManager {
 
     /** 重命名实例（仅修改 name 字段，目录名不变） */
     public void renameInstance(String instanceId, String newName) throws IOException {
-        Path dir = getInstanceDir(instanceId);
+        Path dir = locateExistingInstanceDir(instanceId);
         InstanceInfo info = loadInstanceInfo(dir);
         if (info == null) throw new IOException("实例不存在");
         info.setName(newName);
@@ -225,7 +248,7 @@ public final class InstanceManager {
      * @return 图标在实例目录中的相对路径（如 "icon.png"），失败返回空字符串
      */
     public String setInstanceIcon(String instanceId, Path sourceImage) throws IOException {
-        Path instanceDir = getInstanceDir(instanceId);
+        Path instanceDir = locateExistingInstanceDir(instanceId);
         if (!Files.isDirectory(instanceDir)) {
             throw new IOException("实例目录不存在: " + instanceId);
         }
@@ -256,7 +279,7 @@ public final class InstanceManager {
 
     /** 清除实例图标（删除图标文件并清空 iconPath） */
     public void clearInstanceIcon(String instanceId) throws IOException {
-        Path instanceDir = getInstanceDir(instanceId);
+        Path instanceDir = locateExistingInstanceDir(instanceId);
         if (!Files.isDirectory(instanceDir)) return;
         InstanceInfo info = loadInstanceInfo(instanceDir);
         if (info == null) return;
@@ -293,7 +316,7 @@ public final class InstanceManager {
 
     /** 删除实例（递归删除整个目录） */
     public void deleteInstance(String instanceId) throws IOException {
-        Path dir = getInstanceDir(instanceId);
+        Path dir = locateExistingInstanceDir(instanceId);
         if (Files.isDirectory(dir)) {
             deleteDirectory(dir);
         }
@@ -315,7 +338,7 @@ public final class InstanceManager {
 
     /** 获取实例目录（用于启动时设置 gameDir） */
     public Path resolveInstanceDir(String instanceId) {
-        return getInstanceDir(instanceId);
+        return locateExistingInstanceDir(instanceId);
     }
 
     /** 确保实例子目录存在 */
@@ -334,7 +357,7 @@ public final class InstanceManager {
      * @throws IOException 导出失败
      */
     public int exportInstance(String instanceId, Path outputPath) throws IOException {
-        Path dir = getInstanceDir(instanceId);
+        Path dir = locateExistingInstanceDir(instanceId);
         if (!Files.isDirectory(dir)) throw new IOException("实例不存在: " + instanceId);
         InstanceInfo info = loadInstanceInfo(dir);
         if (info == null) throw new IOException("无法读取实例元数据");

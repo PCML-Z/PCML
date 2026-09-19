@@ -749,7 +749,8 @@ class PmclHostServer(
 
                 val selectedVersion = vm.selectedVersion.value
                 core.modMarket().installMod(
-                    modFile, targetMcVersion, selectedVersion, core.getPreferences()
+                    modFile, targetMcVersion, selectedVersion, vm.selectedInstanceId.value,
+                    core.getPreferences()
                 ) { msg ->
                     broadcastInstallProgress(taskId, "installing", 0.5, msg)
                 }.join()

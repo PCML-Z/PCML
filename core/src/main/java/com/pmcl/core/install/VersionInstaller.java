@@ -39,6 +39,9 @@ public final class VersionInstaller {
     private final LauncherConfig config;
     private final VersionManager versionManager;
     private final DownloadManager downloadManager;
+    /** 同一 versionId 安装互斥，避免两个整合包同时写 {id}.staging */
+    private final java.util.concurrent.ConcurrentHashMap<String, Object> installLocks =
+            new java.util.concurrent.ConcurrentHashMap<>();
 
     public VersionInstaller(LauncherConfig config,
                             VersionManager versionManager,
@@ -57,6 +60,8 @@ public final class VersionInstaller {
     public CompletableFuture<Void> install(String versionId,
                                            Consumer<InstallProgress> onProgress) {
         return CompletableFuture.runAsync(() -> {
+            Object lock = installLocks.computeIfAbsent(versionId, k -> new Object());
+            synchronized (lock) {
             Path stagingDir = config.getVersionsDir().resolve(versionId + STAGING_SUFFIX);
             try {
                 VersionStaging.assertSafeVersionId(versionId);
@@ -74,6 +79,7 @@ public final class VersionInstaller {
                     onProgress.accept(new InstallProgress(
                             InstallProgress.Stage.FAILED, 0, 0, detail));
                 throw new RuntimeException("安装失败: " + versionId + " — " + detail, e);
+            }
             }
         });
     }

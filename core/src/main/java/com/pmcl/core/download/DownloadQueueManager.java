@@ -290,6 +290,10 @@ public final class DownloadQueueManager {
      * 提交模组下载任务。
      */
     public String submitModDownload(ModFile modFile, String gameVersion, String versionId) {
+        return submitModDownload(modFile, gameVersion, versionId, null);
+    }
+
+    public String submitModDownload(ModFile modFile, String gameVersion, String versionId, String instanceId) {
         String displayName = modFile.getFileName();
         QueueTask task = new QueueTask(UUID.randomUUID().toString(),
                 displayName, TaskType.MOD_DOWNLOAD);
@@ -298,7 +302,7 @@ public final class DownloadQueueManager {
         task.eventModName = modFile.getFileName();
         task.eventModVersion = modFile.getFileId() != null ? modFile.getFileId() : displayName;
         addTask(task);
-        schedule(task, () -> runModDownload(task, modFile, gameVersion, versionId));
+        schedule(task, () -> runModDownload(task, modFile, gameVersion, versionId, instanceId));
         return task.id;
     }
 
@@ -733,10 +737,10 @@ public final class DownloadQueueManager {
     }
 
     private void runModDownload(QueueTask task, ModFile modFile,
-                                String gameVersion, String versionId) {
-        storeResumeWork(task.id, () -> runModDownload(task, modFile, gameVersion, versionId));
+                                String gameVersion, String versionId, String instanceId) {
+        storeResumeWork(task.id, () -> runModDownload(task, modFile, gameVersion, versionId, instanceId));
         try {
-            modMarketManager.installMod(modFile, gameVersion, versionId, preferences, status -> {
+            modMarketManager.installMod(modFile, gameVersion, versionId, instanceId, preferences, status -> {
                 throwIfTaskInterrupted(task);
                 task.message = status;
                 notifyProgress(task);

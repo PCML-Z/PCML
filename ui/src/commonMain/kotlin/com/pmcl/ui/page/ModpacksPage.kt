@@ -195,7 +195,7 @@ fun ModpacksPage(vm: LauncherViewModel) {
                 contentPadding = PaddingValues(bottom = 16.dp)
             ) {
                 itemsIndexed(filteredModpacks, key = { _, m -> m.instanceDir.toString() }) { _, mp ->
-                    val isSelected = selectionMode && mp.name in selectedModpacks
+                    val isSelected = selectionMode && mp.directoryName in selectedModpacks
                     ModpackCard(
                         vm = vm,
                         mp = mp,
@@ -204,8 +204,8 @@ fun ModpacksPage(vm: LauncherViewModel) {
                         selectionMode = selectionMode,
                         isSelected = isSelected,
                         onToggleSelect = {
-                            selectedModpacks = if (mp.name in selectedModpacks) selectedModpacks - mp.name
-                                               else selectedModpacks + mp.name
+                            selectedModpacks = if (mp.directoryName in selectedModpacks) selectedModpacks - mp.directoryName
+                                               else selectedModpacks + mp.directoryName
                         },
                         onShowDetail = { detailModpack = mp },
                         filterGameVersion = filterGameVersion,
@@ -376,7 +376,7 @@ private fun ModpackCard(
             // 检查更新 + 删除按钮（批量模式下隐藏）
             if (!selectionMode) {
                 IconButton(
-                    onClick = { vm.checkModpackUpdates(mp.name) },
+                    onClick = { vm.checkModpackUpdates(mp.directoryName) },
                     enabled = !busy && !updateChecking
                 ) {
                     if (updateChecking) {
@@ -402,7 +402,7 @@ private fun ModpackCard(
             confirmButton = {
                 TextButton(onClick = {
                     showDeleteConfirm = false
-                    vm.deleteModpack(mp.name)
+                    vm.deleteModpack(mp.directoryName)
                 }) { Text(I18n.t("common.delete"), color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = {
