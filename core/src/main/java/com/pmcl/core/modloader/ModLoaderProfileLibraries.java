@@ -6,8 +6,11 @@ import com.pmcl.core.install.Library;
 import com.pmcl.core.install.VersionJson;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
@@ -95,11 +98,7 @@ final class ModLoaderProfileLibraries {
             }
             try {
                 Files.createDirectories(d.dest.getParent());
-                if (d.sha1 != null && !d.sha1.isBlank()) {
-                    downloads.downloadToVerified(d.url, d.dest, d.sha1, null);
-                } else {
-                    downloads.downloadTo(d.url, d.dest);
-                }
+                com.pmcl.core.download.MavenSidecar.downloadVerified(downloads, d.url, d.dest, d.sha1);
                 done++;
             } catch (IOException e) {
                 failed.add(d.name + ": " + e.getMessage());
@@ -124,15 +123,32 @@ final class ModLoaderProfileLibraries {
         return null;
     }
 
-    private static boolean isHealthy(Path file, String sha1) {
+    static boolean isHealthy(Path file, String sha1) {
         try {
             if (!Files.isRegularFile(file) || Files.size(file) < 32) return false;
             if (sha1 == null || sha1.isBlank()) return true;
-            // 有 sha1 时交给 downloadToVerified 在缺失/损坏时重下；此处仅存在性快速路径
-            return true;
+            return sha1.equalsIgnoreCase(sha1Hex(file));
         } catch (IOException e) {
             return false;
         }
+    }
+
+    private static String sha1Hex(Path file) throws IOException {
+        MessageDigest md;
+        try {
+            md = MessageDigest.getInstance("SHA-1");
+        } catch (NoSuchAlgorithmException e) {
+            throw new IOException(e);
+        }
+        try (InputStream in = Files.newInputStream(file)) {
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) > 0) md.update(buf, 0, n);
+        }
+        byte[] dig = md.digest();
+        StringBuilder sb = new StringBuilder(dig.length * 2);
+        for (byte b : dig) sb.append(String.format("%02x", b & 0xff));
+        return sb.toString();
     }
 
     private static final class LibDownload {

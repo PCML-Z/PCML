@@ -3858,6 +3858,7 @@ private fun DeviceBindingCard(vm: LauncherViewModel, pref: com.pmcl.core.prefere
                                     pref.setDeviceProtectionLicense(result.license)
                                     pref.setDeviceProtectionLocalKey(result.localKeyEnc)
                                     pref.setDeviceProtectionDeviceHash(result.deviceCodeHash)
+                                    pref.setDeviceProtectionEnforced(true)
                                     exportedKeyForDisplay = result.exportedKey
                                     configured = true
                                     protectionEnabled = true
@@ -3927,6 +3928,7 @@ private fun DeviceBindingCard(vm: LauncherViewModel, pref: com.pmcl.core.prefere
                                             statusMsg = "失败：私钥不匹配或密码错误"
                                         } else {
                                             pref.setDeviceProtectionLicense(newLicense)
+                                            pref.setDeviceProtectionEnforced(false)
                                             protectionEnabled = false
                                             showDisableDialog = false
                                             statusMsg = "保护已关闭"
@@ -3942,6 +3944,7 @@ private fun DeviceBindingCard(vm: LauncherViewModel, pref: com.pmcl.core.prefere
                                             pref.setDeviceProtectionLicense(result.license)
                                             pref.setDeviceProtectionLocalKey(result.localKeyEnc)
                                             pref.setDeviceProtectionDeviceHash(result.deviceCodeHash)
+                                            pref.setDeviceProtectionEnforced(true)
                                             protectionEnabled = true
                                             showDisableDialog = false
                                             statusMsg = "保护已重新开启，已绑定到当前设备"

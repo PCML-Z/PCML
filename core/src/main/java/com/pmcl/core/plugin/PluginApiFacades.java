@@ -47,6 +47,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Consumer;
@@ -363,7 +364,16 @@ final class PluginApiFacades {
                 if (versionId == null || versionId.isBlank()) {
                     return "Instance has no base version";
                 }
-                return requestLaunch(versionId);
+                Consumer<String> handler = manager.getLaunchInstanceRequestHandler();
+                if (handler == null) {
+                    return "Host UI has not registered an instance launch handler";
+                }
+                try {
+                    handler.accept(instanceId);
+                    return null;
+                } catch (Exception e) {
+                    return e.getMessage() != null ? e.getMessage() : "launch instance request failed";
+                }
             }
 
             @Override
@@ -1667,8 +1677,18 @@ final class PluginApiFacades {
                 gate.require("READ_CRASH_LOGS");
                 try {
                     List<com.pmcl.plugin.api.CrashReportSummary> out = new ArrayList<>();
-                    for (var r : core.crashAnalyzer().scanReports(core.getConfig().getWorkDir())) {
-                        out.add(toCrashSummary(r));
+                    LinkedHashSet<String> seen = new LinkedHashSet<>();
+                    List<Path> dirs = new ArrayList<>();
+                    dirs.add(core.getConfig().getWorkDir());
+                    for (InstanceInfo i : core.instances().listInstances()) {
+                        if (i.getInstanceDir() != null) dirs.add(i.getInstanceDir());
+                    }
+                    for (Path dir : dirs) {
+                        for (var r : core.crashAnalyzer().scanReports(dir)) {
+                            String key = r.getFile() != null ? r.getFile().toString() : null;
+                            if (key == null || !seen.add(key)) continue;
+                            out.add(toCrashSummary(r));
+                        }
                     }
                     return out;
                 } catch (Exception e) {

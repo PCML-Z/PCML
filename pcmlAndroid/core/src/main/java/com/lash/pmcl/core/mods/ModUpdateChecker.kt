@@ -33,7 +33,7 @@ import java.util.function.Consumer
 class ModUpdateChecker(
     private val modsDir: Path,
     private val modrinthClient: ModrinthClient,
-    private val curseForgeClient: CurseForgeClient,
+    private val curseForgeClient: CurseForgeClient?,
     private val downloadManager: DownloadManager,
     private val executor: ExecutorService
 ) {
@@ -127,7 +127,8 @@ class ModUpdateChecker(
     }
 
     /** 获取市场客户端列表 */
-    private fun getMarketClients(): List<ModMarketClient> = listOf(modrinthClient, curseForgeClient)
+    private fun getMarketClients(): List<ModMarketClient> =
+        listOfNotNull(modrinthClient, curseForgeClient)
 
     /**
      * 在单个市场客户端上检测更新。
@@ -322,11 +323,10 @@ class ModUpdateChecker(
         Files.createDirectories(modsAbs)
         val sha1 = modFile.getSha1()
         val sha512 = modFile.getSha512()
-        if (!sha1.isNullOrEmpty() || !sha512.isNullOrEmpty()) {
-            downloadManager.downloadToVerified(modFile.downloadUrl, target, sha1, sha512)
-        } else {
-            downloadManager.downloadTo(modFile.downloadUrl, target)
+        if (sha1.isNullOrEmpty() && sha512.isNullOrEmpty()) {
+            throw IOException("模组无完整性哈希，拒绝下载: ${modFile.fileName}")
         }
+        downloadManager.downloadToVerified(modFile.downloadUrl, target, sha1, sha512)
     }
 
     /**

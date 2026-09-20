@@ -63,12 +63,8 @@ class LaunchProfileBuilder(
             profile.setMainClass(vj.mainClass)
         }
 
-        // 3. classpath：client.jar + libraries 主 artifact
-        val versionDir = paths.versions.resolve(versionId)
-        val clientJar = versionDir.resolve("$versionId.jar")
-        if (Files.exists(clientJar)) {
-            profile.addClasspath(clientJar)
-        }
+        // 3. classpath：继承链上的 version jar（原版 client 在父目录，不要用子 id 的原版拷贝）
+        addInheritedClasspath(profile, versionId, vj)
 
         for (lib in vj.libraries) {
             if (!lib.appliesToCurrentOs()) continue
@@ -101,6 +97,57 @@ class LaunchProfileBuilder(
         profile.setGameDir(GameDirResolver(paths, preferences).resolveGameDir(versionId))
 
         return profile
+    }
+
+    private fun addInheritedClasspath(profile: LaunchProfile, versionId: String, merged: VersionJson) {
+        val usesBootstrap = merged.mainClass.lowercase().contains("bootstraplauncher")
+        val seen = mutableSetOf<String>()
+        var current = versionId
+        while (current.isNotEmpty() && seen.add(current)) {
+            val raw = loadRawVersionJson(current)
+            val jar = paths.versions.resolve(current).resolve("$current.jar")
+            if (Files.exists(jar) && shouldAddVersionJar(raw, jar, merged.clientArtifact)) {
+                profile.addClasspath(jar)
+            }
+            if (usesBootstrap) break
+            val parent = raw?.inheritsFrom
+            if (parent.isNullOrEmpty() || parent == current) break
+            current = parent
+        }
+    }
+
+    private fun loadRawVersionJson(versionId: String): VersionJson? {
+        val jsonPath = findVersionJson(versionId) ?: return null
+        return try {
+            VersionJson.parse(FileUtils.readString(jsonPath))
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun shouldAddVersionJar(
+        raw: VersionJson?,
+        jar: Path,
+        mergedClient: VersionJson.Artifact?
+    ): Boolean {
+        if (raw?.clientArtifact != null) return true
+        val want = mergedClient?.sha1
+        if (want.isNullOrBlank()) return true
+        return !want.equals(sha1File(jar), ignoreCase = true)
+    }
+
+    private fun sha1File(file: Path): String {
+        return try {
+            val md = java.security.MessageDigest.getInstance("SHA-1")
+            Files.newInputStream(file).use { inp ->
+                val buf = ByteArray(8192)
+                var n: Int
+                while (inp.read(buf).also { n = it } > 0) md.update(buf, 0, n)
+            }
+            md.digest().joinToString("") { b -> "%02x".format(b) }
+        } catch (_: Exception) {
+            ""
+        }
     }
 
     /**

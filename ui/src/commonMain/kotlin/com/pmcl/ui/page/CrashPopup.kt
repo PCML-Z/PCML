@@ -153,7 +153,7 @@ fun GameCrashPopup(vm: LauncherViewModel) {
                     Spacer(Modifier.height(8.dp))
                     recoveryActions.take(4).forEach { action ->
                         Surface(
-                            onClick = { vm.executeRecoveryAction(action, ev.versionId) },
+                            onClick = { vm.executeRecoveryAction(action, ev.versionId, ev.instanceId) },
                             shape = RoundedCornerShape(6.dp),
                             color = Color.White.copy(alpha = 0.12f),
                             modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)

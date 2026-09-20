@@ -136,6 +136,8 @@ public final class Preferences {
     private String deviceProtectionPublicKey = ""; // RSA 公钥 Base64（用于验签）
     private String deviceProtectionLocalKey = "";  // 私钥本地副本（设备码加密）
     private String deviceProtectionDeviceHash = ""; // 绑定的设备码哈希（用于 UI 显示绑定设备）
+    /** 用户通过设置页开启保护后为 true；官方关闭流程才会清掉。清空许可证字段不能绕过。 */
+    private boolean deviceProtectionEnforced = false;
 
     // ===== Metal 渲染（macOS Apple Silicon 专用）=====
     // 开启时自动下载 MetalRender mod + Sodium + Fabric API + ModMenu 到 mods 目录，
@@ -647,6 +649,14 @@ public final class Preferences {
         if (!isDeviceProtectionConfigured()) return false;
         return com.pmcl.core.auth.DeviceBinder.isLicenseEnabled(deviceProtectionLicense);
     }
+    /** 启动前是否强制校验设备保护（与许可证字段是否被清空无关） */
+    public synchronized boolean shouldEnforceDeviceProtection() {
+        return deviceProtectionEnforced;
+    }
+    public synchronized void setDeviceProtectionEnforced(boolean v) {
+        deviceProtectionEnforced = v;
+        scheduleSave();
+    }
     public synchronized String getDeviceProtectionLicense() { return deviceProtectionLicense; }
     public synchronized void setDeviceProtectionLicense(String v) {
         deviceProtectionLicense = v == null ? "" : v; scheduleSave();
@@ -952,6 +962,11 @@ public final class Preferences {
             deviceProtectionPublicKey = loadString(o, "deviceProtectionPublicKey", "");
             deviceProtectionLocalKey = loadString(o, "deviceProtectionLocalKey", "");
             deviceProtectionDeviceHash = loadString(o, "deviceProtectionDeviceHash", "");
+            deviceProtectionEnforced = loadBool(o, "deviceProtectionEnforced", false);
+            if (!deviceProtectionEnforced && isDeviceProtectionEnabled()) {
+                deviceProtectionEnforced = true;
+                scheduleSave();
+            }
         } catch (Exception e) {
             // 标量字段加载异常（理论上 loadInt/loadBool 等已有内部 try-catch，此处为兜底）
             System.err.println("[Preferences] 标量字段加载异常（将单独重试关键字段）: " + e.getMessage());
@@ -966,6 +981,7 @@ public final class Preferences {
                 deviceProtectionPublicKey = loadString(o, "deviceProtectionPublicKey", deviceProtectionPublicKey);
                 deviceProtectionLocalKey = loadString(o, "deviceProtectionLocalKey", deviceProtectionLocalKey);
                 deviceProtectionDeviceHash = loadString(o, "deviceProtectionDeviceHash", deviceProtectionDeviceHash);
+                deviceProtectionEnforced = loadBool(o, "deviceProtectionEnforced", deviceProtectionEnforced);
             } catch (Exception e2) {
                 System.err.println("[Preferences] 关键字段恢复失败: " + e2.getMessage());
             }
@@ -1269,6 +1285,7 @@ public final class Preferences {
         o.addProperty("deviceProtectionPublicKey", deviceProtectionPublicKey);
         o.addProperty("deviceProtectionLocalKey", deviceProtectionLocalKey);
         o.addProperty("deviceProtectionDeviceHash", deviceProtectionDeviceHash);
+        o.addProperty("deviceProtectionEnforced", deviceProtectionEnforced);
         JsonObject presetsObj = new JsonObject();
         for (var entry : launchPresets.entrySet()) {
             LaunchPreset p = entry.getValue();

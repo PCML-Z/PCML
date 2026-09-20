@@ -3,7 +3,7 @@ package com.lash.pmcl.core.launch
 import com.google.gson.JsonParser
 import com.lash.pmcl.core.paths.PmclPaths
 import com.lash.pmcl.core.preferences.Preferences
-import java.nio.charset.StandardCharsets
+import com.lash.pmcl.core.util.FileUtils
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
@@ -88,7 +88,7 @@ class GameDirResolver(
                     }
                 }
             }
-            Files.writeString(marker, "1", StandardCharsets.UTF_8)
+            FileUtils.writeString(marker, "1")
         } catch (e: Exception) {
             System.err.println("[GameDirResolver] 灌入隔离目录失败 $instanceDir: ${e.message}")
         }
@@ -134,7 +134,7 @@ class GameDirResolver(
         val json = versionDir.resolve("$versionId.json")
         if (!Files.isRegularFile(json)) return null
         return try {
-            val root = JsonParser.parseString(Files.readString(json)).asJsonObject
+            val root = JsonParser.parseString(FileUtils.readString(json)).asJsonObject
             if (root.has("inheritsFrom") && !root.get("inheritsFrom").isJsonNull) {
                 root.get("inheritsFrom").asString?.takeIf { it.isNotBlank() }
             } else null

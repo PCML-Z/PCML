@@ -110,7 +110,16 @@ internal object ModLoaderProfileLibraries {
                 if (!d.sha1.isNullOrBlank()) {
                     downloads.downloadToVerified(d.url, d.dest, d.sha1, null)
                 } else {
-                    downloads.downloadTo(d.url, d.dest)
+                    val sidecar = try {
+                        val body = downloads.downloadString(d.url + ".sha1").trim()
+                        body.split(Regex("\\s+")).firstOrNull()?.takeIf {
+                            it.matches(Regex("[0-9a-fA-F]{40}"))
+                        }
+                    } catch (_: Exception) { null }
+                    if (sidecar.isNullOrBlank()) {
+                        throw IOException("无 SHA-1 且旁路 .sha1 不可用，拒绝下载: ${d.url}")
+                    }
+                    downloads.downloadToVerified(d.url, d.dest, sidecar, null)
                 }
                 done++
             } catch (e: IOException) {
@@ -138,10 +147,20 @@ internal object ModLoaderProfileLibraries {
     private fun isHealthy(file: Path, sha1: String?): Boolean {
         return try {
             if (!Files.isRegularFile(file) || Files.size(file) < 32) return false
-            // 有 sha1 时交给 downloadToVerified 在缺失/损坏时重下；此处仅存在性快速路径
-            true
+            if (sha1.isNullOrBlank()) return true
+            sha1.equals(sha1Hex(file), ignoreCase = true)
         } catch (e: IOException) {
             false
         }
+    }
+
+    private fun sha1Hex(file: Path): String {
+        val md = java.security.MessageDigest.getInstance("SHA-1")
+        Files.newInputStream(file).use { inp ->
+            val buf = ByteArray(8192)
+            var n: Int
+            while (inp.read(buf).also { n = it } > 0) md.update(buf, 0, n)
+        }
+        return md.digest().joinToString("") { b -> "%02x".format(b) }
     }
 }

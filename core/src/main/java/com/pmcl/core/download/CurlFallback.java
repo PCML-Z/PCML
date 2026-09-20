@@ -246,6 +246,9 @@ public final class CurlFallback {
         requireSsrfSafe(initialUrl);
         String currentUrl = initialUrl;
         for (int i = 0; i <= MAX_REDIRECTS; i++) {
+            if (Thread.currentThread().isInterrupted()) {
+                throw new IOException("curl 被中断");
+            }
             List<String> cmd = cmdBuilder.apply(currentUrl);
             CurlResponse resp = executeCurl(cmd, maxStdout, timeoutMs);
             if (resp.isRedirect()) {

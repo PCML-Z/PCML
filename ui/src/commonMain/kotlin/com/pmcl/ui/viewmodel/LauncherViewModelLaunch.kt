@@ -736,7 +736,7 @@ fun LauncherViewModel.launch(
 
             // 记录启动前的崩溃报告快照（gameDir + 工作目录，隔离后报告不在 ~/.pmcl 根下）
             val crashDirBefore = withContext(Dispatchers.IO) {
-                snapshotCrashReportPaths(versionId)
+                snapshotCrashReportPaths(versionId, snapDir)
             }
             val crashLiveShown = java.util.concurrent.atomic.AtomicBoolean(false)
             val crashSession = crashSessionSeq.incrementAndGet()
@@ -863,7 +863,7 @@ fun LauncherViewModel.launch(
             if (exitCode != 0 || liveOpen) {
                 val report = withContext(Dispatchers.IO) {
                     try {
-                        val newer = findNewCrashReport(versionId, crashDirBefore)
+                        val newer = findNewCrashReport(versionId, crashDirBefore, snapDir)
                         if (newer != null) newer
                         else {
                             val logText = recentLogs.joinToString("\n")
@@ -895,7 +895,7 @@ fun LauncherViewModel.launch(
                 }
                 _crashReports.value = withContext(Dispatchers.IO) {
                     try {
-                        snapshotCrashReports(versionId)
+                        snapshotCrashReports(versionId, snapDir)
                     } catch (t: kotlinx.coroutines.CancellationException) { throw t }
                     catch (_: Throwable) { emptyList() }
                 }
@@ -1019,15 +1019,41 @@ fun LauncherViewModel.openGameLogFolder() {
 }
 
 @PublishedApi
-internal fun LauncherViewModel.snapshotCrashReportPaths(versionId: String): Set<String> {
-    return snapshotCrashReports(versionId).mapNotNull { it.file?.toString() }.toSet()
+internal fun LauncherViewModel.snapshotCrashReportPaths(
+    versionId: String,
+    extraDir: java.nio.file.Path? = null
+): Set<String> {
+    return snapshotCrashReports(versionId, extraDir).mapNotNull { it.file?.toString() }.toSet()
 }
 
 @PublishedApi
-internal fun LauncherViewModel.snapshotCrashReports(versionId: String): List<com.pmcl.core.launch.CrashAnalyzer.CrashReport> {
+internal fun LauncherViewModel.snapshotCrashReports(
+    versionId: String,
+    extraDir: java.nio.file.Path? = null
+): List<com.pmcl.core.launch.CrashAnalyzer.CrashReport> {
     val dirs = linkedSetOf<java.nio.file.Path>()
+    extraDir?.let { dirs.add(it) }
     try { dirs.add(core.profileBuilder().resolveGameDirectory(versionId)) } catch (_: Throwable) {}
     dirs.add(config.getWorkDir())
+    return scanCrashDirs(dirs)
+}
+
+@PublishedApi
+internal fun LauncherViewModel.scanAllCrashReports(versionId: String?): List<com.pmcl.core.launch.CrashAnalyzer.CrashReport> {
+    val dirs = linkedSetOf<java.nio.file.Path>()
+    dirs.add(config.getWorkDir())
+    if (!versionId.isNullOrBlank()) {
+        try { dirs.add(core.profileBuilder().resolveGameDirectory(versionId)) } catch (_: Throwable) {}
+    }
+    for (info in instances.value) {
+        info.getInstanceDir()?.let { dirs.add(it) }
+    }
+    return scanCrashDirs(dirs)
+}
+
+private fun LauncherViewModel.scanCrashDirs(
+    dirs: Iterable<java.nio.file.Path>
+): List<com.pmcl.core.launch.CrashAnalyzer.CrashReport> {
     val seen = linkedSetOf<String>()
     val out = mutableListOf<com.pmcl.core.launch.CrashAnalyzer.CrashReport>()
     for (dir in dirs) {
@@ -1044,9 +1070,10 @@ internal fun LauncherViewModel.snapshotCrashReports(versionId: String): List<com
 @PublishedApi
 internal fun LauncherViewModel.findNewCrashReport(
     versionId: String,
-    before: Set<String>
+    before: Set<String>,
+    extraDir: java.nio.file.Path? = null
 ): com.pmcl.core.launch.CrashAnalyzer.CrashReport? {
-    return snapshotCrashReports(versionId).firstOrNull { r ->
+    return snapshotCrashReports(versionId, extraDir).firstOrNull { r ->
         val p = r.file?.toString() ?: return@firstOrNull false
         p !in before
     }
@@ -1067,7 +1094,11 @@ fun LauncherViewModel.generateSupportPack(targetPath: String, versionId: String)
             }
             withContext(Dispatchers.IO) {
                 val gameDir = try {
-                    core.profileBuilder().resolveGameDirectory(versionId)
+                    val instId = _crashEvent.value?.takeIf { it.versionId == versionId }?.instanceId
+                    val instDir = instId?.let { id ->
+                        instances.value.find { it.getInstanceId() == id }?.getInstanceDir()
+                    }
+                    core.profileBuilder().resolveGameDirectory(versionId, instDir)
                 } catch (_: Throwable) { config.getWorkDir() }
                 com.pmcl.core.launch.SupportPackGenerator.write(
                     java.nio.file.Paths.get(targetPath),

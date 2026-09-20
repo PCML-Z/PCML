@@ -526,7 +526,7 @@ unloadPlugin(id)
 ### 12.4 宿主侧的防护兜底
 
 - **线程**：插件代码一律在插件 `ThreadGroup` 内执行；卸载时 `interrupt` → 限时 `join`
-  → 仍存活则 `Thread.stop()`（deprecated，最后手段）并 drop CCL。
+  → 仍存活则协作放弃该线程（标 daemon、丢弃 CCL），不再调用 `Thread.stop()`。
 - **ClassLoader**：`unloadPlugin` 显式 `close()` 释放 jar 句柄，再用
   `PhantomReference` 跟踪回收情况。
 - **CCL 污染**：宿主调用插件任务时保存/恢复当前线程的 contextClassLoader，

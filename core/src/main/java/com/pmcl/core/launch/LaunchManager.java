@@ -79,8 +79,8 @@ public final class LaunchManager {
         if (profile == null) {
             return "[PMCL] 启动配置为空，已取消";
         }
-        // 设备绑定保护：开启时设备不匹配则拒绝
-        if (preferences != null && preferences.isDeviceProtectionEnabled()) {
+        // 设备保护：开启标记或许可证字段残留时 fail-closed，清空字段不能绕过
+        if (preferences != null && preferences.shouldEnforceDeviceProtection()) {
             boolean allowed = com.pmcl.core.auth.DeviceBinder.verifyOnLaunch(
                     preferences.getDeviceProtectionLicense(),
                     preferences.getDeviceProtectionPublicKey());

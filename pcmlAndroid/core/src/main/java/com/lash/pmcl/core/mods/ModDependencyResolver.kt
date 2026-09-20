@@ -1,14 +1,14 @@
 package com.lash.pmcl.core.mods
 
+import com.lash.pmcl.core.download.DownloadManager
+import com.lash.pmcl.core.launch.GameDirResolver
 import com.lash.pmcl.core.market.ModFile
 import com.lash.pmcl.core.market.ModrinthClient
+import com.lash.pmcl.core.paths.PmclPaths
+import com.lash.pmcl.core.preferences.Preferences
 import java.io.IOException
-import java.net.HttpURLConnection
-import java.net.URI
 import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.StandardCopyOption
-import java.security.MessageDigest
 import java.util.ArrayList
 import java.util.HashSet
 import java.util.concurrent.CompletableFuture
@@ -30,7 +30,10 @@ import java.util.function.Consumer
 class ModDependencyResolver(
     private val modsDir: Path,
     private val modrinthClient: ModrinthClient,
-    private val executor: ExecutorService
+    private val executor: ExecutorService,
+    private val downloadManager: DownloadManager,
+    private val paths: PmclPaths? = null,
+    private val preferences: Preferences? = null
 ) {
 
     /**
@@ -85,7 +88,7 @@ class ModDependencyResolver(
      *
      * @param modFile     要安装的模组文件
      * @param gameVersion 目标 MC 版本
-     * @param versionId   版本 ID（Android 版不再用于路径解析，保留以维持 API 兼容），可为 null
+     * @param versionId   版本 ID（有则安装到该版本/实例 mods 目录）
      * @param onStatus    状态回调，可为 null
      * @return 依赖安装结果
      */
@@ -101,10 +104,11 @@ class ModDependencyResolver(
             val notFound = ArrayList<String>()
             val processing = HashSet<String>()
 
+            val destDir = resolveDestModsDir(versionId)
             try {
                 // 1. 安装主模组
                 onStatus?.accept("正在下载: ${modFile.fileName}")
-                downloadAndInstall(modFile, onStatus)
+                downloadAndInstall(modFile, destDir, onStatus)
 
                 // 2. 优先使用 API 提供的依赖信息（无需解析 jar）
                 var deps: List<String>? = modFile.getDependencies()
@@ -112,7 +116,7 @@ class ModDependencyResolver(
 
                 if (deps.isNullOrEmpty()) {
                     // API 未提供依赖信息，回退到解析 jar 内元数据
-                    val jarPath = modsDir.resolve(modFile.fileName)
+                    val jarPath = destDir.resolve(modFile.fileName)
                     if (!Files.exists(jarPath)) {
                         return@supplyAsync DependencyResult(
                             modName, installed, skippedInstalled, skippedSystem, failed, notFound
@@ -136,12 +140,12 @@ class ModDependencyResolver(
                 onStatus?.accept("检测到 ${deps.size} 个依赖，开始解析...")
 
                 // 3. 递归处理依赖（仅在此处调用一次 getInstalledModIds，递归内增量更新集合）
-                val installedModIds = getInstalledModIds()
+                val installedModIds = getInstalledModIds(destDir)
                 val preferredLoaders = modFile.getLoaders()
                 resolveDependencies(
                     deps, gameVersion, preferredLoaders, processing,
                     installed, skippedInstalled, skippedSystem, failed, notFound,
-                    onStatus, 0, installedModIds
+                    onStatus, 0, installedModIds, destDir
                 )
             } catch (e: Throwable) {
                 failed.add("${modFile.fileName}: ${e.message}")
@@ -174,7 +178,7 @@ class ModDependencyResolver(
         installed: ArrayList<String>, skippedInstalled: ArrayList<String>,
         skippedSystem: ArrayList<String>, failed: ArrayList<String>,
         notFound: ArrayList<String>, onStatus: Consumer<String>?,
-        depth: Int, installedModIds: HashSet<String>
+        depth: Int, installedModIds: HashSet<String>, destDir: Path
     ) {
         if (depth > 10) return  // 防止无限递归
 
@@ -215,12 +219,12 @@ class ModDependencyResolver(
 
                 // 下载安装依赖
                 onStatus?.accept("安装依赖: ${depFile.fileName}")
-                downloadAndInstall(depFile, null)
+                downloadAndInstall(depFile, destDir, onStatus)
                 installed.add(depId)
                 installedModIds.add(depId)  // 更新已安装集合
 
                 // 递归解析依赖的依赖（沿用父侧 preferredLoaders）
-                val depJarPath = modsDir.resolve(depFile.fileName)
+                val depJarPath = destDir.resolve(depFile.fileName)
                 if (Files.exists(depJarPath)) {
                     val depMeta = ModScanner.parseJar(depJarPath)
                     if (depMeta.depends.isNotEmpty()) {
@@ -229,7 +233,7 @@ class ModDependencyResolver(
                         resolveDependencies(
                             depMeta.depends, gameVersion, nextLoaders, processing,
                             installed, skippedInstalled, skippedSystem, failed, notFound,
-                            onStatus, depth + 1, installedModIds
+                            onStatus, depth + 1, installedModIds, destDir
                         )
                     }
                 }
@@ -289,11 +293,11 @@ class ModDependencyResolver(
     /**
      * 获取已安装 mod 的 modId 集合。
      */
-    private fun getInstalledModIds(): HashSet<String> {
+    private fun getInstalledModIds(dir: Path): HashSet<String> {
         val ids = HashSet<String>()
-        if (!Files.isDirectory(modsDir)) return ids
+        if (!Files.isDirectory(dir)) return ids
         try {
-            val mods = ModScanner.scanDirectory(modsDir)
+            val mods = ModScanner.scanDirectory(dir)
             for (m in mods) {
                 if (m.modId.isNotEmpty() && !m.disabled) {
                     ids.add(m.modId)
@@ -304,45 +308,29 @@ class ModDependencyResolver(
         return ids
     }
 
+    private fun resolveDestModsDir(versionId: String?): Path {
+        if (!versionId.isNullOrBlank() && paths != null) {
+            return GameDirResolver(paths, preferences).resolveModsDir(versionId)
+        }
+        return modsDir
+    }
+
     /**
-     * 下载并安装模组文件到 modsDir（使用 HttpURLConnection，无需 DownloadManager）。
-     * 下载成功后验证 SHA1（如果 ModFile 提供了）。
+     * 下载并安装模组文件（走 DownloadManager，必须有哈希）。
      */
-    private fun downloadAndInstall(modFile: ModFile, onStatus: Consumer<String>?) {
-        val target = modsDir.resolve(modFile.fileName).toAbsolutePath().normalize()
-        val modsAbs = modsDir.toAbsolutePath().normalize()
+    private fun downloadAndInstall(modFile: ModFile, destDir: Path, onStatus: Consumer<String>?) {
+        val target = destDir.resolve(modFile.fileName).toAbsolutePath().normalize()
+        val modsAbs = destDir.toAbsolutePath().normalize()
         if (!target.startsWith(modsAbs)) {
             throw IOException("模组路径越界: ${modFile.fileName}")
         }
         Files.createDirectories(modsAbs)
-
-        val url = URI(modFile.downloadUrl).toURL()
-        val conn = (url.openConnection() as HttpURLConnection).apply {
-            connectTimeout = 15000
-            readTimeout = 120000
-            instanceFollowRedirects = true
+        val sha1 = modFile.getSha1()
+        val sha512 = modFile.getSha512()
+        if (sha1.isNullOrEmpty() && sha512.isNullOrEmpty()) {
+            throw IOException("模组无完整性哈希，拒绝下载: ${modFile.fileName}")
         }
-        try {
-            val code = conn.responseCode
-            if (code != HttpURLConnection.HTTP_OK) {
-                throw IOException("下载失败 code=$code url=${modFile.downloadUrl}")
-            }
-            conn.inputStream.use { inp ->
-                Files.copy(inp, target, StandardCopyOption.REPLACE_EXISTING)
-            }
-        } finally {
-            conn.disconnect()
-        }
-
-        // SHA1 verification
-        val expectedSha1 = modFile.getSha1()
-        if (!expectedSha1.isNullOrEmpty()) {
-            val actual = computeSha1(target)
-            if (!actual.equals(expectedSha1, ignoreCase = true)) {
-                Files.deleteIfExists(target)
-                throw IOException("SHA1 校验失败: ${modFile.fileName} 期望=$expectedSha1 实际=$actual")
-            }
-        }
+        downloadManager.downloadToVerified(modFile.downloadUrl, target, sha1, sha512)
     }
 
     /**
@@ -377,23 +365,5 @@ class ModDependencyResolver(
     private fun isSystemDep(modId: String?): Boolean {
         if (modId == null) return false
         return SYSTEM_DEPS.contains(modId.lowercase())
-    }
-
-    /** 计算文件 SHA1（hex 小写） */
-    private fun computeSha1(path: Path): String {
-        val md = MessageDigest.getInstance("SHA-1")
-        Files.newInputStream(path).use { inp ->
-            val buf = ByteArray(8192)
-            var n: Int
-            while (inp.read(buf).also { n = it } > 0) {
-                md.update(buf, 0, n)
-            }
-        }
-        val sb = StringBuilder()
-        for (b in md.digest()) {
-            sb.append(Character.forDigit((b.toInt() shr 4) and 0xF, 16))
-            sb.append(Character.forDigit(b.toInt() and 0xF, 16))
-        }
-        return sb.toString()
     }
 }

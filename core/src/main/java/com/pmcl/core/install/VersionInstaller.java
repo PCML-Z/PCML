@@ -108,6 +108,7 @@ public final class VersionInstaller {
         Files.writeString(versionSha1Path, versionSha1, java.nio.charset.StandardCharsets.UTF_8);
 
         VersionJson vj = VersionJson.parse(versionJsonStr);
+        String clientOwnerId = resolveClientJarOwnerId(versionId, vj);
 
         // 处理继承：合并父版本 JSON
         if (vj.getInheritsFrom() != null && !vj.getInheritsFrom().equals(versionId)) {
@@ -119,12 +120,14 @@ public final class VersionInstaller {
         // java-objc-bridge），并发下载会抢写同一 .part 并在重命名时 NoSuchFileException。
         java.util.Set<String> seenPaths = new java.util.HashSet<>();
 
-        // 3. client.jar → staging
+        // 3. client.jar：写到声明 downloads.client 的版本目录
         if (vj.getClientArtifact() != null) {
             VersionJson.Artifact c = vj.getClientArtifact();
+            String dest = clientOwnerId.equals(versionId)
+                    ? "versions/" + stagingName + "/" + versionId + ".jar"
+                    : "versions/" + clientOwnerId + "/" + clientOwnerId + ".jar";
             addTask(tasks, seenPaths, new DownloadTask(
-                    c.getUrl(), c.getSha1(), c.getSize(),
-                    "versions/" + stagingName + "/" + versionId + ".jar"));
+                    c.getUrl(), c.getSha1(), c.getSize(), dest));
         }
 
         // 4. libraries（含 native classifier）→ 共享 libraries/
@@ -506,6 +509,30 @@ public final class VersionInstaller {
             }
         }
         return null;
+    }
+
+    /**
+     * 原版 client.jar 应落在声明 downloads.client 的版本目录，而不是 Fabric 子 id。
+     */
+    private String resolveClientJarOwnerId(String startId, VersionJson original) {
+        if (original.getClientArtifact() != null) return startId;
+        String current = original.getInheritsFrom();
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        seen.add(startId);
+        while (current != null && !current.isEmpty() && seen.add(current)) {
+            Path jsonPath = config.getVersionsDir().resolve(current).resolve(current + ".json");
+            if (!Files.isRegularFile(jsonPath)) break;
+            try {
+                VersionJson raw = VersionJson.parse(
+                        Files.readString(jsonPath, java.nio.charset.StandardCharsets.UTF_8));
+                if (raw.getClientArtifact() != null) return current;
+                current = raw.getInheritsFrom();
+            } catch (IOException e) {
+                break;
+            }
+        }
+        String inherited = original.getInheritsFrom();
+        return inherited != null && !inherited.isEmpty() ? inherited : startId;
     }
 
     /**

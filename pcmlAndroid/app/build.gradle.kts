@@ -1,7 +1,19 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
 }
+
+val localProps = Properties()
+val localFile = rootProject.file("local.properties")
+if (localFile.exists()) {
+    localFile.inputStream().use { localProps.load(it) }
+}
+fun secret(key: String): String =
+    localProps.getProperty(key)?.takeIf { it.isNotBlank() }
+        ?: System.getenv(key)?.takeIf { it.isNotBlank() }
+        ?: ""
 
 android {
     namespace = "com.lash.pmcl"
@@ -17,12 +29,20 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
-    signingConfigs {
-        create("release") {
-            storeFile = file("pmcl.keystore")
-            storePassword = "pmcl123"
-            keyAlias = "pmcl"
-            keyPassword = "pmcl123"
+    val storePath = secret("RELEASE_STORE_FILE").ifEmpty { "pmcl.keystore" }
+    val storePw = secret("RELEASE_STORE_PASSWORD")
+    val keyPw = secret("RELEASE_KEY_PASSWORD").ifEmpty { storePw }
+    val alias = secret("RELEASE_KEY_ALIAS").ifEmpty { "pmcl" }
+    val releaseStore = file(storePath)
+    val hasReleaseSigning = releaseStore.exists() && storePw.isNotEmpty()
+    if (hasReleaseSigning) {
+        signingConfigs {
+            create("release") {
+                storeFile = releaseStore
+                storePassword = storePw
+                keyAlias = alias
+                keyPassword = keyPw
+            }
         }
     }
 
@@ -34,10 +54,14 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("release")
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
         debug {
-            signingConfig = signingConfigs.getByName("release")
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
     compileOptions {

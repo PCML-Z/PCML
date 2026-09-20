@@ -70,7 +70,7 @@ class ModrinthClient(
             .addQueryParameter("limit", limit.toString())
             .addQueryParameter("facets", buildFacets(gameVersion, loader, category))
         if (!sort.isNullOrEmpty()) {
-            ub.addQueryParameter("sort", sort)
+            ub.addQueryParameter("index", searchIndexParam(sort, query.isNullOrBlank()))
         }
         val req = Request.Builder().url(ub.build())
             .header("User-Agent", "PMCL/1.0").get().build()
@@ -160,7 +160,7 @@ class ModrinthClient(
                                 v.get("version_type").asString else "release"
                             val gameVersions = jsonArrToStrings(v, "game_versions")
                             val loaders = jsonArrToStrings(v, "loaders")
-                            val deps = jsonArrToStrings(v, "dependencies")
+                            val deps = parseModrinthDependencies(v)
 
                             if (v.has("files")) {
                                 for (f in v.getAsJsonArray("files")) {
@@ -368,11 +368,40 @@ class ModrinthClient(
         return facets.toString()
     }
 
+    /** Modrinth GET /v2/search 的排序参数名是 index，不是 sort。 */
+    private fun searchIndexParam(sort: String, emptyQuery: Boolean): String {
+        val key = sort.lowercase()
+        return when (key) {
+            "downloads" -> "downloads"
+            "follows" -> "follows"
+            "newest" -> "newest"
+            "updated" -> "updated"
+            "relevance", "default" -> if (emptyQuery) "downloads" else "relevance"
+            else -> if (emptyQuery) "downloads" else "relevance"
+        }
+    }
+
+    private fun parseModrinthDependencies(version: JsonObject): List<String> {
+        if (!version.has("dependencies") || !version.get("dependencies").isJsonArray) {
+            return emptyList()
+        }
+        val deps = ArrayList<String>()
+        for (e in version.getAsJsonArray("dependencies")) {
+            if (e == null || !e.isJsonObject) continue
+            val d = e.asJsonObject
+            val type = safeStr(d, "dependency_type").lowercase()
+            if (type.isNotEmpty() && type != "required") continue
+            val pid = safeStr(d, "project_id")
+            if (pid.isNotEmpty() && pid !in deps) deps.add(pid)
+        }
+        return deps
+    }
+
     private fun jsonArrToStrings(o: JsonObject, key: String): List<String> {
-        if (!o.has(key)) return emptyList()
+        if (!o.has(key) || !o.get(key).isJsonArray) return emptyList()
         val list = ArrayList<String>()
         for (e in o.getAsJsonArray(key)) {
-            if (!e.isJsonNull) list.add(e.asString)
+            if (e != null && e.isJsonPrimitive) list.add(e.asString)
         }
         return list
     }

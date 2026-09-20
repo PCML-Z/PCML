@@ -507,6 +507,9 @@ private fun MainWindowContent(vm: LauncherViewModel) {
         pm.setLaunchRequestHandler { versionId ->
             pluginUiScope.launch { vm.quickLaunch(versionId) }
         }
+        pm.setLaunchInstanceRequestHandler { instanceId ->
+            pluginUiScope.launch { vm.launchInstance(instanceId) }
+        }
         pm.setClipboardHandler { text ->
             pluginUiScope.launch {
                 clipboard.setText(androidx.compose.ui.text.AnnotatedString(text))
@@ -594,6 +597,7 @@ private fun MainWindowContent(vm: LauncherViewModel) {
             // call into a dead Compose tree or stale clipboard/Desktop handlers.
             try { pm.setNavigationHandler(null) } catch (_: Throwable) {}
             try { pm.setLaunchRequestHandler(null) } catch (_: Throwable) {}
+            try { pm.setLaunchInstanceRequestHandler(null) } catch (_: Throwable) {}
             try { pm.setClipboardHandler(null) } catch (_: Throwable) {}
             try { pm.setOpenUrlHandler(null) } catch (_: Throwable) {}
             try { pm.setMusicBridge(null) } catch (_: Throwable) {}

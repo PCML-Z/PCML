@@ -515,9 +515,10 @@ public final class PmclCli {
             }
             Integer actualMajor = JavaRuntimeFinder.getMajorVersion(javaPath);
             int javaMajor = actualMajor != null ? actualMajor : requiredJava;
-            System.out.println("Using Java: " + javaPath + " (major=" + javaMajor + ")");
+            String javaArch = JavaRuntimeFinder.getArchitecture(javaPath);
+            System.out.println("Using Java: " + javaPath + " (major=" + javaMajor + ", arch=" + javaArch + ")");
 
-            LaunchProfile profile = core.profileBuilder().build(versionId, currentAccount, javaMajor);
+            LaunchProfile profile = core.profileBuilder().build(versionId, currentAccount, javaMajor, javaArch);
             System.out.println(SEP);
             System.out.println("Launching Minecraft " + versionId + " ...");
             System.out.println(SEP);
@@ -797,7 +798,6 @@ public final class PmclCli {
             System.out.println("File size: " + sizeMb + " MB");
             System.out.println(SEP);
 
-            // Determine target game version
             String gameVersion = rest.length > 1 ? rest[1] : "";
             if (gameVersion.isEmpty() && target.getGameVersions() != null && !target.getGameVersions().isEmpty()) {
                 gameVersion = target.getGameVersions().get(0);
@@ -807,8 +807,19 @@ public final class PmclCli {
                 return;
             }
 
+            String loader = rest.length > 2 ? rest[2] : "";
+            if (!gameVersion.isEmpty()) {
+                List<ModFile> filtered = core.modMarket().listFiles(project, gameVersion, loader).get();
+                if (!filtered.isEmpty()) {
+                    target = filtered.stream()
+                            .filter(f -> "release".equals(f.getReleaseType()))
+                            .findFirst()
+                            .orElse(filtered.get(0));
+                }
+            }
+
             System.out.println("Installing to MC " + gameVersion + " ...");
-            core.modMarket().installMod(target, gameVersion, status -> {
+            core.modMarket().installMod(target, gameVersion, gameVersion, core.getPreferences(), status -> {
                 System.out.println("  " + status);
             }).get();
             System.out.println("[OK] Installation complete: " + target.getFileName());
@@ -1152,15 +1163,28 @@ public final class PmclCli {
         System.out.println("Scanning crash reports...");
         try {
             Path workDir = core.getConfig().getWorkDir();
-            List<CrashAnalyzer.CrashReport> reports = core.crashAnalyzer().scanReports(workDir);
-            if (reports.isEmpty()) {
-                // Also check default MC crash reports directory
-                Path mcCrashDir = Paths.get(System.getProperty("user.home"), "Library",
-                        "Application Support", "minecraft", "crash-reports");
-                if (Files.isDirectory(mcCrashDir)) {
-                    reports = core.crashAnalyzer().scanReports(mcCrashDir.getParent());
-                }
+            java.util.LinkedHashSet<String> seen = new java.util.LinkedHashSet<>();
+            List<CrashAnalyzer.CrashReport> reports = new ArrayList<>();
+            java.util.function.Consumer<Path> addDir = dir -> {
+                if (dir == null) return;
+                try {
+                    for (CrashAnalyzer.CrashReport r : core.crashAnalyzer().scanReports(dir)) {
+                        String key = r.getFile() != null ? r.getFile().toString() : null;
+                        if (key != null && seen.add(key)) reports.add(r);
+                    }
+                } catch (Exception ignored) {}
+            };
+            addDir.accept(workDir);
+            for (var inst : core.instances().listInstances()) {
+                addDir.accept(inst.getInstanceDir());
             }
+            Path mcCrashDir = Paths.get(System.getProperty("user.home"), "Library",
+                    "Application Support", "minecraft");
+            if (Files.isDirectory(mcCrashDir)) addDir.accept(mcCrashDir);
+            Path winMc = Paths.get(System.getProperty("user.home"), "AppData", "Roaming", ".minecraft");
+            if (Files.isDirectory(winMc)) addDir.accept(winMc);
+            Path linMc = Paths.get(System.getProperty("user.home"), ".minecraft");
+            if (Files.isDirectory(linMc)) addDir.accept(linMc);
             if (reports.isEmpty()) {
                 System.out.println("No crash reports found.");
                 return;

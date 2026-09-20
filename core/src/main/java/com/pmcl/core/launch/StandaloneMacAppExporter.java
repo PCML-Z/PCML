@@ -708,8 +708,7 @@ public final class StandaloneMacAppExporter {
         StandaloneBindGate.HostSecret host = StandaloneBindGate.ensureHostSecret(workDir);
         Path launcher = StandaloneBindGate.detectLauncherPath();
         if (launcher == null || !Files.exists(launcher)) {
-            // Gradle / IDE / 未安装 .app 时：用本机 PMCL 工作目录作为安装身份
-            launcher = workDir;
+            throw new IOException("找不到本机 PMCL 启动器，无法做强绑定");
         }
         StandaloneBindGate.writeTicket(
                 resources.resolve(StandaloneBindGate.TICKET_FILE_NAME),

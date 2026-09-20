@@ -50,7 +50,7 @@ final class ParentVersionSupport {
         for (String url : urls) {
             if (url == null || url.isBlank()) continue;
             try {
-                downloads.downloadTo(url, dest);
+                com.pmcl.core.download.MavenSidecar.downloadVerified(downloads, url, dest, null);
                 if (Files.isRegularFile(dest) && Files.size(dest) > 64) return;
             } catch (IOException e) {
                 last = e;

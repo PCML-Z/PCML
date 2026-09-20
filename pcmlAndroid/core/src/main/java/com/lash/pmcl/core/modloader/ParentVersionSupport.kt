@@ -55,7 +55,9 @@ internal object ParentVersionSupport {
         for (url in urls) {
             if (url.isBlank()) continue
             try {
-                downloads.downloadTo(url, dest)
+                val sha1 = fetchMavenSha1(downloads, url)
+                    ?: throw IOException("无 SHA-1 且旁路 .sha1 不可用，拒绝下载: $url")
+                downloads.downloadToVerified(url, dest, sha1, null)
                 if (Files.isRegularFile(dest) && Files.size(dest) > 64) return
             } catch (e: IOException) {
                 last = e
@@ -63,5 +65,16 @@ internal object ParentVersionSupport {
             }
         }
         throw last ?: IOException("所有下载源均失败")
+    }
+
+    private fun fetchMavenSha1(downloads: DownloadManager, url: String): String? {
+        return try {
+            val body = downloads.downloadString("$url.sha1").trim()
+            if (body.isEmpty()) return null
+            val hash = body.split(Regex("\\s+"))[0].trim()
+            if (hash.matches(Regex("[0-9a-fA-F]{40}"))) hash else null
+        } catch (_: Exception) {
+            null
+        }
     }
 }

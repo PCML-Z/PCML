@@ -86,6 +86,7 @@ class VersionInstaller(
         FileUtils.writeString(versionSha1Path, versionSha1)
 
         var vj = VersionJson.parse(versionJsonStr)
+        val clientOwnerId = resolveClientJarOwnerId(versionId, vj)
 
         // 处理继承：合并父版本 JSON
         if (!vj.inheritsFrom.isNullOrEmpty() && vj.inheritsFrom != versionId) {
@@ -96,11 +97,15 @@ class VersionInstaller(
         // 按相对路径去重：MC 1.12 等旧版本会把同一 jar 列两次
         val seenPaths = HashSet<String>()
 
-        // 3. client.jar → staging
+        // 3. client.jar：写到声明 downloads.client 的版本目录，不要写进 Fabric 子 id
         vj.clientArtifact?.let { c ->
-            addTask(tasks, seenPaths, DownloadTask(
-                c.url, c.sha1, c.size,
+            val dest = if (clientOwnerId == versionId) {
                 "versions/$stagingName/$versionId.jar"
+            } else {
+                "versions/$clientOwnerId/$clientOwnerId.jar"
+            }
+            addTask(tasks, seenPaths, DownloadTask(
+                c.url, c.sha1, c.size, dest
             ))
         }
 
@@ -345,6 +350,24 @@ class VersionInstaller(
             }
         }
         return null
+    }
+
+    /**
+     * 原版 client.jar 应落在磁盘/清单上声明 downloads.client 的版本 ID。
+     */
+    private fun resolveClientJarOwnerId(startId: String, original: VersionJson): String {
+        if (original.clientArtifact != null) return startId
+        var current = original.inheritsFrom
+        val seen = HashSet<String>()
+        seen.add(startId)
+        while (!current.isNullOrEmpty() && seen.add(current)) {
+            val jsonPath = paths.versions.resolve(current).resolve("$current.json")
+            if (!Files.isRegularFile(jsonPath)) break
+            val raw = VersionJson.parse(FileUtils.readString(jsonPath))
+            if (raw.clientArtifact != null) return current
+            current = raw.inheritsFrom
+        }
+        return original.inheritsFrom?.takeIf { it.isNotEmpty() } ?: startId
     }
 
     /**

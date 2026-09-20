@@ -89,9 +89,15 @@ class LauncherCore(
     val integrityChecker: IntegrityChecker = IntegrityChecker(paths)
 
     // ===== 市场 =====
+    private val curseForgeApiKey: String =
+        System.getenv("CURSEFORGE_API_KEY")?.takeIf { it.isNotBlank() }
+            ?: System.getProperty("curseforge.api.key")?.takeIf { it.isNotBlank() }
+            ?: ""
     val modrinthClient: ModrinthClient = ModrinthClient(downloadManager)
-    val curseForgeClient: CurseForgeClient = CurseForgeClient("", downloadManager)
-    val modMarketManager: ModMarketManager = ModMarketManager(paths, downloadManager, "", preferences)
+    val curseForgeClient: CurseForgeClient? =
+        if (curseForgeApiKey.isNotEmpty()) CurseForgeClient(curseForgeApiKey, downloadManager) else null
+    val modMarketManager: ModMarketManager =
+        ModMarketManager(paths, downloadManager, curseForgeApiKey, preferences)
 
     // ===== 模组加载器 =====
     val modLoaderManager: ModLoaderManager = ModLoaderManager(paths, downloadManager, versionInstaller)
@@ -119,7 +125,8 @@ class LauncherCore(
     )
 
     val modDependencyResolver: ModDependencyResolver = ModDependencyResolver(
-        paths.minecraftWorkDir.resolve("mods"), modrinthClient, modsExecutor
+        paths.minecraftWorkDir.resolve("mods"), modrinthClient, modsExecutor, downloadManager,
+        paths, preferences
     )
 
     // ===== 游戏内容管理 =====

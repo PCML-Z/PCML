@@ -169,6 +169,7 @@ public final class PluginManager {
     private final ConcurrentLinkedQueue<PluginInputDialogRequest> inputDialogRequests = new ConcurrentLinkedQueue<>();
     private volatile Consumer<String> navigationHandler;
     private volatile Consumer<String> launchRequestHandler;
+    private volatile Consumer<String> launchInstanceRequestHandler;
     private volatile Consumer<String> clipboardHandler;
     private volatile Consumer<String> openUrlHandler;
     private volatile MusicBridge musicBridge;
@@ -653,6 +654,7 @@ public final class PluginManager {
             inputDialogRequests.clear();
             navigationHandler = null;
             launchRequestHandler = null;
+            launchInstanceRequestHandler = null;
             clipboardHandler = null;
             openUrlHandler = null;
             musicBridge = null;
@@ -682,6 +684,10 @@ public final class PluginManager {
 
     public void setLaunchRequestHandler(Consumer<String> handler) {
         this.launchRequestHandler = handler;
+    }
+
+    public void setLaunchInstanceRequestHandler(Consumer<String> handler) {
+        this.launchInstanceRequestHandler = handler;
     }
 
     public void setClipboardHandler(Consumer<String> handler) {
@@ -714,6 +720,8 @@ public final class PluginManager {
     Consumer<String> getNavigationHandler() { return navigationHandler; }
 
     Consumer<String> getLaunchRequestHandler() { return launchRequestHandler; }
+
+    Consumer<String> getLaunchInstanceRequestHandler() { return launchInstanceRequestHandler; }
 
     Consumer<String> getClipboardHandler() { return clipboardHandler; }
 

@@ -461,14 +461,9 @@ public final class ModpackManager {
             try {
                 validateDownloadUrl(url);
                 if ((sha1 == null || sha1.isBlank()) && (sha512 == null || sha512.isBlank())) {
-                    downloads.downloadTo(url, target);
-                    if (Files.size(target) < 32) {
-                        Files.deleteIfExists(target);
-                        throw new IOException("下载文件过小且无完整性哈希");
-                    }
-                } else {
-                    downloads.downloadToVerified(url, target, sha1, sha512);
+                    throw new IOException("整合包文件无完整性哈希，已拒绝下载: " + relPath);
                 }
+                downloads.downloadToVerified(url, target, sha1, sha512);
                 return;
             } catch (IOException e) {
                 last = e;
@@ -573,7 +568,7 @@ public final class ModpackManager {
             throw new IOException("非法下载 URL: " + url, e);
         }
         String scheme = uri.getScheme();
-        if (!"https".equalsIgnoreCase(scheme) && !"http".equalsIgnoreCase(scheme)) {
+        if (!"https".equalsIgnoreCase(scheme)) {
             throw new IOException("非法下载协议: " + scheme);
         }
         String host = uri.getHost();

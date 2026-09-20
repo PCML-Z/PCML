@@ -12,7 +12,7 @@ interface LaunchApi {
     fun requestLaunch(versionId: String): String?
 
     /**
-     * Request launch of an instance (host may map instance → base version).
+     * Request launch of an instance with its game directory.
      * @return null if accepted; otherwise a denial reason
      */
     fun requestLaunchInstance(instanceId: String): String?

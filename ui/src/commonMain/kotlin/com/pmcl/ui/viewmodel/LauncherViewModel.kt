@@ -2504,6 +2504,11 @@ class LauncherViewModel {
                 preferences.setLastPlayedTime(versionId, System.currentTimeMillis())
                 _recentVersions.value = preferences.getRecentVersions()
                 _lastPlayedTimes.value = HashMap(preferences.getLastPlayedTimesRaw())
+                val crashDirBefore = withContext(Dispatchers.IO) {
+                    snapshotCrashReportPaths(versionId, snapDir)
+                }
+                val crashLiveShown = java.util.concurrent.atomic.AtomicBoolean(false)
+                val crashSession = crashSessionSeq.incrementAndGet()
                 val future = core.launch().launchAsync(
                     profile, javaPath,
                     { line ->
@@ -2515,6 +2520,28 @@ class LauncherViewModel {
                         }
                         if (_runningInstances.value.any { it.id == instanceId && it.active }) {
                             appendGameLog(line)
+                        }
+                        if (com.pmcl.core.launch.CrashAnalyzer.looksLikeCrash(line)
+                            && crashLiveShown.compareAndSet(false, true)
+                            && !ignoredCrashSessions.contains(crashSession)
+                        ) {
+                            val recent = instanceId?.let { id ->
+                                instanceLogs[id]?.let { logs ->
+                                    synchronized(logs) { logs.takeLast(160).toList() }
+                                }
+                            } ?: _gameLogs.value.takeLast(160).map { it.text }
+                            val report = try {
+                                core.crashAnalyzer().analyze(recent.joinToString("\n"), null)
+                            } catch (_: Throwable) { null }
+                            _crashEvent.value = CrashEvent(
+                                exitCode = -1,
+                                report = report,
+                                recentLogs = recent,
+                                versionId = versionId,
+                                live = true,
+                                session = crashSession,
+                                instanceId = snapInfo?.instanceId
+                            )
                         }
                         try {
                             if (line.contains("Connecting to")) {
@@ -2538,12 +2565,67 @@ class LauncherViewModel {
                     instLogger
                 )
                 launchPreparing.set(false)
-                val exitCode = withContext(Dispatchers.IO) { future.join() }
+                val exitCode = awaitCancellableFuture(future)
                 if (exitCode == com.pmcl.core.launch.LaunchManager.EXIT_CANCELLED) {
                     _status.value = I18n.t("status.launch_cancelled")
                     appendGameLog(I18n.t("status.launch_cancelled"))
+                    if (_crashEvent.value?.session == crashSession) {
+                        _crashEvent.value = null
+                    }
+                    ignoredCrashSessions.add(crashSession)
                 } else {
                     _status.value = I18n.t("status.game_exited", exitCode)
+                    if (ignoredCrashSessions.remove(crashSession)) {
+                        if (_crashEvent.value?.session == crashSession) {
+                            _crashEvent.value = null
+                        }
+                    } else {
+                        val recentLogs = instanceId?.let { id ->
+                            instanceLogs[id]?.let { logs ->
+                                synchronized(logs) { logs.takeLast(200).toList() }
+                            }
+                        } ?: _gameLogs.value.takeLast(200).map { it.text }
+                        val liveOpen = _crashEvent.value?.let { it.session == crashSession && it.live } == true
+                        if (exitCode != 0 || liveOpen) {
+                            val report = withContext(Dispatchers.IO) {
+                                try {
+                                    val newer = findNewCrashReport(versionId, crashDirBefore, snapDir)
+                                    if (newer != null) newer
+                                    else {
+                                        val logText = recentLogs.joinToString("\n")
+                                        if (logText.isNotBlank() && exitCode != 0) {
+                                            core.crashAnalyzer().analyze(logText, null)
+                                        } else _crashEvent.value?.takeIf { it.session == crashSession }?.report
+                                    }
+                                } catch (t: kotlinx.coroutines.CancellationException) {
+                                    throw t
+                                } catch (_: Throwable) {
+                                    _crashEvent.value?.takeIf { it.session == crashSession }?.report
+                                }
+                            }
+                            if (exitCode == 0 && report?.file == null) {
+                                if (_crashEvent.value?.session == crashSession) {
+                                    _crashEvent.value = null
+                                }
+                            } else if (exitCode != 0 || report != null || liveOpen) {
+                                _crashEvent.value = CrashEvent(
+                                    exitCode = exitCode,
+                                    report = report,
+                                    recentLogs = recentLogs,
+                                    versionId = versionId,
+                                    live = false,
+                                    session = crashSession,
+                                    instanceId = snapInfo?.instanceId
+                                )
+                            }
+                            _crashReports.value = withContext(Dispatchers.IO) {
+                                try {
+                                    snapshotCrashReports(versionId, snapDir)
+                                } catch (t: kotlinx.coroutines.CancellationException) { throw t }
+                                catch (_: Throwable) { emptyList() }
+                            }
+                        }
+                    }
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -2954,7 +3036,7 @@ class LauncherViewModel {
         scope.launch {
             try {
                 val list = withContext(Dispatchers.IO) {
-                    core.crashAnalyzer().scanReports(config.getWorkDir())
+                    scanAllCrashReports(_selectedVersion.value)
                 }
                 _crashReports.value = list
                 _status.value = I18n.t("status.crash_reports_scanned", list.size)
@@ -2970,7 +3052,7 @@ class LauncherViewModel {
      * 执行崩溃恢复操作。
      * 根据 RecoveryType 调用对应的修复逻辑，执行后更新 _recoveryMessage 供 UI 显示反馈。
      */
-    fun executeRecoveryAction(action: CrashAnalyzer.RecoveryAction, versionId: String) {
+    fun executeRecoveryAction(action: CrashAnalyzer.RecoveryAction, versionId: String, instanceId: String? = null) {
         when (action.getType()) {
             CrashAnalyzer.RecoveryType.INCREASE_MEMORY -> increaseMemory()
             CrashAnalyzer.RecoveryType.SWITCH_JAVA -> {
@@ -2981,13 +3063,13 @@ class LauncherViewModel {
                 refreshInstalledMods()
                 _recoveryMessage.value = I18n.t("recovery.scanning_mod_conflicts")
             }
-            CrashAnalyzer.RecoveryType.DISABLE_RECENT_MODS -> disableRecentMods(versionId)
+            CrashAnalyzer.RecoveryType.DISABLE_RECENT_MODS -> disableRecentMods(versionId, instanceId)
             CrashAnalyzer.RecoveryType.CHECK_INTEGRITY -> {
                 checkIntegrity(versionId)
                 _recoveryMessage.value = I18n.t("recovery.checking_integrity", versionId)
             }
             CrashAnalyzer.RecoveryType.REINSTALL_VERSION -> reinstallVersion(versionId)
-            CrashAnalyzer.RecoveryType.CLEAR_GAME_CONFIG -> clearGameConfig(versionId)
+            CrashAnalyzer.RecoveryType.CLEAR_GAME_CONFIG -> clearGameConfig(versionId, instanceId)
             CrashAnalyzer.RecoveryType.SHARE_LOGS -> {
                 shareLogs()
                 _recoveryMessage.value = I18n.t("recovery.uploading_logs")
@@ -3017,16 +3099,15 @@ class LauncherViewModel {
         }
     }
 
-    /** 禁用最近添加的模组：将 mods 目录下最近修改的 5 个 .jar 移到 disabled 子目录 */
-    fun disableRecentMods(versionId: String) {
+    /** 禁用最近添加的模组：将目标 mods 目录下最近修改的 5 个 .jar 移到 disabled 子目录 */
+    fun disableRecentMods(versionId: String, instanceId: String? = null) {
         scope.launch {
             try {
                 val moved = withContext(Dispatchers.IO) {
-                    val modsDir = config.getWorkDir().resolve("mods")
+                    val modsDir = core.profileBuilder().resolveModsDirectory(versionId, instanceId)
                     if (!java.nio.file.Files.isDirectory(modsDir)) return@withContext 0
                     val disabledDir = modsDir.resolve("disabled")
                     java.nio.file.Files.createDirectories(disabledDir)
-                    // 列出 .jar 并按 mtime 降序（最近添加的在前）
                     val jars = java.nio.file.Files.list(modsDir).use { stream ->
                         stream.filter { it.fileName.toString().endsWith(".jar") }.toList()
                     }
@@ -3077,11 +3158,14 @@ class LauncherViewModel {
     }
 
     /** 清理游戏配置：备份并重置可能损坏的 options.txt / servers.dat */
-    fun clearGameConfig(versionId: String) {
+    fun clearGameConfig(versionId: String, instanceId: String? = null) {
         scope.launch {
             try {
                 val backedUp = withContext(Dispatchers.IO) {
-                    val gameDir = config.getWorkDir()
+                    val instDir = instanceId?.let { id ->
+                        _instances.value.find { it.getInstanceId() == id }?.getInstanceDir()
+                    }
+                    val gameDir = core.profileBuilder().resolveGameDirectory(versionId, instDir)
                     val backupDir = gameDir.resolve("config-backup-${System.currentTimeMillis()}")
                     java.nio.file.Files.createDirectories(backupDir)
                     var count = 0
@@ -3395,6 +3479,8 @@ class LauncherViewModel {
             return
         }
         _selectedInstanceId.value = instanceId
+        _selectedVersion.value = info.getBaseVersionId()
+        preferences.setLastSelectedVersion(info.getBaseVersionId())
         val boundUuid = info.getBoundAccountUuid()
         val override = if (boundUuid.isNotEmpty()) {
             _accounts.value.find { it.getUuid() == boundUuid }

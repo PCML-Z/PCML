@@ -261,7 +261,9 @@ fun ModsMarketScreen(core: LauncherCore) {
             withContext(Dispatchers.IO) {
                 try {
                     modMarketManager.installMod(
-                        file, gv, Consumer { s -> status = s }
+                        file, gv, currentVersionId.ifBlank { null },
+                        preferences.isVersionIsolation(),
+                        Consumer { s -> status = s }
                     ).join()
                     status = "下载完成: ${file.fileName}"
                 } catch (e: Exception) {
@@ -281,7 +283,7 @@ fun ModsMarketScreen(core: LauncherCore) {
             val result = withContext(Dispatchers.IO) {
                 try {
                     modDependencyResolver.installWithDependencies(
-                        file, gv.ifBlank { null }, null,
+                        file, gv.ifBlank { null }, currentVersionId.ifBlank { null },
                         Consumer { s -> status = s }
                     ).join()
                 } catch (e: Exception) {

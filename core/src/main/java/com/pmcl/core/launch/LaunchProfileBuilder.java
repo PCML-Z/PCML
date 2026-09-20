@@ -158,6 +158,17 @@ public final class LaunchProfileBuilder {
         return gameDirResolver.resolveGameDir(versionId);
     }
 
+    /** 实例目录优先，否则按版本隔离 / 整合包 / 共享根推导。 */
+    public Path resolveGameDirectory(String versionId, Path instanceDir) {
+        if (instanceDir != null) return instanceDir;
+        return gameDirResolver.resolveGameDir(versionId);
+    }
+
+    /** 安装/更新/崩溃恢复用的 mods 目录。 */
+    public Path resolveModsDirectory(String versionId, String instanceId) {
+        return gameDirResolver.resolveModsDir(versionId, instanceId);
+    }
+
     /**
      * 构造启动配置。
      */
@@ -320,7 +331,7 @@ public final class LaunchProfileBuilder {
         while (currentVer != null && !currentVer.isEmpty()
                 && visitedVer.add(currentVer)) {
             Path jar = findVersionJar(currentVer);
-            if (jar != null) {
+            if (jar != null && shouldAddVersionJar(currentVer, jar, vj.getClientArtifact())) {
                 addClasspath(profile, seen, jar);
             }
             // BootstrapLauncher：只加入当前版本 jar，不要继续向上挂原版 client jar
@@ -1380,13 +1391,19 @@ public final class LaunchProfileBuilder {
     /**
      * 校验原版 client.jar（若版本 JSON 声明了 downloads.client.sha1）。
      * 损坏则隔离并尝试按 URL 重下。
+     * <p>
+     * Fabric/Quilt 等继承版本会把父版本 {@code downloads} 合并进内存 JSON，
+     * jar 必须写到声明 {@code downloads.client} 的祖先目录，不能写成
+     * {@code versions/{子id}/{子id}.jar}。
      */
     private void verifyClientJar(VersionJson vj, Path versionsDir) throws IOException {
         VersionJson.Artifact client = vj.getClientArtifact();
         if (client == null) return;
         String id = vj.getId();
         if (id == null || id.isEmpty()) return;
-        Path jar = versionsDir.resolve(id).resolve(id + ".jar");
+        String ownerId = resolveClientJarOwnerId(id);
+        Path jar = clientJarPath(ownerId, versionsDir);
+        quarantineInheritedVanillaCopy(id, ownerId, client.getSha1());
         if (isLibraryHealthy(jar, client.getSha1())) return;
         if (client.getUrl() == null || client.getUrl().isEmpty() || downloadManager == null) {
             throw new IOException("client.jar 损坏或缺失且无法自动修复: " + jar);
@@ -1396,36 +1413,70 @@ public final class LaunchProfileBuilder {
         downloadLibraryVerified(client.getUrl(), jar, client.getSha1());
     }
 
+    /** 磁盘上声明 {@code downloads.client} 的版本 ID（沿 inheritsFrom 上溯）。 */
+    String resolveClientJarOwnerId(String versionId) {
+        String current = versionId;
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        while (current != null && !current.isEmpty() && seen.add(current)) {
+            VersionJson raw = loadRawVersionJson(current);
+            if (raw == null) break;
+            if (raw.getClientArtifact() != null) return current;
+            String parent = raw.getInheritsFrom();
+            if (parent == null || parent.isEmpty() || parent.equals(current)) break;
+            current = parent;
+        }
+        return versionId;
+    }
+
+    private Path clientJarPath(String versionId, Path versionsDir) {
+        Path json = findVersionJson(versionId);
+        if (json != null) return json.getParent().resolve(versionId + ".jar");
+        return versionsDir.resolve(versionId).resolve(versionId + ".jar");
+    }
+
+    private VersionJson loadRawVersionJson(String versionId) {
+        try {
+            Path jsonPath = findVersionJson(versionId);
+            if (jsonPath == null) return null;
+            return VersionJson.parse(Files.readString(jsonPath, java.nio.charset.StandardCharsets.UTF_8));
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    /**
+     * 子版本目录里若是误写入的原版 client（哈希与 downloads.client 相同），隔离掉。
+     * OptiFine 等自带补丁 jar 的哈希不同，会保留。
+     */
+    private void quarantineInheritedVanillaCopy(String childId, String ownerId, String clientSha1) {
+        if (childId == null || childId.equals(ownerId) || clientSha1 == null || clientSha1.isBlank()) {
+            return;
+        }
+        Path childJar = findVersionJar(childId);
+        if (childJar == null) return;
+        String actual = sha1File(childJar);
+        if (clientSha1.equalsIgnoreCase(actual)) {
+            System.err.println("[LaunchProfileBuilder] 隔离误写入子版本的原版 client.jar: " + childJar);
+            quarantineCorrupt(childJar);
+        }
+    }
+
+    /**
+     * 继承版本目录里的 jar 若其实是原版 client 的拷贝，不要再挂进 classpath。
+     */
+    private boolean shouldAddVersionJar(String versionId, Path jar, VersionJson.Artifact client) {
+        VersionJson raw = loadRawVersionJson(versionId);
+        if (raw != null && raw.getClientArtifact() != null) return true;
+        if (client == null || client.getSha1() == null || client.getSha1().isBlank()) return true;
+        return !client.getSha1().equalsIgnoreCase(sha1File(jar));
+    }
+
     /**
      * 有 SHA-1 则强制校验；无哈希时尝试 Maven 旁路 {@code .sha1}；
      * 仍不可得则拒绝下载（与 ForgeInstaller 一致）。
      */
     private void downloadLibraryVerified(String url, Path target, String sha1) throws IOException {
-        String effective = sha1;
-        if (effective == null || effective.isBlank()) {
-            effective = fetchMavenSha1Sidecar(url);
-        }
-        if (effective == null || effective.isBlank()) {
-            throw new IOException("库无 SHA-1 且旁路 .sha1 不可用，拒绝下载: " + url);
-        }
-        downloadManager.downloadToVerified(url, target, effective, null);
-    }
-
-    /** 读取 {@code url.sha1} 旁路文件（Maven 惯例），失败返回 null。 */
-    private String fetchMavenSha1Sidecar(String url) {
-        try {
-            String body = downloadManager.downloadString(url + ".sha1").trim();
-            if (body.isEmpty()) return null;
-            // 格式可能是 "deadbeef...  filename.jar" 或纯哈希
-            String hash = body.split("\\s+")[0].trim();
-            if (hash.matches("[0-9a-fA-F]{40}")) return hash;
-            System.err.println("[LaunchProfileBuilder] .sha1 旁路格式无效: " + url + ".sha1");
-            return null;
-        } catch (Exception e) {
-            System.err.println("[LaunchProfileBuilder] 获取 .sha1 旁路失败: " + url
-                    + " (" + e.getMessage() + ")");
-            return null;
-        }
+        com.pmcl.core.download.MavenSidecar.downloadVerified(downloadManager, url, target, sha1);
     }
 
     /**
