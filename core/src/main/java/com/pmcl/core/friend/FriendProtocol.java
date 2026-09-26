@@ -16,6 +16,7 @@ import java.util.List;
  *   <li>{@code friend_req}  — 好友请求（携带公钥，不含共享密钥）</li>
  *   <li>{@code friend_ack}  — 好友请求应答</li>
  *   <li>{@code status}      — 在线状态变更</li>
+ *   <li>{@code mp_session}  — 当前联机房间（仅已是好友的加密信道）</li>
  *   <li>{@code call_*}      — 通话信令</li>
  * </ul>
  */
@@ -164,6 +165,69 @@ public final class FriendProtocol {
 
         public String toJson() {
             return GSON.toJson(this);
+        }
+    }
+
+    /**
+     * 好友当前联机房间。邀请码只走已建立的加密信道。
+     * {@code invitation} 为空表示对方已离开房间。
+     */
+    public static final class MpSession {
+        public String type = "mp_session";
+        public String from;
+        public String backend;
+        public String invitation;
+        public String mcHost;
+        public int mcPort;
+        public long ts;
+
+        public static MpSession fromJson(String json) {
+            return GSON.fromJson(json, MpSession.class);
+        }
+
+        public String toJson() {
+            return GSON.toJson(this);
+        }
+
+        /**
+         * 只接受三种后端、有限长度邀请码，以及可直连的非本机地址。
+         * 不合法时返回 null；邀请码为空表示离房。
+         */
+        public static MpSession sanitize(MpSession raw, String fromIdentity) {
+            if (raw == null || fromIdentity == null || fromIdentity.isBlank()) return null;
+            String inv = raw.invitation == null ? "" : raw.invitation.trim();
+            if (inv.length() > 512) return null;
+            String backend = raw.backend == null ? "" : raw.backend.trim().toUpperCase(java.util.Locale.ROOT);
+            if (!backend.equals("TERRACOTTA") && !backend.equals("EASYTIER") && !backend.equals("CONNECTX")) {
+                if (!inv.isEmpty()) return null;
+                backend = "";
+            }
+            String host = raw.mcHost == null ? "" : raw.mcHost.trim();
+            int port = raw.mcPort;
+            if (!isShareableHost(host) || port < 1 || port > 65535) {
+                host = "";
+                port = 0;
+            }
+            MpSession out = new MpSession();
+            out.from = fromIdentity;
+            out.backend = backend;
+            out.invitation = inv;
+            out.mcHost = host;
+            out.mcPort = port;
+            out.ts = System.currentTimeMillis();
+            return out;
+        }
+
+        /** 拒绝回环、通配和带路径的地址，避免把本机隧道地址当成别人的服务器。 */
+        public static boolean isShareableHost(String host) {
+            if (host == null || host.isEmpty() || host.length() > 64) return false;
+            for (int i = 0; i < host.length(); i++) {
+                char c = host.charAt(i);
+                if (c <= ' ' || c == '/' || c == '\\' || c == ':' || c == '@') return false;
+            }
+            String h = host.toLowerCase(java.util.Locale.ROOT);
+            if (h.equals("localhost") || h.equals("0.0.0.0") || h.startsWith("127.")) return false;
+            return h.matches("[a-z0-9._-]+");
         }
     }
 

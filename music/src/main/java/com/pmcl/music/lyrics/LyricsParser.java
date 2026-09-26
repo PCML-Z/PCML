@@ -45,21 +45,35 @@ public final class LyricsParser {
             if (lines.size() >= MAX_LINES) break;
         }
         lines.sort(Comparator.comparingLong(a -> a.timeMs));
+        if (!lines.isEmpty()) return lines;
+        return parsePlain(content);
+    }
+
+    /** 没有时间轴的纯文本：每行一条，timeMs 为 -1，不参与高亮。 */
+    private static List<LyricsLine> parsePlain(String content) {
+        List<LyricsLine> lines = new ArrayList<>();
+        if (content == null || content.isBlank()) return lines;
+        if (content.length() > MAX_INPUT_LENGTH) {
+            content = content.substring(0, MAX_INPUT_LENGTH);
+        }
+        for (String raw : content.split("\\R")) {
+            String line = raw.trim();
+            if (line.isEmpty() || line.matches("\\[[A-Za-z]+:[^\\]]*\\]")) continue;
+            if (lines.size() >= MAX_LINES) break;
+            lines.add(new LyricsLine(-1L, line));
+        }
         return lines;
     }
 
-    /** 根据当前进度找歌词行索引；无匹配返回 -1 */
+    /** 根据当前进度找歌词行索引；无时间轴或尚未到第一句时返回 -1 */
     public static int indexAt(List<LyricsLine> lines, long currentMs) {
         if (lines == null || lines.isEmpty()) return -1;
-        int lo = 0, hi = lines.size() - 1, ans = -1;
-        while (lo <= hi) {
-            int mid = (lo + hi) >>> 1;
-            if (lines.get(mid).timeMs <= currentMs) {
-                ans = mid;
-                lo = mid + 1;
-            } else {
-                hi = mid - 1;
-            }
+        int ans = -1;
+        for (int i = 0; i < lines.size(); i++) {
+            long t = lines.get(i).timeMs;
+            if (t < 0) continue;
+            if (t <= currentMs) ans = i;
+            else break;
         }
         return ans;
     }

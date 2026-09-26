@@ -1,4 +1,5 @@
 package com.pmcl.ui.page
+import com.pmcl.ui.widget.PmclLazyColumn
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -178,7 +179,7 @@ fun ConfigEditorPage(vm: LauncherViewModel) {
                             }
                         }
                     } else {
-                        LazyColumn(
+                        PmclLazyColumn(
                             verticalArrangement = Arrangement.spacedBy(2.dp),
                             modifier = Modifier.weight(1f)
                         ) {

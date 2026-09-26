@@ -1,4 +1,5 @@
 package com.pmcl.ui.page
+import com.pmcl.ui.widget.PmclLazyColumn
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
@@ -141,7 +142,7 @@ fun InstancesPage(vm: LauncherViewModel) {
                 }
             }
         } else {
-            LazyColumn(
+            PmclLazyColumn(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = PaddingValues(bottom = 16.dp)
             ) {
@@ -274,7 +275,7 @@ fun InstancesPage(vm: LauncherViewModel) {
                         )
                         Spacer(Modifier.height(8.dp))
                         // 模组清单列表（限制高度，避免过长）
-                        LazyColumn(
+                        PmclLazyColumn(
                             modifier = Modifier.heightIn(max = 200.dp),
                             verticalArrangement = Arrangement.spacedBy(2.dp)
                         ) {

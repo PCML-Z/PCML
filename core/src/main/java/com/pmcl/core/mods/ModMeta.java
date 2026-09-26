@@ -15,7 +15,9 @@ public final class ModMeta {
     private String authors;
     private String loader;          // fabric / forge / quilt / neoforge / unknown
     private List<String> depends;   // 依赖的 modId
-    private List<String> conflicts; // 冲突的 modId
+    private List<String> conflicts; // 硬冲突的 modId（详情展示）
+    /** 扫描得到的冲突规则：{@code modId\tversionRange\tH|S}。H 为硬冲突，S 为 breaks 警告。空 range 表示任意版本。 */
+    private List<String> conflictRules;
     private String jarFile;         // jar 文件名（含 .disabled 后缀则被禁用）
     private boolean disabled;       // 是否被禁用（.jar.disabled 后缀）
     private String source;          // 来源标签（版本目录名 / "全局" / "系统"），由 VM 设置
@@ -43,6 +45,7 @@ public final class ModMeta {
             : Collections.unmodifiableList(new java.util.ArrayList<>(depends));
         this.conflicts = conflicts == null ? Collections.emptyList()
             : Collections.unmodifiableList(new java.util.ArrayList<>(conflicts));
+        this.conflictRules = Collections.emptyList();
         this.jarFile = jarFile;
         this.disabled = disabled;
         this.tags = Collections.emptyList();
@@ -56,6 +59,13 @@ public final class ModMeta {
     public String getLoader() { return loader; }
     public List<String> getDepends() { return depends; }
     public List<String> getConflicts() { return conflicts; }
+    public List<String> getConflictRules() {
+        return conflictRules == null ? Collections.emptyList() : conflictRules;
+    }
+    public void setConflictRules(List<String> rules) {
+        this.conflictRules = rules == null ? Collections.emptyList()
+            : Collections.unmodifiableList(new java.util.ArrayList<>(rules));
+    }
     public String getJarFile() { return jarFile; }
     public boolean isDisabled() { return disabled; }
     public String getSource() { return source; }

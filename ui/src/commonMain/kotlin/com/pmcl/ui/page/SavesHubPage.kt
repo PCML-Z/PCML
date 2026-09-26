@@ -7,13 +7,14 @@ import androidx.compose.ui.Modifier
 import com.pmcl.ui.viewmodel.LauncherViewModel
 
 /**
- * 存档中心：由二级侧栏切换 世界 / 截图
+ * 存档中心：由二级侧栏切换 世界 / 截图 / 录屏
  */
 @Composable
 fun SavesHubPage(vm: LauncherViewModel, sectionId: String = "worlds") {
     Box(Modifier.fillMaxSize()) {
         when (sectionId) {
             "screenshots" -> ScreenshotsPage(vm)
+            "recordings" -> RecordingsPage(vm)
             else -> WorldsPage(vm)
         }
     }

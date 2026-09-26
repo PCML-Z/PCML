@@ -85,6 +85,7 @@ public final class I18n {
         // ===== 导航 =====
         ZH.put("nav.launch", "启动");
         ZH.put("nav.news", "新闻");
+        ZH.put("nav.tips", "提示");
         ZH.put("nav.multiplayer", "联机");
         ZH.put("nav.servers", "服务器");
         ZH.put("nav.friends", "好友");
@@ -170,6 +171,7 @@ public final class I18n {
         ZH.put("nav.market", "市场");
         ZH.put("nav.worlds", "世界");
         ZH.put("nav.screenshots", "截图");
+        ZH.put("nav.recordings", "录屏");
         ZH.put("nav.queue", "队列");
         ZH.put("nav.wiki", "Wiki");
         ZH.put("nav.modpacks", "整合包");
@@ -237,6 +239,8 @@ public final class I18n {
 
         // ===== 音乐播放器 =====
         ZH.put("music.section.player", "播放器");
+        ZH.put("music.overlay", "悬浮窗");
+        ZH.put("music.overlay_empty", "还没有在播的曲子");
         ZH.put("music.title", "音乐");
         ZH.put("music.subtitle", "在线音频播放器");
         ZH.put("music.input_placeholder", "输入 B站/A站视频链接或音频直链");
@@ -271,10 +275,15 @@ public final class I18n {
         ZH.put("music.source", "来源");
         ZH.put("music.source_bilibili", "B站");
         ZH.put("music.source_acfun", "A站");
+        ZH.put("music.source_kuaishou", "快手");
+        ZH.put("music.source_douyin", "抖音");
+        ZH.put("music.source_youtube", "油管");
         ZH.put("music.source_direct", "直链");
         ZH.put("music.loading_track", "加载中…");
         ZH.put("music.error_load", "加载失败：{0}");
         ZH.put("music.error_play", "播放失败：{0}");
+        ZH.put("music.retrying", "播放地址失效，正在重新解析…");
+        ZH.put("music.retry_ok", "播放地址已刷新");
         ZH.put("music.playlist_load_failed", "加载播放列表失败：{0}");
         ZH.put("music.playlist_save_failed", "保存播放列表失败：{0}");
         ZH.put("music.add_to_playlist", "添加到播放列表");
@@ -294,7 +303,13 @@ public final class I18n {
         ZH.put("music.local_added", "已添加 {0} 首本地曲目");
         ZH.put("music.local_none_added", "未添加任何本地曲目");
         ZH.put("music.lyrics", "歌词");
-        ZH.put("music.lyrics_empty", "暂无歌词（本地可放同名 .lrc；B站尝试字幕）");
+        ZH.put("music.lyrics_empty", "暂无歌词，可以导入 .lrc 或文本");
+        ZH.put("music.lyrics_import", "导入歌词");
+        ZH.put("music.lyrics_clear", "清除歌词");
+        ZH.put("music.lyrics_imported", "已导入歌词");
+        ZH.put("music.lyrics_import_empty", "这个文件里没有歌词");
+        ZH.put("music.lyrics_import_failed", "导入歌词失败：{0}");
+        ZH.put("music.lyrics_cleared", "已清除导入的歌词");
         ZH.put("music.playlists", "播放列表");
         ZH.put("music.playlist_default", "默认播放列表");
         ZH.put("music.playlist_create", "新建播放列表");
@@ -946,6 +961,17 @@ public final class I18n {
         ZH.put("settings.version_isolation", "版本隔离");
         ZH.put("settings.version_isolation_desc", "各版本独立 mods/saves/config 目录");
         ZH.put("settings.game_behavior", "游戏行为");
+        ZH.put("settings.always_scrollbars", "始终显示滚动条");
+        ZH.put("settings.always_scrollbars_desc", "打开后，列表和可滚动区域会一直显示滚动条");
+        ZH.put("settings.scrollbars_on_scroll", "滑动时显示滚动条");
+        ZH.put("settings.scrollbars_on_scroll_desc", "滚动时出现，停下后消失");
+        ZH.put("settings.music_links", "音乐链接");
+        ZH.put("settings.music_links_desc", "默认关闭。打开后，音乐页可以粘贴对应平台的视频链接并播放");
+        ZH.put("settings.music_overlay_video", "悬浮窗显示视频");
+        ZH.put("settings.music_overlay_video_desc", "默认关闭。来源有视频画面时，在音乐悬浮窗中静音显示并跟随播放进度");
+        ZH.put("settings.parse_kuaishou", "快手");
+        ZH.put("settings.parse_douyin", "抖音");
+        ZH.put("settings.parse_youtube", "油管");
         ZH.put("settings.borderless_window", "无边框窗口");
         ZH.put("settings.borderless_window_desc", "开启后使用自定义标题栏，重启启动器后生效");
         ZH.put("settings.java_downgrade", "Java 版本兼容");
@@ -1018,6 +1044,7 @@ public final class I18n {
 
         // ===== 终端页 =====
         ZH.put("terminal.title", "终端");
+        ZH.put("terminal.new_window", "新窗口");
         ZH.put("terminal.welcome_hint", "输入 help 查看命令；Tab 补全；↑↓ 历史；clear 清屏。");
         ZH.put("terminal.executing", "执行中…");
         ZH.put("terminal.cancel", "取消");
@@ -1223,6 +1250,16 @@ public final class I18n {
         ZH.put("settings.java_runtime", "Java 运行时");
         ZH.put("settings.current_java", "当前 Java：{0}");
         ZH.put("settings.java_version_hint", "MC 26+ 需要 Java 25；MC 1.20.5–25.x 需要 Java 21；MC 1.17–1.20.4 需要 Java 17；MC 1.12.2 及更早（含 alpha/beta）需要 Java 8。");
+        ZH.put("settings.java_selection_mode", "Java 选择方式");
+        ZH.put("settings.java_mode_auto", "自动匹配");
+        ZH.put("settings.java_mode_selected", "固定选择");
+        ZH.put("settings.java_mode_auto_desc", "沿用原逻辑，按游戏版本、架构和兼容层自动选择或下载 Java");
+        ZH.put("settings.java_mode_selected_desc", "扫描电脑和其它启动器中的 Java，固定使用选中的版本");
+        ZH.put("settings.java_choose", "选择一个 Java");
+        ZH.put("settings.java_scanning", "正在扫描 Java…");
+        ZH.put("settings.java_none_found", "没有扫描到可用 Java");
+        ZH.put("settings.java_selected_missing", "固定选择模式尚未选择 Java");
+        ZH.put("settings.java_selected_incompatible", "所选 Java {0} 不满足游戏要求的 Java {1}+");
         ZH.put("settings.unknown_arch", "未知");
         ZH.put("settings.go_to_loongson", "前往龙芯开源社区");
         ZH.put("settings.go_to_adoptium", "前往 Adoptium");
@@ -1230,7 +1267,7 @@ public final class I18n {
         ZH.put("settings.arch_not_supported_detail", "Mojang Java 运行时清单不包含 {0} 架构。请从对应开源社区手动安装 {0} 版 JDK，PMCL 会自动检测系统中的 Java。");
         ZH.put("settings.downloading", "正在下载…");
         ZH.put("settings.manual_java_path", "手动指定 Java 可执行文件路径");
-        ZH.put("settings.manual_java_path_hint", "留空则自动检测（优先 runtimes 目录，再系统路径）");
+        ZH.put("settings.manual_java_path_hint", "扫描不到非标准安装位置时，可粘贴 java/java.exe 的完整路径");
         ZH.put("settings.legacy_translation", "旧版转译运行（RetroWrapper）");
         ZH.put("settings.legacy_translation_desc",
                 "用 Java 21+（含 Apple Silicon arm64）启动 Classic～1.12（LWJGL2）旧版。1.13+ 无需此项。基于开源 RetroWrapper 与 FrankenLWJGL。");
@@ -1438,6 +1475,18 @@ public final class I18n {
         ZH.put("market.tab.aggregate", "聚合搜索");
         ZH.put("market.tab.curseforge", "CurseForge 资源");
         ZH.put("market.tab.modrinth", "Modrinth 资源");
+        ZH.put("market.tab.plugins", "插件商店");
+        ZH.put("market.plugins.search_hint", "搜索插件");
+        ZH.put("market.plugins.empty", "没有找到插件");
+        ZH.put("market.plugins.error", "无法连接插件商店：{0}");
+        ZH.put("market.plugins.install", "安装");
+        ZH.put("market.plugins.installed", "已安装");
+        ZH.put("market.plugins.update", "更新");
+        ZH.put("market.plugins.installing", "正在安装…");
+        ZH.put("market.plugins.install_ok", "已安装 {0}");
+        ZH.put("market.plugins.install_fail", "安装失败：{0}");
+        ZH.put("market.plugins.downloads", "{0} 次下载");
+        ZH.put("market.plugins.homepage", "主页");
         ZH.put("market.name", "名称");
         ZH.put("market.search_name_hint", "模组、材质包、光影的名字，例如 'BuildCraft'");
         ZH.put("market.search_options", "搜索选项");
@@ -1715,7 +1764,23 @@ public final class I18n {
         ZH.put("screenshot.batch_delete_confirm", "确定删除选中的 {0} 张截图？此操作不可恢复。");
         ZH.put("screenshot.open_containing", "打开所在文件夹");
         ZH.put("screenshot.filtered_count", "{0} 张");
+        ZH.put("recording.title", "录屏");
+        ZH.put("recording.filtered_count", "{0} 个视频");
+        ZH.put("recording.import", "导入录屏");
+        ZH.put("recording.open_folder", "打开文件夹");
+        ZH.put("recording.search_hint", "搜索录屏文件名…");
+        ZH.put("recording.source_all", "全部来源");
+        ZH.put("recording.select_all", "全选");
+        ZH.put("recording.clear_selection", "取消选择");
+        ZH.put("recording.selected_count", "已选 {0} 项");
+        ZH.put("recording.batch_delete", "批量删除");
+        ZH.put("recording.batch_delete_confirm", "确定删除选中的 {0} 个录屏？此操作不可恢复。");
+        ZH.put("recording.empty", "暂无录屏。可导入视频，或把录屏放入游戏目录的 recordings/videos 文件夹。");
+        ZH.put("recording.play", "播放");
+        ZH.put("recording.open_containing", "打开所在文件夹");
+        ZH.put("recording.status", "状态：{0}");
         ZH.put("status.screenshots_deleted", "已删除 {0} 张截图");
+        ZH.put("status.recordings_deleted", "已删除 {0} 个录屏");
 
         // ===== 视频通话新增 =====
         ZH.put("call.waiting_for_answer", "等待对方接听…");
@@ -1743,6 +1808,9 @@ public final class I18n {
         ZH.put("friend.qr_code", "好友二维码");
         ZH.put("friend.qr_generating", "QR 生成中...");
         ZH.put("friend.change_background", "更换背景");
+        ZH.put("friend.section.chat", "聊天");
+        ZH.put("friend.section.rooms", "联机");
+        ZH.put("friend.mp.join", "加入");
 
         // ===== 锁屏页新增 =====
         ZH.put("lockscreen.greeting.morning", "早上好");
@@ -2024,6 +2092,8 @@ public final class I18n {
         ZH.put("status.java_path_reset", "Java 路径已重置");
         ZH.put("status.java_path_set", "Java 路径已设置");
         ZH.put("status.java_path_invalid", "无效的 Java 可执行文件路径: {0}");
+        ZH.put("status.java_scan_complete", "扫描到 {0} 个可用 Java");
+        ZH.put("status.java_scan_failed", "扫描 Java 失败：{0}");
 
         // ===== Metal 渲染（Apple Silicon Mac 专用）=====
         ZH.put("metal.title", "Metal 渲染加速");
@@ -2060,6 +2130,12 @@ public final class I18n {
         ZH.put("status.copy_failed", "复制失败：{0}");
         ZH.put("status.screenshots_exported", "已导出 {0} 张截图");
         ZH.put("status.export_failed", "导出失败：{0}");
+        ZH.put("status.recordings_scanned", "已扫描 {0} 个录屏");
+        ZH.put("status.scan_recordings_failed", "扫描录屏失败：{0}");
+        ZH.put("status.recordings_imported", "已导入 {0} 个录屏");
+        ZH.put("status.import_recordings_failed", "导入录屏失败：{0}");
+        ZH.put("status.recording_deleted", "已删除录屏：{0}");
+        ZH.put("status.open_recording_failed", "打开录屏失败：{0}");
 
         // ===== 状态消息 - 资源包 =====
         ZH.put("status.resource_packs_scanned", "已扫描 {0} 个资源包");
@@ -2252,6 +2328,7 @@ public final class I18n {
 
         EN.put("nav.launch", "Launch");
         EN.put("nav.news", "News");
+        EN.put("nav.tips", "Tips");
         EN.put("nav.multiplayer", "Multiplayer");
         EN.put("nav.servers", "Servers");
         EN.put("nav.friends", "Friends");
@@ -2337,6 +2414,7 @@ public final class I18n {
         EN.put("nav.market", "Market");
         EN.put("nav.worlds", "Worlds");
         EN.put("nav.screenshots", "Shots");
+        EN.put("nav.recordings", "Recordings");
         EN.put("nav.queue", "Queue");
         EN.put("nav.wiki", "Wiki");
         EN.put("nav.modpacks", "Modpacks");
@@ -2399,6 +2477,8 @@ public final class I18n {
 
         // ===== Music Player =====
         EN.put("music.section.player", "Player");
+        EN.put("music.overlay", "Floating window");
+        EN.put("music.overlay_empty", "Nothing playing");
         EN.put("music.title", "Music");
         EN.put("music.subtitle", "Online audio player");
         EN.put("music.input_placeholder", "Enter BiliBili/AcFun video URL or direct audio link");
@@ -2433,10 +2513,15 @@ public final class I18n {
         EN.put("music.source", "Source");
         EN.put("music.source_bilibili", "BiliBili");
         EN.put("music.source_acfun", "AcFun");
+        EN.put("music.source_kuaishou", "Kuaishou");
+        EN.put("music.source_douyin", "Douyin");
+        EN.put("music.source_youtube", "YouTube");
         EN.put("music.source_direct", "Direct");
         EN.put("music.loading_track", "Loading...");
         EN.put("music.error_load", "Load failed: {0}");
         EN.put("music.error_play", "Play failed: {0}");
+        EN.put("music.retrying", "The stream expired. Resolving it again…");
+        EN.put("music.retry_ok", "The stream URL was refreshed");
         EN.put("music.playlist_load_failed", "Failed to load playlist: {0}");
         EN.put("music.playlist_save_failed", "Failed to save playlist: {0}");
         EN.put("music.add_to_playlist", "Add to playlist");
@@ -2456,7 +2541,13 @@ public final class I18n {
         EN.put("music.local_added", "Added {0} local track(s)");
         EN.put("music.local_none_added", "No local tracks added");
         EN.put("music.lyrics", "Lyrics");
-        EN.put("music.lyrics_empty", "No lyrics (use a sidecar .lrc, or Bilibili subtitles)");
+        EN.put("music.lyrics_empty", "No lyrics. Import an .lrc or text file.");
+        EN.put("music.lyrics_import", "Import lyrics");
+        EN.put("music.lyrics_clear", "Clear lyrics");
+        EN.put("music.lyrics_imported", "Lyrics imported");
+        EN.put("music.lyrics_import_empty", "That file has no lyrics");
+        EN.put("music.lyrics_import_failed", "Could not import lyrics: {0}");
+        EN.put("music.lyrics_cleared", "Imported lyrics cleared");
         EN.put("music.playlists", "Playlists");
         EN.put("music.playlist_default", "Default playlist");
         EN.put("music.playlist_create", "New playlist");
@@ -3094,6 +3185,17 @@ public final class I18n {
         EN.put("settings.version_isolation", "Version isolation");
         EN.put("settings.version_isolation_desc", "Independent mods/saves/config per version");
         EN.put("settings.game_behavior", "Game behavior");
+        EN.put("settings.always_scrollbars", "Always show scrollbars");
+        EN.put("settings.always_scrollbars_desc", "Lists and scrollable areas keep a scrollbar visible");
+        EN.put("settings.scrollbars_on_scroll", "Show scrollbars while scrolling");
+        EN.put("settings.scrollbars_on_scroll_desc", "Appears while scrolling, hides after you stop");
+        EN.put("settings.music_links", "Music links");
+        EN.put("settings.music_links_desc", "Off by default. When on, the music page can play video links from that site");
+        EN.put("settings.music_overlay_video", "Show video in music overlay");
+        EN.put("settings.music_overlay_video_desc", "Off by default. Shows a muted, synchronized preview when the source provides video");
+        EN.put("settings.parse_kuaishou", "Kuaishou");
+        EN.put("settings.parse_douyin", "Douyin");
+        EN.put("settings.parse_youtube", "YouTube");
         EN.put("settings.borderless_window", "Borderless window");
         EN.put("settings.borderless_window_desc", "Use custom title bar after restart");
         EN.put("settings.java_downgrade", "Java version compatibility");
@@ -3161,6 +3263,7 @@ public final class I18n {
         EN.put("plugins.section.install_hint", "Install from a local JAR or URL, or scan ~/.pmcl/plugins/.");
 
         EN.put("terminal.title", "Terminal");
+        EN.put("terminal.new_window", "New window");
         EN.put("terminal.welcome_hint", "Type help for commands; Tab to complete; ↑↓ for history; clear to reset.");
         EN.put("terminal.executing", "Running…");
         EN.put("terminal.cancel", "Cancel");
@@ -3366,6 +3469,16 @@ public final class I18n {
         EN.put("settings.java_runtime", "Java Runtime");
         EN.put("settings.current_java", "Current Java: {0}");
         EN.put("settings.java_version_hint", "MC 26+ requires Java 25; MC 1.20.5–25.x requires Java 21; MC 1.17–1.20.4 requires Java 17; MC 1.12.2 and earlier (including alpha/beta) require Java 8.");
+        EN.put("settings.java_selection_mode", "Java selection");
+        EN.put("settings.java_mode_auto", "Automatic");
+        EN.put("settings.java_mode_selected", "Fixed selection");
+        EN.put("settings.java_mode_auto_desc", "Uses the existing logic to match or download Java by game version, architecture, and compatibility layer");
+        EN.put("settings.java_mode_selected_desc", "Scans Java installations on this computer and other launchers, then always uses the selected one");
+        EN.put("settings.java_choose", "Choose a Java installation");
+        EN.put("settings.java_scanning", "Scanning Java installations…");
+        EN.put("settings.java_none_found", "No usable Java installation found");
+        EN.put("settings.java_selected_missing", "No Java installation is selected");
+        EN.put("settings.java_selected_incompatible", "Selected Java {0} does not meet the game's Java {1}+ requirement");
         EN.put("settings.unknown_arch", "Unknown");
         EN.put("settings.go_to_loongson", "Go to Loongson open-source community");
         EN.put("settings.go_to_adoptium", "Go to Adoptium");
@@ -3373,7 +3486,7 @@ public final class I18n {
         EN.put("settings.arch_not_supported_detail", "Mojang Java runtime manifest does not include {0} architecture. Please manually install {0} JDK from the corresponding open-source community, PMCL will auto-detect system Java.");
         EN.put("settings.downloading", "Downloading…");
         EN.put("settings.manual_java_path", "Manually specify Java executable path");
-        EN.put("settings.manual_java_path_hint", "Leave empty for auto-detection (runtimes directory first, then system path)");
+        EN.put("settings.manual_java_path_hint", "Paste the full java/java.exe path when a non-standard installation is not detected");
         EN.put("settings.legacy_translation", "Legacy translation (RetroWrapper)");
         EN.put("settings.legacy_translation_desc",
                 "Run Classic–1.12 (LWJGL2) Minecraft with Java 21+ (incl. Apple Silicon). Not needed for 1.13+. Uses RetroWrapper / FrankenLWJGL.");
@@ -3581,6 +3694,18 @@ public final class I18n {
         EN.put("market.tab.aggregate", "Combined search");
         EN.put("market.tab.curseforge", "CurseForge");
         EN.put("market.tab.modrinth", "Modrinth");
+        EN.put("market.tab.plugins", "Plugins");
+        EN.put("market.plugins.search_hint", "Search plugins");
+        EN.put("market.plugins.empty", "No plugins found");
+        EN.put("market.plugins.error", "Could not reach the plugin store: {0}");
+        EN.put("market.plugins.install", "Install");
+        EN.put("market.plugins.installed", "Installed");
+        EN.put("market.plugins.update", "Update");
+        EN.put("market.plugins.installing", "Installing…");
+        EN.put("market.plugins.install_ok", "Installed {0}");
+        EN.put("market.plugins.install_fail", "Install failed: {0}");
+        EN.put("market.plugins.downloads", "{0} downloads");
+        EN.put("market.plugins.homepage", "Homepage");
         EN.put("market.name", "Name");
         EN.put("market.search_name_hint", "Mod, resource pack or shader name, e.g. 'BuildCraft'");
         EN.put("market.search_options", "Search options");
@@ -3858,7 +3983,23 @@ public final class I18n {
         EN.put("screenshot.batch_delete_confirm", "Delete {0} selected screenshot(s)? This cannot be undone.");
         EN.put("screenshot.open_containing", "Open containing folder");
         EN.put("screenshot.filtered_count", "{0} photos");
+        EN.put("recording.title", "Recordings");
+        EN.put("recording.filtered_count", "{0} videos");
+        EN.put("recording.import", "Import recordings");
+        EN.put("recording.open_folder", "Open folder");
+        EN.put("recording.search_hint", "Search recording filenames…");
+        EN.put("recording.source_all", "All sources");
+        EN.put("recording.select_all", "Select all");
+        EN.put("recording.clear_selection", "Clear selection");
+        EN.put("recording.selected_count", "{0} selected");
+        EN.put("recording.batch_delete", "Delete selected");
+        EN.put("recording.batch_delete_confirm", "Delete {0} selected recording(s)? This cannot be undone.");
+        EN.put("recording.empty", "No recordings. Import videos or put them in a recordings/videos folder.");
+        EN.put("recording.play", "Play");
+        EN.put("recording.open_containing", "Open containing folder");
+        EN.put("recording.status", "Status: {0}");
         EN.put("status.screenshots_deleted", "Deleted {0} screenshot(s)");
+        EN.put("status.recordings_deleted", "Deleted {0} recording(s)");
 
         // ===== Video call new =====
         EN.put("call.waiting_for_answer", "Waiting for answer…");
@@ -3886,6 +4027,9 @@ public final class I18n {
         EN.put("friend.qr_code", "Friend QR code");
         EN.put("friend.qr_generating", "Generating QR…");
         EN.put("friend.change_background", "Change background");
+        EN.put("friend.section.chat", "Chat");
+        EN.put("friend.section.rooms", "Rooms");
+        EN.put("friend.mp.join", "Join");
 
         // ===== Lockscreen new =====
         EN.put("lockscreen.greeting.morning", "Good morning");
@@ -4133,6 +4277,8 @@ public final class I18n {
         EN.put("status.java_path_reset", "Java path reset");
         EN.put("status.java_path_set", "Java path set");
         EN.put("status.java_path_invalid", "Invalid Java executable path: {0}");
+        EN.put("status.java_scan_complete", "Found {0} usable Java installations");
+        EN.put("status.java_scan_failed", "Failed to scan Java installations: {0}");
 
         // ===== Metal rendering (Apple Silicon Mac only) =====
         EN.put("metal.title", "Metal Rendering");
@@ -4166,6 +4312,12 @@ public final class I18n {
         EN.put("status.copy_failed", "Copy failed: {0}");
         EN.put("status.screenshots_exported", "Exported {0} screenshots");
         EN.put("status.export_failed", "Export failed: {0}");
+        EN.put("status.recordings_scanned", "Scanned {0} recordings");
+        EN.put("status.scan_recordings_failed", "Failed to scan recordings: {0}");
+        EN.put("status.recordings_imported", "Imported {0} recordings");
+        EN.put("status.import_recordings_failed", "Failed to import recordings: {0}");
+        EN.put("status.recording_deleted", "Deleted recording: {0}");
+        EN.put("status.open_recording_failed", "Failed to open recording: {0}");
         EN.put("status.resource_packs_scanned", "Scanned {0} resource packs");
         EN.put("status.resource_packs_scanned_partial", "Scanned {0} resource packs ({1} directories failed)");
         EN.put("status.scan_resource_packs_failed", "Failed to scan resource packs: {0}");
@@ -4336,6 +4488,7 @@ public final class I18n {
 
         JA.put("nav.launch", "起動");
         JA.put("nav.news", "ニュース");
+        JA.put("nav.tips", "ヒント");
         JA.put("nav.multiplayer", "マルチプレイ");
         JA.put("nav.servers", "サーバー");
         JA.put("nav.friends", "フレンド");
@@ -4421,6 +4574,7 @@ public final class I18n {
         JA.put("nav.market", "市場");
         JA.put("nav.worlds", "ワールド");
         JA.put("nav.screenshots", "スクショ");
+        JA.put("nav.recordings", "録画");
         JA.put("nav.queue", "キュー");
         JA.put("nav.wiki", "Wiki");
         JA.put("nav.modpacks", "Modpack");
@@ -4483,6 +4637,8 @@ public final class I18n {
 
         // ===== 音楽プレーヤー =====
         JA.put("music.section.player", "プレーヤー");
+        JA.put("music.overlay", "フローティング");
+        JA.put("music.overlay_empty", "再生中の曲はありません");
         JA.put("music.title", "音楽");
         JA.put("music.subtitle", "オンラインオーディオプレーヤー");
         JA.put("music.input_placeholder", "Bilibili/AcFunの動画URLまたは音声直リンクを入力");
@@ -4517,10 +4673,15 @@ public final class I18n {
         JA.put("music.source", "ソース");
         JA.put("music.source_bilibili", "BiliBili");
         JA.put("music.source_acfun", "AcFun");
+        JA.put("music.source_kuaishou", "快手");
+        JA.put("music.source_douyin", "抖音");
+        JA.put("music.source_youtube", "YouTube");
         JA.put("music.source_direct", "直リンク");
         JA.put("music.loading_track", "読み込み中...");
         JA.put("music.error_load", "読み込み失敗：{0}");
         JA.put("music.error_play", "再生失敗：{0}");
+        JA.put("music.retrying", "再生URLの期限が切れたため、再取得しています…");
+        JA.put("music.retry_ok", "再生URLを更新しました");
         JA.put("music.playlist_load_failed", "プレイリストの読み込みに失敗：{0}");
         JA.put("music.playlist_save_failed", "プレイリストの保存に失敗：{0}");
         JA.put("music.add_to_playlist", "再生リストに追加");
@@ -4540,7 +4701,13 @@ public final class I18n {
         JA.put("music.local_added", "ローカル曲を {0} 曲追加しました");
         JA.put("music.local_none_added", "追加されたローカル曲はありません");
         JA.put("music.lyrics", "歌詞");
-        JA.put("music.lyrics_empty", "歌詞なし（同名 .lrc または Bilibili 字幕）");
+        JA.put("music.lyrics_empty", "歌詞なし。.lrc かテキストを読み込めます");
+        JA.put("music.lyrics_import", "歌詞を読み込む");
+        JA.put("music.lyrics_clear", "歌詞を消す");
+        JA.put("music.lyrics_imported", "歌詞を読み込みました");
+        JA.put("music.lyrics_import_empty", "このファイルに歌詞はありません");
+        JA.put("music.lyrics_import_failed", "歌詞の読み込みに失敗：{0}");
+        JA.put("music.lyrics_cleared", "読み込んだ歌詞を消しました");
         JA.put("music.playlists", "再生リスト");
         JA.put("music.playlist_default", "デフォルトリスト");
         JA.put("music.playlist_create", "新規リスト");
@@ -5178,6 +5345,17 @@ public final class I18n {
         JA.put("settings.version_isolation", "バージョン分離");
         JA.put("settings.version_isolation_desc", "バージョンごとに独立したmods/saves/config");
         JA.put("settings.game_behavior", "ゲーム動作");
+        JA.put("settings.always_scrollbars", "スクロールバーを常に表示");
+        JA.put("settings.always_scrollbars_desc", "オンにすると、リストとスクロール領域にバーを常時表示します");
+        JA.put("settings.scrollbars_on_scroll", "スクロール中だけ表示");
+        JA.put("settings.scrollbars_on_scroll_desc", "動かしている間だけ出て、止まると消えます");
+        JA.put("settings.music_links", "音楽リンク");
+        JA.put("settings.music_links_desc", "初期状態はオフです。オンにすると、音楽ページでそのサイトの動画リンクを再生できます");
+        JA.put("settings.music_overlay_video", "音楽オーバーレイに動画を表示");
+        JA.put("settings.music_overlay_video_desc", "初期状態はオフです。動画がある場合、無音で再生位置に同期して表示します");
+        JA.put("settings.parse_kuaishou", "快手");
+        JA.put("settings.parse_douyin", "抖音");
+        JA.put("settings.parse_youtube", "YouTube");
         JA.put("settings.borderless_window", "ボーダーレスウィンドウ");
         JA.put("settings.borderless_window_desc", "有効化するとカスタムタイトルバーを使用、再起動後に有効");
         JA.put("settings.java_downgrade", "Javaバージョン互換");
@@ -5245,6 +5423,7 @@ public final class I18n {
         JA.put("plugins.section.install_hint", "ローカル JAR または URL からインストール、もしくは ~/.pmcl/plugins/ をスキャンできます。");
 
         JA.put("terminal.title", "ターミナル");
+        JA.put("terminal.new_window", "新しいウィンドウ");
         JA.put("terminal.welcome_hint", "help でコマンド一覧；Tab 補完；↑↓ で履歴；clear で画面クリア。");
         JA.put("terminal.executing", "実行中…");
         JA.put("terminal.cancel", "キャンセル");
@@ -5450,6 +5629,16 @@ public final class I18n {
         JA.put("settings.java_runtime", "Java ランタイム");
         JA.put("settings.current_java", "現在の Java: {0}");
         JA.put("settings.java_version_hint", "MC 26+ は Java 25 必要; MC 1.20.5–25.x は Java 21 必要; MC 1.17–1.20.4 は Java 17 必要; MC 1.12.2 以前（alpha/beta 含む）は Java 8 必要。");
+        JA.put("settings.java_selection_mode", "Java の選択方法");
+        JA.put("settings.java_mode_auto", "自動選択");
+        JA.put("settings.java_mode_selected", "固定選択");
+        JA.put("settings.java_mode_auto_desc", "従来どおりゲームのバージョン、アーキテクチャ、互換レイヤーに合わせて Java を自動選択またはダウンロードします");
+        JA.put("settings.java_mode_selected_desc", "このコンピューターと他のランチャーの Java をスキャンし、選択したものを常に使用します");
+        JA.put("settings.java_choose", "Java を選択");
+        JA.put("settings.java_scanning", "Java をスキャン中…");
+        JA.put("settings.java_none_found", "利用可能な Java が見つかりません");
+        JA.put("settings.java_selected_missing", "固定選択モードで Java が選択されていません");
+        JA.put("settings.java_selected_incompatible", "選択した Java {0} は必要な Java {1}+ を満たしていません");
         JA.put("settings.unknown_arch", "不明");
         JA.put("settings.go_to_loongson", "Loongson オープンソースコミュニティへ");
         JA.put("settings.go_to_adoptium", "Adoptium へ");
@@ -5457,7 +5646,7 @@ public final class I18n {
         JA.put("settings.arch_not_supported_detail", "Mojang Java ランタイムマニフェストに {0} アーキテクチャが含まれません。対応するオープンソースコミュニティから {0} 版 JDK を手動インストールしてください、PMCL がシステムの Java を自動検出します。");
         JA.put("settings.downloading", "ダウンロード中…");
         JA.put("settings.manual_java_path", "Java 実行ファイルパスを手動指定");
-        JA.put("settings.manual_java_path_hint", "空欄で自動検出（runtimes ディレクトリ優先、次にシステムパス）");
+        JA.put("settings.manual_java_path_hint", "非標準のインストールが検出されない場合、java/java.exe の完全なパスを入力します");
         JA.put("settings.legacy_translation", "旧版トランスレーション（RetroWrapper）");
         JA.put("settings.legacy_translation_desc",
                 "Classic～1.12（LWJGL2）を Java 21+（Apple Silicon 含む）で起動。1.13+ では不要。RetroWrapper / FrankenLWJGL を使用。");
@@ -5665,6 +5854,18 @@ public final class I18n {
         JA.put("market.tab.aggregate", "統合検索");
         JA.put("market.tab.curseforge", "CurseForge");
         JA.put("market.tab.modrinth", "Modrinth");
+        JA.put("market.tab.plugins", "プラグイン");
+        JA.put("market.plugins.search_hint", "プラグインを検索");
+        JA.put("market.plugins.empty", "プラグインがありません");
+        JA.put("market.plugins.error", "プラグインストアに接続できません：{0}");
+        JA.put("market.plugins.install", "インストール");
+        JA.put("market.plugins.installed", "インストール済み");
+        JA.put("market.plugins.update", "更新");
+        JA.put("market.plugins.installing", "インストール中…");
+        JA.put("market.plugins.install_ok", "{0} をインストールしました");
+        JA.put("market.plugins.install_fail", "インストール失敗：{0}");
+        JA.put("market.plugins.downloads", "{0} ダウンロード");
+        JA.put("market.plugins.homepage", "ホームページ");
         JA.put("market.name", "名前");
         JA.put("market.search_name_hint", "Mod・リソースパック・シェーダー名、例: 'BuildCraft'");
         JA.put("market.search_options", "検索オプション");
@@ -5942,7 +6143,23 @@ public final class I18n {
         JA.put("screenshot.batch_delete_confirm", "選択した {0} 枚のスクリーンショットを削除しますか？元に戻せません。");
         JA.put("screenshot.open_containing", "保存フォルダを開く");
         JA.put("screenshot.filtered_count", "{0} 枚");
+        JA.put("recording.title", "録画");
+        JA.put("recording.filtered_count", "{0} 件");
+        JA.put("recording.import", "録画を読み込む");
+        JA.put("recording.open_folder", "フォルダを開く");
+        JA.put("recording.search_hint", "録画ファイル名を検索…");
+        JA.put("recording.source_all", "すべてのソース");
+        JA.put("recording.select_all", "すべて選択");
+        JA.put("recording.clear_selection", "選択解除");
+        JA.put("recording.selected_count", "{0} 件選択中");
+        JA.put("recording.batch_delete", "一括削除");
+        JA.put("recording.batch_delete_confirm", "選択した {0} 件の録画を削除しますか？元に戻せません。");
+        JA.put("recording.empty", "録画がありません。動画を読み込むか recordings/videos フォルダに配置してください。");
+        JA.put("recording.play", "再生");
+        JA.put("recording.open_containing", "保存フォルダを開く");
+        JA.put("recording.status", "ステータス：{0}");
         JA.put("status.screenshots_deleted", "{0} 枚のスクリーンショットを削除しました");
+        JA.put("status.recordings_deleted", "{0} 件の録画を削除しました");
 
         // ===== ビデオ通話新規 =====
         JA.put("call.waiting_for_answer", "相手の応答を待っています…");
@@ -5970,6 +6187,9 @@ public final class I18n {
         JA.put("friend.qr_code", "フレンド QR コード");
         JA.put("friend.qr_generating", "QR 生成中...");
         JA.put("friend.change_background", "背景を変更");
+        JA.put("friend.section.chat", "チャット");
+        JA.put("friend.section.rooms", "マルチプレイ");
+        JA.put("friend.mp.join", "参加");
 
         // ===== ロック画面新規 =====
         JA.put("lockscreen.greeting.morning", "おはようございます");
@@ -6251,6 +6471,8 @@ public final class I18n {
         JA.put("status.java_path_reset", "Java パスをリセット");
         JA.put("status.java_path_set", "Java パスを設定");
         JA.put("status.java_path_invalid", "無効な Java 実行ファイルパス: {0}");
+        JA.put("status.java_scan_complete", "利用可能な Java が {0} 件見つかりました");
+        JA.put("status.java_scan_failed", "Java のスキャンに失敗：{0}");
 
         // ===== Metal レンダリング（Apple Silicon Mac 専用）=====
         JA.put("metal.title", "Metal レンダリング");
@@ -6287,6 +6509,12 @@ public final class I18n {
         JA.put("status.copy_failed", "コピー失敗：{0}");
         JA.put("status.screenshots_exported", "スクリーンショット {0} 件をエクスポート");
         JA.put("status.export_failed", "エクスポート失敗：{0}");
+        JA.put("status.recordings_scanned", "録画 {0} 件をスキャン");
+        JA.put("status.scan_recordings_failed", "録画のスキャンに失敗：{0}");
+        JA.put("status.recordings_imported", "録画 {0} 件を読み込みました");
+        JA.put("status.import_recordings_failed", "録画の読み込みに失敗：{0}");
+        JA.put("status.recording_deleted", "録画を削除：{0}");
+        JA.put("status.open_recording_failed", "録画を開けません：{0}");
 
         // ===== ステータスメッセージ - リソースパック =====
         JA.put("status.resource_packs_scanned", "リソースパック {0} 件をスキャン");

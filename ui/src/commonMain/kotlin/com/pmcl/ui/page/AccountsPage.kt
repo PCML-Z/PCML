@@ -1,4 +1,5 @@
 package com.pmcl.ui.page
+import com.pmcl.ui.widget.pmclVerticalScroll
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
@@ -96,7 +97,7 @@ fun AccountsPage(vm: LauncherViewModel, sectionId: String = "list") {
         else -> "accounts.section.list"
     }
 
-    Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(scroll)) {
+    Column(Modifier.fillMaxSize().padding(16.dp).pmclVerticalScroll(scroll)) {
         TypewriterTitle(I18n.t(sectionTitleKey))
         Spacer(Modifier.height(16.dp))
 

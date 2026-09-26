@@ -1,4 +1,6 @@
 package com.pmcl.ui.page
+import com.pmcl.ui.widget.PmclLazyColumn
+import com.pmcl.ui.widget.pmclVerticalScroll
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -190,7 +192,7 @@ fun ModpacksPage(vm: LauncherViewModel) {
                 }
             }
         } else {
-            LazyColumn(
+            PmclLazyColumn(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = PaddingValues(bottom = 16.dp)
             ) {
@@ -424,7 +426,7 @@ private fun ModpackDetailDialog(
         onDismissRequest = onDismiss,
         title = { Text(I18n.t("modpack.detail_title"), fontWeight = FontWeight.SemiBold) },
         text = {
-            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+            Column(modifier = Modifier.pmclVerticalScroll(rememberScrollState())) {
                 Text(mp.name, style = MaterialTheme.typography.titleSmall,
                      fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(8.dp))
@@ -487,7 +489,7 @@ private fun ModpackUpdateDialog(
                     )
                     Spacer(Modifier.height(8.dp))
                     // 有更新的 mod 列表
-                    LazyColumn(
+                    PmclLazyColumn(
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                         modifier = Modifier.heightIn(max = 300.dp)
                     ) {

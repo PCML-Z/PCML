@@ -507,7 +507,21 @@ public final class PmclCli {
             int requiredJava = core.profileBuilder().getRequiredJavaVersion(versionId);
             System.out.println("Requires Java " + requiredJava + " or higher");
             Path runtimesDir = core.getConfig().getWorkDir().resolve("runtimes");
-            String javaPath = JavaRuntimeFinder.findJavaExecutable(runtimesDir, requiredJava);
+            var preferences = core.getPreferences();
+            String javaPath;
+            if ("SELECTED".equals(preferences.getJavaSelectionMode())) {
+                String selected = preferences.getJavaPath();
+                javaPath = !selected.isBlank()
+                        && (JavaRuntimeFinder.meetsRequirement(selected, requiredJava)
+                        || preferences.isJavaDowngradeFallback()) ? selected : null;
+            } else {
+                String versionPath = preferences.getVersionJavaPath(versionId);
+                javaPath = !versionPath.isBlank()
+                        && (JavaRuntimeFinder.meetsRequirement(versionPath, requiredJava)
+                        || preferences.isJavaDowngradeFallback())
+                        ? versionPath
+                        : JavaRuntimeFinder.findJavaExecutable(runtimesDir, requiredJava);
+            }
             if (javaPath == null) {
                 System.err.println("No suitable Java " + requiredJava + " runtime found.");
                 System.err.println("Please install the corresponding Java version, or configure Java path in PMCL settings.");

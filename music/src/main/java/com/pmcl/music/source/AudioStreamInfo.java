@@ -28,8 +28,10 @@ public final class AudioStreamInfo {
     public final Map<String, String> headers;
     /** 视频 ID（BV号/ac号等） */
     public final String originalId;
+    /** 可选视频流 URL；没有画面时为空。视频流始终由悬浮窗静音播放。 */
+    public final String videoUrl;
 
-    /** 全字段构造器 */
+    /** 兼容纯音频源的构造器。 */
     public AudioStreamInfo(String title,
                            String uploader,
                            long durationMs,
@@ -39,6 +41,21 @@ public final class AudioStreamInfo {
                            String sourceUrl,
                            Map<String, String> headers,
                            String originalId) {
+        this(title, uploader, durationMs, audioUrl, coverUrl, sourceType,
+                sourceUrl, headers, originalId, "");
+    }
+
+    /** 全字段构造器。 */
+    public AudioStreamInfo(String title,
+                           String uploader,
+                           long durationMs,
+                           String audioUrl,
+                           String coverUrl,
+                           String sourceType,
+                           String sourceUrl,
+                           Map<String, String> headers,
+                           String originalId,
+                           String videoUrl) {
         this.title = title;
         this.uploader = uploader;
         this.durationMs = durationMs;
@@ -48,5 +65,6 @@ public final class AudioStreamInfo {
         this.sourceUrl = sourceUrl;
         this.headers = headers;
         this.originalId = originalId;
+        this.videoUrl = videoUrl == null ? "" : videoUrl;
     }
 }

@@ -1,4 +1,5 @@
 package com.pmcl.ui.modloader
+import com.pmcl.ui.widget.PmclLazyColumn
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -182,7 +183,7 @@ fun ModLoaderInstallPromptDialog(
                                 )
                             }
                             Spacer(Modifier.height(6.dp))
-                            LazyColumn(
+                            PmclLazyColumn(
                                 modifier = Modifier.weight(1f),
                                 verticalArrangement = Arrangement.spacedBy(2.dp)
                             ) {
@@ -304,7 +305,7 @@ fun ModLoaderInstallPromptDialog(
                                         color = MaterialTheme.colorScheme.outline
                                     )
                                     Spacer(Modifier.height(6.dp))
-                                    LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    PmclLazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                         items(modLoaderVersions, key = { it.getLoaderVersion() }) { lv ->
                                             val isSelected = selectedLoaderVersion == lv.getLoaderVersion()
                                             val displayVersion = remember(lv) {

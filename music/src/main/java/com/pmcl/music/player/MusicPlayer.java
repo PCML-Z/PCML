@@ -41,7 +41,7 @@ public class MusicPlayer {
     private volatile Thread playThread;
 
     private volatile PlaybackState state = PlaybackState.IDLE;
-    private volatile int volume = 80; // 0-100
+    private volatile int volume = 100; // 0-100，100 与源流一样响
     private volatile long durationMs;
     private volatile String currentUrl;
     private volatile Map<String, String> currentHeaders;
@@ -204,12 +204,20 @@ public class MusicPlayer {
                 if (url != null && (url.startsWith("http://") || url.startsWith("https://"))) {
                     g.setOption("http_max_redirects", "0");
                     g.setOption("protocol_whitelist", "file,http,https,tcp,tls,crypto");
+                    // FFmpeg 的网络读取默认可能无限等待。限制单次连接/读取，
+                    // 让失效或断流的媒体地址能及时进入 ERROR，而不是永久 LOADING。
+                    g.setOption("rw_timeout", "20000000");
+                    g.setOption("timeout", "20000000");
                 }
                 // 网络重连 / 优化参数
                 g.setOption("reconnect", "1");
                 g.setOption("reconnect_streamed", "1");
-                g.setOption("reconnect_delay_max", "5");
-                g.setOption("analyzeduration", "1000000"); // 1s，加快首帧
+                g.setOption("reconnect_on_network_error", "1");
+                g.setOption("reconnect_on_http_error", "5xx");
+                g.setOption("reconnect_delay_max", "3");
+                // 默认探测可能读取数 MB；音乐流只需较小窗口即可识别音轨。
+                g.setOption("probesize", "524288");
+                g.setOption("analyzeduration", "750000");
                 // 强制 16-bit PCM 输出
                 g.setSampleFormat(avutil.AV_SAMPLE_FMT_S16);
                 g.start();

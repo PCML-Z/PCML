@@ -1,4 +1,5 @@
 package com.pmcl.ui
+import com.pmcl.ui.widget.pmclVerticalScroll
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -47,6 +48,7 @@ import com.pmcl.ui.page.ServersPage
 import com.pmcl.ui.page.SettingsPage
 import com.pmcl.ui.page.StatisticsPage
 import com.pmcl.ui.page.TerminalPage
+import com.pmcl.ui.page.TipsPage
 import com.pmcl.ui.page.WelcomePage
 import com.pmcl.ui.theme.LauncherTheme
 import com.pmcl.ui.theme.LocalThemeState
@@ -98,6 +100,8 @@ fun App(vm: LauncherViewModel, themeState: ThemeState) {
         themeState.applyParallaxBackground(vm.preferences.isParallaxBackground())
         themeState.applyCustomBackground(vm.isCustomBackgroundActive())
         themeState.applyGlassTheme(vm.preferences.isGlassTheme())
+        themeState.applyAlwaysShowScrollbars(vm.preferences.isAlwaysShowScrollbars())
+        themeState.applyShowScrollbarsOnScroll(vm.preferences.isShowScrollbarsOnScroll())
         themeState.applyLockscreenLaunchTheme(vm.preferences.isLockscreenLaunchTheme())
         themeState.applyFollowSystem(vm.preferences.isFollowSystemTheme())
         // 应用主题色彩预设与色彩模式
@@ -441,7 +445,7 @@ private fun MainWindowContent(vm: LauncherViewModel) {
     // Build full nav list: built-in destinations + plugin pages (respect plugin-hidden routes)
     val navItems = remember(pluginPages, hiddenNavRoutes) {
         val builtIn = allDestinations
-            .filter { it.route.lowercase() !in hiddenNavRoutes }
+            .filter { it != NavDestination.Tips && it.route.lowercase() !in hiddenNavRoutes }
             .map { NavTarget.BuiltIn(it) }
         val plugins = pluginPages.map { NavTarget.PluginPage(it) }
         builtIn + plugins
@@ -757,10 +761,23 @@ private fun MainWindowContent(vm: LauncherViewModel) {
     // （如刚启动、点了不可聚焦区域），键盘事件不会分发进 Compose 树。
     // KeyboardFocusManager 的 dispatcher 在所有焦点目标之前拦截，恒定有效。
     DisposableEffect(Unit) {
+        val held = HashSet<Int>()
         val dispatcher = java.awt.KeyEventDispatcher { e ->
-            if (e.id == java.awt.event.KeyEvent.KEY_PRESSED &&
+            when (e.id) {
+                java.awt.event.KeyEvent.KEY_PRESSED -> held.add(e.keyCode)
+                java.awt.event.KeyEvent.KEY_RELEASED -> held.remove(e.keyCode)
+            }
+            val chord = e.id == java.awt.event.KeyEvent.KEY_PRESSED &&
+                e.isMetaDown && e.isAltDown &&
+                java.awt.event.KeyEvent.VK_K in held &&
+                java.awt.event.KeyEvent.VK_L in held
+            if (chord) {
+                enterPrimary(NavTarget.BuiltIn(NavDestination.Tips), 0)
+                true
+            } else if (e.id == java.awt.event.KeyEvent.KEY_PRESSED &&
                 e.keyCode == java.awt.event.KeyEvent.VK_K &&
-                (e.isMetaDown || e.isControlDown)
+                (e.isMetaDown || e.isControlDown) &&
+                !e.isAltDown
             ) {
                 paletteVisible = !paletteVisible
                 true
@@ -794,7 +811,7 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                             Column(
                                 modifier = Modifier
                                     .fillMaxHeight()
-                                    .verticalScroll(rememberScrollState()),
+                                    .pmclVerticalScroll(rememberScrollState()),
                                 verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.Top),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
@@ -912,12 +929,16 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                             is NavTarget.BuiltIn -> when (target.dest) {
                                 NavDestination.Launch      -> LaunchPage(vm)
                                 NavDestination.News        -> NewsPage(vm)
+                                NavDestination.Tips        -> TipsPage(vm)
                                 NavDestination.Multiplayer -> MultiplayerPage(
                                     vm,
                                     sectionId = sectionId ?: SecondaryNavRegistry.multiplayer.sections.first().id
                                 )
                                 NavDestination.Servers     -> ServersPage(vm)
-                                NavDestination.Friends     -> FriendPage(vm)
+                                NavDestination.Friends     -> FriendPage(
+                                    vm,
+                                    sectionId = sectionId ?: SecondaryNavRegistry.friends.sections.first().id
+                                )
                                 NavDestination.Download    -> DownloadHubPage(
                                     vm,
                                     sectionId = sectionId ?: SecondaryNavRegistry.download.sections.first().id
@@ -1248,7 +1269,7 @@ private fun buildPaletteEntries(
 
     // 一级导航页（尊重插件隐藏的内置路由）
     for (dest in allDestinations) {
-        if (dest.route.lowercase() in hiddenRoutes) continue
+        if (dest == NavDestination.Tips || dest.route.lowercase() in hiddenRoutes) continue
         add(PaletteEntry(
             id = "nav:${dest.route}",
             title = I18n.t(dest.labelKey),

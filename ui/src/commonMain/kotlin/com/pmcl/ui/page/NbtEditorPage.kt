@@ -1,4 +1,6 @@
 package com.pmcl.ui.page
+import com.pmcl.ui.widget.pmclVerticalScroll
+import com.pmcl.ui.widget.pmclHorizontalScroll
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -108,7 +110,7 @@ fun NbtEditorPage(vm: LauncherViewModel) {
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Row(
-            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            modifier = Modifier.fillMaxWidth().pmclHorizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -209,7 +211,7 @@ fun NbtEditorPage(vm: LauncherViewModel) {
         }
 
         if (root != null) {
-            Column(modifier = Modifier.fillMaxSize().verticalScroll(scrollState)) {
+            Column(modifier = Modifier.fillMaxSize().pmclVerticalScroll(scrollState)) {
                 NbtTreeNode(
                     tag = root!!,
                     name = root!!.getName().ifEmpty { "Root" },
@@ -225,7 +227,7 @@ fun NbtEditorPage(vm: LauncherViewModel) {
                 )
             }
         } else {
-            Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+            Column(modifier = Modifier.fillMaxSize().pmclVerticalScroll(rememberScrollState())) {
                 if (recentFiles.isNotEmpty()) {
                     Text(I18n.t("nbt.recent"), style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(8.dp))
@@ -642,7 +644,7 @@ private fun ConvertTypeDialog(
                     Text("${tag.getTypeName()} →", style = MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.height(8.dp))
                     Row(
-                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        modifier = Modifier.fillMaxWidth().pmclHorizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         candidates.forEach { type ->
@@ -696,7 +698,7 @@ private fun AddChildDialog(
                 Text(I18n.t("nbt.tag_type"), style = MaterialTheme.typography.labelLarge)
                 Spacer(Modifier.height(4.dp))
                 Row(
-                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    modifier = Modifier.fillMaxWidth().pmclHorizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     NbtTag.CREATABLE_TYPES.forEach { type ->
@@ -753,7 +755,7 @@ private fun ArrayEditorDialog(
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
                 Column(
-                    modifier = Modifier.fillMaxWidth().heightIn(max = 300.dp).verticalScroll(rememberScrollState())
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 300.dp).pmclVerticalScroll(rememberScrollState())
                 ) {
                     elements.forEachIndexed { index, value ->
                         Row(
@@ -892,7 +894,7 @@ private fun SnbtPreviewDialog(
                     Text(
                         snbt,
                         style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, fontSize = 11.sp),
-                        modifier = Modifier.padding(8.dp).verticalScroll(rememberScrollState()).horizontalScroll(rememberScrollState())
+                        modifier = Modifier.padding(8.dp).pmclVerticalScroll(rememberScrollState()).pmclHorizontalScroll(rememberScrollState())
                     )
                 }
             }

@@ -1,4 +1,5 @@
 package com.pmcl.ui.page
+import com.pmcl.ui.widget.pmclVerticalScroll
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
@@ -146,7 +147,7 @@ fun GameCrashPopup(vm: LauncherViewModel) {
                         color = Color(0xFFFFCDD2),
                         modifier = Modifier
                             .padding(10.dp)
-                            .verticalScroll(scroll)
+                            .pmclVerticalScroll(scroll)
                     )
                 }
                 if (recoveryActions.isNotEmpty()) {

@@ -25,20 +25,19 @@ public final class ModConflictChecker {
         List<String> errors = new ArrayList<>();
         List<String> warnings = new ArrayList<>();
 
-        // 过滤掉 modId/name 为 null 或异常的条目（TOML 解析脏数据）
+        // 禁用的 jar 不会被加载，不参与重复和冲突。
         List<ModMeta> validMods = new ArrayList<>();
         for (ModMeta m : mods) {
+            if (m == null || m.isDisabled()) continue;
             if (m.getModId() == null || m.getModId().isBlank() || "null".equals(m.getModId())) continue;
             validMods.add(m);
         }
 
-        // modId → mods（检测重复），同时构建 normalized modId 集合用于模糊匹配
         Map<String, List<ModMeta>> byId = new HashMap<>();
-        Map<String, String> normalizedToOriginal = new HashMap<>(); // 连字符↔下划线模糊匹配
+        Map<String, ModMeta> byNorm = new HashMap<>();
         for (ModMeta m : validMods) {
             byId.computeIfAbsent(m.getModId(), k -> new ArrayList<>()).add(m);
-            String norm = normalizeModId(m.getModId());
-            normalizedToOriginal.putIfAbsent(norm, m.getModId());
+            byNorm.putIfAbsent(normalizeModId(m.getModId()), m);
         }
         for (Map.Entry<String, List<ModMeta>> e : byId.entrySet()) {
             if (e.getValue().size() > 1) {
@@ -51,19 +50,175 @@ public final class ModConflictChecker {
             }
         }
 
-        // 检查冲突（不检查依赖缺失：静态扫描无法识别 jar-in-jar 内嵌库、
-        // 跨加载器兼容、连字符/下划线转换等，依赖缺失检查误报率极高，直接跳过）
+        // 只报告「对方已启用，且版本落在声明范围内」的冲突。
+        // breaks 是警告；conflicts / incompatible 才是错误。版本对不上不报。
+        Set<String> reported = new HashSet<>();
         for (ModMeta m : validMods) {
-            String displayName = (m.getName() != null && !m.getName().isBlank()) ? m.getName() : m.getModId();
-            for (String conflictId : m.getConflicts()) {
-                if (isSystemDep(conflictId)) continue;
-                if (byId.containsKey(conflictId) || normalizedToOriginal.containsKey(normalizeModId(conflictId))) {
-                    errors.add(displayName + " 与 " + conflictId + " 冲突");
+            String displayName = displayName(m);
+            for (Rule rule : rulesOf(m)) {
+                if (rule.modId.isEmpty() || isSystemDep(rule.modId)) continue;
+                if (normalizeModId(rule.modId).equals(normalizeModId(m.getModId()))) continue;
+                ModMeta other = byId.containsKey(rule.modId)
+                        ? byId.get(rule.modId).get(0)
+                        : byNorm.get(normalizeModId(rule.modId));
+                if (other == null) continue;
+                if (!versionMatches(other.getVersion(), rule.range)) continue;
+                String a = normalizeModId(m.getModId());
+                String b = normalizeModId(other.getModId());
+                String pair = (a.compareTo(b) <= 0 ? a + "|" + b : b + "|" + a)
+                        + (rule.hard ? "|H" : "|S");
+                if (!reported.add(pair)) continue;
+                String otherName = displayName(other);
+                String line = displayName + " 与 " + otherName
+                        + (rule.hard ? " 冲突" : " 不兼容");
+                if (!rule.range.isEmpty()) {
+                    line += "（" + other.getVersion() + " 在 " + rule.range + "）";
                 }
+                if (rule.hard) errors.add(line);
+                else warnings.add(line);
             }
         }
 
         return new Result(errors, warnings);
+    }
+
+    private static String displayName(ModMeta m) {
+        if (m.getName() != null && !m.getName().isBlank()) return m.getName();
+        return m.getModId();
+    }
+
+    private static List<Rule> rulesOf(ModMeta m) {
+        List<String> encoded = m.getConflictRules();
+        if (encoded != null && !encoded.isEmpty()) {
+            List<Rule> rules = new ArrayList<>();
+            for (String raw : encoded) {
+                Rule rule = Rule.parse(raw);
+                if (rule != null) rules.add(rule);
+            }
+            return rules;
+        }
+        List<Rule> legacy = new ArrayList<>();
+        for (String id : m.getConflicts()) {
+            if (id != null && !id.isBlank()) legacy.add(new Rule(id.trim(), "", true));
+        }
+        return legacy;
+    }
+
+    /** 已安装版本是否落在声明范围内。空范围、*、any 表示任意版本。解析不了则不报。 */
+    static boolean versionMatches(String installed, String range) {
+        if (range == null) return true;
+        String r = range.trim();
+        if (r.isEmpty() || "*".equals(r) || "any".equalsIgnoreCase(r)) return true;
+        if (installed == null || installed.isBlank() || "unknown".equalsIgnoreCase(installed)
+                || installed.contains("${")) {
+            return false;
+        }
+        if (r.contains("||")) {
+            for (String part : r.split("\\|\\|")) {
+                if (versionMatches(installed, part.trim())) return true;
+            }
+            return false;
+        }
+        if ((r.startsWith("[") || r.startsWith("(")) && r.contains(",")) {
+            return mavenInterval(installed, r);
+        }
+        String[] parts = r.split("\\s+");
+        if (parts.length > 1) {
+            for (String p : parts) {
+                if (!versionMatches(installed, p)) return false;
+            }
+            return true;
+        }
+        return fabricAtom(installed, r);
+    }
+
+    private static boolean mavenInterval(String installed, String range) {
+        int comma = range.indexOf(',');
+        if (comma < 0 || range.length() < 3) return false;
+        boolean lowInc = range.charAt(0) == '[';
+        boolean highInc = range.charAt(range.length() - 1) == ']';
+        String low = range.substring(1, comma).trim();
+        String high = range.substring(comma + 1, range.length() - 1).trim();
+        if (!low.isEmpty()) {
+            int cmp = ModUpdateChecker.compareVersions(installed, low);
+            if (lowInc ? cmp < 0 : cmp <= 0) return false;
+        }
+        if (!high.isEmpty()) {
+            int cmp = ModUpdateChecker.compareVersions(installed, high);
+            if (highInc ? cmp > 0 : cmp >= 0) return false;
+        }
+        return true;
+    }
+
+    private static boolean fabricAtom(String installed, String atom) {
+        String a = atom.trim();
+        if (a.isEmpty() || "*".equals(a)) return true;
+        if (a.startsWith(">=")) return ModUpdateChecker.compareVersions(installed, a.substring(2).trim()) >= 0;
+        if (a.startsWith("<=")) return ModUpdateChecker.compareVersions(installed, a.substring(2).trim()) <= 0;
+        if (a.startsWith(">")) return ModUpdateChecker.compareVersions(installed, a.substring(1).trim()) > 0;
+        if (a.startsWith("<")) return ModUpdateChecker.compareVersions(installed, a.substring(1).trim()) < 0;
+        if (a.startsWith("=")) return ModUpdateChecker.compareVersions(installed, a.substring(1).trim()) == 0;
+        if (a.startsWith("~")) return tilde(installed, a.substring(1).trim());
+        if (a.startsWith("^")) return caret(installed, a.substring(1).trim());
+        if (a.endsWith(".x") || a.endsWith(".*")) {
+            String prefix = a.substring(0, a.length() - 2);
+            return installed.equals(prefix) || installed.startsWith(prefix + ".");
+        }
+        return ModUpdateChecker.compareVersions(installed, a) == 0;
+    }
+
+    private static boolean tilde(String installed, String base) {
+        if (ModUpdateChecker.compareVersions(installed, base) < 0) return false;
+        String[] bits = base.split("\\.");
+        if (bits.length < 2) return true;
+        String upper = bits[0] + "." + (parseInt(bits[1]) + 1) + ".0";
+        return ModUpdateChecker.compareVersions(installed, upper) < 0;
+    }
+
+    private static boolean caret(String installed, String base) {
+        if (ModUpdateChecker.compareVersions(installed, base) < 0) return false;
+        String[] bits = base.split("\\.");
+        String upper;
+        if (bits.length >= 1 && !"0".equals(bits[0])) {
+            upper = (parseInt(bits[0]) + 1) + ".0.0";
+        } else if (bits.length >= 2 && !"0".equals(bits[1])) {
+            upper = "0." + (parseInt(bits[1]) + 1) + ".0";
+        } else if (bits.length >= 3) {
+            upper = "0.0." + (parseInt(bits[2]) + 1);
+        } else {
+            return true;
+        }
+        return ModUpdateChecker.compareVersions(installed, upper) < 0;
+    }
+
+    private static int parseInt(String s) {
+        try {
+            return Integer.parseInt(s.replaceAll("[^0-9].*", ""));
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    private static final class Rule {
+        final String modId;
+        final String range;
+        final boolean hard;
+
+        Rule(String modId, String range, boolean hard) {
+            this.modId = modId;
+            this.range = range == null ? "" : range;
+            this.hard = hard;
+        }
+
+        static Rule parse(String raw) {
+            if (raw == null || raw.isBlank()) return null;
+            String[] p = raw.split("\t", 3);
+            String id = p[0].trim();
+            if (id.isEmpty()) return null;
+            String range = p.length > 1 ? p[1].trim() : "";
+            boolean hard = p.length < 3 || !"S".equalsIgnoreCase(p[2].trim());
+            return new Rule(id, range, hard);
+        }
     }
 
     /** 将 modId 中的连字符和下划线统一，用于模糊匹配（NeoForge 运行时会做此转换） */

@@ -1,4 +1,5 @@
 package com.pmcl.ui.page
+import com.pmcl.ui.widget.PmclLazyColumn
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -226,7 +227,7 @@ fun PluginPage(vm: LauncherViewModel, sectionId: String = "installed") {
                         }
                     }
                 } else {
-                    LazyColumn(
+                    PmclLazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {

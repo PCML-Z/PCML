@@ -31,8 +31,8 @@ public final class SsrfChecker {
     /** 允许的协议白名单。 */
     private static final List<String> ALLOWED_PROTOCOLS = Arrays.asList("http", "https");
 
-    /** 允许的最大 URL 长度。 */
-    private static final int MAX_URL_LENGTH = 2048;
+    /** 允许的最大 URL 长度。油管签名后的音频地址经常超过 2KB。 */
+    private static final int MAX_URL_LENGTH = 8192;
 
     private SsrfChecker() {}
 

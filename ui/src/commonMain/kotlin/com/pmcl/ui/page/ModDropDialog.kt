@@ -1,4 +1,5 @@
 package com.pmcl.ui.page
+import com.pmcl.ui.widget.pmclVerticalScroll
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -113,7 +114,7 @@ fun ModDropDialog(
                         }
                         else -> {
                             Column(
-                                modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())
+                                modifier = Modifier.weight(1f).fillMaxWidth().pmclVerticalScroll(rememberScrollState())
                             ) {
                                 state.items.forEach { info ->
                                     ModDropCard(info, vm, state)

@@ -124,11 +124,29 @@ fun LauncherViewModel.predictAndPreheat() {
 
 /**
  * Java 路径解析辅助（与 launch() 内的逻辑保持一致）。
- * 版本/全局自定义路径若不满足 requiredJavaVer 最低要求则忽略，回退自动检测。
+ * SELECTED 严格使用设置页选择的 Java；AUTO 沿用版本覆盖与自动匹配逻辑。
  */
 @PublishedApi
 internal suspend fun LauncherViewModel.resolveJavaExe(versionId: String, requiredJavaVer: Int): String {
     return withContext(Dispatchers.IO) {
+        if (preferences.getJavaSelectionMode() == "SELECTED") {
+            val selected = preferences.getJavaPath()
+            if (selected.isBlank()) {
+                throw IllegalStateException(I18n.t("settings.java_selected_missing"))
+            }
+            if (JavaRuntimeFinder.meetsRequirement(selected, requiredJavaVer)) {
+                return@withContext selected
+            }
+            if (preferences.isJavaDowngradeFallback()) {
+                System.err.println("[PMCL] 所选 Java 不满足 Java $requiredJavaVer+，降级兜底已启用，接受: $selected")
+                return@withContext selected
+            }
+            val actual = JavaRuntimeFinder.getMajorVersion(selected)
+            throw IllegalStateException(
+                I18n.t("settings.java_selected_incompatible", actual ?: "?", requiredJavaVer)
+            )
+        }
+
         val versionPath = preferences.getVersionJavaPath(versionId)
         if (versionPath.isNotEmpty()) {
             if (JavaRuntimeFinder.meetsRequirement(versionPath, requiredJavaVer)) {
@@ -141,19 +159,6 @@ internal suspend fun LauncherViewModel.resolveJavaExe(versionId: String, require
             }
             System.err.println("[PMCL] 版本 Java 路径不满足要求（需要 Java "
                     + requiredJavaVer + "+），已忽略: $versionPath")
-        }
-        val globalPath = preferences.getJavaPath()
-        if (globalPath.isNotEmpty()) {
-            if (JavaRuntimeFinder.meetsRequirement(globalPath, requiredJavaVer)) {
-                return@withContext globalPath
-            }
-            // 降级兜底：开关开启时接受低于要求的 Java（agent 会降级字节码）
-            if (preferences.isJavaDowngradeFallback()) {
-                System.err.println("[PMCL] 全局 Java 路径不满足 Java $requiredJavaVer+，降级兜底已启用，接受: $globalPath")
-                return@withContext globalPath
-            }
-            System.err.println("[PMCL] 全局 Java 路径不满足要求（需要 Java "
-                    + requiredJavaVer + "+），已忽略: $globalPath")
         }
         try {
             val preferTranslation = preferences.preferLegacyTranslation()
@@ -352,20 +357,6 @@ fun LauncherViewModel.launch(
         _status.value = I18n.t("status.launch_busy")
         return
     }
-    // mod 冲突检测：仅警告，不阻断启动
-    // （NeoForge 支持 jar-in-jar 内嵌依赖，Sinytra Connector 提供 fabric 兼容层，
-    //   静态扫描无法检测这些，误报率高；真正的冲突游戏自己会崩并生成崩溃报告）
-    val conflicts = _modConflicts.value
-    if (conflicts != null && conflicts.hasIssues()) {
-        appendGameLog("[警告] mod 冲突检测（仅供参考，不阻断启动）：")
-        conflicts.getErrors().take(5).forEach {
-            appendGameLog("  - $it")
-        }
-        if (conflicts.getErrors().size > 5) {
-            appendGameLog("  …还有 ${conflicts.getErrors().size - 5} 条，见模组页")
-        }
-    }
-
     scope.launch {
         _status.value = I18n.t("status.building_launch_profile")
         var instanceId: String? = null

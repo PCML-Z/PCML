@@ -1,4 +1,7 @@
 package com.pmcl.ui.page
+import com.pmcl.ui.widget.PmclLazyColumn
+import com.pmcl.ui.widget.pmclVerticalScroll
+import com.pmcl.ui.widget.pmclHorizontalScroll
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.RepeatMode
@@ -120,7 +123,9 @@ fun ModsMarketPage(vm: LauncherViewModel) {
         )
     }
 
-    LaunchedEffect(sourceTab) { runSearch(0) }
+    LaunchedEffect(sourceTab) {
+        if (sourceTab != 4) runSearch(0)
+    }
 
     val pageCount = max(1, ceil(total / MARKET_PAGE_SIZE.toDouble()).toInt())
 
@@ -154,6 +159,9 @@ fun ModsMarketPage(vm: LauncherViewModel) {
                 }
             )
 
+            if (sourceTab == 4) {
+                PmclPluginStorePage(vm, Modifier.fillMaxWidth().weight(1f))
+            } else {
             Spacer(Modifier.height(12.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 FilterBarLabel(I18n.t("market.name"))
@@ -168,7 +176,7 @@ fun ModsMarketPage(vm: LauncherViewModel) {
 
             Spacer(Modifier.height(8.dp))
             Row(
-                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                modifier = Modifier.fillMaxWidth().pmclHorizontalScroll(rememberScrollState()),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
@@ -252,7 +260,7 @@ fun ModsMarketPage(vm: LauncherViewModel) {
                     }
                 }
                 else -> {
-                    LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    PmclLazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
                         itemsIndexed(results, key = { _, p -> p.getSource() + "/" + p.getId() }) { index, project ->
                             MarketListRow(
                                 project = project,
@@ -307,6 +315,7 @@ fun ModsMarketPage(vm: LauncherViewModel) {
                     )
                 }
             }
+            }
         }
     }
 
@@ -330,6 +339,7 @@ private fun MarketTabRow(
             I18n.t("market.tab.aggregate"),
             I18n.t("market.tab.curseforge"),
             I18n.t("market.tab.modrinth"),
+            I18n.t("market.tab.plugins"),
         ),
         selectedIndex = selectedTab,
         onSelect = { index ->
@@ -988,7 +998,7 @@ private fun ColumnScope.ModDetailView(
             )
             Spacer(Modifier.height(8.dp))
             Row(
-                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                modifier = Modifier.fillMaxWidth().pmclHorizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -1075,7 +1085,7 @@ private fun ColumnScope.ModDetailView(
             modifier = Modifier
                 .weight(0.42f)
                 .fillMaxHeight()
-                .verticalScroll(rememberScrollState()),
+                .pmclVerticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             MarketTextButton(onClick = onBack) { Text(I18n.t("market.back")) }
@@ -1377,7 +1387,7 @@ private fun ColumnScope.FileListPane(
             }
         }
         else -> {
-            LazyColumn(
+            PmclLazyColumn(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.weight(1f).fillMaxWidth()
             ) {

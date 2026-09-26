@@ -1,4 +1,5 @@
 package com.pmcl.ui.page
+import com.pmcl.ui.widget.pmclVerticalScroll
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -100,7 +101,7 @@ private fun MpRoomSection(vm: LauncherViewModel) {
         Modifier
             .fillMaxSize()
             .padding(horizontal = 20.dp, vertical = 16.dp)
-            .verticalScroll(rememberScrollState()),
+            .pmclVerticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -387,7 +388,7 @@ private fun MpSettingsSection(vm: LauncherViewModel) {
         Modifier
             .fillMaxSize()
             .padding(horizontal = 20.dp, vertical = 16.dp)
-            .verticalScroll(rememberScrollState()),
+            .pmclVerticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         TypewriterTitle(
@@ -532,7 +533,7 @@ private fun MpHelpSection(vm: LauncherViewModel) {
         Modifier
             .fillMaxSize()
             .padding(horizontal = 20.dp, vertical = 16.dp)
-            .verticalScroll(rememberScrollState()),
+            .pmclVerticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         TypewriterTitle(

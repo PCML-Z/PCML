@@ -1,4 +1,5 @@
 package com.pmcl.ui.page
+import com.pmcl.ui.widget.PmclLazyColumn
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
@@ -98,7 +99,7 @@ fun ServersPage(vm: LauncherViewModel) {
                 }
             }
         } else {
-            LazyColumn(
+            PmclLazyColumn(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.weight(1f)
             ) {

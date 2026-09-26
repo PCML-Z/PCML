@@ -1,4 +1,5 @@
 package com.pmcl.ui.page
+import com.pmcl.ui.widget.PmclLazyColumn
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -214,7 +215,7 @@ fun NewsPage(vm: LauncherViewModel) {
                 }
             }
             else -> {
-                LazyColumn(
+                PmclLazyColumn(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     contentPadding = PaddingValues(bottom = 16.dp)
                 ) {
@@ -335,7 +336,7 @@ private fun ArticleBody(
 ) {
     val blocks = remember(article.getBodyHtml()) { parseHtmlToBlocks(article.getBodyHtml()) }
 
-    LazyColumn(
+    PmclLazyColumn(
         verticalArrangement = Arrangement.spacedBy(8.dp),
         contentPadding = PaddingValues(bottom = 24.dp)
     ) {

@@ -5,7 +5,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
@@ -39,6 +42,171 @@ public final class JavaRuntimeFinder {
     private static final ConcurrentHashMap<String, String> ARCH_CACHE = new ConcurrentHashMap<>();
 
     private JavaRuntimeFinder() {}
+
+    /** 设置页展示的一条可用 Java。 */
+    public static final class JavaInstallation {
+        private final String path;
+        private final int majorVersion;
+        private final String architecture;
+        private final String source;
+
+        public JavaInstallation(String path, int majorVersion, String architecture, String source) {
+            this.path = path;
+            this.majorVersion = majorVersion;
+            this.architecture = architecture;
+            this.source = source;
+        }
+
+        public String getPath() { return path; }
+        public int getMajorVersion() { return majorVersion; }
+        public String getArchitecture() { return architecture; }
+        public String getSource() { return source; }
+    }
+
+    /**
+     * 扫描电脑和各启动器标准目录中的全部可用 Java。
+     * 不遍历整个磁盘，避免挂载盘/权限目录导致设置页长时间卡死。
+     */
+    public static List<JavaInstallation> scanAllJavaInstallations(Path runtimesDir) {
+        Map<String, String> candidates = new LinkedHashMap<>();
+
+        if (runtimesDir != null) {
+            for (String path : scanRuntimes(runtimesDir)) addCandidate(candidates, path, "PMCL");
+        }
+        String javaHome = System.getenv("JAVA_HOME");
+        if (javaHome != null && !javaHome.isBlank()) {
+            addCandidate(candidates, resolveJava(javaHome), "JAVA_HOME");
+        }
+        addCandidate(candidates, resolveJava(System.getProperty("java.home", "")), "当前启动器");
+
+        String pathEnv = System.getenv("PATH");
+        if (pathEnv != null) {
+            String exe = isWindows() ? "java.exe" : "java";
+            for (String part : pathEnv.split(Pattern.quote(java.io.File.pathSeparator))) {
+                if (!part.isBlank()) addCandidate(candidates, Paths.get(part).resolve(exe).toString(), "PATH");
+            }
+        }
+
+        for (ExternalLauncherDetector.JavaRuntimeInfo runtime
+                : ExternalLauncherDetector.detectExternalJavaRuntimes(false)) {
+            addCandidate(candidates, runtime.getJavaPath(), runtime.getSource());
+        }
+
+        String home = System.getProperty("user.home", "");
+        String os = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT);
+        List<Path> roots = new ArrayList<>();
+        if (os.contains("mac")) {
+            roots.add(Paths.get("/Library/Java/JavaVirtualMachines"));
+            roots.add(Paths.get(home, "Library/Java/JavaVirtualMachines"));
+            roots.add(Paths.get("/opt/homebrew/opt"));
+            roots.add(Paths.get("/usr/local/opt"));
+        } else if (os.contains("win")) {
+            addWindowsJavaRoots(roots, System.getenv("ProgramFiles"));
+            addWindowsJavaRoots(roots, System.getenv("ProgramFiles(x86)"));
+            String local = System.getenv("LOCALAPPDATA");
+            if (local != null && !local.isBlank()) {
+                roots.add(Paths.get(local, "Programs", "Eclipse Adoptium"));
+                roots.add(Paths.get(local, "Programs", "Microsoft"));
+                roots.add(Paths.get(local, "Programs", "Zulu"));
+            }
+        } else {
+            roots.add(Paths.get("/usr/lib/jvm"));
+            roots.add(Paths.get("/usr/java"));
+            roots.add(Paths.get("/opt/java"));
+            roots.add(Paths.get("/opt/jdk"));
+            roots.add(Paths.get(home, ".jdks"));
+        }
+        for (Path root : roots) scanJavaRoot(root, candidates);
+
+        List<JavaInstallation> result = new ArrayList<>();
+        for (Map.Entry<String, String> entry : candidates.entrySet()) {
+            String path = entry.getKey();
+            Integer major = getMajorVersion(path);
+            if (major == null || major < 8 || major >= 28) continue;
+            result.add(new JavaInstallation(path, major, getArchitecture(path), entry.getValue()));
+        }
+        // macOS 的 /usr/bin/java 是系统转发器；已有相同版本/架构的真实 JDK 时不重复展示。
+        if (os.contains("mac")) {
+            result.removeIf(item -> "/usr/bin/java".equals(item.getPath())
+                    && result.stream().anyMatch(other -> other != item
+                    && other.getMajorVersion() == item.getMajorVersion()
+                    && other.getArchitecture().equalsIgnoreCase(item.getArchitecture())));
+        }
+        result.sort(Comparator
+                .comparingInt(JavaInstallation::getMajorVersion).reversed()
+                .thenComparing(JavaInstallation::getArchitecture)
+                .thenComparing(JavaInstallation::getPath));
+        return result;
+    }
+
+    private static void addWindowsJavaRoots(List<Path> roots, String programFiles) {
+        if (programFiles == null || programFiles.isBlank()) return;
+        for (String child : new String[]{"Java", "Eclipse Adoptium", "Microsoft", "Zulu", "BellSoft"}) {
+            roots.add(Paths.get(programFiles, child));
+        }
+    }
+
+    private static void scanJavaRoot(Path root, Map<String, String> candidates) {
+        if (root == null || !Files.isDirectory(root)) return;
+        // 先解析一级子目录；Homebrew opt 等位置通常是符号链接，Files.walk 默认不会跟随。
+        try (Stream<Path> children = Files.list(root)) {
+            children.forEach(child ->
+                    addCandidate(candidates, resolveJava(child.toString()), sourceLabel(root)));
+        } catch (IOException | SecurityException ignored) {
+            // 继续尝试普通目录遍历。
+        }
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(4);
+        String exe = isWindows() ? "java.exe" : "java";
+        try (Stream<Path> stream = Files.walk(root, 8)) {
+            var iterator = stream.iterator();
+            while (iterator.hasNext()) {
+                if (System.nanoTime() > deadline) {
+                    System.err.println("[JavaRuntimeFinder] Java 扫描超时，保留已发现结果: " + root);
+                    break;
+                }
+                Path path = iterator.next();
+                if (!path.getFileName().toString().equalsIgnoreCase(exe)) continue;
+                Path parent = path.getParent();
+                if (parent == null || !"bin".equalsIgnoreCase(parent.getFileName().toString())) continue;
+                addCandidate(candidates, path.toString(), sourceLabel(root));
+            }
+        } catch (IOException | SecurityException ignored) {
+            // 不可读的系统目录不影响其它来源。
+        }
+    }
+
+    private static void addCandidate(Map<String, String> candidates, String rawPath, String source) {
+        if (rawPath == null || rawPath.isBlank()) return;
+        try {
+            Path path = Paths.get(rawPath).toAbsolutePath().normalize();
+            if (!Files.isRegularFile(path) || (!isWindows() && !Files.isExecutable(path))) return;
+            String name = path.getFileName().toString().toLowerCase(java.util.Locale.ROOT);
+            if (!name.equals("java") && !name.equals("java.exe")) return;
+            String key;
+            try {
+                key = path.toRealPath().toString();
+            } catch (IOException ignored) {
+                key = path.toString();
+            }
+            candidates.putIfAbsent(key, source == null || source.isBlank() ? "系统" : source);
+        } catch (RuntimeException ignored) {
+            // 无效环境变量/路径跳过。
+        }
+    }
+
+    private static String sourceLabel(Path root) {
+        String value = root.toString().toLowerCase(java.util.Locale.ROOT);
+        if (value.contains("homebrew") || value.contains("/opt/") || value.contains("\\opt\\")) return "包管理器";
+        if (value.contains("adoptium")) return "Eclipse Adoptium";
+        if (value.contains("microsoft")) return "Microsoft";
+        if (value.contains("zulu")) return "Azul Zulu";
+        if (value.contains("bellsoft")) return "BellSoft";
+        return "系统";
+    }
+
+    private static boolean isWindows() {
+        return System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("win");
+    }
 
     /**
      * 查找 java 可执行文件路径。

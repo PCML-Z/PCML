@@ -33,6 +33,7 @@ import com.pmcl.core.update.UpdateInstaller
 import com.pmcl.core.version.McVersion
 import com.pmcl.core.gamecontent.WorldManager
 import com.pmcl.core.gamecontent.ScreenshotManager
+import com.pmcl.core.gamecontent.RecordingManager
 import com.pmcl.core.gamecontent.ResourcePackManager
 import com.pmcl.core.gamecontent.ShaderPackManager
 import com.pmcl.core.gamecontent.ConfigFileManager
@@ -48,6 +49,7 @@ import com.pmcl.music.player.MusicPlayer
 import com.pmcl.music.player.PlaybackState
 import com.pmcl.music.player.MusicPlayerListener
 import com.pmcl.ui.page.MusicTrack
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.Dispatchers
@@ -624,6 +626,33 @@ class LauncherViewModel {
     private val _perfHudMetrics = MutableStateFlow(preferences.getPerfHudMetrics())
     val perfHudMetrics: StateFlow<String> = _perfHudMetrics.asStateFlow()
 
+    /** 已分离的终端窗口 id，每个窗口一条独立会话 */
+    private val _terminalWindows = MutableStateFlow<List<Int>>(emptyList())
+    val terminalWindows: StateFlow<List<Int>> = _terminalWindows.asStateFlow()
+    private val terminalWindowSeq = java.util.concurrent.atomic.AtomicInteger(0)
+
+    fun openTerminalWindow() {
+        _terminalWindows.update { it + terminalWindowSeq.incrementAndGet() }
+    }
+
+    fun closeTerminalWindow(id: Int) {
+        _terminalWindows.update { ids -> ids.filter { it != id } }
+    }
+
+    private val _musicOverlayVisible = MutableStateFlow(false)
+    val musicOverlayVisible: StateFlow<Boolean> = _musicOverlayVisible.asStateFlow()
+    private val _musicOverlayVideoEnabled = MutableStateFlow(preferences.isMusicOverlayVideo())
+    val musicOverlayVideoEnabled: StateFlow<Boolean> = _musicOverlayVideoEnabled.asStateFlow()
+
+    fun setMusicOverlayVisible(visible: Boolean) {
+        _musicOverlayVisible.value = visible
+    }
+
+    fun setMusicOverlayVideoEnabled(enabled: Boolean) {
+        _musicOverlayVideoEnabled.value = enabled
+        preferences.setMusicOverlayVideo(enabled)
+    }
+
     // ===== 音乐播放器 =====
     // M29 拆分：音乐域状态/函数已移至 LauncherViewModelMusic.kt（扩展函数）。
     // 此处状态标 @PublishedApi internal 以便同模块扩展函数访问，公共只读视图保持不变。
@@ -634,6 +663,7 @@ class LauncherViewModel {
         java.nio.file.Path.of(System.getProperty("user.home"), ".pmcl", "music", "cache")
     )
     @PublishedApi internal val lyricsProvider = com.pmcl.music.lyrics.LyricsProvider()
+    @PublishedApi internal val musicPlaybackRetryCount = AtomicInteger(0)
 
     @PublishedApi internal val _musicPlaylist = MutableStateFlow<List<MusicTrack>>(emptyList())
     val musicPlaylist: StateFlow<List<MusicTrack>> = _musicPlaylist.asStateFlow()
@@ -651,6 +681,12 @@ class LauncherViewModel {
 
     @PublishedApi internal val _musicDurationMs = MutableStateFlow(0L)
     val musicDurationMs: StateFlow<Long> = _musicDurationMs.asStateFlow()
+
+    @PublishedApi internal val _musicVideoUrl = MutableStateFlow("")
+    val musicVideoUrl: StateFlow<String> = _musicVideoUrl.asStateFlow()
+
+    @PublishedApi internal val _musicVideoHeaders = MutableStateFlow<Map<String, String>>(emptyMap())
+    val musicVideoHeaders: StateFlow<Map<String, String>> = _musicVideoHeaders.asStateFlow()
 
     @PublishedApi internal val _musicVolume = MutableStateFlow(80)
     val musicVolume: StateFlow<Int> = _musicVolume.asStateFlow()
@@ -1268,6 +1304,15 @@ class LauncherViewModel {
     private val _javaDownloadStatus = MutableStateFlow("")
     val javaDownloadStatus: StateFlow<String> = _javaDownloadStatus.asStateFlow()
 
+    private val _javaInstallations =
+        MutableStateFlow<List<JavaRuntimeFinder.JavaInstallation>>(emptyList())
+    val javaInstallations: StateFlow<List<JavaRuntimeFinder.JavaInstallation>> =
+        _javaInstallations.asStateFlow()
+    private val _javaScanning = MutableStateFlow(false)
+    val javaScanning: StateFlow<Boolean> = _javaScanning.asStateFlow()
+    private val _javaSelectionMode = MutableStateFlow(preferences.getJavaSelectionMode())
+    val javaSelectionMode: StateFlow<String> = _javaSelectionMode.asStateFlow()
+
     // ===== 启动预设 =====
     private val _launchPresets = MutableStateFlow<List<Preferences.LaunchPreset>>(emptyList())
     val launchPresets: StateFlow<List<Preferences.LaunchPreset>> = _launchPresets.asStateFlow()
@@ -1278,6 +1323,9 @@ class LauncherViewModel {
 
     @PublishedApi internal val _screenshots = MutableStateFlow<List<ScreenshotManager.Screenshot>>(emptyList())
     val screenshots: StateFlow<List<ScreenshotManager.Screenshot>> = _screenshots.asStateFlow()
+
+    @PublishedApi internal val _recordings = MutableStateFlow<List<RecordingManager.Recording>>(emptyList())
+    val recordings: StateFlow<List<RecordingManager.Recording>> = _recordings.asStateFlow()
 
     @PublishedApi internal val _resourcePacks = MutableStateFlow<List<ResourcePackManager.Pack>>(emptyList())
     val resourcePacks: StateFlow<List<ResourcePackManager.Pack>> = _resourcePacks.asStateFlow()
@@ -1540,6 +1588,12 @@ class LauncherViewModel {
             }
         )
         syncConnectXConfig()
+        scope.launch {
+            while (true) {
+                delay(15_000)
+                publishFriendMpSession()
+            }
+        }
         // 启动时应用网络偏好（含 Java 全局代理系统属性，让头像/皮肤图片下载能走代理）
         core.applyNetworkPreferences()
         // 全局注册下载队列监听：悬浮队列卡片不依赖进入下载页也能刷新进度
@@ -1552,6 +1606,9 @@ class LauncherViewModel {
         val mListener = object : MusicPlayerListener {
             override fun onStateChanged(state: PlaybackState) {
                 _musicPlaybackState.value = state
+                if (state == PlaybackState.PLAYING && musicPlaybackRetryCount.get() > 0) {
+                    _status.value = I18n.t("music.retry_ok")
+                }
                 if (state == PlaybackState.ENDED) {
                     // 自动播放下一曲
                     playNextMusic()
@@ -1567,6 +1624,9 @@ class LauncherViewModel {
                 if (durationMs > 0) _musicDurationMs.value = durationMs
             }
             override fun onError(message: String) {
+                if (retryCurrentMusicAfterError()) return
+                _musicVideoUrl.value = ""
+                _musicVideoHeaders.value = emptyMap()
                 _status.value = I18n.t("music.error_play", message)
             }
             override fun onTrackEnded() {}
@@ -2394,15 +2454,53 @@ class LauncherViewModel {
 
     /**
      * 检测当前可用于启动 MC 的 Java 路径。
-     * 优先返回 preferences.javaPath，其次扫描 runtimes 目录与系统路径。
+     * 选择模式返回用户选中的路径；自动模式沿用原版本匹配逻辑。
      */
     fun detectJavaPath(): String {
         return try {
-            val custom = preferences.getJavaPath()
-            if (custom.isNotEmpty()) custom
-            else JavaRuntimeFinder.findJavaExecutable(config.getRuntimesDir()) ?: "未找到"
+            if (preferences.getJavaSelectionMode() == "SELECTED") {
+                preferences.getJavaPath().ifBlank { "未选择" }
+            } else {
+                JavaRuntimeFinder.findJavaExecutable(config.getRuntimesDir()) ?: "未找到"
+            }
         } catch (e: Throwable) {
             "未找到"
+        }
+    }
+
+    fun scanJavaInstallations() {
+        if (_javaScanning.value) return
+        scope.launch {
+            _javaScanning.value = true
+            try {
+                val installations = withContext(Dispatchers.IO) {
+                    JavaRuntimeFinder.scanAllJavaInstallations(config.getRuntimesDir())
+                }
+                _javaInstallations.value = installations
+                _status.value = I18n.t("status.java_scan_complete", installations.size)
+            } catch (e: Throwable) {
+                _status.value = I18n.t("status.java_scan_failed", e.message ?: I18n.t("common.unknown"))
+            } finally {
+                _javaScanning.value = false
+            }
+        }
+    }
+
+    fun setJavaSelectionMode(mode: String) {
+        val normalized = if (mode.equals("SELECTED", ignoreCase = true)) "SELECTED" else "AUTO"
+        preferences.setJavaSelectionMode(normalized)
+        _javaSelectionMode.value = normalized
+        cancelPreheat()
+        if (normalized == "SELECTED" && _javaInstallations.value.isEmpty()) {
+            scanJavaInstallations()
+        }
+    }
+
+    fun selectJavaInstallation(path: String) {
+        setJavaPath(path)
+        if (preferences.getJavaPath() == path.trim()) {
+            _javaSelectionMode.value = "SELECTED"
+            cancelPreheat()
         }
     }
 
@@ -2794,8 +2892,6 @@ class LauncherViewModel {
                 // 选第一个（Mojang 通常每个类型只提供一个稳定版）
                 val entry = entries[0]
                 _javaDownloadStatus.value = "准备下载：${entry.version}（${entry.size / 1024 / 1024} MB）"
-                // 清空 javaPath，确保启动时用新下载的 runtime
-                preferences.setJavaPath("")
                 withContext(Dispatchers.IO) {
                     core.javaDownloader().install(runtimeType, entry) { msg ->
                         _javaDownloadStatus.value = msg
@@ -2804,6 +2900,7 @@ class LauncherViewModel {
                 val detected = JavaRuntimeFinder.findJavaExecutable(config.getRuntimesDir()) ?: "未找到"
                 _javaDownloadStatus.value = "完成：$detected"
                 _status.value = I18n.t("status.java_install_complete", version)
+                scanJavaInstallations()
             } catch (e: Throwable) {
                 _javaDownloadStatus.value = "失败：${e.message}"
                 _status.value = I18n.t("status.java_download_failed", version, e.message ?: I18n.t("common.unknown"))
@@ -2833,6 +2930,8 @@ class LauncherViewModel {
             }
         }
         preferences.setJavaPath(trimmed)
+        _javaSelectionMode.value = preferences.getJavaSelectionMode()
+        cancelPreheat()
         _status.value = if (trimmed.isEmpty()) I18n.t("status.java_path_reset") else I18n.t("status.java_path_set", trimmed)
     }
 
@@ -3061,7 +3160,7 @@ class LauncherViewModel {
             }
             CrashAnalyzer.RecoveryType.CHECK_MOD_CONFLICTS -> {
                 refreshInstalledMods()
-                _recoveryMessage.value = I18n.t("recovery.scanning_mod_conflicts")
+                _navigationRequest.value = "mods"
             }
             CrashAnalyzer.RecoveryType.DISABLE_RECENT_MODS -> disableRecentMods(versionId, instanceId)
             CrashAnalyzer.RecoveryType.CHECK_INTEGRITY -> {

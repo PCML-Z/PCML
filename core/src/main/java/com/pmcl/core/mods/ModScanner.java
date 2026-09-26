@@ -156,17 +156,13 @@ public final class ModScanner {
         String desc = safeStr(o, "description", "");
         String authors = extractAuthors(o);
         List<String> deps = jsonArrToStrings(o, "depends");
-        List<String> conflicts = jsonArrToStrings(o, "conflicts");
-        List<String> breaks = jsonArrToStrings(o, "breaks");
-        if (!breaks.isEmpty()) {
-            List<String> merged = new ArrayList<>(conflicts);
-            for (String b : breaks) {
-                if (!merged.contains(b)) merged.add(b);
-            }
-            conflicts = merged;
-        }
+        List<String> rules = new ArrayList<>();
+        List<String> conflicts = new ArrayList<>();
+        addJsonConflictRules(o, "conflicts", true, rules, conflicts);
+        addJsonConflictRules(o, "breaks", false, rules, null);
         ModMeta meta = new ModMeta(id, version, name, desc, authors, "fabric",
                 deps, conflicts, fileName);
+        meta.setConflictRules(rules);
         meta.setIconEntry(extractFabricIcon(o));
         return meta;
     }
@@ -237,22 +233,13 @@ public final class ModScanner {
                 deps.addAll(d.getAsJsonObject().keySet());
             }
         }
+        List<String> rules = new ArrayList<>();
         if (ql.has("breaks")) {
-            JsonElement b = ql.get("breaks");
-            if (b.isJsonArray()) {
-                for (JsonElement e : b.getAsJsonArray()) {
-                    if (e.isJsonObject() && e.getAsJsonObject().has("id")) {
-                        conflicts.add(e.getAsJsonObject().get("id").getAsString());
-                    } else if (e.isJsonPrimitive()) {
-                        conflicts.add(e.getAsString());
-                    }
-                }
-            } else if (b.isJsonObject()) {
-                conflicts.addAll(b.getAsJsonObject().keySet());
-            }
+            addJsonConflictRules(ql, "breaks", false, rules, null);
         }
         ModMeta meta = new ModMeta(id, version, name, desc, authors, "quilt",
                 deps, conflicts, fileName);
+        meta.setConflictRules(rules);
         meta.setIconEntry(icon);
         return meta;
     }
@@ -278,17 +265,17 @@ public final class ModScanner {
         // 每个段含：modId, mandatory=true/false, type=required/optional/incompatible
         List<String> deps = new ArrayList<>();
         List<String> conflicts = new ArrayList<>();
+        List<String> rules = new ArrayList<>();
         for (TomlDepBlock dep : parseTomlDepBlocks(content)) {
             if (dep.incompatible) {
-                conflicts.add(dep.modId);
+                if (!conflicts.contains(dep.modId)) conflicts.add(dep.modId);
+                rules.add(conflictRule(dep.modId, dep.versionRange, true));
             } else if (dep.mandatory) {
                 deps.add(dep.modId);
             }
             // optional 不加入（不会阻塞启动）
         }
-        // 去重（同一 modId 可能在多个段中）
         deps = dedup(deps);
-        conflicts = dedup(conflicts);
 
         ModMeta meta = new ModMeta(modId != null ? modId : fileName,
                 version != null ? version : "unknown",
@@ -296,6 +283,7 @@ public final class ModScanner {
                 desc != null ? desc : "",
                 authors != null ? authors : "",
                 loader, deps, conflicts, fileName);
+        meta.setConflictRules(rules);
         String logo = tomlValueInSection(lines, "logoFile", "mods");
         if (logo == null || logo.isEmpty()) logo = tomlValueInSection(lines, "logoFile", "");
         if (logo != null && !logo.isEmpty()) meta.setIconEntry(logo);
@@ -318,6 +306,7 @@ public final class ModScanner {
     /** TOML 依赖段块：记录 modId / mandatory / incompatible */
     private static final class TomlDepBlock {
         String modId;
+        String versionRange;
         boolean mandatory = true;
         boolean incompatible = false;
     }
@@ -362,6 +351,8 @@ public final class ModScanner {
                 } else if ("optional".equalsIgnoreCase(type)) {
                     current.mandatory = false;
                 }
+            } else if (line.startsWith("versionRange=") || line.startsWith("versionRange =")) {
+                current.versionRange = stripQuotes(afterEq(line));
             } else if (line.startsWith("side=") || line.startsWith("side =")) {
                 // side=BOTH/CLIENT/SERVER，不影响依赖
             }
@@ -460,6 +451,60 @@ public final class ModScanner {
             return String.join(", ", names);
         }
         return a.isJsonPrimitive() ? a.getAsString() : "";
+    }
+
+    /** {@code modId\tversionRange\tH|S}，空 range 表示任意版本。 */
+    static String conflictRule(String modId, String range, boolean hard) {
+        String id = modId == null ? "" : modId.trim();
+        String r = range == null ? "" : range.trim();
+        if ("*".equals(r) || "any".equalsIgnoreCase(r)) r = "";
+        return id + "\t" + r + "\t" + (hard ? "H" : "S");
+    }
+
+    private static void addJsonConflictRules(JsonObject o, String key, boolean hard,
+                                             List<String> rules, List<String> hardIds) {
+        if (o == null || !o.has(key) || o.get(key).isJsonNull()) return;
+        JsonElement e = o.get(key);
+        if (e.isJsonObject()) {
+            for (var entry : e.getAsJsonObject().entrySet()) {
+                String id = entry.getKey();
+                String range = jsonVersionRange(entry.getValue());
+                rules.add(conflictRule(id, range, hard));
+                if (hard && hardIds != null && !hardIds.contains(id)) hardIds.add(id);
+            }
+            return;
+        }
+        if (e.isJsonArray()) {
+            for (JsonElement x : e.getAsJsonArray()) {
+                if (x == null || x.isJsonNull()) continue;
+                String id = null;
+                String range = "";
+                if (x.isJsonPrimitive()) {
+                    id = x.getAsString();
+                } else if (x.isJsonObject()) {
+                    JsonObject obj = x.getAsJsonObject();
+                    if (obj.has("id") && obj.get("id").isJsonPrimitive()) id = obj.get("id").getAsString();
+                    if (obj.has("versions")) range = jsonVersionRange(obj.get("versions"));
+                    else if (obj.has("version")) range = jsonVersionRange(obj.get("version"));
+                }
+                if (id == null || id.isBlank()) continue;
+                rules.add(conflictRule(id, range, hard));
+                if (hard && hardIds != null && !hardIds.contains(id)) hardIds.add(id);
+            }
+        }
+    }
+
+    private static String jsonVersionRange(JsonElement value) {
+        if (value == null || value.isJsonNull()) return "";
+        if (value.isJsonPrimitive()) return value.getAsString();
+        if (value.isJsonArray()) {
+            List<String> parts = new ArrayList<>();
+            for (JsonElement x : value.getAsJsonArray()) {
+                if (x != null && x.isJsonPrimitive()) parts.add(x.getAsString());
+            }
+            return String.join(" || ", parts);
+        }
+        return "";
     }
 
     private static List<String> jsonArrToStrings(JsonObject o, String key) {

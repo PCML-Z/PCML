@@ -1,6 +1,7 @@
 @file:OptIn(ExperimentalFoundationApi::class)
 
 package com.pmcl.ui.page
+import com.pmcl.ui.widget.PmclLazyColumn
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -201,7 +202,7 @@ fun WorldsPage(vm: LauncherViewModel) {
                 }
             }
         } else {
-            LazyColumn(
+            PmclLazyColumn(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.weight(1f)
             ) {

@@ -1,4 +1,5 @@
 package com.pmcl.ui.page
+import com.pmcl.ui.widget.pmclVerticalScroll
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -43,7 +44,7 @@ fun AgreementGatePage(vm: LauncherViewModel) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(bottom = 96.dp)
-                .verticalScroll(contentScroll)
+                .pmclVerticalScroll(contentScroll)
                 .padding(horizontal = 24.dp)
                 .padding(top = 28.dp),
             horizontalAlignment = Alignment.CenterHorizontally
@@ -276,7 +277,7 @@ private fun AgreementDocumentDialog(
                         style = MaterialTheme.typography.bodySmall,
                         fontFamily = FontFamily.Monospace,
                         modifier = Modifier
-                            .verticalScroll(scrollState)
+                            .pmclVerticalScroll(scrollState)
                             .padding(12.dp)
                     )
                 }

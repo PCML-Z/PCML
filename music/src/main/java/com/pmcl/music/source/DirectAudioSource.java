@@ -41,7 +41,8 @@ public class DirectAudioSource implements AudioSource {
                 TYPE,
                 url,
                 Map.of(),
-                ""
+                "",
+                url
         );
     }
 

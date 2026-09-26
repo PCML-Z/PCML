@@ -131,6 +131,9 @@ public class BilibiliAudioSource implements AudioSource {
         if (audioUrl == null) {
             throw new IOException("B站解析失败: 无可用的 audio base_url");
         }
+        String videoUrl = dash.has("video") && dash.get("video").isJsonArray()
+                ? pickPreviewVideoUrl(dash.getAsJsonArray("video"))
+                : "";
 
         Map<String, String> headers = new LinkedHashMap<>();
         headers.put("Referer", REFERER);
@@ -145,8 +148,52 @@ public class BilibiliAudioSource implements AudioSource {
                 TYPE,
                 originalUrl,
                 headers,
-                bvid
+                bvid,
+                videoUrl
         );
+    }
+
+    /**
+     * 悬浮窗只需要小画面：优先 AVC，并选择不低于 360p 的最低码率，
+     * 避免为了 380px 宽的预览额外解码 1080p/4K。
+     */
+    static String pickPreviewVideoUrl(JsonArray videos) {
+        JsonObject best = null;
+        long bestScore = Long.MAX_VALUE;
+        for (JsonElement element : videos) {
+            if (!element.isJsonObject()) continue;
+            JsonObject video = element.getAsJsonObject();
+            String url = safeStr(video, "base_url");
+            if (url.isBlank() && video.has("backup_url") && video.get("backup_url").isJsonArray()) {
+                JsonArray backup = video.getAsJsonArray("backup_url");
+                if (!backup.isEmpty()) url = backup.get(0).getAsString();
+            }
+            if (url.isBlank()) continue;
+            long height = number(video, "height");
+            long bandwidth = number(video, "bandwidth");
+            String codecs = safeStr(video, "codecs").toLowerCase(java.util.Locale.ROOT);
+            long score = bandwidth > 0 ? bandwidth : 10_000_000L;
+            if (height > 0 && height < 360) score += 20_000_000L;
+            if (!codecs.isBlank() && !codecs.contains("avc")) score += 10_000_000L;
+            if (score < bestScore) {
+                bestScore = score;
+                best = video;
+            }
+        }
+        if (best == null) return "";
+        String url = safeStr(best, "base_url");
+        if (!url.isBlank()) return url;
+        JsonArray backup = best.getAsJsonArray("backup_url");
+        return backup.isEmpty() ? "" : backup.get(0).getAsString();
+    }
+
+    private static long number(JsonObject obj, String key) {
+        if (obj == null || !obj.has(key) || !obj.get(key).isJsonPrimitive()) return 0L;
+        try {
+            return obj.get(key).getAsLong();
+        } catch (RuntimeException ignored) {
+            return 0L;
+        }
     }
 
     private JsonObject fetchPlayUrl(String bvid, long cid) throws IOException {

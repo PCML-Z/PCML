@@ -30,6 +30,7 @@ import com.pmcl.core.update.GitHubReleaseSyncChecker;
 import com.pmcl.core.version.VersionManager;
 import com.pmcl.core.gamecontent.WorldManager;
 import com.pmcl.core.gamecontent.ScreenshotManager;
+import com.pmcl.core.gamecontent.RecordingManager;
 import com.pmcl.core.gamecontent.ResourcePackManager;
 import com.pmcl.core.gamecontent.ShaderPackManager;
 import com.pmcl.core.gamecontent.DatapackManager;
@@ -75,6 +76,7 @@ public final class LauncherCore {
     private final JavaRuntimeDownloader javaRuntimeDownloader;
     private final WorldManager worldManager;
     private final ScreenshotManager screenshotManager;
+    private final RecordingManager recordingManager;
     private final ResourcePackManager resourcePackManager;
     private final ShaderPackManager shaderPackManager;
     private final DatapackManager datapackManager;
@@ -153,6 +155,7 @@ public final class LauncherCore {
         this.javaRuntimeDownloader = new JavaRuntimeDownloader(config, downloadManager);
         this.worldManager = new WorldManager(config.getWorkDir());
         this.screenshotManager = new ScreenshotManager(config.getWorkDir());
+        this.recordingManager = new RecordingManager(config.getWorkDir());
         this.resourcePackManager = new ResourcePackManager(config.getWorkDir());
         this.shaderPackManager = new ShaderPackManager(config.getWorkDir());
         this.datapackManager = new DatapackManager();
@@ -296,6 +299,8 @@ public final class LauncherCore {
     public WorldManager worlds() { return worldManager; }
 
     public ScreenshotManager screenshots() { return screenshotManager; }
+
+    public RecordingManager recordings() { return recordingManager; }
 
     public ResourcePackManager resourcePacks() { return resourcePackManager; }
 

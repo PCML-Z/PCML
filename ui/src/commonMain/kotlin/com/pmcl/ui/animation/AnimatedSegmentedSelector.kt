@@ -1,4 +1,5 @@
 package com.pmcl.ui.animation
+import com.pmcl.ui.widget.pmclHorizontalScroll
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -99,7 +100,7 @@ fun AnimatedSegmentedSelector(
             .height(height)
             .clip(shape)
             .background(MaterialTheme.colorScheme.surfaceVariant)
-            .then(if (scrollable) Modifier.horizontalScroll(scrollState) else Modifier)
+            .then(if (scrollable) Modifier.pmclHorizontalScroll(scrollState) else Modifier)
     ) {
         // 滑动指示器：使用 shadow + surface 提升层次感
         if (animatedWidth > 0f) {

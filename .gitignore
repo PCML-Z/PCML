@@ -47,6 +47,7 @@ ui/compose/
 
 # Native libraries
 *.dylib
+!ui/src/desktopMain/resources/native/*.dylib
 *.so
 *.dll
 

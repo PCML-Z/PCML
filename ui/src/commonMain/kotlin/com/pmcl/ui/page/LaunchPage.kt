@@ -1,4 +1,6 @@
 package com.pmcl.ui.page
+import com.pmcl.ui.widget.PmclLazyColumn
+import com.pmcl.ui.widget.pmclVerticalScroll
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -938,7 +940,7 @@ fun LaunchPage(vm: LauncherViewModel) {
                     val isWide = maxWidth >= 720.dp
                     Row(Modifier.fillMaxSize()) {
         // ===== 左侧：统一用 LazyColumn 滚动，避免嵌套滚动冲突 =====
-        LazyColumn(
+        PmclLazyColumn(
             Modifier.weight(if (isWide) 1.2f else 1f).fillMaxHeight().padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
@@ -949,7 +951,7 @@ fun LaunchPage(vm: LauncherViewModel) {
             VerticalDivider()
             Column(
                 Modifier.weight(1f).fillMaxHeight().padding(16.dp)
-                    .verticalScroll(rememberScrollState())
+                    .pmclVerticalScroll(rememberScrollState())
             ) {
                 rightDetailContent()
             }
@@ -959,7 +961,7 @@ fun LaunchPage(vm: LauncherViewModel) {
 
         // ===== 账号 =====
                 2 -> Column(
-                    Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
+                    Modifier.fillMaxSize().padding(16.dp).pmclVerticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     AccountCard(account, vm)
@@ -1209,14 +1211,14 @@ fun LaunchPage(vm: LauncherViewModel) {
             } else {
                 // 最初分栏布局：左版本列表 + 右账号日志同屏显示
                 Row(Modifier.fillMaxSize()) {
-                    LazyColumn(
+                    PmclLazyColumn(
                         Modifier.weight(1.2f).fillMaxHeight().padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         versionListContent()
                     }
                     Column(
-                        Modifier.weight(1f).fillMaxHeight().padding(16.dp).verticalScroll(rememberScrollState())
+                        Modifier.weight(1f).fillMaxHeight().padding(16.dp).pmclVerticalScroll(rememberScrollState())
                     ) {
                         AccountCard(account, vm)
                         rightDetailContent()
@@ -2128,7 +2130,7 @@ private fun GameLogPanel(vm: LauncherViewModel) {
                     autoScroll = lastVisible >= displayedLogs.lastIndex - 2
                 }
             }
-            LazyColumn(
+            PmclLazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 state = logListState
             ) {

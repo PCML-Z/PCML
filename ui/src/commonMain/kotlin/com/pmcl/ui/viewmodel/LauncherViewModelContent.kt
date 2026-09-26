@@ -3,6 +3,7 @@ package com.pmcl.ui.viewmodel
 import com.pmcl.core.gamecontent.DatapackManager
 import com.pmcl.core.gamecontent.ResourcePackManager
 import com.pmcl.core.gamecontent.ScreenshotManager
+import com.pmcl.core.gamecontent.RecordingManager
 import com.pmcl.core.gamecontent.ShaderPackManager
 import com.pmcl.core.gamecontent.WorldManager
 import com.pmcl.core.i18n.I18n
@@ -320,6 +321,143 @@ fun LauncherViewModel.exportScreenshotsZip(shots: List<ScreenshotManager.Screens
             _status.value = I18n.t("status.screenshots_exported", shots.size, targetPath)
         } catch (e: Throwable) {
             _status.value = I18n.t("status.export_failed", e.message ?: I18n.t("common.unknown"))
+        }
+    }
+}
+
+// ============ 录屏 ============
+
+fun LauncherViewModel.refreshRecordings() {
+    scope.launch {
+        try {
+            val list = withContext(Dispatchers.IO) {
+                val directories = linkedMapOf<Path, String>()
+                fun addRoot(root: Path?, source: String) {
+                    if (root == null) return
+                    directories.putIfAbsent(root.resolve("recordings").toAbsolutePath().normalize(), source)
+                    directories.putIfAbsent(root.resolve("videos").toAbsolutePath().normalize(), source)
+                }
+
+                addRoot(config.getWorkDir(), "PMCL")
+                val versionsDirs = linkedSetOf<Path>()
+                versionsDirs.add(config.getVersionsDir())
+                versionsDirs.addAll(com.pmcl.core.version.VersionManager.detectAllMinecraftVersionsDirs())
+                for (versionsDir in versionsDirs) {
+                    addRoot(versionsDir.parent, "外部启动器")
+                    val children = versionsDir.toFile().listFiles { file -> file.isDirectory } ?: emptyArray()
+                    for (child in children) addRoot(child.toPath(), child.name)
+                }
+                val instances = config.getWorkDir().resolve("instances").toFile()
+                    .listFiles { file -> file.isDirectory } ?: emptyArray()
+                for (instance in instances) addRoot(instance.toPath(), instance.name)
+
+                val seen = mutableSetOf<String>()
+                val all = mutableListOf<RecordingManager.Recording>()
+                val manager = core.recordings()
+                for ((directory, source) in directories) {
+                    try {
+                        for (recording in manager.list(directory, source)) {
+                            val key = recording.path.toAbsolutePath().normalize().toString()
+                            if (seen.add(key)) all.add(recording)
+                        }
+                    } catch (_: Throwable) {
+                        // 单个来源不可读时继续扫描其它实例。
+                    }
+                }
+                all.sortedByDescending { it.modified }
+            }
+            _recordings.value = list
+            _status.value = I18n.t("status.recordings_scanned", list.size)
+        } catch (e: Throwable) {
+            _status.value = I18n.t("status.scan_recordings_failed", e.message ?: I18n.t("common.unknown"))
+        }
+    }
+}
+
+fun LauncherViewModel.importRecordings(paths: List<String>) {
+    if (paths.isEmpty()) return
+    scope.launch {
+        try {
+            val imported = withContext(Dispatchers.IO) {
+                paths.count { path ->
+                    try {
+                        core.recordings().importRecording(java.nio.file.Paths.get(path))
+                        true
+                    } catch (_: Throwable) {
+                        false
+                    }
+                }
+            }
+            _status.value = I18n.t("status.recordings_imported", imported)
+            refreshRecordings()
+        } catch (e: Throwable) {
+            _status.value = I18n.t("status.import_recordings_failed", e.message ?: I18n.t("common.unknown"))
+        }
+    }
+}
+
+fun LauncherViewModel.deleteRecording(recording: RecordingManager.Recording) {
+    scope.launch {
+        try {
+            withContext(Dispatchers.IO) { core.recordings().delete(recording) }
+            _status.value = I18n.t("status.recording_deleted", recording.name)
+            refreshRecordings()
+        } catch (e: Throwable) {
+            _status.value = I18n.t("status.delete_failed", e.message ?: I18n.t("common.unknown"))
+        }
+    }
+}
+
+fun LauncherViewModel.deleteRecordings(recordings: List<RecordingManager.Recording>) {
+    if (recordings.isEmpty()) return
+    scope.launch {
+        val deleted = withContext(Dispatchers.IO) {
+            recordings.count { recording ->
+                try {
+                    core.recordings().delete(recording)
+                    true
+                } catch (_: Throwable) {
+                    false
+                }
+            }
+        }
+        _status.value = I18n.t("status.recordings_deleted", deleted)
+        refreshRecordings()
+    }
+}
+
+fun LauncherViewModel.openRecording(recording: RecordingManager.Recording) {
+    scope.launch {
+        try {
+            withContext(Dispatchers.IO) {
+                val file = recording.path.toFile()
+                if (!file.isFile) throw java.io.IOException("File not found")
+                java.awt.Desktop.getDesktop().open(file)
+            }
+        } catch (e: Throwable) {
+            _status.value = I18n.t("status.open_recording_failed", e.message ?: I18n.t("common.unknown"))
+        }
+    }
+}
+
+fun LauncherViewModel.openRecordingFolder(recording: RecordingManager.Recording) {
+    val parent = recording.path.parent?.toFile()
+    if (parent == null) {
+        _status.value = I18n.t("status.open_dir_failed", I18n.t("common.unknown"))
+        return
+    }
+    openDir(parent)
+}
+
+fun LauncherViewModel.openRecordingsDir() {
+    scope.launch {
+        try {
+            val directory = withContext(Dispatchers.IO) {
+                java.nio.file.Files.createDirectories(core.recordings().recordingsDir).toFile()
+            }
+            openDir(directory)
+        } catch (e: Throwable) {
+            _status.value = I18n.t("status.open_dir_failed", e.message ?: I18n.t("common.unknown"))
         }
     }
 }

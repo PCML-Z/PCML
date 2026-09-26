@@ -94,6 +94,12 @@ kotlin {
 compose.desktop {
     application {
         mainClass = "com.pmcl.ui.MainKt"
+        // 悬浮窗要读 AWT 的 NSWindow，才能出现在 macOS 全屏 Space 上
+        jvmArgs(
+            "--add-opens=java.desktop/java.awt=ALL-UNNAMED",
+            "--add-exports=java.desktop/sun.lwawt=ALL-UNNAMED",
+            "--add-exports=java.desktop/sun.lwawt.macosx=ALL-UNNAMED"
+        )
 
         // Compose 1.7 默认 ProGuard 7.2.2 最高只到 classfile 62（Java 18）。
         // 本项目 jvmTarget=21，packageRelease* 会在 :ui:proguardReleaseJars 失败。

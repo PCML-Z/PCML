@@ -1,4 +1,5 @@
 package com.pmcl.ui.widget
+import com.pmcl.ui.widget.PmclLazyColumn
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -156,7 +157,7 @@ fun CommandPaletteOverlay(
                         )
                     }
                 } else {
-                    LazyColumn(
+                    PmclLazyColumn(
                         state = listState,
                         modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp),
                         contentPadding = PaddingValues(bottom = 6.dp)

@@ -1,4 +1,7 @@
 package com.pmcl.ui.page
+import com.pmcl.ui.widget.PmclLazyColumn
+import com.pmcl.ui.widget.pmclVerticalScroll
+import com.pmcl.ui.widget.pmclHorizontalScroll
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -7,6 +10,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -20,6 +24,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -35,6 +42,8 @@ import com.pmcl.ui.theme.glassSurfaceVariantColor
 import com.pmcl.ui.util.decodeSampledBitmap
 import com.pmcl.ui.viewmodel.*
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import java.awt.FileDialog
 import java.awt.Frame
@@ -145,7 +154,7 @@ fun MusicPage(vm: LauncherViewModel, sectionId: String = "player") {
                     }
                 }
                 Spacer(Modifier.height(12.dp))
-                LazyColumn(
+                PmclLazyColumn(
                     modifier = Modifier.weight(1f).fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
@@ -189,7 +198,7 @@ fun MusicPage(vm: LauncherViewModel, sectionId: String = "player") {
                     }
                 }
                 Spacer(Modifier.height(12.dp))
-                LazyColumn(
+                PmclLazyColumn(
                     modifier = Modifier.weight(1f).fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
@@ -207,7 +216,7 @@ fun MusicPage(vm: LauncherViewModel, sectionId: String = "player") {
                 }
             }
             else -> {
-                LazyColumn(
+                PmclLazyColumn(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f),
@@ -224,6 +233,11 @@ fun MusicPage(vm: LauncherViewModel, sectionId: String = "player") {
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.outline
                                 )
+                            }
+                            TextButton(onClick = { vm.setMusicOverlayVisible(!vm.musicOverlayVisible.value) }) {
+                                Icon(Icons.Filled.OpenInNew, null, Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text(I18n.t("music.overlay"))
                             }
                             TextButton(onClick = { vm.clearMusicCache() }) {
                                 Icon(Icons.Filled.CleaningServices, null, Modifier.size(16.dp))
@@ -245,7 +259,7 @@ fun MusicPage(vm: LauncherViewModel, sectionId: String = "player") {
                         Row(
                             Modifier
                                 .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
+                                .pmclHorizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -487,56 +501,139 @@ private fun NowPlayingCard(
             }
 
             Spacer(Modifier.height(10.dp))
-            LyricsPanel(lyrics, currentMs)
+            LyricsPanel(lyrics, currentMs, track, vm)
         }
     }
 }
 
 @Composable
-private fun LyricsPanel(lyrics: List<LyricsLine>, currentMs: Long) {
-    Text(
-        I18n.t("music.lyrics"),
-        style = MaterialTheme.typography.labelLarge,
-        fontWeight = FontWeight.SemiBold,
-        color = MaterialTheme.colorScheme.onSurfaceVariant
-    )
-    Spacer(Modifier.height(6.dp))
-    if (lyrics.isEmpty()) {
+private fun LyricsPanel(
+    lyrics: List<LyricsLine>,
+    currentMs: Long,
+    track: MusicTrack,
+    vm: LauncherViewModel
+) {
+    var imported by remember(track.sourceType, track.originalId, track.sourceUrl) {
+        mutableStateOf(vm.hasImportedMusicLyrics(track))
+    }
+    Row(
+        Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
         Text(
-            I18n.t("music.lyrics_empty"),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.outline
+            I18n.t("music.lyrics"),
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f)
         )
+        TextButton(onClick = {
+            val fd = FileDialog(null as Frame?, I18n.t("music.lyrics_import"), FileDialog.LOAD)
+            fd.filenameFilter = FilenameFilter { _, name ->
+                val lower = name.lowercase()
+                lower.endsWith(".lrc") || lower.endsWith(".txt")
+            }
+            fd.isVisible = true
+            val file = fd.file ?: return@TextButton
+            val dir = fd.directory ?: return@TextButton
+            vm.importMusicLyrics(track, java.io.File(dir, file).absolutePath) { ok ->
+                if (ok) imported = true
+            }
+        }) {
+            Text(I18n.t("music.lyrics_import"), style = MaterialTheme.typography.labelSmall)
+        }
+        if (imported) {
+            TextButton(onClick = {
+                vm.clearImportedMusicLyrics(track)
+                imported = false
+            }) {
+                Text(I18n.t("music.lyrics_clear"), style = MaterialTheme.typography.labelSmall)
+            }
+        }
+    }
+    Spacer(Modifier.height(6.dp))
+    LyricsViewport(
+        lyrics = lyrics,
+        currentMs = currentMs,
+        modifier = Modifier.fillMaxWidth().height(168.dp),
+        emptyMessage = I18n.t("music.lyrics_empty")
+    )
+}
+
+@Composable
+internal fun LyricsViewport(
+    lyrics: List<LyricsLine>,
+    currentMs: Long,
+    modifier: Modifier = Modifier,
+    accent: Color = MaterialTheme.colorScheme.primary,
+    idle: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    emptyMessage: String? = null,
+    compact: Boolean = false
+) {
+    if (lyrics.isEmpty()) {
+        if (emptyMessage != null) {
+            Box(modifier, contentAlignment = Alignment.Center) {
+                Text(
+                    emptyMessage,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = idle.copy(alpha = 0.7f),
+                    textAlign = TextAlign.Center,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
         return
     }
     val active = LyricsParser.indexAt(lyrics, currentMs)
     val scroll = rememberScrollState()
-    LaunchedEffect(active) {
-        if (active >= 0) {
-            // 约每行 22dp，滚到当前行附近
-            scroll.animateScrollTo((active * 22).coerceAtLeast(0))
-        }
+    val centers = remember(lyrics) { mutableStateMapOf<Int, Float>() }
+    var viewportPx by remember { mutableIntStateOf(0) }
+    LaunchedEffect(active, lyrics, viewportPx) {
+        if (active < 0 || viewportPx <= 0) return@LaunchedEffect
+        val center = snapshotFlow { centers[active] }.filterNotNull().first()
+        val dest = (center - viewportPx / 2f).toInt().coerceAtLeast(0)
+        scroll.animateScrollTo(dest)
     }
+    val pad = if (compact) 20.dp else 72.dp
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(120.dp)
-            .verticalScroll(scroll),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = modifier
+            .onSizeChanged { viewportPx = it.height }
+            .pmclVerticalScroll(scroll),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        if (active >= 0) Spacer(Modifier.height(pad))
         lyrics.forEachIndexed { i, line ->
-            val on = i == active
+            val dist = if (active < 0) 1 else kotlin.math.abs(i - active)
+            val on = dist == 0
+            val alpha = when {
+                active < 0 -> 0.9f
+                on -> 1f
+                dist == 1 -> 0.62f
+                dist == 2 -> 0.38f
+                else -> 0.2f
+            }
             Text(
                 line.text.ifBlank { " " },
-                style = if (on) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodySmall,
+                style = if (on && !compact) MaterialTheme.typography.bodyLarge
+                else if (on) MaterialTheme.typography.bodyMedium
+                else MaterialTheme.typography.bodySmall,
                 fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
-                color = if (on) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                color = (if (on) accent else idle).copy(alpha = alpha),
                 textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth()
+                maxLines = if (compact) 1 else 3,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = if (compact) 1.dp else 3.dp)
+                    .onGloballyPositioned { coords ->
+                        val parent = coords.parentLayoutCoordinates
+                        val top = if (parent == null) 0f else parent.localPositionOf(coords, Offset.Zero).y
+                        centers[i] = top + coords.size.height / 2f
+                    }
             )
         }
+        if (active >= 0) Spacer(Modifier.height(pad))
     }
 }
 
@@ -840,6 +937,9 @@ private fun SourceBadge(sourceType: String, compact: Boolean = false) {
     val (label, color) = when (sourceType) {
         "bilibili" -> I18n.t("music.source_bilibili") to Color(0xFFFB7299)
         "acfun"    -> I18n.t("music.source_acfun")    to Color(0xFFFD4C5D)
+        "kuaishou" -> I18n.t("music.source_kuaishou") to Color(0xFFFF4906)
+        "douyin"   -> I18n.t("music.source_douyin")   to Color(0xFFFE2C55)
+        "youtube"  -> I18n.t("music.source_youtube")  to Color(0xFFFF0033)
         "direct"   -> I18n.t("music.source_direct")   to MaterialTheme.colorScheme.outline
         "local"    -> I18n.t("music.source_local")    to Color(0xFF34C759)
         else       -> sourceType to MaterialTheme.colorScheme.outline

@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Public
@@ -29,6 +30,7 @@ import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.ui.graphics.vector.ImageVector
 
@@ -131,6 +133,7 @@ object SecondaryNavRegistry {
         sections = listOf(
             SecondarySection("worlds", "nav.worlds", Icons.Filled.Public),
             SecondarySection("screenshots", "nav.screenshots", Icons.Filled.Image),
+            SecondarySection("recordings", "nav.recordings", Icons.Filled.Videocam),
         )
     )
 
@@ -141,6 +144,15 @@ object SecondaryNavRegistry {
             SecondarySection("installed", "plugins.section.installed", Icons.Filled.Extension),
             SecondarySection("actions", "plugins.section.actions", Icons.Filled.PlayArrow),
             SecondarySection("install", "plugins.section.install", Icons.Filled.Add),
+        )
+    )
+
+    val friends = SecondaryNavSpec(
+        parentRoute = "friends",
+        parentLabelKey = "nav.friends",
+        sections = listOf(
+            SecondarySection("chat", "friend.section.chat", Icons.Filled.People),
+            SecondarySection("rooms", "friend.section.rooms", Icons.Filled.Share),
         )
     )
 
@@ -155,7 +167,7 @@ object SecondaryNavRegistry {
     )
 
     private val byRoute = listOf(
-        settings, download, content, statistics, multiplayer, accounts, saves, plugins, music
+        settings, download, content, statistics, multiplayer, accounts, saves, plugins, music, friends
     ).associateBy { it.parentRoute }
 
     fun savesSectionId(tabIndex: Int): String =

@@ -4,6 +4,7 @@ import com.google.gson.reflect.TypeToken
 import com.pmcl.core.i18n.I18n
 import com.pmcl.music.cache.AudioCache
 import com.pmcl.music.lyrics.LyricsLine
+import com.pmcl.music.lyrics.LyricsParser
 import com.pmcl.music.lyrics.LyricsProvider
 import com.pmcl.music.player.PlaybackState
 import com.pmcl.music.source.LocalAudioSource
@@ -16,6 +17,7 @@ import kotlinx.coroutines.withContext
 import java.awt.Desktop
 import java.io.File
 import java.net.URI
+import java.nio.charset.CharacterCodingException
 import java.util.UUID
 
 /**
@@ -24,6 +26,11 @@ import java.util.UUID
 
 private const val MUSIC_HISTORY_LIMIT = 50
 private const val DEFAULT_PLAYLIST_ID = "default"
+
+private fun LauncherViewModel.syncOptionalMusicSources() {
+    val p = preferences
+    audioResolver.setOptionalSources(p.isParseKuaishou(), p.isParseDouyin(), p.isParseYoutube())
+}
 
 /** 解析 URL / 本地路径并添加到当前播放列表 */
 fun LauncherViewModel.resolveAndAddMusicTrack(url: String) {
@@ -37,7 +44,10 @@ fun LauncherViewModel.resolveAndAddMusicTrack(url: String) {
     scope.launch {
         _musicLoadingUrl.value = trimmed
         try {
-            val info = withContext(Dispatchers.IO) { audioResolver.resolve(trimmed) }
+            val info = withContext(Dispatchers.IO) {
+                syncOptionalMusicSources()
+                audioResolver.resolve(trimmed)
+            }
             val track = MusicTrack(
                 sourceUrl = if (info.sourceType == "local") info.audioUrl else trimmed,
                 title = info.title.ifBlank { trimmed },
@@ -113,40 +123,88 @@ fun LauncherViewModel.addLocalMusicFolder(folderPath: String) {
 }
 
 fun LauncherViewModel.playMusicAt(index: Int) {
+    musicPlaybackRetryCount.set(0)
+    startMusicAt(index, fresh = false)
+}
+
+private fun LauncherViewModel.startMusicAt(index: Int, fresh: Boolean) {
     val list = _musicPlaylist.value
     if (index !in list.indices) return
     val track = list[index]
     _musicCurrentIndex.value = index
+    _musicCurrentMs.value = 0L
+    _musicDurationMs.value = track.durationMs
     _musicLyrics.value = emptyList()
+    _musicVideoUrl.value = ""
+    _musicVideoHeaders.value = emptyMap()
     musicPlayJob?.cancel()
     musicPlayJob = scope.launch {
         _musicPlaybackState.value = PlaybackState.LOADING
         try {
-            val info = withContext(Dispatchers.IO) { audioResolver.resolve(track.sourceUrl) }
+            val info = withContext(Dispatchers.IO) {
+                syncOptionalMusicSources()
+                if (fresh) audioResolver.resolveFresh(track.sourceUrl)
+                else audioResolver.resolve(track.sourceUrl)
+            }
+            // 缓存命中时播放本地文件；未命中立即播放远程流。
+            // 不再等整首歌下载完，慢速 CDN 也不会让界面一直停在 LOADING。
             val playUrl = withContext(Dispatchers.IO) {
-                try {
-                    audioCache.ensureCached(
-                        info.sourceType,
-                        info.originalId,
-                        info.audioUrl,
-                        info.headers
-                    )
-                } catch (_: Throwable) {
-                    info.audioUrl
-                }
+                audioCache.findCached(info.sourceType, info.originalId, info.audioUrl)
+                    ?: info.audioUrl
             }
             if (!isActive) return@launch
+            _musicVideoUrl.value = info.videoUrl
+            _musicVideoHeaders.value = info.headers.toMap()
             val headers = if (playUrl.startsWith("http")) info.headers else emptyMap()
             withContext(Dispatchers.IO) {
                 musicPlayer.play(playUrl, headers, info.durationMs.coerceAtLeast(track.durationMs))
             }
+            prefetchNextMusic(index)
             recordMusicHistory(track)
             loadMusicLyrics(track)
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Throwable) {
+            _musicVideoUrl.value = ""
+            _musicVideoHeaders.value = emptyMap()
             _musicPlaybackState.value = PlaybackState.ERROR
             _status.value = I18n.t("music.error_load", e.message ?: "?")
+        }
+    }
+}
+
+/** 播放流过期或 CDN 拒绝时，清掉临时地址并自动重新解析一次。 */
+internal fun LauncherViewModel.retryCurrentMusicAfterError(): Boolean {
+    val index = _musicCurrentIndex.value
+    val list = _musicPlaylist.value
+    if (index !in list.indices) return false
+    if (!musicPlaybackRetryCount.compareAndSet(0, 1)) return false
+    audioResolver.invalidate(list[index].sourceUrl)
+    _status.value = I18n.t("music.retrying")
+    startMusicAt(index, fresh = true)
+    return true
+}
+
+/** 当前曲目稳定播放后，低优先级预解析下一首，自动切歌时可直接打开流。 */
+private fun LauncherViewModel.prefetchNextMusic(index: Int) {
+    val snapshot = _musicPlaylist.value
+    if (snapshot.size < 2) return
+    val next = (index + 1) % snapshot.size
+    val nextUrl = snapshot[next].sourceUrl
+    scope.launch {
+        kotlinx.coroutines.delay(2_000)
+        if (_musicCurrentIndex.value != index || _musicPlaybackState.value != PlaybackState.PLAYING) {
+            return@launch
+        }
+        try {
+            withContext(Dispatchers.IO) {
+                syncOptionalMusicSources()
+                audioResolver.resolve(nextUrl)
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Throwable) {
+            // 预解析只是优化，不影响当前播放，也不向用户报错。
         }
     }
 }
@@ -180,6 +238,8 @@ fun LauncherViewModel.stopMusic() {
     musicPlayJob = null
     musicPlayer.stop()
     _musicCurrentMs.value = 0
+    _musicVideoUrl.value = ""
+    _musicVideoHeaders.value = emptyMap()
 }
 
 fun LauncherViewModel.playNextMusic() {
@@ -404,11 +464,69 @@ fun LauncherViewModel.switchMusicPlaylist(id: String) {
 @PublishedApi
 internal fun LauncherViewModel.loadMusicLyrics(track: MusicTrack) {
     scope.launch {
-        val lines = withContext(Dispatchers.IO) {
-            lyricsProvider.fetch(track.sourceType, track.sourceUrl, track.originalId)
+        val lines = withContext(Dispatchers.IO) { readLyricsFor(track) }
+        if (currentMusicTrack?.sourceUrl == track.sourceUrl) {
+            _musicLyrics.value = lines
         }
-        _musicLyrics.value = lines
     }
+}
+
+fun LauncherViewModel.hasImportedMusicLyrics(track: MusicTrack): Boolean =
+    importedLyricsFile(track).isFile
+
+/** 把用户选的 .lrc / 文本绑到这首曲子上，之后播放优先用这份。 */
+fun LauncherViewModel.importMusicLyrics(
+    track: MusicTrack,
+    path: String,
+    onImported: (Boolean) -> Unit = {}
+) {
+    scope.launch {
+        try {
+            val lines = withContext(Dispatchers.IO) {
+                val text = readLyricsText(File(path))
+                val parsed = LyricsParser.parse(text)
+                if (parsed.isEmpty()) return@withContext emptyList()
+                val dest = importedLyricsFile(track)
+                dest.parentFile.mkdirs()
+                dest.writeText(text, Charsets.UTF_8)
+                parsed
+            }
+            if (lines.isEmpty()) {
+                _status.value = I18n.t("music.lyrics_import_empty")
+                onImported(false)
+                return@launch
+            }
+            if (currentMusicTrack?.sourceUrl == track.sourceUrl) {
+                _musicLyrics.value = lines
+            }
+            _status.value = I18n.t("music.lyrics_imported")
+            onImported(true)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            _status.value = I18n.t("music.lyrics_import_failed", e.message ?: "?")
+            onImported(false)
+        }
+    }
+}
+
+fun LauncherViewModel.clearImportedMusicLyrics(track: MusicTrack) {
+    scope.launch {
+        withContext(Dispatchers.IO) { importedLyricsFile(track).delete() }
+        if (currentMusicTrack?.sourceUrl == track.sourceUrl) {
+            _musicLyrics.value = withContext(Dispatchers.IO) { readLyricsFor(track) }
+        }
+        _status.value = I18n.t("music.lyrics_cleared")
+    }
+}
+
+private fun LauncherViewModel.readLyricsFor(track: MusicTrack): List<LyricsLine> {
+    val imported = importedLyricsFile(track)
+    if (imported.isFile) {
+        val lines = LyricsParser.parse(readLyricsText(imported))
+        if (lines.isNotEmpty()) return lines
+    }
+    return lyricsProvider.fetch(track.sourceType, track.sourceUrl, track.originalId)
 }
 
 @PublishedApi
@@ -534,13 +652,17 @@ internal fun LauncherViewModel.loadMusicPersistedState() {
                 if (prefsFile.exists()) {
                     val prefs = gson.fromJson(prefsFile.readText(), MusicPrefs::class.java)
                     if (prefs != null) {
-                        _musicVolume.value = prefs.volume.coerceIn(0, 100)
-                        _musicVolumeBeforeMute.value = prefs.volumeBeforeMute.coerceIn(1, 100)
+                        // 旧默认音量 80，比 B 站网页满音量小一截。没改过的升到 100。
+                        val saved = prefs.volume.coerceIn(0, 100)
+                        val before = prefs.volumeBeforeMute.coerceIn(1, 100)
+                        val volume = if (saved == 80 && before == 80) 100 else saved
+                        _musicVolume.value = volume
+                        _musicVolumeBeforeMute.value = if (volume == 100 && before == 80) 100 else before
                         _musicMuted.value = prefs.muted
                         _musicRepeatMode.value = prefs.repeatMode.coerceIn(0, 2)
                         _musicShuffle.value = prefs.shuffle
                         if (prefs.activePlaylistId.isNotBlank()) activeId = prefs.activePlaylistId
-                        musicPlayer.setVolume(if (prefs.muted) 0 else prefs.volume.coerceIn(0, 100))
+                        musicPlayer.setVolume(if (prefs.muted) 0 else volume)
                     }
                 }
 
@@ -589,10 +711,33 @@ private fun playlistsDir(): File = File(musicDir(), "playlists")
 
 private fun playlistFile(id: String): File = File(playlistsDir(), "$id.json")
 
+private fun importedLyricsFile(track: MusicTrack): File {
+    val id = track.originalId.ifBlank { track.sourceUrl }
+    val raw = track.sourceType + "\n" + id
+    val digest = java.security.MessageDigest.getInstance("SHA-256").digest(raw.toByteArray(Charsets.UTF_8))
+    val hex = digest.joinToString("") { "%02x".format(it) }
+    return File(musicDir(), "lyrics/$hex.lrc")
+}
+
+private fun readLyricsText(file: File): String {
+    val bytes = file.readBytes()
+    if (bytes.size >= 3 && bytes[0] == 0xEF.toByte() && bytes[1] == 0xBB.toByte() && bytes[2] == 0xBF.toByte()) {
+        return String(bytes, 3, bytes.size - 3, Charsets.UTF_8)
+    }
+    val utf8 = Charsets.UTF_8.newDecoder()
+        .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+        .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+    return try {
+        utf8.decode(java.nio.ByteBuffer.wrap(bytes)).toString()
+    } catch (_: CharacterCodingException) {
+        String(bytes, charset("GB18030"))
+    }
+}
+
 internal data class MusicPrefs(
-    val volume: Int = 80,
+    val volume: Int = 100,
     val muted: Boolean = false,
-    val volumeBeforeMute: Int = 80,
+    val volumeBeforeMute: Int = 100,
     val repeatMode: Int = 0,
     val shuffle: Boolean = false,
     val activePlaylistId: String = DEFAULT_PLAYLIST_ID

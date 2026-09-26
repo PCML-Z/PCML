@@ -32,6 +32,12 @@ public final class Preferences {
     private int customAccentColor = -1;   // 自定义强调色 ARGB，-1 表示未设置（使用默认配色）
     private int monetSeedColor = -1;      // 莫奈取色最后成功的种子色，启动时立即应用避免截图污染
     private boolean borderlessWindow = true; // 无边框窗口模式（自定义标题栏）
+    private boolean alwaysShowScrollbars = false; // 始终显示滚动条
+    private boolean showScrollbarsOnScroll = false; // 仅滑动时显示滚动条
+    private boolean parseKuaishou = false; // 音乐链接：快手，默认关闭
+    private boolean parseDouyin = false; // 音乐链接：抖音，默认关闭
+    private boolean parseYoutube = false; // 音乐链接：油管，默认关闭
+    private boolean musicOverlayVideo = false; // 音乐悬浮窗显示视频，默认关闭
     private boolean showPerfHud = false;      // 是否显示性能 HUD 浮窗（半透明置顶小窗）
     private String perfHudMetrics = "CPU,MEM,GPU,FPS"; // HUD 显示的指标，逗号分隔
     private float uiScale = 1.0f;             // UI 缩放系数（0.8~1.5），1.0 = 默认大小
@@ -64,6 +70,7 @@ public final class Preferences {
     private int minMemoryMb = 512;
     private int maxMemoryMb = 4096;
     private String javaPath = "";  // 用户指定的 Java 路径，空则自动查找
+    private String javaSelectionMode = "AUTO"; // AUTO=原自动逻辑，SELECTED=固定使用扫描列表中的 Java
     // 每版本独立 Java 路径映射：versionId → javaPath，优先级高于全局 javaPath
     private java.util.Map<String, String> versionJavaPaths = new java.util.concurrent.ConcurrentHashMap<>();
     /**
@@ -189,6 +196,18 @@ public final class Preferences {
 
     public synchronized boolean isBorderlessWindow() { return borderlessWindow; }
     public synchronized void setBorderlessWindow(boolean v) { borderlessWindow = v; scheduleSave(); }
+    public synchronized boolean isAlwaysShowScrollbars() { return alwaysShowScrollbars; }
+    public synchronized void setAlwaysShowScrollbars(boolean v) { alwaysShowScrollbars = v; scheduleSave(); }
+    public synchronized boolean isShowScrollbarsOnScroll() { return showScrollbarsOnScroll; }
+    public synchronized void setShowScrollbarsOnScroll(boolean v) { showScrollbarsOnScroll = v; scheduleSave(); }
+    public synchronized boolean isParseKuaishou() { return parseKuaishou; }
+    public synchronized void setParseKuaishou(boolean v) { parseKuaishou = v; scheduleSave(); }
+    public synchronized boolean isParseDouyin() { return parseDouyin; }
+    public synchronized void setParseDouyin(boolean v) { parseDouyin = v; scheduleSave(); }
+    public synchronized boolean isParseYoutube() { return parseYoutube; }
+    public synchronized void setParseYoutube(boolean v) { parseYoutube = v; scheduleSave(); }
+    public synchronized boolean isMusicOverlayVideo() { return musicOverlayVideo; }
+    public synchronized void setMusicOverlayVideo(boolean v) { musicOverlayVideo = v; scheduleSave(); }
     public synchronized boolean isShowPerfHud() { return showPerfHud; }
     public synchronized void setShowPerfHud(boolean v) { showPerfHud = v; scheduleSave(); }
     public synchronized String getPerfHudMetrics() { return perfHudMetrics; }
@@ -389,7 +408,18 @@ public final class Preferences {
     public synchronized void setMaxMemoryMb(int v) { if (v < 512) return; maxMemoryMb = v; scheduleSave(); }
 
     public synchronized String getJavaPath() { return javaPath; }
-    public synchronized void setJavaPath(String v) { javaPath = v == null ? "" : v; scheduleSave(); }
+    public synchronized void setJavaPath(String v) {
+        javaPath = v == null ? "" : v;
+        javaSelectionMode = javaPath.isBlank() ? "AUTO" : "SELECTED";
+        scheduleSave();
+    }
+    public synchronized String getJavaSelectionMode() {
+        return "SELECTED".equals(javaSelectionMode) ? "SELECTED" : "AUTO";
+    }
+    public synchronized void setJavaSelectionMode(String value) {
+        javaSelectionMode = "SELECTED".equalsIgnoreCase(value) ? "SELECTED" : "AUTO";
+        scheduleSave();
+    }
 
     public synchronized String getLegacyTranslationMode() {
         return legacyTranslationMode == null || legacyTranslationMode.isBlank() ? "AUTO" : legacyTranslationMode;
@@ -867,6 +897,12 @@ public final class Preferences {
             dynamicColor = loadBool(o, "dynamicColor", false);
             predictiveLaunch = loadBool(o, "predictiveLaunch", true);
             borderlessWindow = loadBool(o, "borderlessWindow", true);
+            alwaysShowScrollbars = loadBool(o, "alwaysShowScrollbars", false);
+            showScrollbarsOnScroll = loadBool(o, "showScrollbarsOnScroll", false);
+            parseKuaishou = loadBool(o, "parseKuaishou", false);
+            parseDouyin = loadBool(o, "parseDouyin", false);
+            parseYoutube = loadBool(o, "parseYoutube", false);
+            musicOverlayVideo = loadBool(o, "musicOverlayVideo", false);
             javaDowngradeFallback = loadBool(o, "javaDowngradeFallback", false);
             showPerfHud = loadBool(o, "showPerfHud", false);
             parallaxBackground = loadBool(o, "parallaxBackground", true);
@@ -935,6 +971,10 @@ public final class Preferences {
             customJvmArgs = loadString(o, "customJvmArgs", "");
             gcType = loadString(o, "gcType", "G1GC");
             javaPath = loadString(o, "javaPath", "");
+            // 旧配置里已有手动路径时迁移到选择模式，保持升级前行为。
+            javaSelectionMode = loadString(
+                    o, "javaSelectionMode", javaPath.isBlank() ? "AUTO" : "SELECTED");
+            if (!"SELECTED".equals(javaSelectionMode)) javaSelectionMode = "AUTO";
             legacyTranslationMode = loadString(o, "legacyTranslationMode", "AUTO");
             gameServerHost = loadString(o, "gameServerHost", "");
             gameRenderer = loadString(o, "gameRenderer", "AUTO");
@@ -1176,6 +1216,12 @@ public final class Preferences {
         o.addProperty("monetSeedColor", monetSeedColor);
         o.addProperty("predictiveLaunch", predictiveLaunch);
         o.addProperty("borderlessWindow", borderlessWindow);
+        o.addProperty("alwaysShowScrollbars", alwaysShowScrollbars);
+        o.addProperty("showScrollbarsOnScroll", showScrollbarsOnScroll);
+        o.addProperty("parseKuaishou", parseKuaishou);
+        o.addProperty("parseDouyin", parseDouyin);
+        o.addProperty("parseYoutube", parseYoutube);
+        o.addProperty("musicOverlayVideo", musicOverlayVideo);
         o.addProperty("javaDowngradeFallback", javaDowngradeFallback);
         o.addProperty("showPerfHud", showPerfHud);
         o.addProperty("perfHudMetrics", perfHudMetrics);
@@ -1221,6 +1267,7 @@ public final class Preferences {
         o.addProperty("minMemoryMb", minMemoryMb);
         o.addProperty("maxMemoryMb", maxMemoryMb);
         o.addProperty("javaPath", javaPath);
+        o.addProperty("javaSelectionMode", getJavaSelectionMode());
         o.addProperty("legacyTranslationMode", getLegacyTranslationMode());
         JsonObject vjp = new JsonObject();
         for (var entry : versionJavaPaths.entrySet()) {

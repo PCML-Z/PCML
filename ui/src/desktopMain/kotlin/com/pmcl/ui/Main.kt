@@ -30,6 +30,7 @@ import androidx.compose.ui.window.WindowScope
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.pmcl.ui.animation.SplashIconReveal
+import com.pmcl.ui.page.MusicOverlayWindow
 import com.pmcl.ui.page.PerfHudWindow
 import com.pmcl.ui.page.TopBarSearchField
 import com.pmcl.ui.theme.LauncherTheme
@@ -530,6 +531,23 @@ fun main() = application {
             metrics = perfHudMetrics,
             onClose = { vm.setPerfHudVisible(false) }
         )
+    }
+
+    val showMusicOverlay by vm.musicOverlayVisible.collectAsState()
+    if (showMusicOverlay) {
+        MusicOverlayWindow(vm, sharedThemeState, onClose = { vm.setMusicOverlayVisible(false) })
+    }
+
+    val terminalWindows by vm.terminalWindows.collectAsState()
+    terminalWindows.forEach { id ->
+        key(id) {
+            com.pmcl.ui.page.TerminalWindow(
+                vm = vm,
+                windowId = id,
+                themeState = sharedThemeState,
+                onClose = { vm.closeTerminalWindow(id) }
+            )
+        }
     }
 }
 

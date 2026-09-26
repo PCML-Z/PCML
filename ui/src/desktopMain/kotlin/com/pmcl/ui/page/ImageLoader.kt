@@ -6,6 +6,8 @@ import java.io.File
 import javax.imageio.ImageIO
 import javax.imageio.ImageReadParam
 import com.pmcl.ui.util.decodeSampledBitmap
+import org.bytedeco.javacv.FFmpegFrameGrabber
+import org.bytedeco.javacv.Java2DFrameConverter
 
 /**
  * desktopMain 实现：用 ImageIO 读取图片文件，按屏幕分辨率降采样后转换为 Compose ImageBitmap。
@@ -95,5 +97,46 @@ internal actual fun decodeThumbnailFromPath(path: String, maxDimension: Int): Im
         }
     } catch (_: Throwable) {
         null
+    }
+}
+
+internal actual fun decodeVideoThumbnailFromPath(path: String, maxWidth: Int): ImageBitmap? {
+    var grabber: FFmpegFrameGrabber? = null
+    var converter: Java2DFrameConverter? = null
+    return try {
+        fun open(width: Int = 0, height: Int = 0): FFmpegFrameGrabber =
+            FFmpegFrameGrabber(path).apply {
+                audioChannels = 0
+                if (width > 0 && height > 0) {
+                    imageWidth = width
+                    imageHeight = height
+                }
+                start()
+            }
+
+        grabber = open()
+        if (grabber.imageWidth > maxWidth && grabber.imageHeight > 0) {
+            val width = maxWidth.coerceAtLeast(64)
+            val height = (grabber.imageHeight.toLong() * width / grabber.imageWidth)
+                .toInt().coerceAtLeast(2) and -2
+            grabber.stop()
+            grabber.release()
+            grabber = open(width, height)
+        }
+        val seekUs = when {
+            grabber.lengthInTime > 2_000_000L -> 1_000_000L
+            grabber.lengthInTime > 0L -> grabber.lengthInTime / 4L
+            else -> 0L
+        }
+        if (seekUs > 0L) runCatching { grabber.setTimestamp(seekUs) }
+        val frame = grabber.grabImage() ?: return null
+        converter = Java2DFrameConverter()
+        converter.convert(frame)?.toComposeImageBitmap()
+    } catch (_: Throwable) {
+        null
+    } finally {
+        runCatching { converter?.close() }
+        runCatching { grabber?.stop() }
+        runCatching { grabber?.release() }
     }
 }

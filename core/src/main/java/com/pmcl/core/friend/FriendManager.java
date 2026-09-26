@@ -93,6 +93,7 @@ public final class FriendManager implements AutoCloseable {
             CALL_REJECTED,
             CALL_ENDED,
             CALL_ICE_CANDIDATE,
+            MP_SESSION,
         }
 
         public final Type type;
@@ -116,6 +117,11 @@ public final class FriendManager implements AutoCloseable {
     /** 连接建立后待执行的操作队列（每个 identity 一个队列，防止 put 覆盖） */
     private final Map<String, Queue<Runnable>> pendingOnConnect = new ConcurrentHashMap<>();
     private final List<Consumer<FriendEvent>> eventListeners = new CopyOnWriteArrayList<>();
+    /** 好友发来的联机房间，key = identity */
+    private final Map<String, FriendProtocol.MpSession> peerSessions = new ConcurrentHashMap<>();
+    /** 本机正在分享的房间；空邀请码表示已离开 */
+    private volatile FriendProtocol.MpSession localSession;
+    private static final long MP_SESSION_TTL_MS = 90_000L;
 
     private volatile State state = State.UNINITIALIZED;
     private Path dataDir;
@@ -195,6 +201,7 @@ public final class FriendManager implements AutoCloseable {
                 if (changed) {
                     fireEvent(FriendEvent.Type.FRIEND_ONLINE, store.getFriend(peerId));
                 }
+                pushLocalSession(peerId);
                 // 主动建立 TCP 连接
                 if (peer.ip != null && !peer.ip.isEmpty() && peer.chatPort > 0) {
                     getOrCreateClient(peerId, peer.ip, peer.chatPort);
@@ -244,6 +251,8 @@ public final class FriendManager implements AutoCloseable {
         }
         activeClients.clear();
         pendingOnConnect.clear();
+        peerSessions.clear();
+        localSession = null;
 
         // 切换到新身份的数据目录
         String idKey = newId.toString().replace("-", "");
@@ -315,6 +324,8 @@ public final class FriendManager implements AutoCloseable {
             try { client.close(); } catch (Exception ignored) {}
         }
         activeClients.clear();
+        peerSessions.clear();
+        localSession = null;
 
         // 关闭发现
         discovery.close();
@@ -525,6 +536,74 @@ public final class FriendManager implements AutoCloseable {
                         () -> client.sendFriendAck(request.identity.toString(), false));
             }
         }
+    }
+
+    /**
+     * 把当前联机房间发给在线好友。邀请码为空时通知对方清除。
+     * 只通过已有加密连接发送。
+     */
+    public void publishMultiplayer(String backend, String invitation, String mcHost, int mcPort) {
+        String myId = identityManager.getIdentity() != null
+                ? identityManager.getIdentity().toString() : "";
+        FriendProtocol.MpSession raw = new FriendProtocol.MpSession();
+        raw.backend = backend;
+        raw.invitation = invitation;
+        raw.mcHost = mcHost;
+        raw.mcPort = mcPort;
+        FriendProtocol.MpSession clean = FriendProtocol.MpSession.sanitize(raw, myId);
+        if (clean == null) {
+            if (localSession != null) {
+                localSession = null;
+                broadcastSession(clearedSession(myId));
+            }
+            return;
+        }
+        localSession = clean;
+        broadcastSession(clean);
+    }
+
+    /** 当前仍有效的好友房间。 */
+    public List<FriendProtocol.MpSession> getMultiplayerSessions() {
+        long now = System.currentTimeMillis();
+        List<FriendProtocol.MpSession> out = new ArrayList<>();
+        for (FriendProtocol.MpSession s : peerSessions.values()) {
+            if (s == null || s.from == null) continue;
+            if (now - s.ts > MP_SESSION_TTL_MS) continue;
+            if (s.invitation == null || s.invitation.isBlank()) continue;
+            out.add(s);
+        }
+        return out;
+    }
+
+    private FriendProtocol.MpSession clearedSession(String myId) {
+        FriendProtocol.MpSession s = new FriendProtocol.MpSession();
+        s.from = myId;
+        s.invitation = "";
+        s.backend = "";
+        return s;
+    }
+
+    private void broadcastSession(FriendProtocol.MpSession session) {
+        if (session == null) return;
+        String json = session.toJson();
+        for (FriendStore.FriendEntry friend : store.getAllFriends()) {
+            sendSession(friend.identity, json);
+        }
+    }
+
+    private void pushLocalSession(String identity) {
+        FriendProtocol.MpSession session = localSession;
+        if (session == null || identity == null) return;
+        sendSession(identity, session.toJson());
+    }
+
+    private void sendSession(String identity, String json) {
+        FriendStore.FriendEntry friend = store.getFriend(identity);
+        if (friend == null || friend.lastIp == null || friend.lastIp.isEmpty() || friend.lastPort <= 0) return;
+        FriendChatClient client = getOrCreateClient(identity, friend.lastIp, friend.lastPort);
+        if (client == null) return;
+        if (client.isConnected()) client.send(json);
+        else enqueuePending(identity, () -> client.send(json));
     }
 
     /** 广播发现（手动触发） */
@@ -760,6 +839,19 @@ public final class FriendManager implements AutoCloseable {
                     System.err.println("[FriendManager] 好友请求被拒绝 (" + channelIdentity + ")");
                 }
             }
+            case "mp_session" -> {
+                if (!store.isFriend(channelIdentity)) return;
+                FriendProtocol.MpSession incoming = FriendProtocol.MpSession.fromJson(jsonLine);
+                FriendProtocol.MpSession clean = FriendProtocol.MpSession.sanitize(incoming, channelIdentity);
+                if (clean == null || clean.invitation == null || clean.invitation.isBlank()) {
+                    if (peerSessions.remove(channelIdentity) != null) {
+                        fireEvent(FriendEvent.Type.MP_SESSION, null);
+                    }
+                    return;
+                }
+                peerSessions.put(channelIdentity, clean);
+                fireEvent(FriendEvent.Type.MP_SESSION, clean);
+            }
             case "status" -> {
                 FriendProtocol.StatusMessage status = FriendProtocol.StatusMessage.fromJson(jsonLine);
                 if (store.isFriend(channelIdentity)) {
@@ -866,6 +958,8 @@ public final class FriendManager implements AutoCloseable {
                 // 条件删除：仅当 map 中的 client 仍是当前 client 时才删除
                 // 避免旧 client 的异步回调误删已建立的新 client
                 activeClients.remove(identity, client);
+                peerSessions.remove(identity);
+                fireEvent(FriendEvent.Type.MP_SESSION, null);
                 boolean changed = store.updateOnlineStatus(identity, false, "", 0);
                 if (changed) {
                     FriendStore.FriendEntry entry = store.getFriend(identity);
@@ -882,6 +976,7 @@ public final class FriendManager implements AutoCloseable {
                 if (changed) {
                     fireEvent(FriendEvent.Type.FRIEND_ONLINE, store.getFriend(identity));
                 }
+                pushLocalSession(identity);
                 // 排空待发队列
                 Queue<Runnable> actions = pendingOnConnect.remove(identity);
                 if (actions != null) {

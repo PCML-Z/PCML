@@ -168,9 +168,6 @@ public final class CrashAnalyzer {
         if (lower.contains("failed to load mod") || lower.contains("exception in thread \"main\"")) {
             causes.add("模组加载失败");
             suggestions.add("检查 mods 文件夹中模组与游戏版本的兼容性");
-            suggestions.add("查看 Mod 列表页面的冲突检测");
-            actions.add(new RecoveryAction(RecoveryType.CHECK_MOD_CONFLICTS,
-                    "检查模组冲突", "扫描已安装模组并列出冲突项"));
             actions.add(new RecoveryAction(RecoveryType.DISABLE_RECENT_MODS,
                     "禁用最近模组", "将最近添加的模组暂时移出 mods 目录"));
             actions.add(new RecoveryAction(RecoveryType.OPEN_MODS_PAGE,
@@ -181,16 +178,12 @@ public final class CrashAnalyzer {
         if (lower.contains("nosuchmethoderror")) {
             causes.add("方法不存在 (NoSuchMethodError) - 模组版本不匹配");
             suggestions.add("更新模组到当前游戏版本对应的版本");
-            actions.add(new RecoveryAction(RecoveryType.CHECK_MOD_CONFLICTS,
-                    "检查模组冲突", "检测重复或版本不匹配的模组"));
             actions.add(new RecoveryAction(RecoveryType.OPEN_MODS_PAGE,
                     "打开模组管理", "手动更新或移除问题模组"));
         }
         if (lower.contains("noclassdeffounderror")) {
             causes.add("类未找到 (NoClassDefFoundError) - 缺少前置模组或版本不匹配");
             suggestions.add("检查模组依赖是否齐全");
-            actions.add(new RecoveryAction(RecoveryType.CHECK_MOD_CONFLICTS,
-                    "检查模组冲突", "检测缺失的前置模组"));
             actions.add(new RecoveryAction(RecoveryType.OPEN_MODS_PAGE,
                     "打开模组管理", "安装缺失的前置模组"));
         }

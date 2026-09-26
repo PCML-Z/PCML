@@ -1,4 +1,5 @@
 package com.pmcl.ui.page
+import com.pmcl.ui.widget.PmclLazyColumn
 
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
@@ -41,6 +42,7 @@ import com.pmcl.ui.theme.glassCardBorder
 import com.pmcl.ui.theme.glassCardColors
 import com.pmcl.ui.theme.glassCardElevation
 import com.pmcl.ui.viewmodel.LauncherViewModel
+import com.pmcl.ui.viewmodel.joinFriendMultiplayer
 import com.pmcl.ui.widget.IdentityCard
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -54,7 +56,7 @@ import javax.swing.JFileChooser
 import javax.swing.filechooser.FileNameExtensionFilter
 
 @Composable
-fun FriendPage(vm: LauncherViewModel) {
+fun FriendPage(vm: LauncherViewModel, sectionId: String = "chat") {
     val friendManager = remember { vm.core.friend() }
     if (friendManager == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -79,6 +81,7 @@ fun FriendPage(vm: LauncherViewModel) {
     var addFriendCode by remember { mutableStateOf("") }
     var addFriendError by remember { mutableStateOf<String?>(null) }
     val pendingRequests = remember { mutableStateListOf<FriendManager.PendingRequest>() }
+    var mpOffers by remember { mutableStateOf(friendManager.multiplayerSessions) }
 
     // 视频通话状态
     var activeCallSession by remember { mutableStateOf<com.pmcl.video.VideoCallSession?>(null) }
@@ -203,6 +206,12 @@ fun FriendPage(vm: LauncherViewModel) {
                     FriendManager.FriendEvent.Type.FRIEND_REMOVED -> {
                         refresh()
                     }
+                    FriendManager.FriendEvent.Type.MP_SESSION,
+                    FriendManager.FriendEvent.Type.FRIEND_ONLINE,
+                    FriendManager.FriendEvent.Type.FRIEND_OFFLINE -> {
+                        mpOffers = friendManager.multiplayerSessions
+                        refresh()
+                    }
                     FriendManager.FriendEvent.Type.MESSAGE_RECEIVED -> {
                         // 收到新消息：刷新当前选中好友的消息列表。
                         // store.addMessage 已按正确 identity 存储，getMessages(currentId)
@@ -270,6 +279,18 @@ fun FriendPage(vm: LauncherViewModel) {
 
         Spacer(Modifier.height(12.dp))
 
+        if (sectionId == "rooms") {
+            FriendRoomsSection(
+                offers = mpOffers,
+                friends = friends,
+                onJoin = { offer ->
+                    vm.joinFriendMultiplayer(offer.invitation, offer.backend, offer.mcHost ?: "", offer.mcPort)
+                },
+                modifier = Modifier.weight(1f)
+            )
+            return@Column
+        }
+
         if (friends.isEmpty() && pendingRequests.isEmpty()) {
             // 空状态（带身份卡片）
             Row(Modifier.fillMaxWidth().weight(1f)) {
@@ -334,7 +355,7 @@ fun FriendPage(vm: LauncherViewModel) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(bottom = 4.dp))
 
-                    LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
+                    PmclLazyColumn(Modifier.fillMaxWidth().weight(1f)) {
                         items(friends.toList(), key = { it.identity }) { friend ->
                             FriendListItem(
                                 friend = friend,
@@ -647,6 +668,56 @@ fun FriendPage(vm: LauncherViewModel) {
 }
 
 // =============================================================================
+// 好友联机：一键加入对方房间
+// =============================================================================
+
+@Composable
+private fun FriendRoomsSection(
+    offers: List<com.pmcl.core.friend.FriendProtocol.MpSession>,
+    friends: List<FriendStore.FriendEntry>,
+    onJoin: (com.pmcl.core.friend.FriendProtocol.MpSession) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    PmclLazyColumn(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        items(offers, key = { it.from }) { offer ->
+            val name = friends.find { it.identity == offer.from }?.displayName ?: offer.from.take(8)
+            val backendLabel = when (offer.backend) {
+                "TERRACOTTA" -> I18n.t("mp.terracotta_official")
+                "EASYTIER" -> "EasyTier"
+                "CONNECTX" -> "ConnectX"
+                else -> offer.backend
+            }
+            val detail = if (!offer.mcHost.isNullOrBlank() && offer.mcPort > 0) {
+                "$backendLabel · ${offer.mcHost}:${offer.mcPort}"
+            } else {
+                backendLabel
+            }
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+            ) {
+                Row(
+                    Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(detail, style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    FilledTonalButton(onClick = { onJoin(offer) }) {
+                        Text(I18n.t("friend.mp.join"))
+                    }
+                }
+            }
+        }
+    }
+}
+
+// =============================================================================
 // 好友列表项
 // =============================================================================
 
@@ -837,7 +908,7 @@ private fun ChatView(
         HorizontalDivider(Modifier.padding(vertical = 6.dp))
 
         // 消息列表
-        LazyColumn(
+        PmclLazyColumn(
             Modifier.weight(1f).fillMaxWidth(),
             state = listState,
             verticalArrangement = Arrangement.spacedBy(6.dp),

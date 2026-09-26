@@ -1,6 +1,7 @@
 @file:OptIn(ExperimentalFoundationApi::class)
 
 package com.pmcl.ui.page
+import com.pmcl.ui.widget.PmclLazyColumn
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
@@ -172,7 +173,7 @@ fun DownloadPage(vm: LauncherViewModel) {
                 modifier = Modifier.padding(bottom = 8.dp)
             )
 
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            PmclLazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 itemsIndexed(filtered, key = { idx, v -> v.getId() ?: "v$idx" }) { index, v ->
                     Box(Modifier.animateItemPlacement()) {
                     StaggeredAppear(index) {
@@ -191,7 +192,7 @@ fun DownloadPage(vm: LauncherViewModel) {
             }
         } else {
             // 加载器列表
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            PmclLazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 itemsIndexed(modLoaderVersions, key = { idx, lv -> lv.getLoaderVersion() ?: "lv$idx" }) { index, lv ->
                     Box(Modifier.animateItemPlacement()) {
                     StaggeredAppear(index) {

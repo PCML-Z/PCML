@@ -168,7 +168,8 @@ public class AcFunAudioSource implements AudioSource {
                 TYPE,
                 originalUrl,
                 headers,
-                "ac" + acId
+                "ac" + acId,
+                streamUrl
         );
     }
 

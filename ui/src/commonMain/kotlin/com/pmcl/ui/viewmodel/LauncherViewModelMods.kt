@@ -11,7 +11,6 @@ import com.pmcl.core.market.ModFile
 import com.pmcl.core.market.ModProject
 import com.pmcl.core.mods.ModMeta
 import com.pmcl.core.mods.ModScanner
-import com.pmcl.core.mods.ModConflictChecker
 import com.pmcl.ui.viewmodel.LauncherViewModel.ModScanCacheEntry
 import java.nio.file.Path
 
@@ -331,8 +330,6 @@ fun LauncherViewModel.refreshInstalledMods() {
             val mods = withContext(Dispatchers.IO) {
                 val allMods = mutableListOf<ModMeta>()
                 val seenFiles = mutableSetOf<String>()
-                // 按目录分组的 mod 列表（用于冲突检查时按目录隔离）
-                val modsByDir = mutableMapOf<Path, MutableList<ModMeta>>()
                 val modsDirs = mutableListOf<Path>()
                 // 1. PMCL 工作目录的 mods
                 modsDirs.add(config.getWorkDir().resolve("mods"))
@@ -392,7 +389,6 @@ fun LauncherViewModel.refreshInstalledMods() {
                             if (seenFiles.add(dedupKey)) {
                                 m.setSource(sourceLabel)
                                 allMods.add(m)
-                                modsByDir.getOrPut(modsDir) { mutableListOf() }.add(m)
                             }
                         }
                     } catch (t: Throwable) {
@@ -403,16 +399,6 @@ fun LauncherViewModel.refreshInstalledMods() {
                 if (scanFailCount > 0) {
                     System.err.println("[refreshInstalledMods] $scanFailCount 个 mods 目录扫描失败（列表可能不完整）")
                 }
-                // 按目录分组检查冲突，避免跨版本目录误报依赖缺失
-                val allErrors = mutableListOf<String>()
-                val allWarnings = mutableListOf<String>()
-                for ((_, dirMods) in modsByDir) {
-                    if (dirMods.isEmpty()) continue
-                    val r = ModConflictChecker.check(dirMods)
-                    allErrors.addAll(r.getErrors())
-                    allWarnings.addAll(r.getWarnings())
-                }
-                _modConflicts.value = ModConflictChecker.Result(allErrors, allWarnings)
                 // 应用用户自定义标签
                 try { core.modTagStore().applyTags(allMods) } catch (_: Throwable) {}
                 allMods

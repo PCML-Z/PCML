@@ -1,4 +1,5 @@
 package com.pmcl.ui.page
+import com.pmcl.ui.widget.PmclLazyColumn
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -8,6 +9,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -44,7 +46,7 @@ import java.awt.datatransfer.StringSelection
  * 玻璃/壁纸主题下输出区与输入条使用半透明毛玻璃底，避免实色色块。
  */
 @Composable
-fun TerminalPage(vm: LauncherViewModel) {
+fun TerminalPage(vm: LauncherViewModel, modifier: Modifier = Modifier) {
     val themeState = LocalThemeState.current
     // 毛玻璃仅跟玻璃主题开关；壁纸存在时仍让页面透明透出背景
     val glassOn = themeState.glassTheme
@@ -164,7 +166,7 @@ fun TerminalPage(vm: LauncherViewModel) {
     }
 
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxSize()
             .background(pageBg)
             .padding(8.dp)
@@ -180,6 +182,17 @@ fun TerminalPage(vm: LauncherViewModel) {
                 fontFamily = FontFamily.Monospace,
                 modifier = Modifier.weight(1f)
             )
+            IconButton(
+                onClick = { vm.openTerminalWindow() },
+                modifier = Modifier.size(28.dp)
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.OpenInNew,
+                    I18n.t("terminal.new_window"),
+                    tint = outline,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
             if (executing) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(14.dp),
@@ -301,7 +314,7 @@ fun TerminalPage(vm: LauncherViewModel) {
                         .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.40f))
                 )
             }
-            LazyColumn(
+            PmclLazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
                     .clip(RoundedCornerShape(6.dp))

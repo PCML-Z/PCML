@@ -1,4 +1,6 @@
 package com.pmcl.ui.page
+import com.pmcl.ui.widget.pmclVerticalScroll
+import com.pmcl.ui.widget.pmclHorizontalScroll
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -14,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Article
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
@@ -28,6 +31,7 @@ import androidx.compose.material.icons.filled.Gavel
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Warning
@@ -133,7 +137,7 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
         }
     }
 
-    Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
+    Column(Modifier.fillMaxSize().padding(16.dp).pmclVerticalScroll(rememberScrollState())) {
         TypewriterTitle(I18n.t(sectionTitleKey))
         Spacer(Modifier.height(16.dp))
 
@@ -656,6 +660,122 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
                 Text(I18n.t("settings.language_hint"),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
+
+                Spacer(Modifier.height(12.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(12.dp))
+
+                var alwaysScrollbars by remember { mutableStateOf(pref.isAlwaysShowScrollbars()) }
+                var scrollbarsOnScroll by remember { mutableStateOf(pref.isShowScrollbarsOnScroll()) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = alwaysScrollbars,
+                        onCheckedChange = { v ->
+                            alwaysScrollbars = v
+                            pref.setAlwaysShowScrollbars(v)
+                            themeState.applyAlwaysShowScrollbars(v)
+                            if (v) {
+                                scrollbarsOnScroll = false
+                                pref.setShowScrollbarsOnScroll(false)
+                                themeState.applyShowScrollbarsOnScroll(false)
+                            }
+                        }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(I18n.t("settings.always_scrollbars"), fontWeight = FontWeight.Medium)
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(I18n.t("settings.always_scrollbars_desc"),
+                     style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.outline)
+
+                Spacer(Modifier.height(12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = scrollbarsOnScroll,
+                        onCheckedChange = { v ->
+                            scrollbarsOnScroll = v
+                            pref.setShowScrollbarsOnScroll(v)
+                            themeState.applyShowScrollbarsOnScroll(v)
+                            if (v) {
+                                alwaysScrollbars = false
+                                pref.setAlwaysShowScrollbars(false)
+                                themeState.applyAlwaysShowScrollbars(false)
+                            }
+                        }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(I18n.t("settings.scrollbars_on_scroll"), fontWeight = FontWeight.Medium)
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(I18n.t("settings.scrollbars_on_scroll_desc"),
+                     style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.outline)
+
+                Spacer(Modifier.height(12.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(12.dp))
+
+                Text(I18n.t("settings.music_links"), fontWeight = FontWeight.Medium)
+                Spacer(Modifier.height(4.dp))
+                Text(I18n.t("settings.music_links_desc"),
+                     style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.outline)
+                var parseKuaishou by remember { mutableStateOf(pref.isParseKuaishou()) }
+                var parseDouyin by remember { mutableStateOf(pref.isParseDouyin()) }
+                var parseYoutube by remember { mutableStateOf(pref.isParseYoutube()) }
+                val musicOverlayVideo by vm.musicOverlayVideoEnabled.collectAsState()
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = musicOverlayVideo,
+                        onCheckedChange = { vm.setMusicOverlayVideoEnabled(it) }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(I18n.t("settings.music_overlay_video"), fontWeight = FontWeight.Medium)
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    I18n.t("settings.music_overlay_video_desc"),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = parseKuaishou,
+                        onCheckedChange = { v ->
+                            parseKuaishou = v
+                            pref.setParseKuaishou(v)
+                        }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(I18n.t("settings.parse_kuaishou"), fontWeight = FontWeight.Medium)
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = parseDouyin,
+                        onCheckedChange = { v ->
+                            parseDouyin = v
+                            pref.setParseDouyin(v)
+                        }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(I18n.t("settings.parse_douyin"), fontWeight = FontWeight.Medium)
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = parseYoutube,
+                        onCheckedChange = { v ->
+                            parseYoutube = v
+                            pref.setParseYoutube(v)
+                        }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(I18n.t("settings.parse_youtube"), fontWeight = FontWeight.Medium)
+                }
 
                 Spacer(Modifier.height(12.dp))
                 HorizontalDivider()
@@ -1296,7 +1416,7 @@ private fun LicensesAndAgreementsSection() {
     ) {
         Column(Modifier.padding(16.dp)) {
             Row(
-                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                modifier = Modifier.fillMaxWidth().pmclHorizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 tabs.forEachIndexed { index, label ->
@@ -2741,7 +2861,7 @@ private fun HectMiCard(vm: LauncherViewModel) {
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
+                    .pmclHorizontalScroll(rememberScrollState())
                     .padding(10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -2802,7 +2922,7 @@ private fun HectMiDecodeDialog(vm: LauncherViewModel, code: String, onDismiss: (
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
+                    .pmclVerticalScroll(rememberScrollState())
                     .padding(24.dp)
             ) {
                 Text(
@@ -3012,9 +3132,14 @@ private fun HectMiDecodeDialog(vm: LauncherViewModel, code: String, onDismiss: (
 private fun JavaRuntimeCard(vm: LauncherViewModel, pref: com.pmcl.core.preferences.Preferences) {
     val downloading by vm.javaDownloading.collectAsState()
     val dlStatus by vm.javaDownloadStatus.collectAsState()
+    val selectionMode by vm.javaSelectionMode.collectAsState()
+    val installations by vm.javaInstallations.collectAsState()
+    val scanning by vm.javaScanning.collectAsState()
     var manualPath by remember { mutableStateOf(pref.getJavaPath()) }
+    var javaMenuExpanded by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { vm.scanJavaInstallations() }
     // Java 探测可能扫磁盘，放到 IO 线程，避免进入 Java 分区时卡 UI
-    val detectedPath by produceState(I18n.t("common.loading")) {
+    val detectedPath by produceState(I18n.t("common.loading"), selectionMode, manualPath) {
         value = withContext(Dispatchers.IO) { vm.detectJavaPath() }
     }
     val modifier = Modifier
@@ -3033,6 +3158,123 @@ private fun JavaRuntimeCard(vm: LauncherViewModel, pref: com.pmcl.core.preferenc
             Text(I18n.t("settings.java_version_hint"),
                  style = MaterialTheme.typography.labelSmall,
                  color = MaterialTheme.colorScheme.outline)
+
+            Spacer(Modifier.height(12.dp))
+
+            Text(
+                I18n.t("settings.java_selection_mode"),
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(Modifier.height(6.dp))
+            com.pmcl.ui.animation.AnimatedSegmentedSelector(
+                items = listOf(
+                    I18n.t("settings.java_mode_auto"),
+                    I18n.t("settings.java_mode_selected")
+                ),
+                selectedIndex = if (selectionMode == "SELECTED") 1 else 0,
+                onSelect = { vm.setJavaSelectionMode(if (it == 1) "SELECTED" else "AUTO") },
+                modifier = Modifier.fillMaxWidth(),
+                fillWidth = true,
+                height = 36.dp
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                if (selectionMode == "SELECTED")
+                    I18n.t("settings.java_mode_selected_desc")
+                else
+                    I18n.t("settings.java_mode_auto_desc"),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline
+            )
+
+            if (selectionMode == "SELECTED") {
+                Spacer(Modifier.height(10.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f)) {
+                        OutlinedButton(
+                            onClick = { javaMenuExpanded = true },
+                            modifier = Modifier.fillMaxWidth(),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                        ) {
+                            val selected = installations.firstOrNull { it.path == manualPath }
+                            Column(Modifier.weight(1f), horizontalAlignment = Alignment.Start) {
+                                Text(
+                                    selected?.let {
+                                        "Java ${it.majorVersion} · ${it.architecture} · ${it.source}"
+                                    } ?: I18n.t("settings.java_choose"),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                if (manualPath.isNotBlank()) {
+                                    Text(
+                                        manualPath,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.outline,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                            Icon(Icons.Filled.ArrowDropDown, null)
+                        }
+                        DropdownMenu(
+                            expanded = javaMenuExpanded,
+                            onDismissRequest = { javaMenuExpanded = false },
+                            modifier = Modifier.heightIn(max = 380.dp)
+                        ) {
+                            if (installations.isEmpty()) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            if (scanning) I18n.t("settings.java_scanning")
+                                            else I18n.t("settings.java_none_found")
+                                        )
+                                    },
+                                    onClick = {}
+                                )
+                            } else {
+                                installations.forEach { installation ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Column {
+                                                Text(
+                                                    "Java ${installation.majorVersion} · " +
+                                                            "${installation.architecture} · ${installation.source}",
+                                                    fontWeight = FontWeight.Medium
+                                                )
+                                                Text(
+                                                    installation.path,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.outline,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                        },
+                                        onClick = {
+                                            manualPath = installation.path
+                                            vm.selectJavaInstallation(installation.path)
+                                            javaMenuExpanded = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    IconButton(
+                        onClick = { vm.scanJavaInstallations() },
+                        enabled = !scanning
+                    ) {
+                        if (scanning) {
+                            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Filled.Refresh, I18n.t("common.refresh"))
+                        }
+                    }
+                }
+            }
 
             Spacer(Modifier.height(12.dp))
 
@@ -3124,18 +3366,23 @@ private fun JavaRuntimeCard(vm: LauncherViewModel, pref: com.pmcl.core.preferenc
 
             Spacer(Modifier.height(12.dp))
 
-            // 手动指定 Java 路径
-            OutlinedTextField(
-                value = manualPath,
-                onValueChange = {
-                    manualPath = it
-                    vm.setJavaPath(it.trim())
-                },
-                label = { Text(I18n.t("settings.manual_java_path")) },
-                supportingText = { Text(I18n.t("settings.manual_java_path_hint")) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
+            if (selectionMode == "SELECTED") {
+                // 非标准安装位置仍可直接粘贴 java 可执行文件路径。
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = manualPath,
+                        onValueChange = { manualPath = it },
+                        label = { Text(I18n.t("settings.manual_java_path")) },
+                        supportingText = { Text(I18n.t("settings.manual_java_path_hint")) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    OutlinedButton(onClick = { vm.setJavaPath(manualPath.trim()) }) {
+                        Text(I18n.t("common.apply"))
+                    }
+                }
+            }
 
             Spacer(modifier.height(16.dp))
             Text(
@@ -3508,7 +3755,7 @@ private fun LicenseDocumentPanel() {
                 style = MaterialTheme.typography.bodySmall,
                 fontFamily = FontFamily.Monospace,
                 modifier = Modifier
-                    .verticalScroll(scrollState)
+                    .pmclVerticalScroll(scrollState)
                     .padding(12.dp)
             )
         }
@@ -3570,7 +3817,7 @@ private fun DocumentPanel(resourceName: String) {
                 style = MaterialTheme.typography.bodySmall,
                 fontFamily = FontFamily.Monospace,
                 modifier = Modifier
-                    .verticalScroll(scrollState)
+                    .pmclVerticalScroll(scrollState)
                     .padding(12.dp)
             )
         }
@@ -3610,7 +3857,7 @@ private fun LicenseConflictPanel() {
                 style = MaterialTheme.typography.bodySmall,
                 fontFamily = FontFamily.Monospace,
                 modifier = Modifier
-                    .verticalScroll(scrollState)
+                    .pmclVerticalScroll(scrollState)
                     .padding(12.dp)
             )
         }

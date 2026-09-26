@@ -494,17 +494,23 @@ class PmclHostServer(
             }
 
             javaExe = run {
-                val versionPath = core.getPreferences().getVersionJavaPath(versionId)
-                if (versionPath.isNotEmpty()
-                    && JavaRuntimeFinder.meetsRequirement(versionPath, requiredJavaVer)
-                ) {
-                    versionPath
+                val prefs = core.getPreferences()
+                if (prefs.getJavaSelectionMode() == "SELECTED") {
+                    val selected = prefs.getJavaPath()
+                    if (selected.isNotEmpty() &&
+                        (JavaRuntimeFinder.meetsRequirement(selected, requiredJavaVer)
+                                || prefs.isJavaDowngradeFallback())) {
+                        selected
+                    } else {
+                        ""
+                    }
                 } else {
-                    val customPath = core.getPreferences().getJavaPath()
-                    if (customPath.isNotEmpty()
-                        && JavaRuntimeFinder.meetsRequirement(customPath, requiredJavaVer)
+                    val versionPath = prefs.getVersionJavaPath(versionId)
+                    if (versionPath.isNotEmpty()
+                        && (JavaRuntimeFinder.meetsRequirement(versionPath, requiredJavaVer)
+                                || prefs.isJavaDowngradeFallback())
                     ) {
-                        customPath
+                        versionPath
                     } else {
                         JavaRuntimeFinder.findJavaExecutable(config.getRuntimesDir(), requiredJavaVer) ?: ""
                     }

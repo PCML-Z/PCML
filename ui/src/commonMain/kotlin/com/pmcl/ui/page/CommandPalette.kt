@@ -1,4 +1,5 @@
 package com.pmcl.ui.page
+import com.pmcl.ui.widget.pmclVerticalScroll
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
@@ -311,6 +312,7 @@ fun buildSearchIndex(vm: LauncherViewModel): List<SearchItem> {
 private fun describeRoute(route: String): String = when (route) {
     "launch" -> I18n.t("search.nav.launch")
     "news" -> I18n.t("search.nav.news")
+    "tips" -> I18n.t("nav.tips")
     "multiplayer" -> I18n.t("search.nav.multiplayer")
     "servers" -> I18n.t("search.hub.servers")
     "friends" -> I18n.t("search.nav.friends")
@@ -330,6 +332,7 @@ private fun describeRoute(route: String): String = when (route) {
 private fun keywordsForRoute(route: String, label: String): List<String> = when (route) {
     "launch" -> listOf(I18n.t("cmd.kw.launch"), "launcher", "play", I18n.t("cmd.kw.game"))
     "news" -> listOf(I18n.t("cmd.kw.news"), I18n.t("cmd.kw.info"), "news")
+    "tips" -> listOf(I18n.t("nav.tips"), "tips", "help", "manual")
     "multiplayer" -> listOf(I18n.t("cmd.kw.multiplayer"), I18n.t("cmd.kw.server"), "multiplayer", "server")
     "servers" -> listOf(I18n.t("cmd.kw.server"), "server", "servers")
     "friends" -> listOf(I18n.t("cmd.kw.friend"), I18n.t("cmd.kw.chat"), "friend", "chat", I18n.t("cmd.kw.contact"), "contact", "QR", I18n.t("cmd.kw.qrcode"))
@@ -643,7 +646,7 @@ private fun SearchResultsContent(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
         )
         HorizontalDivider()
-        Column(modifier = Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) {
+        Column(modifier = Modifier.heightIn(max = 400.dp).pmclVerticalScroll(rememberScrollState())) {
             var globalIndex = 0
             groups.forEach { group ->
                 // 分组标题

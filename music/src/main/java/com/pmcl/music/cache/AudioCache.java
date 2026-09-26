@@ -40,9 +40,45 @@ public final class AudioCache {
         this.client = new OkHttpClient.Builder()
                 .connectTimeout(15, TimeUnit.SECONDS)
                 .readTimeout(120, TimeUnit.SECONDS)
+                .callTimeout(150, TimeUnit.SECONDS)
                 .followRedirects(false)
                 .followSslRedirects(false)
                 .build();
+    }
+
+    /**
+     * 返回可立即播放的本地文件；远程缓存未命中时返回 {@code null}。
+     *
+     * <p>这个方法不发起网络请求。播放路径先调用它，未命中时直接播放远程流，
+     * 避免为等完整文件下载而长时间停在 LOADING。
+     */
+    public String findCached(String sourceType,
+                             String originalId,
+                             String audioUrl) {
+        if (audioUrl == null || audioUrl.isBlank()) return null;
+        if (!audioUrl.startsWith("http://") && !audioUrl.startsWith("https://")) {
+            try {
+                Path p = Path.of(audioUrl);
+                return Files.isRegularFile(p) ? p.toAbsolutePath().toString() : null;
+            } catch (RuntimeException ignored) {
+                return null;
+            }
+        }
+
+        String key = cacheKey(sourceType, originalId, audioUrl);
+        Path meta = cacheDir.resolve(key + ".meta");
+        Path data = cacheDir.resolve(key + ".bin");
+        if (!Files.isRegularFile(data) || !Files.isRegularFile(meta)) return null;
+        try {
+            long savedAt = Long.parseLong(Files.readString(meta).trim());
+            long age = System.currentTimeMillis() - savedAt;
+            if (age >= 0 && age < ttlMs && Files.size(data) > 0) {
+                return data.toAbsolutePath().toString();
+            }
+        } catch (Exception ignored) {
+            // 损坏或过期的缓存按未命中处理
+        }
+        return null;
     }
 
     /**
@@ -69,20 +105,11 @@ public final class AudioCache {
         if (err != null) throw new IOException("Unsafe audio URL: " + err);
 
         Files.createDirectories(cacheDir);
+        String cached = findCached(sourceType, originalId, audioUrl);
+        if (cached != null) return cached;
         String key = cacheKey(sourceType, originalId, audioUrl);
         Path meta = cacheDir.resolve(key + ".meta");
         Path data = cacheDir.resolve(key + ".bin");
-
-        if (Files.isRegularFile(data) && Files.isRegularFile(meta)) {
-            try {
-                long savedAt = Long.parseLong(Files.readString(meta).trim());
-                if (System.currentTimeMillis() - savedAt < ttlMs && Files.size(data) > 0) {
-                    return data.toAbsolutePath().toString();
-                }
-            } catch (Exception ignored) {
-                // 重新下载
-            }
-        }
 
         // 安全修复：每次下载使用唯一临时文件名，防止并发下载同 key 时互相覆盖写损坏缓存
         Path tmp = cacheDir.resolve(key + ".tmp." + java.util.UUID.randomUUID());

@@ -8,6 +8,7 @@ import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Person
@@ -30,6 +31,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 sealed class NavDestination(val route: String, val labelKey: String, val icon: ImageVector) {
     data object Launch      : NavDestination("launch",      "nav.launch",      Icons.Filled.PlayArrow)
     data object News        : NavDestination("news",        "nav.news",        Icons.Filled.Info)
+    data object Tips        : NavDestination("tips",        "nav.tips",        Icons.Filled.Lightbulb)
     data object Multiplayer : NavDestination("multiplayer", "nav.multiplayer", Icons.Filled.Share)
     data object Servers     : NavDestination("servers",     "nav.servers",     Icons.Filled.Dns)
     data object Friends     : NavDestination("friends",     "nav.friends",     Icons.Filled.People)
@@ -49,6 +51,7 @@ sealed class NavDestination(val route: String, val labelKey: String, val icon: I
 val allDestinations = listOf(
     NavDestination.Launch,
     NavDestination.News,
+    NavDestination.Tips,
     NavDestination.Multiplayer,
     NavDestination.Servers,
     NavDestination.Friends,

@@ -1,4 +1,5 @@
 package com.pmcl.ui.navigation
+import com.pmcl.ui.widget.pmclVerticalScroll
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
@@ -152,7 +153,7 @@ fun SecondaryNavRail(
             Column(
                 Modifier
                     .weight(1f)
-                    .verticalScroll(rememberScrollState()),
+                    .pmclVerticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 sections.forEachIndexed { index, section ->

@@ -1,6 +1,8 @@
 @file:OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 
 package com.pmcl.ui.page
+import com.pmcl.ui.widget.PmclLazyColumn
+import com.pmcl.ui.widget.pmclVerticalScroll
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
@@ -24,7 +26,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
@@ -56,7 +57,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
 import com.pmcl.ui.animation.TypewriterTitle
-import com.pmcl.core.mods.ModConflictChecker
 import com.pmcl.core.mods.ModIconExtractor
 import com.pmcl.core.mods.ModMeta
 import com.pmcl.core.mods.ModUpdateChecker
@@ -94,7 +94,6 @@ import java.nio.charset.StandardCharsets
 @Composable
 fun ModsPage(vm: LauncherViewModel) {
     val installedMods by vm.installedMods.collectAsState()
-    val conflicts by vm.modConflicts.collectAsState()
     val status by vm.status.collectAsState()
     val translationCache by vm.translationCache.collectAsState()
     val translating by vm.translating.collectAsState()
@@ -542,13 +541,6 @@ fun ModsPage(vm: LauncherViewModel) {
             }
         }
 
-        // 冲突报告始终可见
-        val conflictsData = conflicts
-        if (conflictsData != null && conflictsData.hasIssues()) {
-            Spacer(Modifier.height(8.dp))
-            ConflictCard(conflictsData)
-        }
-
         // === 列表标题 ===
         Spacer(Modifier.height(8.dp))
         Text(
@@ -574,7 +566,7 @@ fun ModsPage(vm: LauncherViewModel) {
                 }
             }
         } else {
-            LazyColumn(
+            PmclLazyColumn(
                 verticalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier.weight(1f)
             ) {
@@ -1034,7 +1026,7 @@ private fun ModDetailDialog(
         onDismissRequest = onDismiss,
         title = { Text(displayName, fontWeight = FontWeight.SemiBold) },
         text = {
-            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+            Column(modifier = Modifier.pmclVerticalScroll(rememberScrollState())) {
                 Text(I18n.t("mods.detail_modid", m.getModId() ?: "-"),
                      style = MaterialTheme.typography.bodySmall)
                 Spacer(Modifier.height(4.dp))
@@ -1087,41 +1079,6 @@ private fun ModDetailDialog(
             TextButton(onClick = onDismiss) { Text(I18n.t("common.close")) }
         }
     )
-}
-
-@Composable
-private fun ConflictCard(result: ModConflictChecker.Result) {
-    val hasErrors = result.getErrors().isNotEmpty()
-    val colors = if (hasErrors) MaterialTheme.colorScheme.errorContainer
-                 else MaterialTheme.colorScheme.tertiaryContainer
-    Surface(color = glassContainerColor(colors), shape = RoundedCornerShape(8.dp),
-            modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp)) {
-            Text(
-                if (hasErrors) I18n.t("mods.conflict_errors", result.getErrors().size)
-                else I18n.t("mods.conflict_warnings", result.getWarnings().size),
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold
-            )
-            Spacer(Modifier.height(4.dp))
-            for (e in result.getErrors()) {
-                Row(verticalAlignment = Alignment.Top) {
-                    Icon(Icons.Filled.Circle, null, Modifier.size(6.dp).padding(top = 6.dp),
-                         tint = MaterialTheme.colorScheme.error)
-                    Spacer(Modifier.width(6.dp))
-                    Text(e, style = MaterialTheme.typography.bodySmall)
-                }
-            }
-            for (w in result.getWarnings()) {
-                Row(verticalAlignment = Alignment.Top) {
-                    Icon(Icons.Filled.Circle, null, Modifier.size(6.dp).padding(top = 6.dp),
-                         tint = MaterialTheme.colorScheme.tertiary)
-                    Spacer(Modifier.width(6.dp))
-                    Text(w, style = MaterialTheme.typography.bodySmall)
-                }
-            }
-        }
-    }
 }
 
 /**
@@ -1194,7 +1151,7 @@ private fun TagEditDialog(
         onDismissRequest = onDismiss,
         title = { Text(I18n.t("mods.tag_edit_title"), fontWeight = FontWeight.SemiBold) },
         text = {
-            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+            Column(modifier = Modifier.pmclVerticalScroll(rememberScrollState())) {
                 Text(I18n.t("mods.tag_edit_hint", modName),
                      style = MaterialTheme.typography.bodySmall,
                      color = MaterialTheme.colorScheme.onSurfaceVariant)

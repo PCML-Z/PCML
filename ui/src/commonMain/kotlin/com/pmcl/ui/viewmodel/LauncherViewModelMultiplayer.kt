@@ -279,6 +279,48 @@ fun LauncherViewModel.leaveRoom() {
     }
 }
 
+/** 把当前房间发给在线好友；离开房间时发空邀请码。 */
+fun LauncherViewModel.publishFriendMpSession() {
+    val fm = core.friend() ?: return
+    val mgr = core.multiplayer()
+    if (mgr.state != com.pmcl.core.multiplayer.MultiplayerManager.State.CONNECTED) {
+        fm.publishMultiplayer("", "", "", 0)
+        return
+    }
+    var host = ""
+    var port = 0
+    if (mgr.backend != com.pmcl.core.multiplayer.MultiplayerManager.Backend.TERRACOTTA) {
+        host = mgr.virtualIp
+        port = detectMinecraftLanPort()
+    }
+    fm.publishMultiplayer(mgr.backend.name, mgr.generateInvitation(), host, port)
+}
+
+/**
+ * 好友界面一键加入：房间码不同则先入房；EasyTier/ConnectX 有虚拟地址时写成启动直连。
+ */
+fun LauncherViewModel.joinFriendMultiplayer(invitation: String, backend: String, mcHost: String, mcPort: Int) {
+    val mgr = core.multiplayer()
+    val same = mgr.state == com.pmcl.core.multiplayer.MultiplayerManager.State.CONNECTED
+        && mgr.generateInvitation() == invitation
+    if (!same) {
+        val target = when (backend) {
+            "CONNECTX" -> com.pmcl.core.multiplayer.MultiplayerManager.Backend.CONNECTX
+            "EASYTIER" -> com.pmcl.core.multiplayer.MultiplayerManager.Backend.EASYTIER
+            else -> com.pmcl.core.multiplayer.MultiplayerManager.Backend.TERRACOTTA
+        }
+        if (mgr.state != com.pmcl.core.multiplayer.MultiplayerManager.State.CONNECTING
+            && mgr.state != com.pmcl.core.multiplayer.MultiplayerManager.State.DOWNLOADING
+            && mgr.state != com.pmcl.core.multiplayer.MultiplayerManager.State.CONNECTED) {
+            setMpBackend(target)
+        }
+        joinRoom(invitation)
+    }
+    if (backend != "TERRACOTTA" && mcHost.isNotBlank() && mcPort in 1..65535) {
+        setDirectConnectServer(mcHost, mcPort)
+    }
+}
+
 /** 刷新当前房间状态 / 邀请码 / 虚拟 IP 到 StateFlow */
 fun LauncherViewModel.refreshMpState() {
     val mgr = core.multiplayer()
@@ -286,6 +328,7 @@ fun LauncherViewModel.refreshMpState() {
     _mpVirtualIp.value = mgr.virtualIp
     _mpInvitation.value = if (mgr.isInRoom) mgr.generateInvitation() else ""
     _mpLocalMcAddr.value = mgr.localMcAddr
+    publishFriendMpSession()
 }
 
 /** 复制邀请码到系统剪贴板 */

@@ -52,6 +52,14 @@ class ThemeState(initialDark: Boolean = false) {
     var glassTheme by mutableStateOf(false)
         private set
 
+    /** 始终显示滚动条（关闭时只靠滚轮，不画滚动条） */
+    var alwaysShowScrollbars by mutableStateOf(false)
+        private set
+
+    /** 仅在滑动时显示滚动条，停下后收起 */
+    var showScrollbarsOnScroll by mutableStateOf(false)
+        private set
+
     /** 锁屏启动页主题：Origin OS2 风格方形卡片启动页 */
     var lockscreenLaunchTheme by mutableStateOf(false)
         private set
@@ -114,6 +122,14 @@ class ThemeState(initialDark: Boolean = false) {
 
     fun applyGlassTheme(enabled: Boolean) {
         glassTheme = enabled
+    }
+
+    fun applyAlwaysShowScrollbars(enabled: Boolean) {
+        alwaysShowScrollbars = enabled
+    }
+
+    fun applyShowScrollbarsOnScroll(enabled: Boolean) {
+        showScrollbarsOnScroll = enabled
     }
 
     fun applyLockscreenLaunchTheme(enabled: Boolean) {
