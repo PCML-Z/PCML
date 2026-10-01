@@ -46,6 +46,10 @@ public final class Preferences {
     private String launcherBgImagePath = "";    // 自定义背景图片路径
     private String launcherBgVideoPath = "";    // 自定义背景视频路径
     private boolean glassTheme = true;          // 玻璃主题：卡片毛玻璃效果
+    /** 实验材质主题：整页浅灰板。关闭后回到玻璃或标准主题。 */
+    private boolean materialTheme = false;
+    /** 实时壁纸毛玻璃：把当前壁纸逐帧模糊，和材质主题分开。 */
+    private boolean liveWallpaperGlass = false;
     private boolean lockscreenLaunchTheme = false; // 锁屏启动页主题：Origin OS2 风格方形卡片启动页
     private String themePreset = "default";        // 主题色彩预设：default/ocean/forest/sunset/lavender/sakura/midnight
     private String colorMode = "normal";           // 色彩模式：normal/amoled/high_contrast/soft
@@ -232,6 +236,11 @@ public final class Preferences {
     public synchronized void setLauncherBgVideoPath(String v) { launcherBgVideoPath = v == null ? "" : v; scheduleSave(); }
     public synchronized boolean isGlassTheme() { return glassTheme; }
     public synchronized void setGlassTheme(boolean v) { glassTheme = v; scheduleSave(); }
+
+    public synchronized boolean isMaterialTheme() { return materialTheme; }
+    public synchronized void setMaterialTheme(boolean v) { materialTheme = v; scheduleSave(); }
+    public synchronized boolean isLiveWallpaperGlass() { return liveWallpaperGlass; }
+    public synchronized void setLiveWallpaperGlass(boolean v) { liveWallpaperGlass = v; scheduleSave(); }
     public synchronized boolean isLockscreenLaunchTheme() { return lockscreenLaunchTheme; }
     public synchronized void setLockscreenLaunchTheme(boolean v) { lockscreenLaunchTheme = v; scheduleSave(); }
     public synchronized String getThemePreset() { return themePreset; }
@@ -949,6 +958,8 @@ public final class Preferences {
             launcherBgImagePath = loadString(o, "launcherBgImagePath", "");
             launcherBgVideoPath = loadString(o, "launcherBgVideoPath", "");
             glassTheme = loadBool(o, "glassTheme", true);
+            materialTheme = loadBool(o, "materialTheme", false);
+            liveWallpaperGlass = loadBool(o, "liveWallpaperGlass", false);
             lockscreenLaunchTheme = loadBool(o, "lockscreenLaunchTheme", false);
             themePreset = loadString(o, "themePreset", "default");
             colorMode = loadString(o, "colorMode", "normal");
@@ -1283,6 +1294,8 @@ public final class Preferences {
         o.addProperty("launcherBgImagePath", launcherBgImagePath);
         o.addProperty("launcherBgVideoPath", launcherBgVideoPath);
         o.addProperty("glassTheme", glassTheme);
+        o.addProperty("materialTheme", materialTheme);
+        o.addProperty("liveWallpaperGlass", liveWallpaperGlass);
         o.addProperty("lockscreenLaunchTheme", lockscreenLaunchTheme);
         o.addProperty("themePreset", themePreset);
         o.addProperty("colorMode", colorMode);

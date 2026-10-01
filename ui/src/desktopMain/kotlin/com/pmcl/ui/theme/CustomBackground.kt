@@ -47,15 +47,17 @@ fun CustomBackground(
     imagePath: String,
     videoPath: String,
     useDark: Boolean,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    scrimAlpha: Float = 0.45f
 ) {
     Box(modifier.fillMaxSize()) {
         when (type) {
             "image" -> ImageBackgroundLayer(imagePath)
             "video" -> VideoBackgroundLayer(videoPath)
         }
-        // 遮罩：约 45% 透明度，兼顾内容可读性与背景可见度
-        val scrimColor = if (useDark) Color(0x730D1117) else Color(0x73F5F5F7)
+        // 遮罩：默认约 45%。材质主题的霜面在更上面，这里把遮罩放轻，让画面能透出来。
+        val scrimColor = if (useDark) Color(0xFF0D1117).copy(alpha = scrimAlpha)
+                         else Color(0xFFF5F5F7).copy(alpha = scrimAlpha)
         Canvas(Modifier.fillMaxSize()) { drawRect(scrimColor) }
     }
 }

@@ -42,7 +42,6 @@ import com.pmcl.ui.page.MultiplayerPage
 import com.pmcl.ui.page.MusicPage
 import com.pmcl.ui.page.NewsPage
 import com.pmcl.ui.page.PluginPage
-import com.pmcl.ui.page.QuickLaunchPage
 import com.pmcl.ui.page.SavesHubPage
 import com.pmcl.ui.page.ServersPage
 import com.pmcl.ui.page.SettingsPage
@@ -100,6 +99,8 @@ fun App(vm: LauncherViewModel, themeState: ThemeState) {
         themeState.applyParallaxBackground(vm.preferences.isParallaxBackground())
         themeState.applyCustomBackground(vm.isCustomBackgroundActive())
         themeState.applyGlassTheme(vm.preferences.isGlassTheme())
+        themeState.applyMaterialTheme(vm.preferences.isMaterialTheme())
+        themeState.applyLiveWallpaperGlass(vm.preferences.isLiveWallpaperGlass())
         themeState.applyAlwaysShowScrollbars(vm.preferences.isAlwaysShowScrollbars())
         themeState.applyShowScrollbarsOnScroll(vm.preferences.isShowScrollbarsOnScroll())
         themeState.applyLockscreenLaunchTheme(vm.preferences.isLockscreenLaunchTheme())
@@ -133,7 +134,8 @@ fun App(vm: LauncherViewModel, themeState: ThemeState) {
     ) {
         CompositionLocalProvider(LocalThemeState provides themeState) {
             // 视差背景或自定义背景开启时 Surface 透明，让 Main.kt 的窗口级背景层透出
-            val bgTransparent = themeState.parallaxBackground || themeState.customBackground
+            val bgTransparent = themeState.parallaxBackground || themeState.customBackground ||
+                themeState.materialTheme || themeState.liveWallpaperGlass
             Surface(
                 modifier = Modifier.fillMaxSize(),
                 color = if (bgTransparent) androidx.compose.ui.graphics.Color.Transparent
@@ -150,25 +152,18 @@ fun App(vm: LauncherViewModel, themeState: ThemeState) {
                     } else if (!firstLaunchDone) {
                         // 首次启动：迁移引导页
                         WelcomePage(vm)
-                    } else {
-                        // 已完成首次启动：先显示快速欢迎界面，再进入主窗口
+                    } else if (themeState.lockscreenLaunchTheme) {
                         var enteredMain by remember { mutableStateOf(false) }
-
                         if (!enteredMain) {
-                            if (themeState.lockscreenLaunchTheme) {
-                                LockscreenLaunchPage(
-                                    vm = vm,
-                                    onEnterMain = { enteredMain = true }
-                                )
-                            } else {
-                                QuickLaunchPage(
-                                    vm = vm,
-                                    onEnterMain = { enteredMain = true }
-                                )
-                            }
+                            LockscreenLaunchPage(
+                                vm = vm,
+                                onEnterMain = { enteredMain = true }
+                            )
                         } else {
                             MainWindowContent(vm)
                         }
+                    } else {
+                        MainWindowContent(vm)
                     }
                     // 全局：GitHub Release 同步更新弹窗（任意页面都可见）
                     PushedUpdateDialog(vm)
@@ -796,7 +791,8 @@ private fun MainWindowContent(vm: LauncherViewModel) {
         SlideInFromStart(delayMs = 0, durationMs = 400) {
             // 玻璃主题：侧边栏分层渲染 —— 底层独立模糊背景层（只画颜色），
             // 上层 NavigationRail / SecondaryNavRail 透明背景 + 清晰文字图标。
-            val glassOn = themeState.glassTheme
+            val glassOn = themeState.glassTheme && !themeState.materialTheme && !themeState.liveWallpaperGlass
+            val wallpaperThrough = themeState.liveWallpaperGlass && !themeState.materialTheme
             Box(Modifier.fillMaxHeight()) {
                 AnimatedNavSidebar(
                     inSecondary = inSecondary,
@@ -805,8 +801,11 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                     primary = {
                         NavigationRail(
                             modifier = Modifier.fillMaxHeight(),
-                            containerColor = if (glassOn) androidx.compose.ui.graphics.Color.Transparent
-                                             else MaterialTheme.colorScheme.surface
+                            containerColor = if (glassOn || themeState.materialTheme || wallpaperThrough) {
+                                androidx.compose.ui.graphics.Color.Transparent
+                            } else {
+                                MaterialTheme.colorScheme.surface
+                            }
                         ) {
                             Column(
                                 modifier = Modifier
@@ -871,7 +870,7 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                                 hiddenSectionIds = if (secondaryRailSpec.parentRoute == "settings") {
                                     secondaryHidden
                                 } else emptySet(),
-                                railModifier = if (glassOn) {
+                                railModifier = if (glassOn || themeState.materialTheme || wallpaperThrough) {
                                     Modifier.background(androidx.compose.ui.graphics.Color.Transparent)
                                 } else Modifier
                             )
@@ -1044,22 +1043,42 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                     }
                 }
             }
-            if (musicPlaylist.isNotEmpty() && musicCurrentIdx >= 0) {
-                Spacer(Modifier.height(4.dp))
-                MiniMusicBar(
-                    vm = vm,
-                    onOpenMusic = {
-                        val target = NavTarget.BuiltIn(NavDestination.Music)
-                        val oldIndex = navItems.indexOf(current)
-                        val newIndex = navItems.indexOf(target)
-                        val dir = when {
-                            newIndex > oldIndex -> 1
-                            newIndex < oldIndex -> -1
-                            else -> 0
+            val showDockMusic = !themeState.materialHomeBar &&
+                musicPlaylist.isNotEmpty() && musicCurrentIdx >= 0
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = showDockMusic,
+                    enter = androidx.compose.animation.expandHorizontally(
+                        animationSpec = androidx.compose.animation.core.tween(320),
+                        expandFrom = Alignment.Start
+                    ) + androidx.compose.animation.fadeIn(
+                        androidx.compose.animation.core.tween(320)
+                    ),
+                    exit = androidx.compose.animation.shrinkHorizontally(
+                        animationSpec = androidx.compose.animation.core.tween(260),
+                        shrinkTowards = Alignment.Start
+                    ) + androidx.compose.animation.fadeOut(
+                        androidx.compose.animation.core.tween(200)
+                    )
+                ) {
+                    MiniMusicBar(
+                        vm = vm,
+                        modifier = Modifier
+                            .padding(start = 8.dp, bottom = 6.dp, top = 4.dp)
+                            .width(maxWidth / 2),
+                        onOpenMusic = {
+                            val target = NavTarget.BuiltIn(NavDestination.Music)
+                            val oldIndex = navItems.indexOf(current)
+                            val newIndex = navItems.indexOf(target)
+                            val dir = when {
+                                newIndex > oldIndex -> 1
+                                newIndex < oldIndex -> -1
+                                else -> 0
+                            }
+                            enterPrimary(target, dir)
                         }
-                        enterPrimary(target, dir)
-                    }
-                )
+                    )
+                }
             }
         }
     } // close Row

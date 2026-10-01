@@ -35,7 +35,8 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun ParallaxBackground(
     modifier: Modifier = Modifier,
-    useDark: Boolean = true
+    useDark: Boolean = true,
+    scrim: Boolean = true
 ) {
     // 鼠标归一化位置 (-1..1)，中心为 (0,0)
     var mouseTargetX by remember { mutableStateOf(0f) }
@@ -87,6 +88,10 @@ fun ParallaxBackground(
         // 性能：4 层合并到 1 个 Canvas，单次 DrawScope 内画 4 个 drawCircle + 1 个 drawRect
         // 之前 4 个独立 Canvas 各自 fillMaxSize，每帧都全屏重绘 4 次离屏 buffer
         Canvas(Modifier.fillMaxSize()) {
+            // 材质霜面需要一块不透明的底，否则球和球之间会直接透出桌面
+            if (!scrim) {
+                drawRect(if (useDark) Color(0xFF16181E) else Color(0xFFE6E7EB))
+            }
             // 远景层：偏移系数 0.02
             val farCx = size.width * 0.3f + mouseX * 0.02f * size.width
             val farCy = size.height * 0.4f + mouseY * 0.02f * size.height
@@ -102,8 +107,8 @@ fun ParallaxBackground(
             val nearCy = size.height * 0.3f + mouseY * 0.10f * size.height
             drawRadialGradient(nearColor, Offset(nearCx, nearCy), wPx * 0.5f)
 
-            // 遮罩：保证内容可读性
-            drawRect(scrimColor)
+            // 遮罩：保证内容可读性。材质主题改由上层霜面负责，这里留出颜色。
+            if (scrim) drawRect(scrimColor)
         }
     }
 }

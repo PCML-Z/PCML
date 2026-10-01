@@ -365,8 +365,6 @@ public final class I18n {
         ZH.put("launch.failed", "启动失败");
         ZH.put("launch.system_info", "系统信息");
         ZH.put("launch.quick_launch", "快速启动");
-        ZH.put("launch.welcome", "欢迎使用 PMCL");
-        ZH.put("launch.subtitle", "一个跨平台的 Minecraft 启动器");
         ZH.put("launch.enter", "进入 PMCL");
         ZH.put("launch.start_minecraft", "启动 Minecraft");
         ZH.put("launch.download_install", "下载并安装");
@@ -1029,6 +1027,13 @@ public final class I18n {
         ZH.put("settings.custom_bg_image_select", "选择背景图片");
         ZH.put("settings.custom_bg_video_empty", "未选择视频（支持 mp4/webm/mov/mkv/avi，自动循环静音播放）");
         ZH.put("settings.custom_bg_video_select", "选择背景视频");
+        ZH.put("settings.material_theme", "材质主题");
+        ZH.put("settings.material_theme_desc", "整页毛玻璃，能透出模糊后的背景，角落有线稿。关闭后回到原来的玻璃或标准主题");
+        ZH.put("settings.live_wallpaper_glass", "壁纸毛玻璃");
+        ZH.put("settings.live_wallpaper_glass_desc", "把当前壁纸实时模糊，画面从毛玻璃里透出来。和上面的材质主题分开，关掉就回到原来的壁纸");
+        ZH.put("material.open_library", "版本列表");
+        ZH.put("material.back_home", "返回");
+        ZH.put("material.pick_version", "选择一个版本");
         ZH.put("settings.glass_theme", "玻璃主题");
         ZH.put("settings.glass_theme_desc", "卡片毛玻璃效果，搭配视差背景视觉更佳，实时生效");
         ZH.put("settings.lockscreen_launch", "锁屏启动页");
@@ -2693,8 +2698,6 @@ public final class I18n {
         EN.put("launch.failed", "Launch failed");
         EN.put("launch.system_info", "System Info");
         EN.put("launch.quick_launch", "Quick Launch");
-        EN.put("launch.welcome", "Welcome to PMCL");
-        EN.put("launch.subtitle", "A cross-platform Minecraft launcher");
         EN.put("launch.enter", "Enter PMCL");
         EN.put("launch.start_minecraft", "Launch Minecraft");
         EN.put("launch.download_install", "Download & Install");
@@ -3344,6 +3347,13 @@ public final class I18n {
         EN.put("settings.custom_bg_image_select", "Select background image");
         EN.put("settings.custom_bg_video_empty", "No video selected (mp4/webm/mov/mkv/avi, muted loop)");
         EN.put("settings.custom_bg_video_select", "Select background video");
+        EN.put("settings.material_theme", "Material theme");
+        EN.put("settings.material_theme_desc", "A frosted sheet over the blurred background, with corner lines. Turn off to return to the glass or standard theme");
+        EN.put("settings.live_wallpaper_glass", "Wallpaper glass");
+        EN.put("settings.live_wallpaper_glass_desc", "Blurs the current wallpaper in real time so the picture shows through. Separate from the material theme; turn off to restore the wallpaper");
+        EN.put("material.open_library", "Versions");
+        EN.put("material.back_home", "Back");
+        EN.put("material.pick_version", "Choose a version");
         EN.put("settings.glass_theme", "Glass theme");
         EN.put("settings.glass_theme_desc", "Frosted glass cards, best paired with parallax background");
         EN.put("settings.lockscreen_launch", "Lockscreen launch page");
@@ -4944,8 +4954,6 @@ public final class I18n {
         JA.put("launch.failed", "起動失敗");
         JA.put("launch.system_info", "システム情報");
         JA.put("launch.quick_launch", "クイック起動");
-        JA.put("launch.welcome", "PMCLへようこそ");
-        JA.put("launch.subtitle", "クロスプラットフォームのMinecraftランチャー");
         JA.put("launch.enter", "PMCLに入る");
         JA.put("launch.start_minecraft", "Minecraftを起動");
         JA.put("launch.download_install", "ダウンロードしてインストール");
@@ -5595,6 +5603,13 @@ public final class I18n {
         JA.put("settings.custom_bg_image_select", "背景画像を選択");
         JA.put("settings.custom_bg_video_empty", "動画未選択（mp4/webm/mov/mkv/avi、ミュートでループ再生）");
         JA.put("settings.custom_bg_video_select", "背景動画を選択");
+        JA.put("settings.material_theme", "マテリアルテーマ");
+        JA.put("settings.material_theme_desc", "ぼかした背景が透けるすりガラスと、隅の線。オフにすると元のガラスまたは標準テーマに戻ります");
+        JA.put("settings.live_wallpaper_glass", "壁紙すりガラス");
+        JA.put("settings.live_wallpaper_glass_desc", "今の壁紙をリアルタイムでぼかし、絵がすりガラスから透けます。マテリアルテーマとは別で、オフにすると元の壁紙に戻ります");
+        JA.put("material.open_library", "バージョン一覧");
+        JA.put("material.back_home", "戻る");
+        JA.put("material.pick_version", "バージョンを選択");
         JA.put("settings.glass_theme", "ガラステーマ");
         JA.put("settings.glass_theme_desc", "カードのすりガラス効果、視差背景との組み合わせが推奨、即時反映");
         JA.put("settings.lockscreen_launch", "ロック画面起動ページ");

@@ -34,6 +34,7 @@ import com.pmcl.ui.page.MusicOverlayWindow
 import com.pmcl.ui.page.PerfHudWindow
 import com.pmcl.ui.page.TopBarSearchField
 import com.pmcl.ui.theme.LauncherTheme
+import com.pmcl.ui.theme.MaterialField
 import com.pmcl.ui.theme.LocalThemeState
 import com.pmcl.ui.theme.ThemeState
 import com.pmcl.ui.widget.TaskCenterPanel
@@ -214,6 +215,8 @@ fun main() = application {
     val bgLayerOn = parallaxBg || customBgOn
     // 玻璃主题开关（响应式，标题栏/侧边栏分层毛玻璃）
     val glassOn by vm.glassTheme.collectAsState()
+    val materialOn by vm.materialTheme.collectAsState()
+    val liveGlassOn by vm.liveWallpaperGlass.collectAsState()
 
     // 启动动画状态：播放期间主窗口隐藏，动画结束 → 切换为主窗口
     var splashDone by remember { mutableStateOf(false) }
@@ -332,19 +335,47 @@ fun main() = application {
             // 优先级：自定义背景（图片/视频）> 视差背景
             val bgModifier = if (borderless && !isMaximized) Modifier.clip(RoundedCornerShape(14.dp))
                              else Modifier
+            // 壁纸毛玻璃：壁纸自己逐帧模糊，画面从玻璃里透出来。
+            // 材质主题开着时也走这条，霜面铺在玻璃上面，不再把壁纸先涂糊一层。
+            if (liveGlassOn) {
+                com.pmcl.ui.theme.LiveWallpaperGlass(
+                    modifier = Modifier.fillMaxSize().then(bgModifier),
+                    useDark = sharedThemeState.useDark
+                ) {
+                    if (customBgOn) {
+                        com.pmcl.ui.theme.CustomBackground(
+                            type = customBgType,
+                            imagePath = customBgImage,
+                            videoPath = customBgVideo,
+                            useDark = sharedThemeState.useDark,
+                            scrimAlpha = 0.04f
+                        )
+                    } else {
+                        com.pmcl.ui.theme.ParallaxBackground(
+                            useDark = sharedThemeState.useDark,
+                            scrim = false
+                        )
+                    }
+                }
+            } else {
+            // 材质主题把背景先模糊，再在上面铺半透明霜面。模糊要够重，颜色才会化开，而不是一块一块的云。
+            val paintedBgModifier = if (materialOn) bgModifier.blur(48.dp) else bgModifier
             if (customBgOn) {
                 com.pmcl.ui.theme.CustomBackground(
                     type = customBgType,
                     imagePath = customBgImage,
                     videoPath = customBgVideo,
                     useDark = sharedThemeState.useDark,
-                    modifier = bgModifier
+                    modifier = paintedBgModifier,
+                    scrimAlpha = if (materialOn) 0.08f else 0.45f
                 )
-            } else if (parallaxBg) {
+            } else if (parallaxBg || materialOn) {
                 com.pmcl.ui.theme.ParallaxBackground(
-                    modifier = bgModifier,
-                    useDark = sharedThemeState.useDark
+                    modifier = paintedBgModifier,
+                    useDark = sharedThemeState.useDark,
+                    scrim = !materialOn
                 )
+            }
             }
             val windowDynamicScheme =
                 if (sharedThemeState.dynamicColor || sharedThemeState.customAccentColor != -1) {
@@ -454,9 +485,13 @@ fun main() = application {
                         if (isMaximized) Modifier
                         else Modifier.clip(RoundedCornerShape(14.dp))
                     ),
-                    color = if (bgLayerOn) Color.Transparent else MaterialTheme.colorScheme.surface,
-                    tonalElevation = if (bgLayerOn) 0.dp else 1.dp
+                    color = if (bgLayerOn || materialOn || liveGlassOn) Color.Transparent else MaterialTheme.colorScheme.surface,
+                    tonalElevation = if (bgLayerOn || materialOn || liveGlassOn) 0.dp else 1.dp
                 ) {
+                    Box(Modifier.fillMaxSize()) {
+                    if (materialOn) {
+                        MaterialField(Modifier.fillMaxSize(), linesOnly = liveGlassOn)
+                    }
                     Column(Modifier.fillMaxSize()) {
                         BorderlessTitleBar(
                             onClose = ::exitApplication,
@@ -465,26 +500,34 @@ fun main() = application {
                             searchFocusRequester = searchFocusRequester,
                             onOpenCompanion = { showCompanionDialog.value = true },
                             onOpenTaskCenter = { showTaskCenter = true },
-                            glassOn = glassOn
+                            glassOn = glassOn && !materialOn && !liveGlassOn,
+                            materialOn = materialOn || liveGlassOn
                         )
                         Box(Modifier.weight(1f).fillMaxWidth()) {
                             App(vm, sharedThemeState)
                         }
                     }
+                    }
                 }
             } else {
                 // 非无边框模式：OS 标题栏 + 应用内搜索条
+                Box(Modifier.fillMaxSize()) {
+                if (materialOn) {
+                    MaterialField(Modifier.fillMaxSize(), linesOnly = liveGlassOn)
+                }
                 Column(Modifier.fillMaxSize()) {
                     SlimSearchBar(
                         vm = vm,
                         searchFocusRequester = searchFocusRequester,
                         onOpenCompanion = { showCompanionDialog.value = true },
                         onOpenTaskCenter = { showTaskCenter = true },
-                        glassOn = glassOn
+                        glassOn = glassOn && !materialOn && !liveGlassOn,
+                        materialOn = materialOn || liveGlassOn
                     )
                     Box(Modifier.weight(1f).fillMaxWidth()) {
                         App(vm, sharedThemeState)
                     }
+                }
                 }
             }
             // iOS 伴随 App 配对对话框（保持与主窗口主题一致）
@@ -634,7 +677,8 @@ private fun FrameWindowScope.BorderlessTitleBar(
     searchFocusRequester: FocusRequester,
     onOpenCompanion: () -> Unit,
     onOpenTaskCenter: () -> Unit = {},
-    glassOn: Boolean = false
+    glassOn: Boolean = false,
+    materialOn: Boolean = false
 ) {
     Box(Modifier.fillMaxWidth().height(38.dp)) {
         if (glassOn) {
@@ -647,8 +691,8 @@ private fun FrameWindowScope.BorderlessTitleBar(
             )
         }
         Surface(
-            color = if (glassOn) Color.Transparent else MaterialTheme.colorScheme.surface,
-            tonalElevation = if (glassOn) 0.dp else 2.dp,
+            color = if (glassOn || materialOn) Color.Transparent else MaterialTheme.colorScheme.surface,
+            tonalElevation = if (glassOn || materialOn) 0.dp else 2.dp,
             modifier = Modifier.fillMaxSize()
         ) {
             Row(
@@ -727,7 +771,8 @@ private fun SlimSearchBar(
     searchFocusRequester: FocusRequester,
     onOpenCompanion: () -> Unit,
     onOpenTaskCenter: () -> Unit = {},
-    glassOn: Boolean = false
+    glassOn: Boolean = false,
+    materialOn: Boolean = false
 ) {
     Box(Modifier.fillMaxWidth().height(38.dp)) {
         if (glassOn) {
@@ -739,8 +784,8 @@ private fun SlimSearchBar(
             )
         }
         Surface(
-            color = if (glassOn) Color.Transparent else MaterialTheme.colorScheme.surface,
-            tonalElevation = if (glassOn) 0.dp else 2.dp,
+            color = if (glassOn || materialOn) Color.Transparent else MaterialTheme.colorScheme.surface,
+            tonalElevation = if (glassOn || materialOn) 0.dp else 2.dp,
             modifier = Modifier.fillMaxSize()
         ) {
             Row(

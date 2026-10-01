@@ -33,13 +33,13 @@ private const val GLASS_VARIANT_ALPHA = 0.45f
  * 仅由「玻璃主题」开关控制半透明卡片。
  * 自定义/视差壁纸不再强制玻璃效果，否则关闭玻璃主题看起来不生效。
  */
-private fun ThemeState.wantsTranslucentCards(): Boolean = glassTheme
+private fun ThemeState.wantsTranslucentCards(): Boolean = glassTheme && !materialTheme
 
 /** 当前场景应使用的卡片透明度（仅 glassTheme 开启时有意义） */
 private fun ThemeState.cardAlpha(): Float = when {
     !glassTheme -> 1f
     // 有壁纸时更透，避免仍像实色方块
-    customBackground || parallaxBackground -> WALLPAPER_CARD_ALPHA
+    customBackground || parallaxBackground || liveWallpaperGlass -> WALLPAPER_CARD_ALPHA
     else -> GLASS_CARD_ALPHA
 }
 

@@ -2,13 +2,17 @@ package com.pmcl.ui.page
 import com.pmcl.ui.widget.PmclLazyColumn
 import com.pmcl.ui.widget.pmclVerticalScroll
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -64,6 +68,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pmcl.core.instance.InstanceInfo
@@ -196,6 +201,7 @@ fun LaunchPage(vm: LauncherViewModel) {
     }
 
     var launchTab by remember { mutableStateOf(0) } // 0=启动 1=版本 2=账号 3=日志
+    var materialLibrary by remember { mutableStateOf(false) }
     val useSegmentedLayout by remember { mutableStateOf(vm.preferences.isUseSegmentedLaunchLayout()) }
 
     // 右侧详情面板内容提取为可复用 lambda，供分栏布局和最初分栏布局共用
@@ -473,7 +479,8 @@ fun LaunchPage(vm: LauncherViewModel) {
                         Icon(Icons.Filled.PlayArrow, null, Modifier.size(24.dp))
                         Spacer(Modifier.width(8.dp))
                         Text(I18n.t("launch.start_minecraft"),
-                             style = MaterialTheme.typography.titleMedium, fontSize = 18.sp)
+                             style = MaterialTheme.typography.titleMedium, fontSize = 18.sp,
+                             maxLines = 1, overflow = TextOverflow.Ellipsis, softWrap = false)
                     }
                 }
             }
@@ -893,10 +900,87 @@ fun LaunchPage(vm: LauncherViewModel) {
     }
 
     Box(Modifier.fillMaxSize()) {
+    val theme = LocalThemeState.current
+    val materialOn = theme.materialTheme
+    SideEffect { theme.materialHomeBar = materialOn && !materialLibrary }
+    DisposableEffect(Unit) {
+        onDispose { theme.materialHomeBar = false }
+    }
+    val showMaterialHome = materialOn && !materialLibrary
+    AnimatedContent(
+        targetState = showMaterialHome,
+        modifier = Modifier.fillMaxSize(),
+        transitionSpec = {
+            val toLibrary = initialState && !targetState
+            val duration = MotionTokens.DURATION_MEDIUM
+            val enter = slideInHorizontally(
+                animationSpec = tween(duration, easing = MotionTokens.EasingEmphasizedDecelerate),
+                initialOffsetX = { full -> if (toLibrary) full / 4 else -full / 4 }
+            ) + fadeIn(tween(duration, easing = MotionTokens.EasingEmphasizedDecelerate))
+            val exit = slideOutHorizontally(
+                animationSpec = tween(duration * 2 / 3, easing = MotionTokens.EasingEmphasizedAccelerate),
+                targetOffsetX = { full -> if (toLibrary) -full / 6 else full / 6 }
+            ) + fadeOut(tween(duration / 2))
+            (enter togetherWith exit).using(SizeTransform(clip = true) { _, _ -> snap() })
+        },
+        label = "versionListPage"
+    ) { home ->
+    if (home) {
+        val versionName = selected ?: I18n.t("material.pick_version")
+        val downloadMode = selected != null && !isInstalled
+        val musicPlaylist by vm.musicPlaylist.collectAsState()
+        val musicIndex by vm.musicCurrentIndex.collectAsState()
+        val showMusic = musicPlaylist.isNotEmpty() && musicIndex >= 0
+        MaterialLaunchHome(
+            versionName = versionName,
+            accountName = account?.username.orEmpty(),
+            accountDetail = account?.let { accountTypeLabel(it) }.orEmpty(),
+            buttonLabel = if (downloadMode) I18n.t("launch.download_install") else I18n.t("launch.start_minecraft"),
+            buttonEnabled = (downloadMode && !installing) ||
+                (selected != null && isInstalled && account != null && !installing && !gameRunning),
+            busy = installing && downloadMode,
+            showMusic = showMusic,
+            music = {
+                com.pmcl.ui.widget.MiniMusicBar(
+                    vm = vm,
+                    compact = true,
+                    onOpenMusic = { vm.requestNavigation("music") }
+                )
+            },
+            onLaunch = {
+                val id = selected ?: return@MaterialLaunchHome
+                if (downloadMode) vm.installVersion(id) else vm.launch()
+            },
+            onOpenLibrary = { materialLibrary = true }
+        )
+    } else {
     Column(Modifier.fillMaxSize()) {
+        if (materialOn) {
+            TextButton(onClick = { materialLibrary = false }) {
+                Text(I18n.t("material.back_home"))
+            }
+        }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             if (useSegmentedLayout) {
-            when (launchTab) {
+            AnimatedContent(
+                targetState = launchTab,
+                modifier = Modifier.fillMaxSize(),
+                transitionSpec = {
+                    val forward = targetState > initialState
+                    val duration = MotionTokens.DURATION_MEDIUM
+                    val enter = slideInHorizontally(
+                        animationSpec = tween(duration, easing = MotionTokens.EasingEmphasizedDecelerate),
+                        initialOffsetX = { full -> if (forward) full / 4 else -full / 4 }
+                    ) + fadeIn(tween(duration, easing = MotionTokens.EasingEmphasizedDecelerate))
+                    val exit = slideOutHorizontally(
+                        animationSpec = tween(duration * 2 / 3, easing = MotionTokens.EasingEmphasizedAccelerate),
+                        targetOffsetX = { full -> if (forward) -full / 6 else full / 6 }
+                    ) + fadeOut(tween(duration / 2))
+                    (enter togetherWith exit).using(SizeTransform(clip = true) { _, _ -> snap() })
+                },
+                label = "launchTab"
+            ) { tab ->
+            when (tab) {
                 // ===== 启动：空白页 + 固定启动按钮（多固定版本时弹出选择）=====
                 0 -> {
                     var showPinnedPicker by remember { mutableStateOf(false) }
@@ -1224,6 +1308,7 @@ fun LaunchPage(vm: LauncherViewModel) {
             }
         }
             }
+            }
             } else {
                 // 最初分栏布局：左版本列表 + 右账号日志同屏显示
                 Row(Modifier.fillMaxSize()) {
@@ -1262,6 +1347,8 @@ fun LaunchPage(vm: LauncherViewModel) {
                 height = 40.dp
             )
         }
+    }
+    }
     }
 
     // ===== 磁贴重命名对话框 =====
@@ -1944,6 +2031,13 @@ private fun RemoteVersionRow(
                          else MaterialTheme.colorScheme.outline)
         }
     }
+}
+
+private fun accountTypeLabel(account: com.pmcl.core.auth.Account): String = when (account.type) {
+    com.pmcl.core.auth.Account.AccountType.OFFLINE -> I18n.t("accounts.offline")
+    com.pmcl.core.auth.Account.AccountType.MICROSOFT -> I18n.t("accounts.microsoft")
+    com.pmcl.core.auth.Account.AccountType.YGGDRASIL -> I18n.t("accounts.yggdrasil")
+    com.pmcl.core.auth.Account.AccountType.GITHUB -> I18n.t("accounts.github")
 }
 
 @Composable

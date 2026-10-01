@@ -36,7 +36,7 @@ import java.util.Locale
  * - 顶部居中：大时钟 + 日期
  * - 底部：左侧启动主卡片（方形，4dp 圆角）+ 右侧进入主界面按钮列
  *
- * 与 QuickLaunchPage 并存，通过 lockscreenLaunchTheme 开关切换。
+ * 通过 lockscreenLaunchTheme 开关，在进入主窗口前显示。
  * 保留 onEnterMain 回调进入主界面。
  */
 @Composable
@@ -289,7 +289,7 @@ fun LockscreenLaunchPage(
         }
     }
 
-    // ===== 兼容性选项对话框（与 QuickLaunchPage 一致） =====
+    // ===== 兼容性选项对话框 =====
     if (compatOptions.isNotEmpty()) {
         AlertDialog(
             onDismissRequest = { vm.dismissCompatOptions() },

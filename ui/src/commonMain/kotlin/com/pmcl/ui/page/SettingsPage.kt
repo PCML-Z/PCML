@@ -560,6 +560,42 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
         Spacer(Modifier.height(16.dp))
 
         ThemeSectionCard(I18n.t("settings.theme.effects")) {
+                val materialOn by vm.materialTheme.collectAsState()
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = materialOn,
+                        onCheckedChange = { v -> vm.setMaterialTheme(v) }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(I18n.t("settings.material_theme"), fontWeight = FontWeight.Medium)
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(I18n.t("settings.material_theme_desc"),
+                     style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.outline)
+
+                Spacer(Modifier.height(12.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(12.dp))
+
+                val liveGlassOn by vm.liveWallpaperGlass.collectAsState()
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = liveGlassOn,
+                        onCheckedChange = { v -> vm.setLiveWallpaperGlass(v) }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(I18n.t("settings.live_wallpaper_glass"), fontWeight = FontWeight.Medium)
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(I18n.t("settings.live_wallpaper_glass_desc"),
+                     style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.outline)
+
+                Spacer(Modifier.height(12.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(12.dp))
+
                 val glassOn by vm.glassTheme.collectAsState()
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Switch(

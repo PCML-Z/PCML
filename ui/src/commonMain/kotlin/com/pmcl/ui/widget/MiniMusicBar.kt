@@ -4,6 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -30,7 +31,12 @@ import com.pmcl.ui.viewmodel.toggleMusicPlayPause
  * 点击封面/标题区域打开音乐页；控制按钮不触发导航。
  */
 @Composable
-fun MiniMusicBar(vm: LauncherViewModel, onOpenMusic: () -> Unit = {}) {
+fun MiniMusicBar(
+    vm: LauncherViewModel,
+    onOpenMusic: () -> Unit = {},
+    compact: Boolean = false,
+    modifier: Modifier = Modifier
+) {
     val playlist by vm.musicPlaylist.collectAsState()
     val currentIndex by vm.musicCurrentIndex.collectAsState()
     val state by vm.musicPlaybackState.collectAsState()
@@ -39,14 +45,17 @@ fun MiniMusicBar(vm: LauncherViewModel, onOpenMusic: () -> Unit = {}) {
 
     val track = if (currentIndex in playlist.indices) playlist[currentIndex] else return
 
+    val barHeight = if (compact) 40.dp else 52.dp
+    val cover = if (compact) 28.dp else 40.dp
+    val button = if (compact) 28.dp else 34.dp
     Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp),
-        color = glassSurfaceVariantColor(),
-        tonalElevation = 2.dp
+        modifier = modifier.fillMaxWidth().height(barHeight).clipToBounds(),
+        shape = RoundedCornerShape(if (compact) 0.dp else 8.dp),
+        color = if (compact) androidx.compose.ui.graphics.Color.Transparent else glassSurfaceVariantColor(),
+        tonalElevation = if (compact) 0.dp else 2.dp
     ) {
         Row(
-            modifier = Modifier.height(60.dp).padding(horizontal = 12.dp),
+            modifier = Modifier.fillMaxSize().padding(horizontal = if (compact) 4.dp else 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(
@@ -60,20 +69,21 @@ fun MiniMusicBar(vm: LauncherViewModel, onOpenMusic: () -> Unit = {}) {
                     ),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                MusicCoverThumbnail(track.coverUrl, size = 44.dp)
-                Spacer(Modifier.width(10.dp))
+                MusicCoverThumbnail(track.coverUrl, size = cover)
+                Spacer(Modifier.width(if (compact) 6.dp else 8.dp))
                 Column(
                     modifier = Modifier.weight(1f).fillMaxHeight(),
                     verticalArrangement = Arrangement.Center
                 ) {
                     Text(
                         track.title,
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = if (compact) MaterialTheme.typography.labelLarge else MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        softWrap = false
                     )
-                    Row(
+                    if (!compact) Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -96,7 +106,9 @@ fun MiniMusicBar(vm: LauncherViewModel, onOpenMusic: () -> Unit = {}) {
                         Text(
                             formatMiniTime(currentMs, dur),
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.outline
+                            color = MaterialTheme.colorScheme.outline,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }
@@ -105,24 +117,24 @@ fun MiniMusicBar(vm: LauncherViewModel, onOpenMusic: () -> Unit = {}) {
             Spacer(Modifier.width(8.dp))
 
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { vm.playPreviousMusic() }, modifier = Modifier.size(36.dp)) {
-                    Icon(Icons.Filled.SkipPrevious, contentDescription = I18n.t("music.previous"), modifier = Modifier.size(20.dp))
+                IconButton(onClick = { vm.playPreviousMusic() }, modifier = Modifier.size(button)) {
+                    Icon(Icons.Filled.SkipPrevious, contentDescription = I18n.t("music.previous"), modifier = Modifier.size(if (compact) 16.dp else 18.dp))
                 }
                 val isPlaying = state == PlaybackState.PLAYING
                 val isLoading = state == PlaybackState.LOADING
-                IconButton(onClick = { vm.toggleMusicPlayPause() }, modifier = Modifier.size(36.dp)) {
+                IconButton(onClick = { vm.toggleMusicPlayPause() }, modifier = Modifier.size(button)) {
                     if (isLoading) {
-                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
                     } else {
                         Icon(
                             if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                             contentDescription = if (isPlaying) I18n.t("music.pause") else I18n.t("music.play"),
-                            modifier = Modifier.size(22.dp)
+                            modifier = Modifier.size(if (compact) 18.dp else 20.dp)
                         )
                     }
                 }
-                IconButton(onClick = { vm.playNextMusic() }, modifier = Modifier.size(36.dp)) {
-                    Icon(Icons.Filled.SkipNext, contentDescription = I18n.t("music.next"), modifier = Modifier.size(20.dp))
+                IconButton(onClick = { vm.playNextMusic() }, modifier = Modifier.size(button)) {
+                    Icon(Icons.Filled.SkipNext, contentDescription = I18n.t("music.next"), modifier = Modifier.size(if (compact) 16.dp else 18.dp))
                 }
             }
         }

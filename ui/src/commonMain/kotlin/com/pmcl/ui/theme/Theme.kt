@@ -13,6 +13,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
 import com.pmcl.ui.animation.MotionTokens
@@ -240,9 +241,9 @@ fun LauncherTheme(
  */
 @Composable
 private fun rememberScaledTypography(scale: Float): Typography {
-    // scale == 1.0f 时返回默认 Typography 单例，避免不必要的对象分配
-    return remember(scale) {
-        val base = Typography()
+    val family = launcherFontFamily()
+    return remember(scale, family) {
+        val base = Typography().withFamily(family)
         if (scale == 1.0f) return@remember base
         val s = { sp: TextUnit -> (sp.value * scale).sp }
         Typography(
@@ -264,6 +265,24 @@ private fun rememberScaledTypography(scale: Float): Typography {
         )
     }
 }
+
+private fun Typography.withFamily(family: FontFamily) = copy(
+    displayLarge = displayLarge.copy(fontFamily = family),
+    displayMedium = displayMedium.copy(fontFamily = family),
+    displaySmall = displaySmall.copy(fontFamily = family),
+    headlineLarge = headlineLarge.copy(fontFamily = family),
+    headlineMedium = headlineMedium.copy(fontFamily = family),
+    headlineSmall = headlineSmall.copy(fontFamily = family),
+    titleLarge = titleLarge.copy(fontFamily = family),
+    titleMedium = titleMedium.copy(fontFamily = family),
+    titleSmall = titleSmall.copy(fontFamily = family),
+    bodyLarge = bodyLarge.copy(fontFamily = family),
+    bodyMedium = bodyMedium.copy(fontFamily = family),
+    bodySmall = bodySmall.copy(fontFamily = family),
+    labelLarge = labelLarge.copy(fontFamily = family),
+    labelMedium = labelMedium.copy(fontFamily = family),
+    labelSmall = labelSmall.copy(fontFamily = family)
+)
 
 private fun TextStyle.scale(s: (TextUnit) -> TextUnit): TextStyle = copy(
     fontSize = s(fontSize),

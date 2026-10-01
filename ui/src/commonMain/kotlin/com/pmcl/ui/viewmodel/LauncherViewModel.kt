@@ -788,6 +788,24 @@ class LauncherViewModel {
         _glassTheme.value = v
         themeState?.applyGlassTheme(v)
     }
+
+    private val _materialTheme = MutableStateFlow(preferences.isMaterialTheme())
+    val materialTheme: StateFlow<Boolean> = _materialTheme.asStateFlow()
+
+    fun setMaterialTheme(v: Boolean) {
+        preferences.setMaterialTheme(v)
+        _materialTheme.value = v
+        themeState?.applyMaterialTheme(v)
+    }
+
+    private val _liveWallpaperGlass = MutableStateFlow(preferences.isLiveWallpaperGlass())
+    val liveWallpaperGlass: StateFlow<Boolean> = _liveWallpaperGlass.asStateFlow()
+
+    fun setLiveWallpaperGlass(v: Boolean) {
+        preferences.setLiveWallpaperGlass(v)
+        _liveWallpaperGlass.value = v
+        themeState?.applyLiveWallpaperGlass(v)
+    }
     fun setLockscreenLaunchTheme(v: Boolean) {
         preferences.setLockscreenLaunchTheme(v)
         _lockscreenLaunchTheme.value = v

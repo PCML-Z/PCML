@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PMCL 插件商店</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f3f6fb;
+      --ink: #172033;
+      --muted: #5c6b82;
+      --line: rgba(61, 139, 255, 0.16);
+      --card: #ffffff;
+      --field: #ffffff;
+      --accent: #3d8bff;
+      --accent-ink: #ffffff;
+      --soft: rgba(61, 139, 255, 0.12);
+      --shadow: 0 10px 30px rgba(23, 32, 51, 0.06);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #10151d;
+        --ink: #eef3fb;
+        --muted: #9aabc0;
+        --line: rgba(91, 160, 255, 0.22);
+        --card: #1a2230;
+        --field: #141b27;
+        --accent: #5ba0ff;
+        --accent-ink: #081018;
+        --soft: rgba(91, 160, 255, 0.16);
+        --shadow: none;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:
+        radial-gradient(900px 420px at 0% -10%, rgba(61, 139, 255, 0.16), transparent 60%),
+        var(--bg);
+      color: var(--ink);
+    }
+    main { max-width: 880px; margin: 0 auto; padding: 36px 20px 72px; }
+    header { margin-bottom: 22px; }
+    .kicker {
+      margin: 0 0 6px;
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 650;
+      letter-spacing: 0.08em;
+    }
+    h1 { margin: 0; font-size: 32px; letter-spacing: -0.03em; }
+    .lead { margin: 8px 0 0; color: var(--muted); max-width: 36em; }
+    .list { display: grid; gap: 12px; }
+    .plugin, .editor {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+    }
+    .plugin { display: flex; gap: 16px; padding: 18px; }
+    .mark {
+      width: 48px; height: 48px; flex: none;
+      display: grid; place-items: center;
+      border-radius: 12px;
+      background: var(--soft);
+      color: var(--accent);
+      font-weight: 700;
+      font-size: 20px;
+    }
+    .plugin h2, .editor h2 { margin: 0; font-size: 18px; letter-spacing: -0.02em; }
+    .title-row, .pills { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    .title-row { gap: 8px; }
+    .pill {
+      border-radius: 999px;
+      padding: 2px 8px;
+      background: var(--soft);
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .summary { margin: 8px 0 0; }
+    .desc, .meta, .hint, .empty { margin: 6px 0 0; color: var(--muted); }
+    .desc { white-space: pre-wrap; }
+    .empty {
+      margin: 0;
+      padding: 28px;
+      text-align: center;
+      border: 1px dashed var(--line);
+      border-radius: 16px;
+    }
+    .editor { margin-top: 28px; padding: 20px; }
+    .editor .hint { margin-bottom: 16px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 16px; }
+    .span { grid-column: 1 / -1; }
+    label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; }
+    label span { color: var(--muted); font-weight: 450; }
+    input, textarea, select, button { font: inherit; color: inherit; }
+    input, textarea, select {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--field);
+    }
+    textarea { min-height: 96px; resize: vertical; }
+    input:focus, textarea:focus, select:focus {
+      outline: 2px solid rgba(61, 139, 255, 0.35);
+      border-color: var(--accent);
+    }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+    button {
+      border: 0;
+      border-radius: 10px;
+      padding: 10px 14px;
+      background: var(--accent);
+      color: var(--accent-ink);
+      font-weight: 650;
+      cursor: pointer;
+    }
+    button.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+    .hash {
+      margin: 12px 0 0;
+      padding: 12px;
+      border-radius: 10px;
+      background: var(--soft);
+      color: var(--ink);
+      word-break: break-all;
+    }
+    .hash:empty { display: none; }
+    @media (max-width: 720px) {
+      .grid { grid-template-columns: 1fr; }
+      .span { grid-column: auto; }
+      h1 { font-size: 28px; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <p class="kicker">PMCL</p>
+    <h1>插件商店</h1>
+    <p class="lead">这些插件会出现在启动器的「下载 → 市场 → 插件商店」里。</p>
+  </header>
+  <div id="list" class="list"></div>
+
+  <section class="editor">
+    <h2>上架一个插件</h2>
+    <p class="hint">选好安装包后，页面会算出 SHA-256。下载 plugins.js，和安装包一起放到 /wwwroot/cloud/plugin-store/。</p>
+    <div class="grid">
+      <label>插件 id<span>字母、数字、点、下划线或横线，例如 mario</span><input id="id" placeholder="mario"></label>
+      <label>名称<span>商店里显示的名字</span><input id="name" placeholder="超级马里奥"></label>
+      <label>版本<span>和安装包里的版本一致</span><input id="version" value="1.0.0"></label>
+      <label>作者<input id="author" placeholder="PMCL"></label>
+      <label class="span">一句话<span>列表里的那一行</span><input id="summary" placeholder="在侧栏里玩超级马里奥"></label>
+      <label class="span">说明<span>点进详情后看到的正文</span><textarea id="description" placeholder="侧栏增加「超级马里奥」页面，在启动器里直接玩。最高分会记下来。协议 MIT。"></textarea></label>
+      <label>类型
+        <select id="packageType"><option value="jar">jar</option><option value="ppk">ppk</option></select>
+      </label>
+      <label>安装包<span>文件名同样只能用字母、数字、点、下划线和横线</span><input id="file" type="file"></label>
+      <label class="span">主页<span>可以留空。只能填 https://lash.org.cn 开头的地址</span><input id="homepage" placeholder="https://lash.org.cn/..."></label>
+    </div>
+    <div class="actions">
+      <button type="button" id="add">加入列表</button>
+      <button type="button" class="ghost" id="save">下载 plugins.js</button>
+    </div>
+    <p class="hash" id="hash"></p>
+  </section>
+</main>
+<script src="plugins.js"></script>
+<script>
+(function () {
+  var ORIGIN = "https://lash.org.cn";
+  var plugins = Array.isArray(window.PMCL_PLUGINS) ? window.PMCL_PLUGINS.slice() : [];
+  var list = document.getElementById("list");
+  var hash = document.getElementById("hash");
+
+  function text(parent, tag, className, value) {
+    var node = document.createElement(tag);
+    if (className) node.className = className;
+    node.textContent = value;
+    parent.appendChild(node);
+    return node;
+  }
+
+  function formatSize(n) {
+    if (!n) return "";
+    var mb = n / (1024 * 1024);
+    return mb >= 0.1 ? mb.toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB";
+  }
+
+  function render() {
+    list.innerHTML = "";
+    if (!plugins.length) {
+      text(list, "p", "empty", "还没有插件。");
+      return;
+    }
+    plugins.forEach(function (plugin) {
+      var card = document.createElement("article");
+      card.className = "plugin";
+      text(card, "div", "mark", (plugin.name || plugin.id || "?").trim().charAt(0).toUpperCase());
+      var body = document.createElement("div");
+      var title = document.createElement("div");
+      title.className = "title-row";
+      text(title, "h2", "", plugin.name || plugin.id);
+      if (plugin.version) text(title, "span", "pill", plugin.version);
+      if (plugin.packageType) text(title, "span", "pill", String(plugin.packageType).toUpperCase());
+      body.appendChild(title);
+      if (plugin.summary) text(body, "p", "summary", plugin.summary);
+      if (plugin.description && plugin.description !== plugin.summary) text(body, "p", "desc", plugin.description);
+      var meta = [plugin.author, formatSize(plugin.size), (plugin.updatedAt || "").slice(0, 10)].filter(Boolean).join(" · ");
+      if (meta) text(body, "p", "meta", meta);
+      card.appendChild(body);
+      list.appendChild(card);
+    });
+  }
+
+  function value(id) { return document.getElementById(id).value.trim(); }
+
+  function sha256(buffer) {
+    return crypto.subtle.digest("SHA-256", buffer).then(function (dig) {
+      return Array.from(new Uint8Array(dig)).map(function (b) {
+        return b.toString(16).padStart(2, "0");
+      }).join("");
+    });
+  }
+
+  function lashUrl(url) {
+    try {
+      var parsed = new URL(url);
+      return parsed.protocol === "https:" && (parsed.hostname === "lash.org.cn" || parsed.hostname === "www.lash.org.cn");
+    } catch (e) { return false; }
+  }
+
+  document.getElementById("add").onclick = function () {
+    var file = document.getElementById("file").files[0];
+    var id = value("id");
+    if (!/^[A-Za-z0-9._-]{1,64}$/.test(id)) { hash.textContent = "id 只能用字母、数字、点、下划线和横线。"; return; }
+    if (!file) { hash.textContent = "先选择安装包。"; return; }
+    if (!/^[A-Za-z0-9._-]{1,128}$/.test(file.name)) {
+      hash.textContent = "文件名只能用字母、数字、点、下划线和横线。";
+      return;
+    }
+    var type = value("packageType");
+    file.arrayBuffer().then(sha256).then(function (sum) {
+      var home = value("homepage");
+      var item = {
+        id: id,
+        name: value("name") || id,
+        version: value("version"),
+        author: value("author"),
+        summary: value("summary"),
+        description: value("description"),
+        downloads: 0,
+        updatedAt: new Date().toISOString(),
+        iconUrl: "",
+        homepage: lashUrl(home) ? home : "",
+        packageType: type,
+        downloadUrl: ORIGIN + "/cloud/plugin-store/files/" + id + "/" + file.name,
+        sha256: sum,
+        size: file.size
+      };
+      plugins = plugins.filter(function (plugin) { return plugin.id !== id; });
+      plugins.push(item);
+      hash.textContent = "SHA-256 " + sum + "。把安装包上传到 /wwwroot/cloud/plugin-store/files/" + id + "/" + file.name;
+      render();
+    }).catch(function () { hash.textContent = "没能算出 SHA-256。"; });
+  };
+
+  document.getElementById("save").onclick = function () {
+    var textBody = "// PMCL 插件目录。\nvar PMCL_PLUGINS = " + JSON.stringify(plugins, null, 2) + ";\n";
+    var blob = new Blob([textBody], { type: "text/javascript" });
+    var link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = "plugins.js";
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
+
+  render();
+})();
+</script>
+</body>
+</html>

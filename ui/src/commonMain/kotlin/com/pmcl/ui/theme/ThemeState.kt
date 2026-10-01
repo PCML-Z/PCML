@@ -52,6 +52,17 @@ class ThemeState(initialDark: Boolean = false) {
     var glassTheme by mutableStateOf(false)
         private set
 
+    /** 实验材质：整页浅灰板。与玻璃主题分开，关闭后回到原来的主题。 */
+    var materialTheme by mutableStateOf(false)
+        private set
+
+    /** 实时壁纸毛玻璃。和材质主题分开，关闭后背景回到原来的壁纸。 */
+    var liveWallpaperGlass by mutableStateOf(false)
+        private set
+
+    /** 材质主页正在显示底栏。侧栏用它接上同一条底边，不写入设置。 */
+    var materialHomeBar by mutableStateOf(false)
+
     /** 始终显示滚动条（关闭时只靠滚轮，不画滚动条） */
     var alwaysShowScrollbars by mutableStateOf(false)
         private set
@@ -122,6 +133,14 @@ class ThemeState(initialDark: Boolean = false) {
 
     fun applyGlassTheme(enabled: Boolean) {
         glassTheme = enabled
+    }
+
+    fun applyMaterialTheme(enabled: Boolean) {
+        materialTheme = enabled
+    }
+
+    fun applyLiveWallpaperGlass(enabled: Boolean) {
+        liveWallpaperGlass = enabled
     }
 
     fun applyAlwaysShowScrollbars(enabled: Boolean) {
