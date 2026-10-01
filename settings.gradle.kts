@@ -54,3 +54,8 @@ include(":hmcl-plugin")
 include(":theme-plugin")
 include(":video")
 include(":music")
+
+val lsnCheckout = listOf(file("third_party/ECXP-LSN"), file("../ECXP-LSN")).firstOrNull { it.isDirectory }
+if (lsnCheckout != null) {
+    includeBuild(lsnCheckout)
+}

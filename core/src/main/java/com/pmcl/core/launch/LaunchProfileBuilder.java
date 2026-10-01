@@ -7,6 +7,7 @@ import com.pmcl.core.download.DownloadManager;
 import com.pmcl.core.install.Library;
 import com.pmcl.core.install.VersionJson;
 import com.pmcl.core.preferences.Preferences;
+import com.pmcl.core.preferences.VersionSettings;
 import com.pmcl.core.version.VersionManager;
 
 import javax.imageio.ImageIO;
@@ -295,6 +296,9 @@ public final class LaunchProfileBuilder {
         verifyClientJar(vj, versionsDir);
         verifyAssets(vj, assetsDir);
 
+        VersionSettings versionSettings = preferences == null
+                ? VersionSettings.empty() : preferences.getVersionSettings(versionId);
+
         // 设置游戏工作目录：实例启动时固定为实例目录，否则按 versionIsolation/整合包逻辑推导
         Path gameDir;
         if (instanceDir != null) {
@@ -575,8 +579,8 @@ public final class LaunchProfileBuilder {
         }
 
         // 内存参数（用 preferences 覆盖 config 默认值）
-        profile.addJvmArg("-Xms" + preferences.getMinMemoryMb() + "m");
-        profile.addJvmArg("-Xmx" + preferences.getMaxMemoryMb() + "m");
+        profile.addJvmArg("-Xms" + versionSettings.memoryMin(preferences.getMinMemoryMb()) + "m");
+        profile.addJvmArg("-Xmx" + versionSettings.memoryMax(preferences.getMaxMemoryMb()) + "m");
 
         // GC 类型（仅未启用 Aikar Flags 时注入，避免冲突）
         // 澪模式 ZGC 开启时也跳过（避免 -XX:+UseG1GC 与 ZGC 冲突）
@@ -599,11 +603,11 @@ public final class LaunchProfileBuilder {
             // ZGC 开启时跳过 G1 相关参数（build 已含 G1 参数，ZGC 模式只取 JIT+CPU+CodeCache）
             if (mioZgc) {
                 // ZGC 模式：注入 ZGC 参数集 + JIT/CPU/CodeCache（跳过 build 中的 G1 参数）
-                for (String f : MioFlags.buildZgc(preferences.getMaxMemoryMb())) {
+                for (String f : MioFlags.buildZgc(versionSettings.memoryMax(preferences.getMaxMemoryMb()))) {
                     profile.addJvmArg(f);
                 }
                 // 仅注入非 G1 的激进参数（JIT 内联 + CPU 指令集 + CodeCache + 分配器）
-                for (String f : MioFlags.build(cores, preferences.getMaxMemoryMb())) {
+                for (String f : MioFlags.build(cores, versionSettings.memoryMax(preferences.getMaxMemoryMb()))) {
                     if (!f.startsWith("-XX:MaxGCPauseMillis") &&
                         !f.startsWith("-XX:G1") &&
                         !f.startsWith("-XX:TargetSurvivorRatio") &&
@@ -615,12 +619,13 @@ public final class LaunchProfileBuilder {
                 }
             } else {
                 // G1 模式：注入完整激进参数集
-                for (String f : MioFlags.build(cores, preferences.getMaxMemoryMb())) {
+                for (String f : MioFlags.build(cores, versionSettings.memoryMax(preferences.getMaxMemoryMb()))) {
                     profile.addJvmArg(f);
                 }
                 // 堆 >= 4GB 时强制 Xms == Xmx，避免运行时堆扩张停顿
-                if (preferences.getMaxMemoryMb() >= 4096) {
-                    profile.addJvmArg("-Xms" + preferences.getMaxMemoryMb() + "m");
+                int versionMaxMb = versionSettings.memoryMax(preferences.getMaxMemoryMb());
+                if (versionMaxMb >= 4096) {
+                    profile.addJvmArg("-Xms" + versionMaxMb + "m");
                 }
             }
         }
@@ -686,7 +691,7 @@ public final class LaunchProfileBuilder {
                 profile, vj, versionsDir, versionId, librariesDir, downloadManager);
 
         // 用户自定义 JVM 参数（最后追加，可覆盖前面）
-        String custom = preferences.getCustomJvmArgs();
+        String custom = versionSettings.jvmArgs(preferences.getCustomJvmArgs());
         if (custom != null && !custom.trim().isEmpty()) {
             boolean lwjgl2 = RetroWrapperSupport.isLwjgl2Era(versionId);
             for (String arg : custom.trim().split("\\s+")) {
@@ -698,8 +703,8 @@ public final class LaunchProfileBuilder {
         }
 
         // 游戏参数（含 is_demo_user / has_custom_resolution 条件规则）
-        int prefW = preferences.getGameWindowWidth();
-        int prefH = preferences.getGameWindowHeight();
+        int prefW = versionSettings.width(preferences.getGameWindowWidth());
+        int prefH = versionSettings.height(preferences.getGameWindowHeight());
         boolean customResolution = prefW > 0 && prefH > 0;
         List<String> gameArgsFromJson = vj.getGameArgs(
                 preferences.isGameDemo(), customResolution, prefW, prefH);
@@ -737,7 +742,7 @@ public final class LaunchProfileBuilder {
                 profile.addJvmArg("-Dorg.lwjgl.opengl.libname=opengl32.dll");
             }
             // 全屏
-            if (preferences.isGameFullscreen()) {
+            if (versionSettings.fullscreen(preferences.isGameFullscreen())) {
                 profile.addGameArg("--fullscreen");
             }
             // 演示模式
@@ -755,7 +760,7 @@ public final class LaunchProfileBuilder {
 
             // 自定义窗口图标：复制到 <gameDir>/icons/icon_16x16.png 和 icon_32x32.png
             // Minecraft MainWindow 启动时从 gameDir/icons/ 读取图标
-            injectWindowIcon(preferences.getWindowIconPath(), gameDir);
+            injectWindowIcon(versionSettings.icon(preferences.getWindowIconPath()), gameDir);
 
             // 同步启动器语言到游戏 options.txt 的 lang 字段
             // Minecraft 没有 --language 命令行参数，游戏内语言只能通过 options.txt 设置

@@ -49,6 +49,7 @@ kotlin {
                 implementation(project(":cli"))
                 implementation(project(":video"))
                 implementation(project(":music"))
+                implementation("com.github.PCML-Z:ECXP-LSN:v1.0.0")
 
                 // WebSocket 服务宿主（伴随模式）
                 implementation(libs.ktor.server.core)

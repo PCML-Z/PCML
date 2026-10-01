@@ -4,6 +4,10 @@ import com.pmcl.ui.widget.pmclVerticalScroll
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -42,6 +46,7 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
@@ -64,6 +69,7 @@ import androidx.compose.ui.unit.sp
 import com.pmcl.core.instance.InstanceInfo
 import com.pmcl.core.version.VersionManager
 import com.pmcl.core.i18n.I18n
+import com.pmcl.ui.animation.MotionTokens
 import com.pmcl.ui.animation.StaggeredAppear
 import com.pmcl.ui.animation.pressScale
 import com.pmcl.ui.theme.LocalThemeState
@@ -111,6 +117,9 @@ fun LaunchPage(vm: LauncherViewModel) {
     val compatOptions by vm.compatOptions.collectAsState()
     val compatTitle by vm.compatTitle.collectAsState()
     val format = remember { SimpleDateFormat("yyyy-MM-dd HH:mm") }
+    var settingsVersionId by remember { mutableStateOf<String?>(null) }
+    var settingsShownId by remember { mutableStateOf<String?>(null) }
+    var settingsTick by remember { mutableIntStateOf(0) }
     val formatRelative = remember { SimpleDateFormat("MM-dd HH:mm") }
 
     // 预计算本地版本 ID 集合，避免在多处重复 O(n) 线性查找
@@ -811,7 +820,13 @@ fun LaunchPage(vm: LauncherViewModel) {
                             onClick = { vm.selectVersion(info.getId()) },
                             onPin = { vm.pinVersion(info.getId()) },
                             onUnpin = { vm.unpinVersion(info.getId()) },
-                            onLaunch = { vm.quickLaunch(info.getId()) }
+                            onLaunch = { vm.quickLaunch(info.getId()) },
+                            onSettings = {
+                                val id = info.getId()
+                                settingsShownId = id
+                                settingsVersionId = id
+                            },
+                            settingsTick = settingsTick
                         )
                     }
                 }
@@ -877,6 +892,7 @@ fun LaunchPage(vm: LauncherViewModel) {
             }
     }
 
+    Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize()) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
             if (useSegmentedLayout) {
@@ -1345,6 +1361,35 @@ fun LaunchPage(vm: LauncherViewModel) {
             dismissButton = {}
         )
     }
+
+    AnimatedVisibility(
+        visible = settingsVersionId != null,
+        modifier = Modifier.fillMaxSize(),
+        enter = slideInHorizontally(
+            animationSpec = tween(
+                MotionTokens.DURATION_MEDIUM,
+                easing = MotionTokens.EasingEmphasizedDecelerate
+            ),
+            initialOffsetX = { it / 5 }
+        ) + fadeIn(
+            tween(MotionTokens.DURATION_MEDIUM, easing = MotionTokens.EasingEmphasizedDecelerate)
+        ),
+        exit = slideOutHorizontally(
+            animationSpec = tween(
+                MotionTokens.DURATION_MEDIUM * 2 / 3,
+                easing = MotionTokens.EasingEmphasizedAccelerate
+            ),
+            targetOffsetX = { it / 6 }
+        ) + fadeOut(tween(MotionTokens.DURATION_MEDIUM / 2))
+    ) {
+        settingsShownId?.let { versionId ->
+            VersionSettingsPage(vm, versionId) {
+                settingsVersionId = null
+                settingsTick++
+            }
+        }
+    }
+    }
 }
 
 /**
@@ -1783,8 +1828,13 @@ private fun LocalVersionRow(
     onClick: () -> Unit,
     onPin: () -> Unit,
     onUnpin: () -> Unit,
-    onLaunch: () -> Unit
+    onLaunch: () -> Unit,
+    onSettings: () -> Unit,
+    settingsTick: Int
 ) {
+    val displayName = remember(info.getId(), settingsTick) {
+        vm.preferences.getVersionSettings(info.getId()).displayName.ifBlank { info.getId() }
+    }
     val canLaunch = info.isLaunchable() && hasAccount && !gameRunning
     val bg by animateColorAsState(
         if (selected) MaterialTheme.colorScheme.primaryContainer
@@ -1796,7 +1846,7 @@ private fun LocalVersionRow(
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(info.getId(),
+                    Text(displayName,
                          style = MaterialTheme.typography.bodyLarge,
                          fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold)
                     if (info.getInheritsFrom() != null) {
@@ -1832,7 +1882,11 @@ private fun LocalVersionRow(
                     }
                 }
             }
-            // 直接启动按钮
+            IconButton(onClick = onSettings) {
+                Icon(Icons.Filled.Settings, I18n.t("version_settings.open"),
+                     modifier = Modifier.size(18.dp),
+                     tint = MaterialTheme.colorScheme.outline)
+            }
             IconButton(onClick = onLaunch, enabled = canLaunch) {
                 Icon(Icons.Filled.PlayArrow, I18n.t("launch.start"),
                      tint = if (canLaunch) MaterialTheme.colorScheme.primary

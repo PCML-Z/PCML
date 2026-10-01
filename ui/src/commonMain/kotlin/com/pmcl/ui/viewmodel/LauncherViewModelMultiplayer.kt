@@ -401,6 +401,40 @@ fun LauncherViewModel.setDirectConnectServer(host: String, port: Int) {
     _status.value = I18n.t("status.direct_connect_server_set", "$host:$port")
 }
 
+/**
+ * 写入当前实例的 servers.dat，设为启动直连，然后启动游戏。
+ * @param save 为 true 时，列表里还没有这台服务器就先收藏。
+ */
+fun LauncherViewModel.directConnectServer(name: String, host: String, port: Int, save: Boolean) {
+    val address = com.pmcl.core.gamecontent.GameServerList.parse(host, port) ?: run {
+        _status.value = I18n.t("servers.bad_address")
+        return
+    }
+    val display = name.trim().ifBlank { address.host }
+    if (save && favoriteServers.value.none { it.host.equals(address.host, ignoreCase = true) && it.port == address.port }) {
+        addFavoriteServer(display, address.host, address.port)
+    }
+    setDirectConnectServer(address.host, address.port)
+    val instance = selectedInstanceId.value?.let { id ->
+        instances.value.find { it.instanceId == id && it.isLaunchable }
+    }
+    val gameDir = instance?.instanceDir ?: selectedVersion.value?.let {
+        core.profileBuilder().resolveGameDirectory(it)
+    }
+    scope.launch {
+        if (gameDir != null) {
+            try {
+                withContext(Dispatchers.IO) {
+                    com.pmcl.core.gamecontent.GameServerList.add(gameDir, display, address.host, address.port)
+                }
+            } catch (_: Throwable) {
+                _status.value = I18n.t("status.server_link_failed")
+            }
+        }
+        if (instance != null) launchInstance(instance.instanceId) else launch()
+    }
+}
+
 /** ping 单个服务器 */
 fun LauncherViewModel.pingServer(host: String, port: Int) {
     val key = "$host:$port"

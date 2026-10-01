@@ -1,6 +1,8 @@
 package com.pmcl.ui.theme
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
@@ -9,9 +11,12 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CardElevation
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -93,35 +98,35 @@ fun glassSurfaceVariantColor(
 )
 
 /**
- * 返回 Card 在当前主题下应使用的 elevation（阴影深度）。
- *
- * - 透出背景时：0.dp 无阴影（避免实色投影块）
- * - 默认：1.dp
- *
- * 返回 CardElevation 类型，可直接传入 Card 的 elevation 参数。
+ * 桌面端的 elevation 和悬停高亮会按矩形绘制，圆角四角会露出方块。
+ * 这里关掉全部高度，圆角裁切交给 [glassCardBorder]。
  */
 @Composable
 fun glassCardElevation(defaultElevation: Dp = 1.dp): CardElevation {
-    val theme = LocalThemeState.current
-    val dp = if (theme.wantsTranslucentCards()) 0.dp else defaultElevation
-    return CardDefaults.cardElevation(defaultElevation = dp)
+    if (defaultElevation < 0.dp) {
+        return CardDefaults.cardElevation(defaultElevation = 0.dp)
+    }
+    return CardDefaults.cardElevation(
+        defaultElevation = 0.dp,
+        pressedElevation = 0.dp,
+        focusedElevation = 0.dp,
+        hoveredElevation = 0.dp,
+        draggedElevation = 0.dp,
+        disabledElevation = 0.dp
+    )
 }
 
 /**
- * 玻璃主题边框 Modifier：玻璃主题下无边框（返回 this 不添加任何 border）。
- *
- * 仅在 glassTheme 开启时生效（即不画边框）。
- * 默认主题同样返回无修改 Modifier。
- *
- * 用法：
- * ```
- * Card(modifier = Modifier.glassCardBorder(), ...) { ... }
- * ```
+ * 把卡片画进圆角离屏层。悬停高亮内部会用矩形裁切，普通 clip 挡不住，离屏层可以。
  */
 @Composable
 fun Modifier.glassCardBorder(cornerRadius: Dp = 12.dp): Modifier {
-    // 玻璃主题不绘制任何边框，仅靠阴影和透明度区分卡片
-    return this
+    val shape = RoundedCornerShape(cornerRadius)
+    return graphicsLayer {
+        this.shape = shape
+        clip = true
+        compositingStrategy = CompositingStrategy.Offscreen
+    }
 }
 
 /**
@@ -138,25 +143,23 @@ fun PmclCard(
     onClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val cardModifier = modifier.glassCardBorder()
-    if (onClick != null) {
-        Card(
-            onClick = onClick,
-            modifier = cardModifier,
-            shape = shape,
-            colors = colors,
-            elevation = elevation,
-            border = border,
-            content = content
-        )
-    } else {
-        Card(
-            modifier = cardModifier,
-            shape = shape,
-            colors = colors,
-            elevation = elevation,
-            border = border,
-            content = content
-        )
-    }
+    val cardModifier = modifier.glassCardBorder().then(
+        if (onClick == null) {
+            Modifier
+        } else {
+            Modifier.clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            )
+        }
+    )
+    Card(
+        modifier = cardModifier,
+        shape = shape,
+        colors = colors,
+        elevation = elevation,
+        border = border,
+        content = content
+    )
 }

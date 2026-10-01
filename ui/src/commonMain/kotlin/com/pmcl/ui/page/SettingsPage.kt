@@ -60,6 +60,8 @@ import com.pmcl.ui.theme.glassCardElevation
 import com.pmcl.ui.theme.glassSurfaceVariantColor
 import com.pmcl.ui.util.decodeSampledBitmap
 import com.pmcl.ui.viewmodel.LauncherViewModel
+import com.pmcl.ui.viewmodel.refreshReleaseAnnouncements
+import com.pmcl.ui.viewmodel.refreshRepoGitTree
 import com.pmcl.ui.viewmodel.switchAccount
 import com.pmcl.ui.viewmodel.removeAccount
 import com.pmcl.ui.viewmodel.loginOffline
@@ -111,6 +113,7 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
         "mio" -> "settings.section.mio"
         "network" -> "settings.section.network"
         "updates" -> "settings.section.updates"
+        "git-tree" -> "settings.section.git_tree"
         "device" -> "settings.section.device"
         "system" -> "settings.section.system"
         "about" -> "settings.section.about"
@@ -123,6 +126,12 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
     LaunchedEffect(sectionId) {
         if (sectionId == "game") {
             vm.ensureMetalCapabilityLoaded()
+        }
+        if (sectionId == "about") {
+            vm.refreshReleaseAnnouncements()
+        }
+        if (sectionId == "git-tree") {
+            vm.refreshRepoGitTree()
         }
     }
 
@@ -946,6 +955,10 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
         GithubSyncCard(vm, pref)
         }
 
+        if (sectionId == "git-tree") {
+            GitTreeSettingsPage(vm)
+        }
+
         if (sectionId == "device") {
         // 设备绑定保护
         DeviceBindingCard(vm, pref)
@@ -958,7 +971,8 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
         }
 
         if (sectionId == "about") {
-        // 关于
+        ReleaseAnnouncementsCard(vm)
+        Spacer(Modifier.height(12.dp))
         AboutCard(vm)
         }
 
@@ -1270,6 +1284,142 @@ private fun AccountRow(
                 contentDescription = I18n.t("common.delete"),
                 tint = MaterialTheme.colorScheme.outline
             )
+        }
+    }
+}
+
+@Composable
+private fun ReleaseAnnouncementsCard(vm: LauncherViewModel) {
+    val items by vm.releaseAnnouncements.collectAsState()
+    val loading by vm.releaseAnnouncementsLoading.collectAsState()
+    val error by vm.releaseAnnouncementsError.collectAsState()
+    val repo = vm.preferences.getGithubRepo().trim().ifBlank { "PCML-Z/PCML" }
+    val current = vm.core.launcherVersion().trim()
+
+    Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        I18n.t("about.announcements"),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        I18n.t("about.announcements_source", repo),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                }
+                if (loading) {
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                } else {
+                    IconButton(onClick = { vm.refreshReleaseAnnouncements(force = true) }) {
+                        Icon(
+                            Icons.Filled.Refresh,
+                            contentDescription = I18n.t("about.announcements_retry")
+                        )
+                    }
+                }
+            }
+            if (error.isNotBlank()) {
+                Spacer(Modifier.height(8.dp))
+                Text(error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            }
+            if (!loading && error.isBlank() && items.isEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    I18n.t("about.announcements_empty"),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
+            }
+            items.forEachIndexed { index, item ->
+                if (index > 0) {
+                    Spacer(Modifier.height(12.dp))
+                    HorizontalDivider()
+                }
+                Spacer(Modifier.height(12.dp))
+                ReleaseAnnouncementItem(item, current.equals(item.version, ignoreCase = true))
+            }
+            if (loading && items.isEmpty() && error.isBlank()) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    I18n.t("about.announcements_loading"),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReleaseAnnouncementItem(
+    item: com.pmcl.core.update.ReleaseAnnouncements.Item,
+    current: Boolean
+) {
+    var expanded by remember(item.version) { mutableStateOf(false) }
+    val body = item.body
+    val long = body.length > 280 || body.lineSequence().count() > 6
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(item.version, fontWeight = FontWeight.SemiBold)
+        if (item.publishedAt.isNotBlank()) {
+            Spacer(Modifier.width(8.dp))
+            Text(
+                item.publishedAt,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline
+            )
+        }
+        if (current) {
+            Spacer(Modifier.width(8.dp))
+            Text(
+                I18n.t("about.announcements_current"),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+        if (item.isPrerelease) {
+            Spacer(Modifier.width(8.dp))
+            Text(
+                I18n.t("about.announcements_prerelease"),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.tertiary
+            )
+        }
+        Spacer(Modifier.weight(1f))
+        if (item.url.isNotBlank()) {
+            IconButton(onClick = {
+                try {
+                    com.pmcl.core.web.WikiBrowser.open(item.url)
+                } catch (_: Throwable) {
+                }
+            }) {
+                Icon(
+                    Icons.Filled.OpenInNew,
+                    contentDescription = I18n.t("about.announcements_open"),
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+    }
+    if (item.title.isNotBlank() && !item.title.equals(item.version, ignoreCase = true)) {
+        Text(item.title, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+    }
+    if (body.isNotBlank()) {
+        Spacer(Modifier.height(4.dp))
+        Text(
+            body,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = if (expanded || !long) Int.MAX_VALUE else 6,
+            overflow = TextOverflow.Ellipsis
+        )
+        if (long) {
+            TextButton(onClick = { expanded = !expanded }) {
+                Text(if (expanded) I18n.t("about.announcements_collapse") else I18n.t("about.announcements_expand"))
+            }
         }
     }
 }

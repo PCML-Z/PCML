@@ -3,6 +3,7 @@ package com.pmcl.ui.navigation
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Article
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Build
@@ -61,6 +62,7 @@ object SecondaryNavRegistry {
             SecondarySection("mio", "settings.section.mio", Icons.Filled.Speed),
             SecondarySection("network", "settings.section.network", Icons.Filled.Share),
             SecondarySection("updates", "settings.section.updates", Icons.Filled.SystemUpdate),
+            SecondarySection("git-tree", "settings.section.git_tree", Icons.Filled.AccountTree),
             SecondarySection("device", "settings.section.device", Icons.Filled.Shield),
             SecondarySection("system", "settings.section.system", Icons.Filled.Info),
             SecondarySection("about", "settings.section.about", Icons.Filled.Article),

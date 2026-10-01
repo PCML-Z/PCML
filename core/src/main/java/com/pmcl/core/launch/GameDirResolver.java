@@ -4,6 +4,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.pmcl.core.LauncherConfig;
 import com.pmcl.core.preferences.Preferences;
+import com.pmcl.core.preferences.VersionSettings;
 import com.pmcl.core.version.VersionManager;
 
 import java.io.IOException;
@@ -51,6 +52,13 @@ public final class GameDirResolver {
      */
     public Path resolveGameDir(String versionId, Path mcRoot) {
         requireSafeVersionId(versionId);
+        if (preferences != null) {
+            Path custom = VersionSettings.parseGameDir(preferences.getVersionSettings(versionId).getGameDir());
+            if (custom != null) {
+                ensureGameSubdirs(custom);
+                return custom;
+            }
+        }
         Path jsonPath = findVersionJson(versionId);
         Path versionDir = jsonPath != null ? jsonPath.getParent() : null;
         Path root = mcRoot;

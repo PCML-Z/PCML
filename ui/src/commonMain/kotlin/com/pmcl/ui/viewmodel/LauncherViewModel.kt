@@ -1417,6 +1417,31 @@ class LauncherViewModel {
     /** 清除安装前询问事件（UI 关闭弹窗时调用） */
     fun clearPreInstallEvent() { _preInstallEvent.value = null }
 
+    // ===== 关于页更新公告（GitHub Releases）=====
+    @PublishedApi internal val _releaseAnnouncements =
+        MutableStateFlow<List<com.pmcl.core.update.ReleaseAnnouncements.Item>>(emptyList())
+    val releaseAnnouncements: StateFlow<List<com.pmcl.core.update.ReleaseAnnouncements.Item>> =
+        _releaseAnnouncements.asStateFlow()
+
+    @PublishedApi internal val _releaseAnnouncementsLoading = MutableStateFlow(false)
+    val releaseAnnouncementsLoading: StateFlow<Boolean> = _releaseAnnouncementsLoading.asStateFlow()
+
+    @PublishedApi internal val _releaseAnnouncementsError = MutableStateFlow("")
+    val releaseAnnouncementsError: StateFlow<String> = _releaseAnnouncementsError.asStateFlow()
+
+    @PublishedApi internal var releaseAnnouncementsFetchedAt = 0L
+
+    @PublishedApi internal val _repoGitTree = MutableStateFlow<com.pmcl.core.update.RepoCommitGraph.Graph?>(null)
+    val repoGitTree: StateFlow<com.pmcl.core.update.RepoCommitGraph.Graph?> = _repoGitTree.asStateFlow()
+
+    @PublishedApi internal val _repoGitTreeLoading = MutableStateFlow(false)
+    val repoGitTreeLoading: StateFlow<Boolean> = _repoGitTreeLoading.asStateFlow()
+
+    @PublishedApi internal val _repoGitTreeError = MutableStateFlow("")
+    val repoGitTreeError: StateFlow<String> = _repoGitTreeError.asStateFlow()
+
+    @PublishedApi internal var repoGitTreeFetchedAt = 0L
+
     // ===== 新闻 =====
     // M29：方法见 LauncherViewModelNews.kt
     @PublishedApi internal val _newsItems = MutableStateFlow<List<com.pmcl.core.news.NewsItem>>(emptyList())

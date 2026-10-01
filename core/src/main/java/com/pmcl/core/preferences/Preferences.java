@@ -73,6 +73,8 @@ public final class Preferences {
     private String javaSelectionMode = "AUTO"; // AUTO=原自动逻辑，SELECTED=固定使用扫描列表中的 Java
     // 每版本独立 Java 路径映射：versionId → javaPath，优先级高于全局 javaPath
     private java.util.Map<String, String> versionJavaPaths = new java.util.concurrent.ConcurrentHashMap<>();
+    /** 每个版本自己的名称、路径、内存、窗口等。空字段表示用全局设置。 */
+    private java.util.Map<String, VersionSettings> versionSettings = new java.util.concurrent.ConcurrentHashMap<>();
     /**
      * Legacy translation mode for old Minecraft on modern Java (RetroWrapper).
      * OFF = never; ON = always for legacy versions; AUTO = Java 17+/Apple Silicon arm64.
@@ -453,7 +455,44 @@ public final class Preferences {
         } else {
             versionJavaPaths.put(versionId, javaPath);
         }
+        rememberJava(versionId, javaPath == null ? "" : javaPath);
         scheduleSave();
+    }
+
+    public synchronized VersionSettings getVersionSettings(String versionId) {
+        if (versionId == null) return VersionSettings.empty();
+        VersionSettings stored = versionSettings.get(versionId);
+        if (stored == null) stored = VersionSettings.empty();
+        String javaPath = versionJavaPaths.get(versionId);
+        if (stored.getJavaPath().isEmpty() && javaPath != null && !javaPath.isEmpty()) {
+            return stored.withJavaPath(javaPath);
+        }
+        return stored;
+    }
+
+    public synchronized void setVersionSettings(String versionId, VersionSettings settings) {
+        if (!isSafeVersionKey(versionId)) return;
+        VersionSettings next = settings == null ? VersionSettings.empty() : settings;
+        if (next.isBlank()) versionSettings.remove(versionId);
+        else versionSettings.put(versionId, next);
+        if (next.getJavaPath().isEmpty()) versionJavaPaths.remove(versionId);
+        else versionJavaPaths.put(versionId, next.getJavaPath());
+        scheduleSave();
+    }
+
+    private void rememberJava(String versionId, String javaPath) {
+        if (!isSafeVersionKey(versionId)) return;
+        VersionSettings current = versionSettings.get(versionId);
+        if (current == null) current = VersionSettings.empty();
+        VersionSettings next = current.withJavaPath(javaPath);
+        if (next.isBlank()) versionSettings.remove(versionId);
+        else versionSettings.put(versionId, next);
+    }
+
+    private static boolean isSafeVersionKey(String versionId) {
+        return versionId != null && !versionId.isBlank()
+                && !versionId.contains("..") && !versionId.contains("/") && !versionId.contains("\\")
+                && versionId.indexOf('\0') < 0;
     }
 
     /** 返回所有已配置独立 Java 的版本 ID 集合 */
@@ -1104,6 +1143,19 @@ public final class Preferences {
             System.err.println("[Preferences] versionJavaPaths 字段损坏，已跳过: " + e.getMessage());
         }
         try {
+            if (o.has("versionSettings") && o.get("versionSettings").isJsonObject()) {
+                versionSettings.clear();
+                JsonObject all = o.getAsJsonObject("versionSettings");
+                for (var entry : all.entrySet()) {
+                    if (!isSafeVersionKey(entry.getKey()) || !entry.getValue().isJsonObject()) continue;
+                    VersionSettings settings = VersionSettings.fromJson(entry.getValue().getAsJsonObject());
+                    if (!settings.isBlank()) versionSettings.put(entry.getKey(), settings);
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("[Preferences] versionSettings 字段损坏，已跳过: " + e.getMessage());
+        }
+        try {
             if (o.has("favoriteServers") && o.get("favoriteServers").isJsonArray()) {
                 favoriteServers = new java.util.ArrayList<>();
                 for (var elem : o.getAsJsonArray("favoriteServers")) {
@@ -1274,6 +1326,13 @@ public final class Preferences {
             vjp.addProperty(entry.getKey(), entry.getValue());
         }
         o.add("versionJavaPaths", vjp);
+        JsonObject versionSettingsObj = new JsonObject();
+        for (var entry : versionSettings.entrySet()) {
+            if (entry.getValue() != null && !entry.getValue().isBlank()) {
+                versionSettingsObj.add(entry.getKey(), entry.getValue().toJson());
+            }
+        }
+        o.add("versionSettings", versionSettingsObj);
         o.addProperty("gameWindowWidth", gameWindowWidth);
         o.addProperty("gameWindowHeight", gameWindowHeight);
         o.addProperty("gameFullscreen", gameFullscreen);

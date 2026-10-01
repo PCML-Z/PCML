@@ -39,7 +39,7 @@ import com.pmcl.ui.viewmodel.pingServerFull
 import com.pmcl.ui.viewmodel.addFavoriteServer
 import com.pmcl.ui.viewmodel.updateFavoriteServer
 import com.pmcl.ui.viewmodel.removeFavoriteServer
-import com.pmcl.ui.viewmodel.setDirectConnectServer
+import com.pmcl.ui.viewmodel.directConnectServer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.skia.Image as SkiaImage
@@ -114,7 +114,7 @@ fun ServersPage(vm: LauncherViewModel) {
                         status = status,
                         isPinging = isPinging,
                         onPing = { vm.pingServerFull(server.host, server.port) },
-                        onConnect = { vm.setDirectConnectServer(server.host, server.port) },
+                        onConnect = { vm.directConnectServer(server.name, server.host, server.port, save = false) },
                         onEdit = { editIndex = index },
                         onDelete = { deleteIndex = index }
                     )
@@ -133,8 +133,11 @@ fun ServersPage(vm: LauncherViewModel) {
             onConfirm = { name, host, port ->
                 vm.addFavoriteServer(name, host, port)
                 showAddDialog = false
-                // 添加后自动 ping
                 vm.pingServerFull(host, port)
+            },
+            onDirectConnect = { name, host, port ->
+                vm.directConnectServer(name, host, port, save = true)
+                showAddDialog = false
             },
             onDismiss = { showAddDialog = false }
         )
@@ -152,8 +155,12 @@ fun ServersPage(vm: LauncherViewModel) {
                 onConfirm = { name, host, port ->
                     vm.updateFavoriteServer(idx, name, host, port)
                     editIndex = null
-                    // 编辑后重新 ping
                     vm.pingServerFull(host, port)
+                },
+                onDirectConnect = { name, host, port ->
+                    vm.updateFavoriteServer(idx, name, host, port)
+                    vm.directConnectServer(name, host, port, save = false)
+                    editIndex = null
                 },
                 onDismiss = { editIndex = null }
             )
@@ -389,11 +396,17 @@ private fun ServerEditDialog(
     initialHost: String,
     initialPort: String,
     onConfirm: (String, String, Int) -> Unit,
+    onDirectConnect: (String, String, Int) -> Unit,
     onDismiss: () -> Unit
 ) {
     var name by remember { mutableStateOf(initialName) }
     var host by remember { mutableStateOf(initialHost) }
     var port by remember { mutableStateOf(initialPort) }
+    val address = com.pmcl.core.gamecontent.GameServerList.parse(
+        host,
+        port.toIntOrNull() ?: 25565
+    )
+    val canSave = name.isNotBlank() && address != null
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -410,7 +423,7 @@ private fun ServerEditDialog(
                 OutlinedTextField(
                     value = host, onValueChange = { host = it },
                     label = { Text(I18n.t("servers.server_host")) },
-                    placeholder = { Text("play.example.com") },
+                    placeholder = { Text("play.example.com:25565") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -423,19 +436,34 @@ private fun ServerEditDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    I18n.t("servers.direct_connect_hint"),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
             }
         },
         confirmButton = {
-            TextButton(
-                onClick = {
-                    val p = port.toIntOrNull() ?: 25565
-                    if (name.isNotBlank() && host.isNotBlank() && p in 1..65535) {
-                        onConfirm(name.trim(), host.trim(), p)
-                    }
-                },
-                enabled = name.isNotBlank() && host.isNotBlank() && (port.toIntOrNull() ?: 0) in 1..65535
-            ) {
-                Text(I18n.t("common.confirm"))
+            Row {
+                TextButton(
+                    onClick = {
+                        val parsed = address ?: return@TextButton
+                        onDirectConnect(name.trim(), parsed.host, parsed.port)
+                    },
+                    enabled = address != null
+                ) {
+                    Text(I18n.t("servers.direct_connect"))
+                }
+                TextButton(
+                    onClick = {
+                        val parsed = address ?: return@TextButton
+                        onConfirm(name.trim(), parsed.host, parsed.port)
+                    },
+                    enabled = canSave
+                ) {
+                    Text(I18n.t("common.confirm"))
+                }
             }
         },
         dismissButton = {

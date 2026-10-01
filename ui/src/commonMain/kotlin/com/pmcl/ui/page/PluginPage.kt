@@ -1,6 +1,8 @@
 package com.pmcl.ui.page
 import com.pmcl.ui.widget.PmclLazyColumn
 
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -356,8 +358,11 @@ private fun PluginCard(
     }
 
     Card(
-        modifier = Modifier.fillMaxWidth().glassCardBorder(),
-        onClick = onClick,
+        modifier = Modifier.fillMaxWidth().glassCardBorder().clickable(
+            interactionSource = remember { MutableInteractionSource() },
+            indication = null,
+            onClick = onClick
+        ),
         colors = glassCardColors(
             containerColor = if (isSelected)
                 MaterialTheme.colorScheme.primaryContainer
