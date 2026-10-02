@@ -36,7 +36,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Folder
@@ -47,7 +51,10 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -67,6 +74,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -91,9 +99,13 @@ import com.pmcl.ui.util.decodeSampledBitmap
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import com.pmcl.ui.widget.PmclLazyColumn
 import com.pmcl.ui.widget.pmclVerticalScroll
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.coroutineContext
 import java.awt.FileDialog
 import java.awt.Frame
 import java.nio.file.Files
@@ -211,7 +223,23 @@ fun VersionSettingsPage(vm: LauncherViewModel, versionId: String, onBack: () -> 
     var width by remember(versionId) { mutableStateOf(blankIfZero(seeded.windowWidth)) }
     var height by remember(versionId) { mutableStateOf(blankIfZero(seeded.windowHeight)) }
     var fullscreen by remember(versionId) { mutableIntStateOf(seeded.fullscreenMode) }
+    val initialDebug = saved.debug
+    var nativesDir by remember(versionId) { mutableStateOf(initialDebug.nativesDir) }
+    var graphicsApi by remember(versionId) { mutableStateOf(initialDebug.graphicsApi) }
+    var graphicsDriver by remember(versionId) { mutableStateOf(initialDebug.driver) }
+    var skipDefaultJvm by remember(versionId) { mutableStateOf(initialDebug.isSkipDefaultJvmArgs) }
+    var skipOptimizingJvm by remember(versionId) { mutableStateOf(initialDebug.isSkipOptimizingJvmArgs) }
+    var skipGameCheck by remember(versionId) { mutableStateOf(initialDebug.isSkipGameCheck) }
+    var skipJvmCompat by remember(versionId) { mutableStateOf(initialDebug.isSkipJvmCheck) }
+    var skipNativesReplace by remember(versionId) { mutableStateOf(initialDebug.isSkipNativesReplace) }
+    var useNativeGlfw by remember(versionId) { mutableStateOf(initialDebug.isUseNativeGlfw) }
+    var useNativeOpenAl by remember(versionId) { mutableStateOf(initialDebug.isUseNativeOpenAl) }
+    val defaultNatives = remember(versionId) {
+        runCatching { vm.core.config.versionsDir.resolve(versionId).resolve("natives").toString() }
+            .getOrDefault(versionId)
+    }
     var committed by remember(versionId) { mutableStateOf(seeded.gameDir) }
+    var resolveDone by remember(versionId) { mutableStateOf(seeded.gameDir.isNotBlank()) }
     var section by remember(versionId) { mutableIntStateOf(0) }
     var library by remember(versionId) { mutableStateOf(VersionLibrary()) }
     var managed by remember(versionId) { mutableStateOf<Path?>(null) }
@@ -239,7 +267,8 @@ fun VersionSettingsPage(vm: LauncherViewModel, versionId: String, onBack: () -> 
         I18n.t("version_settings.screenshots"),
         I18n.t("version_settings.resourcepacks"),
         I18n.t("version_settings.shaders"),
-        I18n.t("version_settings.projections")
+        I18n.t("version_settings.projections"),
+        I18n.t("version_settings.debug")
     )
 
     fun currentSettings() = VersionSettings(
@@ -250,6 +279,12 @@ fun VersionSettingsPage(vm: LauncherViewModel, versionId: String, onBack: () -> 
         width.toIntOrNull() ?: 0,
         height.toIntOrNull() ?: 0,
         fullscreen
+    ).withDebug(
+        VersionSettings.DebugOptions(
+            nativesDir, graphicsApi, graphicsDriver,
+            skipDefaultJvm, skipOptimizingJvm, skipGameCheck, skipJvmCompat, skipNativesReplace,
+            useNativeGlfw, useNativeOpenAl
+        )
     )
 
     fun runAction(block: suspend () -> Unit) {
@@ -258,12 +293,15 @@ fun VersionSettingsPage(vm: LauncherViewModel, versionId: String, onBack: () -> 
             busy = true
             try {
                 block()
+                if (!isActive) return@launch
                 tick++
+            } catch (t: CancellationException) {
+                throw t
             } catch (t: Throwable) {
                 actionError = t.message?.takeIf { it.isNotBlank() } ?: t.javaClass.simpleName
                 tick++
             } finally {
-                busy = false
+                if (isActive) busy = false
             }
         }
     }
@@ -273,7 +311,10 @@ fun VersionSettingsPage(vm: LauncherViewModel, versionId: String, onBack: () -> 
         scope.launch {
             try {
                 val target = withContext(Dispatchers.IO) { VersionGameFiles.directory(dir, folder) }
+                if (!isActive) return@launch
                 java.awt.Desktop.getDesktop().open(target.toFile())
+            } catch (t: CancellationException) {
+                throw t
             } catch (t: Throwable) {
                 actionError = t.message?.takeIf { it.isNotBlank() } ?: t.javaClass.simpleName
             }
@@ -550,7 +591,7 @@ fun VersionSettingsPage(vm: LauncherViewModel, versionId: String, onBack: () -> 
                         }
                     )
                 }
-                else -> LibraryPane(
+                6 -> LibraryPane(
                     query = projectionQuery,
                     onQuery = { projectionQuery = it },
                     count = library.projections.size,
@@ -577,7 +618,10 @@ fun VersionSettingsPage(vm: LauncherViewModel, versionId: String, onBack: () -> 
                             scope.launch {
                                 try {
                                     withContext(Dispatchers.IO) { revealFile(path) }
+                                    if (!isActive) return@launch
                                     actionError = ""
+                                } catch (t: CancellationException) {
+                                    throw t
                                 } catch (t: Throwable) {
                                     actionError = t.message?.takeIf { it.isNotBlank() } ?: t.javaClass.simpleName
                                 }
@@ -589,32 +633,71 @@ fun VersionSettingsPage(vm: LauncherViewModel, versionId: String, onBack: () -> 
                             library = library.copy(projections = library.projections.filter { it.fileName != row.fileName })
                             runAction {
                                 withContext(Dispatchers.IO) {
-                                    VersionGameFiles.delete(dir, VersionGameFiles.SCHEMATICS, row.fileName)
+                                    VersionGameFiles.deleteSchematic(dir, row.fileName)
                                 }
                             }
                         }
                     )
                 }
+                else -> DebugSettings(
+                    defaultNatives = defaultNatives,
+                    nativesDir = nativesDir,
+                    onNativesDir = { nativesDir = it },
+                    graphicsApi = graphicsApi,
+                    onGraphicsApi = {
+                        graphicsApi = it
+                        if (it == VersionSettings.DebugOptions.API_DEFAULT) {
+                            graphicsDriver = VersionSettings.DebugOptions.DRIVER_DEFAULT
+                        }
+                    },
+                    driver = graphicsDriver,
+                    onDriver = { graphicsDriver = it },
+                    skipDefaultJvm = skipDefaultJvm,
+                    onSkipDefaultJvm = { skipDefaultJvm = it },
+                    skipOptimizingJvm = skipOptimizingJvm,
+                    onSkipOptimizingJvm = { skipOptimizingJvm = it },
+                    skipGameCheck = skipGameCheck,
+                    onSkipGameCheck = { skipGameCheck = it },
+                    skipJvmCompat = skipJvmCompat,
+                    onSkipJvmCompat = { skipJvmCompat = it },
+                    skipNativesReplace = skipNativesReplace,
+                    onSkipNativesReplace = { skipNativesReplace = it },
+                    useNativeGlfw = useNativeGlfw,
+                    onUseNativeGlfw = { useNativeGlfw = it },
+                    useNativeOpenAl = useNativeOpenAl,
+                    onUseNativeOpenAl = { useNativeOpenAl = it }
+                )
             }
         }
     }
 
     LaunchedEffect(versionId) {
-        if (gameDir.isNotBlank()) return@LaunchedEffect
-        val dir = withContext(Dispatchers.IO) {
-            try {
-                vm.core.profileBuilder().resolveGameDirectory(versionId).toString()
-            } catch (_: Throwable) {
-                ""
+        try {
+            if (gameDir.isBlank()) {
+                val dir = withContext(Dispatchers.IO) {
+                    try {
+                        vm.core.profileBuilder().resolveGameDirectory(versionId).toString()
+                    } catch (t: CancellationException) {
+                        throw t
+                    } catch (_: Throwable) {
+                        ""
+                    }
+                }
+                coroutineContext.ensureActive()
+                if (dir.isNotBlank() && gameDir.isBlank()) {
+                    val filled = vm.preferences.getVersionSettings(versionId)
+                        .filledFrom(vm.preferences, versionId, dir)
+                    gameDir = filled.gameDir
+                    committed = filled.gameDir
+                }
             }
+        } finally {
+            if (isActive) resolveDone = true
         }
-        if (dir.isBlank() || gameDir.isNotBlank()) return@LaunchedEffect
-        val filled = vm.preferences.getVersionSettings(versionId).filledFrom(vm.preferences, versionId, dir)
-        gameDir = filled.gameDir
-        committed = filled.gameDir
     }
 
-    LaunchedEffect(versionId, committed, tick) {
+    LaunchedEffect(versionId, committed, tick, resolveDone) {
+        if (!resolveDone) return@LaunchedEffect
         val sameDir = loadedPath == committed && tick > 0
         if (!sameDir) {
             loading = true
@@ -622,6 +705,7 @@ fun VersionSettingsPage(vm: LauncherViewModel, versionId: String, onBack: () -> 
             managed = null
         }
         val dir = resolveManagedDir(vm, versionId, committed)
+        coroutineContext.ensureActive()
         managed = dir
         if (dir == null) {
             library = VersionLibrary()
@@ -631,14 +715,20 @@ fun VersionSettingsPage(vm: LauncherViewModel, versionId: String, onBack: () -> 
             return@LaunchedEffect
         }
         try {
-            library = loadLibrary(dir, versionId)
+            val loaded = loadLibrary(dir, versionId)
+            coroutineContext.ensureActive()
+            library = loaded
             filesNote = dir.toString()
             actionError = ""
+        } catch (t: CancellationException) {
+            throw t
         } catch (t: Throwable) {
+            coroutineContext.ensureActive()
             if (!sameDir) library = VersionLibrary()
             filesNote = dir.toString()
             actionError = t.message?.takeIf { it.isNotBlank() } ?: t.javaClass.simpleName
         }
+        coroutineContext.ensureActive()
         loadedPath = committed
         loading = false
     }
@@ -1113,7 +1203,8 @@ private fun ProjectionList(
                 ) {
                     Text(row.title, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(
-                        row.summary + " · " + clock.format(Date(row.modified)),
+                        (if ('/' in row.fileName) row.fileName + " · " else "") +
+                            row.summary + " · " + clock.format(Date(row.modified)),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.outline,
                         maxLines = 1,
@@ -1272,6 +1363,252 @@ private fun EntryCard(content: @Composable RowScope.() -> Unit) {
 }
 
 @Composable
+private fun DebugSettings(
+    defaultNatives: String,
+    nativesDir: String,
+    onNativesDir: (String) -> Unit,
+    graphicsApi: String,
+    onGraphicsApi: (String) -> Unit,
+    driver: String,
+    onDriver: (String) -> Unit,
+    skipDefaultJvm: Boolean,
+    onSkipDefaultJvm: (Boolean) -> Unit,
+    skipOptimizingJvm: Boolean,
+    onSkipOptimizingJvm: (Boolean) -> Unit,
+    skipGameCheck: Boolean,
+    onSkipGameCheck: (Boolean) -> Unit,
+    skipJvmCompat: Boolean,
+    onSkipJvmCompat: (Boolean) -> Unit,
+    skipNativesReplace: Boolean,
+    onSkipNativesReplace: (Boolean) -> Unit,
+    useNativeGlfw: Boolean,
+    onUseNativeGlfw: (Boolean) -> Unit,
+    useNativeOpenAl: Boolean,
+    onUseNativeOpenAl: (Boolean) -> Unit
+) {
+    val os = System.getProperty("os.name").lowercase()
+    val linux = os.contains("linux")
+    val windows = os.contains("win")
+    var unsupportedOpen by remember { mutableStateOf(false) }
+    val shownDriver = if (driver in debugDrivers(graphicsApi, windows)) driver else VersionSettings.DebugOptions.DRIVER_DEFAULT
+    Column(
+        Modifier.fillMaxSize().pmclVerticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .background(Color(0xFFF6B73C), RoundedCornerShape(8.dp))
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            Icon(Icons.Filled.Warning, contentDescription = null, tint = Color(0xFF3A2A00), modifier = Modifier.size(18.dp))
+            Spacer(Modifier.size(8.dp))
+            Column {
+                Text(I18n.t("version_settings.debug_warning_title"), fontWeight = FontWeight.Bold, color = Color(0xFF3A2A00))
+                Text(I18n.t("version_settings.debug_warning"), style = MaterialTheme.typography.bodySmall, color = Color(0xFF3A2A00))
+            }
+        }
+        GlassCard {
+            DebugChoice(
+                title = I18n.t("version_settings.debug_natives"),
+                subtitle = nativesDir.ifBlank { defaultNatives },
+                value = "",
+                options = listOf(
+                    "" to I18n.t("version_settings.debug_natives_default"),
+                    "pick" to I18n.t("version_settings.debug_natives_pick")
+                ),
+                onSelect = { id ->
+                    if (id == "pick") pickDirectory()?.let(onNativesDir) else onNativesDir("")
+                }
+            )
+            HorizontalDivider()
+            DebugChoice(
+                title = I18n.t("version_settings.debug_api"),
+                value = debugApiLabel(graphicsApi),
+                options = listOf(
+                    VersionSettings.DebugOptions.API_DEFAULT to I18n.t("version_settings.debug_api_default"),
+                    VersionSettings.DebugOptions.API_OPENGL to I18n.t("version_settings.debug_api_opengl"),
+                    VersionSettings.DebugOptions.API_VULKAN to I18n.t("version_settings.debug_api_vulkan")
+                ),
+                onSelect = onGraphicsApi
+            )
+            HorizontalDivider()
+            DebugChoice(
+                title = I18n.t("version_settings.debug_driver"),
+                value = debugDriverLabel(shownDriver),
+                options = debugDrivers(graphicsApi, windows).map { it to debugDriverLabel(it) },
+                onSelect = onDriver
+            )
+            HorizontalDivider()
+            DebugSwitch(I18n.t("version_settings.debug_no_jvm"), skipDefaultJvm, onSkipDefaultJvm)
+            HorizontalDivider()
+            DebugSwitch(
+                I18n.t("version_settings.debug_no_opt"),
+                skipOptimizingJvm || skipDefaultJvm,
+                onSkipOptimizingJvm,
+                enabled = !skipDefaultJvm
+            )
+            HorizontalDivider()
+            DebugSwitch(I18n.t("version_settings.debug_no_game"), skipGameCheck, onSkipGameCheck)
+            HorizontalDivider()
+            DebugSwitch(I18n.t("version_settings.debug_no_jvm_check"), skipJvmCompat, onSkipJvmCompat)
+            HorizontalDivider()
+            DebugSwitch(I18n.t("version_settings.debug_no_natives"), skipNativesReplace, onSkipNativesReplace)
+            if (linux) {
+                HorizontalDivider()
+                DebugSwitch(I18n.t("version_settings.debug_native_glfw"), useNativeGlfw, onUseNativeGlfw)
+                HorizontalDivider()
+                DebugSwitch(I18n.t("version_settings.debug_native_openal"), useNativeOpenAl, onUseNativeOpenAl)
+            }
+            HorizontalDivider()
+            Column(Modifier.fillMaxWidth()) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = { unsupportedOpen = !unsupportedOpen }
+                        ),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(I18n.t("version_settings.debug_unsupported"), modifier = Modifier.weight(1f))
+                    Icon(
+                        if (unsupportedOpen) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                        contentDescription = null
+                    )
+                }
+                if (unsupportedOpen) {
+                    if (!linux) {
+                        Text(
+                            I18n.t("version_settings.debug_linux_only"),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                        DebugSwitch(I18n.t("version_settings.debug_native_glfw"), useNativeGlfw, onUseNativeGlfw)
+                        DebugSwitch(I18n.t("version_settings.debug_native_openal"), useNativeOpenAl, onUseNativeOpenAl)
+                    }
+                    if (!windows) {
+                        Text(
+                            I18n.t("version_settings.debug_windows_only"),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    if (linux && windows) {
+                        Text(I18n.t("version_settings.debug_unsupported_empty"), color = MaterialTheme.colorScheme.outline)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DebugChoice(
+    title: String,
+    value: String,
+    options: List<Pair<String, String>>,
+    onSelect: (String) -> Unit,
+    subtitle: String? = null
+) {
+    var open by remember { mutableStateOf(false) }
+    Box(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = { open = true }
+                ),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(title)
+                if (!subtitle.isNullOrBlank()) {
+                    Text(
+                        subtitle,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            if (value.isNotEmpty()) {
+                Text(value, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Icon(Icons.Filled.ArrowDropDown, contentDescription = null)
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            options.forEach { (id, label) ->
+                DropdownMenuItem(
+                    text = { Text(label) },
+                    onClick = {
+                        open = false
+                        onSelect(id)
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DebugSwitch(
+    title: String,
+    checked: Boolean,
+    onChange: (Boolean) -> Unit,
+    enabled: Boolean = true
+) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, modifier = Modifier.weight(1f))
+        Switch(checked = checked, onCheckedChange = onChange, enabled = enabled)
+    }
+}
+
+private fun debugDrivers(api: String, windows: Boolean): List<String> {
+    val options = when (api) {
+        VersionSettings.DebugOptions.API_OPENGL -> listOf(
+            VersionSettings.DebugOptions.DRIVER_DEFAULT,
+            VersionSettings.DebugOptions.DRIVER_LLVMPIPE,
+            VersionSettings.DebugOptions.DRIVER_ZINK,
+            VersionSettings.DebugOptions.DRIVER_D3D12
+        )
+        VersionSettings.DebugOptions.API_VULKAN -> listOf(
+            VersionSettings.DebugOptions.DRIVER_DEFAULT,
+            VersionSettings.DebugOptions.DRIVER_LAVAPIPE,
+            VersionSettings.DebugOptions.DRIVER_DOZEN
+        )
+        else -> listOf(VersionSettings.DebugOptions.DRIVER_DEFAULT)
+    }
+    return options.filter { id ->
+        when (id) {
+            VersionSettings.DebugOptions.DRIVER_D3D12,
+            VersionSettings.DebugOptions.DRIVER_DOZEN -> windows
+            else -> true
+        }
+    }
+}
+
+private fun debugApiLabel(api: String): String = when (api) {
+    VersionSettings.DebugOptions.API_OPENGL -> I18n.t("version_settings.debug_api_opengl")
+    VersionSettings.DebugOptions.API_VULKAN -> I18n.t("version_settings.debug_api_vulkan")
+    else -> I18n.t("version_settings.debug_api_default")
+}
+
+private fun debugDriverLabel(driver: String): String = when (driver) {
+    VersionSettings.DebugOptions.DRIVER_LLVMPIPE -> I18n.t("version_settings.debug_driver_llvmpipe")
+    VersionSettings.DebugOptions.DRIVER_ZINK -> I18n.t("version_settings.debug_driver_zink")
+    VersionSettings.DebugOptions.DRIVER_D3D12 -> I18n.t("version_settings.debug_driver_d3d12")
+    VersionSettings.DebugOptions.DRIVER_LAVAPIPE -> I18n.t("version_settings.debug_driver_lavapipe")
+    VersionSettings.DebugOptions.DRIVER_DOZEN -> I18n.t("version_settings.debug_driver_dozen")
+    else -> I18n.t("version_settings.debug_driver_default")
+}
+
+@Composable
 private fun GlassCard(content: @Composable ColumnScope.() -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth().glassCardBorder(16.dp),
@@ -1368,6 +1705,8 @@ private suspend fun resolveManagedDir(vm: LauncherViewModel, versionId: String, 
         return withContext(Dispatchers.IO) {
             try {
                 vm.core.profileBuilder().resolveGameDirectory(versionId)
+            } catch (t: CancellationException) {
+                throw t
             } catch (_: Throwable) {
                 null
             }
@@ -1421,31 +1760,28 @@ private suspend fun loadLibrary(gameDir: Path, versionId: String): VersionLibrar
     }.sortedBy { it.title.lowercase() }
     val projections = ArrayList<ProjectionRow>()
     BlockCatalog.open(versionId, gameDir).use { catalog ->
-        Files.list(schematicDir).use { stream ->
-            for (file in stream) {
-                if (projections.size >= 200) break
-                if (!Files.isRegularFile(file) || Files.isSymbolicLink(file)) continue
-                val name = file.fileName?.toString() ?: continue
-                if (!VersionGameFiles.accepts(VersionGameFiles.SCHEMATICS, name)) continue
-                val attrs = Files.readAttributes(file, java.nio.file.attribute.BasicFileAttributes::class.java)
-                val path = file.toAbsolutePath().normalize().toString()
-                val info = readProjection(path)
-                val title = info?.name?.takeIf { it.isNotBlank() } ?: name
-                val summary = if (info != null) {
-                    I18n.t(
-                        "version_settings.projection_summary",
-                        info.width, info.height, info.length, info.blocks
-                    )
-                } else {
-                    formatSize(attrs.size())
-                }
-                val blocks = info?.kinds?.map { kind ->
-                    ProjectionBlock(catalog.label(kind.name), kind.count, catalog.image(kind.name))
-                }.orEmpty()
-                projections.add(ProjectionRow(
-                    title, name, path, attrs.size(), attrs.lastModifiedTime().toMillis(), summary, blocks
-                ))
+        for (file in VersionGameFiles.schematicFiles(schematicDir)) {
+            coroutineContext.ensureActive()
+            if (projections.size >= 400) break
+            val relative = VersionGameFiles.schematicRelative(schematicDir, file)
+            val attrs = Files.readAttributes(file, java.nio.file.attribute.BasicFileAttributes::class.java)
+            val path = file.toString()
+            val info = readProjection(path)
+            val title = info?.name?.takeIf { it.isNotBlank() } ?: file.fileName.toString()
+            val summary = if (info != null) {
+                I18n.t(
+                    "version_settings.projection_summary",
+                    info.width, info.height, info.length, info.blocks
+                )
+            } else {
+                formatSize(attrs.size())
             }
+            val blocks = info?.kinds?.map { kind ->
+                ProjectionBlock(catalog.label(kind.name), kind.count, catalog.image(kind.name))
+            }.orEmpty()
+            projections.add(ProjectionRow(
+                title, relative, path, attrs.size(), attrs.lastModifiedTime().toMillis(), summary, blocks
+            ))
         }
     }
     projections.sortBy { it.title.lowercase() }

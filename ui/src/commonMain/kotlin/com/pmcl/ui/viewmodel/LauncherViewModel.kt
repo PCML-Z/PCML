@@ -120,6 +120,7 @@ class LauncherViewModel {
     init {
         // 注入 video 模块的主菜单背景视频处理器（JavaCV 实现）
         // core 模块不依赖 video，通过接口注入避免循环依赖；video 模块未就绪时该功能降级不可用
+        com.pmcl.core.util.LauncherLogCollector.setLevel(preferences.launcherLogLevel)
         try {
             core.profileBuilder().setMenuBackgroundProvider(com.pmcl.video.MenuBackgroundManager())
         } catch (e: Throwable) {
@@ -277,7 +278,12 @@ class LauncherViewModel {
      * 优雅关闭：清理联机/游戏进程、落盘偏好、关闭下载与日志，再取消协程。
      * 幂等；应在应用退出前调用，避免孤儿进程与未落盘配置。
      */
-    fun shutdown() {
+    fun shutdown() = shutdown(killGames = true)
+
+    /** 游戏已经启动后关闭启动器，不结束游戏进程。 */
+    fun shutdownLeavingGame() = shutdown(killGames = false)
+
+    private fun shutdown(killGames: Boolean) {
         if (shutDown) return
         shutDown = true
         try {
@@ -301,7 +307,7 @@ class LauncherViewModel {
         try { syncListener?.let { core.githubSync()?.removeListener(it) } } catch (_: Throwable) {}
         try { musicListener?.let { musicPlayer.removeListener(it) } } catch (_: Throwable) {}
         try { queueListener?.let { core.downloadQueue().removeListener(it) } } catch (_: Throwable) {}
-        try { core.shutdown() } catch (_: Throwable) {}
+        try { core.shutdown(killGames) } catch (_: Throwable) {}
         try { stopMusic() } catch (_: Throwable) {}
         scope.cancel()
     }
@@ -806,6 +812,24 @@ class LauncherViewModel {
         _liveWallpaperGlass.value = v
         themeState?.applyLiveWallpaperGlass(v)
     }
+
+    private val _fieldGeometry = MutableStateFlow(preferences.getFieldGeometry())
+    val fieldGeometry: StateFlow<String> = _fieldGeometry.asStateFlow()
+
+    fun setFieldGeometry(v: String) {
+        preferences.setFieldGeometry(v)
+        _fieldGeometry.value = preferences.getFieldGeometry()
+        themeState?.applyFieldGeometry(_fieldGeometry.value)
+    }
+
+    private val _fieldLineStyle = MutableStateFlow(preferences.getFieldLineStyle())
+    val fieldLineStyle: StateFlow<String> = _fieldLineStyle.asStateFlow()
+
+    fun setFieldLineStyle(v: String) {
+        preferences.setFieldLineStyle(v)
+        _fieldLineStyle.value = preferences.getFieldLineStyle()
+        themeState?.applyFieldLineStyle(_fieldLineStyle.value)
+    }
     fun setLockscreenLaunchTheme(v: Boolean) {
         preferences.setLockscreenLaunchTheme(v)
         _lockscreenLaunchTheme.value = v
@@ -1165,6 +1189,32 @@ class LauncherViewModel {
     val shareUrl: StateFlow<String?> = _shareUrl.asStateFlow()
 
     @PublishedApi internal val _gameRunning = MutableStateFlow(false)
+
+    private val _windowAction = MutableStateFlow(LauncherWindowAction.NONE)
+    val windowAction: StateFlow<LauncherWindowAction> = _windowAction.asStateFlow()
+
+    private val _openGameLog = MutableStateFlow(false)
+    val openGameLog: StateFlow<Boolean> = _openGameLog.asStateFlow()
+
+    fun consumeWindowAction() { _windowAction.value = LauncherWindowAction.NONE }
+    fun consumeOpenGameLog() { _openGameLog.value = false }
+
+    internal fun onGameProcessStarted() {
+        if (preferences.isShowGameOutput()) _openGameLog.value = true
+        _windowAction.value = when (preferences.launcherAfterGame) {
+            "MINIMIZE" -> LauncherWindowAction.MINIMIZE
+            "HIDE" -> LauncherWindowAction.HIDE
+            "CLOSE" -> LauncherWindowAction.EXIT
+            else -> LauncherWindowAction.NONE
+        }
+    }
+
+    internal fun onGameProcessEnded() {
+        val mode = preferences.launcherAfterGame
+        if (mode == "MINIMIZE" || mode == "HIDE") {
+            _windowAction.value = LauncherWindowAction.SHOW
+        }
+    }
     val gameRunning: StateFlow<Boolean> = _gameRunning.asStateFlow()
 
     /** 启动准备互斥：防双击并行构建两套 profile；进程已启动后释放以允许多开 */
@@ -1350,6 +1400,9 @@ class LauncherViewModel {
 
     @PublishedApi internal val _shaderPacks = MutableStateFlow<List<ShaderPackManager.ShaderPack>>(emptyList())
     val shaderPacks: StateFlow<List<ShaderPackManager.ShaderPack>> = _shaderPacks.asStateFlow()
+
+    @PublishedApi internal val _projections = MutableStateFlow<List<ManagedProjection>>(emptyList())
+    val projections: StateFlow<List<ManagedProjection>> = _projections.asStateFlow()
 
     @PublishedApi internal val _datapacks = MutableStateFlow<List<DatapackManager.Datapack>>(emptyList())
     val datapacks: StateFlow<List<DatapackManager.Datapack>> = _datapacks.asStateFlow()
@@ -2195,9 +2248,11 @@ class LauncherViewModel {
                 _modLoaderVersions.value = list
                 _status.value = I18n.t("status.loader_versions_loaded", list.size, loader)
                 DataCache.save(cacheKey, list)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Throwable) {
                 _modLoaderVersions.value = emptyList()
-                _status.value = I18n.t("status.fetch_failed", e.message ?: I18n.t("common.unknown"))
+                _status.value = I18n.t("status.fetch_failed", rootCauseMessage(e))
             } finally {
                 _modLoaderVersionsLoading.value = false
             }
@@ -2659,7 +2714,9 @@ class LauncherViewModel {
                                 if (logs.size > 2000) logs.subList(0, logs.size - 2000).clear()
                             }
                         }
-                        if (_runningInstances.value.any { it.id == instanceId && it.active }) {
+                        if (preferences.isShowGameOutput()
+                            && _runningInstances.value.any { it.id == instanceId && it.active }
+                        ) {
                             appendGameLog(line)
                         }
                         if (com.pmcl.core.launch.CrashAnalyzer.looksLikeCrash(line)
@@ -2703,10 +2760,15 @@ class LauncherViewModel {
                             }
                         } catch (_: Throwable) { }
                     },
-                    instLogger
-                )
+                    instLogger,
+                    null
+                ) { onGameProcessStarted() }
                 launchPreparing.set(false)
                 val exitCode = awaitCancellableFuture(future)
+                if (exitCode == com.pmcl.core.launch.LaunchManager.EXIT_DETACHED) {
+                    return@launch
+                }
+                onGameProcessEnded()
                 if (exitCode == com.pmcl.core.launch.LaunchManager.EXIT_CANCELLED) {
                     _status.value = I18n.t("status.launch_cancelled")
                     appendGameLog(I18n.t("status.launch_cancelled"))
@@ -3836,3 +3898,5 @@ class LauncherViewModel {
     //       toggleMusicMute / cycleMusicRepeatMode / toggleMusicShuffle / removeMusicTrack /
     //       clearMusicPlaylist / currentMusicTrack / persistMusicPlaylist
 }
+
+enum class LauncherWindowAction { NONE, MINIMIZE, HIDE, SHOW, EXIT }

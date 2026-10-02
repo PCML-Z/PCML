@@ -10,6 +10,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
@@ -26,6 +27,10 @@ public final class LaunchManager {
      * UI 不得将其当作游戏崩溃弹窗。
      */
     public static final int EXIT_CANCELLED = -100;
+    /** 启动器退出时把游戏留在系统里，不把它当成崩溃。 */
+    public static final int EXIT_DETACHED = -101;
+
+    private volatile boolean leaveGamesRunning = false;
 
     private final LauncherConfig config;
     private final Preferences preferences;
@@ -170,6 +175,10 @@ public final class LaunchManager {
             }
             logger.append(sb.toString());
         }
+        if (preferences != null && preferences.isMacMicrophoneRequest()) {
+            if (onLog != null) onLog.accept(com.pmcl.core.i18n.I18n.t("launch.mic_request"));
+            MacMicrophone.request(javaExecutable);
+        }
         ProcessBuilder pb = new ProcessBuilder(cmd);
         // 用 profile 实际的 gameDir 作为进程工作目录（支持启动外部 Minecraft 安装）
         pb.directory(profile.getGameDir().toFile());
@@ -177,7 +186,20 @@ public final class LaunchManager {
         if (profile.getEnv() != null && !profile.getEnv().isEmpty()) {
             pb.environment().putAll(profile.getEnv());
         }
-        pb.redirectErrorStream(true);
+        boolean detachOutput = preferences != null && "CLOSE".equals(preferences.getLauncherAfterGame());
+        if (detachOutput) {
+            Path out = logger != null ? logger.getLogFile() : null;
+            if (logger != null) logger.close();
+            if (out != null) {
+                pb.redirectOutput(ProcessBuilder.Redirect.appendTo(out.toFile()));
+                pb.redirectErrorStream(true);
+            } else {
+                pb.redirectOutput(ProcessBuilder.Redirect.DISCARD);
+                pb.redirectError(ProcessBuilder.Redirect.DISCARD);
+            }
+        } else {
+            pb.redirectErrorStream(true);
+        }
         Process process = pb.start();
         activeProcesses.add(process);
         // 关闭 stdin：Redirect.DISCARD 只能用于 stdout/stderr（type=WRITE），
@@ -188,6 +210,9 @@ public final class LaunchManager {
         } catch (IOException ignored) {
         }
 
+        if (detachOutput) {
+            return process;
+        }
         java.util.concurrent.BlockingQueue<String> logQueue =
                 new java.util.concurrent.ArrayBlockingQueue<>(LOG_QUEUE_CAPACITY);
         java.util.concurrent.atomic.AtomicInteger droppedUiLogs =
@@ -293,6 +318,15 @@ public final class LaunchManager {
                                                   Consumer<String> onLog,
                                                   GameLogger logger,
                                                   LaunchTracer tracer) {
+        return launchAsync(profile, javaExecutable, onLog, logger, tracer, null);
+    }
+
+    public CompletableFuture<Integer> launchAsync(LaunchProfile profile,
+                                                  String javaExecutable,
+                                                  Consumer<String> onLog,
+                                                  GameLogger logger,
+                                                  LaunchTracer tracer,
+                                                  Runnable onStarted) {
         String versionId = profile.getVersionId();
         return CompletableFuture.supplyAsync(() -> {
             Process process = null;
@@ -313,6 +347,9 @@ public final class LaunchManager {
                         : onLog;
                 process = launch(profile, javaExecutable, tracedOnLog, logger, readerHolder, false);
                 if (tracer != null) tracer.mark("process_started");
+                if (onStarted != null) {
+                    try { onStarted.run(); } catch (Throwable ignored) {}
+                }
 
                 // 澪模式：游戏进程已启动后再做提权调优，避免启动前卡在管理员密码框
                 if (preferences != null && preferences.isMioModeEnabled()) {
@@ -420,6 +457,10 @@ public final class LaunchManager {
                 // P1-1: 捕获 Throwable 而非仅 IOException|InterruptedException，
                 // 确保插件 RuntimeException 也能触发进程清理，防止僵尸进程残留。
                 if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+                if (leaveGamesRunning) {
+                    if (process != null) activeProcesses.remove(process);
+                    return EXIT_DETACHED;
+                }
                 // 异常路径：销毁可能已启动的进程，防止僵尸进程残留
                 if (process != null) {
                     activeProcesses.remove(process);
@@ -661,7 +702,15 @@ public final class LaunchManager {
 
     /** 关闭启动专用线程池（应用退出时调用） */
     public void shutdown() {
-        killAllProcesses();
+        shutdown(true);
+    }
+
+    /**
+     * @param killGames {@code false} 时留下已经启动的游戏，供「关闭启动器」使用
+     */
+    public void shutdown(boolean killGames) {
+        if (!killGames) leaveGamesRunning = true;
+        if (killGames) killAllProcesses();
         launchExecutor.shutdownNow();
     }
 }

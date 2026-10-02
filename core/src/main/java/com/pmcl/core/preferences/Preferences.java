@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.pmcl.core.auth.TokenEncryptor;
+import com.pmcl.core.automation.AutomationCommand;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -41,17 +42,22 @@ public final class Preferences {
     private boolean showPerfHud = false;      // 是否显示性能 HUD 浮窗（半透明置顶小窗）
     private String perfHudMetrics = "CPU,MEM,GPU,FPS"; // HUD 显示的指标，逗号分隔
     private float uiScale = 1.0f;             // UI 缩放系数（0.8~1.5），1.0 = 默认大小
+    private String launcherFont = "";         // 界面字体，空字符串表示 DIN Pro，没有则用苹方
     private boolean parallaxBackground = true; // 视差背景主题：多层鼠标视差背景图
     private String launcherBgType = "none";     // 启动器自定义背景：none/image/video（优先级高于视差背景）
     private String launcherBgImagePath = "";    // 自定义背景图片路径
     private String launcherBgVideoPath = "";    // 自定义背景视频路径
     private boolean glassTheme = true;          // 玻璃主题：卡片毛玻璃效果
-    /** 实验材质主题：整页浅灰板。关闭后回到玻璃或标准主题。 */
-    private boolean materialTheme = false;
-    /** 实时壁纸毛玻璃：把当前壁纸逐帧模糊，和材质主题分开。 */
-    private boolean liveWallpaperGlass = false;
+    /** 发行默认：材质主题开着。关闭后回到玻璃或标准主题。 */
+    private boolean materialTheme = true;
+    /** 发行默认：实时壁纸毛玻璃开着。和材质主题分开。 */
+    private boolean liveWallpaperGlass = true;
     private boolean lockscreenLaunchTheme = false; // 锁屏启动页主题：Origin OS2 风格方形卡片启动页
-    private String themePreset = "default";        // 主题色彩预设：default/ocean/forest/sunset/lavender/sakura/midnight
+    /** 材质角落图形：LINES/CIRCLES/TRIANGLES/DIAMONDS/GRID/ARCS/CROSS */
+    private String fieldGeometry = "LINES";
+    /** 材质角落线条：SOLID/DASHED/DOTTED/DOUBLE */
+    private String fieldLineStyle = "SOLID";
+    private String themePreset = "midnight";       // 发行默认配色。可选 default/ocean/forest/sunset/lavender/sakura/midnight
     private String colorMode = "normal";           // 色彩模式：normal/amoled/high_contrast/soft
     private String customThemePackId = "";         // 插件主题包 ID（空表示未使用插件主题）
     private String language = "zh_CN";             // zh_CN / en_US
@@ -68,6 +74,11 @@ public final class Preferences {
     private java.util.Map<String, Long> lastPlayedTimes = new java.util.HashMap<>();  // versionId → epoch millis
     private java.util.Map<String, String> pinnedTileLabels = new java.util.HashMap<>();  // versionId → 自定义磁贴名称
     private String customJvmArgs = "";
+    /** 用户指定的游戏 Java Agent，启动时附加为 -javaagent。最多 {@link #MAX_JAVA_AGENTS} 个。 */
+    private final java.util.List<JavaAgentSetting> javaAgents = new java.util.ArrayList<>();
+    /** 设置里的自动化命令。Kotlin / Java 存源码，C / C++ / Go 只存可执行文件路径。 */
+    private final java.util.List<AutomationCommand> automationCommands = new java.util.ArrayList<>();
+    private static final int MAX_JAVA_AGENTS = 8;
     private String gcType = "G1GC";
     private boolean useAikarFlags = true;
     private boolean useSegmentedLaunchLayout = false; // 启动页布局：false=最初分栏布局，true=底部滑块切换布局
@@ -101,6 +112,18 @@ public final class Preferences {
     private int gameServerPort = 25565;      // 服务器端口（--port）
     private java.util.List<String[]> favoriteServers = new java.util.ArrayList<>();  // 收藏的服务器列表，每项 [name, host, port]
     private String gameRenderer = "AUTO";    // 渲染器：AUTO/OPENGL/VULKAN/DIRECTX（--renderer / GLFW强制指定）
+    private boolean linuxZink = false;       // Linux：用 Mesa Zink 把 OpenGL 转到 Vulkan
+    private boolean macMicrophoneRequest = false; // macOS：启动前用游戏 Java 请求麦克风权限
+    private boolean preferUtf8 = true;       // 游戏进程优先使用 UTF-8
+    private boolean preferIPv4 = false;      // 游戏进程优先 IPv4
+    private boolean imeFixAgent = false;     // 启动时附加输入法 Java Agent
+    private int resourceRepairRetries = 3;   // 启动前资源补全，单个文件失败后再试次数
+    private boolean fastResourceCheck = false; // 已有库只核对大小，不算 SHA-1
+    private String nativesReplaceStrategy = "AUTO"; // AUTO / ALWAYS / NEVER
+    private String launcherAfterGame = "KEEP"; // KEEP / MINIMIZE / HIDE / CLOSE
+    private int resourceCheckParallelism = 16;
+    private boolean showGameOutput = true;
+    private String launcherLogLevel = "DEBUG"; // DEBUG / INFO / WARN / ERROR / OFF
     private String windowIconPath = "";      // 自定义游戏窗口图标 PNG 路径（注入到 <gameDir>/icons/）
     private String customMenuBackgroundVideo = "";  // 自定义主菜单背景视频路径（启动前提取 6 帧生成 panorama 资源包）
     private String customNativesPath = "";   // 自定义原生库目录路径（为空则从版本 libraries 提取 natives）
@@ -241,6 +264,25 @@ public final class Preferences {
     public synchronized void setMaterialTheme(boolean v) { materialTheme = v; scheduleSave(); }
     public synchronized boolean isLiveWallpaperGlass() { return liveWallpaperGlass; }
     public synchronized void setLiveWallpaperGlass(boolean v) { liveWallpaperGlass = v; scheduleSave(); }
+
+    public synchronized String getFieldGeometry() { return fieldGeometry; }
+    public synchronized void setFieldGeometry(String v) {
+        fieldGeometry = allowed(v, "LINES", "CIRCLES", "TRIANGLES", "DIAMONDS", "GRID", "ARCS", "CROSS");
+        scheduleSave();
+    }
+    public synchronized String getFieldLineStyle() { return fieldLineStyle; }
+    public synchronized void setFieldLineStyle(String v) {
+        fieldLineStyle = allowed(v, "SOLID", "DASHED", "DOTTED", "DOUBLE");
+        scheduleSave();
+    }
+
+    private static String allowed(String value, String fallback, String... options) {
+        if (value == null) return fallback;
+        for (String option : options) {
+            if (option.equals(value)) return option;
+        }
+        return fallback;
+    }
     public synchronized boolean isLockscreenLaunchTheme() { return lockscreenLaunchTheme; }
     public synchronized void setLockscreenLaunchTheme(boolean v) { lockscreenLaunchTheme = v; scheduleSave(); }
     public synchronized String getThemePreset() { return themePreset; }
@@ -249,6 +291,13 @@ public final class Preferences {
     public synchronized void setColorMode(String v) { colorMode = v; scheduleSave(); }
     public synchronized String getCustomThemePackId() { return customThemePackId; }
     public synchronized void setCustomThemePackId(String v) { customThemePackId = v == null ? "" : v; scheduleSave(); }
+    /** 界面字体家族名。空字符串表示自动：DIN Pro，否则 PingFang SC。 */
+    public synchronized String getLauncherFont() { return launcherFont; }
+    public synchronized void setLauncherFont(String v) {
+        launcherFont = v == null ? "" : v;
+        scheduleSave();
+    }
+
     public synchronized void setUiScale(float v) {
         // M18 修复：范围与注释一致（0.8~1.5），过滤 NaN/Infinity
         if (Float.isNaN(v) || Float.isInfinite(v)) return;
@@ -399,6 +448,71 @@ public final class Preferences {
 
     public synchronized String getCustomJvmArgs() { return customJvmArgs; }
     public synchronized void setCustomJvmArgs(String v) { customJvmArgs = v == null ? "" : v; scheduleSave(); }
+
+    /** 游戏进程要附加的 Java Agent。返回副本。 */
+    public synchronized java.util.List<JavaAgentSetting> getJavaAgents() {
+        return java.util.List.copyOf(javaAgents);
+    }
+
+    /** 用校验后的列表替换 Java Agent。非 jar、相对路径和带控制字符的条目会被丢掉。 */
+    public synchronized void setJavaAgents(java.util.List<JavaAgentSetting> agents) {
+        javaAgents.clear();
+        if (agents != null) {
+            java.util.LinkedHashSet<String> seen = new java.util.LinkedHashSet<>();
+            for (JavaAgentSetting agent : agents) {
+                if (javaAgents.size() >= MAX_JAVA_AGENTS) break;
+                JavaAgentSetting clean = sanitizeJavaAgent(
+                        agent == null ? "" : agent.getPath(),
+                        agent == null ? "" : agent.getOptions());
+                if (clean != null && seen.add(clean.getPath())) javaAgents.add(clean);
+            }
+        }
+        scheduleSave();
+    }
+
+    public synchronized java.util.List<AutomationCommand> getAutomationCommands() {
+        return java.util.List.copyOf(automationCommands);
+    }
+
+    /** 用校验后的列表替换自动化命令。非法语言、相对路径和控制字符会被丢掉。 */
+    public synchronized void setAutomationCommands(java.util.List<AutomationCommand> commands) {
+        automationCommands.clear();
+        if (commands != null) {
+            java.util.LinkedHashSet<String> seen = new java.util.LinkedHashSet<>();
+            for (AutomationCommand command : commands) {
+                if (automationCommands.size() >= AutomationCommand.MAX_COMMANDS) break;
+                if (command == null) continue;
+                AutomationCommand clean = AutomationCommand.sanitize(
+                        command.getId(), command.getName(), command.getLanguage(), command.getTrigger(),
+                        command.isEnabled(), command.getSource(), command.getExecutable(), command.getArgs());
+                if (clean != null && seen.add(clean.getId())) automationCommands.add(clean);
+            }
+        }
+        scheduleSave();
+    }
+
+    private static JavaAgentSetting sanitizeJavaAgent(String path, String options) {
+        if (path == null) return null;
+        String jar = path.trim();
+        String opt = options == null ? "" : options.trim();
+        if (jar.isEmpty() || jar.length() > 1024 || opt.length() > 256) return null;
+        if (hasControlChar(jar) || hasControlChar(opt) || jar.indexOf('=') >= 0) return null;
+        if (!jar.toLowerCase(Locale.ROOT).endsWith(".jar")) return null;
+        try {
+            if (!Path.of(jar).isAbsolute()) return null;
+        } catch (Exception e) {
+            return null;
+        }
+        return new JavaAgentSetting(jar, opt);
+    }
+
+    private static boolean hasControlChar(String value) {
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c < 0x20 || c == 0x7f) return true;
+        }
+        return false;
+    }
 
     public synchronized String getGcType() { return gcType; }
     public synchronized void setGcType(String v) { gcType = v == null ? "G1GC" : v; scheduleSave(); }
@@ -578,6 +692,77 @@ public final class Preferences {
             gameRenderer = upper;
         }
         scheduleSave();
+    }
+
+    /** Linux 上用 Mesa Zink 运行 OpenGL。其它系统保存该值，但启动时不使用。 */
+    public synchronized boolean isLinuxZink() { return linuxZink; }
+    public synchronized void setLinuxZink(boolean v) { linuxZink = v; scheduleSave(); }
+
+    /** macOS 启动游戏前，用即将运行游戏的 Java 请求麦克风权限。其它系统不使用。 */
+    public synchronized boolean isMacMicrophoneRequest() { return macMicrophoneRequest; }
+    public synchronized void setMacMicrophoneRequest(boolean v) { macMicrophoneRequest = v; scheduleSave(); }
+
+    public synchronized boolean isPreferUtf8() { return preferUtf8; }
+    public synchronized void setPreferUtf8(boolean v) { preferUtf8 = v; scheduleSave(); }
+
+    public synchronized boolean isPreferIPv4() { return preferIPv4; }
+    public synchronized void setPreferIPv4(boolean v) { preferIPv4 = v; scheduleSave(); }
+
+    /** 启动游戏时附加输入法 Agent。默认关闭。 */
+    public synchronized boolean isImeFixAgent() { return imeFixAgent; }
+    public synchronized void setImeFixAgent(boolean v) { imeFixAgent = v; scheduleSave(); }
+
+    public synchronized int getResourceRepairRetries() { return resourceRepairRetries; }
+    public synchronized void setResourceRepairRetries(int v) {
+        if (v < 0 || v > 20) return;
+        resourceRepairRetries = v;
+        scheduleSave();
+    }
+
+    public synchronized boolean isFastResourceCheck() { return fastResourceCheck; }
+    public synchronized void setFastResourceCheck(boolean v) { fastResourceCheck = v; scheduleSave(); }
+
+    /** AUTO：jar 变化或目录不完整时重解压。ALWAYS：每次启动重解压。NEVER：目录可用则不替换。 */
+    public synchronized String getNativesReplaceStrategy() { return nativesReplaceStrategy; }
+    public synchronized void setNativesReplaceStrategy(String v) {
+        if (v == null) v = "AUTO";
+        String upper = v.toUpperCase(java.util.Locale.ROOT);
+        if (upper.equals("AUTO") || upper.equals("ALWAYS") || upper.equals("NEVER")) {
+            nativesReplaceStrategy = upper;
+            scheduleSave();
+        }
+    }
+
+    /** 游戏进程起来之后：KEEP 保持，MINIMIZE 最小化，HIDE 隐藏并在退出后恢复，CLOSE 退出启动器但留下游戏。 */
+    public synchronized String getLauncherAfterGame() { return launcherAfterGame; }
+    public synchronized void setLauncherAfterGame(String v) {
+        if (v == null) v = "KEEP";
+        String upper = v.toUpperCase(java.util.Locale.ROOT);
+        if (upper.equals("KEEP") || upper.equals("MINIMIZE") || upper.equals("HIDE") || upper.equals("CLOSE")) {
+            launcherAfterGame = upper;
+            scheduleSave();
+        }
+    }
+
+    public synchronized int getResourceCheckParallelism() { return resourceCheckParallelism; }
+    public synchronized void setResourceCheckParallelism(int v) {
+        if (v < 1 || v > 64) return;
+        resourceCheckParallelism = v;
+        scheduleSave();
+    }
+
+    public synchronized boolean isShowGameOutput() { return showGameOutput; }
+    public synchronized void setShowGameOutput(boolean v) { showGameOutput = v; scheduleSave(); }
+
+    public synchronized String getLauncherLogLevel() { return launcherLogLevel; }
+    public synchronized void setLauncherLogLevel(String v) {
+        if (v == null) v = "DEBUG";
+        String upper = v.toUpperCase(java.util.Locale.ROOT);
+        if (upper.equals("DEBUG") || upper.equals("INFO") || upper.equals("WARN")
+                || upper.equals("ERROR") || upper.equals("OFF")) {
+            launcherLogLevel = upper;
+            scheduleSave();
+        }
     }
 
     /** 自定义游戏窗口图标 PNG 路径（空则使用 MC 默认图标） */
@@ -774,6 +959,20 @@ public final class Preferences {
 
     // ===== 启动预设 =====
 
+    /** 用户选择的游戏 Java Agent：绝对路径的 jar，以及可选的 agent 参数。 */
+    public static final class JavaAgentSetting {
+        private final String path;
+        private final String options;
+
+        public JavaAgentSetting(String path, String options) {
+            this.path = path == null ? "" : path;
+            this.options = options == null ? "" : options;
+        }
+
+        public String getPath() { return path; }
+        public String getOptions() { return options; }
+    }
+
     /** 启动预设：保存一组启动参数快照（内存/JVM/GC/窗口/全屏/服务器等） */
     public static final class LaunchPreset {
         public final String name;
@@ -958,10 +1157,14 @@ public final class Preferences {
             launcherBgImagePath = loadString(o, "launcherBgImagePath", "");
             launcherBgVideoPath = loadString(o, "launcherBgVideoPath", "");
             glassTheme = loadBool(o, "glassTheme", true);
-            materialTheme = loadBool(o, "materialTheme", false);
-            liveWallpaperGlass = loadBool(o, "liveWallpaperGlass", false);
+            materialTheme = loadBool(o, "materialTheme", true);
+            liveWallpaperGlass = loadBool(o, "liveWallpaperGlass", true);
+            fieldGeometry = allowed(loadString(o, "fieldGeometry", "LINES"),
+                    "LINES", "CIRCLES", "TRIANGLES", "DIAMONDS", "GRID", "ARCS", "CROSS");
+            fieldLineStyle = allowed(loadString(o, "fieldLineStyle", "SOLID"),
+                    "SOLID", "DASHED", "DOTTED", "DOUBLE");
             lockscreenLaunchTheme = loadBool(o, "lockscreenLaunchTheme", false);
-            themePreset = loadString(o, "themePreset", "default");
+            themePreset = loadString(o, "themePreset", "midnight");
             colorMode = loadString(o, "colorMode", "normal");
             customThemePackId = loadString(o, "customThemePackId", "");
             firstLaunchCompleted = loadBool(o, "firstLaunchCompleted", false);
@@ -1010,6 +1213,7 @@ public final class Preferences {
             connectxServerPort = loadInt(o, "connectxServerPort", 3535, 1, 65535);
             // 浮点字段（带范围校验 + NaN/Infinity 过滤）
             uiScale = loadFloat(o, "uiScale", 1.0f, 0.8f, 1.5f);
+            launcherFont = loadString(o, "launcherFont", "");
             // 字符串字段
             perfHudMetrics = loadString(o, "perfHudMetrics", "CPU,MEM,GPU,FPS");
             language = loadString(o, "language", "zh_CN");
@@ -1019,6 +1223,28 @@ public final class Preferences {
             githubRepo = loadString(o, "githubRepo", "PCML-Z/PCML");
             if (githubRepo.isBlank()) githubRepo = "PCML-Z/PCML";
             customJvmArgs = loadString(o, "customJvmArgs", "");
+            javaAgents.clear();
+            if (o.has("javaAgents") && o.get("javaAgents").isJsonArray()) {
+                java.util.LinkedHashSet<String> seenAgents = new java.util.LinkedHashSet<>();
+                for (var e : o.getAsJsonArray("javaAgents")) {
+                    if (!e.isJsonObject() || javaAgents.size() >= MAX_JAVA_AGENTS) continue;
+                    var obj = e.getAsJsonObject();
+                    String path = obj.has("path") && !obj.get("path").isJsonNull() ? obj.get("path").getAsString() : "";
+                    String options = obj.has("options") && !obj.get("options").isJsonNull()
+                            ? obj.get("options").getAsString() : "";
+                    JavaAgentSetting clean = sanitizeJavaAgent(path, options);
+                    if (clean != null && seenAgents.add(clean.getPath())) javaAgents.add(clean);
+                }
+            }
+            automationCommands.clear();
+            if (o.has("automationCommands") && o.get("automationCommands").isJsonArray()) {
+                java.util.LinkedHashSet<String> seenAutomation = new java.util.LinkedHashSet<>();
+                for (var e : o.getAsJsonArray("automationCommands")) {
+                    if (!e.isJsonObject() || automationCommands.size() >= AutomationCommand.MAX_COMMANDS) continue;
+                    AutomationCommand clean = AutomationCommand.fromJson(e.getAsJsonObject());
+                    if (clean != null && seenAutomation.add(clean.getId())) automationCommands.add(clean);
+                }
+            }
             gcType = loadString(o, "gcType", "G1GC");
             javaPath = loadString(o, "javaPath", "");
             // 旧配置里已有手动路径时迁移到选择模式，保持升级前行为。
@@ -1028,6 +1254,29 @@ public final class Preferences {
             legacyTranslationMode = loadString(o, "legacyTranslationMode", "AUTO");
             gameServerHost = loadString(o, "gameServerHost", "");
             gameRenderer = loadString(o, "gameRenderer", "AUTO");
+            linuxZink = loadBool(o, "linuxZink", false);
+            macMicrophoneRequest = loadBool(o, "macMicrophoneRequest", false);
+            preferUtf8 = loadBool(o, "preferUtf8", true);
+            preferIPv4 = loadBool(o, "preferIPv4", false);
+            imeFixAgent = loadBool(o, "imeFixAgent", false);
+            resourceRepairRetries = loadInt(o, "resourceRepairRetries", 3, 0, 20);
+            fastResourceCheck = loadBool(o, "fastResourceCheck", false);
+            nativesReplaceStrategy = loadString(o, "nativesReplaceStrategy", "AUTO");
+            if (!"ALWAYS".equals(nativesReplaceStrategy) && !"NEVER".equals(nativesReplaceStrategy)) {
+                nativesReplaceStrategy = "AUTO";
+            }
+            launcherAfterGame = loadString(o, "launcherAfterGame", "KEEP");
+            if (!"MINIMIZE".equals(launcherAfterGame) && !"HIDE".equals(launcherAfterGame)
+                    && !"CLOSE".equals(launcherAfterGame)) {
+                launcherAfterGame = "KEEP";
+            }
+            resourceCheckParallelism = loadInt(o, "resourceCheckParallelism", 16, 1, 64);
+            showGameOutput = loadBool(o, "showGameOutput", true);
+            launcherLogLevel = loadString(o, "launcherLogLevel", "DEBUG");
+            if (!"INFO".equals(launcherLogLevel) && !"WARN".equals(launcherLogLevel)
+                    && !"ERROR".equals(launcherLogLevel) && !"OFF".equals(launcherLogLevel)) {
+                launcherLogLevel = "DEBUG";
+            }
             windowIconPath = loadString(o, "windowIconPath", "");
             customMenuBackgroundVideo = loadString(o, "customMenuBackgroundVideo", "");
             customNativesPath = loadString(o, "customNativesPath", "");
@@ -1289,6 +1538,7 @@ public final class Preferences {
         o.addProperty("showPerfHud", showPerfHud);
         o.addProperty("perfHudMetrics", perfHudMetrics);
         o.addProperty("uiScale", uiScale);
+        o.addProperty("launcherFont", launcherFont);
         o.addProperty("parallaxBackground", parallaxBackground);
         o.addProperty("launcherBgType", launcherBgType);
         o.addProperty("launcherBgImagePath", launcherBgImagePath);
@@ -1296,6 +1546,8 @@ public final class Preferences {
         o.addProperty("glassTheme", glassTheme);
         o.addProperty("materialTheme", materialTheme);
         o.addProperty("liveWallpaperGlass", liveWallpaperGlass);
+        o.addProperty("fieldGeometry", fieldGeometry);
+        o.addProperty("fieldLineStyle", fieldLineStyle);
         o.addProperty("lockscreenLaunchTheme", lockscreenLaunchTheme);
         o.addProperty("themePreset", themePreset);
         o.addProperty("colorMode", colorMode);
@@ -1327,6 +1579,17 @@ public final class Preferences {
         }
         o.add("pinnedTileLabels", labelsObj);
         o.addProperty("customJvmArgs", customJvmArgs);
+        com.google.gson.JsonArray agentArr = new com.google.gson.JsonArray();
+        for (JavaAgentSetting agent : javaAgents) {
+            JsonObject item = new JsonObject();
+            item.addProperty("path", agent.getPath());
+            item.addProperty("options", agent.getOptions());
+            agentArr.add(item);
+        }
+        o.add("javaAgents", agentArr);
+        com.google.gson.JsonArray automationArr = new com.google.gson.JsonArray();
+        for (AutomationCommand command : automationCommands) automationArr.add(command.toJson());
+        o.add("automationCommands", automationArr);
         o.addProperty("gcType", gcType);
         o.addProperty("useAikarFlags", useAikarFlags);
         o.addProperty("minMemoryMb", minMemoryMb);
@@ -1360,6 +1623,18 @@ public final class Preferences {
         }
         o.add("favoriteServers", favArr);
         o.addProperty("gameRenderer", gameRenderer);
+        o.addProperty("linuxZink", linuxZink);
+        o.addProperty("macMicrophoneRequest", macMicrophoneRequest);
+        o.addProperty("preferUtf8", preferUtf8);
+        o.addProperty("preferIPv4", preferIPv4);
+        o.addProperty("imeFixAgent", imeFixAgent);
+        o.addProperty("resourceRepairRetries", resourceRepairRetries);
+        o.addProperty("fastResourceCheck", fastResourceCheck);
+        o.addProperty("nativesReplaceStrategy", nativesReplaceStrategy);
+        o.addProperty("launcherAfterGame", launcherAfterGame);
+        o.addProperty("resourceCheckParallelism", resourceCheckParallelism);
+        o.addProperty("showGameOutput", showGameOutput);
+        o.addProperty("launcherLogLevel", launcherLogLevel);
         o.addProperty("windowIconPath", windowIconPath);
         o.addProperty("customMenuBackgroundVideo", customMenuBackgroundVideo);
         if (!customNativesPath.isEmpty()) o.addProperty("customNativesPath", customNativesPath);

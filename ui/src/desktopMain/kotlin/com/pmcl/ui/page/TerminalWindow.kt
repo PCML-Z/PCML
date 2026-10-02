@@ -41,6 +41,7 @@ fun TerminalWindow(
             useDarkTheme = themeState.useDark,
             dynamicColorScheme = scheme,
             uiScale = themeState.uiScale,
+            launcherFont = themeState.launcherFont,
             themePreset = themeState.themePreset,
             colorMode = themeState.colorMode,
             customThemePack = themeState.customThemePack

@@ -29,7 +29,6 @@ import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.WindowScope
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
-import com.pmcl.ui.animation.SplashIconReveal
 import com.pmcl.ui.page.MusicOverlayWindow
 import com.pmcl.ui.page.PerfHudWindow
 import com.pmcl.ui.page.TopBarSearchField
@@ -197,6 +196,31 @@ fun main() = application {
         height = 700.dp,
         position = WindowPosition.Aligned(Alignment.Center)
     )
+    var windowHidden by remember { mutableStateOf(false) }
+    val windowAction by vm.windowAction.collectAsState()
+    LaunchedEffect(windowAction) {
+        when (windowAction) {
+            com.pmcl.ui.viewmodel.LauncherWindowAction.MINIMIZE -> {
+                state.isMinimized = true
+                vm.consumeWindowAction()
+            }
+            com.pmcl.ui.viewmodel.LauncherWindowAction.HIDE -> {
+                windowHidden = true
+                vm.consumeWindowAction()
+            }
+            com.pmcl.ui.viewmodel.LauncherWindowAction.SHOW -> {
+                windowHidden = false
+                state.isMinimized = false
+                vm.consumeWindowAction()
+            }
+            com.pmcl.ui.viewmodel.LauncherWindowAction.EXIT -> {
+                vm.consumeWindowAction()
+                vm.shutdownLeavingGame()
+                exitApplication()
+            }
+            com.pmcl.ui.viewmodel.LauncherWindowAction.NONE -> {}
+        }
+    }
 
     // iOS 伴随 App 配对对话框开关
     val showCompanionDialog = remember { mutableStateOf(false) }
@@ -218,33 +242,8 @@ fun main() = application {
     val materialOn by vm.materialTheme.collectAsState()
     val liveGlassOn by vm.liveWallpaperGlass.collectAsState()
 
-    // 启动动画状态：播放期间主窗口隐藏，动画结束 → 切换为主窗口
-    var splashDone by remember { mutableStateOf(false) }
-
-    // --- 启动动画窗口（无边框、透明、居中） ---
-    if (!splashDone) {
-        Window(
-            onCloseRequest = { splashDone = true },
-            title = "PMCL",
-            state = rememberWindowState(
-                width = 700.dp,
-                height = 400.dp,
-                position = WindowPosition.Aligned(Alignment.Center)
-            ),
-            undecorated = true,
-            transparent = true,
-            resizable = false
-        ) {
-            SplashIconReveal(
-                modifier = Modifier.fillMaxSize(),
-                onFinished = { splashDone = true }
-            )
-        }
-    }
-
-    // --- 主窗口（启动动画期间隐藏以预加载资源） ---
     Window(
-        visible = splashDone,
+        visible = !windowHidden,
         onCloseRequest = {
             try {
                 vm.shutdown()
@@ -254,7 +253,7 @@ fun main() = application {
             }
             exitApplication()
         },
-        title = "PMCL — Minecraft Launcher",
+        title = "PMCL",
         state = state,
         undecorated = borderless,
         transparent = borderless
@@ -337,10 +336,12 @@ fun main() = application {
                              else Modifier
             // 壁纸毛玻璃：壁纸自己逐帧模糊，画面从玻璃里透出来。
             // 材质主题开着时也走这条，霜面铺在玻璃上面，不再把壁纸先涂糊一层。
+            val videoOn = customBgType == "video" && customBgVideo.isNotBlank()
             if (liveGlassOn) {
                 com.pmcl.ui.theme.LiveWallpaperGlass(
                     modifier = Modifier.fillMaxSize().then(bgModifier),
-                    useDark = sharedThemeState.useDark
+                    useDark = sharedThemeState.useDark,
+                    blurWallpaper = !videoOn
                 ) {
                     if (customBgOn) {
                         com.pmcl.ui.theme.CustomBackground(
@@ -348,7 +349,8 @@ fun main() = application {
                             imagePath = customBgImage,
                             videoPath = customBgVideo,
                             useDark = sharedThemeState.useDark,
-                            scrimAlpha = 0.04f
+                            scrimAlpha = if (videoOn) 0f else 0.06f,
+                            frameBlur = videoOn
                         )
                     } else {
                         com.pmcl.ui.theme.ParallaxBackground(
@@ -358,8 +360,9 @@ fun main() = application {
                     }
                 }
             } else {
-            // 材质主题把背景先模糊，再在上面铺半透明霜面。模糊要够重，颜色才会化开，而不是一块一块的云。
-            val paintedBgModifier = if (materialOn) bgModifier.blur(48.dp) else bgModifier
+            // 材质主题：先模糊壁纸，再盖一层能透出颜色的薄霜，正中也是毛玻璃。
+            // 视频自己按帧模糊，不再套一层接不住新帧的 Modifier.blur。
+            val paintedBgModifier = if (materialOn && !videoOn) bgModifier.blur(22.dp) else bgModifier
             if (customBgOn) {
                 com.pmcl.ui.theme.CustomBackground(
                     type = customBgType,
@@ -367,7 +370,8 @@ fun main() = application {
                     videoPath = customBgVideo,
                     useDark = sharedThemeState.useDark,
                     modifier = paintedBgModifier,
-                    scrimAlpha = if (materialOn) 0.08f else 0.45f
+                    scrimAlpha = if (materialOn) 0.06f else 0.45f,
+                    frameBlur = materialOn && videoOn
                 )
             } else if (parallaxBg || materialOn) {
                 com.pmcl.ui.theme.ParallaxBackground(
@@ -387,6 +391,7 @@ fun main() = application {
                 useDarkTheme = sharedThemeState.useDark,
                 dynamicColorScheme = windowDynamicScheme,
                 uiScale = sharedThemeState.uiScale,
+                launcherFont = sharedThemeState.launcherFont,
                 themePreset = sharedThemeState.themePreset,
                 colorMode = sharedThemeState.colorMode,
                 customThemePack = sharedThemeState.customThemePack
@@ -701,7 +706,7 @@ private fun FrameWindowScope.BorderlessTitleBar(
             ) {
             // 标题（可拖拽区域；fillMaxHeight 扩大命中条带）
             Text(
-                "PMCL — Minecraft Launcher",
+                "PMCL",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurface,

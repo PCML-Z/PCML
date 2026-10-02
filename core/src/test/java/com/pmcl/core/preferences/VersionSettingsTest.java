@@ -83,6 +83,33 @@ class VersionSettingsTest {
         VersionSettings restored = VersionSettings.fromJson(settings.toJson());
         assertEquals(settings.getJavaPath(), restored.getJavaPath());
         assertEquals(VersionSettings.FULLSCREEN_ON, restored.getFullscreenMode());
+        assertTrue(settings.getDebug().isDefault());
+    }
+
+    @Test
+    void debugOptionsRoundTripAndRejectUnsafePaths() {
+        VersionSettings settings = new VersionSettings(
+                "创造", tmp.toString(), "",
+                0, 0, "", "", 0, 0, VersionSettings.FULLSCREEN_INHERIT,
+                new VersionSettings.DebugOptions(
+                        tmp.toString(),
+                        VersionSettings.DebugOptions.API_VULKAN,
+                        VersionSettings.DebugOptions.DRIVER_LAVAPIPE,
+                        true, false, true, true, true, false, false));
+        assertFalse(settings.isBlank());
+        VersionSettings restored = VersionSettings.fromJson(settings.toJson());
+        assertEquals(tmp.toAbsolutePath().normalize().toString(), restored.getDebug().getNativesDir());
+        assertEquals(VersionSettings.DebugOptions.API_VULKAN, restored.getDebug().getGraphicsApi());
+        assertEquals(VersionSettings.DebugOptions.DRIVER_LAVAPIPE, restored.getDebug().getDriver());
+        assertTrue(restored.getDebug().isSkipGameCheck());
+        assertTrue(restored.getDebug().isSkipJvmCheck());
+        VersionSettings dropped = settings.withDebug(new VersionSettings.DebugOptions(
+                "relative/natives",
+                VersionSettings.DebugOptions.API_OPENGL,
+                VersionSettings.DebugOptions.DRIVER_LAVAPIPE,
+                false, false, false, false, false, false, false));
+        assertEquals("", dropped.getDebug().getNativesDir());
+        assertEquals(VersionSettings.DebugOptions.DRIVER_DEFAULT, dropped.getDebug().getDriver());
     }
 
     @Test
@@ -107,5 +134,18 @@ class VersionSettingsTest {
         assertTrue(Files.isRegularFile(game.resolve("schematics").resolve("house.litematic")));
         assertThrows(Exception.class, () -> VersionGameFiles.delete(game, VersionGameFiles.SCHEMATICS, "../house.litematic"));
         assertThrows(Exception.class, () -> VersionGameFiles.importFile(game, VersionGameFiles.SCHEMATICS, source));
+
+        Path nested = game.resolve("schematics").resolve("farms");
+        Files.createDirectories(nested);
+        Files.writeString(nested.resolve("barn.litematic"), "lit");
+        java.util.List<String> nestedNames = VersionGameFiles.schematicFiles(game.resolve("schematics")).stream()
+                .map(path -> VersionGameFiles.schematicRelative(game.resolve("schematics"), path))
+                .sorted()
+                .toList();
+        assertEquals(java.util.List.of("farms/barn.litematic", "house.litematic"), nestedNames);
+        VersionGameFiles.deleteSchematic(game, "farms/barn.litematic");
+        assertFalse(Files.exists(nested.resolve("barn.litematic")));
+        assertThrows(Exception.class, () -> VersionGameFiles.deleteSchematic(game, "farms/../../outside.litematic"));
+        assertTrue(Files.isRegularFile(game.resolve("schematics").resolve("house.litematic")));
     }
 }

@@ -13,6 +13,9 @@ import java.util.List;
  * <ul>
  *   <li>{@code discover}    — UDP 广播：声明自己在线（仍为明文发现；连接后全部加密）</li>
  *   <li>{@code msg}         — 一对一聊天消息</li>
+ *   <li>{@code group_upsert} — 创建或更新聊天组</li>
+ *   <li>{@code group_msg}  — 聊天组消息</li>
+ *   <li>{@code group_leave} — 退出聊天组</li>
  *   <li>{@code friend_req}  — 好友请求（携带公钥，不含共享密钥）</li>
  *   <li>{@code friend_ack}  — 好友请求应答</li>
  *   <li>{@code status}      — 在线状态变更</li>
@@ -94,6 +97,54 @@ public final class FriendProtocol {
 
         public static ChatMessage fromJson(String json) {
             return GSON.fromJson(json, ChatMessage.class);
+        }
+
+        public String toJson() {
+            return GSON.toJson(this);
+        }
+    }
+
+    /** 聊天组创建或成员更新。成员身份只在加密信道里传递。 */
+    public static final class GroupUpsert {
+        public String type = "group_upsert";
+        public String groupId;
+        public String name;
+        public List<String> members;
+
+        public static GroupUpsert fromJson(String json) {
+            return GSON.fromJson(json, GroupUpsert.class);
+        }
+
+        public String toJson() {
+            return GSON.toJson(this);
+        }
+    }
+
+    /** 聊天组消息。接收方只认加密信道上的对端，不认报文里的 from。 */
+    public static final class GroupMessage {
+        public String type = "group_msg";
+        public String groupId;
+        public String id;
+        public String text;
+        public long timestamp;
+        public String fromName;
+
+        public static GroupMessage fromJson(String json) {
+            return GSON.fromJson(json, GroupMessage.class);
+        }
+
+        public String toJson() {
+            return GSON.toJson(this);
+        }
+    }
+
+    /** 退出聊天组。 */
+    public static final class GroupLeave {
+        public String type = "group_leave";
+        public String groupId;
+
+        public static GroupLeave fromJson(String json) {
+            return GSON.fromJson(json, GroupLeave.class);
         }
 
         public String toJson() {

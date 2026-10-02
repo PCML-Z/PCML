@@ -4,9 +4,9 @@ plugins {
     alias(libs.plugins.compose.compiler)
 }
 
-val pmclVersion = providers.gradleProperty("pmcl.version").orElse("1.3.0c")
+val pmclVersion = providers.gradleProperty("pmcl.version").orElse("2.1.11a")
 
-/** Compose native packages only accept numeric x.y.z (e.g. 1.3.0c → 1.3.1). */
+/** Compose native packages only accept numeric x.y.z (e.g. 2.1.11a → 2.1.12). */
 fun nativePackageVersion(raw: String): String {
     val match = Regex("""^(\d+)\.(\d+)\.(\d+)""").find(raw.trim())
         ?: return "1.0.0"
@@ -133,6 +133,8 @@ compose.desktop {
                 "java.scripting",       // Nashorn/ScriptEngine
                 "java.desktop",         // AWT/Swing（FileDialog、JFXPanel 宿主）
                 "java.instrument",      // agent 支持（部分启动器场景）
+                "java.compiler",        // 自动化命令编译 Java 源码
+                "jdk.compiler",         // javac，发行版里编译自动化 Java
                 "jdk.crypto.cryptoki",  // 加密 provider（HTTPS 握手需要）
                 "jdk.crypto.ec",        // EC 曲线（TLS 1.3 / Xbox 认证）
                 "jdk.management",       // jdk.management.* 子包

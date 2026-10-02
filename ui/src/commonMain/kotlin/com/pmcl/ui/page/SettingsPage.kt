@@ -1,7 +1,9 @@
 package com.pmcl.ui.page
+import com.pmcl.ui.animation.SplashArtwork
 import com.pmcl.ui.widget.pmclVerticalScroll
 import com.pmcl.ui.widget.pmclHorizontalScroll
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -40,6 +42,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -54,6 +58,7 @@ import androidx.compose.ui.window.Dialog
 import com.pmcl.core.i18n.I18n
 import com.pmcl.ui.animation.TypewriterTitle
 import com.pmcl.ui.theme.LocalThemeState
+import com.pmcl.ui.theme.installedLauncherFonts
 import com.pmcl.ui.theme.glassCardBorder
 import com.pmcl.ui.theme.glassCardColors
 import com.pmcl.ui.theme.glassCardElevation
@@ -109,6 +114,7 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
         "accounts" -> "settings.section.accounts"
         "theme" -> "settings.section.theme"
         "java" -> "settings.section.java"
+        "automation" -> "settings.section.automation"
         "game" -> "settings.section.game"
         "mio" -> "settings.section.mio"
         "network" -> "settings.section.network"
@@ -117,6 +123,7 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
         "device" -> "settings.section.device"
         "system" -> "settings.section.system"
         "about" -> "settings.section.about"
+        "feedback" -> "settings.section.feedback"
         "licenses" -> "settings.section.licenses"
         "extensions" -> "settings.section.extensions"
         else -> "settings.section.launcher"
@@ -244,6 +251,14 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
 
         Spacer(Modifier.height(16.dp))
 
+        JavaAgentCard(pref)
+
+        Spacer(Modifier.height(16.dp))
+
+        ImeAgentCard(pref)
+
+        Spacer(Modifier.height(16.dp))
+
         // 启动预设
         LaunchPresetCard(vm, pref) { applyPresetName ->
             // 应用预设后同步本地 UI 状态
@@ -259,6 +274,10 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
         // Java 运行时管理
         JavaRuntimeCard(vm, pref)
         } // end sectionId == java
+
+        if (sectionId == "automation") {
+            AutomationSettings(vm, pref)
+        }
 
         if (sectionId == "game") {
         // 游戏通用行为
@@ -575,6 +594,55 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
                      color = MaterialTheme.colorScheme.outline)
 
                 Spacer(Modifier.height(12.dp))
+                val geometry by vm.fieldGeometry.collectAsState()
+                val geometryIds = listOf("LINES", "CIRCLES", "TRIANGLES", "DIAMONDS", "GRID", "ARCS", "CROSS")
+                val geometryLabels = listOf(
+                    I18n.t("settings.field_geo_lines"),
+                    I18n.t("settings.field_geo_circles"),
+                    I18n.t("settings.field_geo_triangles"),
+                    I18n.t("settings.field_geo_diamonds"),
+                    I18n.t("settings.field_geo_grid"),
+                    I18n.t("settings.field_geo_arcs"),
+                    I18n.t("settings.field_geo_cross")
+                )
+                Text(I18n.t("settings.field_geometry"), style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Medium)
+                Spacer(Modifier.height(4.dp))
+                com.pmcl.ui.animation.AnimatedSegmentedSelector(
+                    items = geometryLabels,
+                    selectedIndex = geometryIds.indexOf(geometry).coerceAtLeast(0),
+                    onSelect = { vm.setFieldGeometry(geometryIds[it]) },
+                    modifier = Modifier.fillMaxWidth(),
+                    scrollable = true,
+                    height = 36.dp
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(I18n.t("settings.field_geometry_desc"),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline)
+
+                Spacer(Modifier.height(12.dp))
+                val lineStyle by vm.fieldLineStyle.collectAsState()
+                val lineIds = listOf("SOLID", "DASHED", "DOTTED", "DOUBLE")
+                val lineLabels = listOf(
+                    I18n.t("settings.field_line_solid"),
+                    I18n.t("settings.field_line_dashed"),
+                    I18n.t("settings.field_line_dotted"),
+                    I18n.t("settings.field_line_double")
+                )
+                Text(I18n.t("settings.field_line"), style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Medium)
+                Spacer(Modifier.height(4.dp))
+                com.pmcl.ui.animation.AnimatedSegmentedSelector(
+                    items = lineLabels,
+                    selectedIndex = lineIds.indexOf(lineStyle).coerceAtLeast(0),
+                    onSelect = { vm.setFieldLineStyle(lineIds[it]) },
+                    modifier = Modifier.fillMaxWidth(),
+                    fillWidth = true,
+                    height = 36.dp
+                )
+
+                Spacer(Modifier.height(12.dp))
                 HorizontalDivider()
                 Spacer(Modifier.height(12.dp))
 
@@ -677,6 +745,47 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
                 Text(I18n.t("settings.ui_scale_desc"),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
+        }
+        Spacer(Modifier.height(16.dp))
+
+        ThemeSectionCard(I18n.t("settings.font")) {
+            val fonts = remember { installedLauncherFonts() }
+            var fontMenu by remember { mutableStateOf(false) }
+            val chosen = themeState.launcherFont
+            val chosenLabel = if (chosen.isBlank()) I18n.t("settings.font_default") else chosen
+            Box {
+                OutlinedButton(onClick = { fontMenu = true }) {
+                    Text(chosenLabel, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                DropdownMenu(
+                    expanded = fontMenu,
+                    onDismissRequest = { fontMenu = false },
+                    modifier = Modifier.heightIn(max = 360.dp)
+                ) {
+                    DropdownMenuItem(
+                        text = { Text(I18n.t("settings.font_default")) },
+                        onClick = {
+                            themeState.applyLauncherFont("")
+                            pref.setLauncherFont("")
+                            fontMenu = false
+                        }
+                    )
+                    fonts.forEach { name ->
+                        DropdownMenuItem(
+                            text = { Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            onClick = {
+                                themeState.applyLauncherFont(name)
+                                pref.setLauncherFont(name)
+                                fontMenu = false
+                            }
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+            Text(I18n.t("settings.font_desc"),
+                 style = MaterialTheme.typography.labelSmall,
+                 color = MaterialTheme.colorScheme.outline)
         }
         } // end sectionId == theme
 
@@ -984,6 +1093,8 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
                 HectMiCard(vm)
             }
         }
+        Spacer(Modifier.height(12.dp))
+        DataImportSection(vm)
         }
 
         if (sectionId == "updates") {
@@ -1010,6 +1121,10 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
         ReleaseAnnouncementsCard(vm)
         Spacer(Modifier.height(12.dp))
         AboutCard(vm)
+        }
+
+        if (sectionId == "feedback") {
+            FeedbackSection()
         }
 
         if (sectionId == "licenses") {
@@ -1240,6 +1355,7 @@ private fun AccountManagementPage(
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(Modifier.height(8.dp))
+                var showAuthServer by remember { mutableStateOf(false) }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
                         onClick = { vm.loginOffline(username) },
@@ -1250,6 +1366,13 @@ private fun AccountManagementPage(
                     OutlinedButton(onClick = vm::startMicrosoftLogin) {
                         Text(I18n.t("launch.microsoft_login"))
                     }
+                    OutlinedButton(onClick = { showAuthServer = !showAuthServer }) {
+                        Text(I18n.t("accounts.auth_server"))
+                    }
+                }
+                if (showAuthServer) {
+                    Spacer(Modifier.height(12.dp))
+                    ExternalAuthServerForm(vm)
                 }
                 OfflineChildhoodTicketHint()
             }
@@ -1464,6 +1587,11 @@ private fun ReleaseAnnouncementItem(
 private fun AboutCard(vm: LauncherViewModel) {
     Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
         Column(Modifier.padding(16.dp)) {
+            SplashArtwork(
+                version = vm.core.launcherVersion(),
+                modifier = Modifier.fillMaxWidth().aspectRatio(1.75f)
+            )
+            Spacer(Modifier.height(16.dp))
             // === 头部：Logo + 名称 + 版本 ===
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Surface(
@@ -1584,6 +1712,61 @@ private fun AboutCard(vm: LauncherViewModel) {
     }
 }
 
+private val feedbackTargets = listOf(
+    Triple("settings.feedback.github", "settings.feedback.github_desc", "https://github.com/PCML-Z/PCML/issues"),
+    Triple("settings.feedback.site", "settings.feedback.site_desc", "https://lash.org.cn"),
+)
+
+/** 设置 → 反馈：扫码打开 GitHub Issues 或 lash.org.cn。 */
+@Composable
+private fun FeedbackSection() {
+    Text(
+        I18n.t("settings.feedback.hint"),
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+    Spacer(Modifier.height(16.dp))
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        feedbackTargets.forEach { (titleKey, descKey, url) ->
+            val qr = remember(url) { com.pmcl.core.identity.HectMiGenerator.qrCode(url, 10) }
+            Card(
+                modifier = Modifier.weight(1f).glassCardBorder(),
+                colors = glassCardColors(),
+                elevation = glassCardElevation()
+            ) {
+                Column(
+                    Modifier.fillMaxWidth().padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        I18n.t(titleKey),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                    val desc = I18n.t(descKey)
+                    if (desc.isNotBlank()) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            desc,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    if (qr != null) {
+                        HectMiQr(qr, Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(8.dp)))
+                    }
+                }
+            }
+        }
+    }
+}
+
 /** 设置 → 许可证与协议：软件许可证 / 用户协议 / 免责协议 / 许可证冲突 */
 @Composable
 private fun LicensesAndAgreementsSection() {
@@ -1601,30 +1784,14 @@ private fun LicensesAndAgreementsSection() {
         elevation = glassCardElevation()
     ) {
         Column(Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth().pmclHorizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                tabs.forEachIndexed { index, label ->
-                    FilterChip(
-                        selected = selected == index,
-                        onClick = { selected = index },
-                        label = { Text(label) },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = when (index) {
-                                    0 -> Icons.Filled.Article
-                                    1 -> Icons.Filled.Gavel
-                                    2 -> Icons.Filled.Shield
-                                    else -> Icons.Filled.Warning
-                                },
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                    )
-                }
-            }
+            com.pmcl.ui.animation.AnimatedSegmentedSelector(
+                items = tabs,
+                selectedIndex = selected,
+                onSelect = { selected = it },
+                modifier = Modifier.fillMaxWidth(),
+                fillWidth = true,
+                height = 36.dp
+            )
             Spacer(Modifier.height(12.dp))
             when (selected) {
                 0 -> LicenseDocumentPanel()
@@ -1922,12 +2089,6 @@ private fun openSourceDeps() = listOf(
         license = "LGPL-3.0",
         url = "https://github.com/EasyTier/EasyTier"
     ),
-    TechDependency(
-        name = "HMCL",
-        copyright = "Copyright © huanghongxun and HMCL contributors.",
-        license = "GPL-3.0",
-        url = "https://github.com/HMCL-dev/HMCL"
-    ),
 )
 
 /** 关于卡片中的依赖列表（技术栈 / 引用开源项目共用） */
@@ -1986,6 +2147,132 @@ private fun DependencyTable(deps: List<TechDependency>) {
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun JavaAgentCard(pref: com.pmcl.core.preferences.Preferences) {
+    val agents = remember {
+        mutableStateListOf<com.pmcl.core.preferences.Preferences.JavaAgentSetting>().apply {
+            addAll(pref.getJavaAgents())
+        }
+    }
+    fun persist() {
+        pref.setJavaAgents(agents.toList())
+    }
+    Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
+        Column(Modifier.padding(16.dp)) {
+            Text(I18n.t("settings.java_agent"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                I18n.t("settings.java_agent_desc"),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline
+            )
+            Spacer(Modifier.height(12.dp))
+            if (agents.isEmpty()) {
+                Text(
+                    I18n.t("settings.java_agent_empty"),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(12.dp))
+            }
+            agents.forEachIndexed { index, agent ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            java.io.File(agent.path).name,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            agent.path,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        OutlinedTextField(
+                            value = agent.options,
+                            onValueChange = { value ->
+                                agents[index] = com.pmcl.core.preferences.Preferences.JavaAgentSetting(
+                                    agent.path,
+                                    value.replace("\n", "").replace("\r", "").take(256)
+                                )
+                                persist()
+                            },
+                            label = { Text(I18n.t("settings.java_agent_options")) },
+                            placeholder = { Text(I18n.t("settings.java_agent_options_hint")) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    Spacer(Modifier.width(4.dp))
+                    IconButton(onClick = {
+                        agents.removeAt(index)
+                        persist()
+                    }) {
+                        Icon(Icons.Filled.Delete, contentDescription = I18n.t("common.remove"))
+                    }
+                }
+                if (index < agents.lastIndex) {
+                    Spacer(Modifier.height(12.dp))
+                }
+            }
+            if (agents.isNotEmpty()) Spacer(Modifier.height(12.dp))
+            OutlinedButton(
+                onClick = {
+                    val fd = java.awt.FileDialog(
+                        null as java.awt.Frame?,
+                        I18n.t("settings.java_agent_select"),
+                        java.awt.FileDialog.LOAD
+                    )
+                    fd.filenameFilter = java.io.FilenameFilter { _, name ->
+                        name.lowercase().endsWith(".jar")
+                    }
+                    fd.isVisible = true
+                    if (fd.file != null) {
+                        val path = java.io.File(fd.directory, fd.file).absolutePath
+                        if (agents.none { it.path == path }) {
+                            agents.add(com.pmcl.core.preferences.Preferences.JavaAgentSetting(path, ""))
+                            persist()
+                        }
+                    }
+                },
+                enabled = agents.size < 8
+            ) {
+                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(I18n.t("settings.java_agent_add"))
+            }
+        }
+    }
+}
+
+@Composable
+private fun ImeAgentCard(pref: com.pmcl.core.preferences.Preferences) {
+    var enabled by remember { mutableStateOf(pref.isImeFixAgent) }
+    Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(I18n.t("settings.ime_agent"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    I18n.t("settings.ime_agent_desc"),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            Switch(checked = enabled, onCheckedChange = {
+                enabled = it
+                pref.setImeFixAgent(it)
+            })
         }
     }
 }
@@ -2484,6 +2771,17 @@ private fun GameBehaviorCard(vm: LauncherViewModel, pref: com.pmcl.core.preferen
     var width by remember { mutableStateOf(pref.getGameWindowWidth().toString()) }
     var height by remember { mutableStateOf(pref.getGameWindowHeight().toString()) }
     var renderer by remember { mutableStateOf(pref.getGameRenderer()) }
+    var linuxZink by remember { mutableStateOf(pref.isLinuxZink()) }
+    var macMic by remember { mutableStateOf(pref.isMacMicrophoneRequest()) }
+    var preferUtf8 by remember { mutableStateOf(pref.isPreferUtf8()) }
+    var preferIpv4 by remember { mutableStateOf(pref.isPreferIPv4()) }
+    var repairRetries by remember { mutableStateOf(pref.getResourceRepairRetries().toString()) }
+    var fastCheck by remember { mutableStateOf(pref.isFastResourceCheck()) }
+    var nativesStrategy by remember { mutableStateOf(pref.getNativesReplaceStrategy()) }
+    var afterGame by remember { mutableStateOf(pref.getLauncherAfterGame()) }
+    var checkParallel by remember { mutableStateOf(pref.getResourceCheckParallelism().toString()) }
+    var showOutput by remember { mutableStateOf(pref.isShowGameOutput()) }
+    var logLevel by remember { mutableStateOf(pref.getLauncherLogLevel()) }
     var fullscreen by remember { mutableStateOf(pref.isGameFullscreen()) }
     var demo by remember { mutableStateOf(pref.isGameDemo()) }
     var serverHost by remember { mutableStateOf(pref.getGameServerHost()) }
@@ -2568,6 +2866,180 @@ private fun GameBehaviorCard(vm: LauncherViewModel, pref: com.pmcl.core.preferen
                        else I18n.t("settings.renderer_hint"),
                  style = MaterialTheme.typography.labelSmall,
                  color = MaterialTheme.colorScheme.outline)
+
+            val isLinux = System.getProperty("os.name", "").lowercase().contains("linux")
+            if (isLinux) {
+                Spacer(Modifier.height(12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(checked = linuxZink, onCheckedChange = {
+                        linuxZink = it
+                        pref.setLinuxZink(it)
+                    })
+                    Spacer(Modifier.width(8.dp))
+                    Column {
+                        Text(I18n.t("settings.linux_zink"))
+                        Text(I18n.t("settings.linux_zink_desc"),
+                             style = MaterialTheme.typography.labelSmall,
+                             color = MaterialTheme.colorScheme.outline)
+                    }
+                }
+            }
+
+            val isMac = System.getProperty("os.name", "").lowercase().contains("mac")
+            if (isMac) {
+                Spacer(Modifier.height(12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(checked = macMic, onCheckedChange = {
+                        macMic = it
+                        pref.setMacMicrophoneRequest(it)
+                    })
+                    Spacer(Modifier.width(8.dp))
+                    Column {
+                        Text(I18n.t("settings.mac_microphone"))
+                        Text(I18n.t("settings.mac_microphone_desc"),
+                             style = MaterialTheme.typography.labelSmall,
+                             color = MaterialTheme.colorScheme.outline)
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(checked = preferUtf8, onCheckedChange = {
+                    preferUtf8 = it
+                    pref.setPreferUtf8(it)
+                })
+                Spacer(Modifier.width(8.dp))
+                Column {
+                    Text(I18n.t("settings.prefer_utf8"))
+                    Text(I18n.t("settings.prefer_utf8_desc"),
+                         style = MaterialTheme.typography.labelSmall,
+                         color = MaterialTheme.colorScheme.outline)
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(checked = preferIpv4, onCheckedChange = {
+                    preferIpv4 = it
+                    pref.setPreferIPv4(it)
+                })
+                Spacer(Modifier.width(8.dp))
+                Column {
+                    Text(I18n.t("settings.prefer_ipv4"))
+                    Text(I18n.t("settings.prefer_ipv4_desc"),
+                         style = MaterialTheme.typography.labelSmall,
+                         color = MaterialTheme.colorScheme.outline)
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+            OutlinedTextField(
+                value = repairRetries,
+                onValueChange = {
+                    val digits = it.filter { ch -> ch.isDigit() }.take(2)
+                    repairRetries = digits
+                    digits.toIntOrNull()?.let { v -> pref.setResourceRepairRetries(v) }
+                },
+                label = { Text(I18n.t("settings.resource_repair_retries")) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Text(I18n.t("settings.resource_repair_retries_desc"),
+                 style = MaterialTheme.typography.labelSmall,
+                 color = MaterialTheme.colorScheme.outline)
+
+            Spacer(Modifier.height(12.dp))
+            Text(I18n.t("settings.after_game"), style = MaterialTheme.typography.labelMedium)
+            Spacer(Modifier.height(4.dp))
+            val afterItems = listOf(
+                "KEEP" to I18n.t("settings.after_game_keep"),
+                "MINIMIZE" to I18n.t("settings.after_game_minimize"),
+                "HIDE" to I18n.t("settings.after_game_hide"),
+                "CLOSE" to I18n.t("settings.after_game_close")
+            )
+            com.pmcl.ui.animation.AnimatedSegmentedSelector(
+                items = afterItems.map { it.second },
+                selectedIndex = afterItems.indexOfFirst { it.first == afterGame }.coerceAtLeast(0),
+                onSelect = {
+                    afterGame = afterItems[it].first
+                    pref.setLauncherAfterGame(afterItems[it].first)
+                },
+                fillWidth = true
+            )
+            Text(I18n.t("settings.after_game_desc"),
+                 style = MaterialTheme.typography.labelSmall,
+                 color = MaterialTheme.colorScheme.outline)
+
+            Spacer(Modifier.height(12.dp))
+            OutlinedTextField(
+                value = checkParallel,
+                onValueChange = {
+                    val digits = it.filter { ch -> ch.isDigit() }.take(2)
+                    checkParallel = digits
+                    digits.toIntOrNull()?.let { v -> pref.setResourceCheckParallelism(v) }
+                },
+                label = { Text(I18n.t("settings.resource_check_parallel")) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Text(I18n.t("settings.resource_check_parallel_desc"),
+                 style = MaterialTheme.typography.labelSmall,
+                 color = MaterialTheme.colorScheme.outline)
+
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(checked = showOutput, onCheckedChange = {
+                    showOutput = it
+                    pref.setShowGameOutput(it)
+                })
+                Spacer(Modifier.width(8.dp))
+                Column {
+                    Text(I18n.t("settings.show_game_output"))
+                    Text(I18n.t("settings.show_game_output_desc"),
+                         style = MaterialTheme.typography.labelSmall,
+                         color = MaterialTheme.colorScheme.outline)
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+            Text(I18n.t("settings.launcher_log_level"), style = MaterialTheme.typography.labelMedium)
+            Spacer(Modifier.height(4.dp))
+            val levelItems = listOf(
+                "DEBUG" to I18n.t("settings.log_level_debug"),
+                "INFO" to I18n.t("settings.log_level_info"),
+                "WARN" to I18n.t("settings.log_level_warn"),
+                "ERROR" to I18n.t("settings.log_level_error"),
+                "OFF" to I18n.t("settings.log_level_off")
+            )
+            com.pmcl.ui.animation.AnimatedSegmentedSelector(
+                items = levelItems.map { it.second },
+                selectedIndex = levelItems.indexOfFirst { it.first == logLevel }.coerceAtLeast(0),
+                onSelect = {
+                    logLevel = levelItems[it].first
+                    pref.setLauncherLogLevel(levelItems[it].first)
+                    com.pmcl.core.util.LauncherLogCollector.setLevel(levelItems[it].first)
+                },
+                fillWidth = true
+            )
+            Text(I18n.t("settings.launcher_log_level_desc"),
+                 style = MaterialTheme.typography.labelSmall,
+                 color = MaterialTheme.colorScheme.outline)
+
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(checked = fastCheck, onCheckedChange = {
+                    fastCheck = it
+                    pref.setFastResourceCheck(it)
+                })
+                Spacer(Modifier.width(8.dp))
+                Column {
+                    Text(I18n.t("settings.fast_resource_check"))
+                    Text(I18n.t("settings.fast_resource_check_desc"),
+                         style = MaterialTheme.typography.labelSmall,
+                         color = MaterialTheme.colorScheme.outline)
+                }
+            }
 
             Spacer(Modifier.height(12.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -2717,6 +3189,27 @@ private fun GameBehaviorCard(vm: LauncherViewModel, pref: com.pmcl.core.preferen
                 }
             )
             Text(I18n.t("settings.menu_bg_video_hint"),
+                 style = MaterialTheme.typography.labelSmall,
+                 color = MaterialTheme.colorScheme.outline)
+
+            Spacer(Modifier.height(12.dp))
+            Text(I18n.t("settings.natives_strategy"), style = MaterialTheme.typography.labelMedium)
+            Spacer(Modifier.height(4.dp))
+            val nativesItems = listOf(
+                "AUTO" to I18n.t("settings.natives_strategy_auto"),
+                "ALWAYS" to I18n.t("settings.natives_strategy_always"),
+                "NEVER" to I18n.t("settings.natives_strategy_never")
+            )
+            com.pmcl.ui.animation.AnimatedSegmentedSelector(
+                items = nativesItems.map { it.second },
+                selectedIndex = nativesItems.indexOfFirst { it.first == nativesStrategy }.coerceAtLeast(0),
+                onSelect = {
+                    nativesStrategy = nativesItems[it].first
+                    pref.setNativesReplaceStrategy(nativesItems[it].first)
+                },
+                fillWidth = true
+            )
+            Text(I18n.t("settings.natives_strategy_desc"),
                  style = MaterialTheme.typography.labelSmall,
                  color = MaterialTheme.colorScheme.outline)
 
@@ -3039,6 +3532,30 @@ private fun HectMiCard(vm: LauncherViewModel) {
             color = MaterialTheme.colorScheme.outline
         )
         Spacer(Modifier.height(8.dp))
+        val qr = remember(hectMi) { com.pmcl.core.identity.HectMiGenerator.qrCode(hectMi) }
+        if (qr != null) {
+            Column(
+                Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                HectMiQr(
+                    qr,
+                    Modifier.size(220.dp).clip(RoundedCornerShape(8.dp))
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    I18n.t("settings.hect_mi_qr"),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    I18n.t("settings.hect_mi_qr_desc"),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+        }
         // 识别码显示：等宽字体，横向滚动，19 位数字部分 + 275 位字母部分
         Surface(
             shape = RoundedCornerShape(8.dp),
@@ -3064,6 +3581,29 @@ private fun HectMiCard(vm: LauncherViewModel) {
 
     if (showDecoder) {
         HectMiDecodeDialog(vm, hectMi, onDismiss = { showDecoder = false })
+    }
+}
+
+@Composable
+private fun HectMiQr(grid: com.pmcl.core.identity.HectMiGenerator.QrGrid, modifier: Modifier = Modifier) {
+    Canvas(modifier.background(Color.White)) {
+        val n = grid.size
+        if (n <= 0) return@Canvas
+        val cell = minOf(size.width, size.height) / n
+        val originX = (size.width - cell * n) / 2f
+        val originY = (size.height - cell * n) / 2f
+        drawRect(Color.White)
+        val modules = grid.modules
+        val block = Size(cell + 0.6f, cell + 0.6f)
+        for (y in 0 until n) {
+            val row = y * n
+            val top = originY + y * cell
+            for (x in 0 until n) {
+                if (modules[row + x]) {
+                    drawRect(Color.Black, Offset(originX + x * cell, top), block)
+                }
+            }
+        }
     }
 }
 
@@ -4057,7 +4597,6 @@ private fun licenseConflictDocument(): String = buildString {
     appendConflictItem("FFmpeg", "LGPL / GPL", "about.license.conflict.ffmpeg")
     appendConflictItem("JavaCV", "GPL-2.0", "about.license.conflict.javacv")
     appendConflictItem("EasyTier", "LGPL-3.0", "about.license.conflict.easytier")
-    appendConflictItem("HMCL", "GPL-3.0", "about.license.conflict.hmcl")
     appendLine()
     appendLine("—— ${I18n.t("about.license.notice_label")} ——")
     appendConflictItem("Java / OpenJDK", "GPL-2.0 + Classpath Exception", "about.license.conflict.java")

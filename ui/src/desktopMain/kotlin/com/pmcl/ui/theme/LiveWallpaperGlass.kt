@@ -11,21 +11,24 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
 /**
- * 当前壁纸逐帧模糊后铺满窗口。模糊跟在壁纸自己的绘制后面，
- * 视频换帧、视差跟着鼠标动时，玻璃里的画面一起动。
+ * 壁纸整面模糊后，再盖一层薄霜。正中也是毛玻璃，能看见模糊后的颜色，不是挖空。
  */
 @Composable
 fun LiveWallpaperGlass(
     modifier: Modifier = Modifier,
     useDark: Boolean,
+    blurWallpaper: Boolean = true,
     wallpaper: @Composable () -> Unit
 ) {
-    val veil = if (useDark) Color(0xFF101218).copy(alpha = 0.16f) else Color.White.copy(alpha = 0.05f)
+    val veil = if (useDark) Color(0xFF101218).copy(alpha = 0.28f) else Color.White.copy(alpha = 0.18f)
     Box(modifier) {
         Box(
             Modifier
                 .fillMaxSize()
-                .blur(14.dp, edgeTreatment = BlurredEdgeTreatment.Unbounded)
+                .then(
+                    if (blurWallpaper) Modifier.blur(22.dp, edgeTreatment = BlurredEdgeTreatment.Unbounded)
+                    else Modifier
+                )
         ) {
             wallpaper()
         }

@@ -72,7 +72,9 @@ public final class FabricMetaInstaller implements ModLoaderInstaller {
                 }
                 return result;
             } catch (Throwable ex) {
-                throw new RuntimeException("拉取 " + displayName + " 版本失败", ex);
+                if (unknownGameVersion(ex)) return List.of();
+                String detail = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
+                throw new RuntimeException("拉取 " + displayName + " 版本失败: " + detail, ex);
             }
         });
     }
@@ -156,5 +158,16 @@ public final class FabricMetaInstaller implements ModLoaderInstaller {
 
     private static String encode(String value) {
         return URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20");
+    }
+
+    /** 这个游戏版本还没有对应加载器时，接口返回 400 或 404，列表就是空的。 */
+    static boolean unknownGameVersion(Throwable ex) {
+        Throwable cur = ex;
+        while (cur != null) {
+            String msg = cur.getMessage() == null ? "" : cur.getMessage();
+            if (msg.contains("code=404") || msg.contains("code=400")) return true;
+            cur = cur.getCause();
+        }
+        return false;
     }
 }

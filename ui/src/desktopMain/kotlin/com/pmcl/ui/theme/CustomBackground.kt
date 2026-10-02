@@ -14,10 +14,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asComposeImageBitmap
+import androidx.compose.ui.graphics.asSkiaBitmap
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.dp
+import org.jetbrains.skia.FilterTileMode
+import org.jetbrains.skia.ImageFilter
+import org.jetbrains.skia.Paint
+import org.jetbrains.skia.Rect
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -48,12 +57,13 @@ fun CustomBackground(
     videoPath: String,
     useDark: Boolean,
     modifier: Modifier = Modifier,
-    scrimAlpha: Float = 0.45f
+    scrimAlpha: Float = 0.45f,
+    frameBlur: Boolean = false
 ) {
     Box(modifier.fillMaxSize()) {
         when (type) {
             "image" -> ImageBackgroundLayer(imagePath)
-            "video" -> VideoBackgroundLayer(videoPath)
+            "video" -> VideoBackgroundLayer(videoPath, frameBlur)
         }
         // 遮罩：默认约 45%。材质主题的霜面在更上面，这里把遮罩放轻，让画面能透出来。
         val scrimColor = if (useDark) Color(0xFF0D1117).copy(alpha = scrimAlpha)
@@ -100,7 +110,7 @@ private const val MAX_DECODE_WIDTH = 1600
  * - 播放到结尾自动 seek 回开头循环；组件销毁时协程取消并释放解码器
  */
 @Composable
-private fun VideoBackgroundLayer(path: String) {
+private fun VideoBackgroundLayer(path: String, frameBlur: Boolean) {
     // 当前前台帧位图（首帧建立后仅在 draw 阶段读取；组合阶段不读，避免每帧重组）
     val frontFrame = remember(path) { mutableStateOf<ImageBitmap?>(null) }
 
@@ -197,23 +207,49 @@ private fun VideoBackgroundLayer(path: String) {
         }
     }
 
-    // Canvas 无条件组合（视频加载失败时保持透明）；帧状态在 draw 阶段读取
+    val density = LocalDensity.current
+    val blurPx = with(density) { 22.dp.toPx() }
+    val blurPaint = remember(frameBlur, blurPx) {
+        if (!frameBlur) null
+        else Paint().apply {
+            imageFilter = ImageFilter.makeBlur(blurPx, blurPx, FilterTileMode.CLAMP)
+        }
+    }
+
+    // Canvas 无条件组合（视频加载失败时保持透明）；帧状态在 draw 阶段读取。
+    // 玻璃背景的 Modifier.blur 只吃重组，接不住这里的逐帧重绘，所以玻璃开着时在这一帧上直接做同样的 22.dp 模糊。
     Canvas(Modifier.fillMaxSize()) {
         val bmp = frontFrame.value ?: return@Canvas
         val srcW = bmp.width.toFloat()
         val srcH = bmp.height.toFloat()
         if (srcW > 0f && srcH > 0f && size.width > 0f && size.height > 0f) {
-            // ContentScale.Crop：等比放大填满窗口并居中
             val scale = maxOf(size.width / srcW, size.height / srcH)
-            val dw = (srcW * scale).toInt().coerceAtLeast(1)
-            val dh = (srcH * scale).toInt().coerceAtLeast(1)
-            val dx = ((size.width - dw) / 2f).toInt()
-            val dy = ((size.height - dh) / 2f).toInt()
-            drawImage(
-                image = bmp,
-                dstOffset = IntOffset(dx, dy),
-                dstSize = IntSize(dw, dh)
-            )
+            val dw = srcW * scale
+            val dh = srcH * scale
+            val dx = (size.width - dw) / 2f
+            val dy = (size.height - dh) / 2f
+            val paint = blurPaint
+            if (paint != null) {
+                drawIntoCanvas { canvas ->
+                    val image = org.jetbrains.skia.Image.makeFromBitmap(bmp.asSkiaBitmap())
+                    try {
+                        canvas.nativeCanvas.drawImageRect(
+                            image,
+                            Rect.makeWH(srcW, srcH),
+                            Rect.makeXYWH(dx, dy, dw, dh),
+                            paint
+                        )
+                    } finally {
+                        image.close()
+                    }
+                }
+            } else {
+                drawImage(
+                    image = bmp,
+                    dstOffset = IntOffset(dx.toInt(), dy.toInt()),
+                    dstSize = IntSize(dw.toInt().coerceAtLeast(1), dh.toInt().coerceAtLeast(1))
+                )
+            }
         }
     }
 }

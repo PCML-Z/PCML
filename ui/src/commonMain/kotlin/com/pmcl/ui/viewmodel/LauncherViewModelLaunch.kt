@@ -1,5 +1,6 @@
 package com.pmcl.ui.viewmodel
 
+import com.pmcl.core.automation.AutomationCommand
 import com.pmcl.core.i18n.I18n
 import com.pmcl.core.instance.InstanceInfo
 import com.pmcl.core.launch.GameLogger
@@ -128,13 +129,14 @@ fun LauncherViewModel.predictAndPreheat() {
  */
 @PublishedApi
 internal suspend fun LauncherViewModel.resolveJavaExe(versionId: String, requiredJavaVer: Int): String {
+    val skipJvm = preferences.getVersionSettings(versionId).debug.isSkipJvmCheck
     return withContext(Dispatchers.IO) {
         if (preferences.getJavaSelectionMode() == "SELECTED") {
             val selected = preferences.getJavaPath()
             if (selected.isBlank()) {
                 throw IllegalStateException(I18n.t("settings.java_selected_missing"))
             }
-            if (JavaRuntimeFinder.meetsRequirement(selected, requiredJavaVer)) {
+            if (JavaRuntimeFinder.meetsRequirement(selected, requiredJavaVer) || skipJvm) {
                 return@withContext selected
             }
             if (preferences.isJavaDowngradeFallback()) {
@@ -149,7 +151,7 @@ internal suspend fun LauncherViewModel.resolveJavaExe(versionId: String, require
 
         val versionPath = preferences.getVersionJavaPath(versionId)
         if (versionPath.isNotEmpty()) {
-            if (JavaRuntimeFinder.meetsRequirement(versionPath, requiredJavaVer)) {
+            if (JavaRuntimeFinder.meetsRequirement(versionPath, requiredJavaVer) || skipJvm) {
                 return@withContext versionPath
             }
             // 降级兜底：开关开启时接受低于要求的 Java（agent 会降级字节码）
@@ -160,7 +162,7 @@ internal suspend fun LauncherViewModel.resolveJavaExe(versionId: String, require
             System.err.println("[PMCL] 版本 Java 路径不满足要求（需要 Java "
                     + requiredJavaVer + "+），已忽略: $versionPath")
         }
-        try {
+        val found = try {
             val preferTranslation = preferences.preferLegacyTranslation()
                     && requiredJavaVer in 1..10
                     && com.pmcl.core.launch.RetroWrapperSupport.isTranslationEligible(versionId)
@@ -168,6 +170,8 @@ internal suspend fun LauncherViewModel.resolveJavaExe(versionId: String, require
                 config.getRuntimesDir(), requiredJavaVer, preferTranslation
             ) ?: ""
         } catch (e: Throwable) { "" }
+        if (found.isNotEmpty() || !skipJvm) found
+        else JavaRuntimeFinder.findJavaExecutable(config.getRuntimesDir()) ?: ""
     }
 }
 
@@ -458,9 +462,10 @@ fun LauncherViewModel.launch(
             val javaArch = withContext(Dispatchers.IO) {
                 JavaRuntimeFinder.getArchitecture(javaExe)
             }
+            val skipJvmCheck = preferences.getVersionSettings(versionId).debug.isSkipJvmCheck
             tracer.mark("java_resolved")
             // 龙芯平台兼容性检测：native 库可能不完整，提示用户
-            if (JavaRuntimeFinder.isLoongson()) {
+            if (!skipJvmCheck && JavaRuntimeFinder.isLoongson()) {
                 val isLoongArch = JavaRuntimeFinder.isLoongArch64()
                 val archName = if (isLoongArch) "LoongArch64" else "MIPS64el"
                 val isOldVersion = requiredJavaVer in 1..10
@@ -507,7 +512,7 @@ fun LauncherViewModel.launch(
             }
 
             // RISC-V 平台兼容性检测：native 库可能不完整，提示用户
-            if (JavaRuntimeFinder.isRiscV()) {
+            if (!skipJvmCheck && JavaRuntimeFinder.isRiscV()) {
                 val isOldVersion = requiredJavaVer in 1..10
 
                 if (isOldVersion) {
@@ -560,7 +565,7 @@ fun LauncherViewModel.launch(
                     && isArm64Java
                     && System.getProperty("os.name", "").lowercase().contains("mac")
                     && JavaRuntimeFinder.isAppleSiliconMac()
-            if (isArchMismatch) {
+            if (isArchMismatch && !skipJvmCheck) {
                 val translationOn = preferences.preferLegacyTranslation()
                 // RetroWrapper shouldApply：arm64 Java ≥9 即可；不必死等 17
                 if (translationEligible && translationOn && javaMajorVer >= 9) {
@@ -743,6 +748,14 @@ fun LauncherViewModel.launch(
             core.playTimeTracker().recordStart(versionId, instanceId ?: "", sessionModIds)
             timeTracked = true
 
+            // 游戏启动前的自动化命令。失败只记日志，不取消这次启动。
+            awaitAutomation(
+                AutomationCommand.TRIGGER_BEFORE_GAME,
+                versionId,
+                profile.gameDir?.toString() ?: "",
+                null
+            )
+
             // launchAsync 返回 CompletableFuture，需等待进程退出，否则 gameRunning 会立即被 finally 重置
             // 预热仅预存 LaunchProfile（不启动 MC 进程），此处始终调用 launchAsync 启动真正的 MC 进程
             val future = core.launch().launchAsync(
@@ -756,7 +769,9 @@ fun LauncherViewModel.launch(
                         }
                     }
                     // 仅当此实例为活跃时增量追加 UI（避免每行全量重建）
-                    if (_runningInstances.value.any { it.id == instanceId && it.active }) {
+                    if (preferences.isShowGameOutput()
+                        && _runningInstances.value.any { it.id == instanceId && it.active }
+                    ) {
                         appendGameLog(line)
                     }
                     if (com.pmcl.core.launch.CrashAnalyzer.looksLikeCrash(line)
@@ -822,11 +837,15 @@ fun LauncherViewModel.launch(
                 },
                 instLogger,
                 tracer
-            )
+            ) { onGameProcessStarted() }
             // 进程已提交启动：释放准备锁，允许再开另一实例
             launchPreparing.set(false)
             // 使用可取消等待替代 future.join()（join 不可中断，协程取消时线程持续阻塞）
             val exitCode = awaitCancellableFuture(future)
+            if (exitCode == com.pmcl.core.launch.LaunchManager.EXIT_DETACHED) {
+                return@launch
+            }
+            onGameProcessEnded()
             if (exitCode == com.pmcl.core.launch.LaunchManager.EXIT_CANCELLED) {
                 _status.value = I18n.t("status.launch_cancelled")
                 appendGameLog(I18n.t("status.launch_cancelled"))
@@ -837,6 +856,12 @@ fun LauncherViewModel.launch(
                 return@launch
             }
             _status.value = I18n.t("status.game_exited_with_version", exitCode, versionId)
+            launchAutomation(
+                AutomationCommand.TRIGGER_AFTER_GAME,
+                versionId,
+                profile.gameDir?.toString() ?: "",
+                exitCode
+            )
 
             // 用户已关掉本局弹窗 / 点了重启：旧进程退出不再弹
             if (ignoredCrashSessions.remove(crashSession)) {

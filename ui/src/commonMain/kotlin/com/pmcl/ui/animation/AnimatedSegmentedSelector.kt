@@ -47,7 +47,8 @@ fun AnimatedSegmentedSelector(
     scrollable: Boolean = false,
     shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(10.dp),
     height: androidx.compose.ui.unit.Dp = 36.dp,
-    indicatorPadding: androidx.compose.ui.unit.Dp = 3.dp
+    indicatorPadding: androidx.compose.ui.unit.Dp = 3.dp,
+    leading: (@Composable (index: Int, selected: Boolean) -> Unit)? = null
 ) {
     if (items.isEmpty()) return
 
@@ -140,15 +141,33 @@ fun AnimatedSegmentedSelector(
                         .fillMaxHeight(),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = label,
-                        fontSize = 13.sp,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                        color = if (isSelected) MaterialTheme.colorScheme.onPrimary
-                                else MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(horizontal = 12.dp)
-                    )
+                    if (leading == null) {
+                        Text(
+                            text = label,
+                            fontSize = 13.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isSelected) MaterialTheme.colorScheme.onPrimary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 12.dp)
+                        )
+                    } else {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center,
+                            modifier = Modifier.padding(horizontal = 6.dp)
+                        ) {
+                            leading(i, isSelected)
+                            Text(
+                                text = label,
+                                fontSize = 13.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isSelected) MaterialTheme.colorScheme.onPrimary
+                                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
                 }
             }
         }

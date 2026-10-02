@@ -1,10 +1,7 @@
 package com.pmcl.ui.page
-import com.pmcl.ui.widget.pmclVerticalScroll
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -22,10 +19,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * 首次启动：可选从其他启动器拷 versions / libraries / assets。
+ * 设置里的数据导入：从其他启动器拷 versions / libraries / assets。
  */
 @Composable
-fun WelcomePage(vm: LauncherViewModel) {
+fun DataImportSection(vm: LauncherViewModel) {
     val sources by vm.migrationSources.collectAsState()
     val scanning by vm.migrationScanning.collectAsState()
     val migrating by vm.migrating.collectAsState()
@@ -37,19 +34,20 @@ fun WelcomePage(vm: LauncherViewModel) {
         if (sources.isEmpty() && !scanning) vm.detectMigrationSources()
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp)
-            .pmclVerticalScroll(rememberScrollState())
+    Card(
+        modifier = Modifier.fillMaxWidth().glassCardBorder(),
+        shape = RoundedCornerShape(8.dp),
+        colors = glassCardColors(),
+        elevation = glassCardElevation()
     ) {
+        Column(Modifier.padding(16.dp)) {
         Text(
             I18n.t("migration.heading"),
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold
         )
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(12.dp))
 
         when {
             scanning && sources.isEmpty() -> {
@@ -79,13 +77,6 @@ fun WelcomePage(vm: LauncherViewModel) {
             }
         }
 
-        Spacer(Modifier.height(20.dp))
-
-        Button(
-            onClick = { vm.completeFirstLaunch() },
-            enabled = !migrating
-        ) {
-            Text(I18n.t("migration.skip"))
         }
     }
 }

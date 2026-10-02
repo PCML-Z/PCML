@@ -202,6 +202,13 @@ fun LaunchPage(vm: LauncherViewModel) {
 
     var launchTab by remember { mutableStateOf(0) } // 0=启动 1=版本 2=账号 3=日志
     var materialLibrary by remember { mutableStateOf(false) }
+    val openGameLog by vm.openGameLog.collectAsState()
+    LaunchedEffect(openGameLog) {
+        if (!openGameLog) return@LaunchedEffect
+        materialLibrary = true
+        launchTab = 3
+        vm.consumeOpenGameLog()
+    }
     val useSegmentedLayout by remember { mutableStateOf(vm.preferences.isUseSegmentedLaunchLayout()) }
 
     // 右侧详情面板内容提取为可复用 lambda，供分栏布局和最初分栏布局共用
@@ -866,7 +873,20 @@ fun LaunchPage(vm: LauncherViewModel) {
                         selectedIndex = versionCategory,
                         onSelect = { versionCategory = it },
                         fillWidth = true,
-                        height = 32.dp
+                        height = 32.dp,
+                        leading = { index, _ ->
+                            val type = when (index) {
+                                1 -> "release"
+                                2 -> "snapshot"
+                                3 -> "old_beta"
+                                4 -> "old_alpha"
+                                else -> null
+                            }
+                            if (type != null) {
+                                com.pmcl.ui.widget.VersionTypeIcon(type, Modifier.size(14.dp))
+                                Spacer(Modifier.width(4.dp))
+                            }
+                        }
                     )
                     Spacer(Modifier.height(6.dp))
                     // 搜索框
@@ -926,15 +946,15 @@ fun LaunchPage(vm: LauncherViewModel) {
         label = "versionListPage"
     ) { home ->
     if (home) {
-        val versionName = selected ?: I18n.t("material.pick_version")
+        val versionName = selected?.takeIf { it.isNotBlank() }
+            ?: if (!scanning && localInfos.isEmpty()) I18n.t("material.unpinned_version")
+            else I18n.t("material.pick_version")
         val downloadMode = selected != null && !isInstalled
         val musicPlaylist by vm.musicPlaylist.collectAsState()
         val musicIndex by vm.musicCurrentIndex.collectAsState()
         val showMusic = musicPlaylist.isNotEmpty() && musicIndex >= 0
         MaterialLaunchHome(
             versionName = versionName,
-            accountName = account?.username.orEmpty(),
-            accountDetail = account?.let { accountTypeLabel(it) }.orEmpty(),
             buttonLabel = if (downloadMode) I18n.t("launch.download_install") else I18n.t("launch.start_minecraft"),
             buttonEnabled = (downloadMode && !installing) ||
                 (selected != null && isInstalled && account != null && !installing && !gameRunning),
@@ -2026,18 +2046,24 @@ private fun RemoteVersionRow(
                 }
                 Spacer(Modifier.width(6.dp))
             }
-            Text(type, style = MaterialTheme.typography.labelSmall,
-                 color = if (type == "release") MaterialTheme.colorScheme.primary
-                         else MaterialTheme.colorScheme.outline)
+            if (type == "release" || type == "snapshot" || type == "old_beta" || type == "old_alpha") {
+                com.pmcl.ui.widget.VersionTypeIcon(type, Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+            }
+            Text(
+                when (type) {
+                    "release" -> I18n.t("launch.category_release")
+                    "snapshot" -> I18n.t("launch.category_snapshot")
+                    "old_beta" -> I18n.t("launch.category_old_beta")
+                    "old_alpha" -> I18n.t("launch.category_old_alpha")
+                    else -> type
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = if (type == "release") MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.outline
+            )
         }
     }
-}
-
-private fun accountTypeLabel(account: com.pmcl.core.auth.Account): String = when (account.type) {
-    com.pmcl.core.auth.Account.AccountType.OFFLINE -> I18n.t("accounts.offline")
-    com.pmcl.core.auth.Account.AccountType.MICROSOFT -> I18n.t("accounts.microsoft")
-    com.pmcl.core.auth.Account.AccountType.YGGDRASIL -> I18n.t("accounts.yggdrasil")
-    com.pmcl.core.auth.Account.AccountType.GITHUB -> I18n.t("accounts.github")
 }
 
 @Composable
@@ -2088,6 +2114,7 @@ private fun AccountCard(account: com.pmcl.core.auth.Account?, vm: LauncherViewMo
                 modifier = Modifier.fillMaxWidth()
             )
             Spacer(Modifier.height(8.dp))
+            var showAuthServer by remember { mutableStateOf(false) }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = { vm.loginOffline(username) }, enabled = username.isNotBlank()) {
                     Text(I18n.t("launch.offline_login"))
@@ -2095,6 +2122,13 @@ private fun AccountCard(account: com.pmcl.core.auth.Account?, vm: LauncherViewMo
                 OutlinedButton(onClick = vm::startMicrosoftLogin) {
                     Text(I18n.t("launch.microsoft_login"))
                 }
+                OutlinedButton(onClick = { showAuthServer = !showAuthServer }) {
+                    Text(I18n.t("accounts.auth_server"))
+                }
+            }
+            if (showAuthServer) {
+                Spacer(Modifier.height(12.dp))
+                ExternalAuthServerForm(vm)
             }
         }
     }

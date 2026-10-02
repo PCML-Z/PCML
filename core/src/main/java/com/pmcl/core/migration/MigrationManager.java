@@ -1,6 +1,13 @@
 package com.pmcl.core.migration;
 
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import com.pmcl.core.i18n.I18n;
+
 import java.io.IOException;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -9,8 +16,10 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
@@ -20,9 +29,10 @@ import java.util.function.Consumer;
  * <p>
  * 支持的来源：
  * <ul>
- *   <li><b>HMCL</b>：{@code ~/.hmcl} 配置目录 + {@code ~/.minecraft} 游戏目录（HMCL 默认使用系统标准 .minecraft）</li>
- *   <li><b>PCL / Plain Craft Launcher</b>：{@code ~/PCL} 或 {@code ~/.pcl}，游戏目录在同目录下或 {@code ~/.minecraft}</li>
- *   <li><b>系统默认</b>：{@code ~/.minecraft}（macOS: {@code ~/Library/Application Support/minecraft}）</li>
+ *   <li><b>HMCL</b>：只认配置里写下的游戏目录（{@code user-game-directories.json} 或 {@code hmcl.json}）</li>
+ *   <li><b>LauncherX</b>：只认 {@code launcherx.json} 里 {@code GamePathList} 的路径</li>
+ *   <li><b>PCL</b>：只认 {@code Setup.ini} 的 {@code LaunchFolder}，或游戏目录里的 PCL 标记</li>
+ *   <li><b>系统默认</b>：macOS {@code ~/Library/Application Support/minecraft}，其它平台 {@code .minecraft}</li>
  * </ul>
  * <p>
  * 迁移策略：使用 {@link StandardCopyOption#REPLACE_EXISTING} 覆盖目标，已存在的同名文件会被覆盖，
@@ -77,94 +87,282 @@ public final class MigrationManager {
 
     /**
      * 扫描本机已安装的其他启动器与系统默认 Minecraft 目录。
-     * 仅返回实际存在 versions 目录的来源。
-     * <p>
-     * macOS 上的实际安装位置：
-     * <ul>
-     *   <li><b>HMCL</b>：配置 {@code ~/.hmcl}，游戏目录 {@code ~/Library/Application Support/.minecraft}（HMCL 在 macOS 上的默认）</li>
-     *   <li><b>LauncherX</b>：配置 {@code ~/Library/Application Support/LauncherX/launcherx.json}，
-     *       游戏目录从配置文件的 {@code GamePathList} 字段解析</li>
-     *   <li><b>官方启动器</b>：{@code ~/Library/Application Support/minecraft}</li>
-     * </ul>
+     * 只返回含 versions 目录、且能对上某个启动器配置或标记的来源。
+     * 同一个游戏目录只出现一次。
      */
     public List<Source> detectSources() {
+        return detectSources(Paths.get(System.getProperty("user.home")),
+                System.getProperty("os.name", ""), System.getenv());
+    }
+
+    List<Source> detectSources(Path home, String osName, Map<String, String> env) {
+        String os = osName == null ? "" : osName.toLowerCase(Locale.ROOT);
+        boolean mac = os.contains("mac");
+        boolean win = os.contains("win");
+        if (env == null) env = Map.of();
         List<Source> result = new ArrayList<>();
-        Path home = Paths.get(System.getProperty("user.home"));
-        String os = System.getProperty("os.name").toLowerCase(Locale.ROOT);
-        boolean isMac = os.contains("mac");
-        boolean isWin = os.contains("win");
 
-        // macOS 候选游戏根目录（HMCL 与 LauncherX 常共用同一个）
-        Path macAppSupportDotMc = home.resolve("Library").resolve("Application Support").resolve(".minecraft");
-        Path macAppSupportMc   = home.resolve("Library").resolve("Application Support").resolve("minecraft");
-
-        // === HMCL ===
-        // macOS: 配置在 ~/.hmcl，游戏目录通常在 ~/Library/Application Support/.minecraft
-        // Windows: 配置在 %APPDATA%\.hmcl，游戏目录在 %APPDATA%\.minecraft
-        Path hmclConfig = isMac ? home.resolve(".hmcl")
-                          : isWin ? Paths.get(System.getenv().getOrDefault("APPDATA", home.toString()), ".hmcl")
-                          : home.resolve(".hmcl");
-        Path hmclGameRoot = isMac ? macAppSupportDotMc
-                           : isWin ? Paths.get(System.getenv().getOrDefault("APPDATA", home.toString()), ".minecraft")
-                           : home.resolve(".minecraft");
-        // HMCL 可能用系统默认 minecraft 目录
-        if (!isMinecraftRoot(hmclGameRoot) && isMac && isMinecraftRoot(macAppSupportMc)) {
-            hmclGameRoot = macAppSupportMc;
+        for (Path configDir : launcherXConfigDirs(home, mac, win, env)) {
+            for (Path game : launcherXGameDirs(configDir.resolve("launcherx.json"))) {
+                addClaim(result, "LauncherX", configDir, game, home);
+            }
         }
-        if (Files.isDirectory(hmclConfig) || isMinecraftRoot(hmclGameRoot)) {
-            addSourceIfValid(result, "HMCL", hmclConfig, hmclGameRoot);
+        for (Path configDir : hmclConfigDirs(home, mac, win, env)) {
+            for (Path game : hmclGameDirs(configDir, home)) {
+                addClaim(result, "HMCL", configDir, game, home);
+            }
+        }
+        for (Path setup : pclSetupFiles(home, win, env)) {
+            Path configDir = setup.getParent();
+            for (Path game : pclGameDirs(setup, configDir)) {
+                addClaim(result, "PCL", configDir, game, home);
+            }
         }
 
-        // === LauncherX ===
-        // macOS: 配置在 ~/Library/Application Support/LauncherX/launcherx.json，游戏路径从配置文件解析
-        // 其他平台: 配置在 ~/.launcherx 或 ~/LauncherX
-        Path lxConfigDir = isMac ? home.resolve("Library").resolve("Application Support").resolve("LauncherX")
-                           : home.resolve(".launcherx");
-        Path lxGameRoot = null;
-        if (Files.isDirectory(lxConfigDir)) {
-            lxGameRoot = parseLauncherXGamePath(lxConfigDir.resolve("launcherx.json"));
-        }
-        // 解析失败则回退到默认 .minecraft
-        if (lxGameRoot == null) {
-            lxGameRoot = isMac ? macAppSupportDotMc
-                        : isWin ? Paths.get(System.getenv().getOrDefault("APPDATA", home.toString()), ".minecraft")
-                        : home.resolve(".minecraft");
-        }
-        if (Files.isDirectory(lxConfigDir) || isMinecraftRoot(lxGameRoot)) {
-            addSourceIfValid(result, "Launcher X", lxConfigDir, lxGameRoot);
-        }
+        Path official = officialMinecraft(home, mac, win, env);
+        String officialLabel = markerName(official);
+        if (officialLabel == null) officialLabel = I18n.t("migration.source.official");
+        addClaim(result, officialLabel, null, official, home);
 
-        // === 系统默认 Minecraft（官方启动器，兜底）===
-        Path officialMc = isMac ? macAppSupportMc
-                         : isWin ? Paths.get(System.getenv().getOrDefault("APPDATA", home.toString()), ".minecraft")
-                         : home.resolve(".minecraft");
-        boolean alreadyAdded = result.stream().anyMatch(s -> officialMc.equals(s.getGameRoot()));
-        if (!alreadyAdded && isMinecraftRoot(officialMc)) {
-            addSourceIfValid(result, "系统 Minecraft", null, officialMc);
+        for (Path candidate : wellKnownRoots(home, mac, win, env)) {
+            if (claimed(result, candidate)) continue;
+            String marked = markerName(candidate);
+            if (marked != null) addClaim(result, marked, null, candidate, home);
         }
-
         return result;
     }
 
-    /**
-     * 解析 LauncherX 的 launcherx.json 配置文件，提取第一个游戏路径。
-     * 配置结构：{@code {"GamePathList": {"$type":"...", "Value":[{"Path":"/.../"}]}}}
-     * @return 第一个游戏路径，解析失败返回 null
-     */
-    private Path parseLauncherXGamePath(Path configFile) {
-        if (!Files.isRegularFile(configFile)) return null;
-        try {
-            String json = Files.readString(configFile, java.nio.charset.StandardCharsets.UTF_8);
-            // 用正则提取 "Path": "..." —— 避免引入完整 JSON 库的依赖
-            java.util.regex.Matcher m = java.util.regex.Pattern
-                    .compile("\"Path\"\\s*:\\s*\"([^\"]+)\"")
-                    .matcher(json);
-            if (m.find()) {
-                Path p = Paths.get(m.group(1));
-                return Files.isDirectory(p) ? p : null;
+    private static List<Path> launcherXConfigDirs(Path home, boolean mac, boolean win, Map<String, String> env) {
+        List<Path> dirs = new ArrayList<>();
+        if (mac) {
+            dirs.add(home.resolve("Library/Application Support/LauncherX"));
+        } else if (win) {
+            dirs.add(appData(home, env).resolve("LauncherX"));
+            String local = env.get("LOCALAPPDATA");
+            if (local != null && !local.isBlank()) dirs.add(Path.of(local).resolve("LauncherX"));
+        } else {
+            dirs.add(home.resolve(".config/LauncherX"));
+            dirs.add(home.resolve(".launcherx"));
+        }
+        return dirs;
+    }
+
+    /** 只读 GamePathList，不取文件里出现的第一个 Path。 */
+    private static List<Path> launcherXGameDirs(Path configFile) {
+        List<Path> paths = new ArrayList<>();
+        JsonObject root = readJson(configFile);
+        if (root == null) return paths;
+        collectGamePathList(root, paths);
+        if (root.has("VariableConfigurationDic") && root.get("VariableConfigurationDic").isJsonObject()) {
+            collectGamePathList(root.getAsJsonObject("VariableConfigurationDic"), paths);
+        }
+        return paths;
+    }
+
+    private static void collectGamePathList(JsonObject owner, List<Path> paths) {
+        if (!owner.has("GamePathList")) return;
+        JsonElement list = owner.get("GamePathList");
+        JsonElement items = list;
+        if (list.isJsonObject() && list.getAsJsonObject().has("Value")) {
+            items = list.getAsJsonObject().get("Value");
+        }
+        if (items == null || !items.isJsonArray()) return;
+        for (JsonElement item : items.getAsJsonArray()) {
+            if (!item.isJsonObject()) continue;
+            JsonObject obj = item.getAsJsonObject();
+            if (!obj.has("Path") || !obj.get("Path").isJsonPrimitive()) continue;
+            String value = obj.get("Path").getAsString();
+            if (value != null && !value.isBlank()) paths.add(Path.of(value));
+        }
+    }
+
+    private static List<Path> hmclConfigDirs(Path home, boolean mac, boolean win, Map<String, String> env) {
+        List<Path> dirs = new ArrayList<>();
+        if (mac) {
+            dirs.add(home.resolve("Library/Application Support/hmcl"));
+            dirs.add(home.resolve(".hmcl"));
+        } else if (win) {
+            Path app = appData(home, env);
+            dirs.add(app.resolve("hmcl"));
+            dirs.add(app.resolve(".hmcl"));
+        } else {
+            dirs.add(home.resolve(".hmcl"));
+            dirs.add(home.resolve(".local/share/hmcl"));
+        }
+        return dirs;
+    }
+
+    private static List<Path> hmclGameDirs(Path configDir, Path home) {
+        LinkedHashSet<Path> paths = new LinkedHashSet<>();
+        JsonObject directories = readJson(configDir.resolve("config/user-game-directories.json"));
+        if (directories != null && directories.has("directories") && directories.get("directories").isJsonArray()) {
+            for (JsonElement item : directories.getAsJsonArray("directories")) {
+                if (!item.isJsonObject()) continue;
+                JsonObject obj = item.getAsJsonObject();
+                if (!obj.has("path") || !obj.get("path").isJsonPrimitive()) continue;
+                String value = obj.get("path").getAsString();
+                if (value != null && !value.isBlank()) paths.add(Path.of(value));
             }
-        } catch (Exception ignored) {}
+        }
+        JsonObject hmcl = readJson(configDir.resolve("hmcl.json"));
+        if (hmcl != null && hmcl.has("configurations") && hmcl.get("configurations").isJsonObject()) {
+            for (var entry : hmcl.getAsJsonObject("configurations").entrySet()) {
+                if (!entry.getValue().isJsonObject()) continue;
+                JsonObject profile = entry.getValue().getAsJsonObject();
+                if (!profile.has("gameDir") || !profile.get("gameDir").isJsonPrimitive()) continue;
+                String gameDir = profile.get("gameDir").getAsString();
+                if (gameDir == null || gameDir.isBlank()) continue;
+                boolean relative = profile.has("useRelativePath")
+                        && profile.get("useRelativePath").isJsonPrimitive()
+                        && profile.get("useRelativePath").getAsBoolean();
+                Path path = Path.of(gameDir);
+                if (relative || !path.isAbsolute()) path = home.resolve(gameDir);
+                paths.add(path);
+            }
+        }
+        return new ArrayList<>(paths);
+    }
+
+    private static List<Path> pclSetupFiles(Path home, boolean win, Map<String, String> env) {
+        List<Path> files = new ArrayList<>();
+        files.add(home.resolve("PCL/Setup.ini"));
+        files.add(home.resolve(".pcl/Setup.ini"));
+        if (win) {
+            files.add(appData(home, env).resolve("PCL/Setup.ini"));
+            String local = env.get("LOCALAPPDATA");
+            if (local != null && !local.isBlank()) files.add(Path.of(local).resolve("PCL/Setup.ini"));
+        }
+        return files;
+    }
+
+    private static List<Path> pclGameDirs(Path setupFile, Path configDir) {
+        List<Path> paths = new ArrayList<>();
+        if (!Files.isRegularFile(setupFile)) return paths;
+        String text = readText(setupFile);
+        if (text == null) return paths;
+        for (String raw : text.split("\n", -1)) {
+            String line = raw.trim();
+            if (!line.regionMatches(true, 0, "LaunchFolder=", 0, "LaunchFolder=".length())) continue;
+            String value = line.substring("LaunchFolder=".length()).trim();
+            if (!value.isEmpty()) paths.add(Path.of(value));
+        }
+        if (paths.isEmpty() && configDir != null) paths.add(configDir.resolve(".minecraft"));
+        return paths;
+    }
+
+    private static Path officialMinecraft(Path home, boolean mac, boolean win, Map<String, String> env) {
+        if (mac) return home.resolve("Library/Application Support/minecraft");
+        if (win) return appData(home, env).resolve(".minecraft");
+        return home.resolve(".minecraft");
+    }
+
+    private static List<Path> wellKnownRoots(Path home, boolean mac, boolean win, Map<String, String> env) {
+        List<Path> roots = new ArrayList<>();
+        if (mac) {
+            roots.add(home.resolve("Library/Application Support/.minecraft"));
+            roots.add(home.resolve("Library/Application Support/minecraft"));
+        } else if (win) {
+            roots.add(appData(home, env).resolve(".minecraft"));
+        } else {
+            roots.add(home.resolve(".minecraft"));
+        }
+        return roots;
+    }
+
+    /** 游戏目录里的启动器标记。没有标记就返回 null，避免把别的目录安到某个启动器头上。 */
+    private static String markerName(Path root) {
+        if (root == null || !Files.isDirectory(root)) return null;
+        Path lxProfiles = root.resolve("lx_profiles.json");
+        if (Files.isRegularFile(lxProfiles)) {
+            JsonObject profiles = readJson(lxProfiles);
+            if (profiles != null && profiles.has("launcherVersion") && profiles.get("launcherVersion").isJsonObject()) {
+                JsonObject version = profiles.getAsJsonObject("launcherVersion");
+                String name = version.has("name") && version.get("name").isJsonPrimitive()
+                        ? version.get("name").getAsString() : "";
+                if (name != null && name.toLowerCase(Locale.ROOT).contains("launcherx")) return "LauncherX";
+            }
+        }
+        if (Files.isRegularFile(root.resolve("hmclversion.cfg"))) return "HMCL";
+        if (Files.isDirectory(root.resolve("PCL")) || Files.isRegularFile(root.resolve("PCL.ini"))) return "PCL";
         return null;
+    }
+
+    private void addClaim(List<Source> result, String name, Path configDir, Path gameRoot, Path home) {
+        Path root = normalize(gameRoot);
+        if (root == null || name == null || name.isBlank()) return;
+        if (samePath(root, targetRoot) || samePath(root, home)) return;
+        for (int i = 0; i < result.size(); i++) {
+            Source existing = result.get(i);
+            if (!samePath(existing.getGameRoot(), root)) continue;
+            if (nameHas(existing.getName(), name)) return;
+            result.set(i, new Source(existing.getName() + " / " + name,
+                    existing.getConfigDir() != null ? existing.getConfigDir() : configDir,
+                    existing.getGameRoot(), existing.getEstimatedSize(), existing.getEstimatedSizeFuture()));
+            return;
+        }
+        addSourceIfValid(result, name, configDir, root);
+    }
+
+    private static boolean claimed(List<Source> result, Path gameRoot) {
+        Path root = normalize(gameRoot);
+        if (root == null) return false;
+        for (Source source : result) {
+            if (samePath(source.getGameRoot(), root)) return true;
+        }
+        return false;
+    }
+
+    private static boolean nameHas(String existing, String name) {
+        if (existing == null) return false;
+        for (String part : existing.split(" / ")) {
+            if (part.equals(name)) return true;
+        }
+        return false;
+    }
+
+    private static Path appData(Path home, Map<String, String> env) {
+        String appdata = env.get("APPDATA");
+        if (appdata == null || appdata.isBlank()) appdata = home.resolve("AppData/Roaming").toString();
+        return Path.of(appdata);
+    }
+
+    private static Path normalize(Path path) {
+        if (path == null) return null;
+        try {
+            return path.toAbsolutePath().normalize();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static boolean samePath(Path left, Path right) {
+        Path a = normalize(left);
+        Path b = normalize(right);
+        return a != null && a.equals(b);
+    }
+
+    private static JsonObject readJson(Path file) {
+        String text = readText(file);
+        if (text == null || text.isBlank()) return null;
+        try {
+            JsonElement element = JsonParser.parseString(text);
+            return element.isJsonObject() ? element.getAsJsonObject() : null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static String readText(Path file) {
+        if (file == null || !Files.isRegularFile(file)) return null;
+        try {
+            return Files.readString(file, StandardCharsets.UTF_8);
+        } catch (Exception ignored) {
+        }
+        try {
+            return Files.readString(file, Charset.forName("GBK"));
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private void addSourceIfValid(List<Source> result, String name, Path configDir, Path gameRoot) {
@@ -173,11 +371,6 @@ public final class MigrationManager {
         Path versionsDir = gameRoot.resolve("versions");
         CompletableFuture<Long> sizeFuture = CompletableFuture.supplyAsync(() -> estimateVersionsSize(versionsDir));
         result.add(new Source(name, configDir, gameRoot, 0L, sizeFuture));
-    }
-
-    /** 判断目录是否为 Minecraft 根目录（含 versions 子目录） */
-    private boolean isMinecraftRoot(Path root) {
-        return root != null && Files.isDirectory(root.resolve("versions"));
     }
 
     /** 估算 versions 目录总大小（字节） */

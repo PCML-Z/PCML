@@ -88,7 +88,7 @@ fun ParallaxBackground(
         // 性能：4 层合并到 1 个 Canvas，单次 DrawScope 内画 4 个 drawCircle + 1 个 drawRect
         // 之前 4 个独立 Canvas 各自 fillMaxSize，每帧都全屏重绘 4 次离屏 buffer
         Canvas(Modifier.fillMaxSize()) {
-            // 材质霜面需要一块不透明的底，否则球和球之间会直接透出桌面
+            // 毛玻璃要有一张壁纸可模糊。不铺底的话，正中会变成空洞。
             if (!scrim) {
                 drawRect(if (useDark) Color(0xFF16181E) else Color(0xFFE6E7EB))
             }

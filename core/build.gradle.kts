@@ -9,7 +9,7 @@ java {
     withSourcesJar()
 }
 
-val pmclVersion = providers.gradleProperty("pmcl.version").orElse("1.3.0c")
+val pmclVersion = providers.gradleProperty("pmcl.version").orElse("2.1.11a")
 tasks.withType<Jar>().configureEach {
     manifest {
         attributes("Implementation-Version" to pmclVersion.get())
@@ -22,6 +22,10 @@ val bindGate: SourceSet by sourceSets.creating {
 
 val glfwAgent: SourceSet by sourceSets.creating {
     java.srcDir("src/glfwAgent/java")
+}
+
+val imeAgent: SourceSet by sourceSets.creating {
+    java.srcDir("src/imeAgent/java")
 }
 
 dependencies {
@@ -38,10 +42,13 @@ dependencies {
     // QR code generation
     implementation(libs.zxing.core)
     implementation(libs.zxing.javase)
+    // 自动化命令在启动器里编译 Kotlin。C / C++ / Go 不附带编译器。
+    implementation("org.jetbrains.kotlin:kotlin-compiler-embeddable:${libs.versions.kotlin.get()}")
 
     // GLFW macOS icon-fix agent（独立 source set，勿继承 implementation 以免拉到 Java 21 工程）
     add(glfwAgent.implementationConfigurationName, libs.asm)
     add(glfwAgent.implementationConfigurationName, libs.asm.commons)
+    add(imeAgent.implementationConfigurationName, libs.asm)
 
     // 测试
     testImplementation(libs.junit.jupiter)
@@ -83,6 +90,47 @@ val glfwAgentJar by tasks.registering(Jar::class) {
     }
 }
 
+tasks.named<JavaCompile>("compileImeAgentJava") {
+    sourceCompatibility = "1.8"
+    targetCompatibility = "1.8"
+    options.release.set(8)
+    options.compilerArgs.add("-Xlint:-options")
+}
+
+val imeAgentJar by tasks.registering(Jar::class) {
+    group = "build"
+    description = "Fat jar: Minecraft IME javaagent (Java 8)"
+    archiveBaseName.set("pmcl-ime-agent")
+    archiveVersion.set("")
+    archiveClassifier.set("")
+    destinationDirectory.set(layout.buildDirectory.dir("generated/imeAgent"))
+    from(imeAgent.output)
+    dependsOn(tasks.named("compileImeAgentJava"))
+    from(configurations.named(imeAgent.runtimeClasspathConfigurationName).map { cfg ->
+        cfg.filter { it.name.startsWith("asm") }.map { if (it.isDirectory) it else zipTree(it) }
+    }) {
+        exclude("**/module-info.class")
+        exclude("META-INF/MANIFEST.MF")
+        exclude("META-INF/versions/**")
+    }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    manifest {
+        attributes(
+            "Premain-Class" to "com.pmcl.core.ime.ImeFixAgent",
+            "Agent-Class" to "com.pmcl.core.ime.ImeFixAgent",
+            "Can-Redefine-Classes" to "true",
+            "Can-Retransform-Classes" to "true"
+        )
+    }
+}
+
+val syncImeAgentResource by tasks.registering(Copy::class) {
+    dependsOn(imeAgentJar)
+    from(imeAgentJar.map { it.archiveFile })
+    into(layout.buildDirectory.dir("generated/imeAgentResource/com/pmcl/core/ime"))
+    rename { "pmcl-ime-agent.jar" }
+}
+
 // 将 agent jar 拷入 resources，运行时由 MacOsGlfwFix 解出
 val syncGlfwAgentResource by tasks.registering(Copy::class) {
     dependsOn(glfwAgentJar)
@@ -111,6 +159,7 @@ sourceSets.named("main") {
     runtimeClasspath += bindGate.output
     output.dir(mapOf("builtBy" to "syncBindGateClasses"), bindGateForMain)
     resources.srcDir(layout.buildDirectory.dir("generated/glfwAgentResource"))
+    resources.srcDir(layout.buildDirectory.dir("generated/imeAgentResource"))
 }
 sourceSets.named("test") {
     compileClasspath += bindGate.output
@@ -121,17 +170,17 @@ tasks.named<JavaCompile>("compileJava") {
     dependsOn(tasks.named("compileBindGateJava"))
 }
 tasks.named("processResources") {
-    dependsOn(syncGlfwAgentResource)
+    dependsOn(syncGlfwAgentResource, syncImeAgentResource)
 }
 tasks.named<Jar>("jar") {
-    dependsOn(syncGlfwAgentResource, syncBindGateClasses)
+    dependsOn(syncGlfwAgentResource, syncImeAgentResource, syncBindGateClasses)
 }
 
 // sourcesJar（withSourcesJar 生成）会包含 main 资源集，而 main 资源集已把
 // generated/glfwAgentResource 纳入 srcDir，故必须显式依赖生成任务，否则 Gradle 8.x
 // 配置校验会报 "uses output without declaring dependency" 导致 assemble 失败。
 tasks.named<Jar>("sourcesJar") {
-    dependsOn(syncGlfwAgentResource)
+    dependsOn(syncGlfwAgentResource, syncImeAgentResource)
 }
 
 tasks.test {

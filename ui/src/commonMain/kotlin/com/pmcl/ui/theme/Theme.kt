@@ -165,7 +165,8 @@ fun LauncherTheme(
     useDarkTheme: Boolean = isSystemInDarkTheme(),
     dynamicColorScheme: ColorScheme? = null,
     uiScale: Float = 1.0f,
-    themePreset: String = "default",
+    launcherFont: String = "",
+    themePreset: String = "midnight",
     colorMode: String = "normal",
     customThemePack: com.pmcl.plugin.ThemePack? = null,
     content: @Composable () -> Unit
@@ -226,7 +227,7 @@ fun LauncherTheme(
     )
 
     // 根据 uiScale 生成缩放后的 Typography
-    val scaledTypography = rememberScaledTypography(uiScale)
+    val scaledTypography = rememberScaledTypography(uiScale, launcherFont)
 
     MaterialTheme(
         colorScheme = animatedColors,
@@ -240,10 +241,9 @@ fun LauncherTheme(
  * 使用 remember 缓存，仅在 scale 变化时重建 15 个 TextStyle，避免每次重组都分配对象。
  */
 @Composable
-private fun rememberScaledTypography(scale: Float): Typography {
-    val family = launcherFontFamily()
-    return remember(scale, family) {
-        val base = Typography().withFamily(family)
+private fun rememberScaledTypography(scale: Float, fontName: String): Typography {
+    return remember(scale, fontName) {
+        val base = Typography().withFamily(launcherFontFamily(fontName))
         if (scale == 1.0f) return@remember base
         val s = { sp: TextUnit -> (sp.value * scale).sp }
         Typography(

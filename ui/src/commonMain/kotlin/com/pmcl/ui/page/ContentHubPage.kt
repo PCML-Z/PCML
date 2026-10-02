@@ -7,7 +7,7 @@ import androidx.compose.ui.Modifier
 import com.pmcl.ui.viewmodel.LauncherViewModel
 
 /**
- * 内容中心：由二级侧栏切换 模组 / 整合包 / 光影 / 资源包 / 数据包 / 配置
+ * 内容中心：由二级侧栏切换 模组 / 整合包 / 光影 / 投影 / 资源包 / 数据包 / 配置
  */
 @Composable
 fun ContentHubPage(vm: LauncherViewModel, sectionId: String = "mods") {
@@ -15,6 +15,7 @@ fun ContentHubPage(vm: LauncherViewModel, sectionId: String = "mods") {
         when (sectionId) {
             "modpacks" -> ModpacksPage(vm)
             "shaders" -> ShaderPacksPage(vm)
+            "projections" -> ProjectionsPage(vm)
             "resourcepacks" -> ResourcePacksPage(vm)
             "datapacks" -> DatapacksPage(vm)
             "configs" -> ConfigEditorPage(vm)

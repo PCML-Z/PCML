@@ -17,18 +17,20 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.pmcl.ui.theme.splashPingFangFamily
 import kotlinx.coroutines.delay
 
 /**
@@ -265,82 +267,127 @@ fun SlideInFromStart(
     }
 }
 
-/**
- * 启动加载动画：以 PMCL 图标为核心。
- * - 图标从左到右擦除显现（裁剪框宽度 0 → 100%，图标内容左锚定）
- * - 微幅放大（scale 0.93 → 1.0）
- * - 全程线性匀速（[MotionTokens.EasingLinear]），无缓动
- * - 显现结束后线性淡出，并回调 [onFinished]
- *
- * 用法（App 启动序列中作为一次性覆盖层）：
- * ```
- * var showSplash by remember { mutableStateOf(true) }
- * // ... 主内容 ...
- * if (showSplash) SplashIconReveal(Modifier.fillMaxSize()) { showSplash = false }
- * ```
- */
+/** 关于页里的启动图。文字用苹方，随画面高度缩放。 */
 @Composable
-fun SplashIconReveal(
-    modifier: Modifier = Modifier,
-    durationMs: Int = 1400,
-    iconWidth: Dp = 600.dp,
-    iconHeight: Dp = 190.dp,
-    onFinished: () -> Unit = {}
+fun SplashArtwork(
+    version: String,
+    modifier: Modifier = Modifier
 ) {
-    var started by remember { mutableStateOf(false) }
-    var exiting by remember { mutableStateOf(false) }
-
-    val reveal by animateFloatAsState(
-        targetValue = if (started) 1f else 0f,
-        animationSpec = tween(durationMs, easing = MotionTokens.EasingLinear),
-        label = "splashReveal"
-    )
-    val scale by animateFloatAsState(
-        targetValue = if (started) 1f else 0.93f,
-        animationSpec = tween(durationMs, easing = MotionTokens.EasingLinear),
-        label = "splashScale"
-    )
-    val exitAlpha by animateFloatAsState(
-        targetValue = if (exiting) 0f else 1f,
-        animationSpec = tween(280, easing = MotionTokens.EasingLinear),
-        label = "splashExit"
-    )
-
-    LaunchedEffect(Unit) {
-        started = true
-        delay(durationMs.toLong())
-        delay(700)       // 暂留 0.7s，图标完全可见后再淡出
-        exiting = true
-        delay(280)
-        onFinished()
-    }
-
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .graphicsLayer { this.alpha = exitAlpha }
-            .background(MaterialTheme.colorScheme.background),
-        contentAlignment = Alignment.Center
-    ) {
-        // 微幅放大 + Canvas 级左→右裁剪
-        Box(
-            modifier = Modifier
-                .graphicsLayer {
-                    scaleX = scale
-                    scaleY = scale
-                }
-                .drawWithContent {
-                    // clipRect(right) 控制右边界：reveal=0→右边界=0→不可见；reveal=1→全可见
-                    clipRect(right = size.width * reveal) {
-                        this@drawWithContent.drawContent()
-                    }
-                }
-        ) {
-            Image(
-                painter = painterResource("logo-pmcl-pixel.png"),
-                contentDescription = "PMCL",
-                modifier = Modifier.width(iconWidth).height(iconHeight)
+    val pingFang = splashPingFangFamily()
+    val label = version.trim().let { if (it.startsWith("v") || it.startsWith("V")) it else "v$it" }
+    Box(modifier) {
+        SplashPoster(Modifier.fillMaxSize())
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            val width = maxWidth
+            val height = maxHeight
+            Column(Modifier.padding(start = width * 0.04f, top = height * 0.09f)) {
+                Text(
+                    "PMCL",
+                    color = Color.White,
+                    fontSize = (height.value * 0.16f).sp,
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = pingFang,
+                    lineHeight = (height.value * 0.17f).sp
+                )
+                Spacer(Modifier.height(height * 0.02f))
+                Text(
+                    label,
+                    color = Color.White.copy(alpha = 0.92f),
+                    fontSize = (height.value * 0.055f).sp,
+                    fontWeight = FontWeight.Medium,
+                    fontFamily = pingFang
+                )
+            }
+            Text(
+                text = "By HCS X Pro 2 core",
+                modifier = Modifier.align(Alignment.BottomEnd)
+                    .padding(end = width * 0.03f, bottom = height * 0.04f),
+                color = Color.White.copy(alpha = 0.82f),
+                fontSize = (height.value * 0.032f).sp,
+                fontWeight = FontWeight.Medium,
+                fontFamily = pingFang
             )
         }
+    }
+}
+
+/** 整窗启动图：左侧方块，右侧三角形、方形和菱形，全部直角。 */
+@Composable
+private fun SplashPoster(modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val w = size.width
+        val h = size.height
+        val rows = 5
+        val cell = h / rows
+        val colors = arrayOf(
+            Color(0xFFE11368),
+            Color(0xFF1026C8),
+            Color(0xFF6A1B9A),
+            Color(0xFFFF2D78),
+            Color(0xFF1A237E),
+            Color(0xFFC2185B),
+            Color(0xFF283593),
+            Color(0xFF4A148C)
+        )
+        val pattern = arrayOf(
+            intArrayOf(0, 4, 2, 0),
+            intArrayOf(4, 5, 6, 2),
+            intArrayOf(2, 1, 0, 4),
+            intArrayOf(5, 6, 7, 1),
+            intArrayOf(1, 0, 4, 5)
+        )
+        val mosaicW = cell * pattern[0].size
+        drawRect(Color(0xFF123096))
+        for (row in pattern.indices) {
+            for (col in pattern[row].indices) {
+                drawRect(
+                    colors[pattern[row][col]],
+                    topLeft = Offset(col * cell, row * cell),
+                    size = Size(cell + 1f, cell + 1f)
+                )
+            }
+        }
+        drawPath(
+            Path().apply {
+                moveTo(w, 0f)
+                lineTo(w, h * 0.78f)
+                lineTo(mosaicW + (w - mosaicW) * 0.22f, 0f)
+                close()
+            },
+            Color(0xFF3D7EFF)
+        )
+        drawPath(
+            Path().apply {
+                moveTo(mosaicW, h)
+                lineTo(mosaicW + h * 0.62f, h)
+                lineTo(mosaicW, h * 0.42f)
+                close()
+            },
+            Color(0xFF0D1B6E)
+        )
+        val square = h * 0.26f
+        drawRect(
+            Color(0xFFFF4D8D),
+            topLeft = Offset(mosaicW + (w - mosaicW) * 0.38f, h * 0.50f),
+            size = Size(square, square)
+        )
+        val cx = mosaicW + (w - mosaicW) * 0.58f
+        val cy = h * 0.22f
+        val arm = h * 0.12f
+        drawPath(
+            Path().apply {
+                moveTo(cx, cy - arm)
+                lineTo(cx + arm, cy)
+                lineTo(cx, cy + arm)
+                lineTo(cx - arm, cy)
+                close()
+            },
+            Color(0xFFFFC107)
+        )
+        drawRect(
+            Color(0xFFFFD112),
+            topLeft = Offset(mosaicW + cell * 0.45f, h * 0.84f),
+            size = Size(h * 0.72f, h * 0.07f)
+        )
     }
 }

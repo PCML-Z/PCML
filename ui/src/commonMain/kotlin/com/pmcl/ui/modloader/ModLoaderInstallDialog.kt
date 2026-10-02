@@ -1,5 +1,6 @@
 package com.pmcl.ui.modloader
 import com.pmcl.ui.widget.PmclLazyColumn
+import com.pmcl.ui.widget.pmclVerticalScroll
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -29,6 +30,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -54,7 +56,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pmcl.core.i18n.I18n
 import com.pmcl.core.modloader.ModLoader
+import com.pmcl.core.version.MinecraftVersionIds
 import com.pmcl.ui.viewmodel.LauncherViewModel
+import com.pmcl.ui.widget.VersionTypeIcon
 
 /** 安装弹窗左侧加载器条目（含品牌色）。 */
 data class LoaderUiEntry(
@@ -68,6 +72,111 @@ data class LoaderUiEntry(
 enum class LoaderIconKind {
     VANILLA, FABRIC, FORGE, NEOFORGE, QUILT, LITELOADER, BABRIC, BTA,
     LEGACY_FABRIC, ORNITHE, RIFT, JAVA_AGENT, RISUGAMI, NILLOADER, OPTIFINE
+}
+
+private data class LoaderGuideRow(
+    val loader: ModLoader?,
+    val sceneKey: String,
+    val bodyKey: String,
+    val kind: LoaderIconKind,
+    val color: Color
+)
+
+@Composable
+private fun LoaderChoiceGuideDialog(
+    onDismiss: () -> Unit,
+    onChooseMyself: () -> Unit,
+    onPick: (ModLoader?) -> Unit
+) {
+    val rows = listOf(
+        LoaderGuideRow(ModLoader.FABRIC, "launch.loader_guide.fabric_scene", "launch.loader_guide.fabric_body", LoaderIconKind.FABRIC, Color(0xFF8B909A)),
+        LoaderGuideRow(ModLoader.FORGE, "launch.loader_guide.forge_scene", "launch.loader_guide.forge_body", LoaderIconKind.FORGE, Color(0xFF1E4B8C)),
+        LoaderGuideRow(ModLoader.NEOFORGE, "launch.loader_guide.neoforge_scene", "launch.loader_guide.neoforge_body", LoaderIconKind.NEOFORGE, Color(0xFFE36A1E)),
+        LoaderGuideRow(ModLoader.QUILT, "launch.loader_guide.quilt_scene", "launch.loader_guide.quilt_body", LoaderIconKind.QUILT, Color(0xFF8B5CF6)),
+        LoaderGuideRow(null, "launch.loader_guide.vanilla_scene", "launch.loader_guide.vanilla_body", LoaderIconKind.VANILLA, Color(0xFF6B7280))
+    )
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 6.dp
+        ) {
+            Column(
+                Modifier
+                    .width(520.dp)
+                    .heightIn(max = 560.dp)
+                    .padding(16.dp)
+            ) {
+                Text(
+                    I18n.t("launch.loader_guide_title"),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    I18n.t("launch.loader_guide_subtitle"),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
+                )
+                Column(
+                    Modifier.heightIn(max = 380.dp).pmclVerticalScroll(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    rows.forEach { row ->
+                        Surface(
+                            onClick = { onPick(row.loader) },
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                LoaderBrandIcon(
+                                    kind = row.kind,
+                                    color = row.color,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                                Spacer(Modifier.width(10.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        I18n.t(row.sceneKey),
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        I18n.t(row.bodyKey),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    Text(
+                        I18n.t("launch.loader_guide_more"),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 12.dp),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text(I18n.t("launch.loader_guide_cancel"))
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Button(onClick = onChooseMyself) {
+                        Text(I18n.t("launch.loader_guide_skip"))
+                    }
+                }
+            }
+        }
+    }
 }
 
 fun installPromptLoaderEntries(): List<LoaderUiEntry> = listOf(
@@ -98,10 +207,10 @@ fun ModLoaderInstallPromptDialog(
     vm: LauncherViewModel,
     onDismiss: () -> Unit
 ) {
-    val gameVersion = remember(versionId) {
-        val dashIdx = versionId.indexOf('-')
-        if (dashIdx > 0) versionId.substring(0, dashIdx) else versionId
+    var gameVersion by remember(versionId) {
+        mutableStateOf(MinecraftVersionIds.gameVersion(versionId))
     }
+    var pickingGame by remember(versionId) { mutableStateOf(false) }
 
     val modLoaderVersions by vm.modLoaderVersions.collectAsState()
     val modLoaderVersionsLoading by vm.modLoaderVersionsLoading.collectAsState()
@@ -111,13 +220,33 @@ fun ModLoaderInstallPromptDialog(
     var vanillaOnlySelected by remember { mutableStateOf(false) }
     var selectedLoaderVersion by remember { mutableStateOf<String?>(null) }
     var showAllLoaders by remember { mutableStateOf(true) }
+    var showGuide by remember { mutableStateOf(true) }
+
+    if (showGuide) {
+        LoaderChoiceGuideDialog(
+            onDismiss = onDismiss,
+            onChooseMyself = { showGuide = false },
+            onPick = { loader ->
+                if (loader == null) {
+                    vanillaOnlySelected = true
+                    selectedLoader = null
+                    selectedLoaderVersion = null
+                } else {
+                    vanillaOnlySelected = false
+                    selectedLoader = loader
+                }
+                showGuide = false
+            }
+        )
+        return
+    }
 
     val allEntries = remember { installPromptLoaderEntries() }
     val visibleEntries = remember(showAllLoaders, allEntries) {
         if (showAllLoaders) allEntries else allEntries.filter { it.primary }
     }
 
-    LaunchedEffect(selectedLoader) {
+    LaunchedEffect(selectedLoader, gameVersion) {
         val loader = selectedLoader
         selectedLoaderVersion = null
         if (loader != null && loader.isInstallable()) {
@@ -125,6 +254,19 @@ fun ModLoaderInstallPromptDialog(
         } else {
             vm.clearModLoaderVersions()
         }
+    }
+
+    if (pickingGame) {
+        LoaderTargetGameDialog(
+            suggested = gameVersion,
+            vm = vm,
+            confirmLabel = I18n.t("common.confirm"),
+            onDismiss = { pickingGame = false },
+            onConfirm = { chosen ->
+                gameVersion = chosen
+                pickingGame = false
+            }
+        )
     }
 
     androidx.compose.ui.window.Dialog(
@@ -150,8 +292,32 @@ fun ModLoaderInstallPromptDialog(
                     I18n.t("launch.install_modloader_hint", gameVersion),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
+                    modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)
                 )
+                Surface(
+                    onClick = { if (!installing) pickingGame = true },
+                    enabled = !installing,
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
+                ) {
+                    Row(
+                        Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            I18n.t("launch.loader_target_current", gameVersion),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            I18n.t("launch.loader_target_change"),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
 
                 Row(
                     modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -384,9 +550,9 @@ fun ModLoaderInstallPromptDialog(
                             val loader = selectedLoader
                             val lv = selectedLoaderVersion
                             if (loader != null && lv != null) {
-                                vm.proceedInstall(versionId, loader, lv)
+                                vm.proceedInstall(gameVersion, loader, lv)
                             } else {
-                                vm.proceedInstall(versionId, null, null)
+                                vm.proceedInstall(gameVersion, null, null)
                             }
                             onDismiss()
                         },
@@ -398,6 +564,163 @@ fun ModLoaderInstallPromptDialog(
                         Text(if (installing) I18n.t("launch.installing") else I18n.t("launch.start_install"))
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun LoaderTargetGameDialog(
+    suggested: String,
+    vm: LauncherViewModel,
+    confirmLabel: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit
+) {
+    val localInfos by vm.localVersionInfos.collectAsState()
+    val catalog by vm.versions.collectAsState()
+    var query by remember { mutableStateOf("") }
+    var selected by remember(suggested) { mutableStateOf(suggested) }
+
+    LaunchedEffect(Unit) {
+        if (catalog.isEmpty()) vm.refreshVersions()
+    }
+
+    val installed = remember(localInfos) {
+        localInfos.map { MinecraftVersionIds.gameVersion(it.id, it.inheritsFrom) }
+            .filter { it.isNotBlank() }
+            .distinct()
+    }
+    val installedSet = remember(installed) { installed.toSet() }
+    val typeById = remember(catalog) { catalog.associate { it.id to it.type } }
+    val needle = query.trim()
+    val installedShown = remember(installed, needle) {
+        installed.filter { needle.isEmpty() || it.contains(needle, ignoreCase = true) }
+    }
+    val catalogShown = remember(catalog, installedSet, needle) {
+        catalog.mapNotNull { it.id }
+            .filter { it.isNotBlank() && it !in installedSet }
+            .filter { needle.isEmpty() || it.contains(needle, ignoreCase = true) }
+            .distinct()
+    }
+
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 6.dp
+        ) {
+            Column(
+                Modifier
+                    .width(420.dp)
+                    .heightIn(min = 360.dp, max = 560.dp)
+                    .padding(16.dp)
+            ) {
+                Text(
+                    I18n.t("launch.loader_target_title"),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    I18n.t("launch.loader_target_body"),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
+                )
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    label = { Text(I18n.t("launch.loader_target_search")) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(8.dp))
+                if (installedShown.isEmpty() && catalogShown.isEmpty()) {
+                    Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        Text(
+                            I18n.t("launch.loader_target_empty"),
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                    }
+                } else {
+                    PmclLazyColumn(
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        if (installedShown.isNotEmpty()) {
+                            item {
+                                Text(
+                                    I18n.t("launch.loader_target_installed"),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.outline,
+                                    modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
+                                )
+                            }
+                            items(installedShown, key = { "installed-$it" }) { id ->
+                                GameTargetRow(id, typeById[id], id == selected) { selected = id }
+                            }
+                        }
+                        if (catalogShown.isNotEmpty()) {
+                            item {
+                                Text(
+                                    I18n.t("launch.loader_target_catalog"),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.outline,
+                                    modifier = Modifier.padding(top = 8.dp, bottom = 2.dp)
+                                )
+                            }
+                            items(catalogShown, key = { "catalog-$it" }) { id ->
+                                GameTargetRow(id, typeById[id], id == selected) { selected = id }
+                            }
+                        }
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    OutlinedButton(onClick = onDismiss) { Text(I18n.t("common.cancel")) }
+                    Spacer(Modifier.width(8.dp))
+                    Button(
+                        onClick = { onConfirm(selected) },
+                        enabled = selected.isNotBlank()
+                    ) { Text(confirmLabel) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GameTargetRow(
+    id: String,
+    type: String?,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(8.dp),
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer
+        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (type != null) {
+                VersionTypeIcon(type, Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+            }
+            Text(
+                id,
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
+            )
+            if (selected) {
+                Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(16.dp))
             }
         }
     }

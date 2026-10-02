@@ -1,17 +1,31 @@
 package com.pmcl.ui.viewmodel
 
 import com.pmcl.core.gamecontent.DatapackManager
+import com.pmcl.core.gamecontent.VersionGameFiles
+import com.pmcl.ui.page.readProjection
 import com.pmcl.core.gamecontent.ResourcePackManager
 import com.pmcl.core.gamecontent.ScreenshotManager
 import com.pmcl.core.gamecontent.RecordingManager
 import com.pmcl.core.gamecontent.ShaderPackManager
 import com.pmcl.core.gamecontent.WorldManager
 import com.pmcl.core.i18n.I18n
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.nio.file.Files
 import java.nio.file.Path
+
+data class ManagedProjection(
+    val fileName: String,
+    val title: String,
+    val path: String,
+    val source: String,
+    val size: Long,
+    val modified: Long,
+    val summary: String
+)
 
 /**
  * M29 拆分：世界 / 截图 / 资源包 / 光影 / 数据包域。
@@ -865,6 +879,179 @@ fun LauncherViewModel.clearActiveShaderPack() {
             _status.value = I18n.t("status.clear_failed", e.message ?: I18n.t("common.unknown"))
         }
     }
+}
+
+// ============ 投影 ============
+
+fun LauncherViewModel.refreshProjections() {
+    scope.launch {
+        try {
+            val list = withContext(Dispatchers.IO) {
+                val all = mutableListOf<ManagedProjection>()
+                val seen = mutableSetOf<String>()
+                var dirErrors = 0
+                for (dir in projectionDirs()) {
+                    if (!Files.isDirectory(dir)) continue
+                    try {
+                        val root = dir.toAbsolutePath().normalize()
+                        val source = contentSourceLabelFor(root, "schematics")
+                        for (file in VersionGameFiles.schematicFiles(root)) {
+                            if (all.size >= 400) break
+                            val relative = VersionGameFiles.schematicRelative(root, file)
+                            val path = file.toString()
+                            if (!seen.add(path)) continue
+                            val attrs = Files.readAttributes(file, java.nio.file.attribute.BasicFileAttributes::class.java)
+                            val info = readProjection(path)
+                            val title = info?.name?.takeIf { it.isNotBlank() } ?: file.fileName.toString()
+                            val summary = if (info != null) {
+                                I18n.t(
+                                    "version_settings.projection_summary",
+                                    info.width, info.height, info.length, info.blocks
+                                )
+                            } else {
+                                projectionSize(attrs.size())
+                            }
+                            all.add(ManagedProjection(
+                                relative, title, path, source, attrs.size(),
+                                attrs.lastModifiedTime().toMillis(), summary
+                            ))
+                        }
+                    } catch (t: Throwable) {
+                        if (t is kotlinx.coroutines.CancellationException) throw t
+                        dirErrors++
+                        System.err.println("[VM] 投影目录扫描失败 $dir: ${t.message}")
+                    }
+                }
+                all.sortBy { it.title.lowercase() }
+                Pair(all, dirErrors)
+            }
+            _projections.value = list.first
+            _status.value = if (list.second > 0) {
+                I18n.t("status.projections_scanned_partial", list.first.size, list.second)
+            } else {
+                I18n.t("status.projections_scanned", list.first.size)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            _status.value = I18n.t("status.scan_projections_failed", e.message ?: I18n.t("common.unknown"))
+        }
+    }
+}
+
+fun LauncherViewModel.importProjection(filePath: String) {
+    scope.launch {
+        try {
+            val fileName = withContext(Dispatchers.IO) {
+                val src = Path.of(filePath)
+                val name = src.fileName?.toString() ?: throw java.io.IOException("bad-file")
+                if (!VersionGameFiles.accepts(VersionGameFiles.SCHEMATICS, name)) {
+                    throw java.io.IOException("bad-file")
+                }
+                val targetDir = projectionImportDir()
+                Files.copy(src, targetDir.resolve(name), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+                name
+            }
+            _status.value = I18n.t("status.projection_imported", fileName)
+            refreshProjections()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            _status.value = I18n.t("status.import_failed", e.message ?: I18n.t("common.unknown"))
+        }
+    }
+}
+
+fun LauncherViewModel.deleteProjection(item: ManagedProjection) {
+    scope.launch {
+        try {
+            withContext(Dispatchers.IO) {
+                val path = Path.of(item.path).toAbsolutePath().normalize()
+                val root = projectionDirs()
+                    .map { it.toAbsolutePath().normalize() }
+                    .firstOrNull { path.startsWith(it) && path != it }
+                    ?: throw java.io.IOException("bad-path")
+                VersionGameFiles.deleteSchematicFile(root, path)
+            }
+            _status.value = I18n.t("status.projection_deleted", item.fileName)
+            refreshProjections()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            _status.value = I18n.t("status.delete_failed", e.message ?: I18n.t("common.unknown"))
+        }
+    }
+}
+
+fun LauncherViewModel.openProjectionsDir() {
+    try {
+        openDir(projectionImportDir().toFile())
+    } catch (e: Throwable) {
+        _status.value = I18n.t("status.open_dir_failed", e.message ?: I18n.t("common.unknown"))
+    }
+}
+
+fun LauncherViewModel.revealProjection(item: ManagedProjection) {
+    scope.launch {
+        try {
+            withContext(Dispatchers.IO) {
+                val file = java.io.File(item.path)
+                if (!file.isFile) throw java.io.IOException(I18n.t("version_settings.open_failed"))
+                val os = System.getProperty("os.name").lowercase()
+                val cmd = when {
+                    os.contains("mac") -> listOf("open", "-R", file.absolutePath)
+                    os.contains("win") -> listOf("explorer", "/select,", file.absolutePath)
+                    else -> listOf("xdg-open", file.parentFile?.absolutePath ?: file.absolutePath)
+                }
+                ProcessBuilder(cmd).redirectErrorStream(true).start()
+            }
+        } catch (e: Throwable) {
+            _status.value = I18n.t("status.open_dir_failed", e.message ?: I18n.t("common.unknown"))
+        }
+    }
+}
+
+private fun LauncherViewModel.projectionDirs(): List<Path> {
+    val dirs = mutableListOf<Path>()
+    dirs.add(config.getWorkDir().resolve("schematics"))
+    for (mcDir in com.pmcl.core.version.VersionManager.detectAllMinecraftVersionsDirs()) {
+        mcDir.parent?.let { dirs.add(it.resolve("schematics")) }
+    }
+    val versionsDirs = mutableListOf<Path>()
+    versionsDirs.add(config.getVersionsDir())
+    versionsDirs.addAll(com.pmcl.core.version.VersionManager.detectAllMinecraftVersionsDirs())
+    for (vd in versionsDirs) {
+        val vf = vd.toFile()
+        if (!vf.isDirectory) continue
+        val subs = vf.listFiles { f -> f.isDirectory } ?: continue
+        for (sub in subs) dirs.add(sub.toPath().resolve("schematics"))
+    }
+    val instDir = config.getWorkDir().resolve("instances")
+    if (instDir.toFile().isDirectory) {
+        val insts = instDir.toFile().listFiles { f -> f.isDirectory } ?: emptyArray()
+        for (inst in insts) dirs.add(inst.toPath().resolve("schematics"))
+    }
+    return dirs
+}
+
+private fun LauncherViewModel.projectionImportDir(): Path {
+    val versionId = _selectedVersion.value
+    if (!versionId.isNullOrBlank()) {
+        try {
+            val game = core.profileBuilder().resolveGameDirectory(versionId)
+            return VersionGameFiles.directory(game, VersionGameFiles.SCHEMATICS)
+        } catch (_: Throwable) {
+        }
+    }
+    return VersionGameFiles.directory(config.getWorkDir(), VersionGameFiles.SCHEMATICS)
+}
+
+private fun projectionSize(bytes: Long): String {
+    if (bytes < 1024) return "$bytes B"
+    val kb = bytes / 1024.0
+    if (kb < 1024) return String.format(java.util.Locale.US, "%.1f KB", kb)
+    val mb = kb / 1024.0
+    return String.format(java.util.Locale.US, "%.1f MB", mb)
 }
 
 /** 在系统文件管理中打开 shaderpacks 目录 */

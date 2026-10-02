@@ -284,6 +284,22 @@ public final class AuthService {
         return authlibInjectorManager.prefetchYggdrasilApi(apiUrl);
     }
 
+    private final ExternalAuthServerStore externalAuthServers = new ExternalAuthServerStore();
+
+    /** 探测外置验证服务器并返回名称与规范化地址。 */
+    public YggdrasilAuthFlow.ServerInfo probeExternalAuthServer(String url) throws IOException {
+        return yggdrasilFlow.probe(url);
+    }
+
+    public List<ExternalAuthServerStore.ExternalAuthServer> loadExternalAuthServers(Path file) {
+        return externalAuthServers.load(file);
+    }
+
+    public void saveExternalAuthServers(Path file, List<ExternalAuthServerStore.ExternalAuthServer> servers)
+            throws IOException {
+        externalAuthServers.save(file, servers);
+    }
+
     // ============ 多账号持久化 ============
 
     /** 串行化 accounts.json 读写，避免 load/save 竞态与共享 .tmp 撕文件 */

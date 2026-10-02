@@ -1,5 +1,10 @@
 package com.pmcl.core.identity;
 
+import com.google.zxing.EncodeHintType;
+import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel;
+import com.google.zxing.qrcode.decoder.Version;
+import com.google.zxing.qrcode.encoder.Encoder;
+import com.google.zxing.qrcode.encoder.QRCode;
 import com.pmcl.core.LauncherCore;
 import com.pmcl.core.runtime.RuntimeManager;
 import java.math.BigInteger;
@@ -11,6 +16,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.zip.CRC32;
 import java.util.zip.Deflater;
 import java.util.zip.Inflater;
@@ -36,6 +42,76 @@ public final class HectMiGenerator {
     static final int VALUE_COUNT = 13;
 
     private HectMiGenerator() {}
+
+    /** 识别码对应的二维码模块。含 2 格静区，黑模块为 true。 */
+    public static final class QrGrid {
+        public final int size;
+        public final boolean[] modules;
+
+        QrGrid(int size, boolean[] modules) {
+            this.size = size;
+            this.modules = modules;
+        }
+    }
+
+    /**
+     * 把完整识别码编成二维码。字母和数字按字母数字模式编码，纠错级别 M。
+     * 编码失败时返回 null。
+     */
+    public static QrGrid qrCode(String text) {
+        return qrCode(text, 1);
+    }
+
+    /**
+     * 按给定倍数提高纠错能力。倍数为 1 时仍用 M 级最小版本。
+     * 倍数更大时改用 H 级，并升到纠错码字数至少达到原来 M 级那么多倍的最小版本。
+     * 编码失败时返回 null。
+     */
+    public static QrGrid qrCode(String text, int correctionScale) {
+        if (text == null || text.isEmpty()) return null;
+        try {
+            QRCode code = encode(text, correctionScale);
+            if (code == null) return null;
+            var matrix = code.getMatrix();
+            int width = matrix.getWidth();
+            int height = matrix.getHeight();
+            int quiet = 2;
+            int size = Math.max(width, height) + quiet * 2;
+            boolean[] modules = new boolean[size * size];
+            for (int y = 0; y < height; y++) {
+                for (int x = 0; x < width; x++) {
+                    if (matrix.get(x, y) != 0) {
+                        modules[(y + quiet) * size + (x + quiet)] = true;
+                    }
+                }
+            }
+            return new QrGrid(size, modules);
+        } catch (Exception e) {
+            System.err.println("[HECT-MI] 二维码编码失败: " + e.getMessage());
+            return null;
+        }
+    }
+
+    private static QRCode encode(String text, int correctionScale) throws Exception {
+        if (correctionScale <= 1) {
+            return Encoder.encode(text, ErrorCorrectionLevel.M);
+        }
+        QRCode baseline = Encoder.encode(text, ErrorCorrectionLevel.M);
+        int targetEc = baseline.getVersion().getECBlocksForLevel(ErrorCorrectionLevel.M).getTotalECCodewords()
+                * correctionScale;
+        for (int version = 1; version <= 40; version++) {
+            int ec = Version.getVersionForNumber(version)
+                    .getECBlocksForLevel(ErrorCorrectionLevel.H)
+                    .getTotalECCodewords();
+            if (ec < targetEc) continue;
+            try {
+                return Encoder.encode(text, ErrorCorrectionLevel.H, Map.of(EncodeHintType.QR_VERSION, version));
+            } catch (Exception ignored) {
+                // 这一版装不下内容，继续找更大的版本
+            }
+        }
+        return Encoder.encode(text, ErrorCorrectionLevel.H);
+    }
 
     /**
      * 根据当前启动器环境生成 HECT-MI 识别码。

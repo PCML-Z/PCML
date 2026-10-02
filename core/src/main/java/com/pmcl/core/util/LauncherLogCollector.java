@@ -24,6 +24,8 @@ public final class LauncherLogCollector {
     private static final ArrayDeque<String> LINES = new ArrayDeque<>(MAX_LINES);
     private static final Object LOCK = new Object();
     private static volatile boolean installed = false;
+    /** 低于此等级的行只打到控制台，不进环形缓冲。0=DEBUG … 4=OFF。 */
+    private static volatile int minLevel = 0;
 
     private LauncherLogCollector() {}
 
@@ -40,6 +42,21 @@ public final class LauncherLogCollector {
         synchronized (LOCK) {
             if (LINES.isEmpty()) return "";
             return String.join("\n", LINES);
+        }
+    }
+
+    /** DEBUG、INFO、WARN、ERROR、OFF。控制台输出不变，只影响启动器日志缓冲。 */
+    public static void setLevel(String level) {
+        if (level == null) {
+            minLevel = 0;
+            return;
+        }
+        switch (level.toUpperCase(java.util.Locale.ROOT)) {
+            case "INFO" -> minLevel = 1;
+            case "WARN" -> minLevel = 2;
+            case "ERROR" -> minLevel = 3;
+            case "OFF" -> minLevel = 4;
+            default -> minLevel = 0;
         }
     }
 
@@ -100,6 +117,7 @@ public final class LauncherLogCollector {
             lineBuf.reset();
             if (bytes.length == 1 && bytes[0] == '\r') return;
             String line = new String(bytes, StandardCharsets.UTF_8);
+            if (lineRank(line) < minLevel) return;
             synchronized (LOCK) {
                 LINES.addLast(line);
                 while (LINES.size() > MAX_LINES) {
@@ -107,5 +125,14 @@ public final class LauncherLogCollector {
                 }
             }
         }
+    }
+
+    private static int lineRank(String line) {
+        String upper = line.toUpperCase(java.util.Locale.ROOT);
+        if (upper.contains("[PMCL DEBUG]") || upper.contains(" DEBUG")) return 0;
+        if (upper.contains("ERROR") || upper.contains("EXCEPTION")
+                || line.contains("失败") || line.contains("错误")) return 3;
+        if (upper.contains("WARN") || line.contains("警告")) return 2;
+        return 1;
     }
 }

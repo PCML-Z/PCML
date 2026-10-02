@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.unit.dp
+import com.pmcl.core.automation.AutomationCommand
 import com.pmcl.core.i18n.I18n
 import com.pmcl.core.plugin.PluginManager
 import com.pmcl.plugin.api.PluginMenuAction
@@ -29,7 +30,7 @@ import com.pmcl.ui.navigation.SecondaryNavRegistry
 import com.pmcl.ui.navigation.allDestinations
 import kotlinx.coroutines.launch
 import com.pmcl.ui.page.AccountsPage
-import com.pmcl.ui.page.AgreementGatePage
+import com.pmcl.ui.page.AgreementGateDialog
 import com.pmcl.ui.page.ContentHubPage
 import com.pmcl.ui.page.DownloadHubPage
 import com.pmcl.ui.page.GameCrashPopup
@@ -48,7 +49,6 @@ import com.pmcl.ui.page.SettingsPage
 import com.pmcl.ui.page.StatisticsPage
 import com.pmcl.ui.page.TerminalPage
 import com.pmcl.ui.page.TipsPage
-import com.pmcl.ui.page.WelcomePage
 import com.pmcl.ui.theme.LauncherTheme
 import com.pmcl.ui.theme.LocalThemeState
 import com.pmcl.ui.theme.ThemeState
@@ -58,6 +58,7 @@ import com.pmcl.ui.viewmodel.playNextMusic
 import com.pmcl.ui.viewmodel.playPreviousMusic
 import com.pmcl.ui.viewmodel.resumeMusic
 import com.pmcl.ui.viewmodel.setMusicVolume
+import com.pmcl.ui.viewmodel.awaitAutomation
 import com.pmcl.ui.viewmodel.stopMusic
 import com.pmcl.ui.widget.MiniMusicBar
 import com.pmcl.ui.widget.CommandPaletteOverlay
@@ -74,6 +75,15 @@ fun App(vm: LauncherViewModel, themeState: ThemeState) {
 
     // 启动时初始化动态颜色 + UI 缩放
     // M48 修复：用字符串 key 替代 Unit，便于在 Profiler / 调试中区分多个 LaunchedEffect
+    LaunchedEffect("automation-launcher-start") {
+        vm.awaitAutomation(
+            AutomationCommand.TRIGGER_LAUNCHER_START,
+            vm.selectedVersion.value ?: "",
+            "",
+            null
+        )
+    }
+
     LaunchedEffect("init-dynamic-color") {
         val customColor = vm.preferences.getCustomAccentColor()
         if (vm.preferences.isDynamicColor()) {
@@ -95,12 +105,15 @@ fun App(vm: LauncherViewModel, themeState: ThemeState) {
         }
         // 应用 UI 缩放
         themeState.applyUiScale(vm.preferences.getUiScale())
+        themeState.applyLauncherFont(vm.preferences.getLauncherFont())
         // 应用视差背景 / 自定义背景 / 玻璃主题 / 锁屏启动页主题初始状态
         themeState.applyParallaxBackground(vm.preferences.isParallaxBackground())
         themeState.applyCustomBackground(vm.isCustomBackgroundActive())
         themeState.applyGlassTheme(vm.preferences.isGlassTheme())
         themeState.applyMaterialTheme(vm.preferences.isMaterialTheme())
         themeState.applyLiveWallpaperGlass(vm.preferences.isLiveWallpaperGlass())
+        themeState.applyFieldGeometry(vm.preferences.getFieldGeometry())
+        themeState.applyFieldLineStyle(vm.preferences.getFieldLineStyle())
         themeState.applyAlwaysShowScrollbars(vm.preferences.isAlwaysShowScrollbars())
         themeState.applyShowScrollbarsOnScroll(vm.preferences.isShowScrollbarsOnScroll())
         themeState.applyLockscreenLaunchTheme(vm.preferences.isLockscreenLaunchTheme())
@@ -128,6 +141,7 @@ fun App(vm: LauncherViewModel, themeState: ThemeState) {
         useDarkTheme = if (themeState.followSystem) systemDark else themeState.useDark,
         dynamicColorScheme = effectiveScheme,
         uiScale = themeState.uiScale,
+        launcherFont = themeState.launcherFont,
         themePreset = themeState.themePreset,
         colorMode = themeState.colorMode,
         customThemePack = themeState.customThemePack
@@ -144,15 +158,8 @@ fun App(vm: LauncherViewModel, themeState: ThemeState) {
             ) {
                 Box(Modifier.fillMaxSize()) {
                     val agreementAccepted by vm.agreementAccepted.collectAsState()
-                    val firstLaunchDone by vm.firstLaunchCompleted.collectAsState()
 
-                    if (!agreementAccepted) {
-                        // 首次打开：必须同意用户协议、免责协议与许可证
-                        AgreementGatePage(vm)
-                    } else if (!firstLaunchDone) {
-                        // 首次启动：迁移引导页
-                        WelcomePage(vm)
-                    } else if (themeState.lockscreenLaunchTheme) {
+                    if (themeState.lockscreenLaunchTheme) {
                         var enteredMain by remember { mutableStateOf(false) }
                         if (!enteredMain) {
                             LockscreenLaunchPage(
@@ -164,6 +171,9 @@ fun App(vm: LauncherViewModel, themeState: ThemeState) {
                         }
                     } else {
                         MainWindowContent(vm)
+                    }
+                    if (!agreementAccepted) {
+                        AgreementGateDialog(vm)
                     }
                     // 全局：GitHub Release 同步更新弹窗（任意页面都可见）
                     PushedUpdateDialog(vm)

@@ -2,5 +2,11 @@ package com.pmcl.ui.theme
 
 import androidx.compose.ui.text.font.FontFamily
 
-/** 首选 DIN Pro，系统没有时用 PingFang SC。 */
-expect fun launcherFontFamily(): FontFamily
+/** requested 为空时用 DIN Pro，系统没有则用 PingFang SC。 */
+expect fun launcherFontFamily(requested: String): FontFamily
+
+/** 本机可选的界面字体，不含点开头的系统内部字体。 */
+expect fun installedLauncherFonts(): List<String>
+
+/** 启动图文字用苹方，不跟随界面字体设置。 */
+expect fun splashPingFangFamily(): FontFamily

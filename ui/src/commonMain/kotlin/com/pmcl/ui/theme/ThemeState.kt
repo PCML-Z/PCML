@@ -41,23 +41,35 @@ class ThemeState(initialDark: Boolean = false) {
     /** UI 缩放系数，1.0 = 默认大小 */
     var uiScale by mutableStateOf(1.0f)
         private set
+
+    /** 界面字体家族名。空字符串表示自动选择。 */
+    var launcherFont by mutableStateOf("")
+        private set
         
-    var parallaxBackground by mutableStateOf(false)
+    var parallaxBackground by mutableStateOf(true)
         private set
 
     /** 自定义背景（图片/视频）是否激活：激活时 App 内容层透明，透出窗口级背景 */
     var customBackground by mutableStateOf(false)
         private set
 
-    var glassTheme by mutableStateOf(false)
+    var glassTheme by mutableStateOf(true)
         private set
 
     /** 实验材质：整页浅灰板。与玻璃主题分开，关闭后回到原来的主题。 */
-    var materialTheme by mutableStateOf(false)
+    var materialTheme by mutableStateOf(true)
         private set
 
     /** 实时壁纸毛玻璃。和材质主题分开，关闭后背景回到原来的壁纸。 */
-    var liveWallpaperGlass by mutableStateOf(false)
+    var liveWallpaperGlass by mutableStateOf(true)
+        private set
+
+    /** 材质角落图形。 */
+    var fieldGeometry by mutableStateOf("LINES")
+        private set
+
+    /** 材质角落线条。 */
+    var fieldLineStyle by mutableStateOf("SOLID")
         private set
 
     /** 材质主页正在显示底栏。侧栏用它接上同一条底边，不写入设置。 */
@@ -76,7 +88,7 @@ class ThemeState(initialDark: Boolean = false) {
         private set
 
     /** 主题色彩预设 ID：default/ocean/forest/sunset/lavender/sakura/midnight */
-    var themePreset by mutableStateOf("default")
+    var themePreset by mutableStateOf("midnight")
         private set
 
     /** 色彩模式 ID：normal/amoled/high_contrast/soft */
@@ -123,6 +135,10 @@ class ThemeState(initialDark: Boolean = false) {
         uiScale = scale.coerceIn(0.7f, 1.6f)
     }
 
+    fun applyLauncherFont(name: String) {
+        launcherFont = name
+    }
+
     fun applyParallaxBackground(enabled: Boolean) {
         parallaxBackground = enabled
     }
@@ -141,6 +157,14 @@ class ThemeState(initialDark: Boolean = false) {
 
     fun applyLiveWallpaperGlass(enabled: Boolean) {
         liveWallpaperGlass = enabled
+    }
+
+    fun applyFieldGeometry(value: String) {
+        fieldGeometry = value
+    }
+
+    fun applyFieldLineStyle(value: String) {
+        fieldLineStyle = value
     }
 
     fun applyAlwaysShowScrollbars(enabled: Boolean) {

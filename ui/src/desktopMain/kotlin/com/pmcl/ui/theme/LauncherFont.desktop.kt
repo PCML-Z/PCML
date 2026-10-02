@@ -8,37 +8,54 @@ import java.awt.GraphicsEnvironment
 import java.io.File
 
 @OptIn(ExperimentalTextApi::class)
-actual fun launcherFontFamily(): FontFamily = LauncherFonts.family
+actual fun launcherFontFamily(requested: String): FontFamily {
+    if (requested.isNotBlank() && requested in installedNames()) {
+        return FontFamily(requested)
+    }
+    return bundledDin() ?: FontFamily(autoFamilyName())
+}
+
+actual fun installedLauncherFonts(): List<String> {
+    val names = installedNames()
+    val preferred = listOf("DIN Pro", "DINPro", "PingFang SC").filter { it in names }
+    return preferred + (names - preferred.toSet()).sorted()
+}
 
 @OptIn(ExperimentalTextApi::class)
-private object LauncherFonts {
-    val family: FontFamily = resolve()
-
-    private fun resolve(): FontFamily {
-        bundledDin()?.let { return it }
-        val installed = GraphicsEnvironment.getLocalGraphicsEnvironment()
-            .availableFontFamilyNames
-            .toSet()
-        val din = listOf("DIN Pro", "DINPro").firstOrNull { name ->
-            installed.any { it.equals(name, ignoreCase = true) }
-        }
-        return FontFamily(din ?: "PingFang SC")
+private fun bundledDin(): FontFamily? {
+    val names = listOf(
+        "Assets/Font/DINPro.otf",
+        "Assets/Font/DINPro.ttf",
+        "Assets/Font/DINPro-Regular.otf",
+        "Assets/Font/DINPro-Regular.ttf"
+    )
+    val loader = Thread.currentThread().contextClassLoader
+    val resource = names.firstOrNull { loader?.getResource(it) != null }
+    if (resource != null) {
+        return FontFamily(Font(resource, FontWeight.Normal))
     }
-
-    /** 把字体文件放在 Assets/Font/ 下，文件名含 DINPro 就会优先用它。 */
-    private fun bundledDin(): FontFamily? {
-        val names = listOf(
-            "Assets/Font/DINPro.otf",
-            "Assets/Font/DINPro.ttf",
-            "Assets/Font/DINPro-Regular.otf",
-            "Assets/Font/DINPro-Regular.ttf"
-        )
-        val loader = Thread.currentThread().contextClassLoader
-        val resource = names.firstOrNull { loader?.getResource(it) != null }
-        if (resource != null) {
-            return FontFamily(Font(resource, FontWeight.Normal))
-        }
-        val file = names.map { File(it) }.firstOrNull { it.isFile }
-        return file?.let { FontFamily(Font(it, FontWeight.Normal)) }
-    }
+    val file = names.map { File(it) }.firstOrNull { it.isFile }
+    return file?.let { FontFamily(Font(it, FontWeight.Normal)) }
 }
+
+@OptIn(ExperimentalTextApi::class)
+actual fun splashPingFangFamily(): FontFamily {
+    val installed = installedNames()
+    val name = listOf("PingFang SC", "PingFang HK", "PingFang TC", "Heiti SC")
+        .firstOrNull { it in installed }
+        ?: "PingFang SC"
+    return FontFamily(name)
+}
+
+private fun autoFamilyName(): String {
+    val installed = installedNames()
+    return listOf("DIN Pro", "DINPro").firstOrNull { want ->
+        installed.any { it.equals(want, ignoreCase = true) }
+    } ?: "PingFang SC"
+}
+
+private fun installedNames(): Set<String> =
+    GraphicsEnvironment.getLocalGraphicsEnvironment()
+        .availableFontFamilyNames
+        .filter { it.isNotBlank() && !it.startsWith(".") }
+        .toSet()

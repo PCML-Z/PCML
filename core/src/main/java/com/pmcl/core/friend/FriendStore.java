@@ -33,11 +33,14 @@ public final class FriendStore {
     private final Path friendsFile;
     private final Path messagesDir;
     private final Map<String, FriendEntry> friends = new ConcurrentHashMap<>();
+    private final Map<String, GroupEntry> groups = new ConcurrentHashMap<>();
     private final Map<String, List<StoredMessage>> conversations = new ConcurrentHashMap<>();
+    private final Path groupsFile;
 
     public FriendStore(Path dataDir) {
         this.dataDir = dataDir;
         this.friendsFile = dataDir.resolve("friends.json");
+        this.groupsFile = dataDir.resolve("groups.json");
         this.messagesDir = dataDir.resolve("messages");
     }
 
@@ -88,6 +91,8 @@ public final class FriendStore {
             }
         }
 
+        loadGroups();
+
         // 加载聊天记录
         try (var stream = Files.list(messagesDir)) {
             Path[] msgFiles = stream
@@ -95,6 +100,13 @@ public final class FriendStore {
                     .toArray(Path[]::new);
             for (Path file : msgFiles) {
                 String fileName = file.getFileName().toString();
+                if (fileName.startsWith("g-") && fileName.endsWith(".json")) {
+                    String hex = fileName.substring(2, fileName.length() - 5);
+                    String groupId = groupIdFromHex(hex);
+                    if (groupId == null) continue;
+                    loadConversationFile(file, groupKey(groupId));
+                    continue;
+                }
                 String fileIdentity = fileName.substring(0, fileName.length() - 5); // 去掉 .json（无连字符）
                 // 文件名是无连字符格式，需还原为带连字符的 identity 作为 conversations 的键
                 String identity;
@@ -104,16 +116,7 @@ public final class FriendStore {
                     System.err.println("[FriendStore] 跳过无效身份的聊天记录文件: " + fileName);
                     continue;
                 }
-                try {
-                    String json = Files.readString(file, StandardCharsets.UTF_8);
-                    Type type = new TypeToken<List<StoredMessage>>() {}.getType();
-                    List<StoredMessage> msgs = GSON.fromJson(json, type);
-                    if (msgs != null) {
-                        conversations.put(identity, new CopyOnWriteArrayList<>(msgs));
-                    }
-                } catch (Exception e) {
-                    System.err.println("[FriendStore] 加载聊天记录失败 (" + identity + "): " + e.getMessage());
-                }
+                loadConversationFile(file, identity);
             }
         } catch (IOException e) {
             System.err.println("[FriendStore] 列出聊天记录文件失败: " + e.getMessage());
@@ -157,16 +160,67 @@ public final class FriendStore {
         return e;
     }
 
-    /** 保存某好友的聊天记录 */
+    /** 保存某好友或聊天组的聊天记录 */
     public synchronized void saveMessages(String identity) {
         try {
             List<StoredMessage> msgs = conversations.getOrDefault(identity, Collections.emptyList());
             String json = GSON.toJson(msgs);
-            Path file = messagesDir.resolve(identity.replace("-", "") + ".json");
-            atomicWrite(file, json);
+            String fileName = identity.startsWith("g:")
+                    ? "g-" + identity.substring(2).replace("-", "") + ".json"
+                    : identity.replace("-", "") + ".json";
+            atomicWrite(messagesDir.resolve(fileName), json);
         } catch (IOException e) {
             System.err.println("[FriendStore] 保存聊天记录失败 (" + identity + "): " + e.getMessage());
         }
+    }
+
+    private void loadConversationFile(Path file, String key) {
+        try {
+            String json = Files.readString(file, StandardCharsets.UTF_8);
+            Type type = new TypeToken<List<StoredMessage>>() {}.getType();
+            List<StoredMessage> msgs = GSON.fromJson(json, type);
+            if (msgs != null) {
+                conversations.put(key, new CopyOnWriteArrayList<>(msgs));
+            }
+        } catch (Exception e) {
+            System.err.println("[FriendStore] 加载聊天记录失败 (" + key + "): " + e.getMessage());
+        }
+    }
+
+    private void loadGroups() {
+        if (!Files.exists(groupsFile)) return;
+        try {
+            String json = Files.readString(groupsFile, StandardCharsets.UTF_8);
+            Type type = new TypeToken<List<GroupEntry>>() {}.getType();
+            List<GroupEntry> entries = GSON.fromJson(json, type);
+            if (entries == null) return;
+            for (GroupEntry entry : entries) {
+                if (entry == null || entry.id == null || entry.name == null) continue;
+                if (entry.members == null) entry.members = new ArrayList<>();
+                groups.put(entry.id, entry);
+            }
+        } catch (Exception e) {
+            System.err.println("[FriendStore] 加载聊天组失败: " + e.getMessage());
+        }
+    }
+
+    public synchronized void saveGroups() {
+        try {
+            String json = GSON.toJson(new ArrayList<>(groups.values()));
+            atomicWrite(groupsFile, json);
+        } catch (IOException e) {
+            System.err.println("[FriendStore] 保存聊天组失败: " + e.getMessage());
+        }
+    }
+
+    public static String groupKey(String groupId) {
+        return "g:" + groupId;
+    }
+
+    private static String groupIdFromHex(String hex) {
+        if (hex == null || hex.length() != 32) return null;
+        return hex.substring(0, 8) + "-" + hex.substring(8, 12) + "-"
+                + hex.substring(12, 16) + "-" + hex.substring(16, 20) + "-" + hex.substring(20);
     }
 
     /** 原子写入：先写临时文件，再原子移动覆盖目标文件。移动后加固权限为 0600。 */
@@ -300,6 +354,43 @@ public final class FriendStore {
         }
     }
 
+    public List<GroupEntry> getGroups() {
+        return groups.values().stream()
+                .sorted(Comparator.comparing(g -> g.name != null ? g.name : ""))
+                .collect(Collectors.toList());
+    }
+
+    public GroupEntry getGroup(String id) {
+        return groups.get(id);
+    }
+
+    public void putGroup(GroupEntry entry) {
+        if (entry == null || entry.id == null) return;
+        groups.put(entry.id, entry);
+        saveGroups();
+    }
+
+    public void removeGroup(String id) {
+        groups.remove(id);
+        String key = groupKey(id);
+        conversations.remove(key);
+        saveGroups();
+        try {
+            Files.deleteIfExists(messagesDir.resolve("g-" + id.replace("-", "") + ".json"));
+        } catch (IOException e) {
+            System.err.println("[FriendStore] 删除聊天组记录失败 (" + id + "): " + e.getMessage());
+        }
+    }
+
+    /** 好友被删除后，从各个聊天组里去掉这个人。 */
+    public void removeMemberFromGroups(String identity) {
+        boolean changed = false;
+        for (GroupEntry group : groups.values()) {
+            if (group.members != null && group.members.remove(identity)) changed = true;
+        }
+        if (changed) saveGroups();
+    }
+
     /** 重置所有好友为离线状态 */
     public void resetAllOnline() {
         for (FriendEntry entry : friends.values()) {
@@ -320,11 +411,18 @@ public final class FriendStore {
 
     /** 添加一条消息 */
     public synchronized void addMessage(String peerIdentity, String msgId, String text, long timestamp, boolean fromMe) {
+        addMessage(peerIdentity, msgId, text, timestamp, fromMe, null, null);
+    }
+
+    public synchronized void addMessage(String peerIdentity, String msgId, String text, long timestamp,
+                                        boolean fromMe, String sender, String senderName) {
         StoredMessage msg = new StoredMessage();
         msg.id = msgId;
         msg.text = text;
         msg.timestamp = timestamp;
         msg.fromMe = fromMe;
+        msg.sender = sender;
+        msg.senderName = senderName;
 
         List<StoredMessage> msgs = conversations.computeIfAbsent(peerIdentity, k -> new CopyOnWriteArrayList<>());
 
@@ -372,5 +470,16 @@ public final class FriendStore {
         public String text;
         public long timestamp;
         public boolean fromMe;
+        /** 聊天组里的发送者身份。一对一消息为空。 */
+        public String sender;
+        public String senderName;
+    }
+
+    /** 聊天组。成员是好友身份 ID，包含自己。 */
+    public static final class GroupEntry {
+        public String id;
+        public String name;
+        public List<String> members = new ArrayList<>();
+        public long createdAt;
     }
 }

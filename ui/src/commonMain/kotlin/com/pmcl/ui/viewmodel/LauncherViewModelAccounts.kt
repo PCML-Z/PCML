@@ -2,7 +2,9 @@ package com.pmcl.ui.viewmodel
 
 import com.pmcl.core.auth.Account
 import com.pmcl.core.auth.AccountStore
+import com.pmcl.core.auth.ExternalAuthServerStore
 import com.pmcl.core.i18n.I18n
+import java.nio.file.Paths
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
@@ -395,5 +397,30 @@ fun LauncherViewModel.startYggdrasilLogin(apiUrl: String, username: String, pass
             _loggingIn.value = false
         }
     }
+}
+
+private fun LauncherViewModel.authServersFile() =
+    Paths.get(System.getProperty("user.home"), ".pmcl", "auth-servers.json")
+
+fun LauncherViewModel.listExternalAuthServers(): List<ExternalAuthServerStore.ExternalAuthServer> =
+    core.auth().loadExternalAuthServers(authServersFile())
+
+/** 探测地址并写入已保存的验证服务器。同地址会更新名称。 */
+fun LauncherViewModel.addExternalAuthServer(url: String): ExternalAuthServerStore.ExternalAuthServer {
+    val info = core.auth().probeExternalAuthServer(url)
+    val file = authServersFile()
+    val next = listExternalAuthServers().filter { it.url != info.apiUrl }.toMutableList()
+    val server = ExternalAuthServerStore.ExternalAuthServer()
+    server.name = info.name
+    server.url = info.apiUrl
+    next.add(0, server)
+    core.auth().saveExternalAuthServers(file, next)
+    return server
+}
+
+fun LauncherViewModel.removeExternalAuthServer(url: String) {
+    val file = authServersFile()
+    val next = listExternalAuthServers().filter { it.url != url }
+    core.auth().saveExternalAuthServers(file, next)
 }
 

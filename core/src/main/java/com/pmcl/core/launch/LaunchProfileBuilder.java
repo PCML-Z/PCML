@@ -291,13 +291,24 @@ public final class LaunchProfileBuilder {
         Path assetsDir = mcRoot.resolve("assets");
         Path versionsDir = mcRoot.resolve("versions");
 
-        // 校验并自动下载缺失/损坏的库文件（有 SHA-1 时会复检）
-        verifyLibraries(vj, librariesDir);
-        verifyClientJar(vj, versionsDir);
-        verifyAssets(vj, assetsDir);
-
         VersionSettings versionSettings = preferences == null
                 ? VersionSettings.empty() : preferences.getVersionSettings(versionId);
+        VersionSettings.DebugOptions debug = versionSettings.getDebug();
+
+        // 校验并自动下载缺失/损坏的库文件（有 SHA-1 时会复检）
+        boolean repairRetry = downloadManager != null && preferences != null && !debug.isSkipGameCheck();
+        if (repairRetry) {
+            com.pmcl.core.download.DownloadManager.setRetryOverride(preferences.getResourceRepairRetries());
+        }
+        if (!debug.isSkipGameCheck()) {
+            try {
+                verifyLibraries(vj, librariesDir);
+                verifyClientJar(vj, versionsDir);
+                verifyAssets(vj, assetsDir);
+            } finally {
+                if (repairRetry) com.pmcl.core.download.DownloadManager.setRetryOverride(null);
+            }
+        }
 
         // 设置游戏工作目录：实例启动时固定为实例目录，否则按 versionIsolation/整合包逻辑推导
         Path gameDir;
@@ -353,8 +364,11 @@ public final class LaunchProfileBuilder {
         }
 
         // 解压 natives 到 versions/{id}/natives/ 目录
-        // 若用户配置了自定义 natives 目录，则跳过提取直接使用该目录
-        String customNatives = preferences.getCustomNativesPath();
+        // 版本调试里的本地库路径优先于全局自定义目录；都为空则提取到默认目录
+        String customNatives = debug.getNativesDir();
+        if (customNatives.isEmpty() && preferences != null) {
+            customNatives = preferences.getCustomNativesPath();
+        }
         Path nativesDir;
         boolean useCustomNatives = false;
         if (customNatives != null && !customNatives.isEmpty()) {
@@ -424,7 +438,25 @@ public final class LaunchProfileBuilder {
         // 目录被清空/半删除时强制重解压（杀毒/手动清理后仍可启动）
         boolean nativesChanged = !currFp.equals(readNativesFingerprint(nativesFpFile));
         boolean nativesHealthy = nativesDirLooksHealthy(nativesDir, nativeJarsToExtract);
-        if (!useCustomNatives && (nativesChanged || !nativesHealthy)) {
+        String nativesStrategy = preferences == null ? "AUTO" : preferences.getNativesReplaceStrategy();
+        boolean replaceNatives;
+        if (useCustomNatives || nativeJarsToExtract.isEmpty()) {
+            replaceNatives = false;
+        } else if ("ALWAYS".equals(nativesStrategy)) {
+            replaceNatives = true;
+        } else if ("NEVER".equals(nativesStrategy)) {
+            replaceNatives = !nativesHealthy;
+        } else {
+            replaceNatives = nativesChanged || !nativesHealthy;
+        }
+        if (debug.isSkipNativesReplace()) {
+            replaceNatives = false;
+            try {
+                java.nio.file.Files.createDirectories(nativesDir);
+            } catch (IOException ignored) {
+            }
+        }
+        if (replaceNatives) {
             try {
                 java.nio.file.Files.createDirectories(nativesDir);
                 // 清空 natives 目录（避免旧库残留）
@@ -453,7 +485,9 @@ public final class LaunchProfileBuilder {
         profile.addJvmArg("-Dorg.lwjgl.librarypath=" + nativesDir.toString());
         // Java 16+ 需要显式开启 native access，否则 LWJGL 加载本地库会警告/失败
         // 注意：此参数 Java 8 不识别，注入会导致 JVM 直接报错退出（alpha/beta 必需 Java 8）
-        if (javaMajorVersion >= 16) {
+        boolean skipDefaultJvm = debug.isSkipDefaultJvmArgs();
+        boolean skipOptimizingJvm = skipDefaultJvm || debug.isSkipOptimizingJvmArgs();
+        if (javaMajorVersion >= 16 && !skipDefaultJvm) {
             profile.addJvmArg("--enable-native-access=ALL-UNNAMED");
         }
 
@@ -461,8 +495,8 @@ public final class LaunchProfileBuilder {
         // MioFlags 的 UseProfiledLoopPredicate 仅 JDK 16+ 支持；Java 8 老版本遇不识别的
         // -XX 选项会报 "Unrecognized VM option" 直接退出。必须在任何可能不识别的 -XX 参数
         // 之前注入此选项。老版本(lwjgl2Era/Java<11)和澪模式均依赖此保护确保稳定启动。
-        if ((javaMajorVersion > 0 && javaMajorVersion < 11)
-                || (preferences != null && preferences.isMioModeEnabled())) {
+        if (!skipDefaultJvm && ((javaMajorVersion > 0 && javaMajorVersion < 11)
+                || (preferences != null && preferences.isMioModeEnabled()))) {
             profile.addJvmArg("-XX:+IgnoreUnrecognizedVMOptions");
         }
 
@@ -480,7 +514,8 @@ public final class LaunchProfileBuilder {
         // MC 1.13–1.16：用 LWJGL 3.3.3 的 GLFW 覆盖旧版，修复 Apple Silicon /
         // 新 macOS 上 “Failed to find service port for display”；
         // 并注入 javaagent 跳过 glfwSetWindowIcon（否则会报 65548）。
-        if (MacOsGlfwFix.shouldApply(versionId) && !useCustomNatives) {
+        if (MacOsGlfwFix.shouldApply(versionId) && !useCustomNatives
+                && !debug.isSkipNativesReplace() && !debug.isUseNativeGlfw()) {
             try {
                 Path glfw = MacOsGlfwFix.ensure(
                         nativesDir, config.getWorkDir(), downloadManager, effectiveArch);
@@ -548,7 +583,8 @@ public final class LaunchProfileBuilder {
         // macOS + LWJGL3/GLFW：必须在主线程创建窗口。
         // LWJGL2（~1.12 / alpha）在独立的 "Minecraft main thread" 上 Display.create；
         // 若加 -XstartOnFirstThread，会在 MacOSXDisplay.createWindow 永久卡住。
-        if (System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("mac")
+        if (!skipDefaultJvm
+                && System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("mac")
                 && !RetroWrapperSupport.isLwjgl2Era(versionId)) {
             profile.addJvmArg("-XstartOnFirstThread");
         }
@@ -585,20 +621,20 @@ public final class LaunchProfileBuilder {
         // GC 类型（仅未启用 Aikar Flags 时注入，避免冲突）
         // 澪模式 ZGC 开启时也跳过（避免 -XX:+UseG1GC 与 ZGC 冲突）
         boolean mioZgc = preferences.isMioModeEnabled() && preferences.isMioModeZgc();
-        if (!preferences.isUseAikarFlags() && !mioZgc &&
+        if (!skipDefaultJvm && !preferences.isUseAikarFlags() && !mioZgc &&
             preferences.getGcType() != null && !preferences.getGcType().isEmpty()) {
             profile.addJvmArg("-XX:+Use" + preferences.getGcType());
         }
 
         // Aikar's Flags（社区公认的 MC 优化 JVM 参数集）
-        if (preferences.isUseAikarFlags() && !mioZgc) {
+        if (!skipOptimizingJvm && preferences.isUseAikarFlags() && !mioZgc) {
             for (String f : AikarFlags.FLAGS) {
                 profile.addJvmArg(f);
             }
         }
 
         // 澪模式 L1：JVM 激进参数（在 Aikar 之后、customJvmArgs 之前，用户仍可覆盖）
-        if (preferences.isMioModeEnabled() && preferences.isMioModeJvm()) {
+        if (!skipOptimizingJvm && preferences.isMioModeEnabled() && preferences.isMioModeJvm()) {
             int cores = Runtime.getRuntime().availableProcessors();
             // ZGC 开启时跳过 G1 相关参数（build 已含 G1 参数，ZGC 模式只取 JIT+CPU+CodeCache）
             if (mioZgc) {
@@ -631,14 +667,14 @@ public final class LaunchProfileBuilder {
         }
 
         // 澪模式 L1+：大页内存 + NUMA（JVM 不支持自动降级，不会启动失败）
-        if (preferences.isMioModeEnabled() && preferences.isMioModeLargePages()) {
+        if (!skipOptimizingJvm && preferences.isMioModeEnabled() && preferences.isMioModeLargePages()) {
             for (String f : MioFlags.buildLargePages()) {
                 profile.addJvmArg(f);
             }
         }
 
         // 澪模式 L1+：LWJGL/OpenGL 渲染加速（HighDPI 在 LWJGL2/applet 上常致黑屏，跳过）
-        if (preferences.isMioModeEnabled() && preferences.isMioModeRenderOpt()
+        if (!skipOptimizingJvm && preferences.isMioModeEnabled() && preferences.isMioModeRenderOpt()
                 && !RetroWrapperSupport.isLwjgl2Era(versionId)) {
             for (String f : MioFlags.buildRenderOpt()) {
                 profile.addJvmArg(f);
@@ -646,7 +682,7 @@ public final class LaunchProfileBuilder {
         }
 
         // 澪模式 L1+：JIT 编译器激进
-        if (preferences.isMioModeEnabled() && preferences.isMioModeJitAggressive()) {
+        if (!skipOptimizingJvm && preferences.isMioModeEnabled() && preferences.isMioModeJitAggressive()) {
             int coresForJit = Runtime.getRuntime().availableProcessors();
             for (String f : MioFlags.buildJitAggressive(coresForJit)) {
                 profile.addJvmArg(f);
@@ -654,14 +690,14 @@ public final class LaunchProfileBuilder {
         }
 
         // 澪模式 L1+：网络栈优化（MC 联机场景）
-        if (preferences.isMioModeEnabled() && preferences.isMioModeNetworkOpt()) {
+        if (!skipOptimizingJvm && preferences.isMioModeEnabled() && preferences.isMioModeNetworkOpt()) {
             for (String f : MioFlags.buildNetworkOpt()) {
                 profile.addJvmArg(f);
             }
         }
 
         // 澪模式 L1+：元空间管控（防 OOM）
-        if (preferences.isMioModeEnabled() && preferences.isMioModeMetaspace()) {
+        if (!skipOptimizingJvm && preferences.isMioModeEnabled() && preferences.isMioModeMetaspace()) {
             for (String f : MioFlags.buildMetaspace()) {
                 profile.addJvmArg(f);
             }
@@ -689,6 +725,45 @@ public final class LaunchProfileBuilder {
         // NilLoader / Java Agent：pmclAgents + versions/{id}/agents/*.jar
         com.pmcl.core.modloader.AgentLaunchSupport.inject(
                 profile, vj, versionsDir, versionId, librariesDir, downloadManager);
+
+        if (preferences != null && preferences.isPreferUtf8()) {
+            profile.addJvmArg("-Dfile.encoding=UTF-8");
+            profile.addJvmArg("-Dsun.stdout.encoding=UTF-8");
+            profile.addJvmArg("-Dsun.stderr.encoding=UTF-8");
+            profile.addJvmArg("-Dstdout.encoding=UTF-8");
+            profile.addJvmArg("-Dstderr.encoding=UTF-8");
+        }
+        if (preferences != null && preferences.isPreferIPv4()) {
+            profile.addJvmArg("-Djava.net.preferIPv4Stack=true");
+        }
+
+        // 设置里的输入法 Agent。只在开关打开时附加内嵌 jar，插件不能注入 agent。
+        if (preferences != null && preferences.isImeFixAgent()) {
+            try {
+                Path imeAgent = ImeFixSupport.ensure(config.getWorkDir());
+                profile.addJavaAgent(imeAgent.toAbsolutePath().toString(), null);
+            } catch (Exception ex) {
+                System.err.println("[PMCL] 输入法 Agent 未能附加: " + ex.getMessage());
+            }
+        }
+
+        // 用户在设置里选择的 Java Agent。路径含空格时仍作为单个参数，不走自定义 JVM 参数的空格拆分。
+        if (preferences != null) {
+            for (Preferences.JavaAgentSetting agent : preferences.getJavaAgents()) {
+                try {
+                    Path jar = Path.of(agent.getPath()).toAbsolutePath().normalize();
+                    String name = jar.getFileName() == null ? "" : jar.getFileName().toString();
+                    if (!name.toLowerCase(java.util.Locale.ROOT).endsWith(".jar") || !Files.isRegularFile(jar)) {
+                        System.err.println("[PMCL] 跳过不可用的 Java Agent: " + agent.getPath());
+                        continue;
+                    }
+                    String opt = agent.getOptions();
+                    profile.addJavaAgent(jar.toString(), opt == null || opt.isBlank() ? null : opt);
+                } catch (Exception ex) {
+                    System.err.println("[PMCL] Java Agent 无效: " + ex.getMessage());
+                }
+            }
+        }
 
         // 用户自定义 JVM 参数（最后追加，可覆盖前面）
         String custom = versionSettings.jvmArgs(preferences.getCustomJvmArgs());
@@ -728,18 +803,21 @@ public final class LaunchProfileBuilder {
                 profile.addGameArg("--height");
                 profile.addGameArg(Integer.toString(prefH));
             }
-            // 渲染器（MC 1.21+ 支持；OPENGL/VULKAN 注入 --renderer，AUTO/DIRECTX 不注入）
-            String renderer = preferences.getGameRenderer();
-            if (renderer != null && !renderer.isEmpty()
-                    && !renderer.equalsIgnoreCase("AUTO")
-                    && !renderer.equalsIgnoreCase("DIRECTX")) {
-                profile.addGameArg("--renderer");
-                profile.addGameArg(renderer.toLowerCase());
-            }
-            // DIRECTX 渲染器（仅 Windows，通过 GLFW libname 强制指定）
-            if ("DIRECTX".equalsIgnoreCase(renderer)) {
-                profile.addJvmArg("-Dorg.lwjgl.glfw.libname=glfw3.dll");
-                profile.addJvmArg("-Dorg.lwjgl.opengl.libname=opengl32.dll");
+            // 版本调试里的图形 API 优先于全局渲染器。26.2+ 用 --graphicsBackend，1.21+ 用 --renderer。
+            if (!VersionSettings.DebugOptions.API_DEFAULT.equals(debug.getGraphicsApi())) {
+                applyDebugGraphicsApi(profile, versionId, debug.getGraphicsApi());
+            } else {
+                String renderer = preferences.getGameRenderer();
+                if (renderer != null && !renderer.isEmpty()
+                        && !renderer.equalsIgnoreCase("AUTO")
+                        && !renderer.equalsIgnoreCase("DIRECTX")) {
+                    profile.addGameArg("--renderer");
+                    profile.addGameArg(renderer.toLowerCase());
+                }
+                if ("DIRECTX".equalsIgnoreCase(renderer)) {
+                    profile.addJvmArg("-Dorg.lwjgl.glfw.libname=glfw3.dll");
+                    profile.addJvmArg("-Dorg.lwjgl.opengl.libname=opengl32.dll");
+                }
             }
             // 全屏
             if (versionSettings.fullscreen(preferences.isGameFullscreen())) {
@@ -774,6 +852,17 @@ public final class LaunchProfileBuilder {
             com.pmcl.core.gamecontent.OptionsTxtWriter.sanitizeEmptyValues(
                     gameDir.resolve("options.txt"));
         }
+
+        // Linux：Mesa Zink，OpenGL 经 Vulkan 提交。游戏仍走 OpenGL，不改 --renderer。
+        if (preferences.isLinuxZink()
+                && VersionSettings.DebugOptions.DRIVER_DEFAULT.equals(debug.getDriver())
+                && System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("linux")) {
+            profile.putEnv("MESA_LOADER_DRIVER_OVERRIDE", "zink");
+            profile.putEnv("GALLIUM_DRIVER", "zink");
+            profile.putEnv("__GLX_VENDOR_LIBRARY_NAME", "mesa");
+        }
+        applyDebugDriver(profile, debug);
+        applyNativeLibraryOverrides(profile, debug);
 
         // === authlib-injector 注入（皮肤站账号） ===
         // YGGDRASIL 类型账号需通过 authlib-injector Java Agent 修改 authlib 请求 URL，
@@ -1170,18 +1259,148 @@ public final class LaunchProfileBuilder {
      * 修复不完整的 MC 安装（如部分库 jar 丢失导致 NoClassDefFoundError）。
      * 包括 classpath 库和 native 库。需要 downloadManager，若为 null 则跳过下载只检查。
      */
-    private void verifyLibraries(VersionJson vj, Path librariesDir) throws IOException {
-        List<String> missing = new ArrayList<>();
-        for (Library lib : vj.getLibraries()) {
-            if (!lib.appliesToCurrentOs()) continue;
+    private static void applyDebugGraphicsApi(LaunchProfile profile, String versionId, String api) {
+        int[] ver = leadingVersion(versionId);
+        if (ver == null) return;
+        boolean backend = ver[0] > 26 || (ver[0] == 26 && ver[1] >= 2);
+        boolean renderer = ver[0] > 1 || (ver[0] == 1 && ver[1] >= 21);
+        String value = api.toLowerCase(java.util.Locale.ROOT);
+        if (backend) {
+            profile.addGameArg("--graphicsBackend");
+            profile.addGameArg(value);
+        } else if (renderer) {
+            profile.addGameArg("--renderer");
+            profile.addGameArg(value);
+        } else {
+            System.err.println("[PMCL] 图形 API " + api + " 需要 Minecraft 1.21 或更新版本，此版本未注入参数");
+        }
+    }
 
+    private static int[] leadingVersion(String versionId) {
+        if (versionId == null) return null;
+        int i = 0;
+        while (i < versionId.length() && !Character.isDigit(versionId.charAt(i))) i++;
+        int start = i;
+        while (i < versionId.length() && Character.isDigit(versionId.charAt(i))) i++;
+        if (i == start || i >= versionId.length() || versionId.charAt(i) != '.') return null;
+        int major;
+        try {
+            major = Integer.parseInt(versionId.substring(start, i));
+        } catch (NumberFormatException e) {
+            return null;
+        }
+        int j = i + 1;
+        int minorStart = j;
+        while (j < versionId.length() && Character.isDigit(versionId.charAt(j))) j++;
+        if (j == minorStart) return null;
+        try {
+            return new int[] { major, Integer.parseInt(versionId.substring(minorStart, j)) };
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private static void applyDebugDriver(LaunchProfile profile, VersionSettings.DebugOptions debug) {
+        String api = debug.getGraphicsApi();
+        String driver = debug.getDriver();
+        if (VersionSettings.DebugOptions.DRIVER_DEFAULT.equals(driver)) return;
+        boolean windows = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("win");
+        if (VersionSettings.DebugOptions.DRIVER_LLVMPIPE.equals(driver)
+                && VersionSettings.DebugOptions.API_OPENGL.equals(api)) {
+            profile.putEnv("GALLIUM_DRIVER", "llvmpipe");
+            profile.putEnv("LIBGL_ALWAYS_SOFTWARE", "1");
+        } else if (VersionSettings.DebugOptions.DRIVER_ZINK.equals(driver)
+                && VersionSettings.DebugOptions.API_OPENGL.equals(api)) {
+            profile.putEnv("GALLIUM_DRIVER", "zink");
+            profile.putEnv("MESA_LOADER_DRIVER_OVERRIDE", "zink");
+            profile.putEnv("__GLX_VENDOR_LIBRARY_NAME", "mesa");
+        } else if (VersionSettings.DebugOptions.DRIVER_D3D12.equals(driver)
+                && windows && VersionSettings.DebugOptions.API_OPENGL.equals(api)) {
+            profile.putEnv("GALLIUM_DRIVER", "d3d12");
+            profile.putEnv("MESA_LOADER_DRIVER_OVERRIDE", "d3d12");
+        } else if (VersionSettings.DebugOptions.DRIVER_LAVAPIPE.equals(driver)
+                && VersionSettings.DebugOptions.API_VULKAN.equals(api)) {
+            selectVulkanIcd(profile, "lvp_icd");
+        } else if (VersionSettings.DebugOptions.DRIVER_DOZEN.equals(driver)
+                && windows && VersionSettings.DebugOptions.API_VULKAN.equals(api)) {
+            selectVulkanIcd(profile, "dzn_icd");
+        }
+    }
+
+    private static void selectVulkanIcd(LaunchProfile profile, String prefix) {
+        Path icd = findVulkanIcd(prefix);
+        if (icd == null) {
+            System.err.println("[PMCL] 未找到 Vulkan 驱动描述 " + prefix + "，本次不改渲染器");
+            return;
+        }
+        profile.putEnv("VK_DRIVER_FILES", icd.toString());
+        profile.putEnv("VK_ICD_FILENAMES", icd.toString());
+    }
+
+    private static Path findVulkanIcd(String prefix) {
+        java.util.List<Path> dirs = new java.util.ArrayList<>();
+        dirs.add(Path.of("/usr/share/vulkan/icd.d"));
+        dirs.add(Path.of("/usr/local/share/vulkan/icd.d"));
+        dirs.add(Path.of("/opt/homebrew/share/vulkan/icd.d"));
+        String home = System.getProperty("user.home", "");
+        if (!home.isEmpty()) dirs.add(Path.of(home, ".local/share/vulkan/icd.d"));
+        String arch = System.getProperty("os.arch", "").toLowerCase(java.util.Locale.ROOT);
+        Path fallback = null;
+        for (Path dir : dirs) {
+            if (!java.nio.file.Files.isDirectory(dir)) continue;
+            try (var stream = java.nio.file.Files.list(dir)) {
+                for (Path file : stream.toList()) {
+                    String name = file.getFileName().toString().toLowerCase(java.util.Locale.ROOT);
+                    if (!name.startsWith(prefix) || !name.endsWith(".json")) continue;
+                    if ((arch.contains("aarch64") || arch.contains("arm"))
+                            && (name.contains("x86_64") || name.contains("i686"))) {
+                        continue;
+                    }
+                    if (fallback == null) fallback = file;
+                    if (name.contains(arch.contains("aarch64") || arch.contains("arm") ? "aarch64" : "x86_64")) {
+                        return file;
+                    }
+                }
+            } catch (IOException ignored) {
+            }
+        }
+        return fallback;
+    }
+
+    private static void applyNativeLibraryOverrides(LaunchProfile profile, VersionSettings.DebugOptions debug) {
+        if (!debug.isUseNativeGlfw() && !debug.isUseNativeOpenAl()) return;
+        String os = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT);
+        if (debug.isUseNativeGlfw()) {
+            String name = os.contains("win") ? "glfw3.dll" : os.contains("mac") ? "libglfw.dylib" : "libglfw.so";
+            profile.addJvmArg("-Dorg.lwjgl.glfw.libname=" + name);
+        }
+        if (debug.isUseNativeOpenAl()) {
+            String name = os.contains("win") ? "OpenAL32.dll" : os.contains("mac") ? "libopenal.dylib" : "libopenal.so";
+            profile.addJvmArg("-Dorg.lwjgl.openal.libname=" + name);
+        }
+    }
+
+    private void verifyLibraries(VersionJson vj, Path librariesDir) throws IOException {
+        List<Library> applicable = new ArrayList<>();
+        for (Library lib : vj.getLibraries()) {
+            if (lib.appliesToCurrentOs()) applicable.add(lib);
+        }
+        List<String> missing = java.util.Collections.synchronizedList(new ArrayList<>());
+        runChecks(applicable.size(), i -> verifyLibrary(applicable.get(i), librariesDir, missing));
+        if (!missing.isEmpty()) {
+            throw new IOException("缺少库文件且无法自动下载:\n  - "
+                    + String.join("\n  - ", missing));
+        }
+    }
+
+    private void verifyLibrary(Library lib, Path librariesDir, List<String> missing) throws IOException {
             // === MC 1.18+ 新格式：native 库以独立 library 条目存在 ===
             if (lib.getNameClassifier() != null && lib.getNameClassifier().startsWith("natives-")) {
-                if (!lib.matchesCurrentNative()) continue;
+                if (!lib.matchesCurrentNative()) return;
                 Path nativeJar = librariesDir.resolve(lib.getPath());
                 VersionJson.Artifact art = lib.getArtifact();
                 String sha1 = art != null ? art.getSha1() : null;
-                if (isLibraryHealthy(nativeJar, sha1)) continue;
+                if (isLibraryHealthy(nativeJar, sha1, art != null ? art.getSize() : -1L)) return;
                 if (art != null && art.getUrl() != null && !art.getUrl().isEmpty()
                         && downloadManager != null) {
                     try {
@@ -1194,14 +1413,14 @@ public final class LaunchProfileBuilder {
                 } else if (art == null || art.getUrl() == null || art.getUrl().isEmpty()) {
                     missing.add(lib.getName() + " (native, 无下载URL)");
                 }
-                continue;
+                return;
             }
 
             // === 主 artifact（classpath 库）===
             if (lib.getArtifact() != null) {
                 Path libPath = librariesDir.resolve(lib.getPath());
                 VersionJson.Artifact art = lib.getArtifact();
-                if (isLibraryHealthy(libPath, art.getSha1())) {
+                if (isLibraryHealthy(libPath, art.getSha1(), art.getSize())) {
                     // fall through to old-format natives check
                 } else if (art.getUrl() != null && !art.getUrl().isEmpty() && downloadManager != null) {
                     try {
@@ -1241,7 +1460,7 @@ public final class LaunchProfileBuilder {
                         lib.getPathForClassifier(lib.getNativeClassifier()));
                 VersionJson.Artifact nativeArt = lib.getNativeArtifact();
                 String sha1 = nativeArt != null ? nativeArt.getSha1() : null;
-                if (isLibraryHealthy(nativeJar, sha1)) continue;
+                if (isLibraryHealthy(nativeJar, sha1, nativeArt != null ? nativeArt.getSize() : -1L)) return;
                 if (nativeArt != null && nativeArt.getUrl() != null
                         && !nativeArt.getUrl().isEmpty() && downloadManager != null) {
                     try {
@@ -1257,11 +1476,70 @@ public final class LaunchProfileBuilder {
                             + " (native, 无法自动修复)");
                 }
             }
+    }
+
+    private int resourceCheckParallelism() {
+        int n = preferences == null ? 16 : preferences.getResourceCheckParallelism();
+        if (n < 1) return 1;
+        return Math.min(n, 64);
+    }
+
+    @FunctionalInterface
+    private interface IoIntTask {
+        void accept(int index) throws IOException;
+    }
+
+    /** 按设置的并行度跑资源检查。工作线程继承当前线程的补全重试次数。 */
+    private void runChecks(int count, IoIntTask task) throws IOException {
+        if (count <= 0) return;
+        int threads = Math.min(resourceCheckParallelism(), count);
+        if (threads <= 1) {
+            for (int i = 0; i < count; i++) task.accept(i);
+            return;
         }
-        if (!missing.isEmpty()) {
-            throw new IOException("缺少库文件且无法自动下载:\n  - "
-                    + String.join("\n  - ", missing));
+        Integer retryOverride = com.pmcl.core.download.DownloadManager.peekRetryOverride();
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(threads, r -> {
+            Thread t = new Thread(r, "pmcl-resource-check");
+            t.setDaemon(true);
+            return t;
+        });
+        java.util.concurrent.atomic.AtomicReference<IOException> fatal = new java.util.concurrent.atomic.AtomicReference<>();
+        try {
+            List<java.util.concurrent.Future<?>> futures = new ArrayList<>(count);
+            for (int i = 0; i < count; i++) {
+                int index = i;
+                futures.add(pool.submit(() -> {
+                    if (fatal.get() != null) return;
+                    if (retryOverride != null) {
+                        com.pmcl.core.download.DownloadManager.setRetryOverride(retryOverride);
+                    }
+                    try {
+                        task.accept(index);
+                    } catch (IOException e) {
+                        fatal.compareAndSet(null, e);
+                    } finally {
+                        if (retryOverride != null) {
+                            com.pmcl.core.download.DownloadManager.setRetryOverride(null);
+                        }
+                    }
+                }));
+            }
+            for (java.util.concurrent.Future<?> future : futures) {
+                try {
+                    future.get();
+                } catch (java.util.concurrent.ExecutionException e) {
+                    Throwable cause = e.getCause();
+                    if (cause instanceof IOException io) fatal.compareAndSet(null, io);
+                    else fatal.compareAndSet(null, new IOException(cause == null ? e : cause));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IOException("资源检查已中断", e);
+                }
+            }
+        } finally {
+            pool.shutdownNow();
         }
+        if (fatal.get() != null) throw fatal.get();
     }
 
     /**
@@ -1269,8 +1547,28 @@ public final class LaunchProfileBuilder {
      * 有 sha1 但不匹配时隔离损坏文件并返回 false，触发重下。
      * 已校验过的 jar 用 size|mtime 命中缓存，避免每次启动整文件 SHA-1。
      */
-    private static boolean isLibraryHealthy(Path path, String expectedSha1) {
+    private boolean isLibraryHealthy(Path path, String expectedSha1) {
+        return isLibraryHealthy(path, expectedSha1, -1L);
+    }
+
+    private boolean isLibraryHealthy(Path path, String expectedSha1, long expectedSize) {
         if (!Files.isRegularFile(path)) return false;
+        if (preferences != null && preferences.isFastResourceCheck()) {
+            try {
+                long size = Files.size(path);
+                if (size < 16) {
+                    quarantineCorrupt(path);
+                    return false;
+                }
+                if (expectedSize > 0 && size != expectedSize) {
+                    quarantineCorrupt(path);
+                    return false;
+                }
+            } catch (IOException e) {
+                return false;
+            }
+            return true;
+        }
         String fp = fileFingerprint(path);
         if (fp.equals("0|0")) return false;
         try {
@@ -1364,33 +1662,38 @@ public final class LaunchProfileBuilder {
         String idxJson = Files.readString(indexPath, java.nio.charset.StandardCharsets.UTF_8);
         com.pmcl.core.install.AssetIndex idx = com.pmcl.core.install.AssetIndex.parse(idxJson);
         Path objectsAbs = assetsDir.resolve("objects").toAbsolutePath().normalize();
-        int repaired = 0;
-        for (com.pmcl.core.install.AssetIndex.Asset a : idx.getAssets().values()) {
-            Path file = objectsAbs.resolve(a.getPath()).normalize();
-            if (!file.startsWith(objectsAbs)) {
-                throw new IOException("资产路径越界: " + a.getHash());
-            }
-            boolean ok = Files.isRegularFile(file);
-            if (ok && a.getSize() > 0) {
-                try {
-                    ok = Files.size(file) == a.getSize();
-                } catch (IOException e) {
-                    ok = false;
-                }
-            }
-            if (ok) continue;
-            if (downloadManager == null) {
-                throw new IOException("资产缺失且无下载管理器: " + file);
-            }
-            Files.createDirectories(file.getParent());
-            quarantineCorrupt(file);
-            downloadManager.downloadToVerified(
-                    ASSET_RESOURCE_BASE + a.getPath(), file, a.getHash(), null);
-            repaired++;
+        List<com.pmcl.core.install.AssetIndex.Asset> assetList =
+                new ArrayList<>(idx.getAssets().values());
+        java.util.concurrent.atomic.AtomicInteger repaired = new java.util.concurrent.atomic.AtomicInteger();
+        runChecks(assetList.size(), i -> repairAsset(assetList.get(i), objectsAbs, repaired));
+        if (repaired.get() > 0) {
+            System.err.println("[LaunchProfileBuilder] 启动前补全资产 " + repaired.get() + " 个");
         }
-        if (repaired > 0) {
-            System.err.println("[LaunchProfileBuilder] 启动前补全资产 " + repaired + " 个");
+    }
+
+    private void repairAsset(com.pmcl.core.install.AssetIndex.Asset asset, Path objectsAbs,
+                             java.util.concurrent.atomic.AtomicInteger repaired) throws IOException {
+        Path file = objectsAbs.resolve(asset.getPath()).normalize();
+        if (!file.startsWith(objectsAbs)) {
+            throw new IOException("资产路径越界: " + asset.getHash());
         }
+        boolean ok = Files.isRegularFile(file);
+        if (ok && asset.getSize() > 0) {
+            try {
+                ok = Files.size(file) == asset.getSize();
+            } catch (IOException e) {
+                ok = false;
+            }
+        }
+        if (ok) return;
+        if (downloadManager == null) {
+            throw new IOException("资产缺失且无下载管理器: " + file);
+        }
+        Files.createDirectories(file.getParent());
+        quarantineCorrupt(file);
+        downloadManager.downloadToVerified(
+                ASSET_RESOURCE_BASE + asset.getPath(), file, asset.getHash(), null);
+        repaired.incrementAndGet();
     }
 
     /**
@@ -1409,7 +1712,7 @@ public final class LaunchProfileBuilder {
         String ownerId = resolveClientJarOwnerId(id);
         Path jar = clientJarPath(ownerId, versionsDir);
         quarantineInheritedVanillaCopy(id, ownerId, client.getSha1());
-        if (isLibraryHealthy(jar, client.getSha1())) return;
+        if (isLibraryHealthy(jar, client.getSha1(), client.getSize())) return;
         if (client.getUrl() == null || client.getUrl().isEmpty() || downloadManager == null) {
             throw new IOException("client.jar 损坏或缺失且无法自动修复: " + jar);
         }
@@ -2158,7 +2461,7 @@ public final class LaunchProfileBuilder {
         java.util.Map<String, String> placeholders = new java.util.HashMap<>();
         placeholders.put("${natives_directory}", effectiveNatives.toString());
         placeholders.put("${launcher_name}", "PMCL");
-        placeholders.put("${launcher_version}", "1.3.0c");
+        placeholders.put("${launcher_version}", "2.1.11a");
         placeholders.put("${classpath_separator}", System.getProperty("path.separator"));
         placeholders.put("${library_directory}", librariesDir.toString());
         placeholders.put("${game_directory}", gameDir.toString());

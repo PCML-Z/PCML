@@ -9,7 +9,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Stream;
 
-/** 某个版本游戏目录里的模组、截图、资源包、光影和投影。只碰该目录下的这一层文件。 */
+/** 某个版本游戏目录里的模组、截图、资源包、光影和投影。前四类只看这一层；投影可以在 schematics 的子目录里。 */
 public final class VersionGameFiles {
 
     public static final String MODS = "mods";
@@ -62,6 +62,73 @@ public final class VersionGameFiles {
             }
         } else {
             Files.deleteIfExists(target);
+        }
+    }
+
+    /** 列出 schematics 目录及其子目录里的投影文件。不跟随符号链接，最多 8 层、400 个文件。 */
+    public static List<Path> schematicFiles(Path schematicsDir) throws IOException {
+        List<Path> files = new ArrayList<>();
+        if (schematicsDir == null || !Files.isDirectory(schematicsDir) || Files.isSymbolicLink(schematicsDir)) {
+            return files;
+        }
+        Path root = schematicsDir.toAbsolutePath().normalize();
+        walkSchematics(root, root, files, 0);
+        return files;
+    }
+
+    public static String schematicRelative(Path schematicsDir, Path file) {
+        Path root = schematicsDir.toAbsolutePath().normalize();
+        return root.relativize(file.toAbsolutePath().normalize()).toString().replace('\\', '/');
+    }
+
+    /** 删除 schematics 子目录里的一个投影。相对路径里不能出现 .. 或跳出目录。 */
+    public static void deleteSchematic(Path gameDir, String relative) throws IOException {
+        if (relative == null || relative.isBlank() || relative.indexOf('\0') >= 0
+                || relative.indexOf('\\') >= 0 || relative.contains("..")
+                || relative.startsWith("/") || relative.startsWith(".")) {
+            throw new IOException("bad-name");
+        }
+        Path root = directory(gameDir, SCHEMATICS);
+        Path target = root.resolve(relative).normalize();
+        if (!target.startsWith(root) || target.equals(root)) throw new IOException("bad-name");
+        String fileName = target.getFileName() == null ? "" : target.getFileName().toString();
+        if (!accepts(SCHEMATICS, fileName)) throw new IOException("bad-file");
+        if (Files.isSymbolicLink(target) || !Files.isRegularFile(target)) throw new IOException("bad-file");
+        Files.deleteIfExists(target);
+    }
+
+    public static void deleteSchematicFile(Path schematicsDir, Path file) throws IOException {
+        if (schematicsDir == null || file == null) throw new IOException("bad-path");
+        Path root = schematicsDir.toAbsolutePath().normalize();
+        Path target = file.toAbsolutePath().normalize();
+        String relative = schematicRelative(root, target);
+        if (relative.isBlank() || relative.contains("..") || relative.startsWith("/") || relative.startsWith(".")) {
+            throw new IOException("bad-path");
+        }
+        if (!target.startsWith(root) || target.equals(root)) throw new IOException("bad-path");
+        if (Files.isSymbolicLink(target) || !Files.isRegularFile(target)) throw new IOException("bad-file");
+        String fileName = target.getFileName() == null ? "" : target.getFileName().toString();
+        if (!accepts(SCHEMATICS, fileName)) throw new IOException("bad-file");
+        Files.deleteIfExists(target);
+    }
+
+    private static void walkSchematics(Path root, Path dir, List<Path> files, int depth) throws IOException {
+        if (depth > 8 || files.size() >= 400) return;
+        try (Stream<Path> stream = Files.list(dir)) {
+            List<Path> children = stream.sorted(Comparator.comparing(path -> path.getFileName().toString())).toList();
+            for (Path child : children) {
+                if (files.size() >= 400) return;
+                if (Files.isSymbolicLink(child)) continue;
+                String name = child.getFileName() == null ? "" : child.getFileName().toString();
+                if (name.isBlank() || name.startsWith(".")) continue;
+                Path normalized = child.toAbsolutePath().normalize();
+                if (!normalized.startsWith(root)) continue;
+                if (Files.isDirectory(normalized)) {
+                    walkSchematics(root, normalized, files, depth + 1);
+                } else if (Files.isRegularFile(normalized) && accepts(SCHEMATICS, name)) {
+                    files.add(normalized);
+                }
+            }
         }
     }
 

@@ -23,6 +23,7 @@ final class PluginPathSandbox {
     private static final Set<String> DENIED_TOP_LEVEL = Set.of(
             "plugins",
             "accounts.json",
+            "auth-servers.json",
             ".keyfile",
             "preferences.json",
             "preferences",
@@ -41,6 +42,7 @@ final class PluginPathSandbox {
 
     private static final Set<String> DENIED_FILE_NAMES = Set.of(
             "accounts.json",
+            "auth-servers.json",
             ".keyfile",
             "preferences.json",
             "plugins.json",

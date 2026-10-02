@@ -19,12 +19,15 @@ import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
 import com.pmcl.ui.animation.TypewriterTitle
 import com.pmcl.core.modloader.ModLoader
+import com.pmcl.core.version.MinecraftVersionIds
+import com.pmcl.ui.modloader.LoaderTargetGameDialog
 import com.pmcl.ui.animation.StaggeredAppear
 import com.pmcl.ui.theme.LocalThemeState
 import com.pmcl.ui.theme.glassCardBorder
 import com.pmcl.ui.theme.glassCardColors
 import com.pmcl.ui.theme.glassCardElevation
 import com.pmcl.ui.viewmodel.LauncherViewModel
+import com.pmcl.ui.widget.VersionTypeIcon
 
 @Composable
 fun DownloadPage(vm: LauncherViewModel) {
@@ -37,12 +40,26 @@ fun DownloadPage(vm: LauncherViewModel) {
     var tab by remember { mutableStateOf(0) } // 0=Vanilla 1=Fabric 2=Quilt 3=Forge 4=NeoForge
     var selectedGameVersion by remember { mutableStateOf("1.20.4") }
     var selectedLoaderVersion by remember { mutableStateOf<String?>(null) }
+    var pendingLoader by remember { mutableStateOf<Pair<ModLoader, String>?>(null) }
     // 版本分类筛选：0=全部 1=正式版 2=快照 3=旧版Beta 4=旧版Alpha
     var versionCategory by remember { mutableStateOf(1) }
     // 版本搜索关键字
     var searchQuery by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) { if (versions.isEmpty()) vm.refreshVersions() }
+
+    pendingLoader?.let { (loader, loaderVersion) ->
+        LoaderTargetGameDialog(
+            suggested = MinecraftVersionIds.gameVersion(selectedGameVersion),
+            vm = vm,
+            confirmLabel = I18n.t("launch.loader_target_confirm"),
+            onDismiss = { pendingLoader = null },
+            onConfirm = { game ->
+                vm.enqueueModLoaderInstall(loader.name, game, loaderVersion)
+                pendingLoader = null
+            }
+        )
+    }
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         TypewriterTitle(I18n.t("download.page_title"))
@@ -130,7 +147,20 @@ fun DownloadPage(vm: LauncherViewModel) {
                 selectedIndex = versionCategory,
                 onSelect = { versionCategory = it },
                 fillWidth = true,
-                height = 32.dp
+                height = 32.dp,
+                leading = { index, _ ->
+                    val type = when (index) {
+                        1 -> "release"
+                        2 -> "snapshot"
+                        3 -> "old_beta"
+                        4 -> "old_alpha"
+                        else -> null
+                    }
+                    if (type != null) {
+                        VersionTypeIcon(type, Modifier.size(14.dp))
+                        Spacer(Modifier.width(4.dp))
+                    }
+                }
             )
 
             Spacer(Modifier.height(8.dp))
@@ -180,6 +210,7 @@ fun DownloadPage(vm: LauncherViewModel) {
                     DownloadRow(
                         title = v.getId(),
                         subtitle = "${typeLabel(v.getType())} · ${(v.getReleaseTime() ?: "").take(10)}",
+                        versionType = v.getType(),
                         buttonText = I18n.t("download.install"),
                         installing = installing,
                         onAction = { vm.installVersion(v.getId()) },
@@ -210,7 +241,7 @@ fun DownloadPage(vm: LauncherViewModel) {
                                 3 -> ModLoader.FORGE
                                 else -> ModLoader.NEOFORGE
                             }
-                            vm.enqueueModLoaderInstall(loader.name, lv.getGameVersion(), lv.getLoaderVersion())
+                            pendingLoader = loader to lv.getLoaderVersion()
                         },
                         vm = vm,
                         flyTitle = lv.getLoaderVersion()
@@ -243,7 +274,8 @@ private fun DownloadRow(
     onSelect: () -> Unit = {},
     onAction: () -> Unit,
     vm: LauncherViewModel? = null,
-    flyTitle: String? = null
+    flyTitle: String? = null,
+    versionType: String? = null
 ) {
     val colors = if (selected) MaterialTheme.colorScheme.primaryContainer
                  else MaterialTheme.colorScheme.surfaceVariant
@@ -261,6 +293,10 @@ private fun DownloadRow(
                     }
                 }) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (versionType == "release" || versionType == "snapshot" || versionType == "old_beta" || versionType == "old_alpha") {
+                VersionTypeIcon(versionType, Modifier.size(22.dp))
+                Spacer(Modifier.width(10.dp))
+            }
             Column(Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
                 Text(subtitle, style = MaterialTheme.typography.labelSmall,

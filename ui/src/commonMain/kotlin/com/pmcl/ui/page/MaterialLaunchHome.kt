@@ -27,7 +27,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -57,8 +56,6 @@ import com.pmcl.ui.theme.LocalThemeState
 @Composable
 fun MaterialLaunchHome(
     versionName: String,
-    accountName: String,
-    accountDetail: String,
     buttonLabel: String,
     buttonEnabled: Boolean,
     busy: Boolean,
@@ -75,44 +72,15 @@ fun MaterialLaunchHome(
             .padding(start = 8.dp, end = 12.dp, bottom = 10.dp),
         verticalArrangement = Arrangement.Bottom
     ) {
-        Row(
-            Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            VersionWithActions(
-                versionName = versionName,
-                ink = ink,
-                buttonLabel = buttonLabel,
-                buttonEnabled = buttonEnabled,
-                busy = busy,
-                onLaunch = onLaunch,
-                onOpenLibrary = onOpenLibrary,
-                modifier = Modifier.weight(1f)
-            )
-            if (accountName.isNotBlank()) {
-                Column(
-                    Modifier.padding(start = 16.dp),
-                    horizontalAlignment = Alignment.End
-                ) {
-                    Text(
-                        accountName,
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                        softWrap = false
-                    )
-                    if (accountDetail.isNotBlank()) {
-                        Text(
-                            accountDetail,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color(0xFF8E8E93),
-                            maxLines = 1,
-                            softWrap = false
-                        )
-                    }
-                }
-            }
-        }
+        VersionWithActions(
+            versionName = versionName,
+            ink = ink,
+            buttonLabel = buttonLabel,
+            buttonEnabled = buttonEnabled,
+            busy = busy,
+            onLaunch = onLaunch,
+            onOpenLibrary = onOpenLibrary
+        )
         AnimatedVisibility(
             visible = showMusic,
             enter = expandVertically(tween(320)) + fadeIn(tween(320)),
@@ -137,7 +105,7 @@ private fun VersionWithActions(
     modifier: Modifier = Modifier
 ) {
     val textStyle = LocalTextStyle.current.merge(
-        TextStyle(color = ink, fontSize = 48.sp, fontWeight = FontWeight.Bold)
+        TextStyle(color = ink, fontSize = 64.sp, fontWeight = FontWeight.Bold)
     )
     val measurer = rememberTextMeasurer()
     val textWidthPx = remember(versionName, textStyle) {
@@ -220,42 +188,44 @@ private fun LaunchActions(
     Row(verticalAlignment = Alignment.CenterVertically) {
         TextButton(
             onClick = onOpenLibrary,
+            modifier = Modifier.height(44.dp),
             colors = ButtonDefaults.textButtonColors(contentColor = ink),
-            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp)
         ) {
             Text(
                 I18n.t("material.open_library"),
+                fontSize = 16.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 softWrap = false
             )
         }
-        Spacer(Modifier.width(4.dp))
+        Spacer(Modifier.width(8.dp))
         Button(
             onClick = onLaunch,
             enabled = buttonEnabled && !busy,
-            modifier = Modifier.height(32.dp).widthIn(max = 168.dp),
-            shape = RoundedCornerShape(16.dp),
-            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)
+            modifier = Modifier.height(44.dp).widthIn(max = 240.dp),
+            shape = RoundedCornerShape(22.dp),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp)
         ) {
             if (busy) {
                 CircularProgressIndicator(
-                    modifier = Modifier.height(16.dp).width(16.dp),
+                    modifier = Modifier.height(18.dp).width(18.dp),
                     strokeWidth = 2.dp
                 )
             } else {
                 Icon(
                     Icons.Filled.PlayArrow,
                     contentDescription = null,
-                    modifier = Modifier.height(16.dp).width(16.dp)
+                    modifier = Modifier.height(20.dp).width(20.dp)
                 )
-                Spacer(Modifier.width(4.dp))
+                Spacer(Modifier.width(6.dp))
                 Text(
                     buttonLabel,
+                    fontSize = 16.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    softWrap = false,
-                    modifier = Modifier.weight(1f, fill = false)
+                    softWrap = false
                 )
             }
         }

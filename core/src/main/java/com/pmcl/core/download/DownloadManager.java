@@ -92,6 +92,8 @@ public final class DownloadManager {
     // 网络参数（由 reconfigure 设置，跨线程可见）
     private volatile long speedLimitBytesPerSec = 0;     // 0 = 不限速
     private volatile int retryCount = 3;
+    /** 启动前资源补全可以临时改这一线程的重试次数，不影响其它下载。 */
+    private static final ThreadLocal<Integer> RETRY_OVERRIDE = new ThreadLocal<>();
     private volatile boolean enableResume = true;
     private volatile int chunkedDownloadThreads = 4;    // 单文件分片连接数
 
@@ -218,6 +220,21 @@ public final class DownloadManager {
     }
 
     public int getChunkedDownloadThreads() { return chunkedDownloadThreads; }
+
+    /** 当前线程后续下载使用这个重试次数。传 null 恢复全局设置。 */
+    public static void setRetryOverride(Integer retries) {
+        if (retries == null) RETRY_OVERRIDE.remove();
+        else RETRY_OVERRIDE.set(Math.max(0, Math.min(20, retries)));
+    }
+
+    public static Integer peekRetryOverride() {
+        return RETRY_OVERRIDE.get();
+    }
+
+    private int retries() {
+        Integer override = RETRY_OVERRIDE.get();
+        return override != null ? override : retryCount;
+    }
 
     /**
      * 关闭所有线程池与连接池，释放资源。
@@ -425,7 +442,8 @@ public final class DownloadManager {
      */
     private Path downloadOneWithRetry(DownloadTask task, Consumer<Long> onDeltaBytes) throws IOException {
         IOException last = null;
-        for (int i = 0; i <= retryCount; i++) {
+        int attempts = retries();
+        for (int i = 0; i <= attempts; i++) {
             try {
                 return downloadOne(task, onDeltaBytes);
             } catch (InterruptedIOException e) {
@@ -646,7 +664,8 @@ public final class DownloadManager {
         String rewritten = rewrite(url);
         Request req = new Request.Builder().url(rewritten).get().build();
         IOException last = null;
-        for (int i = 0; i <= retryCount; i++) {
+        int attempts = retries();
+        for (int i = 0; i <= attempts; i++) {
             try (Response resp = http.newCall(req).execute()) {
                 if (!resp.isSuccessful()) {
                     throw new IOException("下载失败 code=" + resp.code() + " url=" + url);
@@ -904,7 +923,8 @@ public final class DownloadManager {
         }
 
         IOException last = null;
-        for (int i = 0; i <= retryCount; i++) {
+        int attempts = retries();
+        for (int i = 0; i <= attempts; i++) {
             Request.Builder reqBuilder = new Request.Builder().url(rewritten).get();
             if (enableResume && existingSize > 0) {
                 reqBuilder.header("Range", "bytes=" + existingSize + "-");

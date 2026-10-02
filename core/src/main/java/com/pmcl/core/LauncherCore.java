@@ -358,7 +358,7 @@ public final class LauncherCore {
     private static String currentLauncherVersion() {
         String version = LauncherCore.class.getPackage().getImplementationVersion();
         if (version == null || version.isBlank()) {
-            version = System.getProperty("pmcl.version", "1.3.0c");
+            version = System.getProperty("pmcl.version", "2.1.11a");
         }
         return version;
     }
@@ -368,6 +368,10 @@ public final class LauncherCore {
      * 幂等；供 UI / Companion / 测试入口在退出前调用，避免孤儿线程与连接泄漏。
      */
     public void shutdown() {
+        shutdown(true);
+    }
+
+    public void shutdown(boolean killGames) {
         safeShutdown("multiplayer", () -> {
             if (multiplayerManager != null) multiplayerManager.leaveRoom();
         });
@@ -381,7 +385,7 @@ public final class LauncherCore {
             if (downloadQueue != null) downloadQueue.shutdown();
         });
         safeShutdown("launch", () -> {
-            if (launchManager != null) launchManager.shutdown();
+            if (launchManager != null) launchManager.shutdown(killGames);
         });
         safeShutdown("modUpdateChecker", () -> {
             if (modUpdateChecker != null) modUpdateChecker.shutdown();

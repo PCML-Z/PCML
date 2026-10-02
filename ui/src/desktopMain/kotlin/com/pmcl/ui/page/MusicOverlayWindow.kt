@@ -109,6 +109,7 @@ fun MusicOverlayWindow(vm: LauncherViewModel, themeState: ThemeState, onClose: (
             useDarkTheme = themeState.useDark,
             dynamicColorScheme = scheme,
             uiScale = themeState.uiScale,
+            launcherFont = themeState.launcherFont,
             themePreset = themeState.themePreset,
             colorMode = themeState.colorMode,
             customThemePack = themeState.customThemePack

@@ -52,7 +52,6 @@ import com.pmcl.ui.viewmodel.resetYggdrasilSkin
 import com.pmcl.ui.viewmodel.setOfflineSkin
 import com.pmcl.ui.viewmodel.startGitHubLogin
 import com.pmcl.ui.viewmodel.startMicrosoftLogin
-import com.pmcl.ui.viewmodel.startYggdrasilLogin
 import com.pmcl.ui.viewmodel.switchAccount
 import com.pmcl.ui.viewmodel.uploadMicrosoftSkin
 import com.pmcl.ui.viewmodel.uploadYggdrasilSkin
@@ -82,10 +81,6 @@ fun AccountsPage(vm: LauncherViewModel, sectionId: String = "list") {
     var customSkinUrl by remember { mutableStateOf("") }
     var skinModel by remember { mutableStateOf("classic") }
     var deleteTarget by remember { mutableStateOf<Account?>(null) }
-    var yggdrasilApiUrl by remember { mutableStateOf("https://littleskin.cn") }
-    var yggdrasilUsername by remember { mutableStateOf("") }
-    var yggdrasilPassword by remember { mutableStateOf("") }
-    var yggdrasilPasswordVisible by remember { mutableStateOf(false) }
     val scroll = rememberScrollState()
 
     val sectionTitleKey = when (sectionId) {
@@ -416,72 +411,7 @@ fun AccountsPage(vm: LauncherViewModel, sectionId: String = "list") {
                      style = MaterialTheme.typography.bodySmall,
                      color = MaterialTheme.colorScheme.outline)
                 Spacer(Modifier.height(8.dp))
-
-                OutlinedTextField(
-                    value = yggdrasilApiUrl, onValueChange = { yggdrasilApiUrl = it },
-                    label = { Text(I18n.t("accounts.yggdrasil_api_url")) },
-                    placeholder = { Text("https://littleskin.cn") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = yggdrasilUsername, onValueChange = { yggdrasilUsername = it },
-                    label = { Text(I18n.t("accounts.yggdrasil_username")) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = yggdrasilPassword, onValueChange = { yggdrasilPassword = it },
-                    label = { Text(I18n.t("accounts.yggdrasil_password")) },
-                    singleLine = true,
-                    visualTransformation = if (yggdrasilPasswordVisible) VisualTransformation.None
-                                           else PasswordVisualTransformation(),
-                    trailingIcon = {
-                        IconButton(onClick = { yggdrasilPasswordVisible = !yggdrasilPasswordVisible }) {
-                            Icon(
-                                if (yggdrasilPasswordVisible) Icons.Filled.VisibilityOff
-                                else Icons.Filled.Visibility,
-                                contentDescription = if (yggdrasilPasswordVisible)
-                                    I18n.t("accounts.hide_password")
-                                else I18n.t("accounts.show_password"),
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(Modifier.height(12.dp))
-
-                if (loggingIn && loginMode == "yggdrasil") {
-                    Surface(
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                            Spacer(Modifier.width(12.dp))
-                            Text(status, style = MaterialTheme.typography.bodySmall,
-                                 color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                 modifier = Modifier.weight(1f))
-                        }
-                    }
-                } else {
-                    Button(
-                        onClick = {
-                            loginMode = "yggdrasil"
-                            vm.startYggdrasilLogin(yggdrasilApiUrl, yggdrasilUsername, yggdrasilPassword)
-                        },
-                        enabled = !loggingIn && yggdrasilApiUrl.isNotBlank()
-                                  && yggdrasilUsername.isNotBlank() && yggdrasilPassword.isNotBlank()
-                    ) {
-                        Icon(Icons.Filled.Palette, null, Modifier.size(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(I18n.t("accounts.yggdrasil_login"))
-                    }
-                }
+                ExternalAuthServerForm(vm)
             }
         }
         } // end sectionId == yggdrasil

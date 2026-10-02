@@ -6,12 +6,14 @@ import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Article
 import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Dataset
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Gavel
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Info
@@ -24,6 +26,7 @@ import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shield
@@ -58,6 +61,7 @@ object SecondaryNavRegistry {
             SecondarySection("accounts", "settings.section.accounts", Icons.Filled.AccountCircle),
             SecondarySection("theme", "settings.section.theme", Icons.Filled.Palette),
             SecondarySection("java", "settings.section.java", Icons.Filled.Terminal),
+            SecondarySection("automation", "settings.section.automation", Icons.Filled.Bolt),
             SecondarySection("game", "settings.section.game", Icons.Filled.PlayArrow),
             SecondarySection("mio", "settings.section.mio", Icons.Filled.Speed),
             SecondarySection("network", "settings.section.network", Icons.Filled.Share),
@@ -66,6 +70,7 @@ object SecondaryNavRegistry {
             SecondarySection("device", "settings.section.device", Icons.Filled.Shield),
             SecondarySection("system", "settings.section.system", Icons.Filled.Info),
             SecondarySection("about", "settings.section.about", Icons.Filled.Article),
+            SecondarySection("feedback", "settings.section.feedback", Icons.Filled.QrCode),
             SecondarySection("licenses", "settings.section.licenses", Icons.Filled.Gavel),
             SecondarySection("extensions", "settings.section.extensions", Icons.Filled.Extension),
         )
@@ -89,6 +94,7 @@ object SecondaryNavRegistry {
             SecondarySection("mods", "nav.mods", Icons.Filled.Extension),
             SecondarySection("modpacks", "nav.modpacks", Icons.Filled.Inventory2),
             SecondarySection("shaders", "nav.shaders", Icons.Filled.WbSunny),
+            SecondarySection("projections", "nav.projections", Icons.Filled.GridView),
             SecondarySection("resourcepacks", "nav.resourcepacks", Icons.Filled.Palette),
             SecondarySection("datapacks", "nav.datapacks", Icons.Filled.Dataset),
             SecondarySection("configs", "nav.configs", Icons.Filled.Edit),

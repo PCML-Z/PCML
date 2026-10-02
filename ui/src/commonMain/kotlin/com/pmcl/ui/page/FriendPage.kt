@@ -74,7 +74,10 @@ fun FriendPage(vm: LauncherViewModel, sectionId: String = "chat") {
     val hasAccount = account != null
 
     var friends by remember { mutableStateOf(friendManager.getFriends()) }
+    var groups by remember { mutableStateOf(friendManager.groups) }
     var selectedFriendId by remember { mutableStateOf<String?>(null) }
+    var selectedGroupId by remember { mutableStateOf<String?>(null) }
+    var showCreateGroup by remember { mutableStateOf(false) }
     var messages by remember { mutableStateOf<List<FriendStore.StoredMessage>>(emptyList()) }
     var inputText by remember { mutableStateOf("") }
     var showAddDialog by remember { mutableStateOf(false) }
@@ -146,8 +149,10 @@ fun FriendPage(vm: LauncherViewModel, sectionId: String = "chat") {
     // 刷新回调
     val refresh = {
         friends = friendManager.getFriends()
-        selectedFriendId?.let { id ->
-            messages = friendManager.getMessages(id)
+        groups = friendManager.groups
+        val key = selectedGroupId?.let { FriendStore.groupKey(it) } ?: selectedFriendId
+        if (key != null) {
+            messages = friendManager.getMessages(key)
         }
     }
 
@@ -213,10 +218,7 @@ fun FriendPage(vm: LauncherViewModel, sectionId: String = "chat") {
                         refresh()
                     }
                     FriendManager.FriendEvent.Type.MESSAGE_RECEIVED -> {
-                        // 收到新消息：刷新当前选中好友的消息列表。
-                        // store.addMessage 已按正确 identity 存储，getMessages(currentId)
-                        // 返回该好友最新消息；若消息来自其他好友则列表不变，无副作用。
-                        val currentId = selectedFriendId
+                        val currentId = selectedGroupId?.let { FriendStore.groupKey(it) } ?: selectedFriendId
                         if (currentId != null) {
                             messages = friendManager.getMessages(currentId)
                         }
@@ -351,6 +353,36 @@ fun FriendPage(vm: LauncherViewModel, sectionId: String = "chat") {
                         HorizontalDivider(Modifier.padding(vertical = 8.dp))
                     }
 
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(I18n.t("friend.groups"), style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f))
+                        IconButton(onClick = { showCreateGroup = true }, modifier = Modifier.size(28.dp)) {
+                            Icon(Icons.Filled.GroupAdd, I18n.t("friend.create_group"),
+                                modifier = Modifier.size(16.dp))
+                        }
+                    }
+                    Column(Modifier.heightIn(max = 180.dp).fillMaxWidth().verticalScroll(rememberScrollState())) {
+                    groups.forEach { group ->
+                        GroupListItem(
+                            name = group.name ?: group.id,
+                            memberCount = group.members?.size ?: 0,
+                            selected = selectedGroupId == group.id,
+                            onClick = {
+                                selectedGroupId = group.id
+                                selectedFriendId = null
+                                messages = friendManager.getMessages(FriendStore.groupKey(group.id))
+                            }
+                        )
+                    }
+                    }
+                    if (groups.isNotEmpty()) {
+                        HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                    }
+
                     Text(I18n.t("friend.friends"), style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(bottom = 4.dp))
@@ -362,6 +394,7 @@ fun FriendPage(vm: LauncherViewModel, sectionId: String = "chat") {
                                 selected = selectedFriendId == friend.identity,
                                 onClick = {
                                     selectedFriendId = friend.identity
+                                    selectedGroupId = null
                                     messages = friendManager.getMessages(friend.identity)
                                 }
                             )
@@ -373,6 +406,34 @@ fun FriendPage(vm: LauncherViewModel, sectionId: String = "chat") {
 
                 // 中间：聊天区（占据主要空间）
                 Column(Modifier.weight(1f).fillMaxHeight()) {
+                    val activeGroupId = selectedGroupId
+                    val activeGroup = groups.find { it.id == activeGroupId }
+                    if (activeGroup != null) {
+                        ChatView(
+                            friendName = activeGroup.name ?: activeGroup.id,
+                            friendOnline = false,
+                            statusText = I18n.t("friend.group_members")
+                                .replace("{0}", (activeGroup.members?.size ?: 0).toString()),
+                            showVideo = false,
+                            deleteDescription = I18n.t("friend.leave_group"),
+                            messages = messages,
+                            inputText = inputText,
+                            onInputChange = { inputText = it },
+                            onSend = {
+                                if (inputText.isNotBlank()) {
+                                    friendManager.sendGroupMessage(activeGroup.id, inputText.trim())
+                                    inputText = ""
+                                    messages = friendManager.getMessages(FriendStore.groupKey(activeGroup.id))
+                                }
+                            },
+                            onDeleteFriend = {
+                                friendManager.leaveGroup(activeGroup.id)
+                                selectedGroupId = null
+                                refresh()
+                            },
+                            senderName = { msg -> if (!msg.fromMe) msg.senderName else null }
+                        )
+                    } else {
                     val activeFriendId = selectedFriendId
                     if (activeFriendId != null) {
                         val selectedFriend = friends.find { it.identity == activeFriendId }
@@ -464,6 +525,7 @@ fun FriendPage(vm: LauncherViewModel, sectionId: String = "chat") {
                             }
                         }
                     }
+                    }
                 }
 
                 Spacer(Modifier.width(12.dp))
@@ -485,6 +547,22 @@ fun FriendPage(vm: LauncherViewModel, sectionId: String = "chat") {
                 )
             }
         }
+    }
+
+    if (showCreateGroup) {
+        CreateGroupDialog(
+            friends = friends,
+            onDismiss = { showCreateGroup = false },
+            onCreate = { name, ids ->
+                val group = friendManager.createGroup(name, ids)
+                showCreateGroup = false
+                if (group != null) {
+                    selectedGroupId = group.id
+                    selectedFriendId = null
+                    refresh()
+                }
+            }
+        )
     }
 
     // 添加好友弹窗
@@ -847,7 +925,11 @@ private fun ChatView(
     onInputChange: (String) -> Unit,
     onSend: () -> Unit,
     onDeleteFriend: () -> Unit,
-    onVideoCall: () -> Unit = {}
+    onVideoCall: () -> Unit = {},
+    statusText: String? = null,
+    showVideo: Boolean = true,
+    deleteDescription: String = I18n.t("friend.remove_friend"),
+    senderName: (FriendStore.StoredMessage) -> String? = { null }
 ) {
     val listState = rememberLazyListState()
     val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
@@ -876,30 +958,23 @@ private fun ChatView(
             Column(Modifier.weight(1f)) {
                 Text(friendName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Surface(
-                        modifier = Modifier.size(6.dp),
-                        shape = CircleShape,
-                        color = if (friendOnline) Color(0xFF4CAF50) else Color(0xFFBDBDBD)
-                    ) {}
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        if (friendOnline) I18n.t("friend.online") else I18n.t("friend.offline"),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (friendOnline) Color(0xFF4CAF50)
-                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                    )
-                }
+                Text(
+                    statusText ?: if (friendOnline) I18n.t("friend.online") else I18n.t("friend.offline"),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (statusText == null && friendOnline) Color(0xFF4CAF50)
+                            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                )
             }
-            // 视频通话按钮（仅在线时可点击）
+            if (showVideo) {
             IconButton(onClick = onVideoCall, modifier = Modifier.size(32.dp), enabled = friendOnline) {
                 Icon(Icons.Filled.Videocam, I18n.t("friend.video_call"),
                     modifier = Modifier.size(18.dp),
                     tint = if (friendOnline) MaterialTheme.colorScheme.primary
                            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f))
             }
+            }
             IconButton(onClick = onDeleteFriend, modifier = Modifier.size(32.dp)) {
-                Icon(Icons.Filled.PersonRemove, I18n.t("friend.remove_friend"),
+                Icon(Icons.Filled.PersonRemove, deleteDescription,
                     modifier = Modifier.size(18.dp),
                     tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f))
             }
@@ -919,6 +994,7 @@ private fun ChatView(
                     text = msg.text,
                     time = timeFormat.format(Date(msg.timestamp)),
                     fromMe = msg.fromMe,
+                    sender = senderName(msg),
                     modifier = Modifier.animateItem(
                         fadeInSpec = tween(250, easing = FastOutSlowInEasing),
                         placementSpec = spring(
@@ -1017,6 +1093,7 @@ private fun MessageBubble(
     text: String,
     time: String,
     fromMe: Boolean,
+    sender: String? = null,
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -1034,6 +1111,12 @@ private fun MessageBubble(
                     else MaterialTheme.colorScheme.surfaceVariant
         ) {
             Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                if (!sender.isNullOrBlank()) {
+                    Text(sender, style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Spacer(Modifier.height(2.dp))
+                }
                 Text(text, style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(2.dp))
                 Text(
@@ -1045,6 +1128,90 @@ private fun MessageBubble(
             }
         }
     }
+}
+
+@Composable
+private fun GroupListItem(
+    name: String,
+    memberCount: Int,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp).clip(RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(10.dp),
+        color = if (selected) MaterialTheme.colorScheme.secondaryContainer
+                else Color.Transparent
+    ) {
+        Row(Modifier.padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Filled.Groups, null, modifier = Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.width(8.dp))
+            Column(Modifier.weight(1f)) {
+                Text(name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    I18n.t("friend.group_members").replace("{0}", memberCount.toString()),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CreateGroupDialog(
+    friends: List<FriendStore.FriendEntry>,
+    onDismiss: () -> Unit,
+    onCreate: (String, List<String>) -> Unit
+) {
+    var name by remember { mutableStateOf("") }
+    val picked = remember { mutableStateListOf<String>() }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(I18n.t("friend.create_group"), fontWeight = FontWeight.Bold) },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { if (it.length <= 24) name = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    placeholder = { Text(I18n.t("friend.group_name")) }
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(I18n.t("friend.group_pick"), style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Column(Modifier.heightIn(max = 240.dp).fillMaxWidth().verticalScroll(rememberScrollState())) {
+                    friends.forEach { friend ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(
+                                checked = picked.contains(friend.identity),
+                                onCheckedChange = { on ->
+                                    if (on) {
+                                        if (picked.size < 11) picked.add(friend.identity)
+                                    } else {
+                                        picked.remove(friend.identity)
+                                    }
+                                }
+                            )
+                            Text(friend.displayName ?: friend.identity, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onCreate(name.trim(), picked.toList()) },
+                enabled = name.isNotBlank() && picked.isNotEmpty()
+            ) { Text(I18n.t("friend.create_group")) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(I18n.t("common.cancel")) }
+        }
+    )
 }
 
 // =============================================================================

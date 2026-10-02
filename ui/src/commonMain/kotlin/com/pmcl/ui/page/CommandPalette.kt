@@ -162,6 +162,9 @@ fun buildSearchIndex(vm: LauncherViewModel): List<SearchItem> {
             add(SearchItem(I18n.t("nav.shaders"), I18n.t("search.hub.shaders"), Icons.Filled.WbSunny, GROUP_NAV, listOf("shader", I18n.t("cmd.kw.shader"), I18n.t("cmd.kw.shader_alt"))) {
                 vm.requestSecondaryNav("content", "shaders")
             })
+            add(SearchItem(I18n.t("nav.projections"), I18n.t("search.hub.projections"), Icons.Filled.GridView, GROUP_NAV, listOf("schematic", "litematic", I18n.t("cmd.kw.projection"))) {
+                vm.requestSecondaryNav("content", "projections")
+            })
             add(SearchItem(I18n.t("nav.resourcepacks"), I18n.t("search.hub.resourcepacks"), Icons.Filled.Palette, GROUP_NAV, listOf("resource", I18n.t("cmd.kw.resource_pack"), I18n.t("cmd.kw.texture"))) {
                 vm.requestSecondaryNav("content", "resourcepacks")
             })
@@ -183,8 +186,11 @@ fun buildSearchIndex(vm: LauncherViewModel): List<SearchItem> {
             add(SearchItem(I18n.t("nav.wiki"), I18n.t("search.hub.wiki"), Icons.AutoMirrored.Filled.MenuBook, GROUP_NAV, listOf("wiki", I18n.t("cmd.kw.wiki"))) {
                 vm.requestSecondaryNav("download", "wiki")
             })
-            add(SearchItem(I18n.t("settings.section.java"), I18n.t("search.nav.settings"), Icons.Filled.Settings, GROUP_NAV, listOf("java", "jvm", I18n.t("cmd.kw.settings"))) {
+            add(SearchItem(I18n.t("settings.section.java"), I18n.t("search.nav.settings"), Icons.Filled.Settings, GROUP_NAV, listOf("java", "jvm", "agent", "ime", "输入法", I18n.t("cmd.kw.settings"))) {
                 vm.requestSecondaryNav("settings", "java")
+            })
+            add(SearchItem(I18n.t("settings.section.automation"), I18n.t("search.nav.settings"), Icons.Filled.Bolt, GROUP_NAV, listOf("automation", "kotlin", "java", "cpp", "go", I18n.t("cmd.kw.settings"))) {
+                vm.requestSecondaryNav("settings", "automation")
             })
             add(SearchItem(I18n.t("settings.section.theme"), I18n.t("search.nav.settings"), Icons.Filled.Palette, GROUP_NAV, listOf("theme", I18n.t("cmd.kw.theme"))) {
                 vm.requestSecondaryNav("settings", "theme")
@@ -194,6 +200,9 @@ fun buildSearchIndex(vm: LauncherViewModel): List<SearchItem> {
             })
             add(SearchItem(I18n.t("settings.section.mio"), I18n.t("search.nav.settings"), Icons.Filled.Speed, GROUP_NAV, listOf("mio", I18n.t("cmd.kw.settings"))) {
                 vm.requestSecondaryNav("settings", "mio")
+            })
+            add(SearchItem(I18n.t("settings.section.feedback"), I18n.t("search.nav.settings"), Icons.Filled.QrCode, GROUP_NAV, listOf("feedback", "issue", "qr", I18n.t("cmd.kw.feedback"))) {
+                vm.requestSecondaryNav("settings", "feedback")
             })
             add(SearchItem(I18n.t("stats.section.performance"), I18n.t("search.nav.statistics"), Icons.Filled.Speed, GROUP_NAV, listOf("cpu", "perf", I18n.t("cmd.kw.stats"))) {
                 vm.requestSecondaryNav("statistics", "performance")

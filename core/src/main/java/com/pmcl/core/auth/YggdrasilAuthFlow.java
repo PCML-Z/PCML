@@ -290,6 +290,62 @@ public final class YggdrasilAuthFlow {
         }
     }
 
+    /**
+     * 读取外置验证服务器名称。地址会规范成 {@code /api/yggdrasil}。
+     * 响应里必须有 {@code meta} 或 {@code skinDomains}，否则不认为是验证服务器。
+     */
+    public ServerInfo probe(String apiUrl) throws IOException {
+        String normalizedUrl = normalizeApiUrl(preferHttps(apiUrl));
+        assertHttpUrl(normalizedUrl);
+        Request req = new Request.Builder()
+                .url(normalizedUrl)
+                .header("Accept", "application/json")
+                .get()
+                .build();
+        try (Response resp = http.newCall(req).execute()) {
+            String body = resp.body() != null ? resp.body().string() : "";
+            if (!resp.isSuccessful()) {
+                throw new IOException("验证服务器无响应 (HTTP " + resp.code() + ")");
+            }
+            JsonObject o;
+            try {
+                o = JsonParser.parseString(body).getAsJsonObject();
+            } catch (RuntimeException e) {
+                throw new IOException("该地址没有返回验证服务器信息");
+            }
+            boolean hasMeta = o.has("meta") && o.get("meta").isJsonObject();
+            boolean hasSkins = o.has("skinDomains") && o.get("skinDomains").isJsonArray();
+            if (!hasMeta && !hasSkins) {
+                throw new IOException("该地址没有返回验证服务器信息");
+            }
+            String name = "";
+            if (hasMeta) name = safeStr(o.getAsJsonObject("meta"), "serverName");
+            if (name.isBlank()) name = hostOf(normalizedUrl);
+            if (name.length() > 48) name = name.substring(0, 48);
+            return new ServerInfo(name, normalizedUrl);
+        }
+    }
+
+    private static String hostOf(String url) {
+        try {
+            String host = new java.net.URL(url).getHost();
+            return host == null || host.isBlank() ? url : host;
+        } catch (java.net.MalformedURLException e) {
+            return url;
+        }
+    }
+
+    /** 外置验证服务器探测结果。 */
+    public static final class ServerInfo {
+        public final String name;
+        public final String apiUrl;
+
+        public ServerInfo(String name, String apiUrl) {
+            this.name = name;
+            this.apiUrl = apiUrl;
+        }
+    }
+
     /** 从错误响应中提取人类可读的错误消息 */
     private static String parseErrorMessage(String body) {
         try {
