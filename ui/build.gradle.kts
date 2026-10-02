@@ -170,6 +170,8 @@ tasks.register<Jar>("fatJar") {
     archiveClassifier.set("all")
     archiveVersion.set(pmclVersion.get())
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    // kotlin-compiler-embeddable pushes the merged jar past 65535 entries.
+    isZip64 = true
 
     manifest {
         attributes(
