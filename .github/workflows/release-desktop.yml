@@ -57,7 +57,24 @@ jobs:
 
       - name: Build release assets
         shell: bash
-        run: ./gradlew ${{ matrix.tasks }} -Ppmcl.useAliyunMirror=false -Ppmcl.version="${RELEASE_TAG#v}"
+        run: |
+          set +e
+          set +o pipefail
+          # fatJar 和 jpackage 同时跑会把 2G 堆打满。发行构建改成串行，并加大堆。
+          ./gradlew ${{ matrix.tasks }} \
+            --no-parallel \
+            -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8" \
+            -Ppmcl.useAliyunMirror=false \
+            -Ppmcl.version="${RELEASE_TAG#v}" 2>&1 | tee gradle-release.log
+          code=${PIPESTATUS[0]}
+          if [ "$code" -ne 0 ]; then
+            tail -n 40 gradle-release.log | while IFS= read -r line; do
+              line=${line//$'\r'/}
+              line=${line//::/:}
+              echo "::error title=release build::${line}"
+            done
+          fi
+          exit "$code"
 
       - name: Sign update assets
         shell: bash
