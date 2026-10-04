@@ -33,8 +33,13 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.FilterVintage
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -49,20 +54,31 @@ import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pmcl.core.i18n.I18n
+import com.pmcl.core.market.McmodCatalog
+import com.pmcl.core.market.ModFile
 import com.pmcl.core.market.ModProject
+import com.pmcl.core.version.MinecraftVersionIds
+import com.pmcl.core.version.ModLoaders
+import com.pmcl.core.version.ShaderLoaders
 import com.pmcl.ui.animation.AnimatedSegmentedSelector
 import com.pmcl.ui.animation.MotionTokens
 import com.pmcl.ui.theme.glassContainerColor
 import com.pmcl.ui.theme.glassSurfaceVariantColor
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import com.pmcl.ui.viewmodel.searchMods
+import com.pmcl.ui.viewmodel.searchMcmod
 import com.pmcl.ui.viewmodel.openModDetail
+import com.pmcl.ui.viewmodel.openMcmodEntry
+import com.pmcl.ui.viewmodel.openMcmodHost
+import com.pmcl.ui.viewmodel.dismissMcmodChoices
 import com.pmcl.ui.viewmodel.closeModDetail
 import com.pmcl.ui.viewmodel.listProjectFiles
+import com.pmcl.ui.viewmodel.refreshInstalledMods
 import com.pmcl.ui.viewmodel.installModWithDeps
 import com.pmcl.ui.viewmodel.clearDepInstallResult
 import kotlin.math.roundToInt
@@ -75,6 +91,12 @@ import kotlin.math.ceil
 import kotlin.math.max
 
 private const val MARKET_PAGE_SIZE = 20
+private const val TAB_GAME = 0
+private const val TAB_AGGREGATE = 1
+private const val TAB_MCMOD = 2
+private const val TAB_CURSEFORGE = 3
+private const val TAB_MODRINTH = 4
+private const val TAB_PLUGINS = 5
 private val ModrinthGreen = Color(0xFF1BD96A)
 private val CurseForgeOrange = Color(0xFFF16436)
 private val MarketFilterHeight = 36.dp
@@ -85,10 +107,15 @@ fun ModsMarketPage(vm: LauncherViewModel) {
     val results by vm.marketResults.collectAsState()
     val total by vm.marketTotal.collectAsState()
     val loading by vm.marketLoading.collectAsState()
+    val mcmodResults by vm.mcmodResults.collectAsState()
+    val mcmodPageCount by vm.mcmodPageCount.collectAsState()
+    val mcmodChoices by vm.mcmodChoices.collectAsState()
+    val mcmodOpeningId by vm.mcmodOpeningId.collectAsState()
     val detailProject by vm.detailProject.collectAsState()
     val translationCache by vm.translationCache.collectAsState()
     val depResult by vm.depInstallResult.collectAsState()
     val localVersionInfos by vm.localVersionInfos.collectAsState()
+    val instances by vm.instances.collectAsState()
 
     val knownVersions = remember(localVersionInfos) { vm.knownMarketGameVersions() }
     val seeded = remember { vm.resolveMarketFilters() }
@@ -98,19 +125,23 @@ fun ModsMarketPage(vm: LauncherViewModel) {
     var loader by remember { mutableStateOf(seeded.loader) }
     var projectType by remember { mutableStateOf("") }
     var sort by remember { mutableStateOf("default") }
-    var sourceTab by remember { mutableStateOf(1) } // 1 聚合 / 2 CF / 3 MR
+    var sourceTab by remember { mutableStateOf(TAB_AGGREGATE) }
     var pageIndex by remember { mutableStateOf(0) }
     var filesOnly by remember { mutableStateOf(false) }
 
     fun sourceFilter(): String? = when (sourceTab) {
-        2 -> "curseforge"
-        3 -> "modrinth"
+        TAB_CURSEFORGE -> "curseforge"
+        TAB_MODRINTH -> "modrinth"
         else -> null
     }
 
     fun runSearch(page: Int) {
         pageIndex = page
-        val effectiveSort = if (sourceTab == 2 && sort == "newest") "updated" else sort
+        if (sourceTab == TAB_MCMOD) {
+            vm.searchMcmod(query, projectType.ifBlank { null }, page)
+            return
+        }
+        val effectiveSort = if (sourceTab == TAB_CURSEFORGE && sort == "newest") "updated" else sort
         vm.searchMods(
             query = query,
             gameVersion = gameVersion.ifBlank { null },
@@ -124,10 +155,11 @@ fun ModsMarketPage(vm: LauncherViewModel) {
     }
 
     LaunchedEffect(sourceTab) {
-        if (sourceTab != 4) runSearch(0)
+        if (sourceTab != TAB_PLUGINS && sourceTab != TAB_MCMOD) runSearch(0)
     }
 
-    val pageCount = max(1, ceil(total / MARKET_PAGE_SIZE.toDouble()).toInt())
+    val pageCount = if (sourceTab == TAB_MCMOD) max(1, mcmodPageCount)
+        else max(1, ceil(total / MARKET_PAGE_SIZE.toDouble()).toInt())
 
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 8.dp)) {
         if (detailProject != null) {
@@ -137,8 +169,11 @@ fun ModsMarketPage(vm: LauncherViewModel) {
                     project = dp,
                     vm = vm,
                     searchGameVersion = gameVersion,
-                    searchLoader = loader,
+                    searchLoader = if (sourceTab == TAB_MCMOD) "" else loader,
+                    searchProjectType = projectType,
                     knownVersions = knownVersions,
+                    localVersionInfos = localVersionInfos,
+                    instances = instances,
                     translateEnabled = false,
                     translationCache = translationCache,
                     filesOnly = filesOnly,
@@ -154,12 +189,17 @@ fun ModsMarketPage(vm: LauncherViewModel) {
                 selectedTab = sourceTab,
                 onSelectGame = { vm.requestSecondaryNav("download", "versions") },
                 onSelectSource = { tab ->
-                    if (tab == 2 && sort == "newest") sort = "updated"
+                    if (tab == TAB_CURSEFORGE && sort == "newest") sort = "updated"
+                    if (tab == TAB_MCMOD) {
+                        pageIndex = 0
+                        if (projectType == "resourcepack" || projectType == "shader") projectType = ""
+                        if (ShaderLoaders.normalize(loader).isNotEmpty()) loader = ""
+                    }
                     sourceTab = tab
                 }
             )
 
-            if (sourceTab == 4) {
+            if (sourceTab == TAB_PLUGINS) {
                 PmclPluginStorePage(vm, Modifier.fillMaxWidth().weight(1f))
             } else {
             Spacer(Modifier.height(12.dp))
@@ -168,7 +208,8 @@ fun ModsMarketPage(vm: LauncherViewModel) {
                 CompactSearchField(
                     value = query,
                     onValueChange = { query = it },
-                    placeholder = I18n.t("market.search_name_hint"),
+                    placeholder = if (sourceTab == TAB_MCMOD) I18n.t("market.mcmod_search_hint")
+                        else I18n.t("market.search_name_hint"),
                     onSearch = { if (!loading) runSearch(0) },
                     modifier = Modifier.weight(1f)
                 )
@@ -191,15 +232,23 @@ fun ModsMarketPage(vm: LauncherViewModel) {
                 CompactFilterDropdown(
                     label = I18n.t("market.type"),
                     selectedValue = projectType,
-                    options = listOf(
+                    options = if (sourceTab == TAB_MCMOD) listOf(
+                        "" to I18n.t("market.type.mod"),
+                        "modpack" to I18n.t("market.type.modpack"),
+                    ) else listOf(
                         "" to I18n.t("market.all"),
                         "mod" to I18n.t("market.type.mod"),
+                        "modpack" to I18n.t("market.type.modpack"),
                         "resourcepack" to I18n.t("market.type.resourcepack"),
                         "shader" to I18n.t("market.type.shader"),
                     ),
-                    onSelect = { projectType = it },
+                    onSelect = {
+                        loader = loaderForMarketType(it, loader)
+                        projectType = it
+                    },
                     modifier = Modifier.width(132.dp)
                 )
+                if (sourceTab != TAB_MCMOD) {
                 CompactFilterDropdown(
                     label = I18n.t("market.sort"),
                     selectedValue = sort,
@@ -207,24 +256,22 @@ fun ModsMarketPage(vm: LauncherViewModel) {
                         add("default" to I18n.t("market.sort.default"))
                         add("downloads" to I18n.t("market.sort.downloads"))
                         add("updated" to I18n.t("market.sort.updated"))
-                        if (sourceTab != 2) add("newest" to I18n.t("market.sort.newest"))
+                        if (sourceTab != TAB_CURSEFORGE) add("newest" to I18n.t("market.sort.newest"))
                     },
                     onSelect = { sort = it },
                     modifier = Modifier.width(132.dp)
                 )
+                if (projectType != "resourcepack") {
+                val shaderSearch = projectType == "shader"
                 CompactFilterDropdown(
-                    label = I18n.t("market.loader"),
+                    label = I18n.t(if (shaderSearch) "market.shader_loader" else "market.loader"),
                     selectedValue = loader,
-                    options = listOf(
-                        "" to I18n.t("market.all"),
-                        "fabric" to "Fabric",
-                        "forge" to "Forge",
-                        "quilt" to "Quilt",
-                        "neoforge" to "NeoForge",
-                    ),
+                    options = if (shaderSearch) marketShaderLoaderOptions() else marketModLoaderOptions(),
                     onSelect = { loader = it },
-                    modifier = Modifier.width(140.dp)
+                    modifier = Modifier.width(if (shaderSearch) 188.dp else 140.dp)
                 )
+                }
+                }
                 MarketPrimaryButton(
                     onClick = { if (!loading) runSearch(0) },
                     enabled = !loading
@@ -241,17 +288,60 @@ fun ModsMarketPage(vm: LauncherViewModel) {
                 }
             }
 
+            if (sourceTab == TAB_MCMOD) {
+                Text(
+                    I18n.t("market.mcmod_hint"),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+            }
             if (loading) {
                 LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
             } else {
                 Spacer(Modifier.height(8.dp))
             }
 
-            val cfMissing = sourceTab == 2 && !vm.core.modMarket().hasCurseForge()
+            val cfMissing = sourceTab == TAB_CURSEFORGE && !vm.core.modMarket().hasCurseForge()
             when {
+                sourceTab == TAB_MCMOD && mcmodResults.isEmpty() && !loading -> {
+                    Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                        Text(
+                            if (query.isBlank()) I18n.t("market.mcmod_hint") else I18n.t("market.empty"),
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                    }
+                }
+                sourceTab == TAB_MCMOD -> {
+                    PmclLazyColumn(
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding = PaddingValues(bottom = 8.dp)
+                    ) {
+                        itemsIndexed(mcmodResults, key = { _, entry -> entry.kind + "/" + entry.id }) { _, entry ->
+                            McmodListRow(
+                                entry = entry,
+                                opening = mcmodOpeningId == entry.kind + "/" + entry.id,
+                                onClick = {
+                                    vm.openMcmodEntry(
+                                        entry,
+                                        gameVersion.ifBlank { null },
+                                        loader.ifBlank { null }
+                                    )
+                                }
+                            )
+                        }
+                    }
+                }
                 cfMissing -> {
                     Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                        Text(I18n.t("market.curseforge_disabled"), color = MaterialTheme.colorScheme.outline)
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(I18n.t("market.curseforge_disabled"), color = MaterialTheme.colorScheme.outline)
+                            Spacer(Modifier.height(12.dp))
+                            OutlinedButton(onClick = { vm.requestSecondaryNav("settings", "network") }) {
+                                Text(I18n.t("market.curseforge_setup"))
+                            }
+                        }
                     }
                 }
                 results.isEmpty() && !loading -> {
@@ -260,20 +350,42 @@ fun ModsMarketPage(vm: LauncherViewModel) {
                     }
                 }
                 else -> {
-                    PmclLazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                        itemsIndexed(results, key = { _, p -> p.getSource() + "/" + p.getId() }) { index, project ->
-                            MarketListRow(
-                                project = project,
-                                onClick = {
-                                    vm.openModDetail(
-                                        project,
-                                        gameVersion.ifBlank { null },
-                                        loader.ifBlank { null }
-                                    )
+                    BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+                        val columns = when {
+                            maxWidth >= 1080.dp -> 3
+                            maxWidth >= 680.dp -> 2
+                            else -> 1
+                        }
+                        val rows = results.chunked(columns)
+                        PmclLazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                            contentPadding = PaddingValues(bottom = 8.dp)
+                        ) {
+                            itemsIndexed(rows, key = { _, row ->
+                                row.joinToString("|") { it.getSource() + "/" + it.getId() }
+                            }) { _, row ->
+                                Row(
+                                    Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    row.forEach { project ->
+                                        MarketProjectCard(
+                                            project = project,
+                                            modifier = Modifier.weight(1f),
+                                            onClick = {
+                                                vm.openModDetail(
+                                                    project,
+                                                    gameVersion.ifBlank { null },
+                                                    if (project.projectType == "shader") null else loader.ifBlank { null }
+                                                )
+                                            }
+                                        )
+                                    }
+                                    repeat(columns - row.size) {
+                                        Spacer(Modifier.weight(1f))
+                                    }
                                 }
-                            )
-                            if (index < results.lastIndex) {
-                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
                             }
                         }
                     }
@@ -325,6 +437,15 @@ fun ModsMarketPage(vm: LauncherViewModel) {
             onDismiss = { vm.clearDepInstallResult() }
         )
     }
+    mcmodChoices?.let { pending ->
+        McmodLinkDialog(
+            links = pending.links,
+            onDismiss = { vm.dismissMcmodChoices() },
+            onPick = { link ->
+                vm.openMcmodHost(link, pending.gameVersion, pending.loader)
+            }
+        )
+    }
 }
 
 @Composable
@@ -337,6 +458,7 @@ private fun MarketTabRow(
         items = listOf(
             I18n.t("market.tab.game"),
             I18n.t("market.tab.aggregate"),
+            I18n.t("market.tab.mcmod"),
             I18n.t("market.tab.curseforge"),
             I18n.t("market.tab.modrinth"),
             I18n.t("market.tab.plugins"),
@@ -352,165 +474,474 @@ private fun MarketTabRow(
 }
 
 @Composable
-private fun MarketListRow(project: ModProject, onClick: () -> Unit) {
-    val tags = remember(project) { marketRowTags(project) }
+private fun MarketRowCard(
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    content: @Composable RowScope.() -> Unit
+) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val hovered by interaction.collectIsHoveredAsState()
-    val bgAlpha by animateFloatAsState(
-        targetValue = when {
-            pressed -> 0.45f
-            hovered -> 0.28f
-            else -> 0f
+    val shape = RoundedCornerShape(12.dp)
+    val wash by animateColorAsState(
+        when {
+            pressed -> MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+            hovered -> MaterialTheme.colorScheme.primary.copy(alpha = 0.06f)
+            else -> Color.Transparent
         },
-        animationSpec = tween(MotionTokens.DURATION_SHORT),
-        label = "marketRowBg"
+        tween(MotionTokens.DURATION_SHORT),
+        label = "marketRowWash"
+    )
+    val border by animateColorAsState(
+        if (hovered) MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
+        else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+        tween(MotionTokens.DURATION_SHORT),
+        label = "marketRowBorder"
     )
     Row(
         Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = bgAlpha))
+            .clip(shape)
+            .background(glassContainerColor(MaterialTheme.colorScheme.surface))
+            .background(wash)
+            .border(BorderStroke(1.dp, border), shape)
             .hoverable(interaction)
             .clickable(
                 interactionSource = interaction,
                 indication = null,
+                enabled = enabled,
                 onClick = onClick
             )
-            .padding(horizontal = 8.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        content = content
+    )
+}
+
+@Composable
+private fun MarketIconBox(
+    label: String,
+    image: ImageBitmap?,
+    crop: Boolean,
+    opening: Boolean = false,
+    boxSize: Dp = 64.dp
+) {
+    Box(
+        modifier = Modifier
+            .size(boxSize)
+            .clip(RoundedCornerShape(10.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
+        contentAlignment = Alignment.Center
     ) {
-        val image = rememberUrlImage(project.getIconUrl() ?: "")
-        Box(
-            modifier = Modifier
-                .size(52.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(MaterialTheme.colorScheme.surface)
-                .border(
-                    BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
-                    RoundedCornerShape(8.dp)
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            if (image != null) {
-                Image(
-                    bitmap = image,
-                    contentDescription = project.getName(),
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxSize().padding(2.dp)
-                )
-            } else {
-                Text(
-                    project.getName().take(1).ifBlank { "?" },
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.outline
-                )
-            }
-        }
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
+        if (image != null) {
+            Image(
+                bitmap = image,
+                contentDescription = label,
+                contentScale = if (crop) ContentScale.Crop else ContentScale.Fit,
+                modifier = if (crop) Modifier.fillMaxSize() else Modifier.fillMaxSize().padding(6.dp)
+            )
+        } else if (!opening) {
             Text(
-                project.getName() ?: "",
+                label.take(1).ifBlank { "?" },
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.outline
+            )
+        }
+        if (opening) {
+            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+        }
+    }
+}
+
+@Composable
+private fun McmodListRow(
+    entry: McmodCatalog.Entry,
+    opening: Boolean,
+    onClick: () -> Unit
+) {
+    val image = rememberUrlImage(entry.coverUrl)
+    MarketRowCard(onClick = onClick, enabled = !opening) {
+        MarketIconBox(entry.name, image, crop = true, opening = opening)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                entry.name,
+                style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
+            if (entry.summary.isNotBlank()) {
+                Text(
+                    entry.summary,
+                    style = MaterialTheme.typography.bodySmall.copy(lineHeight = 18.sp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
             Text(
-                project.getSummary() ?: "",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                if (entry.kind == "modpack") I18n.t("market.type.modpack") else I18n.t("market.type.mod"),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline
             )
-            Spacer(Modifier.height(4.dp))
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp))
-            ) {
-                tags.take(8).forEach { tag ->
-                    Box(
-                        Modifier
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
-                            .padding(horizontal = 6.dp, vertical = 1.dp)
-                    ) {
+        }
+    }
+}
+
+@Composable
+private fun McmodLinkDialog(
+    links: List<McmodCatalog.HostLink>,
+    onDismiss: () -> Unit,
+    onPick: (McmodCatalog.HostLink) -> Unit
+) {
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surface,
+            shadowElevation = 0.dp,
+            tonalElevation = 0.dp
+        ) {
+            Column(Modifier.width(480.dp).padding(16.dp)) {
+                Text(
+                    I18n.t("market.mcmod_pick_title"),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    I18n.t("market.mcmod_pick_body"),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
+                )
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 360.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    links.forEach { link ->
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable(
+                                    interactionSource = MutableInteractionSource(),
+                                    indication = null,
+                                    onClick = { onPick(link) }
+                                )
+                                .padding(horizontal = 8.dp, vertical = 10.dp)
+                        ) {
+                            Text(
+                                mcmodHostLabel(link),
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            if (!link.opensInMarket()) {
+                                Text(
+                                    mcmodManualHint(link),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.outline,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    OutlinedButton(onClick = onDismiss) { Text(I18n.t("common.cancel")) }
+                }
+            }
+        }
+    }
+}
+
+private fun mcmodManualHint(link: McmodCatalog.HostLink): String {
+    val raw = link.url.orEmpty().removePrefix("https://").removePrefix("http://")
+    val shown = if (raw.length > 72) raw.take(69) + "…" else raw
+    return listOf(shown, I18n.t("market.mcmod_manual")).filter { it.isNotBlank() }.joinToString(" · ")
+}
+
+private fun mcmodHostLabel(link: McmodCatalog.HostLink): String {
+    if (link.label.isNotBlank()) return link.label
+    val host = when (link.source) {
+        "curseforge" -> "CurseForge"
+        "github" -> "GitHub"
+        "modrinth" -> "Modrinth"
+        else -> link.url.orEmpty().substringAfter("://").substringBefore("/")
+    }
+    val type = when (link.projectType) {
+        "modpack" -> I18n.t("market.type.modpack")
+        "resourcepack" -> I18n.t("market.type.resourcepack")
+        "shader" -> I18n.t("market.type.shader")
+        "mod" -> I18n.t("market.type.mod")
+        else -> ""
+    }
+    return listOf(host, type, link.slug).filter { it.isNotBlank() }.joinToString(" · ")
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun MarketProjectCard(
+    project: ModProject,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val name = project.getName() ?: ""
+    val summary = project.getSummary() ?: ""
+    val author = project.getAuthor() ?: ""
+    val cover = rememberUrlImage(project.getCoverUrl(), 640)
+    val icon = rememberUrlImage(project.getIconUrl() ?: "", 128)
+    val categories = remember(project) { marketCardCategories(project) }
+    val loaders = remember(project) { marketCardLoaders(project) }
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val hovered by interaction.collectIsHoveredAsState()
+    val shape = RoundedCornerShape(12.dp)
+    val wash by animateColorAsState(
+        when {
+            pressed -> MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+            hovered -> MaterialTheme.colorScheme.primary.copy(alpha = 0.06f)
+            else -> Color.Transparent
+        },
+        tween(MotionTokens.DURATION_SHORT),
+        label = "marketCardWash"
+    )
+    val border by animateColorAsState(
+        if (hovered) MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
+        else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+        tween(MotionTokens.DURATION_SHORT),
+        label = "marketCardBorder"
+    )
+    Column(
+        modifier
+            .clip(shape)
+            .background(glassContainerColor(MaterialTheme.colorScheme.surface))
+            .background(wash)
+            .border(BorderStroke(1.dp, border), shape)
+            .hoverable(interaction)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .aspectRatio(16f / 9f)
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
+            contentAlignment = Alignment.Center
+        ) {
+            if (cover != null) {
+                Image(
+                    cover,
+                    name,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else if (icon != null) {
+                Image(
+                    icon,
+                    name,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.size(72.dp)
+                )
+            } else {
+                Text(
+                    name.take(1).ifBlank { "?" },
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = MaterialTheme.colorScheme.outline
+                )
+            }
+        }
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.Top) {
+                MarketIconBox(name, icon, crop = true, boxSize = 42.dp)
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            tag,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontSize = 11.sp,
+                            name,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
                             maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        if (author.isNotBlank()) {
+                            Text(
+                                "  " + I18n.t("market.by_author", author),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.outline,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                    if (summary.isNotBlank()) {
+                        Text(
+                            summary,
+                            style = MaterialTheme.typography.bodySmall.copy(lineHeight = 18.sp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
                             overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
             }
-            Spacer(Modifier.height(2.dp))
-            Text(
-                I18n.t(
-                    "market.downloads_updated",
-                    formatDownloads(project.getDownloadCount()),
-                    relativeTimeLabel(project.getDateModified())
-                ),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.outline,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            if (categories.isNotEmpty() || loaders.isNotEmpty()) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    categories.forEach { tag -> MarketTagChip(tag) }
+                    loaders.forEach { loader ->
+                        MarketTagChip(loaderChipLabel(loader)) {
+                            LoaderChipMark(loader)
+                        }
+                    }
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Filled.Download,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp),
+                    tint = MaterialTheme.colorScheme.outline
+                )
+                Text(
+                    "  " + compactCount(project.getDownloadCount()),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.width(12.dp))
+                Icon(
+                    Icons.Filled.FavoriteBorder,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp),
+                    tint = MaterialTheme.colorScheme.outline
+                )
+                Text(
+                    "  " + compactCount(project.getFollowCount()),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.weight(1f))
+                Icon(
+                    Icons.Filled.AccessTime,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp),
+                    tint = MaterialTheme.colorScheme.outline
+                )
+                Text(
+                    "  " + relativeTimeLabel(project.getDateModified()),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1
+                )
+            }
         }
-        Spacer(Modifier.width(8.dp))
-        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            TypeBadge(project.getProjectType())
-            SourceBadge(project.getSource())
-        }
-        HoverSlideArrow(visible = hovered, modifier = Modifier.padding(start = 6.dp))
     }
 }
 
 @Composable
-private fun TypeBadge(projectType: String) {
-    val label = when (projectType) {
-        "resourcepack" -> I18n.t("market.type.resourcepack")
-        "shader" -> I18n.t("market.type.shader")
-        else -> I18n.t("market.type.mod")
-    }
+private fun MarketTagChip(text: String, leading: (@Composable () -> Unit)? = null) {
     Row(
         Modifier
-            .clip(RoundedCornerShape(4.dp))
-            .border(
-                BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)),
-                RoundedCornerShape(4.dp)
-            )
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .clip(RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f))
+            .padding(horizontal = 8.dp, vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Icon(
-            Icons.Outlined.Download,
-            contentDescription = null,
-            modifier = Modifier.size(14.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(Modifier.width(4.dp))
-        Text(label, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+        leading?.invoke()
+        Text(text, style = MaterialTheme.typography.labelSmall, maxLines = 1)
     }
 }
 
 @Composable
-private fun SourceBadge(source: String) {
-    val isMr = source.equals("modrinth", ignoreCase = true)
-    Box(
-        Modifier
-            .clip(RoundedCornerShape(4.dp))
-            .background(if (isMr) ModrinthGreen else CurseForgeOrange)
-            .padding(horizontal = 8.dp, vertical = 4.dp)
-    ) {
-        Text(
-            if (isMr) "Modrinth" else "CurseForge",
-            color = Color.White,
+private fun LoaderChipMark(loader: String) {
+    val tint = MaterialTheme.colorScheme.onSurfaceVariant
+    when (loader.lowercase()) {
+        "optifine" -> Text(
+            "OF",
             style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Medium,
-            maxLines = 1
+            fontWeight = FontWeight.Bold,
+            color = tint
         )
+        "iris" -> Icon(Icons.Filled.FilterVintage, null, Modifier.size(12.dp), tint)
+        else -> {}
     }
+}
+
+private fun marketModLoaderOptions(): List<Pair<String, String>> = listOf(
+    "" to I18n.t("market.all"),
+    "fabric" to "Fabric",
+    "forge" to "Forge",
+    "quilt" to "Quilt",
+    "neoforge" to "NeoForge",
+    "forbric" to "Forbric",
+)
+
+private fun marketShaderLoaderOptions(): List<Pair<String, String>> = listOf(
+    "" to I18n.t("market.all"),
+    ShaderLoaders.IRIS to "Iris",
+    ShaderLoaders.OPTIFINE to "OptiFine",
+    ShaderLoaders.CANVAS to "Canvas",
+    ShaderLoaders.VANILLA to I18n.t("market.shader.vanilla"),
+)
+
+/** 市场文件进哪条安装路径。光影和材质不进 mods，整合包走队列导入。 */
+private fun marketContentKind(projectType: String?): String = when (projectType) {
+    "modpack" -> "modpack"
+    "shader" -> "shader"
+    "resourcepack" -> "resourcepack"
+    else -> "mod"
+}
+
+/** 光影用 Iris / OptiFine，材质包不按模组加载器筛。换类型时丢掉对不上的选项。 */
+private fun loaderForMarketType(projectType: String, loader: String): String {
+    val shaderLoader = ShaderLoaders.normalize(loader)
+    return when (projectType) {
+        "shader" -> shaderLoader
+        "resourcepack" -> ""
+        else -> if (shaderLoader.isNotEmpty()) "" else loader
+    }
+}
+
+private fun marketCardCategories(project: ModProject): List<String> {
+    return project.getCategories()
+        .filter { it.isNotBlank() && !isLoaderTag(it) }
+        .map { categoryLabel(it) }
+        .distinct()
+        .take(4)
+}
+
+private fun marketCardLoaders(project: ModProject): List<String> {
+    val fromDisplay = project.getCategories()
+        .map { it.lowercase() }
+        .filter { it.isNotBlank() && isLoaderTag(it) }
+    val source = if (fromDisplay.isNotEmpty()) fromDisplay
+    else project.getLoaders().map { it.lowercase() }.filter { it.isNotBlank() }
+    return source
+        .filter { it != "datapack" && it != "rift" && it != "liteloader" }
+        .distinct()
+        .take(4)
+}
+
+private fun loaderChipLabel(loader: String): String = when (loader.lowercase()) {
+    "optifine" -> "OptiFine"
+    "neoforge" -> "NeoForge"
+    "iris" -> "Iris"
+    "canvas" -> "Canvas"
+    "vanilla" -> "Vanilla"
+    "fabric" -> "Fabric"
+    "forge" -> "Forge"
+    "quilt" -> "Quilt"
+    "forbric" -> "Forbric"
+    else -> loader.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
 }
 
 @Composable
@@ -948,7 +1379,10 @@ private fun ColumnScope.ModDetailView(
     vm: LauncherViewModel,
     searchGameVersion: String,
     searchLoader: String = "",
+    searchProjectType: String = "",
     knownVersions: List<String> = emptyList(),
+    localVersionInfos: List<com.pmcl.core.version.VersionManager.LocalVersionInfo> = emptyList(),
+    instances: List<com.pmcl.core.instance.InstanceInfo> = emptyList(),
     translateEnabled: Boolean = false,
     translationCache: Map<String, String> = emptyMap(),
     filesOnly: Boolean = false,
@@ -957,17 +1391,36 @@ private fun ColumnScope.ModDetailView(
 ) {
     val selectedVersion by vm.selectedVersion.collectAsState()
     var filterGameVersion by remember(project.getId()) { mutableStateOf(searchGameVersion) }
-    var filterLoader by remember(project.getId()) { mutableStateOf(searchLoader) }
+    var filterLoader by remember(project.getId()) {
+        mutableStateOf(if (project.projectType == "shader" || project.projectType == "resourcepack") "" else searchLoader)
+    }
     var targetGameVersion by remember(project.getId()) { mutableStateOf(searchGameVersion) }
     var showAllFiles by remember(project.getId()) { mutableStateOf(false) }
     var filterCompatible by remember(project.getId()) { mutableStateOf(true) }
     val files by vm.currentModFiles.collectAsState()
     val filesLoading by vm.marketFilesLoading.collectAsState()
     val filesError by vm.marketFilesError.collectAsState()
+    val installedMods by vm.installedMods.collectAsState()
+    val isModpack = project.projectType == "modpack"
+    val shaderProject = project.projectType == "shader"
+    val ignoreLoader = project.projectType == "resourcepack"
+    val localGames = remember(localVersionInfos, instances, installedMods, shaderProject, ignoreLoader) {
+        marketLocalGameChips(
+            localVersionInfos, instances, vm::deriveGameVersion, vm::deriveLoader,
+            ignoreLoader, shaderProject, installedMods
+        )
+    }
+    val shaderOptions = marketShaderLoaderOptions()
+    var shaderSeeded by remember(project.getId()) { mutableStateOf(false) }
+
+    LaunchedEffect(project.getId()) {
+        if (shaderProject) vm.refreshInstalledMods()
+    }
 
     LaunchedEffect(searchGameVersion, searchLoader) {
         filterGameVersion = searchGameVersion
-        filterLoader = searchLoader
+        if (!shaderProject && !ignoreLoader) filterLoader = searchLoader
+        else if (!shaderProject) filterLoader = ""
         if (searchGameVersion.isNotBlank()) {
             targetGameVersion = searchGameVersion
         }
@@ -979,14 +1432,79 @@ private fun ColumnScope.ModDetailView(
         }
     }
 
-    val compatibleFiles = remember(files, filterGameVersion, filterLoader, filterCompatible) {
+    val compatibleFiles = remember(files, filterGameVersion, filterLoader, filterCompatible, shaderProject) {
         if (!filterCompatible) files
-        else files.filter { fileMatchesMarketFilter(it, filterGameVersion, filterLoader) }
+        else files.filter { fileMatchesMarketFilter(it, filterGameVersion, filterLoader, shaderProject) }
     }
     val displayFiles = if (showAllFiles) compatibleFiles else compatibleFiles.take(15)
 
     val displayName = if (translateEnabled) translationCache[project.getName()] ?: project.getName() else project.getName()
     val displaySummary = if (translateEnabled) translationCache[project.getSummary()] ?: project.getSummary() else project.getSummary()
+
+    fun reportFilters(gameVersion: String, loader: String) {
+        val reported = when {
+            ignoreLoader -> ""
+            shaderProject && searchProjectType != "shader" -> ""
+            else -> loader
+        }
+        onFiltersChanged(gameVersion, reported)
+    }
+
+    fun publishFilters(gameVersion: String, loader: String) {
+        reportFilters(gameVersion, loader)
+        vm.listProjectFiles(
+            project,
+            gameVersion.ifBlank { null },
+            if (ignoreLoader) null else loader.ifBlank { null }
+        )
+    }
+
+    fun currentShaderLoader(gameVersion: String): String {
+        val selected = vm.selectedVersion.value
+        val info = localVersionInfos.firstOrNull {
+            it.id == selected && (gameVersion.isBlank() || vm.deriveGameVersion(it).equals(gameVersion, ignoreCase = true))
+        } ?: localVersionInfos.firstOrNull {
+            gameVersion.isNotBlank() && vm.deriveGameVersion(it).equals(gameVersion, ignoreCase = true)
+        }
+        if (info == null) return preferredShaderLoader(localGames, gameVersion)
+        return shaderLoadersForVersion(info.id, info.inheritsFrom, instances, installedMods).firstOrNull().orEmpty()
+    }
+
+    LaunchedEffect(shaderProject, installedMods, localGames) {
+        if (!shaderProject || shaderSeeded) return@LaunchedEffect
+        val detected = localGames.any { it.loader.isNotBlank() && it.loader != ShaderLoaders.VANILLA }
+        if (installedMods.isEmpty() && !detected) return@LaunchedEffect
+        shaderSeeded = true
+        val version = filterGameVersion.ifBlank { searchGameVersion }
+        val loader = currentShaderLoader(version)
+        if (loader.isNotBlank()) {
+            filterLoader = loader
+            filterCompatible = true
+        }
+    }
+
+    fun loaderForGame(gameVersion: String, modLoader: String): String = when {
+        shaderProject -> currentShaderLoader(gameVersion)
+        ignoreLoader -> ""
+        else -> modLoader
+    }
+
+    fun applyLocalGame(game: LocalGameChip) {
+        filterGameVersion = game.gameVersion
+        filterLoader = if (ignoreLoader) "" else game.loader
+        filterCompatible = true
+        showAllFiles = false
+        if (game.gameVersion.isNotBlank()) targetGameVersion = game.gameVersion
+        publishFilters(filterGameVersion, filterLoader)
+    }
+
+    fun clearLocalGame() {
+        filterGameVersion = ""
+        filterLoader = ""
+        filterCompatible = true
+        showAllFiles = false
+        publishFilters("", "")
+    }
 
     if (filesOnly) {
         Column(Modifier.fillMaxWidth().weight(1f)) {
@@ -1009,49 +1527,68 @@ private fun ColumnScope.ModDetailView(
                         filterGameVersion = it
                         filterCompatible = true
                         showAllFiles = false
-                        onFiltersChanged(it, filterLoader)
+                        reportFilters(it, filterLoader)
                     },
                     placeholder = I18n.t("market.game_version_hint"),
                     modifier = Modifier.width(200.dp)
                 )
+                if (shaderProject) {
                 CompactFilterDropdown(
-                    label = I18n.t("market.loader"),
+                    label = I18n.t("market.shader_loader"),
                     selectedValue = filterLoader,
-                    options = listOf(
-                        "" to I18n.t("market.all"),
-                        "fabric" to "Fabric",
-                        "forge" to "Forge",
-                        "quilt" to "Quilt",
-                        "neoforge" to "NeoForge",
-                    ),
+                    options = shaderOptions,
                     onSelect = {
                         filterLoader = it
                         filterCompatible = true
                         showAllFiles = false
-                        onFiltersChanged(filterGameVersion, it)
+                        publishFilters(filterGameVersion, it)
+                    },
+                    modifier = Modifier.width(168.dp)
+                )
+                } else if (!ignoreLoader) {
+                CompactFilterDropdown(
+                    label = I18n.t("market.loader"),
+                    selectedValue = filterLoader,
+                    options = marketModLoaderOptions(),
+                    onSelect = {
+                        filterLoader = it
+                        filterCompatible = true
+                        showAllFiles = false
+                        publishFilters(filterGameVersion, it)
                     },
                     modifier = Modifier.width(140.dp)
                 )
-                CompactSearchField(
-                    value = targetGameVersion,
-                    onValueChange = { targetGameVersion = it },
-                    placeholder = I18n.t("market.target_mc_version"),
-                    onSearch = {},
-                    modifier = Modifier.width(160.dp)
-                )
+                }
+                if (!isModpack) {
+                    CompactSearchField(
+                        value = targetGameVersion,
+                        onValueChange = { targetGameVersion = it },
+                        placeholder = I18n.t("market.target_mc_version"),
+                        onSearch = {},
+                        modifier = Modifier.width(160.dp)
+                    )
+                }
                 MarketOutlinedButton(
                     onClick = {
                         val f = vm.resolveMarketFilters()
                         filterGameVersion = f.gameVersion
-                        filterLoader = f.loader
+                        filterLoader = loaderForGame(f.gameVersion, f.loader)
                         filterCompatible = true
                         showAllFiles = false
-                        onFiltersChanged(f.gameVersion, f.loader)
+                        publishFilters(filterGameVersion, filterLoader)
                     },
                     enabled = true
                 ) {
                     Text(I18n.t("market.use_current_instance"))
                 }
+            }
+            if (isModpack) {
+                Text(
+                    I18n.t("market.modpack_hint"),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
             }
             Spacer(Modifier.height(8.dp))
             FileListPane(
@@ -1065,7 +1602,12 @@ private fun ColumnScope.ModDetailView(
                 targetGameVersion = targetGameVersion,
                 filesLoading = filesLoading,
                 filesError = filesError,
+                contentKind = marketContentKind(project.projectType),
+                localGames = localGames,
+                ignoreLoader = ignoreLoader,
                 vm = vm,
+                onPickLocalGame = ::applyLocalGame,
+                onClearLocalFilter = ::clearLocalGame,
                 onToggleCompatible = {
                     filterCompatible = !filterCompatible
                     showAllFiles = false
@@ -1173,7 +1715,7 @@ private fun ColumnScope.ModDetailView(
             ) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        I18n.t("market.detail_filter_title"),
+                        I18n.t(if (shaderProject) "market.shader_filter_title" else "market.detail_filter_title"),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -1184,28 +1726,43 @@ private fun ColumnScope.ModDetailView(
                             filterGameVersion = it
                             filterCompatible = true
                             showAllFiles = false
-                            onFiltersChanged(it, filterLoader)
+                            reportFilters(it, filterLoader)
                         },
                         modifier = Modifier.fillMaxWidth()
                     )
+                    if (shaderProject) {
+                    LoaderDropdown(
+                        selected = filterLoader,
+                        label = I18n.t("market.shader_loader"),
+                        options = shaderOptions,
+                        onSelect = {
+                            filterLoader = it
+                            filterCompatible = true
+                            showAllFiles = false
+                            publishFilters(filterGameVersion, it)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    } else if (!ignoreLoader) {
                     LoaderDropdown(
                         selected = filterLoader,
                         onSelect = {
                             filterLoader = it
                             filterCompatible = true
                             showAllFiles = false
-                            onFiltersChanged(filterGameVersion, it)
+                            publishFilters(filterGameVersion, it)
                         },
                         modifier = Modifier.fillMaxWidth()
                     )
+                    }
                     MarketOutlinedButton(
                         onClick = {
                             val f = vm.resolveMarketFilters()
                             filterGameVersion = f.gameVersion
-                            filterLoader = f.loader
+                            filterLoader = loaderForGame(f.gameVersion, f.loader)
                             filterCompatible = true
                             showAllFiles = false
-                            onFiltersChanged(f.gameVersion, f.loader)
+                            publishFilters(filterGameVersion, filterLoader)
                         },
                         enabled = !selectedVersion.isNullOrBlank(),
                         modifier = Modifier.fillMaxWidth()
@@ -1217,7 +1774,10 @@ private fun ColumnScope.ModDetailView(
                             buildString {
                                 append(I18n.t("market.detail_filter_hint"))
                                 if (filterGameVersion.isNotBlank()) append(" · MC $filterGameVersion")
-                                if (filterLoader.isNotBlank()) append(" · $filterLoader")
+                                if (filterLoader.isNotBlank()) {
+                                    append(" · ")
+                                    append(if (shaderProject) shaderLoaderLabel(filterLoader) else filterLoader)
+                                }
                             },
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.outline
@@ -1234,23 +1794,36 @@ private fun ColumnScope.ModDetailView(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(
-                        I18n.t("market.download_to_version"),
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    OutlinedTextField(
-                        value = targetGameVersion,
-                        onValueChange = { targetGameVersion = it },
-                        label = { Text(I18n.t("market.target_mc_version")) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Text(
-                        I18n.t("market.download_dir_hint", targetGameVersion),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.outline
-                    )
+                    if (isModpack) {
+                        Text(
+                            I18n.t("market.modpack_install_title"),
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            I18n.t("market.modpack_hint"),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                    } else {
+                        Text(
+                            I18n.t("market.download_to_version"),
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        OutlinedTextField(
+                            value = targetGameVersion,
+                            onValueChange = { targetGameVersion = it },
+                            label = { Text(I18n.t("market.target_mc_version")) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Text(
+                            I18n.t("market.download_dir_hint"),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                    }
                 }
             }
         }
@@ -1271,7 +1844,12 @@ private fun ColumnScope.ModDetailView(
                 targetGameVersion = targetGameVersion,
                 filesLoading = filesLoading,
                 filesError = filesError,
+                contentKind = marketContentKind(project.projectType),
+                localGames = localGames,
+                ignoreLoader = ignoreLoader,
                 vm = vm,
+                onPickLocalGame = ::applyLocalGame,
+                onClearLocalFilter = ::clearLocalGame,
                 onToggleCompatible = {
                     filterCompatible = !filterCompatible
                     showAllFiles = false
@@ -1295,11 +1873,71 @@ private fun ColumnScope.FileListPane(
     targetGameVersion: String,
     filesLoading: Boolean,
     filesError: String?,
+    contentKind: String = "mod",
+    localGames: List<LocalGameChip> = emptyList(),
+    ignoreLoader: Boolean = false,
     vm: LauncherViewModel,
+    onPickLocalGame: (LocalGameChip) -> Unit = {},
+    onClearLocalFilter: () -> Unit = {},
     onToggleCompatible: () -> Unit,
     onShowAll: () -> Unit,
     onToggleShowAll: () -> Unit
 ) {
+    val installingDeps by vm.installingDeps.collectAsState()
+    val modpackBusy by vm.modpackBusy.collectAsState()
+    val modpack = contentKind == "modpack"
+    var pendingDownload by remember { mutableStateOf<PendingModDownload?>(null) }
+    var pendingModpack by remember { mutableStateOf<ModFile?>(null) }
+    pendingModpack?.let { file ->
+        ModpackInstallDialog(
+            fileName = file.fileName ?: "",
+            onDismiss = { pendingModpack = null },
+            onConfirm = {
+                pendingModpack = null
+                vm.enqueueMarketModpack(file)
+            }
+        )
+    }
+    pendingDownload?.let { pending ->
+        ModDownloadTargetDialog(
+            preferredGameVersion = pending.preferredGameVersion,
+            withDeps = pending.withDeps,
+            contentKind = contentKind,
+            vm = vm,
+            onDismiss = { pendingDownload = null },
+            onConfirm = { versionId, gameVersion ->
+                val file = pending.file
+                val rect = pending.flyRect
+                val deps = pending.withDeps
+                pendingDownload = null
+                if (contentKind == "shader" || contentKind == "resourcepack") {
+                    val enqueue = { vm.enqueueMarketContent(file, contentKind, versionId) }
+                    if (rect != null) {
+                        vm.triggerFlyAnimation(rect, file.getFileName() ?: I18n.t("market.download"), enqueue)
+                    } else {
+                        enqueue()
+                    }
+                } else if (!deps && rect != null) {
+                    vm.triggerFlyAnimation(rect, file.getFileName() ?: I18n.t("market.download")) {
+                        vm.enqueueModDownload(file, gameVersion, versionId)
+                    }
+                } else if (deps) {
+                    vm.installModWithDeps(file, gameVersion, versionId)
+                } else {
+                    vm.enqueueModDownload(file, gameVersion, versionId)
+                }
+            }
+        )
+    }
+    LocalGameFilterRow(
+        games = localGames,
+        filterGameVersion = filterGameVersion,
+        filterLoader = filterLoader,
+        ignoreLoader = ignoreLoader,
+        onPick = onPickLocalGame,
+        onClear = onClearLocalFilter
+    )
+    Spacer(Modifier.height(8.dp))
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth()
@@ -1395,7 +2033,22 @@ private fun ColumnScope.FileListPane(
                     val f = displayFiles[i]
                     f.getSource() + "/" + f.getFileId()
                 }) { i ->
-                    FileRow(displayFiles[i], targetGameVersion, vm)
+                    FileRow(
+                        displayFiles[i],
+                        installingDeps,
+                        modpack = modpack,
+                        modpackBusy = modpackBusy,
+                        showDeps = contentKind == "mod"
+                    ) { file, withDeps, rect ->
+                        if (modpack) {
+                            pendingModpack = file
+                        } else {
+                            val preferred = targetGameVersion.ifBlank {
+                                (file.getGameVersions() ?: emptyList()).firstOrNull().orEmpty()
+                            }
+                            pendingDownload = PendingModDownload(file, withDeps, preferred, rect)
+                        }
+                    }
                 }
                 if (compatibleFiles.size > 15) {
                     item {
@@ -1499,13 +2152,216 @@ private fun DependencyResultDialog(
     )
 }
 
+private data class PendingModDownload(
+    val file: ModFile,
+    val withDeps: Boolean,
+    val preferredGameVersion: String,
+    val flyRect: com.pmcl.ui.animation.Rect?
+)
+
+@Composable
+private fun ModDownloadTargetDialog(
+    preferredGameVersion: String,
+    withDeps: Boolean,
+    contentKind: String,
+    vm: LauncherViewModel,
+    onDismiss: () -> Unit,
+    onConfirm: (versionId: String, gameVersion: String) -> Unit
+) {
+    val localInfos by vm.localVersionInfos.collectAsState()
+    val selectedNow by vm.selectedVersion.collectAsState()
+    var query by remember { mutableStateOf("") }
+    LaunchedEffect(Unit) {
+        if (localInfos.isEmpty()) vm.refreshLocalVersions()
+    }
+    val installed = remember(localInfos) {
+        localInfos.filter { it.isLaunchable && !it.id.isNullOrBlank() }
+    }
+    val needle = query.trim()
+    val shown = remember(installed, needle) {
+        installed.filter { info ->
+            if (needle.isEmpty()) return@filter true
+            val game = MinecraftVersionIds.gameVersion(info.id, info.inheritsFrom)
+            info.id.contains(needle, ignoreCase = true) || game.contains(needle, ignoreCase = true)
+        }
+    }
+    var selected by remember(installed, selectedNow, preferredGameVersion) {
+        mutableStateOf(
+            installed.firstOrNull { it.id == selectedNow }?.id
+                ?: installed.firstOrNull {
+                    MinecraftVersionIds.gameVersion(it.id, it.inheritsFrom) == preferredGameVersion
+                }?.id
+                ?: installed.firstOrNull()?.id
+                ?: ""
+        )
+    }
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surface,
+            shadowElevation = 0.dp,
+            tonalElevation = 0.dp
+        ) {
+            Column(
+                Modifier
+                    .width(420.dp)
+                    .heightIn(min = 360.dp, max = 560.dp)
+                    .padding(16.dp)
+            ) {
+                Text(
+                    I18n.t("market.download_target_title"),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    I18n.t(when (contentKind) {
+                        "shader" -> "market.download_target_body.shader"
+                        "resourcepack" -> "market.download_target_body.resourcepack"
+                        else -> "market.download_target_body"
+                    }),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
+                )
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    label = { Text(I18n.t("launch.loader_target_search")) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(8.dp))
+                if (shown.isEmpty()) {
+                    Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        Text(
+                            I18n.t("launch.loader_target_empty"),
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                    }
+                } else {
+                    PmclLazyColumn(
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        items(shown.size, key = { shown[it].id }) { index ->
+                            val info = shown[index]
+                            val game = MinecraftVersionIds.gameVersion(info.id, info.inheritsFrom)
+                            val picked = info.id == selected
+                            Surface(
+                                onClick = { selected = info.id },
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (picked) MaterialTheme.colorScheme.primaryContainer
+                                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                                shadowElevation = 0.dp,
+                                tonalElevation = 0.dp,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+                                    Text(
+                                        info.id,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = if (picked) FontWeight.Bold else FontWeight.Normal,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    if (game.isNotBlank() && game != info.id) {
+                                        Text(
+                                            I18n.t("market.download_target_mc", game),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.outline
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    OutlinedButton(onClick = onDismiss) { Text(I18n.t("common.cancel")) }
+                    Spacer(Modifier.width(8.dp))
+                    Button(
+                        onClick = {
+                            val info = installed.firstOrNull { it.id == selected } ?: return@Button
+                            onConfirm(info.id, MinecraftVersionIds.gameVersion(info.id, info.inheritsFrom))
+                        },
+                        enabled = selected.isNotBlank()
+                    ) {
+                        Text(
+                            if (withDeps) I18n.t("market.download_target_confirm_deps")
+                            else I18n.t("market.download_target_confirm")
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ModpackInstallDialog(
+    fileName: String,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surface,
+            shadowElevation = 0.dp,
+            tonalElevation = 0.dp
+        ) {
+            Column(Modifier.width(420.dp).padding(16.dp)) {
+                Text(
+                    I18n.t("market.modpack_install_title"),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+                if (fileName.isNotBlank()) {
+                    Text(
+                        fileName,
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
+                Text(
+                    I18n.t("market.modpack_install_body"),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+                Text(
+                    I18n.t("market.modpack_hint"),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 16.dp)
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    OutlinedButton(onClick = onDismiss) { Text(I18n.t("common.cancel")) }
+                    Spacer(Modifier.width(8.dp))
+                    Button(onClick = onConfirm) { Text(I18n.t("market.modpack_install")) }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun FileRow(
-    f: com.pmcl.core.market.ModFile,
-    targetGameVersion: String,
-    vm: LauncherViewModel
+    f: ModFile,
+    installingDeps: Boolean,
+    modpack: Boolean = false,
+    modpackBusy: Boolean = false,
+    showDeps: Boolean = true,
+    onRequestDownload: (ModFile, Boolean, com.pmcl.ui.animation.Rect?) -> Unit
 ) {
-    val installingDeps by vm.installingDeps.collectAsState()
     var cardRect by remember { mutableStateOf<com.pmcl.ui.animation.Rect?>(null) }
     Surface(
         shadowElevation = 0.dp,
@@ -1533,37 +2389,40 @@ private fun FileRow(
                     color = MaterialTheme.colorScheme.outline
                 )
             }
-            MarketPrimaryButton(onClick = {
-                val rect = cardRect
-                val gv = targetGameVersion.ifBlank {
-                    (f.getGameVersions() ?: emptyList()).firstOrNull() ?: ""
-                }
-                val title = f.getFileName() ?: I18n.t("market.download")
-                if (rect != null) {
-                    vm.triggerFlyAnimation(rect, title) {
-                        vm.enqueueModDownload(f, gv)
+            if (modpack) {
+                MarketPrimaryButton(
+                    onClick = { onRequestDownload(f, false, cardRect) },
+                    enabled = !modpackBusy
+                ) {
+                    if (modpackBusy) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(14.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(Modifier.width(6.dp))
                     }
-                } else {
-                    vm.enqueueModDownload(f, gv)
+                    Text(I18n.t("market.modpack_install"))
                 }
-            }) { Text(I18n.t("market.download")) }
-            Spacer(Modifier.width(8.dp))
-            MarketOutlinedButton(
-                onClick = {
-                    vm.installModWithDeps(f, targetGameVersion.ifBlank {
-                        (f.getGameVersions() ?: emptyList()).firstOrNull() ?: ""
-                    })
-                },
-                enabled = !installingDeps
-            ) {
-                if (installingDeps) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(14.dp),
-                        strokeWidth = 2.dp
-                    )
-                    Spacer(Modifier.width(6.dp))
+            } else {
+                MarketPrimaryButton(onClick = {
+                    onRequestDownload(f, false, cardRect)
+                }) { Text(I18n.t("market.download")) }
+                if (showDeps) {
+                    Spacer(Modifier.width(8.dp))
+                    MarketOutlinedButton(
+                        onClick = { onRequestDownload(f, true, cardRect) },
+                        enabled = !installingDeps
+                    ) {
+                        if (installingDeps) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(14.dp),
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(Modifier.width(6.dp))
+                        }
+                        Text(I18n.t("mods.with_deps"))
+                    }
                 }
-                Text(I18n.t("mods.with_deps"))
             }
         }
     }
@@ -1617,10 +2476,259 @@ private fun GameVersionFilterField(
     }
 }
 
+private data class LocalGameChip(
+    val gameVersion: String,
+    val loader: String,
+    val label: String
+)
+
+private fun marketLocalGameChips(
+    infos: List<com.pmcl.core.version.VersionManager.LocalVersionInfo>,
+    instances: List<com.pmcl.core.instance.InstanceInfo>,
+    deriveVersion: (com.pmcl.core.version.VersionManager.LocalVersionInfo) -> String,
+    deriveLoader: (com.pmcl.core.version.VersionManager.LocalVersionInfo) -> String,
+    ignoreLoader: Boolean,
+    shader: Boolean,
+    installedMods: List<com.pmcl.core.mods.ModMeta>
+): List<LocalGameChip> {
+    val namesByVersion = HashMap<String, MutableList<String>>()
+    for (inst in instances) {
+        val base = inst.baseVersionId ?: continue
+        val name = inst.name?.trim().orEmpty()
+        if (base.isBlank() || name.isBlank()) continue
+        namesByVersion.getOrPut(base) { mutableListOf() }.add(name)
+    }
+    data class Draft(
+        val gameVersion: String,
+        val loader: String,
+        val ids: MutableList<String> = mutableListOf(),
+        val names: MutableList<String> = mutableListOf()
+    )
+    val drafts = LinkedHashMap<String, Draft>()
+    fun add(gameVersion: String, loader: String, id: String, names: List<String>) {
+        val key = gameVersion.lowercase() + "\u0000" + loader
+        val draft = drafts.getOrPut(key) { Draft(gameVersion, loader) }
+        if (id.isNotBlank() && id !in draft.ids) draft.ids.add(id)
+        for (name in names) {
+            if (name.isNotBlank() && name !in draft.names) draft.names.add(name)
+        }
+    }
+    for (info in infos) {
+        if (!info.isLaunchable || info.id.isNullOrBlank()) continue
+        val gameVersion = deriveVersion(info).trim()
+        if (gameVersion.isBlank()) continue
+        if (ignoreLoader) {
+            add(gameVersion, "", info.id, namesByVersion[info.id].orEmpty())
+            continue
+        }
+        if (shader) {
+            val names = namesByVersion[info.id].orEmpty()
+            val loaders = shaderLoadersForVersion(info.id, info.inheritsFrom, instances, installedMods)
+            for (loader in loaders) add(gameVersion, loader, info.id, names)
+            continue
+        }
+        val versionLoader = ModLoaders.normalize(deriveLoader(info))
+        val related = instances.filter { it.baseVersionId == info.id }
+        val loaders = related.map { ModLoaders.normalize(it.loader) }.filter { it.isNotEmpty() }.distinct()
+        if (loaders.isEmpty()) {
+            add(gameVersion, versionLoader, info.id, namesByVersion[info.id].orEmpty())
+        } else {
+            if (versionLoader.isNotEmpty() && versionLoader !in loaders) {
+                add(gameVersion, versionLoader, info.id, emptyList())
+            }
+            for (loader in loaders) {
+                val names = related
+                    .filter { ModLoaders.normalize(it.loader) == loader }
+                    .mapNotNull { it.name?.trim() }
+                add(gameVersion, loader, info.id, names)
+            }
+        }
+    }
+    return drafts.values.map { draft ->
+        LocalGameChip(
+            draft.gameVersion,
+            draft.loader,
+            localGameChipLabel(draft.ids, draft.names, draft.gameVersion, draft.loader)
+        )
+    }.sortedWith(Comparator { a, b ->
+        val byVersion = compareMcVersion(b.gameVersion, a.gameVersion)
+        if (byVersion != 0) byVersion else a.loader.compareTo(b.loader)
+    })
+}
+
+private fun compareMcVersion(left: String, right: String): Int {
+    val a = mcVersionRank(left)
+    val b = mcVersionRank(right)
+    val n = maxOf(a.size, b.size)
+    for (i in 0 until n) {
+        val diff = a.getOrElse(i) { 0 }.compareTo(b.getOrElse(i) { 0 })
+        if (diff != 0) return diff
+    }
+    return 0
+}
+
+private fun localGameChipLabel(
+    versionIds: List<String>,
+    instanceNames: List<String>,
+    gameVersion: String,
+    loader: String
+): String {
+    val loaderName = when (loader) {
+        "fabric" -> "Fabric"
+        "forbric" -> "Forbric"
+        "forge" -> "Forge"
+        "quilt" -> "Quilt"
+        "neoforge" -> "NeoForge"
+        "iris", "optifine", "canvas", "vanilla" -> shaderLoaderLabel(loader)
+        else -> ""
+    }
+    val title = when {
+        instanceNames.size == 1 -> instanceNames[0]
+        versionIds.size == 1 -> versionIds[0]
+        else -> gameVersion
+    }
+    val parts = mutableListOf(title)
+    if (gameVersion.isNotBlank() && !title.contains(gameVersion, ignoreCase = true)) parts.add(gameVersion)
+    if (loaderName.isNotEmpty() && !title.contains(loader, ignoreCase = true)) parts.add(loaderName)
+    return parts.joinToString(" · ")
+}
+
+private fun mcVersionRank(version: String): List<Int> {
+    val nums = Regex("""\d+""").findAll(version).map { it.value.toInt() }.take(4).toList()
+    return if (nums.isEmpty()) listOf(0) else nums
+}
+
+@Composable
+private fun LocalGameFilterRow(
+    games: List<LocalGameChip>,
+    filterGameVersion: String,
+    filterLoader: String,
+    ignoreLoader: Boolean,
+    onPick: (LocalGameChip) -> Unit,
+    onClear: () -> Unit
+) {
+    val allSelected = filterGameVersion.isBlank() && (ignoreLoader || filterLoader.isBlank())
+    Column(Modifier.fillMaxWidth()) {
+        Text(
+            I18n.t("market.local_game_filter"),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(6.dp))
+        if (games.isEmpty()) {
+            Text(
+                I18n.t("market.local_game_empty"),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline
+            )
+            return@Column
+        }
+        Row(
+            Modifier.fillMaxWidth().pmclHorizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            LocalGameChipButton(I18n.t("market.local_game_all"), allSelected, onClear)
+            games.forEach { game ->
+                val selected = !allSelected &&
+                    game.gameVersion.equals(filterGameVersion, ignoreCase = true) &&
+                    (ignoreLoader || game.loader.equals(filterLoader, ignoreCase = true))
+                LocalGameChipButton(game.label, selected) { onPick(game) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LocalGameChipButton(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    val border = when {
+        selected -> MaterialTheme.colorScheme.primary
+        hovered -> MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
+        else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+    }
+    val fill = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+    else glassContainerColor(MaterialTheme.colorScheme.surface)
+    Box(
+        Modifier
+            .height(32.dp)
+            .widthIn(max = 240.dp)
+            .hoverable(interaction)
+            .clip(RoundedCornerShape(8.dp))
+            .background(fill)
+            .border(1.dp, border, RoundedCornerShape(8.dp))
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .padding(horizontal = 10.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodySmall,
+            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+private fun preferredShaderLoader(games: List<LocalGameChip>, version: String): String {
+    val mine = if (version.isBlank()) games else games.filter { it.gameVersion.equals(version, ignoreCase = true) }
+    for (id in listOf(ShaderLoaders.IRIS, ShaderLoaders.OPTIFINE, ShaderLoaders.CANVAS, ShaderLoaders.VANILLA)) {
+        if (mine.any { it.loader == id }) return id
+    }
+    return ""
+}
+
+private fun shaderLoaderLabel(loader: String): String = when (loader) {
+    ShaderLoaders.IRIS -> "Iris"
+    ShaderLoaders.OPTIFINE -> "OptiFine"
+    ShaderLoaders.CANVAS -> "Canvas"
+    ShaderLoaders.VANILLA -> I18n.t("market.shader.vanilla")
+    else -> loader
+}
+
+private fun shaderLoadersForVersion(
+    versionId: String,
+    inheritsFrom: String?,
+    instances: List<com.pmcl.core.instance.InstanceInfo>,
+    mods: List<com.pmcl.core.mods.ModMeta>
+): List<String> {
+    val related = instances.filter { it.baseVersionId == versionId }
+    val names = related.mapNotNull { it.name?.trim() }.filter { it.isNotEmpty() }.toSet()
+    val instanceIds = related.mapNotNull { it.instanceId }.filter { it.isNotBlank() }.toSet()
+    fun belongs(mod: com.pmcl.core.mods.ModMeta): Boolean {
+        if (mod.isDisabled) return false
+        val source = mod.source ?: ""
+        if (source == versionId || source in names) return true
+        val path = (mod.jarPath ?: "").replace('\\', '/')
+        if (path.contains("/versions/$versionId/mods/")) return true
+        return instanceIds.any { path.contains("/instances/$it/mods/") }
+    }
+    val specific = mods.filter { belongs(it) }
+    val fromId = ShaderLoaders.detect(versionId, inheritsFrom, emptyList(), emptyList())
+    val chosen = when {
+        specific.isNotEmpty() -> specific
+        fromId.any { it != ShaderLoaders.VANILLA } -> emptyList()
+        else -> mods.filter { !it.isDisabled && (it.source == "全局" || it.source == "系统") }
+    }
+    return ShaderLoaders.detect(
+        versionId,
+        inheritsFrom,
+        chosen.mapNotNull { it.modId },
+        chosen.mapNotNull { it.jarFile }
+    )
+}
+
 private fun fileMatchesMarketFilter(
     file: com.pmcl.core.market.ModFile,
     gameVersion: String,
-    loader: String
+    loader: String,
+    shader: Boolean = false
 ): Boolean {
     val gv = gameVersion.trim()
     val ld = loader.trim()
@@ -1628,9 +2736,16 @@ private fun fileMatchesMarketFilter(
         val versions = file.getGameVersions() ?: emptyList()
         if (versions.none { it.equals(gv, ignoreCase = true) }) return false
     }
-    if (ld.isNotEmpty()) {
+    val wanted = if (shader) ShaderLoaders.normalize(ld) else ModLoaders.normalize(ld)
+    if (wanted.isNotEmpty()) {
         val loaders = file.getLoaders() ?: emptyList()
-        if (loaders.none { it.equals(ld, ignoreCase = true) }) return false
+        val matches = if (shader) loaders.any { ShaderLoaders.normalize(it) == wanted }
+        else if (wanted == "forbric") loaders.any {
+            val name = ModLoaders.normalize(it)
+            name == "fabric" || name == "forge" || name == "neoforge"
+        }
+        else loaders.any { ModLoaders.normalize(it) == wanted }
+        if (!matches) return false
     }
     return true
 }
@@ -1640,27 +2755,37 @@ private fun fileMatchesMarketFilter(
 private fun LoaderDropdown(
     selected: String,
     modifier: Modifier = Modifier.width(120.dp),
+    label: String = I18n.t("market.loader"),
+    options: List<Pair<String, String>> = listOf(
+        "fabric" to "Fabric",
+        "forge" to "Forge",
+        "quilt" to "Quilt",
+        "neoforge" to "NeoForge",
+        "forbric" to "Forbric",
+        "" to I18n.t("market.all"),
+    ),
     onSelect: (String) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val options = listOf("fabric", "forge", "quilt", "neoforge", "")
+    val selectedLabel = options.firstOrNull { it.first == selected }?.second
+        ?: if (selected.isEmpty()) I18n.t("market.all") else selected
     ExposedDropdownMenuBox(
         expanded = expanded,
         onExpandedChange = { expanded = it },
         modifier = modifier
     ) {
         OutlinedTextField(
-            value = if (selected.isEmpty()) I18n.t("market.all") else selected,
+            value = selectedLabel,
             onValueChange = {},
             readOnly = true,
-            label = { Text(I18n.t("market.loader")) },
+            label = { Text(label) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             modifier = Modifier.menuAnchor().fillMaxWidth()
         )
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            options.forEach { opt ->
+            options.forEach { (opt, text) ->
                 DropdownMenuItem(
-                    text = { Text(if (opt.isEmpty()) I18n.t("market.all") else opt) },
+                    text = { Text(text) },
                     onClick = { onSelect(opt); expanded = false }
                 )
             }
@@ -1684,7 +2809,24 @@ private val MOD_CATEGORIES: List<Pair<String, String>> = listOf(
     "market.cat.equipment" to "equipment",
     "market.cat.transportation" to "transportation",
     "market.cat.social" to "social",
-    "market.cat.game_mechanics" to "game-mechanics"
+    "market.cat.game_mechanics" to "game-mechanics",
+    "market.cat.colored_lighting" to "colored-lighting",
+    "market.cat.vanilla_like" to "vanilla-like",
+    "market.cat.fantasy" to "fantasy",
+    "market.cat.bloom" to "bloom",
+    "market.cat.cartoon" to "cartoon",
+    "market.cat.low" to "low",
+    "market.cat.medium" to "medium",
+    "market.cat.high" to "high",
+    "market.cat.potato" to "potato",
+    "market.cat.atmosphere" to "atmosphere",
+    "market.cat.semi_realistic" to "semi-realistic",
+    "market.cat.realistic" to "realistic",
+    "market.cat.shadows" to "shadows",
+    "market.cat.reflections" to "reflections",
+    "market.cat.foliage" to "foliage",
+    "market.cat.path_tracing" to "path-tracing",
+    "market.cat.pbr" to "pbr"
 )
 
 private fun categoryLabel(slug: String): String {
@@ -1699,18 +2841,9 @@ private fun categoryLabel(slug: String): String {
 
 private fun isLoaderTag(tag: String): Boolean {
     val s = tag.lowercase()
-    return s == "fabric" || s == "forge" || s == "quilt" || s == "neoforge"
+    return s == "fabric" || s == "forge" || s == "quilt" || s == "neoforge" || s == "forbric"
             || s == "rift" || s == "liteloader" || s == "datapack"
-}
-
-private fun marketRowTags(project: ModProject): List<String> {
-    val out = LinkedHashSet<String>()
-    project.getLoaders().forEach { if (it.isNotBlank()) out.add(it.lowercase()) }
-    project.getCategories().forEach { cat ->
-        if (cat.isBlank() || isLoaderTag(cat)) return@forEach
-        out.add(categoryLabel(cat))
-    }
-    return out.toList()
+            || s == "iris" || s == "optifine" || s == "canvas" || s == "vanilla"
 }
 
 private fun formatDownloads(n: Long): String = "%,d".format(n)
@@ -1724,7 +2857,9 @@ private fun relativeTimeLabel(epochMs: Long): String {
     val hours = minutes / 60
     if (hours < 24) return I18n.t("market.rel_hours", hours)
     val days = hours / 24
-    if (days < 30) return I18n.t("market.rel_days", days)
+    if (days < 7) return I18n.t("market.rel_days", days)
+    val weeks = days / 7
+    if (weeks < 5) return I18n.t("market.rel_weeks", weeks)
     val months = days / 30
     if (months < 12) return I18n.t("market.rel_months", months)
     return I18n.t("market.rel_years", months / 12)
@@ -1732,8 +2867,20 @@ private fun relativeTimeLabel(epochMs: Long): String {
 
 private val modImageCache = com.pmcl.ui.util.LruImageCache()
 
+private fun compactCount(n: Long): String {
+    if (n < 10_000) return "%,d".format(n)
+    val lang = I18n.getCurrentLocale().language
+    if (lang == "zh" || lang == "ja") {
+        val wan = n / 10_000.0
+        val digits = if (wan >= 10) "%.2f" else "%.1f"
+        return String.format(java.util.Locale.US, digits, wan) + "万"
+    }
+    return if (n >= 1_000_000) String.format(java.util.Locale.US, "%.2fM", n / 1_000_000.0)
+    else String.format(java.util.Locale.US, "%.1fK", n / 1_000.0)
+}
+
 @Composable
-private fun rememberUrlImage(url: String): ImageBitmap? {
+private fun rememberUrlImage(url: String, maxDimension: Int = 128): ImageBitmap? {
     var image by remember(url) { mutableStateOf<ImageBitmap?>(modImageCache.get(url)) }
     LaunchedEffect(url) {
         if (url.isEmpty()) {
@@ -1746,7 +2893,7 @@ private fun rememberUrlImage(url: String): ImageBitmap? {
         withContext(Dispatchers.IO) {
             try {
                 val bytes = com.pmcl.ui.util.SafeUrlFetcher.fetchBytes(url)
-                val bmp = decodeSampledBitmap(bytes, 128) ?: throw IllegalStateException("decode failed")
+                val bmp = decodeSampledBitmap(bytes, maxDimension) ?: throw IllegalStateException("decode failed")
                 modImageCache.put(url, bmp)
                 image = bmp
             } catch (_: Throwable) {

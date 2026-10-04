@@ -65,6 +65,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -86,6 +87,7 @@ import com.pmcl.core.gamecontent.ScreenshotManager
 import com.pmcl.core.gamecontent.ShaderPackManager
 import com.pmcl.core.gamecontent.VersionGameFiles
 import com.pmcl.core.i18n.I18n
+import com.pmcl.ui.widget.InstalledJavaPicker
 import com.pmcl.core.mods.ModManager
 import com.pmcl.core.mods.ModScanner
 import com.pmcl.core.preferences.Preferences
@@ -219,7 +221,7 @@ fun VersionSettingsPage(vm: LauncherViewModel, versionId: String, onBack: () -> 
     var minMemory by remember(versionId) { mutableStateOf(blankIfZero(seeded.minMemoryMb)) }
     var maxMemory by remember(versionId) { mutableStateOf(blankIfZero(seeded.maxMemoryMb)) }
     var javaPath by remember(versionId) { mutableStateOf(seeded.javaPath) }
-    var extraArgs by remember(versionId) { mutableStateOf(seeded.extraArgs) }
+    var extraArgs by remember(versionId) { mutableStateOf(saved.extraArgs) }
     var width by remember(versionId) { mutableStateOf(blankIfZero(seeded.windowWidth)) }
     var height by remember(versionId) { mutableStateOf(blankIfZero(seeded.windowHeight)) }
     var fullscreen by remember(versionId) { mutableIntStateOf(seeded.fullscreenMode) }
@@ -258,6 +260,9 @@ fun VersionSettingsPage(vm: LauncherViewModel, versionId: String, onBack: () -> 
     var projectionQuery by remember(versionId) { mutableStateOf("") }
     var shaderFilter by remember(versionId) { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
+    val javaInstallations by vm.javaInstallations.collectAsState()
+    val javaScanning by vm.javaScanning.collectAsState()
+    LaunchedEffect(versionId) { vm.scanJavaInstallations() }
     val title = name.ifBlank { versionId }
     val pending = gameDir != committed
     val sections = listOf(
@@ -408,6 +413,7 @@ fun VersionSettingsPage(vm: LauncherViewModel, versionId: String, onBack: () -> 
                     minMemory, { minMemory = digits(it) },
                     maxMemory, { maxMemory = digits(it) },
                     javaPath, { javaPath = it },
+                    javaInstallations, javaScanning, { vm.scanJavaInstallations() },
                     extraArgs, { extraArgs = it },
                     width, { width = digits(it) },
                     height, { height = digits(it) },
@@ -802,6 +808,9 @@ private fun LaunchSettings(
     onMax: (String) -> Unit,
     javaPath: String,
     onJava: (String) -> Unit,
+    javaInstallations: List<com.pmcl.core.launch.JavaRuntimeFinder.JavaInstallation>,
+    javaScanning: Boolean,
+    onScanJava: () -> Unit,
     extraArgs: String,
     onArgs: (String) -> Unit,
     width: String,
@@ -842,6 +851,15 @@ private fun LaunchSettings(
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.outline
             )
+            InstalledJavaPicker(
+                selectedPath = javaPath,
+                installations = javaInstallations,
+                scanning = javaScanning,
+                autoLabel = I18n.t("version_settings.java_auto"),
+                onSelect = onJava,
+                onRefresh = onScanJava,
+                modifier = Modifier.fillMaxWidth()
+            )
             OutlinedTextField(
                 value = javaPath,
                 onValueChange = onJava,
@@ -856,12 +874,13 @@ private fun LaunchSettings(
                     }
                 }
             )
+            Text(I18n.t("version_settings.jvm"), style = MaterialTheme.typography.labelLarge)
             OutlinedTextField(
                 value = extraArgs,
                 onValueChange = onArgs,
                 label = { Text(I18n.t("version_settings.args")) },
                 placeholder = { Text(I18n.t("version_settings.args_hint")) },
-                singleLine = true,
+                minLines = 3,
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp)
             )

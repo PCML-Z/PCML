@@ -44,6 +44,7 @@ public final class ModLoaderManager {
         installers.put(ModLoader.NILLOADER, new NilLoaderInstaller(config, downloads, versionInstaller));
         installers.put(ModLoader.JAVA_AGENT, new JavaAgentInstaller(config, downloads, versionInstaller));
         installers.put(ModLoader.RISUGAMI, new RisugamiInstaller(config, downloads, versionInstaller));
+        installers.put(ModLoader.FORBRIC, new ForbricInstaller(config, downloads));
     }
 
     public ModLoaderInstaller get(ModLoader loader) {

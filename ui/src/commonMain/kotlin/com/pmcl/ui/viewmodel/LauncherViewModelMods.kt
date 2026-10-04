@@ -1,17 +1,27 @@
 package com.pmcl.ui.viewmodel
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import com.google.gson.reflect.TypeToken
 import com.pmcl.core.cache.DataCache
 import com.pmcl.core.i18n.I18n
 import com.pmcl.core.market.MarketSearchQuery
+import com.pmcl.core.market.McmodCatalog
 import com.pmcl.core.market.ModFile
 import com.pmcl.core.market.ModProject
 import com.pmcl.core.mods.ModMeta
 import com.pmcl.core.mods.ModScanner
 import com.pmcl.ui.viewmodel.LauncherViewModel.ModScanCacheEntry
+import java.awt.Desktop
+import java.net.URI
 import java.nio.file.Path
 
 /**
@@ -184,6 +194,187 @@ fun LauncherViewModel.loadCategoryMods(category: String, gameVersion: String? = 
     }
 }
 
+/** MC百科中文搜索。结果还不是可下载项目，点开后再解析外链。 */
+fun LauncherViewModel.searchMcmod(query: String, projectType: String?, page: Int) {
+    val q = query.trim()
+    if (q.isEmpty()) {
+        _status.value = I18n.t("status.mcmod_need_query")
+        _mcmodResults.value = emptyList()
+        _mcmodPageCount.value = 0
+        return
+    }
+    val seq = marketSearchSeq.incrementAndGet()
+    marketSearchJob?.cancel()
+    _mcmodChoices.value = null
+    marketSearchJob = scope.launch {
+        _marketLoading.value = true
+        _status.value = I18n.t("status.searching", q)
+        try {
+            val result = withContext(Dispatchers.IO) {
+                core.modMarket().mcmod().search(q, projectType, page)
+            }
+            if (seq != marketSearchSeq.get()) return@launch
+            _mcmodResults.value = result.entries
+            _mcmodPageCount.value = result.pageCount
+            _status.value = I18n.t("status.mcmod_found", result.entries.size)
+            _marketLoading.value = false
+            loadMcmodCovers(seq, result.entries)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            if (seq != marketSearchSeq.get()) return@launch
+            _mcmodResults.value = emptyList()
+            _mcmodPageCount.value = 0
+            _status.value = I18n.t("status.search_failed", e.message ?: I18n.t("common.unknown"))
+        } finally {
+            if (seq == marketSearchSeq.get()) _marketLoading.value = false
+        }
+    }
+}
+
+private suspend fun LauncherViewModel.loadMcmodCovers(
+    seq: Int,
+    entries: List<McmodCatalog.Entry>
+) {
+    if (entries.isEmpty()) return
+    val gate = Semaphore(4)
+    val lock = Mutex()
+    coroutineScope {
+        entries.map { entry ->
+            async {
+                gate.withPermit {
+                    if (seq != marketSearchSeq.get()) return@withPermit
+                    val cover = try {
+                        withContext(Dispatchers.IO) {
+                            core.modMarket().mcmod().coverFor(entry.kind, entry.id)
+                        }
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (_: Throwable) {
+                        ""
+                    }
+                    if (cover.isEmpty()) return@withPermit
+                    lock.withLock {
+                        if (seq != marketSearchSeq.get()) return@withLock
+                        _mcmodResults.value = _mcmodResults.value.map { current ->
+                            if (current.kind == entry.kind && current.id == entry.id) current.withCover(cover)
+                            else current
+                        }
+                    }
+                }
+            }
+        }.awaitAll()
+    }
+}
+
+/** 读取百科条目页上的 Modrinth / CurseForge 链接，只有一个时直接打开。 */
+fun LauncherViewModel.openMcmodEntry(
+    entry: McmodCatalog.Entry,
+    gameVersion: String? = null,
+    loader: String? = null,
+) {
+    if (_mcmodOpeningId.value != null) return
+    mcmodOpenJob?.cancel()
+    mcmodOpenJob = scope.launch {
+        _mcmodOpeningId.value = entry.kind + "/" + entry.id
+        _status.value = I18n.t("status.mcmod_opening")
+        try {
+            val links = withContext(Dispatchers.IO) {
+                core.modMarket().mcmod().linksFor(entry.kind, entry.id)
+            }
+            if (links.isEmpty()) {
+                _status.value = I18n.t("status.mcmod_no_host")
+                return@launch
+            }
+            if (links.size == 1 && links[0].opensInMarket()) {
+                val link = links[0]
+                if ("curseforge" == link.source && !core.modMarket().hasCurseForge()) {
+                    _status.value = I18n.t("market.curseforge_disabled")
+                    return@launch
+                }
+                val project = withContext(Dispatchers.IO) {
+                    core.modMarket().resolveMcmodLink(link)
+                }
+                if (project == null) {
+                    val host = if (link.source == "curseforge") "CurseForge" else "Modrinth"
+                    _status.value = I18n.t("status.mcmod_host_missing", host)
+                    return@launch
+                }
+                openModDetail(project, minecraftVersionOrNull(gameVersion), null)
+            } else {
+                _mcmodChoices.value = McmodPendingLinks(links, minecraftVersionOrNull(gameVersion), null)
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            _status.value = I18n.t("status.mcmod_open_failed", e.message ?: I18n.t("common.unknown"))
+        } finally {
+            _mcmodOpeningId.value = null
+        }
+    }
+}
+
+/** 把选中的外链解析成市场项目并进入现有详情页。GitHub 等来源只在浏览器打开。 */
+fun LauncherViewModel.openMcmodHost(
+    link: McmodCatalog.HostLink,
+    gameVersion: String? = null,
+    loader: String? = null,
+) {
+    if (!link.opensInMarket()) {
+        openManualMcmodLink(link)
+        return
+    }
+    if ("curseforge" == link.source && !core.modMarket().hasCurseForge()) {
+        _status.value = I18n.t("market.curseforge_disabled")
+        return
+    }
+    scope.launch {
+        _mcmodOpeningId.value = link.source + "/" + link.slug
+        try {
+            val project = withContext(Dispatchers.IO) {
+                core.modMarket().resolveMcmodLink(link)
+            }
+            if (project == null) {
+                val host = if (link.source == "curseforge") "CurseForge" else "Modrinth"
+                _status.value = I18n.t("status.mcmod_host_missing", host)
+                return@launch
+            }
+            _mcmodChoices.value = null
+            openModDetail(project, minecraftVersionOrNull(gameVersion), null)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            _status.value = I18n.t("status.mcmod_open_failed", e.message ?: I18n.t("common.unknown"))
+        } finally {
+            _mcmodOpeningId.value = null
+        }
+    }
+}
+
+fun LauncherViewModel.dismissMcmodChoices() {
+    _mcmodChoices.value = null
+}
+
+private fun LauncherViewModel.openManualMcmodLink(link: McmodCatalog.HostLink) {
+    val url = link.url?.trim().orEmpty()
+    if (!McmodCatalog.isManualBrowseUrl(url)) {
+        _status.value = I18n.t("status.mcmod_manual_blocked")
+        return
+    }
+    try {
+        if (!Desktop.isDesktopSupported() || !Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
+            _status.value = I18n.t("status.mcmod_manual_blocked")
+            return
+        }
+        Desktop.getDesktop().browse(URI(url))
+        _mcmodChoices.value = null
+        val name = link.label.ifBlank { url }
+        _status.value = I18n.t("status.mcmod_manual_opened", name)
+    } catch (_: Throwable) {
+        _status.value = I18n.t("status.mcmod_manual_blocked")
+    }
+}
+
 /** 清除分类选择，回到热门推荐视图 */
 fun LauncherViewModel.clearCategory() {
     _selectedCategory.value = ""
@@ -227,7 +418,7 @@ fun LauncherViewModel.listProjectFiles(
         _status.value = I18n.t("status.fetching_project_files", project.getName())
         try {
             val files = withContext(Dispatchers.IO) {
-                core.modMarket().listFiles(project, gameVersion, loader).join()
+                fetchProjectFiles(project, gameVersion, loader)
             }
             if (seq != marketFilesSeq.get()) return@launch
             if (_detailProject.value?.getId() != requestedId) return@launch
@@ -277,15 +468,17 @@ fun LauncherViewModel.installMod(file: ModFile, gameVersion: String) {
  * 安装模组并自动解析安装其依赖。
  * 下载主模组后解析 jar 内 depends 列表，自动搜索并安装未安装的依赖。
  */
-fun LauncherViewModel.installModWithDeps(file: ModFile, gameVersion: String) {
+fun LauncherViewModel.installModWithDeps(file: ModFile, gameVersion: String, versionId: String? = null) {
     if (_installingDeps.value) return
     _installingDeps.value = true
     _depInstallResult.value = null
     scope.launch {
         _status.value = I18n.t("status.installing_mod_with_deps", file.getFileName())
         try {
+            val vid = versionId ?: _selectedVersion.value
+            val instanceId = if (versionId == null) _selectedInstanceId.value else null
             val result = core.modDependencyResolver().installWithDependencies(
-                file, gameVersion, _selectedVersion.value, _selectedInstanceId.value
+                file, gameVersion, vid, instanceId
             ) { msg -> _status.value = msg }.join()
             _depInstallResult.value = result
             _status.value = if (result.hasInstalled()) {
@@ -778,6 +971,38 @@ fun LauncherViewModel.isModInstalled(modId: String): Boolean {
         }
     }
 }
+
+/** 带筛选拉不到文件时再拉一次全量，避免错误的版本/加载器把列表请求打空。 */
+internal fun LauncherViewModel.fetchProjectFiles(
+    project: ModProject,
+    gameVersion: String?,
+    loader: String?
+): List<ModFile> {
+    val hasFilter = !gameVersion.isNullOrBlank() || !loader.isNullOrBlank()
+    try {
+        val filtered = core.modMarket().listFiles(project, gameVersion, loader).join()
+        if (filtered.isEmpty() && hasFilter) {
+            return core.modMarket().listFiles(project, null, null).join()
+        }
+        return filtered
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (e: Throwable) {
+        if (!hasFilter) throw e
+        return core.modMarket().listFiles(project, null, null).join()
+    }
+}
+
+internal fun minecraftVersionOrNull(raw: String?): String? {
+    val version = raw?.trim().orEmpty()
+    return if (version.matches(Regex("""\d+\.\d+([\w.+-]*)"""))) version else null
+}
+
+class McmodPendingLinks(
+    val links: List<McmodCatalog.HostLink>,
+    val gameVersion: String?,
+    val loader: String?
+)
 
 @PublishedApi
 internal fun LauncherViewModel.currentModsDir(): java.nio.file.Path {

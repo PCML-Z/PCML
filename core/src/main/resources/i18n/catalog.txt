@@ -3,6 +3,7 @@ about.properties
 accounts.properties
 agreement.properties
 app.properties
+backup.properties
 call.properties
 cmd.properties
 common.properties

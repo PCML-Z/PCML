@@ -177,6 +177,8 @@ fun App(vm: LauncherViewModel, themeState: ThemeState) {
                     }
                     // 全局：GitHub Release 同步更新弹窗（任意页面都可见）
                     PushedUpdateDialog(vm)
+                    HotUpdateDialog(vm)
+                    AppResourceProblemDialog(vm)
                     // P2-1: 账号 keyfile 丢失/损坏警告（任意页面都可见）
                     CorruptedAccountsDialog(vm)
                     GameCrashPopup(vm)
@@ -271,6 +273,80 @@ private fun PushedUpdateDialog(vm: LauncherViewModel) {
             }
         }
     )
+}
+
+@Composable
+private fun HotUpdateDialog(vm: LauncherViewModel) {
+    val offer by vm.hotOffer.collectAsState()
+    val pushStatusText by vm.pushStatusText.collectAsState()
+    val pending = offer ?: return
+    val manifest = pending.first
+    val plan = pending.second
+    var downloadedBytes by remember(manifest.version()) { mutableLongStateOf(0L) }
+    var downloading by remember(manifest.version()) { mutableStateOf(false) }
+    val total = plan.downloadBytes().coerceAtLeast(1L)
+
+    AlertDialog(
+        onDismissRequest = { if (!downloading) vm.clearHotUpdate() },
+        title = { Text(I18n.t("update.hot_title", manifest.version())) },
+        text = {
+            Column {
+                Text(I18n.t("update.hot_body", plan.downloads().size, formatUpdateBytes(plan.downloadBytes())))
+                if (manifest.notes().isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(manifest.notes(), style = MaterialTheme.typography.bodySmall)
+                }
+                if (downloading) {
+                    Spacer(Modifier.height(8.dp))
+                    LinearProgressIndicator(
+                        progress = { (downloadedBytes.toFloat() / total).coerceIn(0f, 1f) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                if (pushStatusText.isNotEmpty()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(pushStatusText, style = MaterialTheme.typography.labelSmall,
+                         color = MaterialTheme.colorScheme.primary)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = !downloading,
+                onClick = {
+                    downloading = true
+                    vm.downloadHotUpdate { bytes -> downloadedBytes = bytes }
+                }
+            ) { Text(if (downloading) I18n.t("update.hot_working") else I18n.t("update.hot_confirm")) }
+        },
+        dismissButton = {
+            TextButton(enabled = !downloading, onClick = { vm.clearHotUpdate() }) {
+                Text(I18n.t("update.hot_later"))
+            }
+        }
+    )
+}
+
+@Composable
+private fun AppResourceProblemDialog(vm: LauncherViewModel) {
+    val problem by vm.appResourceProblem.collectAsState()
+    val text = problem ?: return
+    AlertDialog(
+        onDismissRequest = { vm.clearAppResourceProblem() },
+        title = { Text(I18n.t("update.integrity_title")) },
+        text = { Text(text) },
+        confirmButton = {
+            TextButton(onClick = { vm.clearAppResourceProblem() }) {
+                Text(I18n.t("update.integrity_dismiss"))
+            }
+        }
+    )
+}
+
+private fun formatUpdateBytes(n: Long): String {
+    if (n < 1024) return "$n B"
+    if (n < 1024 * 1024) return "%.1f KB".format(n / 1024.0)
+    return "%.1f MB".format(n / 1024.0 / 1024.0)
 }
 
 /**
@@ -891,10 +967,14 @@ private fun MainWindowContent(vm: LauncherViewModel) {
         }
 
         Column(Modifier.weight(1f).fillMaxHeight()) {
-            val queueSummary by vm.queueSummary.collectAsState()
+            val queueTasks by vm.queueTasks.collectAsState()
             val pulseTrigger by vm.pulseTrigger.collectAsState()
             val flyAnimations by vm.flyAnimations.collectAsState()
-            val showQueue = queueSummary.total() > 0 || flyAnimations.isNotEmpty()
+            val queueState = com.pmcl.ui.widget.rememberFloatingQueueState(
+                queueTasks,
+                flyAnimations.isNotEmpty()
+            )
+            val showQueue = queueState.visible
             val density = androidx.compose.ui.platform.LocalDensity.current
 
             Box(
@@ -1000,7 +1080,9 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                 // 悬浮下载队列入口卡片（右下角，作为飞入动画目标）
                 if (showQueue) {
                     com.pmcl.ui.widget.FloatingDownloadQueue(
-                        summary = queueSummary,
+                        finished = queueState.finished,
+                        total = queueState.total,
+                        progress = queueState.progress,
                         pulseTrigger = pulseTrigger,
                         forceVisible = flyAnimations.isNotEmpty(),
                         onClick = {

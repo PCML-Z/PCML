@@ -5,6 +5,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.pmcl.core.download.DownloadManager;
+import com.pmcl.core.version.ShaderLoaders;
 import okhttp3.HttpUrl;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -56,6 +57,21 @@ public final class CurseForgeClient implements ModMarketClient {
         this.http = http;
     }
 
+    /** 向官方接口确认这把密钥。401/403 视为拒绝，不读取响应正文。 */
+    public void ping() throws IOException {
+        Request req = new Request.Builder()
+                .url(BASE + "/games/" + MINECRAFT_GAME_ID)
+                .header("X-API-Key", apiKey)
+                .header("User-Agent", "PMCL/1.0")
+                .header("Accept", "application/json")
+                .get()
+                .build();
+        try (Response resp = http.newCall(req).execute()) {
+            if (resp.code() == 401 || resp.code() == 403) throw new IOException("rejected");
+            if (!resp.isSuccessful()) throw new IOException("HTTP " + resp.code());
+        }
+    }
+
     @Override
     public String source() { return "curseforge"; }
 
@@ -88,7 +104,7 @@ public final class CurseForgeClient implements ModMarketClient {
         int offset = q.getOffset();
         Integer classId = classIdForType(q.getProjectType());
         if (classId == null) {
-            int[] classIds = {6, 12, 6552};
+            int[] classIds = {6, 4471, 12, 6552};
             List<ModProject> merged = new ArrayList<>();
             int total = 0;
             RuntimeException last = null;
@@ -236,7 +252,19 @@ public final class CurseForgeClient implements ModMarketClient {
         ).categories(parseCategoryNames(o))
                 .loaders(parseLoaderNames(o))
                 .projectType(projectTypeFromClassId(classId))
-                .dateModified(parseCfMillis(safeStr(o, "dateModified")));
+                .dateModified(parseCfMillis(safeStr(o, "dateModified")))
+                .cover(firstScreenshot(o))
+                .follows(o.has("thumbsUpCount") && o.get("thumbsUpCount").isJsonPrimitive()
+                        ? o.get("thumbsUpCount").getAsLong() : 0);
+    }
+
+    private static String firstScreenshot(JsonObject o) {
+        if (!o.has("screenshots") || !o.get("screenshots").isJsonArray()) return "";
+        JsonArray shots = o.getAsJsonArray("screenshots");
+        if (shots.isEmpty() || !shots.get(0).isJsonObject()) return "";
+        JsonObject shot = shots.get(0).getAsJsonObject();
+        String thumb = safeStr(shot, "thumbnailUrl");
+        return thumb.isEmpty() ? safeStr(shot, "url") : thumb;
     }
 
     private static List<String> parseCategoryNames(JsonObject o) {
@@ -270,6 +298,7 @@ public final class CurseForgeClient implements ModMarketClient {
         if (projectType == null || projectType.isBlank()) return null;
         return switch (projectType.toLowerCase(java.util.Locale.ROOT)) {
             case "mod" -> 6;
+            case "modpack" -> 4471;
             case "resourcepack", "resource_pack" -> 12;
             case "shader", "shaderpack" -> 6552;
             default -> null;
@@ -279,13 +308,14 @@ public final class CurseForgeClient implements ModMarketClient {
     static String projectTypeFromClassId(int classId) {
         return switch (classId) {
             case 12 -> "resourcepack";
+            case 4471 -> "modpack";
             case 6552 -> "shader";
             default -> "mod";
         };
     }
 
     static boolean isContentClassId(int classId) {
-        return classId == 6 || classId == 12 || classId == 6552;
+        return classId == 6 || classId == 4471 || classId == 12 || classId == 6552;
     }
 
     static int sortFieldId(String sort) {
@@ -336,6 +366,62 @@ public final class CurseForgeClient implements ModMarketClient {
             return "无法解析 api.curseforge.com 域名，请检查网络或 DNS 设置。原始错误：" + rawMsg;
         }
         return rawMsg;
+    }
+
+    /** 用 slug 精确查找。没有同名项目时返回 null。 */
+    public ModProject findBySlug(String slug, String projectType) {
+        if (slug == null || slug.isBlank() || apiKey == null || apiKey.isEmpty()) return null;
+        HttpUrl parsed = HttpUrl.parse(BASE + "/mods/search");
+        if (parsed == null) throw new RuntimeException("无效的 URL");
+        HttpUrl.Builder ub = parsed.newBuilder()
+                .addQueryParameter("gameId", String.valueOf(MINECRAFT_GAME_ID))
+                .addQueryParameter("slug", slug.trim())
+                .addQueryParameter("pageSize", "5")
+                .addQueryParameter("index", "0");
+        Integer classId = classIdForType(projectType);
+        if (classId != null) ub.addQueryParameter("classId", String.valueOf(classId));
+        MarketSearchPage page = executeSearchPage(ub, 0, 5, false);
+        for (ModProject project : page.getItems()) {
+            if (slug.equalsIgnoreCase(project.getSlug())) return project;
+        }
+        return null;
+    }
+
+    /** 用数字项目 id 查找。不存在时返回 null。 */
+    public ModProject findById(String id) {
+        if (id == null || !id.matches("\\d{1,12}") || apiKey == null || apiKey.isEmpty()) return null;
+        Request req = new Request.Builder()
+                .url(BASE + "/mods/" + id)
+                .header("X-API-Key", apiKey)
+                .header("User-Agent", "PMCL/1.0")
+                .get()
+                .build();
+        Throwable last = null;
+        for (int attempt = 0; attempt <= RETRY; attempt++) {
+            try (Response resp = http.newCall(req).execute()) {
+                String body = resp.body() != null ? resp.body().string() : "{}";
+                if (resp.code() == 404) return null;
+                if (!resp.isSuccessful()) throw new IOException("HTTP " + resp.code() + ": " + body);
+                JsonObject root = JsonParser.parseString(body).getAsJsonObject();
+                if (!root.has("data") || !root.get("data").isJsonObject()) return null;
+                JsonObject data = root.getAsJsonObject("data");
+                int cid = data.has("classId") && !data.get("classId").isJsonNull()
+                        ? data.get("classId").getAsInt() : 6;
+                return parseProject(data, cid);
+            } catch (Throwable e) {
+                last = e;
+                if (attempt < RETRY) {
+                    try {
+                        Thread.sleep(RETRY_BASE_MS * (1L << attempt));
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+            }
+        }
+        String msg = last != null ? last.getMessage() : "未知错误";
+        throw new RuntimeException("CurseForge 获取项目失败：" + friendlyError(msg), last);
     }
 
     @Override
@@ -558,6 +644,8 @@ public final class CurseForgeClient implements ModMarketClient {
                     || s.equalsIgnoreCase("Quilt") || s.equalsIgnoreCase("NeoForge")) {
                 loaders.add(s.toLowerCase());
             }
+            String shader = ShaderLoaders.normalize(s);
+            if (!shader.isEmpty() && !loaders.contains(shader)) loaders.add(shader);
         }
         String releaseType = o.has("releaseType") && !o.get("releaseType").isJsonNull()
                 ? cfReleaseType(o.get("releaseType").getAsInt()) : "release";

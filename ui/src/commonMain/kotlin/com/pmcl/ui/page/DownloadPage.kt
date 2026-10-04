@@ -29,6 +29,23 @@ import com.pmcl.ui.theme.glassCardElevation
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import com.pmcl.ui.widget.VersionTypeIcon
 
+private const val TAB_FORBRIC = 5
+private const val TAB_NATIVE = 6
+
+private data class PendingLoaderInstall(
+    val loader: ModLoader,
+    val loaderVersion: String,
+    val gameVersion: String
+)
+
+private fun downloadTabLoader(tab: Int): ModLoader = when (tab) {
+    1 -> ModLoader.FABRIC
+    2 -> ModLoader.QUILT
+    3 -> ModLoader.FORGE
+    4 -> ModLoader.NEOFORGE
+    else -> ModLoader.FORBRIC
+}
+
 @Composable
 fun DownloadPage(vm: LauncherViewModel) {
     val versions by vm.versions.collectAsState()
@@ -37,10 +54,10 @@ fun DownloadPage(vm: LauncherViewModel) {
     val status by vm.status.collectAsState()
     val modLoaderVersions by vm.modLoaderVersions.collectAsState()
 
-    var tab by remember { mutableStateOf(0) } // 0=Vanilla 1=Fabric 2=Quilt 3=Forge 4=NeoForge
+    var tab by remember { mutableStateOf(0) } // 0=Vanilla 1=Fabric 2=Quilt 3=Forge 4=NeoForge 5=Forbric
     var selectedGameVersion by remember { mutableStateOf("1.20.4") }
     var selectedLoaderVersion by remember { mutableStateOf<String?>(null) }
-    var pendingLoader by remember { mutableStateOf<Pair<ModLoader, String>?>(null) }
+    var pendingLoader by remember { mutableStateOf<PendingLoaderInstall?>(null) }
     // 版本分类筛选：0=全部 1=正式版 2=快照 3=旧版Beta 4=旧版Alpha
     var versionCategory by remember { mutableStateOf(1) }
     // 版本搜索关键字
@@ -48,14 +65,16 @@ fun DownloadPage(vm: LauncherViewModel) {
 
     LaunchedEffect(Unit) { if (versions.isEmpty()) vm.refreshVersions() }
 
-    pendingLoader?.let { (loader, loaderVersion) ->
+    pendingLoader?.let { pending ->
         LoaderTargetGameDialog(
-            suggested = MinecraftVersionIds.gameVersion(selectedGameVersion),
+            suggested = pending.gameVersion.ifBlank {
+                MinecraftVersionIds.gameVersion(selectedGameVersion)
+            },
             vm = vm,
             confirmLabel = I18n.t("launch.loader_target_confirm"),
             onDismiss = { pendingLoader = null },
             onConfirm = { game ->
-                vm.enqueueModLoaderInstall(loader.name, game, loaderVersion)
+                vm.enqueueModLoaderInstall(pending.loader.name, game, pending.loaderVersion)
                 pendingLoader = null
             }
         )
@@ -67,24 +86,25 @@ fun DownloadPage(vm: LauncherViewModel) {
 
         // Tab 选择
         TabRow(selectedTabIndex = tab) {
-            listOf("Vanilla", "Fabric", "Quilt", "Forge", "NeoForge").forEachIndexed { i, label ->
+            listOf("Vanilla", "Fabric", "Quilt", "Forge", "NeoForge", "Forbric", I18n.t("native.tab")).forEachIndexed { i, label ->
                 Tab(selected = tab == i, onClick = {
                     tab = i
                     selectedLoaderVersion = null
-                    if (i > 0) {
-                        val loader = when (i) {
-                            1 -> ModLoader.FABRIC
-                            2 -> ModLoader.QUILT
-                            3 -> ModLoader.FORGE
-                            else -> ModLoader.NEOFORGE
-                        }
-                        vm.listModLoaderVersions(loader, selectedGameVersion)
+                    if (i == TAB_FORBRIC) selectedGameVersion = "26.2"
+                    if (i in 1..TAB_FORBRIC) {
+                        val game = if (i == TAB_FORBRIC) "26.2" else selectedGameVersion
+                        vm.listModLoaderVersions(downloadTabLoader(i), game)
                     }
                 }) { Text(label, Modifier.padding(12.dp)) }
             }
         }
 
         Spacer(Modifier.height(16.dp))
+
+        if (tab == TAB_NATIVE) {
+            NativeClientDownloadPage(vm, Modifier.weight(1f))
+            return@Column
+        }
 
         // 进度条
         if (installing && progress != null) {
@@ -114,19 +134,21 @@ fun DownloadPage(vm: LauncherViewModel) {
             Spacer(Modifier.width(12.dp))
             if (tab > 0) {
                 Button(onClick = {
-                    val loader = when (tab) {
-                        1 -> ModLoader.FABRIC
-                        2 -> ModLoader.QUILT
-                        3 -> ModLoader.FORGE
-                        4 -> ModLoader.NEOFORGE
-                        else -> ModLoader.FORGE
-                    }
-                    vm.listModLoaderVersions(loader, selectedGameVersion)
+                    vm.listModLoaderVersions(downloadTabLoader(tab), selectedGameVersion)
                 }) { Text(I18n.t("download.fetch_versions")) }
             }
             Spacer(Modifier.weight(1f))
             Text(I18n.t("download.status", status), style = MaterialTheme.typography.labelSmall,
                  color = MaterialTheme.colorScheme.outline)
+        }
+
+        if (tab == TAB_FORBRIC) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                I18n.t("download.forbric_hint"),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
 
         Spacer(Modifier.height(12.dp))
@@ -235,13 +257,11 @@ fun DownloadPage(vm: LauncherViewModel) {
                         selected = lv.getLoaderVersion() == selectedLoaderVersion,
                         onSelect = { selectedLoaderVersion = lv.getLoaderVersion() },
                         onAction = {
-                            val loader = when (tab) {
-                                1 -> ModLoader.FABRIC
-                                2 -> ModLoader.QUILT
-                                3 -> ModLoader.FORGE
-                                else -> ModLoader.NEOFORGE
-                            }
-                            pendingLoader = loader to lv.getLoaderVersion()
+                            pendingLoader = PendingLoaderInstall(
+                                downloadTabLoader(tab),
+                                lv.getLoaderVersion(),
+                                lv.getGameVersion() ?: ""
+                            )
                         },
                         vm = vm,
                         flyTitle = lv.getLoaderVersion()

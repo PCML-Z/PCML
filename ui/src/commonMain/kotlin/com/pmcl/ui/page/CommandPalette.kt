@@ -180,6 +180,9 @@ fun buildSearchIndex(vm: LauncherViewModel): List<SearchItem> {
             add(SearchItem(I18n.t("nav.market"), I18n.t("search.hub.market"), Icons.Filled.Store, GROUP_NAV, listOf("market", I18n.t("cmd.kw.market"), I18n.t("cmd.kw.store"))) {
                 vm.requestSecondaryNav("download", "market")
             })
+            add(SearchItem(I18n.t("settings.curseforge_guide"), I18n.t("search.nav.settings"), Icons.Filled.Key, GROUP_NAV, listOf("curseforge", "api", "key", I18n.t("cmd.kw.settings"))) {
+                vm.requestSecondaryNav("settings", "network")
+            })
             add(SearchItem(I18n.t("nav.queue"), I18n.t("search.hub.queue"), Icons.Filled.Download, GROUP_NAV, listOf("queue", I18n.t("cmd.kw.queue"), I18n.t("cmd.kw.download"))) {
                 vm.requestSecondaryNav("download", "queue")
             })
@@ -198,6 +201,14 @@ fun buildSearchIndex(vm: LauncherViewModel): List<SearchItem> {
             add(SearchItem(I18n.t("settings.section.game"), I18n.t("search.nav.settings"), Icons.Filled.PlayArrow, GROUP_NAV, listOf("game", I18n.t("cmd.kw.settings"))) {
                 vm.requestSecondaryNav("settings", "game")
             })
+            add(SearchItem(I18n.t("settings.section.compile"), I18n.t("search.nav.settings"), Icons.Filled.Build, GROUP_NAV, listOf("cargo", "cmake", "compile", "toolchain", I18n.t("cmd.kw.settings"))) {
+                vm.requestSecondaryNav("settings", "compile")
+            })
+            if (System.getProperty("os.name", "").lowercase().contains("mac")) {
+                add(SearchItem(I18n.t("settings.mac_game_mode"), I18n.t("search.nav.settings"), Icons.Filled.SportsEsports, GROUP_NAV, listOf("game mode", "gamemode", "macos", I18n.t("cmd.kw.settings"))) {
+                    vm.requestSecondaryNav("settings", "game")
+                })
+            }
             add(SearchItem(I18n.t("settings.section.mio"), I18n.t("search.nav.settings"), Icons.Filled.Speed, GROUP_NAV, listOf("mio", I18n.t("cmd.kw.settings"))) {
                 vm.requestSecondaryNav("settings", "mio")
             })

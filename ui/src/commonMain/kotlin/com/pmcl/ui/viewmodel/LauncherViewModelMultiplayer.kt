@@ -15,7 +15,7 @@ import com.pmcl.core.i18n.I18n
  * 状态字段与 FavoriteServer 保留在 LauncherViewModel（@PublishedApi）。
  */
 
-/** 将偏好中的 ConnectX / EasyTier 配置同步到 MultiplayerManager（启动与设置保存时调用） */
+/** 将偏好中的 ConnectX / EasyTier / 红石联机配置同步到 MultiplayerManager（启动与设置保存时调用） */
 fun LauncherViewModel.syncConnectXConfig() {
     core.multiplayer().configureConnectX(
         preferences.getConnectxBinaryPath(),
@@ -23,11 +23,22 @@ fun LauncherViewModel.syncConnectXConfig() {
         preferences.getConnectxServerPort()
     )
     core.multiplayer().configureEasyTierPeer(preferences.getEasytierPeer())
+    syncRedstoneConfig()
 }
 
 /** 同步 EasyTier 共享节点配置 */
 fun LauncherViewModel.syncEasyTierConfig() {
     core.multiplayer().configureEasyTierPeer(preferences.getEasytierPeer())
+}
+
+/** 同步红石联机的中继、本机端口和密钥。 */
+fun LauncherViewModel.syncRedstoneConfig() {
+    core.multiplayer().configureRedstone(
+        preferences.getRedstoneRelay(),
+        preferences.getRedstoneLocalPort(),
+        preferences.getRedstoneMaxPlayers(),
+        preferences.getRedstoneApiKey()
+    )
 }
 
 fun LauncherViewModel.setMpBackend(b: com.pmcl.core.multiplayer.MultiplayerManager.Backend) {
@@ -41,6 +52,7 @@ fun LauncherViewModel.setMpBackend(b: com.pmcl.core.multiplayer.MultiplayerManag
         com.pmcl.core.multiplayer.MultiplayerManager.Backend.CONNECTX -> "CONNECTX"
         com.pmcl.core.multiplayer.MultiplayerManager.Backend.EASYTIER -> "EASYTIER"
         com.pmcl.core.multiplayer.MultiplayerManager.Backend.TERRACOTTA -> "TERRACOTTA"
+        com.pmcl.core.multiplayer.MultiplayerManager.Backend.REDSTONE -> "REDSTONE"
     }
     preferences.setMpBackend(name)
     core.multiplayer().setBackend(b)
@@ -49,6 +61,7 @@ fun LauncherViewModel.setMpBackend(b: com.pmcl.core.multiplayer.MultiplayerManag
         com.pmcl.core.multiplayer.MultiplayerManager.Backend.CONNECTX -> "ConnectX"
         com.pmcl.core.multiplayer.MultiplayerManager.Backend.EASYTIER -> "EasyTier"
         com.pmcl.core.multiplayer.MultiplayerManager.Backend.TERRACOTTA -> "Terracotta 陶瓦联机"
+        com.pmcl.core.multiplayer.MultiplayerManager.Backend.REDSTONE -> "红石联机"
     }
     _status.value = I18n.t("status.mp_backend_switched", label)
 }
@@ -68,6 +81,7 @@ fun LauncherViewModel.createRoom() {
         com.pmcl.core.multiplayer.MultiplayerManager.Backend.CONNECTX -> I18n.t("status.creating_connectx_room")
         com.pmcl.core.multiplayer.MultiplayerManager.Backend.TERRACOTTA -> I18n.t("status.creating_terracotta_room")
         com.pmcl.core.multiplayer.MultiplayerManager.Backend.EASYTIER -> I18n.t("status.creating_mp_room")
+        com.pmcl.core.multiplayer.MultiplayerManager.Backend.REDSTONE -> I18n.t("status.creating_redstone_room")
     }
     scope.launch {
         try {
@@ -81,6 +95,26 @@ fun LauncherViewModel.createRoom() {
                             { msg -> _mpProgress.value = msg },
                             binPath, serverAddr, serverPort
                         ).join()
+                    }
+                    com.pmcl.core.multiplayer.MultiplayerManager.Backend.REDSTONE -> {
+                        val detected = detectMinecraftLanPort()
+                        val port = if (detected in 1..65535) detected else preferences.getRedstoneLocalPort()
+                        if (detected in 1..65535) preferences.setRedstoneLocalPort(detected)
+                        var key = preferences.getRedstoneApiKey()
+                        if (!com.pmcl.core.multiplayer.RedstoneClient.isApiKey(key)) {
+                            key = com.pmcl.core.multiplayer.RedstoneClient.generateApiKey()
+                            preferences.setRedstoneApiKey(key)
+                        }
+                        core.multiplayer().configureRedstone(
+                            preferences.getRedstoneRelay(),
+                            port,
+                            preferences.getRedstoneMaxPlayers(),
+                            key
+                        )
+                        core.multiplayer().createRoom({
+                            _mpProgress.value = I18n.t("mp.state.requesting_tunnel")
+                            _mpState.value = core.multiplayer().state
+                        }, 0).join()
                     }
                     else -> {
                         // Terracotta / EasyTier 都走 createRoom
@@ -112,6 +146,8 @@ fun LauncherViewModel.createRoom() {
                             I18n.t("status.room_created_with_code", core.multiplayer().currentRoomCode)
                         com.pmcl.core.multiplayer.MultiplayerManager.Backend.CONNECTX ->
                             I18n.t("status.connectx_room_created")
+                        com.pmcl.core.multiplayer.MultiplayerManager.Backend.REDSTONE ->
+                            I18n.t("status.redstone_room_created", core.multiplayer().currentRoomCode)
                         else ->
                             I18n.t("status.room_created_with_vip", core.multiplayer().virtualIp)
                     }
@@ -122,6 +158,7 @@ fun LauncherViewModel.createRoom() {
                         "status.create_room_failed",
                         core.multiplayer().lastError.ifBlank { I18n.t("common.unknown") }
                     )
+                com.pmcl.core.multiplayer.MultiplayerManager.State.DISCONNECTED -> return@launch
                 else -> I18n.t("status.room_started_waiting")
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -168,8 +205,9 @@ fun LauncherViewModel.joinRoom(invitation: String) {
         return
     }
     val isConnectX = invitation.trim().startsWith("connectx-")
-    val isTerracotta = invitation.trim().startsWith("U/") ||
-        mpBackend == com.pmcl.core.multiplayer.MultiplayerManager.Backend.TERRACOTTA
+    val isRedstone = mpBackend == com.pmcl.core.multiplayer.MultiplayerManager.Backend.REDSTONE
+    val isTerracotta = !isRedstone && (invitation.trim().startsWith("U/") ||
+        mpBackend == com.pmcl.core.multiplayer.MultiplayerManager.Backend.TERRACOTTA)
     _mpState.value = com.pmcl.core.multiplayer.MultiplayerManager.State.DOWNLOADING
     _mpProgress.value = I18n.t("mp.progress.parsing_code")
     _status.value = I18n.t("status.joining_room")
@@ -183,6 +221,11 @@ fun LauncherViewModel.joinRoom(invitation: String) {
                     core.multiplayer().joinRoomConnectX(invitation, { msg ->
                         _mpProgress.value = msg
                     }, binPath, serverAddr, serverPort).join()
+                } else if (isRedstone) {
+                    core.multiplayer().joinRoom(invitation) { msg ->
+                        _mpProgress.value = msg
+                        _mpState.value = core.multiplayer().state
+                    }.join()
                 } else {
                     if (!isTerracotta) syncEasyTierConfig()
                     core.multiplayer().joinRoom(invitation) { msg ->
@@ -196,10 +239,20 @@ fun LauncherViewModel.joinRoom(invitation: String) {
             _status.value = when (finalState) {
                 com.pmcl.core.multiplayer.MultiplayerManager.State.CONNECTED -> {
                     val friendWarn = startFriendSubsystemQuiet()
-                    val base = if (isTerracotta && core.multiplayer().localMcAddr.isNotEmpty()) {
-                        I18n.t("status.joined_room_mc_addr", core.multiplayer().localMcAddr)
-                    } else {
-                        I18n.t("status.joined_room_vip", core.multiplayer().virtualIp)
+                    if (isRedstone) {
+                        val endpoint = com.pmcl.core.multiplayer.RedstoneClient.publicEndpoint(
+                            core.multiplayer().currentRoomCode
+                        )
+                        if (endpoint != null) setDirectConnectServer(endpoint.host(), endpoint.port())
+                    }
+                    val base = when {
+                        isRedstone -> I18n.t(
+                            "status.redstone_address_saved",
+                            core.multiplayer().currentRoomCode
+                        )
+                        isTerracotta && core.multiplayer().localMcAddr.isNotEmpty() ->
+                            I18n.t("status.joined_room_mc_addr", core.multiplayer().localMcAddr)
+                        else -> I18n.t("status.joined_room_vip", core.multiplayer().virtualIp)
                     }
                     if (friendWarn != null) "$base · $friendWarn" else base
                 }
@@ -208,6 +261,7 @@ fun LauncherViewModel.joinRoom(invitation: String) {
                         "status.join_room_failed",
                         core.multiplayer().lastError.ifBlank { I18n.t("common.unknown") }
                     )
+                com.pmcl.core.multiplayer.MultiplayerManager.State.DISCONNECTED -> return@launch
                 else -> I18n.t("status.connecting_room")
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -241,6 +295,11 @@ private suspend fun LauncherViewModel.startFriendSubsystemQuiet(): String? {
 
 /** 离开当前房间 */
 fun LauncherViewModel.leaveRoom() {
+    val redstoneAddress = if (mpBackend == com.pmcl.core.multiplayer.MultiplayerManager.Backend.REDSTONE) {
+        core.multiplayer().currentRoomCode
+    } else {
+        ""
+    }
     scope.launch {
         try {
             // 停止好友系统网络服务
@@ -268,10 +327,19 @@ fun LauncherViewModel.leaveRoom() {
         _mpInvitation.value = ""
         _mpVirtualIp.value = ""
         _mpLocalMcAddr.value = ""
+        val endpoint = com.pmcl.core.multiplayer.RedstoneClient.publicEndpoint(redstoneAddress)
+        if (endpoint != null
+            && preferences.getGameServerHost() == endpoint.host()
+            && preferences.getGameServerPort() == endpoint.port()
+        ) {
+            preferences.setGameServerHost("")
+        }
         val backend = mpBackend
         _status.value = when (backend) {
             com.pmcl.core.multiplayer.MultiplayerManager.Backend.CONNECTX ->
                 I18n.t("status.left_connectx_room")
+            com.pmcl.core.multiplayer.MultiplayerManager.Backend.REDSTONE ->
+                I18n.t("status.left_redstone_room")
             com.pmcl.core.multiplayer.MultiplayerManager.Backend.TERRACOTTA ->
                 I18n.t("status.left_terracotta_room")
             else -> I18n.t("status.left_terracotta_room")
@@ -289,7 +357,13 @@ fun LauncherViewModel.publishFriendMpSession() {
     }
     var host = ""
     var port = 0
-    if (mgr.backend != com.pmcl.core.multiplayer.MultiplayerManager.Backend.TERRACOTTA) {
+    if (mgr.backend == com.pmcl.core.multiplayer.MultiplayerManager.Backend.REDSTONE) {
+        val endpoint = com.pmcl.core.multiplayer.RedstoneClient.publicEndpoint(mgr.currentRoomCode)
+        if (endpoint != null) {
+            host = endpoint.host()
+            port = endpoint.port()
+        }
+    } else if (mgr.backend != com.pmcl.core.multiplayer.MultiplayerManager.Backend.TERRACOTTA) {
         host = mgr.virtualIp
         port = detectMinecraftLanPort()
     }
@@ -307,6 +381,7 @@ fun LauncherViewModel.joinFriendMultiplayer(invitation: String, backend: String,
         val target = when (backend) {
             "CONNECTX" -> com.pmcl.core.multiplayer.MultiplayerManager.Backend.CONNECTX
             "EASYTIER" -> com.pmcl.core.multiplayer.MultiplayerManager.Backend.EASYTIER
+            "REDSTONE" -> com.pmcl.core.multiplayer.MultiplayerManager.Backend.REDSTONE
             else -> com.pmcl.core.multiplayer.MultiplayerManager.Backend.TERRACOTTA
         }
         if (mgr.state != com.pmcl.core.multiplayer.MultiplayerManager.State.CONNECTING
@@ -378,13 +453,22 @@ fun LauncherViewModel.copyToClipboard(text: String) {
 /** 加载收藏服务器列表 */
 fun LauncherViewModel.loadFavoriteServers() {
     _favoriteServers.value = preferences.getFavoriteServers().map {
-        LauncherViewModel.FavoriteServer(it[0], it[1], it[2].toIntOrNull() ?: 25565)
+        LauncherViewModel.FavoriteServer(
+            it[0], it[1], it[2].toIntOrNull() ?: 25565,
+            if (it.size > 3) it[3] else ""
+        )
     }
 }
 
+fun serverStatusKey(host: String, port: Int, token: String = ""): String {
+    val id = token.trim()
+    if (id.isEmpty()) return "$host:$port"
+    return "$host:$port#" + Integer.toHexString(id.hashCode())
+}
+
 /** 添加收藏服务器 */
-fun LauncherViewModel.addFavoriteServer(name: String, host: String, port: Int) {
-    preferences.addFavoriteServer(name, host, port)
+fun LauncherViewModel.addFavoriteServer(name: String, host: String, port: Int, token: String = "") {
+    preferences.addFavoriteServer(name, host, port, token)
     loadFavoriteServers()
 }
 
@@ -395,9 +479,10 @@ fun LauncherViewModel.removeFavoriteServer(index: Int) {
 }
 
 /** 将服务器设为直连目标（写入 gameServerHost/Port） */
-fun LauncherViewModel.setDirectConnectServer(host: String, port: Int) {
+fun LauncherViewModel.setDirectConnectServer(host: String, port: Int, token: String = "") {
     preferences.setGameServerHost(host)
     preferences.setGameServerPort(port)
+    preferences.setGameServerToken(token)
     _status.value = I18n.t("status.direct_connect_server_set", "$host:$port")
 }
 
@@ -405,16 +490,18 @@ fun LauncherViewModel.setDirectConnectServer(host: String, port: Int) {
  * 写入当前实例的 servers.dat，设为启动直连，然后启动游戏。
  * @param save 为 true 时，列表里还没有这台服务器就先收藏。
  */
-fun LauncherViewModel.directConnectServer(name: String, host: String, port: Int, save: Boolean) {
+fun LauncherViewModel.directConnectServer(
+    name: String, host: String, port: Int, save: Boolean, token: String = ""
+) {
     val address = com.pmcl.core.gamecontent.GameServerList.parse(host, port) ?: run {
         _status.value = I18n.t("servers.bad_address")
         return
     }
     val display = name.trim().ifBlank { address.host }
     if (save && favoriteServers.value.none { it.host.equals(address.host, ignoreCase = true) && it.port == address.port }) {
-        addFavoriteServer(display, address.host, address.port)
+        addFavoriteServer(display, address.host, address.port, token)
     }
-    setDirectConnectServer(address.host, address.port)
+    setDirectConnectServer(address.host, address.port, token)
     val instance = selectedInstanceId.value?.let { id ->
         instances.value.find { it.instanceId == id && it.isLaunchable }
     }
@@ -425,7 +512,8 @@ fun LauncherViewModel.directConnectServer(name: String, host: String, port: Int,
         if (gameDir != null) {
             try {
                 withContext(Dispatchers.IO) {
-                    com.pmcl.core.gamecontent.GameServerList.add(gameDir, display, address.host, address.port)
+                    com.pmcl.core.gamecontent.GameServerList.add(
+                        gameDir, display, address.host, address.port, token)
                 }
             } catch (_: Throwable) {
                 _status.value = I18n.t("status.server_link_failed")
@@ -436,12 +524,12 @@ fun LauncherViewModel.directConnectServer(name: String, host: String, port: Int,
 }
 
 /** ping 单个服务器 */
-fun LauncherViewModel.pingServer(host: String, port: Int) {
-    val key = "$host:$port"
+fun LauncherViewModel.pingServer(host: String, port: Int, token: String = "") {
+    val key = serverStatusKey(host, port, token)
     scope.launch {
         try {
             val latency = withContext(Dispatchers.IO) {
-                com.pmcl.core.multiplayer.ServerPinger.ping(host, port)
+                com.pmcl.core.multiplayer.ServerPinger.ping(host, port, 3000, token)
             }
             // 使用 update 原子更新，避免并发 ping 完成时读-改-写丢失更新
             _serverPings.update { it + (key to latency) }
@@ -462,10 +550,10 @@ fun LauncherViewModel.pingAllServers() {
             servers.forEach { s ->
                 launch {
                     semaphore.withPermit {
-                        val key = "${s.host}:${s.port}"
+                        val key = serverStatusKey(s.host, s.port, s.token)
                         try {
                             val latency = withContext(Dispatchers.IO) {
-                                com.pmcl.core.multiplayer.ServerPinger.ping(s.host, s.port)
+                                com.pmcl.core.multiplayer.ServerPinger.ping(s.host, s.port, 3000, s.token)
                             }
                             _serverPings.update { it + (key to latency) }
                         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -485,13 +573,13 @@ fun LauncherViewModel.pingAllServers() {
 // ===== 服务器完整状态 ping（MOTD/在线人数/版本） =====
 
 /** 完整 ping 单个服务器，返回 MOTD/在线人数/版本等完整信息 */
-fun LauncherViewModel.pingServerFull(host: String, port: Int) {
-    val key = "$host:$port"
+fun LauncherViewModel.pingServerFull(host: String, port: Int, token: String = "") {
+    val key = serverStatusKey(host, port, token)
     _pingingServers.update { it + key }
     scope.launch {
         try {
             val status = withContext(Dispatchers.IO) {
-                com.pmcl.core.multiplayer.ServerPinger.pingFull(host, port)
+                com.pmcl.core.multiplayer.ServerPinger.pingFull(host, port, 3000, token)
             }
             _serverStatuses.update { it + (key to status) }
             // 同步更新延迟 Map，保持与旧 API 兼容
@@ -515,11 +603,11 @@ fun LauncherViewModel.pingAllServersFull() {
             servers.forEach { s ->
                 launch {
                     semaphore.withPermit {
-                        val key = "${s.host}:${s.port}"
+                        val key = serverStatusKey(s.host, s.port, s.token)
                         _pingingServers.update { it + key }
                         try {
                             val status = withContext(Dispatchers.IO) {
-                                com.pmcl.core.multiplayer.ServerPinger.pingFull(s.host, s.port)
+                                com.pmcl.core.multiplayer.ServerPinger.pingFull(s.host, s.port, 3000, s.token)
                             }
                             _serverStatuses.update { it + (key to status) }
                             _serverPings.update { it + (key to status.latency) }
@@ -539,8 +627,10 @@ fun LauncherViewModel.pingAllServersFull() {
 }
 
 /** 更新收藏服务器（名称/地址/端口） */
-fun LauncherViewModel.updateFavoriteServer(index: Int, name: String, host: String, port: Int) {
-    preferences.updateFavoriteServer(index, name, host, port)
+fun LauncherViewModel.updateFavoriteServer(
+    index: Int, name: String, host: String, port: Int, token: String = ""
+) {
+    preferences.updateFavoriteServer(index, name, host, port, token)
     loadFavoriteServers()
 }
 

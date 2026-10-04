@@ -70,6 +70,8 @@ public final class GitHubReleaseSyncChecker implements AutoCloseable {
     public interface Listener {
         /** 检查完成，发现新版本 */
         default void onUpdateAvailable(SelfUpdater.UpdateInfo info) {}
+        /** 发现可按文件增量应用的热更新清单 */
+        default void onHotUpdateAvailable(HotUpdateManifest manifest) {}
         /** 检查完成，已是最新版本 */
         default void onUpToDate() {}
         /** 检查过程中发生错误 */
@@ -229,6 +231,22 @@ public final class GitHubReleaseSyncChecker implements AutoCloseable {
                 notifyUpToDate();
                 return;
             }
+            HotUpdateManifest hot;
+            try {
+                hot = readHotUpdate(release);
+            } catch (IOException e) {
+                notifyError("热更新清单无效: " + e.getMessage(), e);
+                return;
+            }
+            if (hot != null) {
+                restoreNormalInterval();
+                if (!isNewer(hot.version(), clientVersion)) {
+                    notifyUpToDate();
+                } else {
+                    notifyHotUpdate(hot);
+                }
+                return;
+            }
             SelfUpdater.UpdateInfo info = parseRelease(release);
             if (info == null) {
                 notifyError("Release 中没有可用的 PMCL 更新资产", null);
@@ -321,7 +339,8 @@ public final class GitHubReleaseSyncChecker implements AutoCloseable {
         if (lowerName == null || !lowerName.contains("pmcl")
                 || lowerName.endsWith(".sig")
                 || lowerName.endsWith(".sha256")
-                || lowerName.endsWith(".sha256.txt")) {
+                || lowerName.endsWith(".sha256.txt")
+                || lowerName.equals(HotUpdateManifest.ASSET_NAME)) {
             return -1;
         }
 
@@ -431,6 +450,51 @@ public final class GitHubReleaseSyncChecker implements AutoCloseable {
         return sig;
     }
 
+    /**
+     * Release 里如果有 {@code pmcl-hotupdate.json}，就走增量热更新。
+     * 清单存在但验签失败时抛错，不再退回整包安装。
+     */
+    private HotUpdateManifest readHotUpdate(JsonObject release) throws IOException {
+        if (!release.has("assets") || !release.get("assets").isJsonArray()) return null;
+        String specific = HotUpdateManifest.platformAssetName(HotUpdateManifest.Host.current());
+        JsonObject asset = null;
+        JsonObject fallback = null;
+        for (var assetElem : release.getAsJsonArray("assets")) {
+            JsonObject item = assetElem.getAsJsonObject();
+            String name = item.has("name") && !item.get("name").isJsonNull()
+                    ? item.get("name").getAsString() : "";
+            if (specific.equalsIgnoreCase(name)) asset = item;
+            if (HotUpdateManifest.ASSET_NAME.equalsIgnoreCase(name)) fallback = item;
+        }
+        if (asset == null) asset = fallback;
+        if (asset == null) return null;
+        String url = asset.has("browser_download_url") && !asset.get("browser_download_url").isJsonNull()
+                ? asset.get("browser_download_url").getAsString() : "";
+        if (!url.startsWith("https://")) {
+            throw new IOException("热更新清单必须使用 HTTPS");
+        }
+        HttpRequest req = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .timeout(Duration.ofSeconds(HTTP_TIMEOUT_SECONDS))
+                .header("Accept", "application/json")
+                .header("User-Agent", "PMCL-Updater")
+                .GET()
+                .build();
+        HttpResponse<String> resp;
+        try {
+            resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("下载热更新清单被中断", e);
+        }
+        if (resp.statusCode() != 200) {
+            throw new IOException("下载热更新清单失败 HTTP " + resp.statusCode());
+        }
+        String body = resp.body();
+        if (body.length() > 1_048_576) throw new IOException("热更新清单过大");
+        return HotUpdateManifest.parse(body);
+    }
+
     /** @see UpdateVersions#isNewer */
     private static boolean isNewer(String remote, String current) {
         return UpdateVersions.isNewer(remote, current);
@@ -439,6 +503,12 @@ public final class GitHubReleaseSyncChecker implements AutoCloseable {
     // -------------------------------------------------------------------------
     // 监听器通知
     // -------------------------------------------------------------------------
+
+    private void notifyHotUpdate(HotUpdateManifest manifest) {
+        for (Listener l : listeners) {
+            try { l.onHotUpdateAvailable(manifest); } catch (Exception ignored) {}
+        }
+    }
 
     private void notifyUpdateAvailable(SelfUpdater.UpdateInfo info) {
         for (Listener l : listeners) {

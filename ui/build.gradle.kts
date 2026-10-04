@@ -4,9 +4,9 @@ plugins {
     alias(libs.plugins.compose.compiler)
 }
 
-val pmclVersion = providers.gradleProperty("pmcl.version").orElse("2.1.11a")
+val pmclVersion = providers.gradleProperty("pmcl.version").orElse("2.1.11b")
 
-/** Compose native packages only accept numeric x.y.z (e.g. 2.1.11a → 2.1.12). */
+/** Compose native packages only accept numeric x.y.z. Letter suffixes step the patch: 2.1.11a → 2.1.12, 2.1.11b → 2.1.13. */
 fun nativePackageVersion(raw: String): String {
     val match = Regex("""^(\d+)\.(\d+)\.(\d+)""").find(raw.trim())
         ?: return "1.0.0"
@@ -14,7 +14,14 @@ fun nativePackageVersion(raw: String): String {
     val minor = match.groupValues[2]
     val patch = match.groupValues[3].toInt()
     val suffix = raw.trim().substring(match.range.last + 1)
-    return if (suffix.isEmpty()) "$major.$minor.$patch" else "$major.$minor.${patch + 1}"
+    val letter = suffix.firstOrNull()
+    val bump = when {
+        letter == null -> 0
+        letter in 'a'..'z' -> letter - 'a' + 1
+        letter in 'A'..'Z' -> letter - 'A' + 1
+        else -> 1
+    }
+    return "$major.$minor.${patch + bump}"
 }
 
 kotlin {

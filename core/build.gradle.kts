@@ -1,3 +1,6 @@
+import java.time.Instant
+import java.time.temporal.ChronoUnit
+
 plugins {
     `java-library`
     alias(libs.plugins.kotlin.jvm) apply false
@@ -9,11 +12,37 @@ java {
     withSourcesJar()
 }
 
-val pmclVersion = providers.gradleProperty("pmcl.version").orElse("2.1.11a")
+val pmclVersion = providers.gradleProperty("pmcl.version").orElse("2.1.11b")
 tasks.withType<Jar>().configureEach {
     manifest {
         attributes("Implementation-Version" to pmclVersion.get())
     }
+}
+
+val buildInfoDir = layout.buildDirectory.dir("generated/build-info")
+val generateBuildInfo = tasks.register("generateBuildInfo") {
+    outputs.dir(buildInfoDir)
+    outputs.upToDateWhen { false }
+    doLast {
+        val dir = buildInfoDir.get().asFile
+        dir.mkdirs()
+        val time = Instant.now().truncatedTo(ChronoUnit.SECONDS)
+        dir.resolve("build-info.properties").writeText(
+            listOf(
+                "version=${pmclVersion.get()}",
+                "buildTime=$time",
+                "kotlin=${libs.versions.kotlin.get()}",
+                "compose=${libs.versions.compose.multiplatform.get()}",
+                "okhttp=${libs.versions.okhttp.get()}"
+            ).joinToString("\n") + "\n"
+        )
+    }
+}
+sourceSets.named("main") {
+    resources.srcDir(buildInfoDir)
+}
+tasks.named("processResources") {
+    dependsOn(generateBuildInfo)
 }
 
 val bindGate: SourceSet by sourceSets.creating {

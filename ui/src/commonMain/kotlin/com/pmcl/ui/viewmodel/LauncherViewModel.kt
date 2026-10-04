@@ -27,10 +27,17 @@ import com.pmcl.core.modpack.ModpackManager.ModUpdate
 import com.pmcl.core.nbt.NbtTag
 import com.pmcl.core.preferences.Preferences
 import com.pmcl.core.stats.PlayTimeTracker
+import com.pmcl.core.update.AppInstallLayout
+import com.pmcl.core.update.AppResourceCheck
 import com.pmcl.core.update.GitHubReleaseSyncChecker
+import com.pmcl.core.update.HotUpdateDownloader
+import com.pmcl.core.update.HotUpdateInstaller
+import com.pmcl.core.update.HotUpdateManifest
+import com.pmcl.core.update.HotUpdatePlanner
 import com.pmcl.core.update.SelfUpdater
 import com.pmcl.core.update.UpdateInstaller
 import com.pmcl.core.version.McVersion
+import com.pmcl.core.version.ModLoaders
 import com.pmcl.core.gamecontent.WorldManager
 import com.pmcl.core.gamecontent.ScreenshotManager
 import com.pmcl.core.gamecontent.RecordingManager
@@ -85,6 +92,13 @@ class LauncherViewModel {
 
     val core = LauncherCore()
 
+    internal val timeMachineBusy = MutableStateFlow(false)
+    internal val timeMachineDone = MutableStateFlow(0)
+    internal val timeMachineTotal = MutableStateFlow(0)
+    internal val timeMachineCurrent = MutableStateFlow("")
+    internal val timeMachineMessage = MutableStateFlow("")
+    internal val timeMachineGeneration = MutableStateFlow(0)
+
     // ===== GitHub Release 同步更新 =====
     /** 同步是否处于活动状态（已启用且调度器已启动） */
     private val _syncActive = kotlinx.coroutines.flow.MutableStateFlow(false)
@@ -110,6 +124,20 @@ class LauncherViewModel {
     private val _restartForUpdate = kotlinx.coroutines.flow.MutableStateFlow(false)
     val restartForUpdate: kotlinx.coroutines.flow.StateFlow<Boolean> = _restartForUpdate
 
+    /** 按文件增量的热更新。整包更新仍走 pushedUpdate。 */
+    private val _hotOffer = kotlinx.coroutines.flow.MutableStateFlow<Pair<HotUpdateManifest, HotUpdatePlanner.Plan>?>(null)
+    val hotOffer: kotlinx.coroutines.flow.StateFlow<Pair<HotUpdateManifest, HotUpdatePlanner.Plan>?> = _hotOffer
+
+    /** 每次打开时安装目录核对的结果。 */
+    private val _appResourceStatus = kotlinx.coroutines.flow.MutableStateFlow("")
+    val appResourceStatus: kotlinx.coroutines.flow.StateFlow<String> = _appResourceStatus
+
+    /** 无法自动修复的安装文件问题。 */
+    private val _appResourceProblem = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    val appResourceProblem: kotlinx.coroutines.flow.StateFlow<String?> = _appResourceProblem
+
+    private val repairExit = java.util.concurrent.atomic.AtomicBoolean(false)
+
     /** 同步监听器引用（用于 start/stop 时 add/remove） */
     private var syncListener: GitHubReleaseSyncChecker.Listener? = null
     /** 音乐播放器监听器引用（shutdown 时移除，避免回调写入已废弃 StateFlow） */
@@ -128,8 +156,13 @@ class LauncherViewModel {
         }
         // 注册 GitHub Release 同步监听器
         setupGithubSyncListener()
-        // 每次打开都检查一次；周期同步仍由设置开关控制且默认关闭
+        // 每次打开都核对安装目录，再检查远程热更新
+        checkInstalledAppResources()
         checkUpdateOnStartup()
+        scope.launch {
+            delay(20_000)
+            runTimeMachineBackupIfDue()
+        }
     }
 
     private fun checkUpdateOnStartup() {
@@ -150,10 +183,41 @@ class LauncherViewModel {
         val listener = object : GitHubReleaseSyncChecker.Listener {
             override fun onUpdateAvailable(info: SelfUpdater.UpdateInfo) {
                 // 仅当尚未有待处理更新时才覆盖，避免覆盖用户尚未响应的更新
-                if (_pushedUpdate.value == null) {
+                if (_pushedUpdate.value == null && _hotOffer.value == null) {
                     _pushedUpdate.value = info
                 }
                 _pushStatusText.value = "发现新版本 v${info.version}"
+            }
+            override fun onHotUpdateAvailable(manifest: HotUpdateManifest) {
+                if (repairExit.get()) return
+                scope.launch(Dispatchers.IO) {
+                    if (repairExit.get()) return@launch
+                    try {
+                        val app = AppInstallLayout.appDir().orElse(null)
+                        if (app == null) {
+                            _pushStatusText.value = I18n.t("update.hot_no_app")
+                            return@launch
+                        }
+                        val host = HotUpdateManifest.Host.current()
+                        if (manifest.filesFor(host).isEmpty()) {
+                            _pushStatusText.value = I18n.t("update.hot_no_platform")
+                            return@launch
+                        }
+                        val previous = AppResourceCheck.loadInstalled(LauncherConfig.pmclHome())
+                        val plan = HotUpdatePlanner.plan(app, manifest, previous, host)
+                        if (plan.isEmpty) {
+                            _pushStatusText.value = I18n.t("update.hot_already")
+                            return@launch
+                        }
+                        _pushedUpdate.value = null
+                        _hotOffer.value = manifest to plan
+                        _pushStatusText.value = I18n.t(
+                            "update.hot_ready", manifest.version(), plan.downloads().size
+                        )
+                    } catch (e: Throwable) {
+                        _pushStatusText.value = I18n.t("update.hot_failed", e.message ?: "")
+                    }
+                }
             }
             override fun onUpToDate() {
                 _pushStatusText.value = "已是最新版本"
@@ -249,6 +313,124 @@ class LauncherViewModel {
     /** 用户响应了更新弹窗（无论下载/取消），清除待处理状态 */
     fun clearPushedUpdate() {
         _pushedUpdate.value = null
+    }
+
+    fun clearHotUpdate() {
+        _hotOffer.value = null
+    }
+
+    fun clearAppResourceProblem() {
+        _appResourceProblem.value = null
+    }
+
+    /** 打开时核对 app 目录。签名清单对不上就重新下载坏掉的文件；没有地址时只用备份还原。 */
+    private fun checkInstalledAppResources() {
+        scope.launch(Dispatchers.IO) {
+            val home = LauncherConfig.pmclHome()
+            try {
+                val report = AppResourceCheck.check(home, AppInstallLayout.appDir().orElse(null))
+                when (report.status()) {
+                    AppResourceCheck.Status.SKIPPED ->
+                        _appResourceStatus.value = I18n.t("update.integrity_skipped")
+                    AppResourceCheck.Status.OK -> {
+                        AppResourceCheck.RepairAttempts.clear(home)
+                        _appResourceStatus.value = I18n.t("update.integrity_ok")
+                    }
+                    AppResourceCheck.Status.BROKEN ->
+                        _appResourceProblem.value = I18n.t("update.integrity_broken", report.detail())
+                    AppResourceCheck.Status.RESTORE -> restoreInstalledFiles(home, report)
+                    AppResourceCheck.Status.REPAIRABLE -> repairInstalledFiles(home, report)
+                    else -> Unit
+                }
+            } catch (e: Throwable) {
+                _appResourceProblem.value = I18n.t("update.integrity_broken", e.message ?: "")
+            }
+        }
+    }
+
+    private fun restoreInstalledFiles(home: java.nio.file.Path, report: AppResourceCheck.Report) {
+        val attempt = AppResourceCheck.RepairAttempts.next(home, report.versionKey())
+        if (attempt > 1) {
+            _appResourceProblem.value = I18n.t("update.integrity_repair_failed", report.detail())
+            return
+        }
+        val app = AppInstallLayout.appDir().orElse(null) ?: return
+        val entries = report.paths().map { HotUpdateManifest.FileEntry(it, "", 0, "", "", "") }
+        repairExit.set(true)
+        HotUpdateInstaller.launchAfterExit(
+            home, app, home.resolve("updates").resolve("backup"),
+            entries, emptyList<String>(), null, false
+        )
+        _appResourceStatus.value = I18n.t("update.integrity_repair")
+        _restartForUpdate.value = true
+    }
+
+    private fun repairInstalledFiles(home: java.nio.file.Path, report: AppResourceCheck.Report) {
+        val manifest = report.manifest() ?: return
+        val attempt = AppResourceCheck.RepairAttempts.next(home, report.versionKey())
+        if (attempt > 1) {
+            _appResourceProblem.value = I18n.t("update.integrity_repair_failed", report.detail())
+            return
+        }
+        val app = AppInstallLayout.appDir().orElse(null) ?: return
+        repairExit.set(true)
+        try {
+            val wanted = manifest.files().filter { report.paths().contains(it.path()) }
+            val staging = home.resolve("updates").resolve("staging").resolve("repair-" + report.versionKey())
+            HotUpdateDownloader.stage(core.downloads(), staging, wanted, null)
+            val manifestFile = staging.resolve("manifest.json")
+            manifest.write(manifestFile)
+            HotUpdateInstaller.launchAfterExit(
+                home, app, staging, wanted, emptyList<String>(), manifestFile, true
+            )
+            _appResourceStatus.value = I18n.t("update.integrity_repair")
+            _restartForUpdate.value = true
+        } catch (e: Throwable) {
+            repairExit.set(false)
+            _appResourceProblem.value = I18n.t("update.integrity_repair_failed", e.message ?: report.detail())
+        }
+    }
+
+    /** 只下载计划里变化的文件，校验后等退出再替换。 */
+    fun downloadHotUpdate(onProgress: (Long) -> Unit) {
+        val offer = _hotOffer.value ?: return
+        if (repairExit.get()) return
+        val manifest = offer.first
+        scope.launch {
+            try {
+                _pushStatusText.value = I18n.t("update.hot_status_downloading")
+                val home = LauncherConfig.pmclHome()
+                val app = withContext(Dispatchers.IO) {
+                    AppInstallLayout.appDir().orElseThrow {
+                        java.io.IOException(I18n.t("update.hot_no_app"))
+                    }
+                }
+                val plan = withContext(Dispatchers.IO) {
+                    HotUpdatePlanner.plan(
+                        app, manifest, AppResourceCheck.loadInstalled(home), HotUpdateManifest.Host.current()
+                    )
+                }
+                if (plan.isEmpty) {
+                    _hotOffer.value = null
+                    _pushStatusText.value = I18n.t("update.hot_already")
+                    return@launch
+                }
+                val staging = home.resolve("updates").resolve("staging").resolve(manifest.version())
+                withContext(Dispatchers.IO) {
+                    HotUpdateDownloader.stage(core.downloads(), staging, plan.downloads(), onProgress)
+                    val manifestFile = staging.resolve("manifest.json")
+                    manifest.write(manifestFile)
+                    HotUpdateInstaller.launchAfterExit(
+                        home, app, staging, plan.downloads(), plan.deletes(), manifestFile, true
+                    )
+                }
+                _pushStatusText.value = I18n.t("update.hot_restarting")
+                _restartForUpdate.value = true
+            } catch (e: Throwable) {
+                val cause = e.cause ?: e
+                _pushStatusText.value = I18n.t("update.hot_failed", cause.message ?: cause.javaClass.simpleName)
+            }
+        }
     }
 
     /** 用户确认下载发现的更新 */
@@ -476,6 +658,20 @@ class LauncherViewModel {
     @PublishedApi internal val _marketTotal = MutableStateFlow(0)
     val marketTotal: StateFlow<Int> = _marketTotal.asStateFlow()
 
+    @PublishedApi internal val _mcmodResults = MutableStateFlow<List<com.pmcl.core.market.McmodCatalog.Entry>>(emptyList())
+    val mcmodResults: StateFlow<List<com.pmcl.core.market.McmodCatalog.Entry>> = _mcmodResults.asStateFlow()
+
+    @PublishedApi internal val _mcmodPageCount = MutableStateFlow(0)
+    val mcmodPageCount: StateFlow<Int> = _mcmodPageCount.asStateFlow()
+
+    @PublishedApi internal val _mcmodOpeningId = MutableStateFlow<String?>(null)
+    val mcmodOpeningId: StateFlow<String?> = _mcmodOpeningId.asStateFlow()
+
+    @PublishedApi internal val _mcmodChoices = MutableStateFlow<McmodPendingLinks?>(null)
+    val mcmodChoices: StateFlow<McmodPendingLinks?> = _mcmodChoices.asStateFlow()
+
+    @PublishedApi @Volatile internal var mcmodOpenJob: Job? = null
+
     @PublishedApi internal val _currentModFiles = MutableStateFlow<List<ModFile>>(emptyList())
     val currentModFiles: StateFlow<List<ModFile>> = _currentModFiles.asStateFlow()
 
@@ -567,8 +763,8 @@ class LauncherViewModel {
     @PublishedApi internal val nbtMaxUndo = 40
 
     // ===== 下载队列 =====
-    private val _queueTasks = MutableStateFlow<List<DownloadQueueManager.QueueTask>>(emptyList())
-    val queueTasks: StateFlow<List<DownloadQueueManager.QueueTask>> = _queueTasks.asStateFlow()
+    private val _queueTasks = MutableStateFlow<List<QueueTaskSnapshot>>(emptyList())
+    val queueTasks: StateFlow<List<QueueTaskSnapshot>> = _queueTasks.asStateFlow()
 
     private val _queueSummary = MutableStateFlow<DownloadQueueManager.QueueSummary>(
         DownloadQueueManager.QueueSummary(0, 0, 0, 0, 0, 0, 0L, 0L)
@@ -1021,24 +1217,11 @@ class LauncherViewModel {
     }
 
     /**
-     * 推导本地版本对应的 mod 加载器（inheritsFrom + mainClass 关键字）。
+     * 推导本地版本对应的 mod 加载器。版本号、父版本和主类都会看，NeoForge 不会被认成 Forge。
      */
     fun deriveLoader(lvi: com.pmcl.core.version.VersionManager.LocalVersionInfo?): String {
         if (lvi == null) return ""
-        val inherits = lvi.getInheritsFrom() ?: ""
-        val mc = lvi.getMainClass() ?: ""
-        return when {
-            inherits.contains("neoforge", ignoreCase = true) ||
-                mc.contains("neoforge", ignoreCase = true) -> "neoforge"
-            inherits.contains("forge", ignoreCase = true) ||
-                mc.contains("launchwrapper", ignoreCase = true) ||
-                mc.contains("minecraftforge", ignoreCase = true) -> "forge"
-            inherits.contains("quilt", ignoreCase = true) ||
-                mc.contains("quilt", ignoreCase = true) -> "quilt"
-            inherits.contains("fabric", ignoreCase = true) ||
-                mc.contains("fabric", ignoreCase = true) -> "fabric"
-            else -> ""
-        }
+        return ModLoaders.fromVersion(lvi.getId(), lvi.getInheritsFrom(), lvi.getMainClass())
     }
 
     /** 模组市场筛选条件：游戏版本 + 加载器 */
@@ -1057,13 +1240,13 @@ class LauncherViewModel {
             else -> null
         }
         if (lvi != null) {
-            val loader = deriveLoader(lvi).ifBlank { inst?.loader ?: "" }
+            val loader = deriveLoader(lvi).ifBlank { ModLoaders.normalize(inst?.loader) }
             return MarketFilters(deriveGameVersion(lvi), loader)
         }
         if (inst != null) {
             val raw = inst.baseVersionId ?: ""
             val gv = raw.substringBefore('-').substringBefore('+')
-            return MarketFilters(gv, inst.loader ?: "")
+            return MarketFilters(gv, ModLoaders.normalize(inst.loader))
         }
         return MarketFilters("", "")
     }
@@ -1097,7 +1280,10 @@ class LauncherViewModel {
         return all.filter { lvi ->
             val gameVersion = deriveGameVersion(lvi)
             val passVersion = !hasGameVersionFilter || modGameVersions.contains(gameVersion)
-            val passLoader = !hasLoaderFilter || deriveLoader(lvi).equals(modLoader, ignoreCase = true)
+            val verLoader = deriveLoader(lvi)
+            val want = modLoader.lowercase()
+            val passLoader = !hasLoaderFilter || verLoader.equals(modLoader, ignoreCase = true)
+                    || (verLoader == "forbric" && (want == "fabric" || want == "forge" || want == "neoforge"))
             passVersion && passLoader
         }
     }
@@ -1570,6 +1756,7 @@ class LauncherViewModel {
         when (name) {
             "CONNECTX" -> com.pmcl.core.multiplayer.MultiplayerManager.Backend.CONNECTX
             "EASYTIER" -> com.pmcl.core.multiplayer.MultiplayerManager.Backend.EASYTIER
+            "REDSTONE" -> com.pmcl.core.multiplayer.MultiplayerManager.Backend.REDSTONE
             else -> com.pmcl.core.multiplayer.MultiplayerManager.Backend.TERRACOTTA
         }
 
@@ -1584,7 +1771,7 @@ class LauncherViewModel {
         get() = _mpBackend.value
 
     /** 服务器列表数据项 */
-    data class FavoriteServer(val name: String, val host: String, val port: Int)
+    data class FavoriteServer(val name: String, val host: String, val port: Int, val token: String = "")
 
     /** ping 结果：key = "host:port"，value = 延迟毫秒（-1 不可达，-2 超时） */
     @PublishedApi internal val _serverPings = MutableStateFlow<Map<String, Long>>(emptyMap())
@@ -1593,6 +1780,15 @@ class LauncherViewModel {
     /** 服务器列表（可观察） */
     @PublishedApi internal val _favoriteServers = MutableStateFlow<List<FavoriteServer>>(emptyList())
     val favoriteServers: StateFlow<List<FavoriteServer>> = _favoriteServers.asStateFlow()
+
+    /** 社区客户端：有发行包就下载，没有则用用户选择的编译器从源码构建。 */
+    @PublishedApi internal val _nativeClients =
+        MutableStateFlow<List<com.pmcl.core.nativeclient.NativeClientInstaller.Card>>(emptyList())
+    val nativeClients: StateFlow<List<com.pmcl.core.nativeclient.NativeClientInstaller.Card>> =
+        _nativeClients.asStateFlow()
+    @PublishedApi internal val _nativeClientWorking = MutableStateFlow(false)
+    val nativeClientWorking: StateFlow<Boolean> = _nativeClientWorking.asStateFlow()
+    @PublishedApi internal val nativeClientGate = java.util.concurrent.atomic.AtomicBoolean(false)
 
     /** 服务器完整状态（可观察），key = "host:port" */
     @PublishedApi internal val _serverStatuses =
@@ -1680,6 +1876,7 @@ class LauncherViewModel {
             when (preferences.getMpBackend()) {
                 "CONNECTX" -> com.pmcl.core.multiplayer.MultiplayerManager.Backend.CONNECTX
                 "EASYTIER" -> com.pmcl.core.multiplayer.MultiplayerManager.Backend.EASYTIER
+                "REDSTONE" -> com.pmcl.core.multiplayer.MultiplayerManager.Backend.REDSTONE
                 else -> com.pmcl.core.multiplayer.MultiplayerManager.Backend.TERRACOTTA
             }
         )
@@ -2317,6 +2514,24 @@ class LauncherViewModel {
         }
     }
 
+    /** 从市场把整合包放进下载队列：先用下载器拉取压缩包，再导入为新游戏。 */
+    fun enqueueMarketModpack(file: ModFile) {
+        val url = file.downloadUrl
+        if (url.isNullOrBlank()) {
+            _status.value = I18n.t("status.modpack_import_failed", file.fileName ?: "")
+            return
+        }
+        initDownloadQueue()
+        core.downloadQueue().submitMarketModpack(file) {
+            _status.value = I18n.t("status.modpack_import_complete")
+            refreshModpacks()
+            refreshLocalVersions()
+            loadInstances()
+        }
+        _status.value = I18n.t("status.queued_native", file.fileName ?: I18n.t("market.type.modpack"))
+        refreshQueue()
+    }
+
     /** 导入整合包文件（.mrpack 或 .zip） */
     fun importModpack(filePath: String) {
         if (_modpackBusy.value) {
@@ -2453,8 +2668,7 @@ class LauncherViewModel {
         queueListenerRegistered = true
         val qListener = java.util.function.Consumer<List<com.pmcl.core.download.DownloadQueueManager.QueueTask>> { tasks ->
             // 在 IO 线程回调，直接更新 StateFlow（Compose 快照系统线程安全）
-            _queueTasks.value = tasks
-            _queueSummary.value = core.downloadQueue().summary
+            publishQueue(tasks)
         }
         core.downloadQueue().addListener(qListener)
         queueListener = qListener
@@ -2463,8 +2677,13 @@ class LauncherViewModel {
 
     /** 刷新队列状态 */
     fun refreshQueue() {
-        _queueTasks.value = core.downloadQueue().tasks
-        _queueSummary.value = core.downloadQueue().summary
+        publishQueue(core.downloadQueue().tasks)
+    }
+
+    private fun publishQueue(tasks: List<DownloadQueueManager.QueueTask>) {
+        val views = tasks.map { it.toSnapshot() }
+        _queueTasks.value = views
+        _queueSummary.value = summarizeSnapshots(views)
     }
 
     /** 提交版本安装到队列 */
@@ -2476,21 +2695,68 @@ class LauncherViewModel {
 
     /** 提交模组加载器安装到队列 */
     fun enqueueModLoaderInstall(loaderName: String, gameVersion: String, loaderVersion: String) {
+        initDownloadQueue()
         core.downloadQueue().submitModLoaderInstall(loaderName, gameVersion, loaderVersion)
         _status.value = I18n.t("status.queued_loader", loaderName, loaderVersion)
         refreshQueue()
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    var idleRounds = 0
+                    while (idleRounds < 3) {
+                        kotlinx.coroutines.delay(800)
+                        val active = core.downloadQueue().tasks.any {
+                            it.name.contains(loaderVersion) && it.isActive
+                        }
+                        if (!active) idleRounds++ else idleRounds = 0
+                    }
+                }
+                refreshLocalVersions()
+            } catch (_: kotlinx.coroutines.CancellationException) {
+                throw kotlinx.coroutines.CancellationException()
+            } catch (_: Throwable) {
+            }
+        }
     }
 
     /** 提交模组下载到队列 */
     fun enqueueModDownload(modFile: ModFile, gameVersion: String, versionId: String? = null) {
         val vid = versionId ?: _selectedVersion.value
-        core.downloadQueue().submitModDownload(modFile, gameVersion, vid, _selectedInstanceId.value)
+        // 指定了游戏就只写入该游戏，不再跟当前自定义实例走。
+        val instanceId = if (versionId == null) _selectedInstanceId.value else null
+        core.downloadQueue().submitModDownload(modFile, gameVersion, vid, instanceId)
         _status.value = I18n.t("status.queued_mod", modFile.fileName)
         // 若该模组有 API 声明的依赖，提醒用户可使用"带依赖下载"
         val deps = modFile.getDependencies()
         if (deps != null && deps.isNotEmpty()) {
             _status.value = I18n.t("status.mod_has_deps", modFile.fileName, deps.size)
         }
+        refreshQueue()
+    }
+
+    /**
+     * 市场光影或材质进入下载队列，写到所选游戏的 shaderpacks / resourcepacks。
+     * kind 为 shader 或 resourcepack。
+     */
+    fun enqueueMarketContent(file: ModFile, kind: String, versionId: String? = null) {
+        val folder = when (kind) {
+            "shader" -> "shaderpacks"
+            "resourcepack" -> "resourcepacks"
+            else -> {
+                _status.value = I18n.t("status.download_failed", kind)
+                return
+            }
+        }
+        initDownloadQueue()
+        val vid = versionId ?: _selectedVersion.value
+        val instanceId = if (versionId == null) _selectedInstanceId.value else null
+        core.downloadQueue().submitMarketContent(file, folder, vid, instanceId) {
+            when (kind) {
+                "shader" -> refreshShaderPacks()
+                "resourcepack" -> refreshResourcePacks()
+            }
+        }
+        _status.value = I18n.t("status.queued_native", file.fileName ?: "")
         refreshQueue()
     }
 
@@ -3017,6 +3283,65 @@ class LauncherViewModel {
 
     /** 向后兼容：下载 Java 21。 */
     fun downloadJava21() = downloadJava(21)
+
+    /** 查询当前系统上某个发行版已发布的 JDK 主版本。 */
+    fun listFoojayBuilds(distro: String): List<com.pmcl.core.runtime.FoojayDisco.Build> {
+        return com.pmcl.core.runtime.FoojayDisco.listBuilds(core.downloads(), distro)
+    }
+
+    /**
+     * 按发行版下载 JDK。安装包地址和 SHA-256 只从 Foojay 的包信息接口读取。
+     * 手动选择 Java 时，装好后切到这个运行时。
+     */
+    fun downloadFoojayJava(distro: String, build: com.pmcl.core.runtime.FoojayDisco.Build) {
+        if (_javaDownloading.value || build == null || distro.isNullOrBlank()) return
+        val major = build.major
+        val javaVersion = build.javaVersion?.ifBlank { major.toString() } ?: major.toString()
+        scope.launch {
+            _javaDownloading.value = true
+            _javaDownloadStatus.value = I18n.t("settings.java_download_preparing", javaVersion)
+            try {
+                val javaBin = withContext(Dispatchers.IO) {
+                    val resolved = com.pmcl.core.runtime.FoojayDisco.resolve(core.downloads(), build.id)
+                    core.javaDownloader().installFoojay(
+                        distro,
+                        major,
+                        javaVersion,
+                        resolved.url,
+                        resolved.sha256,
+                        resolved.filename,
+                        build.size
+                    ) { msg ->
+                        _javaDownloadStatus.value = msg
+                    }.join()
+                }
+                val installations = withContext(Dispatchers.IO) {
+                    JavaRuntimeFinder.scanAllJavaInstallations(config.getRuntimesDir())
+                }
+                _javaInstallations.value = installations
+                if (javaBin != null
+                    && preferences.getJavaSelectionMode() == "SELECTED"
+                    && javaBin.toFile().canExecute()
+                ) {
+                    setJavaPath(javaBin.toString())
+                }
+                _javaDownloadStatus.value = I18n.t(
+                    "settings.java_download_done",
+                    javaBin?.toString() ?: ""
+                )
+                _status.value = I18n.t("status.java_install_complete", major)
+            } catch (e: Throwable) {
+                val detail = generateSequence(e) { it.cause }
+                    .mapNotNull { it.message }
+                    .firstOrNull { it.isNotBlank() }
+                    ?: I18n.t("common.unknown")
+                _javaDownloadStatus.value = detail
+                _status.value = I18n.t("status.java_download_failed", major, detail)
+            } finally {
+                _javaDownloading.value = false
+            }
+        }
+    }
 
     /** 手动指定 Java 可执行文件路径（空字符串表示自动检测）。 */
     fun setJavaPath(path: String) {

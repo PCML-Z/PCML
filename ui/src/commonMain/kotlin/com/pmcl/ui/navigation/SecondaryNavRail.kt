@@ -42,6 +42,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
@@ -51,6 +52,8 @@ import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
 import com.pmcl.ui.animation.MotionTokens
 import com.pmcl.ui.animation.StaggerTokens
+import com.pmcl.ui.theme.LocalThemeState
+import com.pmcl.ui.theme.glassContainerColor
 import kotlinx.coroutines.delay
 
 /** 二级侧栏宽度：比一级 NavigationRail 更宽，便于展示长标签 */
@@ -91,8 +94,14 @@ fun SecondaryNavRail(
         )
     }
     val railProgress = railEnter.value
+    val theme = LocalThemeState.current
+    // 玻璃、动态壁纸玻璃和材质主题下，侧栏本身不铺实色，让后面的毛玻璃透出来。
+    val glassChrome = theme.materialTheme || theme.glassTheme || theme.liveWallpaperGlass
 
     Surface(
+        color = if (glassChrome) Color.Transparent else MaterialTheme.colorScheme.surface,
+        shadowElevation = 0.dp,
+        tonalElevation = 0.dp,
         modifier = railModifier
             .width(SecondaryNavRailWidth)
             .fillMaxHeight()
@@ -205,8 +214,8 @@ private fun SecondaryNavItem(
     }
     val enterProgress = enter.value
 
-    // 未选中直接用静态色，避免 N 项同时跑 color AsState
-    val selectedBg = MaterialTheme.colorScheme.secondaryContainer
+    // 玻璃主题下选中条用半透明容器色，和卡片同一套透明度，不再铺一块实色。
+    val selectedBg = glassContainerColor(MaterialTheme.colorScheme.secondaryContainer)
     val selectedFg = MaterialTheme.colorScheme.onSecondaryContainer
     val unselectedFg = MaterialTheme.colorScheme.onSurface
     val bg by animateColorAsState(

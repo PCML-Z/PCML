@@ -46,24 +46,28 @@ public final class ServerPinger {
      * @return 延迟毫秒数；-1 不可达；-2 超时
      */
     public static long ping(String host, int port, int timeout) {
-        // 输入校验：避免非法 host/port 触发未预期异常
-        if (host == null || host.isEmpty() || port <= 0 || port > 65535 || timeout <= 0) {
+        return ping(host, port, timeout, "");
+    }
+
+    public static long ping(String host, int port, int timeout, String token) {
+        String connect = HiddenServerAddress.connectHost(host);
+        if (connect.isEmpty() || port <= 0 || port > 65535 || timeout <= 0) {
             return UNREACHABLE;
         }
-        String ssrf = com.pmcl.core.util.SsrfChecker.validateHostAllowingPrivateLan(host);
+        String ssrf = com.pmcl.core.util.SsrfChecker.validateHostAllowingPrivateLan(connect);
         if (ssrf != null) {
             return UNREACHABLE;
         }
         long start = System.currentTimeMillis();
         try (Socket socket = new Socket()) {
-            socket.connect(new InetSocketAddress(host, port), timeout);
+            socket.connect(new InetSocketAddress(connect, port), timeout);
             socket.setSoTimeout(timeout);
 
             DataOutputStream out = new DataOutputStream(new BufferedOutputStream(socket.getOutputStream()));
             DataInputStream in = new DataInputStream(new BufferedInputStream(socket.getInputStream()));
 
-            // 构造 Handshake 包
-            byte[] hostBytes = host.getBytes(StandardCharsets.UTF_8);
+            // 构造 Handshake 包。隐身服务器的令牌写在主机字段里，不写进 TCP 地址。
+            byte[] hostBytes = HiddenServerAddress.packetHost(host, token).getBytes(StandardCharsets.UTF_8);
             // Handshake payload: protocolVersion=-1(VarInt) + host(VarInt len + bytes) + port(UShort) + nextState=1(VarInt)
             int handshakePayloadLen = 1 + varIntLength(hostBytes.length) + hostBytes.length + 2 + 1;
             // 写包长度
@@ -168,23 +172,27 @@ public final class ServerPinger {
      * @return ServerStatus 对象；latency &lt; 0 表示不可达或超时
      */
     public static ServerStatus pingFull(String host, int port, int timeout) {
-        if (host == null || host.isEmpty() || port <= 0 || port > 65535 || timeout <= 0) {
+        return pingFull(host, port, timeout, "");
+    }
+
+    public static ServerStatus pingFull(String host, int port, int timeout, String token) {
+        String connect = HiddenServerAddress.connectHost(host);
+        if (connect.isEmpty() || port <= 0 || port > 65535 || timeout <= 0) {
             return new ServerStatus(UNREACHABLE, "", 0, 0, "", 0, null, "Invalid host/port");
         }
-        String ssrf = com.pmcl.core.util.SsrfChecker.validateHostAllowingPrivateLan(host);
+        String ssrf = com.pmcl.core.util.SsrfChecker.validateHostAllowingPrivateLan(connect);
         if (ssrf != null) {
             return new ServerStatus(UNREACHABLE, "", 0, 0, "", 0, null, ssrf);
         }
         long start = System.currentTimeMillis();
         try (Socket socket = new Socket()) {
-            socket.connect(new InetSocketAddress(host, port), timeout);
+            socket.connect(new InetSocketAddress(connect, port), timeout);
             socket.setSoTimeout(timeout);
 
             DataOutputStream out = new DataOutputStream(new BufferedOutputStream(socket.getOutputStream()));
             DataInputStream in = new DataInputStream(new BufferedInputStream(socket.getInputStream()));
 
-            // 构造 Handshake 包
-            byte[] hostBytes = host.getBytes(StandardCharsets.UTF_8);
+            byte[] hostBytes = HiddenServerAddress.packetHost(host, token).getBytes(StandardCharsets.UTF_8);
             int handshakePayloadLen = 1 + varIntLength(hostBytes.length) + hostBytes.length + 2 + 1;
             writeVarInt(out, handshakePayloadLen);
             writeVarInt(out, 0);

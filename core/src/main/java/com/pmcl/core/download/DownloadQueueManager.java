@@ -10,9 +10,11 @@ import com.pmcl.core.market.ModMarketManager;
 import com.pmcl.core.modloader.ModLoader;
 import com.pmcl.core.modloader.ModLoaderInstaller;
 import com.pmcl.core.modloader.ModLoaderManager;
+import com.pmcl.core.modpack.ModpackManager;
 import com.pmcl.core.preferences.Preferences;
 import com.pmcl.core.util.Exceptions;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -52,7 +54,9 @@ public final class DownloadQueueManager {
         VERSION_INSTALL,   // 安装完整 MC 版本
         MOD_LOADER_INSTALL,// 安装模组加载器
         MOD_DOWNLOAD,      // 下载单个模组
-        GENERIC_FILE       // 普通文件下载
+        GENERIC_FILE,      // 普通文件下载
+        NATIVE_CLIENT,     // 社区客户端发行包或源码
+        MARKET_CONTENT     // 市场光影、材质或整合包
     }
 
     public enum TaskStatus {
@@ -96,6 +100,8 @@ public final class DownloadQueueManager {
         /** 模组下载完成事件用：显示名 / 文件名 */
         private volatile String eventModName;
         private volatile String eventModVersion;
+        /** 社区客户端 id，用来避免同一个客户端重复进队列。 */
+        private volatile String nativeClientId;
 
         public QueueTask(String id, String name, TaskType type) {
             this.id = id;
@@ -140,6 +146,10 @@ public final class DownloadQueueManager {
     private final ModMarketManager modMarketManager;
     private final ModLoaderManager modLoaderManager;
     private final Preferences preferences;
+    /** 整合包导入。在 LauncherCore 里队列建好后注入，避免和 ModpackManager 循环构造。 */
+    private volatile ModpackManager modpackManager;
+    /** 同一时间只导入一个整合包，避免两个安装同时写版本目录。 */
+    private final Object modpackImportLock = new Object();
 
     /** Optional plugin event bus. */
     private volatile com.pmcl.core.plugin.PluginManager pluginManager;
@@ -195,6 +205,10 @@ public final class DownloadQueueManager {
         this.pluginManager = pluginManager;
     }
 
+    public void setModpackManager(ModpackManager modpackManager) {
+        this.modpackManager = modpackManager;
+    }
+
     // ===== 任务提交 =====
 
     /**
@@ -238,10 +252,7 @@ public final class DownloadQueueManager {
             try {
                 versionInstaller.install(versionId, progress -> {
                     throwIfTaskInterrupted(task);
-                    task.totalBytes = Math.max(task.totalBytes, progress.getTotal());
-                    task.completedBytes = progress.getCompleted();
-                    task.message = progress.getMessage() != null ? progress.getMessage() : "安装中";
-                    notifyProgress(task);
+                    applyInstallProgress(task, progress.getCompleted(), progress.getTotal(), progress.getMessage());
                 }).join();
                 if (withLoader) {
                     throwIfTaskInterrupted(task);
@@ -307,8 +318,56 @@ public final class DownloadQueueManager {
     }
 
     /**
-     * 提交普通文件下载任务。
+     * 把社区客户端的发行包或源码放进下载队列，由 {@link DownloadManager} 下载。
+     * 同一个客户端已在排队、下载或暂停时不重复提交。
      */
+    public String submitNativeClient(Path pmclHome, String id, String displayName, String compileRuntime,
+                                     Runnable onInstalled) {
+        synchronized (tasks) {
+            for (QueueTask existing : tasks.values()) {
+                if (!id.equals(existing.nativeClientId)) continue;
+                if (existing.isActive() || existing.status == TaskStatus.PAUSED) return existing.id;
+            }
+        }
+        String name = displayName == null || displayName.isBlank() ? id : displayName;
+        QueueTask task = new QueueTask(UUID.randomUUID().toString(), name, TaskType.NATIVE_CLIENT);
+        task.nativeClientId = id;
+        task.message = "等待下载: " + name;
+        addTask(task);
+        schedule(task, () -> runNativeClient(task, pmclHome, id, compileRuntime, onInstalled));
+        return task.id;
+    }
+
+    /**
+     * 市场光影或材质：用下载器写入所选游戏的 shaderpacks / resourcepacks，并走队列进度。
+     *
+     * @param folder shaderpacks 或 resourcepacks
+     */
+    public String submitMarketContent(ModFile file, String folder, String versionId, String instanceId,
+                                      Runnable onInstalled) {
+        String displayName = file.getFileName() != null && !file.getFileName().isBlank()
+                ? file.getFileName() : folder;
+        QueueTask task = new QueueTask(UUID.randomUUID().toString(), displayName, TaskType.MARKET_CONTENT);
+        task.totalBytes = Math.max(0, file.getFileSize());
+        task.message = "等待下载: " + displayName;
+        task.eventModName = displayName;
+        addTask(task);
+        schedule(task, () -> runMarketContent(task, file, folder, versionId, instanceId, onInstalled));
+        return task.id;
+    }
+
+    /** 市场整合包：先校验下载压缩包，再在队列线程里导入为新游戏。 */
+    public String submitMarketModpack(ModFile file, Runnable onInstalled) {
+        String displayName = file.getFileName() != null && !file.getFileName().isBlank()
+                ? file.getFileName() : "modpack";
+        QueueTask task = new QueueTask(UUID.randomUUID().toString(), displayName, TaskType.MARKET_CONTENT);
+        task.totalBytes = Math.max(0, file.getFileSize());
+        task.message = "等待下载: " + displayName;
+        addTask(task);
+        schedule(task, () -> runMarketModpack(task, file, onInstalled));
+        return task.id;
+    }
+
     public String submitFileDownload(String name, String url, Path target) {
         QueueTask task = new QueueTask(UUID.randomUUID().toString(),
                 name, TaskType.GENERIC_FILE);
@@ -478,10 +537,18 @@ public final class DownloadQueueManager {
      * 获取队列统计总览。
      */
     public QueueSummary getSummary() {
+        synchronized (tasks) {
+            return summarize(new ArrayList<>(tasks.values()));
+        }
+    }
+
+    /** 用同一次任务快照算总览，避免卡片还是旧字节、标题已经是新字节。 */
+    public static QueueSummary summarize(List<QueueTask> snapshot) {
         int queued = 0, running = 0, paused = 0, done = 0, failed = 0, cancelled = 0;
         long totalBytes = 0, completedBytes = 0;
-        synchronized (tasks) {
-            for (QueueTask t : tasks.values()) {
+        if (snapshot != null) {
+            for (QueueTask t : snapshot) {
+                if (t == null) continue;
                 switch (t.status) {
                     case QUEUED: queued++; break;
                     case RUNNING: running++; break;
@@ -496,6 +563,28 @@ public final class DownloadQueueManager {
         }
         return new QueueSummary(queued, running, paused, done, failed, cancelled,
                 totalBytes, completedBytes);
+    }
+
+    /**
+     * 安装器的占位进度（例如「下载资产索引」0/1）不能把已经记下的字节清成 0。
+     * 真正的字节或文件计数到来时，换成这一阶段的总量，不再和上一个阶段取最大值。
+     *
+     * @return null 表示字节不变
+     */
+    static long[] mergeInstallProgress(long currentCompleted, long currentTotal,
+                                       long reportedCompleted, long reportedTotal) {
+        if (reportedTotal <= 1 && reportedCompleted <= 0) return null;
+        long total = reportedTotal > 1 ? reportedTotal : Math.max(currentTotal, reportedCompleted);
+        long completed = Math.max(0, reportedCompleted);
+        if (total < completed) total = completed;
+        if (total <= 0) return null;
+        return new long[]{completed, total};
+    }
+
+    /** 去掉数字后比较阶段，避免「下载中 12 / 100」这类句子每次都打断节流。 */
+    static String phaseKey(String message) {
+        if (message == null || message.isBlank()) return "";
+        return message.replaceAll("\\d+", "#");
     }
 
     /** 队列统计快照 */
@@ -554,11 +643,15 @@ public final class DownloadQueueManager {
         }
     }
 
-    /** 进度通知（节流） */
+    /** 进度通知（节流）。阶段文字变化时立刻刷新，避免还停在上一句。 */
     private void notifyProgress(QueueTask task) {
+        notifyProgress(task, false);
+    }
+
+    private void notifyProgress(QueueTask task, boolean force) {
         long now = System.currentTimeMillis();
         Long last = lastNotifyTime.get(task.id);
-        if (last != null && now - last < PROGRESS_THROTTLE_MS) return;
+        if (!force && last != null && now - last < PROGRESS_THROTTLE_MS) return;
         lastNotifyTime.put(task.id, now);
         notifyListeners();
     }
@@ -692,10 +785,7 @@ public final class DownloadQueueManager {
         try {
             versionInstaller.install(versionId, progress -> {
                 throwIfTaskInterrupted(task);
-                task.totalBytes = Math.max(task.totalBytes, progress.getTotal());
-                task.completedBytes = progress.getCompleted();
-                task.message = progress.getMessage() != null ? progress.getMessage() : "安装中";
-                notifyProgress(task);
+                applyInstallProgress(task, progress.getCompleted(), progress.getTotal(), progress.getMessage());
             }).join();
         } catch (Throwable e) {
             rethrowQueueFailure(e);
@@ -717,8 +807,12 @@ public final class DownloadQueueManager {
             notifyProgress(task);
             installer.install(gameVersion, loaderVersion, progress -> {
                 throwIfTaskInterrupted(task);
-                task.totalBytes = Math.max(task.totalBytes, progress.getTotal());
-                task.completedBytes = progress.getCompleted();
+                // total 为 0 的回调只更新文字。不能把已有进度清成 0，
+                // 否则 Forbric 构建阶段会把刚下完的安装器显示成 0%。
+                if (progress.getTotal() > 0) {
+                    task.totalBytes = Math.max(task.totalBytes, progress.getTotal());
+                    task.completedBytes = progress.getCompleted();
+                }
                 task.message = progress.getMessage() != null ? progress.getMessage() : "安装中";
                 notifyProgress(task);
             }).join();
@@ -752,6 +846,129 @@ public final class DownloadQueueManager {
             if (!(task.pauseRequested || task.status == TaskStatus.PAUSED)) {
                 clearResumeWork(task.id);
             }
+        }
+    }
+
+    private void runNativeClient(QueueTask task, Path pmclHome, String id, String compileRuntime, Runnable onInstalled) {
+        storeResumeWork(task.id, () -> runNativeClient(task, pmclHome, id, compileRuntime, onInstalled));
+        try {
+            com.pmcl.core.nativeclient.NativeClientInstaller.install(
+                    pmclHome, downloadManager, id, compileRuntime,
+                    message -> {
+                        throwIfTaskInterrupted(task);
+                        task.message = message;
+                        notifyProgress(task);
+                    },
+                    (completed, total) -> {
+                        throwIfTaskInterrupted(task);
+                        if (total > 0) task.totalBytes = total;
+                        task.completedBytes = completed;
+                        notifyProgress(task);
+                    });
+            if (onInstalled != null) {
+                try {
+                    onInstalled.run();
+                } catch (Throwable ignored) {
+                    // 安装已经完成，刷新界面失败不影响队列结果
+                }
+            }
+        } catch (Throwable e) {
+            rethrowQueueFailure(e);
+        } finally {
+            if (!(task.pauseRequested || task.status == TaskStatus.PAUSED)) {
+                clearResumeWork(task.id);
+            }
+        }
+    }
+
+    private void runMarketContent(QueueTask task, ModFile file, String folder,
+                                  String versionId, String instanceId, Runnable onInstalled) {
+        storeResumeWork(task.id, () -> runMarketContent(task, file, folder, versionId, instanceId, onInstalled));
+        try {
+            modMarketManager.installContentFile(file, folder, versionId, instanceId, preferences,
+                    status -> {
+                        throwIfTaskInterrupted(task);
+                        task.message = status;
+                        notifyProgress(task);
+                    },
+                    bytes -> noteDownloadBytes(task, bytes));
+            if (task.totalBytes > 0) task.completedBytes = task.totalBytes;
+            runInstalledCallback(onInstalled);
+        } catch (Throwable e) {
+            rethrowQueueFailure(e);
+        } finally {
+            if (!(task.pauseRequested || task.status == TaskStatus.PAUSED)) {
+                clearResumeWork(task.id);
+            }
+        }
+    }
+
+    private void runMarketModpack(QueueTask task, ModFile file, Runnable onInstalled) {
+        storeResumeWork(task.id, () -> runMarketModpack(task, file, onInstalled));
+        Path zip = null;
+        try {
+            ModpackManager packs = modpackManager;
+            if (packs == null) {
+                throw new java.io.IOException("整合包管理器未就绪");
+            }
+            task.message = "正在下载: " + task.name;
+            notifyProgress(task);
+            zip = modMarketManager.downloadModpackArchive(file, bytes -> noteDownloadBytes(task, bytes));
+            if (task.totalBytes > 0) task.completedBytes = task.totalBytes;
+            final Path archive = zip;
+            synchronized (modpackImportLock) {
+                throwIfTaskInterrupted(task);
+                task.message = "正在安装整合包";
+                notifyProgress(task);
+                packs.importModpack(archive, progress -> {
+                    throwIfTaskInterrupted(task);
+                    applyInstallProgress(task, progress.getCompleted(), progress.getTotal(), progress.getMessage());
+                }).join();
+            }
+            runInstalledCallback(onInstalled);
+        } catch (Throwable e) {
+            rethrowQueueFailure(e);
+        } finally {
+            boolean paused = task.pauseRequested || task.status == TaskStatus.PAUSED;
+            if (!paused && zip != null) {
+                try {
+                    Files.deleteIfExists(zip);
+                } catch (java.io.IOException ignored) {
+                }
+            }
+            if (!paused) clearResumeWork(task.id);
+        }
+    }
+
+    private void applyInstallProgress(QueueTask task, long completed, long total, String message) {
+        long[] merged = mergeInstallProgress(task.completedBytes, task.totalBytes, completed, total);
+        if (merged != null) {
+            task.completedBytes = merged[0];
+            task.totalBytes = merged[1];
+        }
+        boolean phaseChanged = false;
+        if (message != null && !message.isBlank() && !message.equals(task.message)) {
+            phaseChanged = !phaseKey(task.message).equals(phaseKey(message));
+            task.message = message;
+        }
+        notifyProgress(task, phaseChanged);
+    }
+
+    /** 只接受正数进度，避免 0 字节回调把已经走起来的进度条打回 0。 */
+    private void noteDownloadBytes(QueueTask task, long completed) {
+        throwIfTaskInterrupted(task);
+        if (completed <= 0) return;
+        if (task.totalBytes < completed) task.totalBytes = completed;
+        task.completedBytes = completed;
+        notifyProgress(task);
+    }
+
+    private static void runInstalledCallback(Runnable onInstalled) {
+        if (onInstalled == null) return;
+        try {
+            onInstalled.run();
+        } catch (Throwable ignored) {
+            // 文件已经落盘，刷新界面失败不影响队列结果
         }
     }
 

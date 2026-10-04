@@ -165,5 +165,43 @@ final class MioFlags {
         return flags;
     }
 
+    /** 启动时把最大堆碰一遍。堆越大，启动越慢，之后少一次分配卡顿。 */
+    static List<String> buildPretouch() {
+        return List.of("-XX:+AlwaysPreTouch");
+    }
+
+    /** G1 合并内容相同的字符串。ZGC 路径不要调用。 */
+    static List<String> buildStringDedup() {
+        return List.of("-XX:+UseStringDeduplication");
+    }
+
+    /**
+     * 一分钟负载低于 2 时，每 30 秒做一次 G1 回收。
+     * 游戏正忙时负载通常更高，这一次会跳过。ZGC 路径不要调用。
+     */
+    static List<String> buildIdleGc() {
+        return List.of(
+                "-XX:G1PeriodicGCInterval=30000",
+                "-XX:G1PeriodicGCSystemLoadThreshold=2");
+    }
+
+    /**
+     * 双显卡机器优先独立显卡。macOS 没有对应环境变量，返回空列表。
+     * 调用方要避开已经指定的软件渲染器和 Linux Zink。
+     */
+    static List<String[]> discreteGpuEnv(String osName) {
+        String os = osName == null ? "" : osName.toLowerCase(java.util.Locale.ROOT);
+        List<String[]> env = new ArrayList<>();
+        if (os.contains("win")) {
+            env.add(new String[] {"SHIM_MCCOMPAT", "0x800000001"});
+        } else if (os.contains("nux") || os.contains("nix")) {
+            env.add(new String[] {"DRI_PRIME", "1"});
+            env.add(new String[] {"__NV_PRIME_RENDER_OFFLOAD", "1"});
+            env.add(new String[] {"__GLX_VENDOR_LIBRARY_NAME", "nvidia"});
+            env.add(new String[] {"__VK_LAYER_NV_optimus", "NVIDIA_only"});
+        }
+        return env;
+    }
+
     private MioFlags() {}
 }

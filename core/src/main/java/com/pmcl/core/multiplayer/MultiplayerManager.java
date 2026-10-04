@@ -32,7 +32,7 @@ import java.util.regex.Pattern;
 public final class MultiplayerManager {
 
     public enum State { IDLE, DOWNLOADING, CONNECTING, CONNECTED, DISCONNECTED, FAILED }
-    public enum Backend { EASYTIER, CONNECTX, TERRACOTTA }
+    public enum Backend { EASYTIER, CONNECTX, TERRACOTTA, REDSTONE }
 
     /** 邀请码前缀 */
     private static final String INVITE_PREFIX_EASYTIER = "pmcl-";
@@ -50,6 +50,8 @@ public final class MultiplayerManager {
     private final EasyTierManager easyTier;
     private final ConnectXManager connectX;
     private final TerracottaManager terracotta;
+    private final RedstoneClient redstone;
+    private final AtomicLong redstoneGeneration = new AtomicLong();
     private volatile com.pmcl.core.plugin.PluginManager pluginManager;
     private volatile Backend backend = Backend.TERRACOTTA;
     private volatile State state = State.IDLE;
@@ -71,14 +73,24 @@ public final class MultiplayerManager {
     private volatile String connectxBinaryPath = "";
     private volatile String connectxServerAddress = "";
     private volatile int connectxServerPort = 3535;
+    /** 红石联机中继、本机端口和密钥。密钥只在内存里，持久化由偏好设置负责。 */
+    private volatile String redstoneRelay = RedstoneClient.DEFAULT_RELAY;
+    private volatile int redstoneLocalPort = 25565;
+    private volatile int redstoneMaxPlayers = RedstoneClient.DEFAULT_MAX_PLAYERS;
+    private volatile String redstoneApiKey = "";
     /** ConnectX CONNECTING 看门狗代数：CONNECTED/FAILED/leave 时递增作废 */
     private final AtomicLong connectingWatchGen = new AtomicLong(0);
     private static final long CONNECTX_CONNECTING_TIMEOUT_MS = 90_000L;
 
     public MultiplayerManager() {
+        this(new RedstoneClient());
+    }
+
+    MultiplayerManager(RedstoneClient redstone) {
         this.easyTier = new EasyTierManager();
         this.connectX = new ConnectXManager();
         this.terracotta = new TerracottaManager();
+        this.redstone = redstone;
     }
 
     /** Optional plugin event bus (set by LauncherCore after PluginManager init). */
@@ -125,6 +137,15 @@ public final class MultiplayerManager {
     public EasyTierManager getEasyTier() { return easyTier; }
     public ConnectXManager getConnectX() { return connectX; }
     public TerracottaManager getTerracotta() { return terracotta; }
+    public RedstoneClient getRedstone() { return redstone; }
+
+    /** 同步红石联机的中继、本机端口、人数上限和 API Key。 */
+    public void configureRedstone(String relay, int localPort, int maxPlayers, String apiKey) {
+        if (relay != null && !relay.isBlank()) this.redstoneRelay = relay.trim();
+        if (localPort > 0 && localPort < 65536) this.redstoneLocalPort = localPort;
+        if (maxPlayers > 0) this.redstoneMaxPlayers = Math.min(RedstoneClient.MAX_PLAYERS, maxPlayers);
+        if (apiKey != null && RedstoneClient.isApiKey(apiKey.trim())) this.redstoneApiKey = apiKey.trim();
+    }
     public Backend getBackend() { return backend; }
     public void setBackend(Backend b) { this.backend = b; }
     public State getState() { return state; }
@@ -163,6 +184,9 @@ public final class MultiplayerManager {
      */
     public synchronized CompletableFuture<Void> createRoom(Consumer<String> onProgress,
                                                             int localLanPortHint) {
+        if (backend == Backend.REDSTONE) {
+            return createRoomRedstone(onProgress);
+        }
         if (backend == Backend.TERRACOTTA) {
             return createRoomTerracotta(onProgress, "PMCL-Player", localLanPortHint);
         }
@@ -192,6 +216,9 @@ public final class MultiplayerManager {
             return CompletableFuture.failedFuture(new IllegalStateException("已在房间中或正在连接，请先离开"));
         }
         String trimmed = invitationCode.trim();
+        if (backend == Backend.REDSTONE) {
+            return rememberRedstoneAddress(trimmed);
+        }
         // Terracotta 房间码格式：U/XXXX-XXXX-XXXX-XXXX
         if (trimmed.startsWith("U/") || backend == Backend.TERRACOTTA) {
             return joinRoomTerracotta(trimmed, onProgress, "PMCL-Player");
@@ -265,6 +292,12 @@ public final class MultiplayerManager {
                 cleanupOk = false;
                 cleanupError = t.getMessage() != null ? t.getMessage() : t.toString();
             }
+        } else if (backend == Backend.REDSTONE) {
+            redstoneGeneration.incrementAndGet();
+            try { redstone.close(); } catch (Throwable t) {
+                cleanupOk = false;
+                cleanupError = t.getMessage() != null ? t.getMessage() : t.toString();
+            }
         } else {
             try { easyTier.stop(); } catch (Throwable t) {
                 cleanupOk = false;
@@ -296,6 +329,9 @@ public final class MultiplayerManager {
      * Terracotta 后端直接返回房间码 U/XXXX-XXXX-XXXX-XXXX。
      */
     public String generateInvitation() {
+        if (backend == Backend.REDSTONE) {
+            return currentRoomCode == null ? "" : currentRoomCode;
+        }
         if (backend == Backend.TERRACOTTA) {
             return currentRoomCode;
         }
@@ -425,6 +461,84 @@ public final class MultiplayerManager {
                 .compile("\"" + java.util.regex.Pattern.quote(field) + "\"\\s*:\\s*\"([^\"]*?)\"")
                 .matcher(json);
         return m.find() ? m.group(1) : "";
+    }
+
+    private CompletableFuture<Void> createRoomRedstone(Consumer<String> onProgress) {
+        if (isBusy()) {
+            return CompletableFuture.failedFuture(new IllegalStateException("已在房间中或正在连接，请先离开"));
+        }
+        if (!RedstoneClient.isApiKey(redstoneApiKey)) {
+            state = State.FAILED;
+            lastError = "缺少联机密钥";
+            return CompletableFuture.failedFuture(new IllegalStateException(lastError));
+        }
+        final long generation = redstoneGeneration.incrementAndGet();
+        final String relay = redstoneRelay == null || redstoneRelay.isBlank()
+                ? RedstoneClient.DEFAULT_RELAY : redstoneRelay;
+        final int port = redstoneLocalPort > 0 ? redstoneLocalPort : 25565;
+        final int players = redstoneMaxPlayers;
+        final String key = redstoneApiKey;
+        state = State.CONNECTING;
+        lastError = "";
+        virtualIp = "";
+        return CompletableFuture.runAsync(() -> {
+            try {
+                if (onProgress != null) onProgress.accept("正在申请公网隧道…");
+                RedstoneClient.Opened opened = redstone.open(relay, key, "127.0.0.1", port, players);
+                String code = null;
+                String local = null;
+                synchronized (MultiplayerManager.this) {
+                    if (generation != redstoneGeneration.get()) {
+                        redstone.close();
+                    } else {
+                        currentRoomCode = opened.publicAddress();
+                        localMcAddr = opened.localTarget();
+                        virtualIp = "";
+                        state = State.CONNECTED;
+                        lastError = "";
+                        code = currentRoomCode;
+                        local = localMcAddr;
+                    }
+                }
+                if (code != null) fireRoomCreated(code, local);
+            } catch (Exception e) {
+                synchronized (MultiplayerManager.this) {
+                    if (generation == redstoneGeneration.get()) {
+                        state = State.FAILED;
+                        lastError = redstoneMessage(e);
+                    }
+                }
+            }
+        });
+    }
+
+    private CompletableFuture<Void> rememberRedstoneAddress(String raw) {
+        RedstoneClient.Endpoint endpoint = RedstoneClient.publicEndpoint(raw);
+        if (endpoint == null) {
+            state = State.FAILED;
+            lastError = "请填写房主给你的公网地址，例如 122.51.108.96:12345";
+            return CompletableFuture.failedFuture(new IllegalArgumentException(lastError));
+        }
+        currentRoomCode = endpoint.host() + ":" + endpoint.port();
+        localMcAddr = "";
+        virtualIp = "";
+        lastError = "";
+        state = State.CONNECTED;
+        fireRoomJoined(currentRoomCode, currentRoomCode);
+        return CompletableFuture.completedFuture(null);
+    }
+
+    private static String redstoneMessage(Throwable error) {
+        Throwable current = error;
+        while (current.getCause() != null
+                && current.getCause() != current
+                && (current instanceof java.util.concurrent.CompletionException
+                || current instanceof java.util.concurrent.ExecutionException)) {
+            current = current.getCause();
+        }
+        String message = current.getMessage();
+        if (message == null || message.isBlank()) return "申请隧道失败";
+        return message;
     }
 
     // ============ ConnectX 后端 ============

@@ -1,5 +1,6 @@
 package com.pmcl.core.gamecontent;
 
+import com.pmcl.core.multiplayer.HiddenServerAddress;
 import com.pmcl.core.nbt.NbtReader;
 import com.pmcl.core.nbt.NbtTag;
 import com.pmcl.core.nbt.NbtWriter;
@@ -31,8 +32,8 @@ public final class GameServerList {
     /** 解析 {@code host}、{@code host:port} 或 {@code [ipv6]:port}。非法时返回 null。 */
     public static Address parse(String raw, int fallbackPort) {
         if (raw == null) return null;
-        String text = raw.trim();
-        if (text.isEmpty() || text.length() > 260) return null;
+        String text = stripHidden(raw.trim());
+        if (text.isEmpty() || text.length() > 1024) return null;
         if (fallbackPort < 1 || fallbackPort > 65535) fallbackPort = 25565;
         String host;
         int port = fallbackPort;
@@ -70,13 +71,19 @@ public final class GameServerList {
      * 读失败时不覆盖原文件。
      */
     public static void add(Path gameDir, String name, String host, int port) throws IOException {
+        add(gameDir, name, host, port, "");
+    }
+
+    public static void add(Path gameDir, String name, String host, int port, String token) throws IOException {
         Address address = parse(host, port);
         if (address == null || gameDir == null) throw new IOException("bad-server");
         Path dir = gameDir.toAbsolutePath().normalize();
         Path file = dir.resolve("servers.dat").normalize();
         if (!file.startsWith(dir)) throw new IOException("bad-server");
         String display = cleanName(name, address.host);
-        String ip = datastoreIp(address.host, address.port);
+        String ip = HiddenServerAddress.cleanToken(token).isEmpty()
+                ? datastoreIp(address.host, address.port)
+                : HiddenServerAddress.serversDatAddress(address.host, address.port, token);
         boolean gzipped = true;
         NbtTag.CompoundTag root;
         NbtTag.ListTag servers;
@@ -105,8 +112,9 @@ public final class GameServerList {
         for (NbtTag item : servers.getItems()) {
             if (!(item instanceof NbtTag.CompoundTag entry)) continue;
             if (!sameServer(stringOf(entry, "ip"), address.host, address.port)) continue;
-            if (!display.equals(stringOf(entry, "name"))) {
+            if (!display.equals(stringOf(entry, "name")) || !ip.equals(stringOf(entry, "ip"))) {
                 entry.put("name", new NbtTag.StringTag(display));
+                entry.put("ip", new NbtTag.StringTag(ip));
                 NbtWriter.write(root, file, gzipped);
             }
             return;
@@ -155,6 +163,15 @@ public final class GameServerList {
             port = port * 10 + (c - '0');
         }
         return port >= 1 && port <= 65535 ? port : null;
+    }
+
+    /** 去掉 {@code id@} 和 {@code ?_id=}，剩下的仍按普通地址解析。 */
+    private static String stripHidden(String text) {
+        int at = text.indexOf('@');
+        if (at > 0 && !text.startsWith("[")) text = text.substring(at + 1);
+        int query = text.indexOf('?');
+        if (query >= 0) text = text.substring(0, query);
+        return text.trim();
     }
 
     private static boolean isSafeHost(String host) {

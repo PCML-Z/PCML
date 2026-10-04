@@ -101,6 +101,9 @@ jobs:
             java tools/SignUpdateAsset.java "$version" "$url" "dist/$name"
           done
           [ "$found" -eq 1 ] || { echo "No release assets found"; exit 1; }
+          java tools/BuildHotUpdateManifest.java pack \
+            "ui/build/compose/binaries" \
+            "$version" "$os_token" "$arch_token" "$RELEASE_TAG" "$GITHUB_REPOSITORY" dist
 
       - uses: actions/upload-artifact@v4
         with:

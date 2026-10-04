@@ -19,12 +19,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pmcl.core.i18n.I18n
+import com.pmcl.core.news.NewsHtml
 import com.pmcl.core.news.NewsItem
 import com.pmcl.ui.theme.glassSurfaceVariantColor
 import com.pmcl.ui.viewmodel.LauncherViewModel
@@ -91,15 +91,7 @@ fun NewsPage(vm: LauncherViewModel) {
         // 进入文章详情时，如果翻译已开启，自动翻译正文文本块
         LaunchedEffect(currentArticle, translateEnabled) {
             if (translateEnabled && currentArticle != null) {
-                val blocks = parseHtmlToBlocks(currentArticle.getBodyHtml())
-                val texts = blocks.mapNotNull { block ->
-                    when (block) {
-                        is HtmlBlock.Paragraph -> block.text
-                        is HtmlBlock.Heading -> block.text
-                        is HtmlBlock.ListItem -> block.text
-                        else -> null
-                    }
-                }.filter { it.isNotBlank() }
+                val texts = articleTexts(currentArticle)
                 if (texts.isNotEmpty()) vm.translateBatch(texts)
             }
         }
@@ -116,15 +108,7 @@ fun NewsPage(vm: LauncherViewModel) {
                 translateEnabled = !translateEnabled
                 val art = currentArticle
                 if (translateEnabled && art != null) {
-                    val blocks = parseHtmlToBlocks(art.getBodyHtml())
-                    val texts = blocks.mapNotNull { block ->
-                        when (block) {
-                            is HtmlBlock.Paragraph -> block.text
-                            is HtmlBlock.Heading -> block.text
-                            is HtmlBlock.ListItem -> block.text
-                            else -> null
-                        }
-                    }.filter { it.isNotBlank() }
+                    val texts = articleTexts(art)
                     if (texts.isNotEmpty()) vm.translateBatch(texts)
                 }
             },
@@ -334,7 +318,7 @@ private fun ArticleBody(
     translateEnabled: Boolean = false,
     translationCache: Map<String, String> = emptyMap()
 ) {
-    val blocks = remember(article.getBodyHtml()) { parseHtmlToBlocks(article.getBodyHtml()) }
+    val blocks = remember(article.getBodyHtml()) { NewsHtml.parse(article.getBodyHtml()) }
 
     PmclLazyColumn(
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -368,9 +352,14 @@ private fun ArticleBody(
         item {
             val rawTitle = article.getTitle() ?: ""
             val displayTitle = if (translateEnabled) translationCache[rawTitle] ?: rawTitle else rawTitle
-            Text(displayTitle,
-                 style = MaterialTheme.typography.headlineSmall,
-                 fontWeight = FontWeight.Bold)
+            if (displayTitle.isNotBlank()) {
+                Text(
+                    displayTitle,
+                    style = MaterialTheme.typography.headlineSmall.copy(lineHeight = 34.sp),
+                    fontWeight = FontWeight.Bold,
+                    softWrap = true
+                )
+            }
         }
 
         // 正文块
@@ -383,126 +372,25 @@ private fun ArticleBody(
             Spacer(Modifier.height(16.dp))
             HorizontalDivider()
             Spacer(Modifier.height(8.dp))
-            Text(I18n.t("news.source_link", article.getUrl()),
-                 style = MaterialTheme.typography.labelSmall,
-                 color = MaterialTheme.colorScheme.outline)
+            Text(
+                I18n.t("news.source_link", article.getUrl()),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline,
+                softWrap = true
+            )
         }
     }
 }
 
-/**
- * HTML 正文块类型。
- */
-private sealed class HtmlBlock {
-    data class Paragraph(val text: String, val bold: Boolean = false, val italic: Boolean = false) : HtmlBlock()
-    data class Heading(val text: String, val level: Int = 2) : HtmlBlock()
-    data class Image(val url: String, val alt: String = "") : HtmlBlock()
-    data class ListItem(val text: String, val ordered: Boolean = false) : HtmlBlock()
-}
-
-/**
- * 简易 HTML → 块解析器。
- * 识别 <p>、<h2>、<h3>、<ul>/<ol>/<li>、<img>，其余标签剥除为纯文本。
- */
-private fun parseHtmlToBlocks(html: String): List<HtmlBlock> {
-    val blocks = mutableListOf<HtmlBlock>()
-    if (html.isEmpty()) return blocks
-
-    val tagPattern = Regex("<(/?)(p|h2|h3|ul|ol|li|img|strong|b|em|i|br)[^>]*>", RegexOption.IGNORE_CASE)
-
-    var inList = false
-    var listOrdered = false
-    var currentBold = false
-    var currentItalic = false
-
-    // 逐段处理：(标签间文本, 标签)
-    val segments = mutableListOf<Pair<String, String>>()
-    var textStart = 0
-    for (m in tagPattern.findAll(html)) {
-        val between = html.substring(textStart, m.range.first)
-        val tag = m.value.lowercase()
-        segments.add(Pair(between, tag))
-        textStart = m.range.last + 1
+private fun articleTexts(article: com.pmcl.core.news.ArticleContent): List<String> {
+    val blocks = NewsHtml.parse(article.getBodyHtml())
+    val texts = ArrayList<String>()
+    if (!article.getTitle().isNullOrBlank()) texts.add(article.getTitle())
+    for (block in blocks) {
+        if (block.kind == NewsHtml.Kind.IMAGE || block.text.isBlank()) continue
+        texts.add(block.text)
     }
-    segments.add(Pair(html.substring(textStart), ""))
-
-    for ((text, tag) in segments) {
-        val cleanText = stripTags(text).trim()
-        if (tag.isEmpty()) {
-            // 末尾文本
-            if (cleanText.isNotEmpty() && !inList) {
-                blocks.add(HtmlBlock.Paragraph(cleanText, currentBold, currentItalic))
-            }
-            continue
-        }
-
-        when {
-            tag.startsWith("<p") || tag.startsWith("<p ") -> {
-                if (cleanText.isNotEmpty()) {
-                    blocks.add(HtmlBlock.Paragraph(cleanText, currentBold, currentItalic))
-                }
-            }
-            tag.startsWith("<h2") -> {
-                // h2 标签后的文本在下一个 segment
-            }
-            tag.startsWith("<h3") -> { }
-            tag.startsWith("<ul") -> { inList = true; listOrdered = false }
-            tag.startsWith("<ol") -> { inList = true; listOrdered = true }
-            tag.startsWith("<li") -> {
-                if (cleanText.isNotEmpty()) {
-                    blocks.add(HtmlBlock.ListItem(cleanText, listOrdered))
-                }
-            }
-            tag.startsWith("<img") -> {
-                val src = extractAttr(tag, "src")
-                if (src.isNotEmpty()) {
-                    val fullSrc = if (src.startsWith("/")) "https://www.minecraft.net$src" else src
-                    blocks.add(HtmlBlock.Image(fullSrc, extractAttr(tag, "alt")))
-                }
-            }
-            tag.startsWith("<strong") || tag.startsWith("<b") -> currentBold = true
-            tag.startsWith("</strong") || tag.startsWith("</b") -> currentBold = false
-            tag.startsWith("<em") || tag.startsWith("<i") -> currentItalic = true
-            tag.startsWith("</em") || tag.startsWith("</i") -> currentItalic = false
-            tag.startsWith("</ul") || tag.startsWith("</ol") -> inList = false
-            tag.startsWith("</h2") || tag.startsWith("</h3") -> { }
-            tag.startsWith("</p") || tag.startsWith("</li") -> { }
-        }
-    }
-
-    // 如果没有解析出块，把整个 HTML 作为纯文本
-    if (blocks.isEmpty()) {
-        val plain = stripTags(html).trim()
-        if (plain.isNotEmpty()) {
-            // 按换行分段
-            for (para in plain.split("\n\n")) {
-                val t = para.trim()
-                if (t.isNotEmpty()) blocks.add(HtmlBlock.Paragraph(t))
-            }
-        }
-    }
-
-    return blocks
-}
-
-/** 剥除所有 HTML 标签，解码实体 */
-private fun stripTags(html: String): String {
-    return html
-        .replace("&nbsp;", " ")
-        .replace("&amp;", "&")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&#39;", "'")
-        .replace(Regex("<[^>]+>"), "")
-        .replace(Regex("\\s+"), " ")
-        .trim()
-}
-
-/** 从 HTML 标签中提取属性值 */
-private fun extractAttr(tag: String, attr: String): String {
-    val m = Regex("$attr\\s*=\\s*[\"']([^\"']*)[\"']", RegexOption.IGNORE_CASE).find(tag)
-    return m?.groupValues?.get(1) ?: ""
+    return texts
 }
 
 /**
@@ -510,33 +398,37 @@ private fun extractAttr(tag: String, attr: String): String {
  */
 @Composable
 private fun RenderHtmlBlock(
-    block: HtmlBlock,
+    block: NewsHtml.Block,
     translateEnabled: Boolean = false,
     translationCache: Map<String, String> = emptyMap()
 ) {
     fun tr(text: String): String =
         if (translateEnabled) translationCache[text] ?: text else text
 
-    when (block) {
-        is HtmlBlock.Paragraph -> {
+    when (block.kind) {
+        NewsHtml.Kind.PARAGRAPH -> {
             Text(
                 tr(block.text),
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = if (block.bold) FontWeight.Bold else FontWeight.Normal,
-                fontStyle = if (block.italic) FontStyle.Italic else FontStyle.Normal,
-                color = MaterialTheme.colorScheme.onSurface
+                style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 24.sp),
+                color = MaterialTheme.colorScheme.onSurface,
+                softWrap = true
             )
         }
-        is HtmlBlock.Heading -> {
-            Spacer(Modifier.height(4.dp))
+        NewsHtml.Kind.HEADING -> {
+            val style = when (block.level) {
+                1, 2 -> MaterialTheme.typography.titleLarge
+                3 -> MaterialTheme.typography.titleMedium
+                else -> MaterialTheme.typography.titleSmall
+            }
             Text(
                 tr(block.text),
-                style = if (block.level == 2) MaterialTheme.typography.titleMedium
-                        else MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold
+                modifier = Modifier.padding(top = if (block.level <= 2) 10.dp else 4.dp),
+                style = style.copy(lineHeight = if (block.level <= 2) 30.sp else 24.sp),
+                fontWeight = FontWeight.Bold,
+                softWrap = true
             )
         }
-        is HtmlBlock.Image -> {
+        NewsHtml.Kind.IMAGE -> {
             val img = rememberUrlImage(block.url)
             Box(
                 modifier = Modifier.fillMaxWidth()
@@ -559,16 +451,27 @@ private fun RenderHtmlBlock(
                 }
             }
         }
-        is HtmlBlock.ListItem -> {
-            Row {
-                Text(if (block.ordered) "• " else "·  ",
-                     style = MaterialTheme.typography.bodyMedium,
-                     color = MaterialTheme.colorScheme.primary)
-                Text(tr(block.text),
-                     style = MaterialTheme.typography.bodyMedium,
-                     color = MaterialTheme.colorScheme.onSurface)
+        NewsHtml.Kind.LIST_ITEM -> {
+            val marker = if (block.ordered && block.index > 0) "${block.index}. " else "• "
+            Row(
+                Modifier.fillMaxWidth().padding(start = (block.depth * 16).dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                Text(
+                    marker,
+                    style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 24.sp),
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    tr(block.text),
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 24.sp),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    softWrap = true
+                )
             }
         }
+        null -> Unit
     }
 }
 
@@ -597,8 +500,8 @@ private fun NewsCard(
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
-            Modifier.padding(10.dp).height(110.dp),
-            verticalAlignment = Alignment.CenterVertically
+            Modifier.padding(10.dp).heightIn(min = 96.dp),
+            verticalAlignment = Alignment.Top
         ) {
             // 左侧封面图
             Box(
@@ -628,22 +531,21 @@ private fun NewsCard(
             Spacer(Modifier.width(12.dp))
 
             // 右侧文本
-            Column(Modifier.fillMaxHeight().weight(1f)) {
+            Column(Modifier.weight(1f)) {
                 Text(displayTitle,
-                     style = MaterialTheme.typography.titleSmall,
+                     style = MaterialTheme.typography.titleSmall.copy(lineHeight = 20.sp),
                      fontWeight = FontWeight.SemiBold,
-                     maxLines = 2,
-                     overflow = TextOverflow.Ellipsis)
+                     maxLines = 3,
+                     overflow = TextOverflow.Ellipsis,
+                     softWrap = true)
                 Spacer(Modifier.height(4.dp))
                 if (displayDesc.isNotEmpty()) {
                     Text(displayDesc,
-                         style = MaterialTheme.typography.bodySmall,
+                         style = MaterialTheme.typography.bodySmall.copy(lineHeight = 18.sp),
                          color = MaterialTheme.colorScheme.onSurfaceVariant,
-                         maxLines = 2,
+                         maxLines = 3,
                          overflow = TextOverflow.Ellipsis,
-                         modifier = Modifier.weight(1f))
-                } else {
-                    Spacer(Modifier.weight(1f))
+                         softWrap = true)
                 }
                 Spacer(Modifier.height(4.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {

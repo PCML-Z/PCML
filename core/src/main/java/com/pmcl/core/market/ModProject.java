@@ -15,6 +15,8 @@ public final class ModProject {
     private String author;
     private long downloadCount;
     private String iconUrl;
+    private String coverUrl = "";
+    private long followCount;
     private String websiteUrl;
     private List<String> categories = java.util.Collections.emptyList();
     private List<String> loaders = java.util.Collections.emptyList();
@@ -42,6 +44,8 @@ public final class ModProject {
     public String getAuthor() { return author; }
     public long getDownloadCount() { return downloadCount; }
     public String getIconUrl() { return iconUrl; }
+    public String getCoverUrl() { return coverUrl == null ? "" : coverUrl; }
+    public long getFollowCount() { return followCount; }
     public String getWebsiteUrl() { return websiteUrl; }
     public java.util.List<String> getCategories() { return categories != null ? categories : java.util.Collections.emptyList(); }
     public java.util.List<String> getLoaders() { return loaders != null ? loaders : java.util.Collections.emptyList(); }
@@ -65,6 +69,16 @@ public final class ModProject {
 
     public ModProject projectType(String projectType) {
         this.projectType = projectType != null ? projectType : "mod";
+        return this;
+    }
+
+    public ModProject cover(String coverUrl) {
+        this.coverUrl = coverUrl == null ? "" : coverUrl;
+        return this;
+    }
+
+    public ModProject follows(long followCount) {
+        this.followCount = Math.max(0, followCount);
         return this;
     }
 }

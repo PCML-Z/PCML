@@ -23,6 +23,7 @@ import com.pmcl.core.i18n.I18n
 import com.pmcl.ui.animation.TypewriterTitle
 import com.pmcl.core.multiplayer.EasyTierManager
 import com.pmcl.core.multiplayer.MultiplayerManager
+import com.pmcl.core.multiplayer.RedstoneClient
 import com.pmcl.ui.animation.AnimatedSegmentedSelector
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import com.pmcl.ui.viewmodel.setMpBackend
@@ -33,6 +34,7 @@ import com.pmcl.ui.viewmodel.copyInvitation
 import com.pmcl.ui.viewmodel.copyToClipboard
 import com.pmcl.ui.viewmodel.syncConnectXConfig
 import com.pmcl.ui.viewmodel.syncEasyTierConfig
+import com.pmcl.ui.viewmodel.syncRedstoneConfig
 
 /**
  * 多人联机页：由二级侧栏切换 创建与加入 / 联机设置 / 使用说明。
@@ -59,6 +61,7 @@ private fun MpRoomSection(vm: LauncherViewModel) {
 
     val isConnectX = backend == MultiplayerManager.Backend.CONNECTX
     val isTerracotta = backend == MultiplayerManager.Backend.TERRACOTTA
+    val isRedstone = backend == MultiplayerManager.Backend.REDSTONE
     val busy = state == MultiplayerManager.State.DOWNLOADING ||
         state == MultiplayerManager.State.CONNECTING
     val inRoom = state == MultiplayerManager.State.CONNECTING ||
@@ -66,18 +69,20 @@ private fun MpRoomSection(vm: LauncherViewModel) {
     val failed = state == MultiplayerManager.State.FAILED
 
     val archSupported = EasyTierManager.isEasyTierSupportedOnCurrentArch()
+    val canStart = archSupported || isRedstone
 
     val stateText = when (state) {
         MultiplayerManager.State.IDLE -> I18n.t("mp.state.idle")
         MultiplayerManager.State.DOWNLOADING -> when {
             isConnectX -> I18n.t("mp.state.connecting_server")
             isTerracotta -> I18n.t("mp.state.downloading_terracotta")
+            isRedstone -> I18n.t("mp.state.requesting_tunnel")
             else -> I18n.t("mp.state.downloading_easytier")
         }
-        MultiplayerManager.State.CONNECTING -> if (isTerracotta) {
-            I18n.t("mp.state.scanning_lan")
-        } else {
-            I18n.t("mp.state.connecting")
+        MultiplayerManager.State.CONNECTING -> when {
+            isTerracotta -> I18n.t("mp.state.scanning_lan")
+            isRedstone -> I18n.t("mp.state.requesting_tunnel")
+            else -> I18n.t("mp.state.connecting")
         }
         MultiplayerManager.State.CONNECTED -> I18n.t("mp.state.connected")
         MultiplayerManager.State.DISCONNECTED -> I18n.t("mp.state.disconnected")
@@ -94,7 +99,8 @@ private fun MpRoomSection(vm: LauncherViewModel) {
     val backends = listOf(
         I18n.t("mp.terracotta_official") to MultiplayerManager.Backend.TERRACOTTA,
         "EasyTier" to MultiplayerManager.Backend.EASYTIER,
-        "ConnectX" to MultiplayerManager.Backend.CONNECTX
+        "ConnectX" to MultiplayerManager.Backend.CONNECTX,
+        I18n.t("mp.redstone") to MultiplayerManager.Backend.REDSTONE
     )
 
     Column(
@@ -125,7 +131,7 @@ private fun MpRoomSection(vm: LauncherViewModel) {
             }
         }
 
-        if (!archSupported) {
+        if (!archSupported && !isRedstone) {
             Surface(
                 color = MaterialTheme.colorScheme.errorContainer,
                 shape = RoundedCornerShape(12.dp)
@@ -162,13 +168,14 @@ private fun MpRoomSection(vm: LauncherViewModel) {
                 items = backends.map { it.first },
                 selectedIndex = backends.indexOfFirst { it.second == backend }.coerceAtLeast(0),
                 onSelect = { idx -> vm.setMpBackend(backends[idx].second) },
+                modifier = Modifier.fillMaxWidth(),
                 fillWidth = true,
-                height = 34.dp
+                height = 36.dp
             )
 
             Button(
                 onClick = { vm.createRoom() },
-                enabled = !busy && archSupported,
+                enabled = !busy && canStart,
                 modifier = Modifier.fillMaxWidth().height(48.dp)
             ) {
                 Icon(Icons.Filled.PlayArrow, null, Modifier.size(20.dp))
@@ -178,9 +185,9 @@ private fun MpRoomSection(vm: LauncherViewModel) {
                     style = MaterialTheme.typography.titleSmall
                 )
             }
-            if (isTerracotta) {
+            if (isTerracotta || isRedstone) {
                 Text(
-                    I18n.t("mp.terracotta_create_tip"),
+                    I18n.t(if (isRedstone) "mp.redstone_create_tip" else "mp.terracotta_create_tip"),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.tertiary
                 )
@@ -197,6 +204,7 @@ private fun MpRoomSection(vm: LauncherViewModel) {
                     placeholder = {
                         Text(
                             when {
+                                isRedstone -> I18n.t("mp.placeholder.redstone")
                                 isConnectX -> I18n.t("mp.placeholder.connectx")
                                 isTerracotta -> I18n.t("mp.placeholder.terracotta")
                                 else -> I18n.t("mp.placeholder.easytier")
@@ -206,12 +214,12 @@ private fun MpRoomSection(vm: LauncherViewModel) {
                         )
                     },
                     singleLine = true,
-                    enabled = !busy && archSupported,
+                    enabled = !busy && canStart,
                     shape = RoundedCornerShape(12.dp)
                 )
                 Button(
                     onClick = { vm.joinRoom(joinCode) },
-                    enabled = !busy && joinCode.isNotBlank() && archSupported,
+                    enabled = !busy && joinCode.isNotBlank() && canStart,
                     modifier = Modifier.height(56.dp)
                 ) {
                     Icon(Icons.AutoMirrored.Filled.ArrowForward, null, Modifier.size(18.dp))
@@ -221,7 +229,7 @@ private fun MpRoomSection(vm: LauncherViewModel) {
             }
 
             Text(
-                I18n.t("mp.idle_hint"),
+                I18n.t(if (isRedstone) "mp.redstone_idle_hint" else "mp.idle_hint"),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.outline
             )
@@ -230,6 +238,11 @@ private fun MpRoomSection(vm: LauncherViewModel) {
             val primaryValue: String
             val primaryHint: String
             when {
+                isRedstone && invitation.isNotEmpty() -> {
+                    primaryLabel = I18n.t("mp.public_address")
+                    primaryValue = invitation
+                    primaryHint = I18n.t("mp.redstone_share_hint")
+                }
                 isTerracotta && invitation.isNotEmpty() -> {
                     primaryLabel = I18n.t("mp.room_code")
                     primaryValue = invitation
@@ -382,7 +395,11 @@ private fun MpSettingsSection(vm: LauncherViewModel) {
     var connectxBinPath by remember { mutableStateOf(vm.preferences.getConnectxBinaryPath() ?: "") }
     var connectxServer by remember { mutableStateOf(vm.preferences.getConnectxServerAddress() ?: "") }
     var connectxPort by remember { mutableStateOf(vm.preferences.getConnectxServerPort().toString()) }
+    var redstoneRelay by remember { mutableStateOf(vm.preferences.getRedstoneRelay()) }
+    var redstonePort by remember { mutableStateOf(vm.preferences.getRedstoneLocalPort().toString()) }
+    var redstoneMax by remember { mutableStateOf(vm.preferences.getRedstoneMaxPlayers().toString()) }
     var savedFlash by remember { mutableStateOf(false) }
+    var settingsError by remember { mutableStateOf("") }
 
     Column(
         Modifier
@@ -467,21 +484,111 @@ private fun MpSettingsSection(vm: LauncherViewModel) {
             color = MaterialTheme.colorScheme.outline
         )
 
+        HorizontalDivider()
+
+        Text(
+            I18n.t("mp.redstone"),
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold
+        )
+        Text(
+            I18n.t("mp.redstone_relay"),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.outline
+        )
+        OutlinedTextField(
+            value = redstoneRelay,
+            onValueChange = { redstoneRelay = it },
+            placeholder = { Text(RedstoneClient.DEFAULT_RELAY) },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            shape = RoundedCornerShape(12.dp)
+        )
+        Text(
+            I18n.t("mp.redstone_relay_hint"),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.outline
+        )
+        Text(
+            I18n.t("mp.redstone_local_port"),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.outline
+        )
+        OutlinedTextField(
+            value = redstonePort,
+            onValueChange = { redstonePort = it },
+            placeholder = { Text("25565") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            shape = RoundedCornerShape(12.dp)
+        )
+        Text(
+            I18n.t("mp.redstone_local_port_hint"),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.outline
+        )
+        Text(
+            I18n.t("mp.redstone_max_players"),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.outline
+        )
+        OutlinedTextField(
+            value = redstoneMax,
+            onValueChange = { redstoneMax = it },
+            placeholder = { Text("8") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            shape = RoundedCornerShape(12.dp)
+        )
+        Text(
+            I18n.t("mp.redstone_max_players_hint"),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.outline
+        )
+
         Button(
             onClick = {
-                vm.preferences.setEasytierPeer(easytierPeer)
-                vm.preferences.setConnectxBinaryPath(connectxBinPath)
-                vm.preferences.setConnectxServerAddress(connectxServer)
-                vm.preferences.setConnectxServerPort(connectxPort.toIntOrNull() ?: 3535)
-                vm.syncConnectXConfig()
-                vm.syncEasyTierConfig()
-                savedFlash = true
+                val parsedRelay = runCatching {
+                    RedstoneClient.canonicalRelay(redstoneRelay.ifBlank { RedstoneClient.DEFAULT_RELAY })
+                }
+                val relay = parsedRelay.getOrNull()
+                val port = redstonePort.toIntOrNull()
+                val max = redstoneMax.toIntOrNull()
+                if (relay == null) {
+                    settingsError = parsedRelay.exceptionOrNull()?.message ?: I18n.t("mp.redstone_relay")
+                    savedFlash = false
+                } else if (port == null || port !in 1..65535) {
+                    settingsError = I18n.t("mp.redstone_bad_port")
+                    savedFlash = false
+                } else if (max == null || max !in 1..50) {
+                    settingsError = I18n.t("mp.redstone_bad_max")
+                    savedFlash = false
+                } else {
+                    settingsError = ""
+                    vm.preferences.setEasytierPeer(easytierPeer)
+                    vm.preferences.setConnectxBinaryPath(connectxBinPath)
+                    vm.preferences.setConnectxServerAddress(connectxServer)
+                    vm.preferences.setConnectxServerPort(connectxPort.toIntOrNull() ?: 3535)
+                    vm.preferences.setRedstoneRelay(relay)
+                    vm.preferences.setRedstoneLocalPort(port)
+                    vm.preferences.setRedstoneMaxPlayers(max)
+                    vm.syncConnectXConfig()
+                    vm.syncEasyTierConfig()
+                    vm.syncRedstoneConfig()
+                    savedFlash = true
+                }
             },
             modifier = Modifier.fillMaxWidth().height(44.dp)
         ) {
             Text(I18n.t("common.save"))
         }
-        if (savedFlash) {
+        if (settingsError.isNotEmpty()) {
+            Text(
+                settingsError,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.error
+            )
+        } else if (savedFlash) {
             Text(
                 I18n.t("common.save") + " ✓",
                 style = MaterialTheme.typography.labelMedium,
@@ -507,6 +614,17 @@ private fun MpHelpSection(vm: LauncherViewModel) {
             I18n.t("mp.usage.terracotta.guest.3"),
             "",
             I18n.t("mp.usage.terracotta.note")
+        )
+        MultiplayerManager.Backend.REDSTONE -> listOf(
+            I18n.t("mp.host_label"),
+            I18n.t("mp.usage.redstone.host.1"),
+            I18n.t("mp.usage.redstone.host.2"),
+            I18n.t("mp.usage.redstone.host.3"),
+            "",
+            I18n.t("mp.guest_label"),
+            I18n.t("mp.usage.redstone.guest.1"),
+            "",
+            I18n.t("mp.usage.redstone.note")
         )
         MultiplayerManager.Backend.CONNECTX -> listOf(
             I18n.t("mp.usage.connectx.1"),
@@ -544,6 +662,7 @@ private fun MpHelpSection(vm: LauncherViewModel) {
             when (backend) {
                 MultiplayerManager.Backend.TERRACOTTA -> I18n.t("mp.terracotta_official")
                 MultiplayerManager.Backend.CONNECTX -> "ConnectX"
+                MultiplayerManager.Backend.REDSTONE -> I18n.t("mp.redstone")
                 else -> "EasyTier"
             },
             style = MaterialTheme.typography.labelLarge,

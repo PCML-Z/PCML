@@ -28,6 +28,7 @@ import com.pmcl.core.util.PastebinClient;
 import com.pmcl.core.update.SelfUpdater;
 import com.pmcl.core.update.GitHubReleaseSyncChecker;
 import com.pmcl.core.version.VersionManager;
+import com.pmcl.core.backup.TimeMachine;
 import com.pmcl.core.gamecontent.WorldManager;
 import com.pmcl.core.gamecontent.ScreenshotManager;
 import com.pmcl.core.gamecontent.RecordingManager;
@@ -75,6 +76,7 @@ public final class LauncherCore {
     private final LaunchProfileBuilder profileBuilder;
     private final JavaRuntimeDownloader javaRuntimeDownloader;
     private final WorldManager worldManager;
+    private final TimeMachine timeMachine;
     private final ScreenshotManager screenshotManager;
     private final RecordingManager recordingManager;
     private final ResourcePackManager resourcePackManager;
@@ -137,11 +139,13 @@ public final class LauncherCore {
         this.versionInstaller = new VersionInstaller(config, versionManager, downloadManager);
         this.modLoaderManager = new ModLoaderManager(config, downloadManager, versionInstaller);
         this.modMarketManager = new ModMarketManager(config, downloadManager);
+        this.modMarketManager.applyCurseForgeKey(preferences.getCurseforgeApiKey());
         this.modManager = new ModManager(config.getWorkDir().resolve("mods"));
         this.modpackManager = new ModpackManager(config, downloadManager, versionInstaller,
                 modLoaderManager, preferences, modMarketManager, instanceManager);
         this.downloadQueue = new DownloadQueueManager(config, downloadManager, versionInstaller,
                 modMarketManager, modLoaderManager, preferences);
+        this.downloadQueue.setModpackManager(this.modpackManager);
         this.modUpdateChecker = new ModUpdateChecker(config, modMarketManager, preferences);
         this.modDependencyResolver = new ModDependencyResolver(config, modMarketManager, preferences);
         this.metalRenderInstaller = new MetalRenderInstaller(
@@ -154,6 +158,7 @@ public final class LauncherCore {
         this.profileBuilder = new LaunchProfileBuilder(config, preferences, downloadManager);
         this.javaRuntimeDownloader = new JavaRuntimeDownloader(config, downloadManager);
         this.worldManager = new WorldManager(config.getWorkDir());
+        this.timeMachine = new TimeMachine(config.getWorkDir());
         this.screenshotManager = new ScreenshotManager(config.getWorkDir());
         this.recordingManager = new RecordingManager(config.getWorkDir());
         this.resourcePackManager = new ResourcePackManager(config.getWorkDir());
@@ -298,6 +303,8 @@ public final class LauncherCore {
 
     public WorldManager worlds() { return worldManager; }
 
+    public TimeMachine timeMachine() { return timeMachine; }
+
     public ScreenshotManager screenshots() { return screenshotManager; }
 
     public RecordingManager recordings() { return recordingManager; }
@@ -358,7 +365,7 @@ public final class LauncherCore {
     private static String currentLauncherVersion() {
         String version = LauncherCore.class.getPackage().getImplementationVersion();
         if (version == null || version.isBlank()) {
-            version = System.getProperty("pmcl.version", "2.1.11a");
+            version = System.getProperty("pmcl.version", "2.1.11b");
         }
         return version;
     }

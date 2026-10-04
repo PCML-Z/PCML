@@ -336,7 +336,7 @@ private fun EmptyState(icon: ImageVector, text: String, hint: String? = null) {
  */
 @Composable
 private fun QueueTaskRow(
-    task: DownloadQueueManager.QueueTask,
+    task: com.pmcl.ui.viewmodel.QueueTaskSnapshot,
     onPause: () -> Unit,
     onResume: () -> Unit,
     onCancel: () -> Unit,

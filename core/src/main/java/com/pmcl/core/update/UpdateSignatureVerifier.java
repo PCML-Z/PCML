@@ -52,6 +52,18 @@ final class UpdateSignatureVerifier {
      */
     static void verifyOrThrow(String version, String url, String sha256, String sha1, long size,
                               String signatureB64) throws IOException {
+        verifyPayload(canonicalPayload(version, url, sha256, sha1, size), signatureB64);
+    }
+
+    /** 热更新清单的规范载荷。与整包更新的 V1 载荷分开，避免混用签名。 */
+    static void verifyHotUpdate(String canonicalPayload, String signatureB64) throws IOException {
+        if (canonicalPayload == null || !canonicalPayload.startsWith("PMCL-HOTUPDATE-V1\n")) {
+            throw new IOException("热更新清单载荷无效");
+        }
+        verifyPayload(canonicalPayload, signatureB64);
+    }
+
+    private static void verifyPayload(String canonicalPayload, String signatureB64) throws IOException {
         if (PUBLIC_KEY == null) {
             throw new IOException("更新验签公钥未配置，拒绝未验签更新");
         }
@@ -64,12 +76,10 @@ final class UpdateSignatureVerifier {
         } catch (IllegalArgumentException e) {
             throw new IOException("更新签名 Base64 无效", e);
         }
-        byte[] payload = canonicalPayload(version, url, sha256, sha1, size)
-                .getBytes(StandardCharsets.UTF_8);
         try {
             Signature s = Signature.getInstance("Ed25519");
             s.initVerify(PUBLIC_KEY);
-            s.update(payload);
+            s.update(canonicalPayload.getBytes(StandardCharsets.UTF_8));
             if (!s.verify(sig)) {
                 throw new IOException("更新清单 Ed25519 签名校验失败");
             }

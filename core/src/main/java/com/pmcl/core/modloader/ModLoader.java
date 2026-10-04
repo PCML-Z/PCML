@@ -19,7 +19,9 @@ public enum ModLoader {
     RIFT("Rift", true),
     JAVA_AGENT("Java Agent", true),
     RISUGAMI("Risugami's ModLoader", true),
-    NILLOADER("NilLoader", true);
+    NILLOADER("NilLoader", true),
+    /** 同一份游戏里同时加载 Fabric、Forge、NeoForge。目前只支持 26.2。 */
+    FORBRIC("Forbric", true);
 
     private final String displayName;
     private final boolean installable;

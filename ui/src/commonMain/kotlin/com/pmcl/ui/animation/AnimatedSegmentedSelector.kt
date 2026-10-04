@@ -23,9 +23,11 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.pmcl.ui.theme.glassSurfaceVariantColor
 
 /**
  * 带流体滑动指示器的分段选择器。
@@ -100,14 +102,15 @@ fun AnimatedSegmentedSelector(
             .onGloballyPositioned { containerWidth = it.size.width.toFloat() }
             .height(height)
             .clip(shape)
-            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .background(glassSurfaceVariantColor())
             .then(if (scrollable) Modifier.pmclHorizontalScroll(scrollState) else Modifier)
     ) {
-        // 滑动指示器：使用 shadow + surface 提升层次感
+        // 选中块只靠颜色区分。高度会按矩形画阴影，圆角外面会露出方块。
         if (animatedWidth > 0f) {
             Surface(
                 color = MaterialTheme.colorScheme.primary,
-                shadowElevation = 2.dp,
+                shadowElevation = 0.dp,
+                tonalElevation = 0.dp,
                 shape = indicatorShape,
                 modifier = Modifier
                     .offset { IntOffset(animatedOffset.toInt(), padPx.toInt()) }
@@ -149,7 +152,13 @@ fun AnimatedSegmentedSelector(
                             color = if (isSelected) MaterialTheme.colorScheme.onPrimary
                                     else MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center,
-                            modifier = Modifier.padding(horizontal = 12.dp)
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = if (fillWidth && !scrollable) {
+                                Modifier.fillMaxWidth().padding(horizontal = 12.dp)
+                            } else {
+                                Modifier.padding(horizontal = 12.dp)
+                            }
                         )
                     } else {
                         Row(

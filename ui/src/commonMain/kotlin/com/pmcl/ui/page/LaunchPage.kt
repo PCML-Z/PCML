@@ -1,5 +1,7 @@
 package com.pmcl.ui.page
+import com.pmcl.ui.widget.InstalledJavaPicker
 import com.pmcl.ui.widget.PmclLazyColumn
+import com.pmcl.ui.widget.javaInstallationLabel
 import com.pmcl.ui.widget.pmclVerticalScroll
 
 import androidx.compose.animation.AnimatedContent
@@ -40,6 +42,8 @@ import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.Terminal
@@ -68,6 +72,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -203,6 +209,9 @@ fun LaunchPage(vm: LauncherViewModel) {
     var launchTab by remember { mutableStateOf(0) } // 0=启动 1=版本 2=账号 3=日志
     var materialLibrary by remember { mutableStateOf(false) }
     val openGameLog by vm.openGameLog.collectAsState()
+    val javaInstallations by vm.javaInstallations.collectAsState()
+    val javaScanning by vm.javaScanning.collectAsState()
+    LaunchedEffect(Unit) { vm.scanJavaInstallations() }
     LaunchedEffect(openGameLog) {
         if (!openGameLog) return@LaunchedEffect
         materialLibrary = true
@@ -262,6 +271,8 @@ fun LaunchPage(vm: LauncherViewModel) {
 
                 var serverHost by remember { mutableStateOf(pref.getGameServerHost()) }
                 var serverPort by remember { mutableStateOf(pref.getGameServerPort().toString()) }
+                var serverToken by remember { mutableStateOf(pref.getGameServerToken()) }
+                var showServerToken by remember { mutableStateOf(false) }
                 var serverExpanded by remember { mutableStateOf(false) }
                 val serverEnabled = serverHost.isNotEmpty()
                 val javaInteraction = remember { MutableInteractionSource() }
@@ -300,8 +311,10 @@ fun LaunchPage(vm: LauncherViewModel) {
                                     style = MaterialTheme.typography.labelLarge,
                                     fontWeight = FontWeight.SemiBold)
                                     Text(
-                                    if (hasVersionJava) versionJava
-                                    else I18n.t("launch.version_java_auto"),
+                                    if (hasVersionJava) {
+                                        javaInstallations.firstOrNull { it.path == versionJava }
+                                            ?.let { javaInstallationLabel(it) } ?: versionJava
+                                    } else I18n.t("launch.version_java_auto"),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.outline,
                                     maxLines = 1
@@ -317,6 +330,19 @@ fun LaunchPage(vm: LauncherViewModel) {
                         AnimatedVisibility(visible = javaExpanded) {
                             Column {
                                 Spacer(Modifier.height(12.dp))
+                                InstalledJavaPicker(
+                                    selectedPath = versionJava,
+                                    installations = javaInstallations,
+                                    scanning = javaScanning,
+                                    autoLabel = I18n.t("launch.version_java_auto"),
+                                    onSelect = {
+                                        versionJava = it
+                                        vm.setVersionJavaPath(verId, it)
+                                    },
+                                    onRefresh = { vm.scanJavaInstallations() },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Spacer(Modifier.height(8.dp))
                                 OutlinedTextField(
                                 value = versionJava,
                                 onValueChange = {
@@ -391,8 +417,9 @@ fun LaunchPage(vm: LauncherViewModel) {
                                     style = MaterialTheme.typography.labelLarge,
                                     fontWeight = FontWeight.SemiBold)
                                     Text(
-                                    if (serverEnabled) "$serverHost:$serverPort"
-                                    else I18n.t("launch.server_empty_hint"),
+                                    if (!serverEnabled) I18n.t("launch.server_empty_hint")
+                                    else if (serverToken.isNotEmpty()) I18n.t("launch.server_with_token", serverHost, serverPort)
+                                    else "$serverHost:$serverPort",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.outline,
                                     maxLines = 1
@@ -431,6 +458,29 @@ fun LaunchPage(vm: LauncherViewModel) {
                                     modifier = Modifier.weight(1f)
                                     )
                                 }
+                                Spacer(Modifier.height(8.dp))
+                                OutlinedTextField(
+                                    value = serverToken,
+                                    onValueChange = {
+                                        serverToken = it
+                                        pref.setGameServerToken(it)
+                                    },
+                                    label = { Text(I18n.t("launch.server_token")) },
+                                    placeholder = { Text(I18n.t("launch.server_token_placeholder")) },
+                                    singleLine = true,
+                                    visualTransformation = if (showServerToken) VisualTransformation.None
+                                    else PasswordVisualTransformation(),
+                                    trailingIcon = {
+                                        IconButton(onClick = { showServerToken = !showServerToken }) {
+                                            Icon(
+                                                if (showServerToken) Icons.Filled.VisibilityOff
+                                                else Icons.Filled.Visibility,
+                                                contentDescription = I18n.t("launch.server_token")
+                                            )
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
                                 Spacer(Modifier.height(4.dp))
                                 Text(I18n.t("launch.server_hint"),
                                 style = MaterialTheme.typography.labelSmall,
@@ -1835,9 +1885,12 @@ private fun formatRuntime(ms: Long): String {
  * 返回 null 表示原版。
  */
 private fun inferModLoader(info: VersionManager.LocalVersionInfo): String? {
+    val id = info.getId() ?: ""
     val inherits = info.getInheritsFrom() ?: ""
     val main = info.getMainClass() ?: ""
     return when {
+        id.contains("forbric", ignoreCase = true) ||
+            main.contains("forbric", ignoreCase = true) -> "Forbric"
         inherits.contains("forge", ignoreCase = true) ||
             main.contains("launchwrapper", ignoreCase = true) -> "Forge"
         inherits.contains("neoforge", ignoreCase = true) -> "NeoForge"

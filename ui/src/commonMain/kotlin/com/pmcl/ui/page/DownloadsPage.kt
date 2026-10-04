@@ -27,6 +27,7 @@ import com.pmcl.ui.theme.glassCardBorder
 import com.pmcl.ui.theme.glassCardColors
 import com.pmcl.ui.theme.glassCardElevation
 import com.pmcl.ui.viewmodel.LauncherViewModel
+import com.pmcl.ui.viewmodel.QueueTaskSnapshot
 
 /**
  * 下载队列页面：展示所有下载/安装任务，支持暂停/继续/取消。
@@ -181,7 +182,7 @@ private fun QueueSummaryCard(
  */
 @Composable
 private fun QueueTaskCard(
-    task: DownloadQueueManager.QueueTask,
+    task: QueueTaskSnapshot,
     onPause: () -> Unit,
     onResume: () -> Unit,
     onCancel: () -> Unit,

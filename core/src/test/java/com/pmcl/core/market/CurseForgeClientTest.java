@@ -30,6 +30,7 @@ class CurseForgeClientTest {
         assertEquals(null, CurseForgeClient.classIdForType(null));
         assertEquals(null, CurseForgeClient.classIdForType(""));
         assertEquals(6, CurseForgeClient.classIdForType("mod"));
+        assertEquals(4471, CurseForgeClient.classIdForType("modpack"));
         assertEquals(12, CurseForgeClient.classIdForType("resourcepack"));
         assertEquals(6552, CurseForgeClient.classIdForType("shader"));
         assertEquals(2, CurseForgeClient.sortFieldId("default"));
@@ -42,7 +43,8 @@ class CurseForgeClientTest {
         assertEquals(false, CurseForgeClient.shouldSendModLoaderType(null, "forge"));
         assertEquals("fabric", CurseForgeClient.loaderName(4));
         assertEquals("resourcepack", CurseForgeClient.projectTypeFromClassId(12));
+        assertEquals("modpack", CurseForgeClient.projectTypeFromClassId(4471));
         assertEquals(true, CurseForgeClient.isContentClassId(6));
-        assertEquals(false, CurseForgeClient.isContentClassId(4471));
+        assertEquals(true, CurseForgeClient.isContentClassId(4471));
     }
 }

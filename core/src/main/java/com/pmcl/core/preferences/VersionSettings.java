@@ -121,7 +121,13 @@ public final class VersionSettings {
 
     public int memoryMin(int global) { return minMemoryMb > 0 ? minMemoryMb : global; }
     public int memoryMax(int global) { return maxMemoryMb > 0 ? maxMemoryMb : global; }
-    public String jvmArgs(String global) { return extraArgs.isEmpty() ? (global == null ? "" : global) : extraArgs; }
+    /** 这个版本自己的 JVM 参数接在全局参数后面。留空则只用全局的。 */
+    public String jvmArgs(String global) {
+        String base = global == null ? "" : global.trim();
+        if (extraArgs.isEmpty()) return base;
+        if (base.isEmpty()) return extraArgs;
+        return base + " " + extraArgs;
+    }
     public int width(int global) { return windowWidth > 0 ? windowWidth : global; }
     public int height(int global) { return windowHeight > 0 ? windowHeight : global; }
 

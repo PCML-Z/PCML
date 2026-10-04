@@ -63,6 +63,7 @@ object SecondaryNavRegistry {
             SecondarySection("java", "settings.section.java", Icons.Filled.Terminal),
             SecondarySection("automation", "settings.section.automation", Icons.Filled.Bolt),
             SecondarySection("game", "settings.section.game", Icons.Filled.PlayArrow),
+            SecondarySection("compile", "settings.section.compile", Icons.Filled.Build),
             SecondarySection("mio", "settings.section.mio", Icons.Filled.Speed),
             SecondarySection("network", "settings.section.network", Icons.Filled.Share),
             SecondarySection("updates", "settings.section.updates", Icons.Filled.SystemUpdate),
@@ -140,6 +141,7 @@ object SecondaryNavRegistry {
         parentLabelKey = "nav.saves",
         sections = listOf(
             SecondarySection("worlds", "nav.worlds", Icons.Filled.Public),
+            SecondarySection("timemachine", "nav.timemachine", Icons.Filled.History),
             SecondarySection("screenshots", "nav.screenshots", Icons.Filled.Image),
             SecondarySection("recordings", "nav.recordings", Icons.Filled.Videocam),
         )

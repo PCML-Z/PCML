@@ -6,7 +6,9 @@ import com.pmcl.core.preferences.Preferences;
 import okhttp3.OkHttpClient;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Locale;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -26,21 +28,65 @@ public final class ModMarketManager {
 
     private final LauncherConfig config;
     private final DownloadManager downloads;
+    private final McmodCatalog mcmod;
     private final List<ModMarketClient> clients = new java.util.concurrent.CopyOnWriteArrayList<>();
 
     public ModMarketManager(LauncherConfig config, DownloadManager downloads) {
         this.config = config;
         this.downloads = downloads;
+        this.mcmod = new McmodCatalog(downloads.httpClient());
         // Modrinth 不需要 key，直接接入
         this.clients.add(new ModrinthClient(downloads));
-        // CurseForge 需要从环境变量读取 API Key；未配置则跳过
-        String cfKey = System.getenv("CURSEFORGE_API_KEY");
-        if (cfKey == null || cfKey.isEmpty()) {
-            cfKey = System.getProperty("curseforge.api.key");
+        applyCurseForgeKey("");
+    }
+
+    private volatile String curseForgeKeySource = "none";
+
+    /** env、property、settings 或 none。环境变量和启动参数优先于设置里保存的密钥。 */
+    public String curseForgeKeySource() { return curseForgeKeySource; }
+
+    /**
+     * 启用 CurseForge。空串表示清除设置里的密钥。
+     * 环境变量 {@code CURSEFORGE_API_KEY} 或 {@code -Dcurseforge.api.key} 存在时仍用它们。
+     */
+    public void applyCurseForgeKey(String settingsKey) {
+        String env = firstKey(System.getenv("CURSEFORGE_API_KEY"));
+        String prop = env.isEmpty() ? firstKey(System.getProperty("curseforge.api.key")) : "";
+        String saved = env.isEmpty() && prop.isEmpty() ? firstKey(settingsKey) : "";
+        String key = !env.isEmpty() ? env : !prop.isEmpty() ? prop : saved;
+        if (!env.isEmpty()) curseForgeKeySource = "env";
+        else if (!prop.isEmpty()) curseForgeKeySource = "property";
+        else if (!saved.isEmpty()) curseForgeKeySource = "settings";
+        else curseForgeKeySource = "none";
+        clients.removeIf(c -> "curseforge".equals(c.source()));
+        if (!key.isEmpty()) clients.add(new CurseForgeClient(key, downloads));
+    }
+
+    /** 用官方接口确认密钥。不保存、不打印密钥。 */
+    public void verifyCurseForgeKey(String key) throws IOException {
+        String normalized = normalizeCurseForgeKey(key);
+        if (normalized == null) throw new IOException("invalid");
+        if (normalized.isEmpty()) throw new IOException("empty");
+        new CurseForgeClient(normalized, downloads).ping();
+    }
+
+    /** 空串表示清除。含空白、控制字符或超过 200 字符时返回 null。 */
+    public static String normalizeCurseForgeKey(String raw) {
+        if (raw == null) return "";
+        String key = raw.trim();
+        if (key.regionMatches(true, 0, "Bearer ", 0, 7)) key = key.substring(7).trim();
+        if (key.isEmpty()) return "";
+        if (key.length() > 200) return null;
+        for (int i = 0; i < key.length(); i++) {
+            char c = key.charAt(i);
+            if (c <= 32 || c == 127) return null;
         }
-        if (cfKey != null && !cfKey.isEmpty()) {
-            this.clients.add(new CurseForgeClient(cfKey, downloads));
-        }
+        return key;
+    }
+
+    private static String firstKey(String raw) {
+        String key = normalizeCurseForgeKey(raw);
+        return key == null ? "" : key;
     }
 
     /** 是否启用了 CurseForge（取决于是否配置 API Key） */
@@ -72,10 +118,37 @@ public final class ModMarketManager {
      * 更新所有客户端的 OkHttpClient 引用（用户在设置中修改代理后调用）。
      * 让 mod 市场请求也能立即走代理。
      */
+    public McmodCatalog mcmod() { return mcmod; }
+
     public void updateHttpClients(OkHttpClient http) {
+        mcmod.updateHttpClient(http);
         for (ModMarketClient c : clients) {
             c.updateHttpClient(http);
         }
+    }
+
+    /**
+     * 把百科页上的一条外链解析成可打开的市场项目。
+     * CurseForge 未配置 API Key 时抛出 IOException。找不到项目时返回 null。
+     */
+    public ModProject resolveMcmodLink(McmodCatalog.HostLink link) throws IOException {
+        if (link == null) return null;
+        if ("modrinth".equals(link.getSource())) {
+            ModrinthClient modrinth = getModrinthClient();
+            if (modrinth == null) return null;
+            return modrinth.loadProject(link.getSlug());
+        }
+        if ("curseforge".equals(link.getSource())) {
+            CurseForgeClient curseforge = getCurseForgeClient();
+            if (curseforge == null) {
+                throw new IOException("CurseForge API key required");
+            }
+            if (link.getCurseforgeId() != null && !link.getCurseforgeId().isBlank()) {
+                return curseforge.findById(link.getCurseforgeId());
+            }
+            return curseforge.findBySlug(link.getSlug(), link.getProjectType());
+        }
+        return null;
     }
 
     /**
@@ -395,6 +468,135 @@ public final class ModMarketManager {
         }
         downloads.downloadToVerified(url, target, sha1, sha512);
         if (onStatus != null) onStatus.accept("完成: " + file.getFileName());
+    }
+
+    /** 市场光影、材质只能落到这两个目录，避免被当成模组写进 mods。 */
+    public static boolean isContentFolder(String folder) {
+        return "shaderpacks".equals(folder) || "resourcepacks".equals(folder);
+    }
+
+    /**
+     * 取文件名最后一段并拒绝路径穿越。非法时返回 null。
+     */
+    public static String safeContentFileName(String fileName) {
+        if (fileName == null) return null;
+        String name = fileName.replace('\\', '/').trim();
+        int slash = name.lastIndexOf('/');
+        if (slash >= 0) name = name.substring(slash + 1).trim();
+        if (name.isEmpty() || ".".equals(name) || "..".equals(name)
+                || name.indexOf('\0') >= 0
+                || name.contains("..")
+                || name.contains("/")
+                || name.contains("\\")) {
+            return null;
+        }
+        return name;
+    }
+
+    /**
+     * 整合包缓存文件名：去掉目录，补上 .mrpack / .zip，并加上文件 id 避免同名互相覆盖。
+     */
+    public static String safeModpackCacheName(String fileName, String source, String fileId) {
+        String name = fileName == null ? "" : fileName.replace('\\', '/');
+        int slash = name.lastIndexOf('/');
+        if (slash >= 0) name = name.substring(slash + 1);
+        name = name.trim();
+        if (name.isEmpty() || ".".equals(name) || "..".equals(name) || name.indexOf('\0') >= 0) {
+            name = "modpack";
+        }
+        name = name.replace("/", "_").replace("\\", "_").replace("..", "_");
+        String lower = name.toLowerCase(Locale.ROOT);
+        if (!lower.endsWith(".mrpack") && !lower.endsWith(".zip")) {
+            name += "modrinth".equalsIgnoreCase(source) ? ".mrpack" : ".zip";
+        }
+        String id = fileId == null ? "" : fileId.replaceAll("[^A-Za-z0-9._-]", "_");
+        if (id.length() > 64) id = id.substring(0, 64);
+        if (!id.isEmpty()) name = id + "-" + name;
+        return name;
+    }
+
+    /**
+     * 把光影或材质下载到所选游戏目录的 shaderpacks / resourcepacks。
+     * 未指定游戏时落到工作目录下的同名文件夹，资源页会扫到。
+     */
+    public void installContentFile(ModFile file, String folder, String versionId, String instanceId,
+                                    Preferences preferences, Consumer<String> onStatus,
+                                    Consumer<Long> onBytes) throws IOException {
+        if (!isContentFolder(folder)) {
+            throw new IOException("非法内容目录: " + folder);
+        }
+        String fileName = safeContentFileName(file.getFileName());
+        if (fileName == null) {
+            throw new IOException("非法文件名: " + file.getFileName());
+        }
+        Path dir = resolveContentDir(folder, versionId, instanceId, preferences)
+                .toAbsolutePath().normalize();
+        Path target = dir.resolve(fileName).normalize();
+        if (!target.startsWith(dir)) {
+            throw new IOException("路径越界: " + fileName);
+        }
+        Files.createDirectories(dir);
+        if (onStatus != null) {
+            onStatus.accept("正在下载: " + fileName
+                    + " (" + (file.getFileSize() / 1024) + " KB)");
+        }
+        String sha1 = file.getSha1();
+        String sha512 = file.getSha512();
+        if ((sha1 == null || sha1.isBlank()) && (sha512 == null || sha512.isBlank())) {
+            throw new IOException("缺少 SHA-1/SHA-512，拒绝安装未校验文件: " + fileName);
+        }
+        String url = file.getDownloadUrl();
+        if (url == null || url.isBlank()) {
+            throw new IOException("缺少下载地址: " + fileName);
+        }
+        downloads.downloadToVerified(url, target, sha1, sha512, onBytes);
+        if (onStatus != null) onStatus.accept("完成: " + fileName);
+    }
+
+    /**
+     * 下载整合包压缩包到 cache/market-modpacks。已校验过的同名文件直接复用，方便暂停后继续安装。
+     */
+    public Path downloadModpackArchive(ModFile file, Consumer<Long> onBytes) throws IOException {
+        String sha1 = file.getSha1();
+        String sha512 = file.getSha512();
+        if ((sha1 == null || sha1.isBlank()) && (sha512 == null || sha512.isBlank())) {
+            throw new IOException("缺少 SHA-1/SHA-512，拒绝安装未校验文件: " + file.getFileName());
+        }
+        String url = file.getDownloadUrl();
+        if (url == null || url.isBlank()) {
+            throw new IOException("缺少下载地址: " + file.getFileName());
+        }
+        String name = safeModpackCacheName(file.getFileName(), file.getSource(), file.getFileId());
+        Path dir = config.getWorkDir().resolve("cache").resolve("market-modpacks")
+                .toAbsolutePath().normalize();
+        Files.createDirectories(dir);
+        Path target = dir.resolve(name).normalize();
+        if (!target.startsWith(dir)) {
+            throw new IOException("路径越界: " + name);
+        }
+        if (Files.isRegularFile(target)) {
+            try {
+                DownloadManager.verifyHashesOrWarn(target, sha1, sha512);
+                if (onBytes != null) onBytes.accept(Files.size(target));
+                return target;
+            } catch (IOException ignored) {
+                // 校验失败时文件已被删除，下面重新下载
+            }
+        }
+        downloads.downloadToVerified(url, target, sha1, sha512, onBytes);
+        return target;
+    }
+
+    private Path resolveContentDir(String folder, String versionId, String instanceId,
+                                   Preferences preferences) {
+        if (preferences != null && ((versionId != null && !versionId.isEmpty())
+                || (instanceId != null && !instanceId.isEmpty()))) {
+            Path mods = new com.pmcl.core.launch.GameDirResolver(config, preferences)
+                    .resolveModsDir(versionId, instanceId);
+            Path gameDir = mods != null ? mods.getParent() : null;
+            if (gameDir != null) return gameDir.resolve(folder);
+        }
+        return config.getWorkDir().resolve(folder);
     }
 
     /** 安装路径与启动时 gameDir/mods 对齐（含版本隔离首次灌入、自定义实例）。 */

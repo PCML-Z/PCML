@@ -15,6 +15,8 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -24,6 +26,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -40,6 +44,7 @@ import com.pmcl.ui.viewmodel.addFavoriteServer
 import com.pmcl.ui.viewmodel.updateFavoriteServer
 import com.pmcl.ui.viewmodel.removeFavoriteServer
 import com.pmcl.ui.viewmodel.directConnectServer
+import com.pmcl.ui.viewmodel.serverStatusKey
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.skia.Image as SkiaImage
@@ -60,30 +65,39 @@ fun ServersPage(vm: LauncherViewModel) {
     var showAddDialog by remember { mutableStateOf(false) }
     var editIndex by remember { mutableStateOf<Int?>(null) }
     var deleteIndex by remember { mutableStateOf<Int?>(null) }
+    var section by remember { mutableStateOf("list") }
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(I18n.t("servers.title"), style = MaterialTheme.typography.titleLarge,
                  fontWeight = FontWeight.Bold)
             Spacer(Modifier.weight(1f))
-            IconButton(
-                onClick = { vm.pingAllServersFull() },
-                enabled = servers.isNotEmpty()
-            ) {
-                Icon(Icons.Filled.Refresh, contentDescription = I18n.t("servers.refresh_all"))
-            }
-            Button(onClick = { showAddDialog = true }) {
-                Icon(Icons.Filled.Add, null, Modifier.size(16.dp))
-                Spacer(Modifier.width(4.dp))
-                Text(I18n.t("servers.add"))
+            TextButton(onClick = { section = "list" }) { Text(I18n.t("servers.title")) }
+            TextButton(onClick = { section = "opanel" }) { Text(I18n.t("servers.section.opanel")) }
+            if (section == "list") {
+                IconButton(
+                    onClick = { vm.pingAllServersFull() },
+                    enabled = servers.isNotEmpty()
+                ) {
+                    Icon(Icons.Filled.Refresh, contentDescription = I18n.t("servers.refresh_all"))
+                }
+                Button(onClick = { showAddDialog = true }) {
+                    Icon(Icons.Filled.Add, null, Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(I18n.t("servers.add"))
+                }
             }
         }
-        Text(I18n.t("servers.hint"),
-             style = MaterialTheme.typography.labelSmall,
-             color = MaterialTheme.colorScheme.outline)
+        Text(
+            if (section == "opanel") I18n.t("servers.opanel.hint") else I18n.t("servers.hint"),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.outline
+        )
         Spacer(Modifier.height(10.dp))
 
-        if (servers.isEmpty()) {
+        if (section == "opanel") {
+            OPanelManagePage(vm, Modifier.weight(1f))
+        } else if (servers.isEmpty()) {
             Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(Icons.Filled.Dns, null, Modifier.size(48.dp),
@@ -104,17 +118,22 @@ fun ServersPage(vm: LauncherViewModel) {
                 modifier = Modifier.weight(1f)
             ) {
                 itemsIndexed(servers, key = { _, s -> "${s.host}:${s.port}:${s.name}" }) { index, server ->
-                    val key = "${server.host}:${server.port}"
+                    val key = serverStatusKey(server.host, server.port, server.token)
                     val status = statuses[key]
                     val isPinging = key in pinging
                     ServerCard(
                         name = server.name,
                         host = server.host,
                         port = server.port,
+                        hidden = server.token.isNotBlank(),
                         status = status,
                         isPinging = isPinging,
-                        onPing = { vm.pingServerFull(server.host, server.port) },
-                        onConnect = { vm.directConnectServer(server.name, server.host, server.port, save = false) },
+                        onPing = { vm.pingServerFull(server.host, server.port, server.token) },
+                        onConnect = {
+                            vm.directConnectServer(
+                                server.name, server.host, server.port, save = false, token = server.token
+                            )
+                        },
                         onEdit = { editIndex = index },
                         onDelete = { deleteIndex = index }
                     )
@@ -130,13 +149,14 @@ fun ServersPage(vm: LauncherViewModel) {
             initialName = "",
             initialHost = "",
             initialPort = "25565",
-            onConfirm = { name, host, port ->
-                vm.addFavoriteServer(name, host, port)
+            initialToken = "",
+            onConfirm = { name, host, port, token ->
+                vm.addFavoriteServer(name, host, port, token)
                 showAddDialog = false
-                vm.pingServerFull(host, port)
+                vm.pingServerFull(host, port, token)
             },
-            onDirectConnect = { name, host, port ->
-                vm.directConnectServer(name, host, port, save = true)
+            onDirectConnect = { name, host, port, token ->
+                vm.directConnectServer(name, host, port, save = true, token = token)
                 showAddDialog = false
             },
             onDismiss = { showAddDialog = false }
@@ -152,14 +172,15 @@ fun ServersPage(vm: LauncherViewModel) {
                 initialName = s.name,
                 initialHost = s.host,
                 initialPort = s.port.toString(),
-                onConfirm = { name, host, port ->
-                    vm.updateFavoriteServer(idx, name, host, port)
+                initialToken = s.token,
+                onConfirm = { name, host, port, token ->
+                    vm.updateFavoriteServer(idx, name, host, port, token)
                     editIndex = null
-                    vm.pingServerFull(host, port)
+                    vm.pingServerFull(host, port, token)
                 },
-                onDirectConnect = { name, host, port ->
-                    vm.updateFavoriteServer(idx, name, host, port)
-                    vm.directConnectServer(name, host, port, save = false)
+                onDirectConnect = { name, host, port, token ->
+                    vm.updateFavoriteServer(idx, name, host, port, token)
+                    vm.directConnectServer(name, host, port, save = false, token = token)
                     editIndex = null
                 },
                 onDismiss = { editIndex = null }
@@ -203,6 +224,7 @@ private fun ServerCard(
     name: String,
     host: String,
     port: Int,
+    hidden: Boolean,
     status: ServerPinger.ServerStatus?,
     isPinging: Boolean,
     onPing: () -> Unit,
@@ -221,8 +243,14 @@ private fun ServerCard(
                 Column(Modifier.weight(1f)) {
                     Text(name, style = MaterialTheme.typography.titleSmall,
                          fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text("$host:$port", style = MaterialTheme.typography.labelSmall,
-                         color = MaterialTheme.colorScheme.outline, fontFamily = FontFamily.Monospace)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("$host:$port", style = MaterialTheme.typography.labelSmall,
+                             color = MaterialTheme.colorScheme.outline, fontFamily = FontFamily.Monospace)
+                        if (hidden) {
+                            Spacer(Modifier.width(6.dp))
+                            StatusChip(I18n.t("servers.hidden_chip"), MaterialTheme.colorScheme.primary)
+                        }
+                    }
                 }
 
                 // 单独 ping
@@ -395,13 +423,16 @@ private fun ServerEditDialog(
     initialName: String,
     initialHost: String,
     initialPort: String,
-    onConfirm: (String, String, Int) -> Unit,
-    onDirectConnect: (String, String, Int) -> Unit,
+    initialToken: String,
+    onConfirm: (String, String, Int, String) -> Unit,
+    onDirectConnect: (String, String, Int, String) -> Unit,
     onDismiss: () -> Unit
 ) {
     var name by remember { mutableStateOf(initialName) }
     var host by remember { mutableStateOf(initialHost) }
     var port by remember { mutableStateOf(initialPort) }
+    var token by remember { mutableStateOf(initialToken) }
+    var showToken by remember { mutableStateOf(false) }
     val address = com.pmcl.core.gamecontent.GameServerList.parse(
         host,
         port.toIntOrNull() ?: 25565
@@ -437,6 +468,30 @@ private fun ServerEditDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = token,
+                    onValueChange = { token = it },
+                    label = { Text(I18n.t("servers.connection_id")) },
+                    placeholder = { Text(I18n.t("servers.connection_id_placeholder")) },
+                    singleLine = true,
+                    visualTransformation = if (showToken) VisualTransformation.None
+                    else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        IconButton(onClick = { showToken = !showToken }) {
+                            Icon(
+                                if (showToken) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                                contentDescription = I18n.t("servers.connection_id")
+                            )
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text(
+                    I18n.t("servers.connection_id_hint"),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
+                Spacer(Modifier.height(8.dp))
                 Text(
                     I18n.t("servers.direct_connect_hint"),
                     style = MaterialTheme.typography.labelSmall,
@@ -449,7 +504,7 @@ private fun ServerEditDialog(
                 TextButton(
                     onClick = {
                         val parsed = address ?: return@TextButton
-                        onDirectConnect(name.trim(), parsed.host, parsed.port)
+                        onDirectConnect(name.trim(), parsed.host, parsed.port, token.trim())
                     },
                     enabled = address != null
                 ) {
@@ -458,7 +513,7 @@ private fun ServerEditDialog(
                 TextButton(
                     onClick = {
                         val parsed = address ?: return@TextButton
-                        onConfirm(name.trim(), parsed.host, parsed.port)
+                        onConfirm(name.trim(), parsed.host, parsed.port, token.trim())
                     },
                     enabled = canSave
                 ) {

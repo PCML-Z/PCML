@@ -25,6 +25,9 @@ class GameServerListTest {
         assertEquals(25565, plain.getPort());
         assertNull(GameServerList.parse("../evil", 25565));
         assertNull(GameServerList.parse("play.example.com/path", 25565));
+        GameServerList.Address hidden = GameServerList.parse("room@play.example.com:25566", 25565);
+        assertEquals("play.example.com", hidden.getHost());
+        assertEquals(25566, hidden.getPort());
     }
 
     @Test
@@ -43,6 +46,12 @@ class GameServerListTest {
         assertEquals(2, servers.size());
         first = (NbtTag.CompoundTag) servers.getItems().get(0);
         assertEquals("本地房间", ((NbtTag.StringTag) first.get("name")).getValue());
+        GameServerList.add(dir, "隐身", "play.example.com", 25565, "room");
+        root = (NbtTag.CompoundTag) NbtReader.read(dir.resolve("servers.dat"));
+        servers = (NbtTag.ListTag) root.get("servers");
+        assertEquals(3, servers.size());
+        NbtTag.CompoundTag hidden = (NbtTag.CompoundTag) servers.getItems().get(0);
+        assertEquals("room@play.example.com", ((NbtTag.StringTag) hidden.get("ip")).getValue());
     }
 
     @Test

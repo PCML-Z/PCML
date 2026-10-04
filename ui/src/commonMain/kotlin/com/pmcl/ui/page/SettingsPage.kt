@@ -32,6 +32,8 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Gavel
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -51,6 +53,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -116,6 +120,7 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
         "java" -> "settings.section.java"
         "automation" -> "settings.section.automation"
         "game" -> "settings.section.game"
+        "compile" -> "settings.section.compile"
         "mio" -> "settings.section.mio"
         "network" -> "settings.section.network"
         "updates" -> "settings.section.updates"
@@ -295,6 +300,10 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
             Spacer(Modifier.height(16.dp))
         }
         } // end sectionId == game
+
+        if (sectionId == "compile") {
+            NativeCompileRuntimeSettings(vm)
+        }
 
         if (sectionId == "mio") {
         // 澪模式
@@ -1067,7 +1076,8 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
         } // end sectionId == launcher
 
         if (sectionId == "network") {
-        // 网络配置
+        CurseForgeGuideCard(vm, pref)
+        Spacer(Modifier.height(12.dp))
         NetworkConfigCard(vm, pref)
         }
 
@@ -1164,12 +1174,17 @@ private fun GithubSyncCard(vm: LauncherViewModel, pref: com.pmcl.core.preference
     val syncActive by vm.syncActive.collectAsState()
     val syncChecking by vm.syncChecking.collectAsState()
     val pushStatusText by vm.pushStatusText.collectAsState()
+    val appResourceStatus by vm.appResourceStatus.collectAsState()
 
     Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
         Column(Modifier.padding(16.dp)) {
             Text("GitHub Release 同步", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(8.dp))
             Text("直接同步 GitHub Release：启动器定时轮询指定仓库的最新 Release，发现新版本时主动通知（无需独立推送服务器）。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline)
+            Spacer(Modifier.height(4.dp))
+            Text(I18n.t("update.hot_hint"),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.outline)
             Spacer(Modifier.height(12.dp))
@@ -1255,6 +1270,12 @@ private fun GithubSyncCard(vm: LauncherViewModel, pref: com.pmcl.core.preference
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.outline
                 )
+            }
+            if (appResourceStatus.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Text(appResourceStatus,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline)
             }
         }
     }
@@ -1615,6 +1636,9 @@ private fun AboutCard(vm: LauncherViewModel) {
                 }
             }
 
+            Spacer(Modifier.height(20.dp))
+            VersionInfoBlock()
+
             Spacer(Modifier.height(12.dp))
             Text(I18n.t("about.description"),
                  style = MaterialTheme.typography.bodySmall)
@@ -1799,6 +1823,51 @@ private fun LicensesAndAgreementsSection() {
                 2 -> DocumentPanel(resourceName = "DISCLAIMER.txt")
                 else -> LicenseConflictPanel()
             }
+        }
+    }
+}
+
+@Composable
+private fun VersionInfoBlock() {
+    val info = remember { com.pmcl.core.LauncherBuildInfo.load() }
+    val unknown = I18n.t("about.ver.unknown")
+    val channel = if (info.channel() == "release") {
+        I18n.t("about.ver.channel.release")
+    } else {
+        I18n.t("about.ver.channel.dev")
+    }
+    val rows = listOf(
+        I18n.t("about.ver.framework") to info.framework(),
+        I18n.t("about.ver.runtime") to info.runtime(),
+        I18n.t("about.ver.channel") to channel,
+        I18n.t("about.ver.built") to info.buildTimeUtc(),
+        I18n.t("about.ver.binary") to info.binaryVersion(),
+        I18n.t("about.ver.kotlin") to info.kotlinVersion(),
+        I18n.t("about.ver.compose") to info.composeVersion(),
+        I18n.t("about.ver.okhttp") to info.okHttpVersion(),
+        I18n.t("about.ver.java") to info.javaVersion()
+    )
+    Text(
+        I18n.t("about.version_info"),
+        style = MaterialTheme.typography.titleLarge,
+        fontWeight = FontWeight.Bold
+    )
+    Spacer(Modifier.height(12.dp))
+    rows.forEach { (label, value) ->
+        Row(
+            Modifier.fillMaxWidth().padding(vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(label, style = MaterialTheme.typography.bodyLarge)
+            Spacer(Modifier.width(24.dp))
+            Text(
+                value.ifBlank { unknown },
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodyLarge,
+                textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }
@@ -2384,6 +2453,37 @@ private fun LaunchPresetCard(
 }
 
 @Composable
+private fun MioOption(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    title: String,
+    desc: String,
+    hint: String = ""
+) {
+    Spacer(Modifier.height(12.dp))
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        Spacer(Modifier.width(8.dp))
+        Column {
+            Text(title, fontWeight = FontWeight.Medium)
+            Text(
+                desc,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline
+            )
+        }
+    }
+    if (hint.isNotEmpty()) {
+        Spacer(Modifier.height(4.dp))
+        Text(
+            hint,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.outline
+        )
+    }
+}
+
+@Composable
 private fun MioModeCard(pref: com.pmcl.core.preferences.Preferences) {
     var enabled by remember { mutableStateOf(pref.isMioModeEnabled()) }
     var l1Jvm by remember { mutableStateOf(pref.isMioModeJvm()) }
@@ -2393,7 +2493,13 @@ private fun MioModeCard(pref: com.pmcl.core.preferences.Preferences) {
     var l1Jit by remember { mutableStateOf(pref.isMioModeJitAggressive()) }
     var l1Network by remember { mutableStateOf(pref.isMioModeNetworkOpt()) }
     var l1Metaspace by remember { mutableStateOf(pref.isMioModeMetaspace()) }
+    var l1Pretouch by remember { mutableStateOf(pref.isMioModePretouch()) }
+    var l1StringDedup by remember { mutableStateOf(pref.isMioModeStringDedup()) }
+    var l1IdleGc by remember { mutableStateOf(pref.isMioModeIdleGc()) }
     var l2Process by remember { mutableStateOf(pref.isMioModeProcess()) }
+    var l2KeepAwake by remember { mutableStateOf(pref.isMioModeKeepAwake()) }
+    var l2DiscreteGpu by remember { mutableStateOf(pref.isMioModeDiscreteGpu()) }
+    var l2GameMode by remember { mutableStateOf(pref.isMioModeGameMode()) }
     var l2Crazy by remember { mutableStateOf(pref.isMioModeCrazyPriority()) }
     var l3System by remember { mutableStateOf(pref.isMioModeSystemPower()) }
     var confirmCrazy by remember { mutableStateOf(false) }
@@ -2591,6 +2697,28 @@ private fun MioModeCard(pref: com.pmcl.core.preferences.Preferences) {
                     }
                 }
 
+                MioOption(
+                    checked = l1Pretouch,
+                    onCheckedChange = { v -> l1Pretouch = v; pref.setMioModePretouch(v) },
+                    title = I18n.t("settings.perf.l1_pretouch"),
+                    desc = I18n.t("settings.perf.l1_pretouch_desc"),
+                    hint = I18n.t("settings.perf.l1_pretouch_hint")
+                )
+                MioOption(
+                    checked = l1StringDedup,
+                    onCheckedChange = { v -> l1StringDedup = v; pref.setMioModeStringDedup(v) },
+                    title = I18n.t("settings.perf.l1_string_dedup"),
+                    desc = I18n.t("settings.perf.l1_string_dedup_desc"),
+                    hint = I18n.t("settings.perf.l1_string_dedup_hint")
+                )
+                MioOption(
+                    checked = l1IdleGc,
+                    onCheckedChange = { v -> l1IdleGc = v; pref.setMioModeIdleGc(v) },
+                    title = I18n.t("settings.perf.l1_idle_gc"),
+                    desc = I18n.t("settings.perf.l1_idle_gc_desc"),
+                    hint = I18n.t("settings.perf.l1_idle_gc_hint")
+                )
+
                 Spacer(Modifier.height(12.dp))
 
                 // L2：进程级调优
@@ -2611,6 +2739,28 @@ private fun MioModeCard(pref: com.pmcl.core.preferences.Preferences) {
                 Text(I18n.t("settings.perf.l2_process_hint"),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
+
+                MioOption(
+                    checked = l2KeepAwake,
+                    onCheckedChange = { v -> l2KeepAwake = v; pref.setMioModeKeepAwake(v) },
+                    title = I18n.t("settings.perf.l2_keep_awake"),
+                    desc = I18n.t("settings.perf.l2_keep_awake_desc"),
+                    hint = I18n.t("settings.perf.l2_keep_awake_hint")
+                )
+                MioOption(
+                    checked = l2DiscreteGpu,
+                    onCheckedChange = { v -> l2DiscreteGpu = v; pref.setMioModeDiscreteGpu(v) },
+                    title = I18n.t("settings.perf.l2_discrete_gpu"),
+                    desc = I18n.t("settings.perf.l2_discrete_gpu_desc"),
+                    hint = I18n.t("settings.perf.l2_discrete_gpu_hint")
+                )
+                MioOption(
+                    checked = l2GameMode,
+                    onCheckedChange = { v -> l2GameMode = v; pref.setMioModeGameMode(v) },
+                    title = I18n.t("settings.perf.l2_gamemode"),
+                    desc = I18n.t("settings.perf.l2_gamemode_desc"),
+                    hint = I18n.t("settings.perf.l2_gamemode_hint")
+                )
 
                 Spacer(Modifier.height(12.dp))
 
@@ -2773,6 +2923,7 @@ private fun GameBehaviorCard(vm: LauncherViewModel, pref: com.pmcl.core.preferen
     var renderer by remember { mutableStateOf(pref.getGameRenderer()) }
     var linuxZink by remember { mutableStateOf(pref.isLinuxZink()) }
     var macMic by remember { mutableStateOf(pref.isMacMicrophoneRequest()) }
+    var macGameMode by remember { mutableStateOf(pref.isMacGameMode()) }
     var preferUtf8 by remember { mutableStateOf(pref.isPreferUtf8()) }
     var preferIpv4 by remember { mutableStateOf(pref.isPreferIPv4()) }
     var repairRetries by remember { mutableStateOf(pref.getResourceRepairRetries().toString()) }
@@ -2786,6 +2937,8 @@ private fun GameBehaviorCard(vm: LauncherViewModel, pref: com.pmcl.core.preferen
     var demo by remember { mutableStateOf(pref.isGameDemo()) }
     var serverHost by remember { mutableStateOf(pref.getGameServerHost()) }
     var serverPort by remember { mutableStateOf(pref.getGameServerPort().toString()) }
+    var serverToken by remember { mutableStateOf(pref.getGameServerToken()) }
+    var showServerToken by remember { mutableStateOf(false) }
     var windowIconPath by remember { mutableStateOf(pref.getWindowIconPath()) }
     var menuBgVideoPath by remember { mutableStateOf(pref.getCustomMenuBackgroundVideo()) }
     var customNativesPath by remember { mutableStateOf(pref.getCustomNativesPath()) }
@@ -2897,6 +3050,20 @@ private fun GameBehaviorCard(vm: LauncherViewModel, pref: com.pmcl.core.preferen
                     Column {
                         Text(I18n.t("settings.mac_microphone"))
                         Text(I18n.t("settings.mac_microphone_desc"),
+                             style = MaterialTheme.typography.labelSmall,
+                             color = MaterialTheme.colorScheme.outline)
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(checked = macGameMode, onCheckedChange = {
+                        macGameMode = it
+                        pref.setMacGameMode(it)
+                    })
+                    Spacer(Modifier.width(8.dp))
+                    Column {
+                        Text(I18n.t("settings.mac_game_mode"))
+                        Text(I18n.t("settings.mac_game_mode_desc"),
                              style = MaterialTheme.typography.labelSmall,
                              color = MaterialTheme.colorScheme.outline)
                     }
@@ -3089,6 +3256,31 @@ private fun GameBehaviorCard(vm: LauncherViewModel, pref: com.pmcl.core.preferen
                     modifier = Modifier.weight(1f)
                 )
             }
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = serverToken,
+                onValueChange = {
+                    serverToken = it
+                    pref.setGameServerToken(it)
+                },
+                label = { Text(I18n.t("settings.server_token")) },
+                placeholder = { Text(I18n.t("settings.server_token_placeholder")) },
+                singleLine = true,
+                visualTransformation = if (showServerToken) VisualTransformation.None
+                else PasswordVisualTransformation(),
+                trailingIcon = {
+                    IconButton(onClick = { showServerToken = !showServerToken }) {
+                        Icon(
+                            if (showServerToken) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                            contentDescription = I18n.t("settings.server_token")
+                        )
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            )
+            Text(I18n.t("settings.server_token_hint"),
+                 style = MaterialTheme.typography.labelSmall,
+                 color = MaterialTheme.colorScheme.outline)
             Text(I18n.t("settings.server_connect_hint"),
                  style = MaterialTheme.typography.labelSmall,
                  color = MaterialTheme.colorScheme.outline)
@@ -3254,6 +3446,131 @@ private fun GameBehaviorCard(vm: LauncherViewModel, pref: com.pmcl.core.preferen
             Text(I18n.t("settings.custom_natives_hint"),
                  style = MaterialTheme.typography.labelSmall,
                  color = MaterialTheme.colorScheme.outline)
+        }
+    }
+}
+
+@Composable
+private fun CurseForgeGuideCard(vm: LauncherViewModel, pref: com.pmcl.core.preferences.Preferences) {
+    val scope = rememberCoroutineScope()
+    var keyText by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var notice by remember { mutableStateOf("") }
+    var source by remember { mutableStateOf(vm.core.modMarket().curseForgeKeySource()) }
+    val saved = pref.getCurseforgeApiKey().isNotBlank()
+
+    fun refreshSource() {
+        source = vm.core.modMarket().curseForgeKeySource()
+    }
+
+    Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                I18n.t("settings.curseforge_guide"),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                when (source) {
+                    "env" -> I18n.t("settings.curseforge_status_env")
+                    "property" -> I18n.t("settings.curseforge_status_property")
+                    "settings" -> I18n.t("settings.curseforge_status_settings")
+                    else -> I18n.t("settings.curseforge_status_none")
+                },
+                style = MaterialTheme.typography.labelMedium,
+                color = if (source == "none") MaterialTheme.colorScheme.outline
+                else MaterialTheme.colorScheme.primary
+            )
+            Text(
+                I18n.t("settings.curseforge_guide_body"),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(I18n.t("settings.curseforge_step_open"), style = MaterialTheme.typography.bodyMedium)
+            OutlinedButton(
+                onClick = {
+                    try {
+                        if (java.awt.Desktop.isDesktopSupported()) {
+                            java.awt.Desktop.getDesktop().browse(java.net.URI("https://console.curseforge.com/"))
+                        }
+                    } catch (_: Throwable) {
+                    }
+                },
+                enabled = !busy
+            ) { Text(I18n.t("settings.curseforge_open_console")) }
+            Text(I18n.t("settings.curseforge_step_paste"), style = MaterialTheme.typography.bodyMedium)
+            OutlinedTextField(
+                value = keyText,
+                onValueChange = { keyText = it },
+                label = { Text(I18n.t("settings.curseforge_key")) },
+                placeholder = {
+                    Text(if (saved) I18n.t("settings.curseforge_replace") else I18n.t("settings.curseforge_key"))
+                },
+                singleLine = true,
+                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !busy
+            )
+            Text(
+                I18n.t("settings.curseforge_step_check"),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Button(
+                    onClick = {
+                        val normalized = com.pmcl.core.market.ModMarketManager.normalizeCurseForgeKey(keyText)
+                        if (normalized == null) {
+                            notice = I18n.t("settings.curseforge_invalid")
+                            return@Button
+                        }
+                        if (normalized.isEmpty()) {
+                            notice = I18n.t("settings.curseforge_need_key")
+                            return@Button
+                        }
+                        busy = true
+                        notice = I18n.t("settings.curseforge_checking")
+                        scope.launch {
+                            val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                try {
+                                    vm.core.modMarket().verifyCurseForgeKey(normalized)
+                                    "ok"
+                                } catch (e: java.io.IOException) {
+                                    if (e.message == "rejected") "rejected" else "failed:" + (e.message ?: "")
+                                } catch (e: Throwable) {
+                                    "failed:" + (e.message ?: "")
+                                }
+                            }
+                            if (result == "ok") {
+                                pref.setCurseforgeApiKey(normalized)
+                                vm.core.modMarket().applyCurseForgeKey(pref.getCurseforgeApiKey())
+                                keyText = ""
+                                refreshSource()
+                                notice = I18n.t("settings.curseforge_ok")
+                            } else if (result == "rejected") {
+                                notice = I18n.t("settings.curseforge_rejected")
+                            } else {
+                                notice = I18n.t("settings.curseforge_failed", result.removePrefix("failed:"))
+                            }
+                            busy = false
+                        }
+                    },
+                    enabled = !busy
+                ) { Text(if (busy) I18n.t("settings.curseforge_checking") else I18n.t("settings.curseforge_save")) }
+                OutlinedButton(
+                    onClick = {
+                        pref.setCurseforgeApiKey("")
+                        vm.core.modMarket().applyCurseForgeKey("")
+                        keyText = ""
+                        refreshSource()
+                        notice = I18n.t("settings.curseforge_cleared")
+                    },
+                    enabled = !busy && (saved || source == "settings")
+                ) { Text(I18n.t("settings.curseforge_clear")) }
+            }
+            if (notice.isNotBlank()) {
+                Text(notice, style = MaterialTheme.typography.bodySmall)
+            }
         }
     }
 }
@@ -3863,6 +4180,14 @@ private fun JavaRuntimeCard(vm: LauncherViewModel, pref: com.pmcl.core.preferenc
     val scanning by vm.javaScanning.collectAsState()
     var manualPath by remember { mutableStateOf(pref.getJavaPath()) }
     var javaMenuExpanded by remember { mutableStateOf(false) }
+    var showJavaCatalog by remember { mutableStateOf(false) }
+    var sawJavaDownload by remember { mutableStateOf(false) }
+    LaunchedEffect(downloading) {
+        if (sawJavaDownload && !downloading) {
+            manualPath = pref.getJavaPath()
+        }
+        sawJavaDownload = downloading
+    }
     LaunchedEffect(Unit) { vm.scanJavaInstallations() }
     // Java 探测可能扫磁盘，放到 IO 线程，避免进入 Java 分区时卡 UI
     val detectedPath by produceState(I18n.t("common.loading"), selectionMode, manualPath) {
@@ -4004,10 +4329,48 @@ private fun JavaRuntimeCard(vm: LauncherViewModel, pref: com.pmcl.core.preferenc
 
             Spacer(Modifier.height(12.dp))
 
-            // 龙芯/RISC-V 架构检测：Mojang 清单无对应 Java，禁用自动下载
+            // 龙芯/RISC-V 架构检测：Mojang 清单无对应 Java，禁用那三个快捷按钮
             val isLoongson = com.pmcl.core.launch.JavaRuntimeFinder.isLoongson()
             val isRiscV = com.pmcl.core.launch.JavaRuntimeFinder.isRiscV()
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = { showJavaCatalog = true },
+                    enabled = !downloading
+                ) { Text(I18n.t("settings.java_download_open")) }
+                if (!isLoongson && !isRiscV) {
+                    OutlinedButton(
+                        onClick = { vm.downloadJava(8) },
+                        enabled = !downloading
+                    ) { Text("Java 8") }
+                    OutlinedButton(
+                        onClick = { vm.downloadJava(17) },
+                        enabled = !downloading
+                    ) { Text("Java 17") }
+                    Button(
+                        onClick = { vm.downloadJava(21) },
+                        enabled = !downloading
+                    ) {
+                        if (downloading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(I18n.t("settings.downloading"))
+                        } else {
+                            Text("Java 21")
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+            Text(
+                I18n.t("settings.java_download_hint"),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline
+            )
             if (isLoongson || isRiscV) {
+                Spacer(Modifier.height(8.dp))
                 val archName = when {
                     com.pmcl.core.launch.JavaRuntimeFinder.isLoongArch64() -> "LoongArch64"
                     com.pmcl.core.launch.JavaRuntimeFinder.isMips64el() -> "MIPS64el"
@@ -4052,33 +4415,6 @@ private fun JavaRuntimeCard(vm: LauncherViewModel, pref: com.pmcl.core.preferenc
                             Icon(Icons.Filled.OpenInNew, null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
                             Text(downloadLabel)
-                        }
-                    }
-                }
-            } else {
-                // 一键下载 Java 8 / 17 / 21
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(
-                        onClick = { vm.downloadJava(8) },
-                        enabled = !downloading
-                    ) { Text("Java 8") }
-                    OutlinedButton(
-                        onClick = { vm.downloadJava(17) },
-                        enabled = !downloading
-                    ) { Text("Java 17") }
-                    Button(
-                        onClick = { vm.downloadJava(21) },
-                        enabled = !downloading
-                    ) {
-                        if (downloading) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text(I18n.t("settings.downloading"))
-                        } else {
-                            Text("Java 21")
                         }
                     }
                 }
@@ -4141,6 +4477,9 @@ private fun JavaRuntimeCard(vm: LauncherViewModel, pref: com.pmcl.core.preferenc
                 }
             }
         }
+    }
+    if (showJavaCatalog) {
+        JavaDownloadDialog(vm, downloading) { showJavaCatalog = false }
     }
 }
 

@@ -6,6 +6,7 @@ import com.pmcl.core.auth.Account;
 import com.pmcl.core.download.DownloadManager;
 import com.pmcl.core.install.Library;
 import com.pmcl.core.install.VersionJson;
+import com.pmcl.core.multiplayer.HiddenServerAddress;
 import com.pmcl.core.preferences.Preferences;
 import com.pmcl.core.preferences.VersionSettings;
 import com.pmcl.core.version.VersionManager;
@@ -703,6 +704,25 @@ public final class LaunchProfileBuilder {
             }
         }
 
+        // 澪模式 L1+：预热堆。ZGC 和 G1 都能用。
+        if (!skipOptimizingJvm && preferences.isMioModeEnabled() && preferences.isMioModePretouch()) {
+            for (String f : MioFlags.buildPretouch()) {
+                profile.addJvmArg(f);
+            }
+        }
+
+        // 澪模式 L1+：字符串去重、空闲回收只配 G1。ZGC 打开时跳过。
+        if (!skipOptimizingJvm && preferences.isMioModeEnabled() && !mioZgc && preferences.isMioModeStringDedup()) {
+            for (String f : MioFlags.buildStringDedup()) {
+                profile.addJvmArg(f);
+            }
+        }
+        if (!skipOptimizingJvm && preferences.isMioModeEnabled() && !mioZgc && preferences.isMioModeIdleGc()) {
+            for (String f : MioFlags.buildIdleGc()) {
+                profile.addJvmArg(f);
+            }
+        }
+
         // 版本 JSON 自带的 JVM 参数
         // 过滤掉运行时 Java 不支持的参数：
         //   --sun-misc-unsafe-memory-access=allow 是 Java 23+ (JEP 471) 引入的，
@@ -831,7 +851,8 @@ public final class LaunchProfileBuilder {
             String serverHost = preferences.getGameServerHost();
             if (serverHost != null && !serverHost.isEmpty()) {
                 profile.addGameArg("--server");
-                profile.addGameArg(serverHost);
+                profile.addGameArg(HiddenServerAddress.clientArg(
+                        serverHost, preferences.getGameServerToken()));
                 profile.addGameArg("--port");
                 profile.addGameArg(Integer.toString(preferences.getGameServerPort()));
             }
@@ -851,6 +872,16 @@ public final class LaunchProfileBuilder {
             // alpha 的 lastServer: 空值会在加载 options 时抛 AIOOBE（非致命但会丢设置）
             com.pmcl.core.gamecontent.OptionsTxtWriter.sanitizeEmptyValues(
                     gameDir.resolve("options.txt"));
+        }
+
+        // 澪模式：双显卡优先独立显卡。调试渲染器或 Linux Zink 已经指定驱动时不覆盖。
+        boolean linuxHost = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("linux");
+        if (preferences.isMioModeEnabled() && preferences.isMioModeDiscreteGpu()
+                && VersionSettings.DebugOptions.DRIVER_DEFAULT.equals(debug.getDriver())
+                && !(preferences.isLinuxZink() && linuxHost)) {
+            for (String[] entry : MioFlags.discreteGpuEnv(System.getProperty("os.name", ""))) {
+                profile.putEnv(entry[0], entry[1]);
+            }
         }
 
         // Linux：Mesa Zink，OpenGL 经 Vulkan 提交。游戏仍走 OpenGL，不改 --renderer。
@@ -2461,7 +2492,7 @@ public final class LaunchProfileBuilder {
         java.util.Map<String, String> placeholders = new java.util.HashMap<>();
         placeholders.put("${natives_directory}", effectiveNatives.toString());
         placeholders.put("${launcher_name}", "PMCL");
-        placeholders.put("${launcher_version}", "2.1.11a");
+        placeholders.put("${launcher_version}", "2.1.11b");
         placeholders.put("${classpath_separator}", System.getProperty("path.separator"));
         placeholders.put("${library_directory}", librariesDir.toString());
         placeholders.put("${game_directory}", gameDir.toString());

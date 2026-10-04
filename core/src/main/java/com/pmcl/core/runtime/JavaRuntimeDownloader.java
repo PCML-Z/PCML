@@ -6,12 +6,16 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.pmcl.core.LauncherConfig;
 import com.pmcl.core.download.DownloadManager;
+import com.pmcl.core.i18n.I18n;
 import com.pmcl.core.util.FileUtils;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -340,6 +344,174 @@ public final class JavaRuntimeDownloader {
         });
     }
 
+    /**
+     * 安装用户选中的发行版 JDK。目录为 {@code runtimes/{arch}/{发行版}-{主版本}-{版本}}，
+     * 校验 Foojay 给出的 SHA-256，再解压。已有同一目录且能找到 java 时直接返回。
+     */
+    public CompletableFuture<Path> installFoojay(String distro, int major, String javaVersion,
+                                                  String downloadUrl, String sha256, String filename,
+                                                  long sizeBytes, Consumer<String> onStatus) {
+        return CompletableFuture.supplyAsync(() -> {
+            Path stagingDir = null;
+            try {
+                if (!FoojayDisco.isVendor(distro) || major < 8 || major > 40) {
+                    throw new IOException(I18n.t("settings.java_bad_package"));
+                }
+                if (FoojayDisco.rejectDownloadUrl(downloadUrl) != null
+                        || sha256 == null
+                        || !sha256.trim().matches("(?i)[0-9a-f]{64}")) {
+                    throw new IOException(I18n.t("settings.java_bad_package"));
+                }
+                String ext = archiveExtension(filename);
+                String arch = foojayArchDir();
+                Path runtimesDir = config.getRuntimesDir().toAbsolutePath().normalize();
+                Path archDir = runtimesDir.resolve(arch).normalize();
+                if (!archDir.startsWith(runtimesDir)) {
+                    throw new IOException(I18n.t("settings.java_platform_unsupported"));
+                }
+                String dirName = distro + "-" + major + "-" + sanitizeRuntimeVersion(javaVersion);
+                Path targetDir = assertUnder(archDir, archDir.resolve(dirName));
+                if (isRuntimeReady(targetDir)) {
+                    Path ready = findJavaBinary(targetDir);
+                    if (ready != null) {
+                        if (onStatus != null) {
+                            onStatus.accept(I18n.t("settings.java_already_installed", ready.toString()));
+                        }
+                        return ready;
+                    }
+                    FileUtils.deleteRecursively(targetDir);
+                } else if (Files.exists(targetDir)) {
+                    FileUtils.deleteRecursively(targetDir);
+                }
+                Files.createDirectories(archDir);
+                stagingDir = assertUnder(archDir, archDir.resolve(dirName + ".staging"));
+                FileUtils.deleteRecursively(stagingDir);
+                Files.createDirectories(stagingDir);
+                Path archive = assertUnder(archDir, archDir.resolve(dirName + ext));
+                try {
+                    long[] lastNotify = {0L};
+                    downloadManager.downloadToSsrfChecked(downloadUrl, archive, bytes -> {
+                        long now = System.currentTimeMillis();
+                        if (onStatus == null || (lastNotify[0] != 0L && now - lastNotify[0] < 200L)) {
+                            return;
+                        }
+                        lastNotify[0] = now;
+                        long doneMb = bytes / (1024L * 1024L);
+                        if (sizeBytes > 0L) {
+                            long totalMb = Math.max(1L, sizeBytes / (1024L * 1024L));
+                            onStatus.accept(I18n.t("settings.java_download_progress",
+                                    javaVersion, doneMb, totalMb));
+                        } else {
+                            onStatus.accept(I18n.t("settings.java_download_progress_unknown",
+                                    javaVersion, doneMb));
+                        }
+                    }, 1024L * 1024L * 1024L, true);
+                    if (onStatus != null) onStatus.accept(I18n.t("settings.java_verify", javaVersion));
+                    verifySha256(archive, sha256.trim());
+                    if (onStatus != null) onStatus.accept(I18n.t("settings.java_extracting", javaVersion));
+                    extractArchive(archive, stagingDir);
+                } finally {
+                    try {
+                        Files.deleteIfExists(archive);
+                    } catch (IOException ignored) {
+                        // 归档只是安装中转文件
+                    }
+                }
+                Path bin = findJavaBinary(stagingDir);
+                if (bin == null) throw new IOException(I18n.t("settings.java_no_binary"));
+                markExecutable(bin);
+                Files.writeString(stagingDir.resolve(READY_MARKER), "ok");
+                Path bakDir = assertUnder(archDir, archDir.resolve(dirName + ".bak"));
+                FileUtils.deleteRecursively(bakDir);
+                try {
+                    try {
+                        Files.move(stagingDir, targetDir, StandardCopyOption.ATOMIC_MOVE);
+                    } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                        Files.move(stagingDir, targetDir);
+                    }
+                } catch (IOException e) {
+                    throw new IOException(I18n.t("settings.java_no_binary"), e);
+                }
+                stagingDir = null;
+                Path installed = findJavaBinary(targetDir);
+                if (installed == null) {
+                    FileUtils.deleteRecursively(targetDir);
+                    throw new IOException(I18n.t("settings.java_no_binary"));
+                }
+                return installed;
+            } catch (IOException e) {
+                if (stagingDir != null) FileUtils.deleteRecursively(stagingDir);
+                throw new RuntimeException(e.getMessage(), e);
+            }
+        });
+    }
+
+    private static String archiveExtension(String filename) throws IOException {
+        if (filename == null || filename.isBlank()) {
+            throw new IOException(I18n.t("settings.java_archive_unsupported"));
+        }
+        String name = filename.replace('\\', '/');
+        int slash = name.lastIndexOf('/');
+        if (slash >= 0) name = name.substring(slash + 1);
+        if (name.isBlank() || name.contains("..")) {
+            throw new IOException(I18n.t("settings.java_archive_unsupported"));
+        }
+        String lower = name.toLowerCase(java.util.Locale.ROOT);
+        if (lower.endsWith(".tar.gz")) return ".tar.gz";
+        if (lower.endsWith(".tgz")) return ".tgz";
+        if (lower.endsWith(".zip")) return ".zip";
+        throw new IOException(I18n.t("settings.java_archive_unsupported"));
+    }
+
+    private static String foojayArchDir() throws IOException {
+        String arch = currentArch();
+        if (arch != null && !arch.isBlank()) return arch;
+        String os = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT);
+        String cpu = System.getProperty("os.arch", "").toLowerCase(java.util.Locale.ROOT);
+        if (os.contains("linux") && (cpu.contains("aarch64") || cpu.contains("arm64"))) {
+            return "linux-aarch64";
+        }
+        throw new IOException(I18n.t("settings.java_platform_unsupported"));
+    }
+
+    private static void verifySha256(Path file, String expected) throws IOException {
+        MessageDigest md;
+        try {
+            md = MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException e) {
+            throw new IOException(I18n.t("settings.java_checksum_failed"), e);
+        }
+        try (InputStream in = Files.newInputStream(file)) {
+            byte[] buf = new byte[65536];
+            int n;
+            while ((n = in.read(buf)) > 0) {
+                md.update(buf, 0, n);
+            }
+        }
+        byte[] dig = md.digest();
+        StringBuilder sb = new StringBuilder(dig.length * 2);
+        for (byte b : dig) {
+            sb.append(Character.forDigit((b >> 4) & 0xF, 16));
+            sb.append(Character.forDigit(b & 0xF, 16));
+        }
+        if (!sb.toString().equalsIgnoreCase(expected)) {
+            throw new IOException(I18n.t("settings.java_checksum_failed"));
+        }
+    }
+
+    private static void markExecutable(Path bin) {
+        try {
+            java.util.Set<java.nio.file.attribute.PosixFilePermission> perms =
+                    new java.util.HashSet<>(Files.getPosixFilePermissions(bin));
+            perms.add(java.nio.file.attribute.PosixFilePermission.OWNER_EXECUTE);
+            perms.add(java.nio.file.attribute.PosixFilePermission.GROUP_EXECUTE);
+            perms.add(java.nio.file.attribute.PosixFilePermission.OTHERS_EXECUTE);
+            Files.setPosixFilePermissions(bin, perms);
+        } catch (UnsupportedOperationException | IOException ignored) {
+            // 非 POSIX 文件系统沿用归档里的权限
+        }
+    }
+
     private static boolean isArchiveUrl(String url) {
         if (url == null) return false;
         String lower = url.toLowerCase(java.util.Locale.ROOT);
@@ -551,9 +723,9 @@ public final class JavaRuntimeDownloader {
         Process p = null;
         try {
             p = pb.start();
-            if (!p.waitFor(120, TimeUnit.SECONDS)) {
+            if (!p.waitFor(300, TimeUnit.SECONDS)) {
                 p.destroyForcibly();
-                throw new IOException("解压超时（120s）: " + archive);
+                throw new IOException("解压超时（300s）: " + archive);
             }
             int code = p.exitValue();
             if (code != 0) {
@@ -602,7 +774,7 @@ public final class JavaRuntimeDownloader {
      * 用 {@code tar -tvzf} 流式预检：拒绝路径穿越、符号/硬链接与特殊设备节点；
      * 限制条目数与列表输出总字节，避免恶意归档撑爆内存或堵死管道。
      */
-    private static void assertTarMembersSafe(Path archive) throws IOException {
+    static void assertTarMembersSafe(Path archive) throws IOException {
         final int maxEntries = 200_000;
         final long maxListingBytes = 32L * 1024 * 1024;
         ProcessBuilder listPb = new ProcessBuilder("tar", "-tvzf", archive.toString());
@@ -628,16 +800,25 @@ public final class JavaRuntimeDownloader {
                         throw new IOException("tar 条目数过多（>" + maxEntries + "）: " + archive);
                     }
                     char type = line.charAt(0);
-                    // 常见 listing：- 普通文件，d 目录；拒绝 l/h/c/b/p/s 等
+                    int arrow = line.indexOf(" -> ");
+                    // JDK 发行包用内部相对符号链接（例如 macOS 的 libjli.dylib）。
+                    // 只放行解析后仍留在归档根内的链接，绝对路径和逃逸仍拒绝。
+                    if (type == 'l' || arrow >= 0) {
+                        if (arrow < 0) {
+                            throw new IOException("tar 含无法解析的符号链接（拒绝解压）");
+                        }
+                        String linkName = tarListNameAfterMeta(line.substring(0, arrow));
+                        String linkTarget = line.substring(arrow + 4).trim();
+                        if (!tarLinkStaysInside(linkName, linkTarget)) {
+                            throw new IOException("tar 含逃逸符号链接（拒绝解压）: " + linkName);
+                        }
+                        continue;
+                    }
                     if (type != '-' && type != 'd' && !Character.isDigit(type)) {
-                        // 某些 tar 首列不是模式（纯文件名列表回退场景极少）；含 " -> " 一律拒绝
-                        if (type == 'l' || type == 'h' || type == 'c' || type == 'b'
-                                || type == 'p' || type == 's' || line.contains(" -> ")) {
+                        if (type == 'h' || type == 'c' || type == 'b'
+                                || type == 'p' || type == 's') {
                             throw new IOException("tar 含链接或特殊文件（拒绝解压）: " + line.trim());
                         }
-                    }
-                    if (line.contains(" -> ")) {
-                        throw new IOException("tar 含符号链接（拒绝解压）: " + line.trim());
                     }
                     String name = extractTarListName(line);
                     if (name.isEmpty()) continue;
@@ -648,7 +829,7 @@ public final class JavaRuntimeDownloader {
                     }
                 }
             }
-            if (!list.waitFor(60, TimeUnit.SECONDS)) {
+            if (!list.waitFor(180, TimeUnit.SECONDS)) {
                 list.destroyForcibly();
                 throw new IOException("tar 列表超时: " + archive);
             }
@@ -686,6 +867,45 @@ public final class JavaRuntimeDownloader {
             }
         }
         return trimmed;
+    }
+
+    /**
+     * 符号链接的成员名。BSD tar 把属主和属组分列，GNU tar 写成 {@code user/group}。
+     */
+    private static String tarListNameAfterMeta(String left) {
+        String[] parts = left.trim().split("\\s+");
+        if (parts.length < 6) return "";
+        int start;
+        if (parts[1].indexOf('/') >= 0) {
+            start = 5;
+        } else if (parts.length >= 9) {
+            start = 8;
+        } else {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder(parts[start]);
+        for (int i = start + 1; i < parts.length; i++) {
+            sb.append(' ').append(parts[i]);
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 相对符号链接解析后必须留在归档内。绝对目标、空名和 {@code ..} 逃逸都拒绝。
+     */
+    static boolean tarLinkStaysInside(String name, String target) {
+        if (name == null || name.isBlank() || target == null || target.isBlank()) return false;
+        if (name.startsWith("/") || name.startsWith("\\") || name.contains("..")) return false;
+        if (name.matches("^[A-Za-z]:[\\\\/].*")) return false;
+        String linkTarget = target.trim();
+        if (linkTarget.startsWith("/") || linkTarget.startsWith("\\")) return false;
+        if (linkTarget.matches("^[A-Za-z]:[\\\\/].*")) return false;
+        if (linkTarget.indexOf('\0') >= 0 || name.indexOf('\0') >= 0) return false;
+        Path parent = Path.of(name).getParent();
+        Path resolved = (parent == null ? Path.of(linkTarget) : parent.resolve(linkTarget)).normalize();
+        if (resolved.isAbsolute()) return false;
+        String norm = resolved.toString().replace('\\', '/');
+        return !norm.isBlank() && !norm.equals("..") && !norm.startsWith("../");
     }
 
     /** 解压后拒绝逃逸目标目录的符号链接，并删除非常规特殊文件。 */

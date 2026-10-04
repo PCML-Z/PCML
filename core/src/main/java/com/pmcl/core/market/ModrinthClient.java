@@ -200,16 +200,51 @@ public final class ModrinthClient implements ModMarketClient {
                     o.has("icon_url") ? o.get("icon_url").getAsString() : "",
                     "https://modrinth.com/project/" + (o.has("slug") ? o.get("slug").getAsString() : safeStr(o, "project_id"))
             ).categories(categories).loaders(loaders).projectType(type)
-                    .dateModified(parseIsoMillis(safeStr(o, "date_modified"))));
+                    .dateModified(parseIsoMillis(safeStr(o, "date_modified")))
+                    .cover(galleryCover(o))
+                    .follows(o.has("follows") && o.get("follows").isJsonPrimitive()
+                            ? o.get("follows").getAsLong() : 0));
         }
         return new MarketSearchPage(result, total, offset, limit);
+    }
+
+    /** 搜索结果里的封面：featured_gallery，否则 gallery 的第一张。 */
+    static String galleryCover(JsonObject o) {
+        if (o == null) return "";
+        String featured = primitiveString(o, "featured_gallery");
+        if (!featured.isEmpty()) return featured;
+        if (!o.has("gallery") || !o.get("gallery").isJsonArray()) return "";
+        String first = "";
+        for (JsonElement e : o.getAsJsonArray("gallery")) {
+            if (e == null || e.isJsonNull()) continue;
+            if (e.isJsonPrimitive()) {
+                String url = e.getAsString();
+                if (url != null && !url.isBlank()) return url.trim();
+            } else if (e.isJsonObject()) {
+                JsonObject g = e.getAsJsonObject();
+                String url = primitiveString(g, "url");
+                if (url.isEmpty()) url = primitiveString(g, "raw_url");
+                boolean marked = g.has("featured") && g.get("featured").isJsonPrimitive()
+                        && g.get("featured").getAsBoolean();
+                if (marked && !url.isEmpty()) return url;
+                if (first.isEmpty()) first = url;
+            }
+        }
+        return first;
+    }
+
+    private static String primitiveString(JsonObject o, String key) {
+        if (o == null || !o.has(key) || !o.get(key).isJsonPrimitive()) return "";
+        String value = o.get(key).getAsString();
+        return value == null ? "" : value.trim();
     }
 
     private static boolean isLoaderTag(String c) {
         if (c == null) return false;
         String s = c.toLowerCase(java.util.Locale.ROOT);
         return s.equals("fabric") || s.equals("forge") || s.equals("quilt") || s.equals("neoforge")
-                || s.equals("rift") || s.equals("liteloader");
+                || s.equals("rift") || s.equals("liteloader")
+                || s.equals("iris") || s.equals("optifine") || s.equals("canvas") || s.equals("vanilla");
     }
 
     private static long parseIsoMillis(String iso) {
@@ -268,6 +303,18 @@ public final class ModrinthClient implements ModMarketClient {
     }
 
     /**
+     * Forbric 同时跑 Fabric、Forge、NeoForge，搜索时这三项是或关系。
+     * 其它加载器仍是原来的一个分类。
+     */
+    static java.util.List<String> loaderCategories(String loader) {
+        if (loader != null && "forbric".equalsIgnoreCase(loader)) {
+            return java.util.List.of("fabric", "forge", "neoforge");
+        }
+        if (loader == null || loader.isEmpty()) return java.util.List.of();
+        return java.util.List.of(loader);
+    }
+
+    /**
      * Modrinth facets 数组字符串：[["project_type:mod"],["versions:1.20.4"],["categories:fabric"],["categories:performance"]]
      * 每个条件是一个独立的子数组，子数组之间是 AND 关系。
      * loader 与 category 都通过 categories 字段过滤（Modrinth 把加载器和功能分类统一归类为 category）。
@@ -277,6 +324,7 @@ public final class ModrinthClient implements ModMarketClient {
         com.google.gson.JsonArray typeGroup = new com.google.gson.JsonArray();
         if (projectType == null || projectType.isBlank()) {
             typeGroup.add("project_type:mod");
+            typeGroup.add("project_type:modpack");
             typeGroup.add("project_type:resourcepack");
             typeGroup.add("project_type:shader");
         } else {
@@ -288,9 +336,10 @@ public final class ModrinthClient implements ModMarketClient {
             g.add("versions:" + gameVersion);
             facets.add(g);
         }
-        if (loader != null && !loader.isEmpty()) {
+        java.util.List<String> loaderNames = loaderCategories(loader);
+        if (!loaderNames.isEmpty()) {
             com.google.gson.JsonArray l = new com.google.gson.JsonArray();
-            l.add("categories:" + loader);
+            for (String name : loaderNames) l.add("categories:" + name);
             facets.add(l);
         }
         if (category != null && !category.isEmpty()) {
@@ -309,9 +358,14 @@ public final class ModrinthClient implements ModMarketClient {
     @Override
     public CompletableFuture<List<ModFile>> listFiles(String projectId, String gameVersion, String loader) {
         return CompletableFuture.supplyAsync(() -> {
-            HttpUrl parsed = HttpUrl.parse(BASE + "/project/" + projectId + "/version");
-            if (parsed == null) throw new RuntimeException("无效的 URL");
-            HttpUrl.Builder ub = parsed.newBuilder();
+            HttpUrl parsed = HttpUrl.parse(BASE);
+            if (parsed == null || projectId == null || projectId.isBlank()) {
+                throw new RuntimeException("无效的 URL");
+            }
+            HttpUrl.Builder ub = parsed.newBuilder()
+                    .addPathSegment("project")
+                    .addPathSegment(projectId)
+                    .addPathSegment("version");
             if (safeFacetToken(gameVersion)) {
                 ub.addQueryParameter("game_versions", "[\"" + gameVersion + "\"]");
             }
@@ -335,16 +389,19 @@ public final class ModrinthClient implements ModMarketClient {
                     JsonArray versions = JsonParser.parseString(body).getAsJsonArray();
                     List<ModFile> result = new ArrayList<>();
                     for (JsonElement e : versions) {
-                        JsonObject v = e.getAsJsonObject();
-                        String versionId = safeStr(v, "id");
-                        String versionNumber = safeStr(v, "version_number");
-                        String versionType = v.has("version_type") ? v.get("version_type").getAsString() : "release";
-                        List<String> gameVersions = jsonArrToStrings(v, "game_versions");
-                        List<String> loaders = jsonArrToStrings(v, "loaders");
-                        List<String> deps = parseModrinthDependencies(v);
+                        if (e == null || !e.isJsonObject()) continue;
+                        try {
+                            JsonObject v = e.getAsJsonObject();
+                            String versionId = safeStr(v, "id");
+                            String versionNumber = safeStr(v, "version_number");
+                            String versionType = v.has("version_type") && v.get("version_type").isJsonPrimitive()
+                                    ? v.get("version_type").getAsString() : "release";
+                            List<String> gameVersions = jsonArrToStrings(v, "game_versions");
+                            List<String> loaders = jsonArrToStrings(v, "loaders");
+                            List<String> deps = parseModrinthDependencies(v);
 
-                        JsonObject primaryFile = pickPrimaryFile(v);
-                        if (primaryFile != null) {
+                            JsonObject primaryFile = pickPrimaryFile(v);
+                            if (primaryFile == null) continue;
                             String sha1 = "";
                             String sha512 = "";
                             if (primaryFile.has("hashes") && primaryFile.get("hashes").isJsonObject()) {
@@ -352,14 +409,24 @@ public final class ModrinthClient implements ModMarketClient {
                                 sha1 = safeStr(h, "sha1");
                                 sha512 = safeStr(h, "sha512");
                             }
+                            long size = 0;
+                            if (primaryFile.has("size") && primaryFile.get("size").isJsonPrimitive()) {
+                                try {
+                                    size = primaryFile.get("size").getAsLong();
+                                } catch (RuntimeException ignored) {
+                                    size = 0;
+                                }
+                            }
                             result.add(new ModFile(
                                     "modrinth", projectId, versionId,
                                     safeStr(primaryFile, "filename"),
-                                    primaryFile.has("size") ? primaryFile.get("size").getAsLong() : 0,
+                                    size,
                                     safeStr(primaryFile, "url"),
                                     gameVersions, loaders, versionType, deps
                             ).hashes(sha1, sha512).versionNumber(
                                     !versionNumber.isEmpty() ? versionNumber : safeStr(v, "name")));
+                        } catch (RuntimeException ignored) {
+                            // 单条版本字段异常时跳过，避免整份列表加载失败
                         }
                     }
                     return result;
@@ -453,6 +520,38 @@ public final class ModrinthClient implements ModMarketClient {
      * @param projectId 项目 slug 或 id
      * @return 项目 JSON；不存在时返回 null
      */
+    /** 用 slug 或项目 id 取回可打开的市场项目。不存在时返回 null。 */
+    public ModProject loadProject(String idOrSlug) {
+        JsonObject o = getProject(idOrSlug);
+        if (o == null) return null;
+        String type = safeStr(o, "project_type");
+        if (type.isEmpty()) type = "mod";
+        List<String> categories = jsonArrToStrings(o, "categories");
+        List<String> loaders = jsonArrToStrings(o, "loaders");
+        if (loaders.isEmpty()) {
+            loaders = new ArrayList<>();
+            for (String c : categories) {
+                if (isLoaderTag(c) && !loaders.contains(c)) loaders.add(c);
+            }
+        }
+        String slug = safeStr(o, "slug");
+        String id = safeStr(o, "id");
+        if (id.isEmpty()) id = slug.isEmpty() ? idOrSlug : slug;
+        String siteSlug = slug.isEmpty() ? id : slug;
+        return new ModProject(
+                "modrinth",
+                id,
+                slug,
+                safeStr(o, "title"),
+                safeStr(o, "description"),
+                "",
+                o.has("downloads") && !o.get("downloads").isJsonNull() ? o.get("downloads").getAsLong() : 0,
+                safeStr(o, "icon_url"),
+                "https://modrinth.com/project/" + siteSlug
+        ).categories(categories).loaders(loaders).projectType(type)
+                .dateModified(parseIsoMillis(safeStr(o, "date_modified")));
+    }
+
     public JsonObject getProject(String projectId) {
         if (projectId == null || projectId.isBlank()) return null;
         Request req = new Request.Builder()
@@ -552,7 +651,7 @@ public final class ModrinthClient implements ModMarketClient {
     }
 
     private List<String> jsonArrToStrings(JsonObject o, String key) {
-        if (!o.has(key) || o.get(key).isJsonNull()) return Collections.emptyList();
+        if (!o.has(key) || o.get(key).isJsonNull() || !o.get(key).isJsonArray()) return Collections.emptyList();
         List<String> list = new ArrayList<>();
         for (JsonElement e : o.getAsJsonArray(key)) {
             if (e != null && !e.isJsonNull() && e.isJsonPrimitive()) list.add(e.getAsString());

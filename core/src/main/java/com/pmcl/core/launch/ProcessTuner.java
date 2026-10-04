@@ -12,7 +12,7 @@ import java.util.concurrent.TimeUnit;
  * L2（进程级，无需 sudo）：
  * - macOS：taskpolicy -c user-active 提升 QoS + caffeinate -i -w 防休眠
  * - Windows：wmic 设置高优先级
- * - Linux：renice -n -5
+ * - Linux：renice -n 0；可选 GameMode、systemd-inhibit
  * <p>
  * L3（系统级，需 sudo，仅 macOS）：
  * - pmset -a lowpowermode 0 关闭低电量模式
@@ -28,6 +28,9 @@ public final class ProcessTuner {
     private final boolean isLinux;
 
     private volatile Process caffeinateProcess;   // L2：防休眠子进程
+    private volatile Process keepAwakeProcess;    // L2+：Windows / Linux 保持亮屏
+    private boolean caffeinateDisplay;            // 当前 caffeinate 是否已经挡住熄屏
+    private long gameModePid;                     // L2+：已向 GameMode 注册的进程
     private Integer originalLowPowerMode; // L3：原始低电量模式状态，用于恢复
 
     public ProcessTuner() {
@@ -46,7 +49,7 @@ public final class ProcessTuner {
         try {
             if (isMac) {
                 applyMacQos(pid);
-                startCaffeinate(pid);
+                startCaffeinate(pid, false);
             } else if (isWindows) {
                 applyWindowsPriority(pid);
             } else if (isLinux) {
@@ -77,6 +80,43 @@ public final class ProcessTuner {
             System.err.println("[MioMode] 疯狂优先级应用失败，降级: " + e.getMessage());
         }
         return false;
+    }
+
+    /**
+     * 游戏运行期间不让屏幕和系统休眠。退出后由 {@link #cleanup()} 恢复。
+     * 失败只记日志，不让启动失败。
+     */
+    public void applyKeepAwake(long pid) {
+        if (pid <= 0) return;
+        try {
+            if (isMac) {
+                startCaffeinate(pid, true);
+            } else if (isWindows) {
+                startWindowsAwake();
+            } else if (isLinux) {
+                startLinuxInhibit();
+            }
+        } catch (Exception e) {
+            System.err.println("[MioMode] 保持亮屏失败，降级: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Linux：向 Feral GameMode 注册这个进程。没安装或不是 Linux 时直接返回。
+     */
+    public void applyGameMode(long pid) {
+        if (!isLinux || pid <= 0 || pid > Integer.MAX_VALUE) return;
+        try {
+            runCommand("busctl", "--user", "call",
+                    "com.feralinteractive.GameMode",
+                    "/com/feralinteractive/GameMode",
+                    "com.feralinteractive.GameMode",
+                    "RegisterGame", "i", String.valueOf(pid));
+            gameModePid = pid;
+            System.out.println("[MioMode] L2+ 已注册 GameMode: pid=" + pid);
+        } catch (Exception e) {
+            System.err.println("[MioMode] GameMode 未注册（未安装或服务没开）: " + e.getMessage());
+        }
     }
 
     /**
@@ -112,18 +152,12 @@ public final class ProcessTuner {
      * L3 恢复若再次弹授权框且用户拒绝，只写入备份文件，不再阻塞。
      */
     public void cleanup() {
-        // L2：终止 caffeinate 子进程
-        if (caffeinateProcess != null && caffeinateProcess.isAlive()) {
-            try {
-                caffeinateProcess.destroy();
-                if (!caffeinateProcess.waitFor(2, TimeUnit.SECONDS)) {
-                    caffeinateProcess.destroyForcibly();
-                }
-            } catch (Exception e) {
-                System.err.println("[MioMode] 终止 caffeinate 失败: " + e.getMessage());
-            }
-            caffeinateProcess = null;
-        }
+        stopHelper(caffeinateProcess, "caffeinate");
+        caffeinateProcess = null;
+        caffeinateDisplay = false;
+        stopHelper(keepAwakeProcess, "keep-awake");
+        keepAwakeProcess = null;
+        unregisterGameMode();
         // L3：恢复原始低电量模式（可能再次弹授权；失败则写备份，避免反复打扰）
         if (originalLowPowerMode != null && isMac) {
             Integer restore = originalLowPowerMode;
@@ -154,26 +188,106 @@ public final class ProcessTuner {
         System.out.println("[MioMode] L2 已提升 macOS QoS: pid=" + pid);
     }
 
-    private void startCaffeinate(long pid) throws IOException {
-        // caffeinate -i -w <pid>：抑制 idle sleep，attach 到游戏 PID
-        // 游戏退出后 caffeinate 自动结束（-w 语义）
-        ProcessBuilder pb = new ProcessBuilder(
-            "caffeinate", "-i", "-w", String.valueOf(pid));
+    private void startCaffeinate(long pid, boolean display) throws IOException {
+        // 已经挡住熄屏时，普通防休眠不用再降回去。
+        if (caffeinateProcess != null && caffeinateProcess.isAlive()) {
+            if (!display || caffeinateDisplay) return;
+            stopHelper(caffeinateProcess, "caffeinate");
+            caffeinateProcess = null;
+        }
+        // -w：游戏退出后 caffeinate 自己结束。display 时再挡住熄屏、磁盘和系统休眠。
+        java.util.List<String> cmd = new java.util.ArrayList<>();
+        cmd.add("caffeinate");
+        if (display) {
+            cmd.add("-d");
+            cmd.add("-i");
+            cmd.add("-m");
+            cmd.add("-s");
+        } else {
+            cmd.add("-i");
+        }
+        cmd.add("-w");
+        cmd.add(String.valueOf(pid));
+        caffeinateProcess = startBackground(cmd, "mio-caffeinate-reader");
+        caffeinateDisplay = display;
+        System.out.println("[MioMode] L2 已启动 caffeinate"
+                + (display ? "（含亮屏）" : "") + ": pid=" + pid);
+    }
+
+    private void startWindowsAwake() throws IOException {
+        if (keepAwakeProcess != null && keepAwakeProcess.isAlive()) return;
+        // 0x80000003 = ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED
+        // 这个 powershell 活着期间生效，cleanup 结束它就恢复。
+        String script = "$es = @'\n"
+                + "using System;\n"
+                + "using System.Runtime.InteropServices;\n"
+                + "public class MioStay {\n"
+                + "  [DllImport(\"kernel32.dll\")] public static extern uint SetThreadExecutionState(uint f);\n"
+                + "}\n"
+                + "'@\n"
+                + "Add-Type -TypeDefinition $es -Language CSharp\n"
+                + "[MioStay]::SetThreadExecutionState([uint32]2147483651) | Out-Null\n"
+                + "while ($true) { Start-Sleep -Seconds 20 }\n";
+        keepAwakeProcess = startBackground(java.util.List.of(
+                "powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden",
+                "-Command", script), "mio-awake-reader");
+        System.out.println("[MioMode] L2+ Windows 已保持亮屏");
+    }
+
+    private void startLinuxInhibit() throws IOException {
+        if (keepAwakeProcess != null && keepAwakeProcess.isAlive()) return;
+        keepAwakeProcess = startBackground(java.util.List.of(
+                "systemd-inhibit",
+                "--what=idle:sleep",
+                "--who=PMCL",
+                "--why=Mio",
+                "--mode=block",
+                "sleep", "infinity"), "mio-inhibit-reader");
+        System.out.println("[MioMode] L2+ Linux 已抑制休眠");
+    }
+
+    private void unregisterGameMode() {
+        long pid = gameModePid;
+        gameModePid = 0;
+        if (pid <= 0) return;
+        try {
+            runCommand("busctl", "--user", "call",
+                    "com.feralinteractive.GameMode",
+                    "/com/feralinteractive/GameMode",
+                    "com.feralinteractive.GameMode",
+                    "UnregisterGame", "i", String.valueOf(pid));
+            System.out.println("[MioMode] L2+ 已注销 GameMode: pid=" + pid);
+        } catch (Exception e) {
+            System.err.println("[MioMode] 注销 GameMode 失败: " + e.getMessage());
+        }
+    }
+
+    private Process startBackground(java.util.List<String> cmd, String threadName) throws IOException {
+        ProcessBuilder pb = new ProcessBuilder(cmd);
         pb.redirectErrorStream(true);
-        caffeinateProcess = pb.start();
-        // M79: transferTo 会阻塞调用线程直到 EOF（即 caffeinate 退出），
-        // 与 -w（等待游戏退出）语义叠加后会一直阻塞主线程。
-        // 改用守护线程异步读取输出，避免阻塞 UI/启动线程。
+        Process process = pb.start();
         Thread reader = new Thread(() -> {
-            try (java.io.InputStream is = caffeinateProcess.getInputStream()) {
+            try (java.io.InputStream is = process.getInputStream()) {
                 is.transferTo(java.io.OutputStream.nullOutputStream());
             } catch (IOException ignored) {
                 // 进程被销毁时读取会失败，可忽略
             }
-        }, "mio-caffeinate-reader");
+        }, threadName);
         reader.setDaemon(true);
         reader.start();
-        System.out.println("[MioMode] L2 已启动 caffeinate 防休眠: pid=" + pid);
+        return process;
+    }
+
+    private void stopHelper(Process process, String name) {
+        if (process == null || !process.isAlive()) return;
+        try {
+            process.destroy();
+            if (!process.waitFor(2, TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+            }
+        } catch (Exception e) {
+            System.err.println("[MioMode] 终止 " + name + " 失败: " + e.getMessage());
+        }
     }
 
     private void applyWindowsPriority(long pid) throws IOException {

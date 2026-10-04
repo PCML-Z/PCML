@@ -165,13 +165,27 @@ public final class LaunchManager {
             pluginManager.applyLaunchContributions(profile);
         }
         java.util.List<String> cmd = profile.buildCommand(javaExecutable);
+        if (preferences != null && preferences.isMacGameMode() && MacGameMode.supported()) {
+            try {
+                cmd = MacGameMode.wrap(cmd);
+                if (onLog != null) onLog.accept(com.pmcl.core.i18n.I18n.t("launch.mac_game_mode"));
+            } catch (IOException e) {
+                String msg = com.pmcl.core.i18n.I18n.t("launch.mac_game_mode_failed", e.getMessage());
+                if (onLog != null) onLog.accept(msg);
+                if (logger != null) logger.append("[PMCL] " + msg);
+            }
+        }
         // 调试：打印启动命令（敏感参数脱敏，防止 accessToken 泄漏到 latest.log）
         if (logger != null) {
             logger.append("[PMCL DEBUG] 启动命令:");
             StringBuilder sb = new StringBuilder();
             for (int i = 0; i < cmd.size(); i++) {
+                String arg = cmd.get(i);
+                if (i > 0 && "--server".equals(cmd.get(i - 1))) {
+                    arg = com.pmcl.core.multiplayer.HiddenServerAddress.redact(arg);
+                }
                 sb.append("[PMCL DEBUG] [").append(i).append("] ")
-                  .append(sanitizeForLog(cmd.get(i))).append("\n");
+                  .append(sanitizeForLog(arg)).append("\n");
             }
             logger.append(sb.toString());
         }
@@ -376,6 +390,17 @@ public final class LaunchManager {
                     if (preferences.isMioModeProcess()) {
                         tuner.applyProcessTuning(process.pid());
                         if (logger != null) logger.append("[PMCL] 澪模式 L2：已应用进程级性能调优");
+                    }
+
+                    // L2+：保持亮屏（不需要管理员密码）
+                    if (preferences.isMioModeKeepAwake()) {
+                        tuner.applyKeepAwake(process.pid());
+                        if (logger != null) logger.append("[PMCL] 澪模式 L2+：游戏运行时保持亮屏");
+                    }
+
+                    // L2+：Linux GameMode。没安装就跳过。
+                    if (preferences.isMioModeGameMode()) {
+                        tuner.applyGameMode(process.pid());
                     }
 
                     // L2+：疯狂优先级（macOS 需管理员密码）

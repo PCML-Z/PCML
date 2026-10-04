@@ -77,6 +77,7 @@ class VersionSettingsTest {
         assertEquals(1024, settings.memoryMin(512));
         assertEquals(8192, settings.memoryMax(4096));
         assertEquals("-XX:+UseG1GC", settings.jvmArgs(""));
+        assertEquals("-Xmx2G -XX:+UseG1GC", settings.jvmArgs("-Xmx2G"));
         assertEquals(1920, settings.width(854));
         assertTrue(settings.fullscreen(false));
         assertEquals(tmp.toAbsolutePath().normalize(), VersionSettings.parseGameDir(tmp.toString()));

@@ -781,6 +781,15 @@ public final class DownloadManager {
      */
     public void downloadToVerified(String url, Path target, String sha1, String sha512)
             throws IOException {
+        downloadToVerified(url, target, sha1, sha512, null);
+    }
+
+    /**
+     * 与 {@link #downloadToVerified(String, Path, String, String)} 相同，并在写入临时文件时回报已下载字节。
+     * 校验完成前进度停在临时文件；调用方在校验通过后再把任务记为完成。
+     */
+    public void downloadToVerified(String url, Path target, String sha1, String sha512,
+                                   Consumer<Long> onProgress) throws IOException {
         if ((sha1 == null || sha1.isBlank()) && (sha512 == null || sha512.isBlank())) {
             throw new IOException("拒绝无哈希校验的下载: " + url);
         }
@@ -788,7 +797,7 @@ public final class DownloadManager {
         Path verifiedTmp = target.resolveSibling(target.getFileName() + ".verified-tmp");
         Files.deleteIfExists(verifiedTmp);
         try {
-            downloadTo(url, verifiedTmp);
+            downloadTo(url, verifiedTmp, onProgress);
             verifyHashesOrWarn(verifiedTmp, sha1, sha512);
             try {
                 Files.move(verifiedTmp, target,
@@ -844,6 +853,28 @@ public final class DownloadManager {
      * Same as {@link #downloadToSsrfChecked(String, Path)} with optional byte progress.
      */
     public void downloadToSsrfChecked(String url, Path target, Consumer<Long> onProgress) throws IOException {
+        downloadToSsrfChecked(url, target, onProgress, MAX_SSRF_DOWNLOAD_BYTES);
+    }
+
+    /**
+     * 与 {@link #downloadToSsrfChecked(String, Path, Consumer)} 相同，但由调用方指定单文件上限。
+     * 插件下载仍走 100MB 上限；热更新的单个 jar 可以更大。
+     */
+    public void downloadToSsrfChecked(String url, Path target, Consumer<Long> onProgress, long maxBytes)
+            throws IOException {
+        downloadToSsrfChecked(url, target, onProgress, maxBytes, false);
+    }
+
+    /**
+     * @param rawBody 为 true 时声明 {@code Accept-Encoding: identity}，
+     *                落盘字节与发布文件的校验和一致，不会被 HTTP 压缩层解开。
+     */
+    public void downloadToSsrfChecked(String url, Path target, Consumer<Long> onProgress, long maxBytes,
+                                       boolean rawBody)
+            throws IOException {
+        if (maxBytes <= 0) {
+            throw new IOException("下载上限无效");
+        }
         String err = com.pmcl.core.util.SsrfChecker.validate(url);
         if (err != null) {
             throw new IOException("SSRF blocked: " + err);
@@ -859,14 +890,18 @@ public final class DownloadManager {
                     return chain.proceed(chain.request());
                 })
                 .build();
-        Request req = new Request.Builder().url(url).get().build();
+        Request.Builder reqBuilder = new Request.Builder().url(url).get();
+        if (rawBody) {
+            reqBuilder.header("Accept-Encoding", "identity");
+        }
+        Request req = reqBuilder.build();
         try (Response resp = safe.newCall(req).execute()) {
             if (!resp.isSuccessful() || resp.body() == null) {
                 throw new IOException("HTTP " + resp.code() + " downloading " + url);
             }
             long cl = resp.body().contentLength();
-            if (cl > MAX_SSRF_DOWNLOAD_BYTES) {
-                throw new IOException("下载过大 (" + cl + " > " + MAX_SSRF_DOWNLOAD_BYTES + "): " + url);
+            if (cl > maxBytes) {
+                throw new IOException("下载过大 (" + cl + " > " + maxBytes + "): " + url);
             }
             Path tmp = target.resolveSibling(target.getFileName() + ".ssrf-tmp-"
                     + java.util.UUID.randomUUID());
@@ -881,8 +916,8 @@ public final class DownloadManager {
                     int n;
                     while ((n = in.read(buf)) > 0) {
                         total += n;
-                        if (total > MAX_SSRF_DOWNLOAD_BYTES) {
-                            throw new IOException("下载过大 (>" + MAX_SSRF_DOWNLOAD_BYTES + "): " + url);
+                        if (total > maxBytes) {
+                            throw new IOException("下载过大 (>" + maxBytes + "): " + url);
                         }
                         out.write(buf, 0, n);
                         if (onProgress != null) onProgress.accept(total);

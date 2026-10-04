@@ -30,10 +30,11 @@ private const val WALLPAPER_CARD_ALPHA = 0.38f
 private const val GLASS_VARIANT_ALPHA = 0.45f
 
 /**
- * 仅由「玻璃主题」开关控制半透明卡片。
- * 自定义/视差壁纸不再强制玻璃效果，否则关闭玻璃主题看起来不生效。
+ * 卡片半透明只跟「玻璃主题」走。关掉玻璃主题时，卡片回到实色。
+ * 壁纸毛玻璃开着时，材质主题不再把页面区块盖成实色，模糊后的壁纸要从区块里透出来。
  */
-private fun ThemeState.wantsTranslucentCards(): Boolean = glassTheme && !materialTheme
+private fun ThemeState.wantsTranslucentCards(): Boolean =
+    glassTheme && (!materialTheme || liveWallpaperGlass)
 
 /** 当前场景应使用的卡片透明度（仅 glassTheme 开启时有意义） */
 private fun ThemeState.cardAlpha(): Float = when {
@@ -47,7 +48,7 @@ private fun ThemeState.cardAlpha(): Float = when {
  * 玻璃主题辅助：返回 Card 在当前主题下应使用的 colors。
  *
  * - glassTheme 关闭：MaterialTheme 标准实色 CardColors
- * - glassTheme + 壁纸：低透明 (0.38)
+ * - glassTheme + 壁纸或壁纸毛玻璃：低透明 (0.38)，材质主题不再挡住
  * - glassTheme 无壁纸：半透明 (0.55)
  */
 @Composable

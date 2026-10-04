@@ -110,10 +110,12 @@ public final class Preferences {
     private boolean gameDemo = false;        // 演示模式（--demo）
     private String gameServerHost = "";      // 启动后自动连接服务器地址（--server）
     private int gameServerPort = 25565;      // 服务器端口（--port）
+    private String gameServerToken = "";     // 26.4 隐身服务器连接令牌（_id）
     private java.util.List<String[]> favoriteServers = new java.util.ArrayList<>();  // 收藏的服务器列表，每项 [name, host, port]
     private String gameRenderer = "AUTO";    // 渲染器：AUTO/OPENGL/VULKAN/DIRECTX（--renderer / GLFW强制指定）
     private boolean linuxZink = false;       // Linux：用 Mesa Zink 把 OpenGL 转到 Vulkan
     private boolean macMicrophoneRequest = false; // macOS：启动前用游戏 Java 请求麦克风权限
+    private boolean macGameMode = false;         // macOS：用声明了 LSSupportsGameMode 的应用启动游戏
     private boolean preferUtf8 = true;       // 游戏进程优先使用 UTF-8
     private boolean preferIPv4 = false;      // 游戏进程优先 IPv4
     private boolean imeFixAgent = false;     // 启动时附加输入法 Java Agent
@@ -138,6 +140,8 @@ public final class Preferences {
     private boolean useHttpAuth = false;
     private String proxyUsername = "";
     private String proxyPassword = "";
+    /** CurseForge 官方 API Key。落盘前加密，内存中为明文。 */
+    private String curseforgeApiKey = "";
     private int downloadSpeedLimitKb = 0;          // 0 = 不限速
     private int downloadRetryCount = 3;
     private boolean enableResume = true;           // 断点续传
@@ -164,6 +168,12 @@ public final class Preferences {
     private boolean mioModeJitAggressive = true;   // L1+：JIT 编译器激进（热点更早编译+循环安全点，默认开）
     private boolean mioModeNetworkOpt = true;      // L1+：网络栈优化（IPv4优先+快速路径+DNS缓存，默认开）
     private boolean mioModeMetaspace = true;       // L1+：元空间管控（限制上限+类数据共享，默认开，防 OOM）
+    private boolean mioModePretouch = false;       // L1+：预热堆（启动变慢，减少首次分配卡顿）
+    private boolean mioModeStringDedup = true;     // L1+：G1 字符串去重（ZGC 时不注入）
+    private boolean mioModeIdleGc = false;         // L1+：机器空闲时做一次 G1 回收（ZGC 时不注入）
+    private boolean mioModeKeepAwake = true;       // L2+：游戏运行时不让屏幕和系统休眠
+    private boolean mioModeDiscreteGpu = false;    // L2+：双显卡笔记本优先独立显卡
+    private boolean mioModeGameMode = true;        // L2+：Linux GameMode，未安装则跳过
 
     // ===== 设备绑定保护（DeviceBinder：11498 位设备加密码 + RSA 签名许可证）=====
     // 开启后启动器和游戏绑定到当前设备，复制到其他设备无法启动/使用。
@@ -181,11 +191,15 @@ public final class Preferences {
     private boolean metalRenderEnabled = false;
 
     // ===== 多人联机 =====
-    private String mpBackend = "TERRACOTTA";       // TERRACOTTA / EASYTIER / CONNECTX（默认 Terracotta，HMCL 同款官方陶瓦联机）
+    private String mpBackend = "TERRACOTTA";       // TERRACOTTA / EASYTIER / CONNECTX / REDSTONE
     private String easytierPeer = "";               // EasyTier 共享节点 URI（官方公共节点已停用，需自建/第三方）
     private String connectxServerAddress = "";     // ConnectX 服务器地址
     private int connectxServerPort = 3535;         // ConnectX 服务器端口
     private String connectxBinaryPath = "";        // ConnectX.ClientConsole 二进制路径
+    private String redstoneRelay = com.pmcl.core.multiplayer.RedstoneClient.DEFAULT_RELAY;
+    private int redstoneLocalPort = 25565;
+    private int redstoneMaxPlayers = com.pmcl.core.multiplayer.RedstoneClient.DEFAULT_MAX_PLAYERS;
+    private String redstoneApiKey = "";
 
     // ===== 防抖磁盘写入（性能优化）=====
     // 每次 setter 只标记 dirty 并调度一次延迟写入，连续修改（如拖动 UI 缩放滑块）只会触发一次磁盘 IO。
@@ -650,6 +664,12 @@ public final class Preferences {
         if (v > 0 && v < 65536) gameServerPort = v; scheduleSave();
     }
 
+    public synchronized String getGameServerToken() { return gameServerToken; }
+    public synchronized void setGameServerToken(String v) {
+        gameServerToken = com.pmcl.core.multiplayer.HiddenServerAddress.cleanToken(v);
+        scheduleSave();
+    }
+
     // ===== 收藏服务器列表 =====
     /** 返回收藏服务器列表的深拷贝，每项为 [name, host, port]。
      *  M17 修复：浅拷贝时外部可修改 String[] 元素影响内部状态，改为深拷贝每个数组。 */
@@ -664,7 +684,14 @@ public final class Preferences {
     /** 添加收藏服务器，name 为空时用 host:port 代替 */
     public synchronized void addFavoriteServer(String name, String host, int port) {
         String n = (name == null || name.isBlank()) ? (host + ":" + port) : name.trim();
-        favoriteServers.add(new String[]{n, host.trim(), String.valueOf(port)});
+        favoriteServers.add(serverEntry(n, host.trim(), String.valueOf(port), ""));
+        scheduleSave();
+    }
+
+    public synchronized void addFavoriteServer(String name, String host, int port, String token) {
+        String n = (name == null || name.isBlank()) ? (host + ":" + port) : name.trim();
+        favoriteServers.add(serverEntry(n, host.trim(), String.valueOf(port),
+                com.pmcl.core.multiplayer.HiddenServerAddress.cleanToken(token)));
         scheduleSave();
     }
 
@@ -676,11 +703,24 @@ public final class Preferences {
     }
 
     public synchronized void updateFavoriteServer(int index, String name, String host, int port) {
+        String token = "";
+        if (index >= 0 && index < favoriteServers.size() && favoriteServers.get(index).length > 3) {
+            token = favoriteServers.get(index)[3];
+        }
+        updateFavoriteServer(index, name, host, port, token);
+    }
+
+    public synchronized void updateFavoriteServer(int index, String name, String host, int port, String token) {
         if (index >= 0 && index < favoriteServers.size()) {
             String n = (name == null || name.isBlank()) ? (host + ":" + port) : name.trim();
-            favoriteServers.set(index, new String[]{n, host.trim(), String.valueOf(port)});
+            favoriteServers.set(index, serverEntry(n, host.trim(), String.valueOf(port),
+                    com.pmcl.core.multiplayer.HiddenServerAddress.cleanToken(token)));
             scheduleSave();
         }
+    }
+
+    private static String[] serverEntry(String name, String host, String port, String token) {
+        return new String[]{name, host, port, token == null ? "" : token};
     }
 
     /** 渲染器类型：AUTO（不注入）/ OPENGL / VULKAN */
@@ -701,6 +741,10 @@ public final class Preferences {
     /** macOS 启动游戏前，用即将运行游戏的 Java 请求麦克风权限。其它系统不使用。 */
     public synchronized boolean isMacMicrophoneRequest() { return macMicrophoneRequest; }
     public synchronized void setMacMicrophoneRequest(boolean v) { macMicrophoneRequest = v; scheduleSave(); }
+
+    /** macOS 14+：经支持 Game Mode 的应用启动。全屏时系统才会打开 Game Mode。其它系统不使用。 */
+    public synchronized boolean isMacGameMode() { return macGameMode; }
+    public synchronized void setMacGameMode(boolean v) { macGameMode = v; scheduleSave(); }
 
     public synchronized boolean isPreferUtf8() { return preferUtf8; }
     public synchronized void setPreferUtf8(boolean v) { preferUtf8 = v; scheduleSave(); }
@@ -816,6 +860,11 @@ public final class Preferences {
 
     public synchronized String getProxyPassword() { return proxyPassword; }
     public synchronized void setProxyPassword(String v) { proxyPassword = v == null ? "" : v; scheduleSave(); }
+    public synchronized String getCurseforgeApiKey() { return curseforgeApiKey; }
+    public synchronized void setCurseforgeApiKey(String v) {
+        curseforgeApiKey = v == null ? "" : v.trim();
+        scheduleSave();
+    }
 
     public synchronized int getDownloadSpeedLimitKb() { return downloadSpeedLimitKb; }
     public synchronized void setDownloadSpeedLimitKb(int v) { if (v < 0) return; downloadSpeedLimitKb = v; scheduleSave(); }
@@ -896,6 +945,18 @@ public final class Preferences {
     public synchronized void setMioModeNetworkOpt(boolean v) { mioModeNetworkOpt = v; scheduleSave(); }
     public synchronized boolean isMioModeMetaspace() { return mioModeMetaspace; }
     public synchronized void setMioModeMetaspace(boolean v) { mioModeMetaspace = v; scheduleSave(); }
+    public synchronized boolean isMioModePretouch() { return mioModePretouch; }
+    public synchronized void setMioModePretouch(boolean v) { mioModePretouch = v; scheduleSave(); }
+    public synchronized boolean isMioModeStringDedup() { return mioModeStringDedup; }
+    public synchronized void setMioModeStringDedup(boolean v) { mioModeStringDedup = v; scheduleSave(); }
+    public synchronized boolean isMioModeIdleGc() { return mioModeIdleGc; }
+    public synchronized void setMioModeIdleGc(boolean v) { mioModeIdleGc = v; scheduleSave(); }
+    public synchronized boolean isMioModeKeepAwake() { return mioModeKeepAwake; }
+    public synchronized void setMioModeKeepAwake(boolean v) { mioModeKeepAwake = v; scheduleSave(); }
+    public synchronized boolean isMioModeDiscreteGpu() { return mioModeDiscreteGpu; }
+    public synchronized void setMioModeDiscreteGpu(boolean v) { mioModeDiscreteGpu = v; scheduleSave(); }
+    public synchronized boolean isMioModeGameMode() { return mioModeGameMode; }
+    public synchronized void setMioModeGameMode(boolean v) { mioModeGameMode = v; scheduleSave(); }
 
     // ===== Metal 渲染 =====
     public synchronized boolean isMetalRenderEnabled() { return metalRenderEnabled; }
@@ -956,6 +1017,33 @@ public final class Preferences {
     }
     public synchronized String getConnectxBinaryPath() { return connectxBinaryPath; }
     public synchronized void setConnectxBinaryPath(String v) { connectxBinaryPath = v == null ? "" : v; scheduleSave(); }
+    public synchronized String getRedstoneRelay() {
+        if (redstoneRelay == null || redstoneRelay.isBlank()) {
+            return com.pmcl.core.multiplayer.RedstoneClient.DEFAULT_RELAY;
+        }
+        return redstoneRelay;
+    }
+    public synchronized void setRedstoneRelay(String v) {
+        redstoneRelay = com.pmcl.core.multiplayer.RedstoneClient.canonicalRelay(v);
+        scheduleSave();
+    }
+    public synchronized int getRedstoneLocalPort() { return redstoneLocalPort; }
+    public synchronized void setRedstoneLocalPort(int v) {
+        if (v > 0 && v < 65536) redstoneLocalPort = v;
+        scheduleSave();
+    }
+    public synchronized int getRedstoneMaxPlayers() { return redstoneMaxPlayers; }
+    public synchronized void setRedstoneMaxPlayers(int v) {
+        if (v >= 1 && v <= com.pmcl.core.multiplayer.RedstoneClient.MAX_PLAYERS) redstoneMaxPlayers = v;
+        scheduleSave();
+    }
+    public synchronized String getRedstoneApiKey() { return redstoneApiKey; }
+    public synchronized void setRedstoneApiKey(String v) {
+        String key = v == null ? "" : v.trim();
+        if (!key.isEmpty() && !com.pmcl.core.multiplayer.RedstoneClient.isApiKey(key)) return;
+        redstoneApiKey = key;
+        scheduleSave();
+    }
 
     // ===== 启动预设 =====
 
@@ -988,12 +1076,14 @@ public final class Preferences {
         public final String gameRenderer;
         public final String gameServerHost;
         public final int gameServerPort;
+        public final String gameServerToken;
 
         public LaunchPreset(String name, int minMemoryMb, int maxMemoryMb, String gcType,
                             boolean useAikarFlags, String customJvmArgs,
                             int gameWindowWidth, int gameWindowHeight,
                             boolean gameFullscreen, boolean gameDemo,
-                            String gameRenderer, String gameServerHost, int gameServerPort) {
+                            String gameRenderer, String gameServerHost, int gameServerPort,
+                            String gameServerToken) {
             this.name = name;
             this.minMemoryMb = minMemoryMb;
             this.maxMemoryMb = maxMemoryMb;
@@ -1007,6 +1097,7 @@ public final class Preferences {
             this.gameRenderer = gameRenderer;
             this.gameServerHost = gameServerHost;
             this.gameServerPort = gameServerPort;
+            this.gameServerToken = gameServerToken == null ? "" : gameServerToken;
         }
     }
 
@@ -1023,7 +1114,7 @@ public final class Preferences {
         LaunchPreset preset = new LaunchPreset(
                 name, minMemoryMb, maxMemoryMb, gcType, useAikarFlags, customJvmArgs,
                 gameWindowWidth, gameWindowHeight, gameFullscreen, gameDemo,
-                gameRenderer, gameServerHost, gameServerPort);
+                gameRenderer, gameServerHost, gameServerPort, gameServerToken);
         launchPresets.put(name, preset);
         scheduleSave();
     }
@@ -1044,6 +1135,7 @@ public final class Preferences {
         gameRenderer = p.gameRenderer;
         gameServerHost = p.gameServerHost;
         gameServerPort = p.gameServerPort;
+        gameServerToken = p.gameServerToken;
         scheduleSave();
     }
 
@@ -1196,6 +1288,12 @@ public final class Preferences {
             mioModeJitAggressive = loadBool(o, "mioModeJitAggressive", true);
             mioModeNetworkOpt = loadBool(o, "mioModeNetworkOpt", true);
             mioModeMetaspace = loadBool(o, "mioModeMetaspace", true);
+            mioModePretouch = loadBool(o, "mioModePretouch", false);
+            mioModeStringDedup = loadBool(o, "mioModeStringDedup", true);
+            mioModeIdleGc = loadBool(o, "mioModeIdleGc", false);
+            mioModeKeepAwake = loadBool(o, "mioModeKeepAwake", true);
+            mioModeDiscreteGpu = loadBool(o, "mioModeDiscreteGpu", false);
+            mioModeGameMode = loadBool(o, "mioModeGameMode", true);
             metalRenderEnabled = loadBool(o, "metalRenderEnabled", false);
             // 整数字段（带范围校验）
             customAccentColor = loadInt(o, "customAccentColor", -1, Integer.MIN_VALUE, Integer.MAX_VALUE);
@@ -1211,6 +1309,10 @@ public final class Preferences {
             chunkedDownloadThreads = loadInt(o, "chunkedDownloadThreads", 4, 1, Integer.MAX_VALUE);
             downloadThreads = loadInt(o, "downloadThreads", 16, 1, 64);
             connectxServerPort = loadInt(o, "connectxServerPort", 3535, 1, 65535);
+            redstoneLocalPort = loadInt(o, "redstoneLocalPort", 25565, 1, 65535);
+            redstoneMaxPlayers = loadInt(o, "redstoneMaxPlayers",
+                    com.pmcl.core.multiplayer.RedstoneClient.DEFAULT_MAX_PLAYERS, 1,
+                    com.pmcl.core.multiplayer.RedstoneClient.MAX_PLAYERS);
             // 浮点字段（带范围校验 + NaN/Infinity 过滤）
             uiScale = loadFloat(o, "uiScale", 1.0f, 0.8f, 1.5f);
             launcherFont = loadString(o, "launcherFont", "");
@@ -1253,9 +1355,12 @@ public final class Preferences {
             if (!"SELECTED".equals(javaSelectionMode)) javaSelectionMode = "AUTO";
             legacyTranslationMode = loadString(o, "legacyTranslationMode", "AUTO");
             gameServerHost = loadString(o, "gameServerHost", "");
+            gameServerToken = com.pmcl.core.multiplayer.HiddenServerAddress.cleanToken(
+                    loadString(o, "gameServerToken", ""));
             gameRenderer = loadString(o, "gameRenderer", "AUTO");
             linuxZink = loadBool(o, "linuxZink", false);
             macMicrophoneRequest = loadBool(o, "macMicrophoneRequest", false);
+            macGameMode = loadBool(o, "macGameMode", false);
             preferUtf8 = loadBool(o, "preferUtf8", true);
             preferIPv4 = loadBool(o, "preferIPv4", false);
             imeFixAgent = loadBool(o, "imeFixAgent", false);
@@ -1293,8 +1398,33 @@ public final class Preferences {
                 System.err.println("[Preferences] 迁移 proxyPassword 为加密存储");
                 scheduleSave();
             }
+            String rawCurseforgeKey = loadString(o, "curseforgeApiKey", "");
+            boolean curseforgeKeyWasPlain = !rawCurseforgeKey.isEmpty()
+                    && !TokenEncryptor.isEncrypted(rawCurseforgeKey);
+            curseforgeApiKey = decryptStoredSecret(rawCurseforgeKey);
+            if (curseforgeKeyWasPlain) {
+                System.err.println("[Preferences] 迁移 curseforgeApiKey 为加密存储");
+                scheduleSave();
+            }
             mpBackend = loadString(o, "mpBackend", "TERRACOTTA");
             easytierPeer = loadString(o, "easytierPeer", "");
+            try {
+                redstoneRelay = com.pmcl.core.multiplayer.RedstoneClient.canonicalRelay(
+                        loadString(o, "redstoneRelay", com.pmcl.core.multiplayer.RedstoneClient.DEFAULT_RELAY));
+            } catch (RuntimeException ex) {
+                redstoneRelay = com.pmcl.core.multiplayer.RedstoneClient.DEFAULT_RELAY;
+            }
+            String rawRedstoneKey = loadString(o, "redstoneApiKey", "");
+            String plainRedstoneKey = decryptStoredSecret(rawRedstoneKey);
+            if (!rawRedstoneKey.isEmpty() && !TokenEncryptor.isEncrypted(rawRedstoneKey)) {
+                scheduleSave();
+            }
+            if (!plainRedstoneKey.isEmpty() && !com.pmcl.core.multiplayer.RedstoneClient.isApiKey(plainRedstoneKey)) {
+                redstoneApiKey = "";
+                scheduleSave();
+            } else {
+                redstoneApiKey = plainRedstoneKey;
+            }
             connectxServerAddress = loadString(o, "connectxServerAddress", "");
             connectxBinaryPath = loadString(o, "connectxBinaryPath", "");
             deviceProtectionLicense = loadString(o, "deviceProtectionLicense", "");
@@ -1316,6 +1446,19 @@ public final class Preferences {
                 connectxServerAddress = loadString(o, "connectxServerAddress", connectxServerAddress);
                 connectxBinaryPath = loadString(o, "connectxBinaryPath", connectxBinaryPath);
                 connectxServerPort = loadInt(o, "connectxServerPort", connectxServerPort, 1, 65535);
+                redstoneLocalPort = loadInt(o, "redstoneLocalPort", redstoneLocalPort, 1, 65535);
+                redstoneMaxPlayers = loadInt(o, "redstoneMaxPlayers", redstoneMaxPlayers, 1,
+                        com.pmcl.core.multiplayer.RedstoneClient.MAX_PLAYERS);
+                try {
+                    redstoneRelay = com.pmcl.core.multiplayer.RedstoneClient.canonicalRelay(
+                            loadString(o, "redstoneRelay", redstoneRelay));
+                    String recoveredKey = decryptStoredSecret(loadString(o, "redstoneApiKey", ""));
+                    if (com.pmcl.core.multiplayer.RedstoneClient.isApiKey(recoveredKey)) {
+                        redstoneApiKey = recoveredKey;
+                    }
+                } catch (RuntimeException ignored) {
+                    // 中继地址损坏时保留默认值，不挡住其他字段。
+                }
                 deviceProtectionLicense = loadString(o, "deviceProtectionLicense", deviceProtectionLicense);
                 deviceProtectionPublicKey = loadString(o, "deviceProtectionPublicKey", deviceProtectionPublicKey);
                 deviceProtectionLocalKey = loadString(o, "deviceProtectionLocalKey", deviceProtectionLocalKey);
@@ -1422,9 +1565,10 @@ public final class Preferences {
                     try {
                         var arr = elem.getAsJsonArray();
                         if (arr.size() >= 3) {
-                            favoriteServers.add(new String[]{
-                                arr.get(0).getAsString(), arr.get(1).getAsString(), arr.get(2).getAsString()
-                            });
+                            String token = arr.size() >= 4 ? arr.get(3).getAsString() : "";
+                            favoriteServers.add(serverEntry(
+                                    arr.get(0).getAsString(), arr.get(1).getAsString(), arr.get(2).getAsString(),
+                                    com.pmcl.core.multiplayer.HiddenServerAddress.cleanToken(token)));
                         }
                     } catch (Exception e) {
                         System.err.println("[Preferences] favoriteServers 条目损坏: " + e.getMessage());
@@ -1454,7 +1598,9 @@ public final class Preferences {
                                 loadBool(p, "gameDemo", false),
                                 loadString(p, "gameRenderer", "AUTO"),
                                 loadString(p, "gameServerHost", ""),
-                                loadInt(p, "gameServerPort", 25565, 1, 65535)
+                                loadInt(p, "gameServerPort", 25565, 1, 65535),
+                                com.pmcl.core.multiplayer.HiddenServerAddress.cleanToken(
+                                        loadString(p, "gameServerToken", ""))
                         ));
                     } catch (Exception e) {
                         System.err.println("[Preferences] launchPresets 条目损坏 key="
@@ -1615,16 +1761,19 @@ public final class Preferences {
         o.addProperty("gameDemo", gameDemo);
         o.addProperty("gameServerHost", gameServerHost);
         o.addProperty("gameServerPort", gameServerPort);
+        o.addProperty("gameServerToken", gameServerToken);
         var favArr = new com.google.gson.JsonArray();
         for (var s : favoriteServers) {
             var item = new com.google.gson.JsonArray();
             item.add(s[0]); item.add(s[1]); item.add(s[2]);
+            if (s.length > 3 && s[3] != null && !s[3].isEmpty()) item.add(s[3]);
             favArr.add(item);
         }
         o.add("favoriteServers", favArr);
         o.addProperty("gameRenderer", gameRenderer);
         o.addProperty("linuxZink", linuxZink);
         o.addProperty("macMicrophoneRequest", macMicrophoneRequest);
+        o.addProperty("macGameMode", macGameMode);
         o.addProperty("preferUtf8", preferUtf8);
         o.addProperty("preferIPv4", preferIPv4);
         o.addProperty("imeFixAgent", imeFixAgent);
@@ -1647,6 +1796,7 @@ public final class Preferences {
         o.addProperty("useHttpAuth", useHttpAuth);
         o.addProperty("proxyUsername", proxyUsername);
         o.addProperty("proxyPassword", encryptSecretForStorage(proxyPassword));
+        o.addProperty("curseforgeApiKey", encryptSecretForStorage(curseforgeApiKey));
         o.addProperty("downloadSpeedLimitKb", downloadSpeedLimitKb);
         o.addProperty("downloadRetryCount", downloadRetryCount);
         o.addProperty("enableResume", enableResume);
@@ -1669,12 +1819,22 @@ public final class Preferences {
         o.addProperty("mioModeJitAggressive", mioModeJitAggressive);
         o.addProperty("mioModeNetworkOpt", mioModeNetworkOpt);
         o.addProperty("mioModeMetaspace", mioModeMetaspace);
+        o.addProperty("mioModePretouch", mioModePretouch);
+        o.addProperty("mioModeStringDedup", mioModeStringDedup);
+        o.addProperty("mioModeIdleGc", mioModeIdleGc);
+        o.addProperty("mioModeKeepAwake", mioModeKeepAwake);
+        o.addProperty("mioModeDiscreteGpu", mioModeDiscreteGpu);
+        o.addProperty("mioModeGameMode", mioModeGameMode);
         o.addProperty("metalRenderEnabled", metalRenderEnabled);
         o.addProperty("mpBackend", mpBackend);
         o.addProperty("easytierPeer", easytierPeer);
         o.addProperty("connectxServerAddress", connectxServerAddress);
         o.addProperty("connectxServerPort", connectxServerPort);
         o.addProperty("connectxBinaryPath", connectxBinaryPath);
+        o.addProperty("redstoneRelay", redstoneRelay);
+        o.addProperty("redstoneLocalPort", redstoneLocalPort);
+        o.addProperty("redstoneMaxPlayers", redstoneMaxPlayers);
+        o.addProperty("redstoneApiKey", encryptSecretForStorage(redstoneApiKey));
         o.addProperty("deviceProtectionLicense", deviceProtectionLicense);
         o.addProperty("deviceProtectionPublicKey", deviceProtectionPublicKey);
         o.addProperty("deviceProtectionLocalKey", deviceProtectionLocalKey);
@@ -1696,6 +1856,7 @@ public final class Preferences {
             po.addProperty("gameRenderer", p.gameRenderer);
             po.addProperty("gameServerHost", p.gameServerHost);
             po.addProperty("gameServerPort", p.gameServerPort);
+            po.addProperty("gameServerToken", p.gameServerToken);
             presetsObj.add(entry.getKey(), po);
         }
         o.add("launchPresets", presetsObj);

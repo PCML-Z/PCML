@@ -37,6 +37,12 @@ public final class InstanceManager {
         this.config = config;
     }
 
+    /** 导入中的整合包目录名是随机 UUID，不是 Minecraft 版本 id。 */
+    public static boolean isGeneratedInstanceId(String name) {
+        if (name == null) return false;
+        return name.matches("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
+    }
+
     /** 实例根目录 {@code ~/.pmcl/instances/} */
     public Path getInstancesDir() {
         return config.getWorkDir().resolve("instances");
@@ -134,6 +140,8 @@ public final class InstanceManager {
             // 无标记文件但存在 mods/ 子目录（versionIsolation 创建的目录）
             if (Files.isDirectory(instanceDir.resolve("mods"))) {
                 String dirName = instanceDir.getFileName().toString();
+                // 整合包导入用 UUID 当目录名，mods 还在下载时不能把 UUID 写成启动版本。
+                if (isGeneratedInstanceId(dirName)) return null;
                 // M64: 基于目录绝对路径生成稳定 UUID（nameUUIDFromBytes），
                 // 避免每次扫描生成新 UUID 导致 UI 认为新实例出现
                 String stableId = UUID.nameUUIDFromBytes(

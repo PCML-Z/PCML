@@ -326,6 +326,9 @@ public final class ModpackManager {
 
         // 3. 安装模组加载器（声明了加载器就必须装上，禁止静默跳过变成原版启动）
         installDeclaredLoaders(manifest, progress);
+        // 下载模组期间实例目录已经有 mods/。先写入正确的版本，避免被扫描成
+        // 「版本号等于目录 UUID」的空实例。
+        saveInstanceInfo(instanceDir, instanceId, manifest);
 
         if ("curseforge".equals(manifest.format) && !manifest.files.isEmpty()) {
             prefetchCurseForgeFiles(manifest.files);
@@ -1518,7 +1521,7 @@ public final class ModpackManager {
         pmclMeta.addProperty("loader", loader);
         pmclMeta.addProperty("loaderVersion", loaderVersion);
         pmclMeta.addProperty("author", author);
-        pmclMeta.addProperty("pmclVersion", "2.1.11a");
+        pmclMeta.addProperty("pmclVersion", "2.1.11b");
         pmclMeta.addProperty("exportTime", java.time.Instant.now().toString());
         pmclMeta.add("mods", modsList);
 
@@ -2563,7 +2566,9 @@ public final class ModpackManager {
     }
 
     private void saveInstanceInfo(Path instanceDir, String instanceId, ParsedManifest manifest) throws IOException {
-        String baseVersionId = InstanceInfo.resolveInstalledBaseVersionId(
+        String baseVersionId = manifest.resolvedVersionId != null && !manifest.resolvedVersionId.isBlank()
+                ? manifest.resolvedVersionId
+                : InstanceInfo.resolveInstalledBaseVersionId(
                 config.getVersionsDir(), manifest.gameVersion,
                 manifest.loader, manifest.loaderVersion);
 
@@ -2629,8 +2634,24 @@ public final class ModpackManager {
                 source.toString(), java.nio.charset.StandardCharsets.UTF_8);
     }
 
+    /**
+     * 26.2 的 Fabric / Forge / NeoForge 整合包跑在 Forbric 上。
+     * Forbric 同时加载这三类模组，再单独装一个 Fabric 或 Forge 会把实例指到另一套版本。
+     */
+    static boolean modpackUsesForbric(String gameVersion, String loader) {
+        if (gameVersion == null || !com.pmcl.core.modloader.ForbricInstaller.MINECRAFT.equals(gameVersion.trim())) {
+            return false;
+        }
+        String id = normalizeLoaderId(loader);
+        return "fabric".equals(id) || "forge".equals(id) || "neoforge".equals(id) || "forbric".equals(id);
+    }
+
     private void installDeclaredLoaders(ParsedManifest manifest, Consumer<InstallProgress> progress)
             throws Exception {
+        if (modpackUsesForbric(manifest.gameVersion, manifest.loader)) {
+            bindForbric(manifest, progress);
+            return;
+        }
         String loader = normalizeLoaderId(manifest.loader);
         if (loader != null && !loader.isEmpty()) {
             if (manifest.loaderVersion == null || manifest.loaderVersion.isBlank()) {
@@ -2647,6 +2668,45 @@ public final class ModpackManager {
                 installOneLoader(el, ev, manifest.gameVersion, progress);
             }
         }
+    }
+
+    private void bindForbric(ParsedManifest manifest, Consumer<InstallProgress> progress) throws Exception {
+        String id = com.pmcl.core.modloader.ForbricInstaller.versionId(
+                com.pmcl.core.modloader.ForbricInstaller.MINECRAFT);
+        String installed = com.pmcl.core.modloader.ForbricInstaller.installedVersion(config.getVersionsDir());
+        if (installed == null) {
+            String release = newestForbricRelease();
+            installOneLoader("forbric", release, com.pmcl.core.modloader.ForbricInstaller.MINECRAFT, progress);
+            installed = com.pmcl.core.modloader.ForbricInstaller.installedVersion(config.getVersionsDir());
+            if (installed == null || installed.isBlank()) installed = release;
+        } else if (progress != null) {
+            String label = installed.isBlank() ? id : installed;
+            progress.accept(new InstallProgress(
+                    InstallProgress.Stage.DOWNLOAD_LIBRARIES, 0, 0,
+                    "使用已安装的 Forbric " + label));
+        }
+        manifest.loader = "forbric";
+        if (installed != null && !installed.isBlank()) manifest.loaderVersion = installed;
+        manifest.resolvedVersionId = id;
+    }
+
+    private String newestForbricRelease() throws Exception {
+        java.util.List<com.pmcl.core.modloader.ModLoaderVersion> versions = modLoaderManager
+                .get(ModLoader.FORBRIC)
+                .listVersions(com.pmcl.core.modloader.ForbricInstaller.MINECRAFT)
+                .join();
+        com.pmcl.core.modloader.ModLoaderVersion pick = null;
+        for (com.pmcl.core.modloader.ModLoaderVersion version : versions) {
+            if (version.isStable()) {
+                pick = version;
+                break;
+            }
+        }
+        if (pick == null && !versions.isEmpty()) pick = versions.get(0);
+        if (pick == null || pick.getLoaderVersion() == null || pick.getLoaderVersion().isBlank()) {
+            throw new IOException("找不到可用的 Forbric 版本，无法安装这个整合包");
+        }
+        return pick.getLoaderVersion();
     }
 
     private void installOneLoader(String loader, String loaderVersion, String gameVersion,
@@ -2673,6 +2733,7 @@ public final class ModpackManager {
         if (loader == null) return null;
         String s = loader.trim().toLowerCase(java.util.Locale.ROOT);
         if (s.isEmpty()) return "";
+        if (s.contains("forbric")) return "forbric";
         if (s.contains("neoforge")) return "neoforge";
         if (s.contains("fabric")) return "fabric";
         if (s.contains("quilt")) return "quilt";
@@ -2688,6 +2749,7 @@ public final class ModpackManager {
         String s = id.trim();
         String lower = s.toLowerCase(java.util.Locale.ROOT);
         String[][] prefixes = {
+                {"forbric-", "forbric"},
                 {"neoforge-", "neoforge"},
                 {"fabric-", "fabric"},
                 {"quilt-", "quilt"},
@@ -2723,6 +2785,7 @@ public final class ModpackManager {
             case "forge" -> ModLoader.FORGE;
             case "quilt" -> ModLoader.QUILT;
             case "neoforge" -> ModLoader.NEOFORGE;
+            case "forbric" -> ModLoader.FORBRIC;
             case "optifine" -> ModLoader.OPTIFINE;
             case "liteloader" -> ModLoader.LITELOADER;
             default -> null;
@@ -2833,8 +2896,10 @@ public final class ModpackManager {
     private static final class ParsedManifest {
         final String name;
         final String gameVersion;
-        final String loader;
-        final String loaderVersion;
+        String loader;
+        String loaderVersion;
+        /** 26.2 整合包固定启动已安装的 Forbric 版本，不再按 Fabric 版本号去猜。 */
+        String resolvedVersionId;
         final String format;
         final List<ModpackFile> files;
         final String author;
