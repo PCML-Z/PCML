@@ -141,6 +141,16 @@ jobs:
               --title "PMCL ${RELEASE_TAG#v}" \
               --generate-notes
           fi
-          gh release upload "$RELEASE_TAG" dist/* \
-            --repo "$GITHUB_REPOSITORY" \
-            --clobber
+          shopt -s nullglob
+          files=(dist/*)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No files to upload"
+            exit 1
+          fi
+          batch=15
+          for ((i=0; i<${#files[@]}; i+=batch)); do
+            gh release upload "$RELEASE_TAG" "${files[@]:i:batch}" \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+            sleep 3
+          done

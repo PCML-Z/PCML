@@ -81,8 +81,9 @@ public final class BuildHotUpdateManifest {
                 if (dir.getFileName() == null || !"app".equals(dir.getFileName().toString())) continue;
                 String full = dir.toString().replace('\\', '/');
                 if (full.contains("/runtime/")) continue;
+                if (containsRuntimeDir(dir)) continue;
                 int jars = 0;
-                try (var inner = Files.walk(dir, 3)) {
+                try (var inner = Files.walk(dir, 4)) {
                     jars = (int) inner.filter(Files::isRegularFile)
                             .filter(p -> p.getFileName().toString().endsWith(".jar"))
                             .count();
@@ -97,6 +98,14 @@ public final class BuildHotUpdateManifest {
             throw new IllegalStateException("找不到包含 jar 的 app 目录: " + binaries);
         }
         return best;
+    }
+
+    /** 安装包根目录也叫 app，里面有 jlink 的 runtime。热更新只收真正的 app 目录。 */
+    private static boolean containsRuntimeDir(Path dir) throws Exception {
+        try (var walk = Files.walk(dir, 6)) {
+            return walk.anyMatch(path -> Files.isDirectory(path)
+                    && "runtime".equals(String.valueOf(path.getFileName())));
+        }
     }
 
     static String canonical(String version, List<FileRow> rows) {
