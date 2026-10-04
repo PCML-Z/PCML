@@ -64,6 +64,13 @@ jobs:
           code=${PIPESTATUS[0]}
           if [ "$code" -ne 0 ]; then
             python3 tools/emit_gradle_failure.py gradle-release.log
+            exit "$code"
+          fi
+          # deb/msi 不会留下 app 目录。热更新清单要扫 createReleaseDistributable 的产物。
+          ./gradlew :ui:createReleaseDistributable -Ppmcl.useAliyunMirror=false -Ppmcl.version="${RELEASE_TAG#v}" 2>&1 | tee gradle-app-image.log
+          code=${PIPESTATUS[0]}
+          if [ "$code" -ne 0 ]; then
+            python3 tools/emit_gradle_failure.py gradle-app-image.log
           fi
           exit "$code"
 
