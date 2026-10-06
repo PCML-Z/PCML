@@ -21,7 +21,9 @@ public enum ModLoader {
     RISUGAMI("Risugami's ModLoader", true),
     NILLOADER("NilLoader", true),
     /** 同一份游戏里同时加载 Fabric、Forge、NeoForge。目前只支持 26.2。 */
-    FORBRIC("Forbric", true);
+    FORBRIC("Forbric", true),
+    /** PMCL 团队基于 Forbric 的增强版。目前只支持 26.2。 */
+    ECXP_FORBRIC("ECXP-Forbric+", true);
 
     private final String displayName;
     private final boolean installable;

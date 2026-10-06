@@ -177,6 +177,18 @@ public final class ForbricInstaller implements ModLoaderInstaller {
     private void runInstaller(List<String> command, Path gameDir, String version,
                               long alreadyDownloaded, Consumer<InstallProgress> onProgress) throws IOException {
         Path log = config.getWorkDir().resolve("logs").resolve("forbric-" + version + ".log");
+        runProcess(command, gameDir, log, "forbric-installer", "Forbric",
+                I18n.t("download.forbric_timeout"),
+                I18n.t("download.forbric_install", version),
+                alreadyDownloaded, onProgress);
+    }
+
+    /**
+     * 跑内核安装器并读它的进度。ECXP-Forbric+ 用同一套安装器，只是仓库和版本号不同。
+     */
+    static void runProcess(List<String> command, Path gameDir, Path log, String threadName,
+                           String displayName, String timeoutMessage, String idleMessage,
+                           long alreadyDownloaded, Consumer<InstallProgress> onProgress) throws IOException {
         Files.createDirectories(log.getParent());
         Files.writeString(log, "", StandardCharsets.UTF_8);
         ProcessBuilder pb = new ProcessBuilder(command);
@@ -185,20 +197,20 @@ public final class ForbricInstaller implements ModLoaderInstaller {
         Process process = pb.start();
         AtomicReference<String> lastLine = new AtomicReference<>("");
         StringBuilder tail = new StringBuilder();
-        Thread drainer = new Thread(() -> drain(process, log, tail, lastLine), "forbric-installer");
+        Thread drainer = new Thread(() -> drain(process, log, tail, lastLine), threadName);
         drainer.setDaemon(true);
         drainer.start();
         BuildProgress build = new BuildProgress(alreadyDownloaded);
         Thread hook = new Thread(() -> {
             if (process.isAlive()) process.destroyForcibly();
-        }, "forbric-installer-shutdown");
+        }, threadName + "-shutdown");
         Runtime.getRuntime().addShutdownHook(hook);
         long deadline = System.nanoTime() + TimeUnit.MINUTES.toNanos(INSTALL_TIMEOUT_MINUTES);
         try {
             while (true) {
                 if (Thread.currentThread().isInterrupted()) {
                     process.destroyForcibly();
-                    throw new InstallInterruptedException("Forbric 安装已中断");
+                    throw new InstallInterruptedException(displayName + " 安装已中断");
                 }
                 boolean finished;
                 try {
@@ -206,17 +218,15 @@ public final class ForbricInstaller implements ModLoaderInstaller {
                 } catch (InterruptedException e) {
                     process.destroyForcibly();
                     Thread.currentThread().interrupt();
-                    throw new InstallInterruptedException("Forbric 安装已中断", e);
+                    throw new InstallInterruptedException(displayName + " 安装已中断", e);
                 }
                 if (finished) break;
                 if (System.nanoTime() > deadline) {
                     process.destroyForcibly();
-                    throw new IOException(I18n.t("download.forbric_timeout"));
+                    throw new IOException(timeoutMessage);
                 }
                 String line = lastLine.get();
-                String message = line == null || line.isBlank()
-                        ? I18n.t("download.forbric_install", version)
-                        : line;
+                String message = line == null || line.isBlank() ? idleMessage : line;
                 build.observe(message);
                 if (build.total() > 0) {
                     report(onProgress, InstallProgress.Stage.DOWNLOAD_LIBRARIES,
@@ -510,7 +520,7 @@ public final class ForbricInstaller implements ModLoaderInstaller {
         return value.toLowerCase(Locale.ROOT);
     }
 
-    private static String sha256(Path file) throws IOException {
+    static String sha256(Path file) throws IOException {
         try {
             MessageDigest md = MessageDigest.getInstance("SHA-256");
             try (var in = Files.newInputStream(file)) {
@@ -529,7 +539,7 @@ public final class ForbricInstaller implements ModLoaderInstaller {
         }
     }
 
-    private static boolean looksLikeJar(Path file) {
+    static boolean looksLikeJar(Path file) {
         try (ZipFile zip = new ZipFile(file.toFile())) {
             return zip.entries().hasMoreElements();
         } catch (IOException e) {

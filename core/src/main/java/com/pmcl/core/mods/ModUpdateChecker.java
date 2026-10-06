@@ -395,7 +395,8 @@ public final class ModUpdateChecker {
             String fl = l.toLowerCase(java.util.Locale.ROOT);
             if (fl.equals(w)) return true;
             if ("quilt".equals(w) && "fabric".equals(fl)) return true;
-            if ("forbric".equals(w) && ("fabric".equals(fl) || "forge".equals(fl) || "neoforge".equals(fl))) {
+            if (("forbric".equals(w) || "ecxp-forbric".equals(w))
+                    && ("fabric".equals(fl) || "forge".equals(fl) || "neoforge".equals(fl))) {
                 return true;
             }
         }

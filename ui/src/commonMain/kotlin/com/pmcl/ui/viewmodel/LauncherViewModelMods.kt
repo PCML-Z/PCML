@@ -468,7 +468,12 @@ fun LauncherViewModel.installMod(file: ModFile, gameVersion: String) {
  * 安装模组并自动解析安装其依赖。
  * 下载主模组后解析 jar 内 depends 列表，自动搜索并安装未安装的依赖。
  */
-fun LauncherViewModel.installModWithDeps(file: ModFile, gameVersion: String, versionId: String? = null) {
+fun LauncherViewModel.installModWithDeps(
+    file: ModFile,
+    gameVersion: String,
+    versionId: String? = null,
+    instanceId: String? = null
+) {
     if (_installingDeps.value) return
     _installingDeps.value = true
     _depInstallResult.value = null
@@ -476,9 +481,9 @@ fun LauncherViewModel.installModWithDeps(file: ModFile, gameVersion: String, ver
         _status.value = I18n.t("status.installing_mod_with_deps", file.getFileName())
         try {
             val vid = versionId ?: _selectedVersion.value
-            val instanceId = if (versionId == null) _selectedInstanceId.value else null
+            val targetInstance = marketInstallInstance(versionId, instanceId)
             val result = core.modDependencyResolver().installWithDependencies(
-                file, gameVersion, vid, instanceId
+                file, gameVersion, vid, targetInstance
             ) { msg -> _status.value = msg }.join()
             _depInstallResult.value = result
             _status.value = if (result.hasInstalled()) {

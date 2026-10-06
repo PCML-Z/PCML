@@ -20,6 +20,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
 import com.pmcl.core.instance.InstanceInfo
+import com.pmcl.ui.modloader.installPromptLoaderEntries
 import com.pmcl.ui.theme.glassCardBorder
 import com.pmcl.ui.theme.glassCardColors
 import com.pmcl.ui.theme.glassCardElevation
@@ -566,7 +567,9 @@ private fun InstanceCard(
 
 /**
  * 创建实例对话框：输入名称、选择基础版本、可选加载器。
+ * 加载器名单与安装窗口相同，包含 Forbric、ECXP-Forbric+ 以及其余已接入的加载器。
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CreateInstanceDialog(
     localVersionIds: List<String>,
@@ -577,7 +580,7 @@ private fun CreateInstanceDialog(
     var selectedVersion by remember { mutableStateOf(localVersionIds.firstOrNull() ?: "") }
     var expanded by remember { mutableStateOf(false) }
     var loaderExpanded by remember { mutableStateOf(false) }
-    val loaders = listOf(I18n.t("instance.loader_none"), "Fabric", "Forge", "Quilt", "NeoForge")
+    val loaderEntries = remember { installPromptLoaderEntries() }
     var selectedLoader by remember { mutableStateOf(0) }
     var loaderVersion by remember { mutableStateOf("") }
 
@@ -599,24 +602,24 @@ private fun CreateInstanceDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
-                // 基础版本下拉
-                Box {
+                // 基础版本下拉。整栏可点，不只是右侧箭头。
+                ExposedDropdownMenuBox(
+                    expanded = expanded,
+                    onExpandedChange = { expanded = it },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
                     OutlinedTextField(
                         value = selectedVersion,
                         onValueChange = {},
                         readOnly = true,
                         label = { Text(I18n.t("instance.base_version")) },
-                        trailingIcon = {
-                            IconButton(onClick = { expanded = !expanded }) {
-                                Icon(if (expanded) Icons.Filled.ArrowDropDown
-                                     else Icons.Filled.ArrowDropUp, contentDescription = null)
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth()
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                        modifier = Modifier.menuAnchor().fillMaxWidth()
                     )
-                    DropdownMenu(
+                    ExposedDropdownMenu(
                         expanded = expanded,
-                        onDismissRequest = { expanded = false }
+                        onDismissRequest = { expanded = false },
+                        modifier = Modifier.heightIn(max = 320.dp)
                     ) {
                         localVersionIds.forEach { vid ->
                             DropdownMenuItem(
@@ -629,28 +632,28 @@ private fun CreateInstanceDialog(
                         }
                     }
                 }
-                // 模组加载器下拉
-                Box {
+                // 模组加载器下拉，名单与安装窗口一致。
+                ExposedDropdownMenuBox(
+                    expanded = loaderExpanded,
+                    onExpandedChange = { loaderExpanded = it },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
                     OutlinedTextField(
-                        value = loaders[selectedLoader],
+                        value = loaderEntries[selectedLoader].label,
                         onValueChange = {},
                         readOnly = true,
                         label = { Text(I18n.t("instance.loader")) },
-                        trailingIcon = {
-                            IconButton(onClick = { loaderExpanded = !loaderExpanded }) {
-                                Icon(if (loaderExpanded) Icons.Filled.ArrowDropDown
-                                     else Icons.Filled.ArrowDropUp, contentDescription = null)
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth()
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = loaderExpanded) },
+                        modifier = Modifier.menuAnchor().fillMaxWidth()
                     )
-                    DropdownMenu(
+                    ExposedDropdownMenu(
                         expanded = loaderExpanded,
-                        onDismissRequest = { loaderExpanded = false }
+                        onDismissRequest = { loaderExpanded = false },
+                        modifier = Modifier.heightIn(max = 320.dp)
                     ) {
-                        loaders.forEachIndexed { idx, label ->
+                        loaderEntries.forEachIndexed { idx, entry ->
                             DropdownMenuItem(
-                                text = { Text(label) },
+                                text = { Text(entry.label) },
                                 onClick = {
                                     selectedLoader = idx
                                     loaderExpanded = false
@@ -675,7 +678,7 @@ private fun CreateInstanceDialog(
             Button(
                 onClick = {
                     if (name.isBlank() || selectedVersion.isBlank()) return@Button
-                    val loaderName = if (selectedLoader == 0) null else loaders[selectedLoader]
+                    val loaderName = loaderEntries[selectedLoader].loader?.displayName
                     val lVer = if (loaderName != null && loaderVersion.isNotBlank()) loaderVersion else null
                     onConfirm(name.trim(), selectedVersion, loaderName, lVer)
                 },

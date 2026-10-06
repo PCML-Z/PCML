@@ -71,7 +71,7 @@ data class LoaderUiEntry(
 
 enum class LoaderIconKind {
     VANILLA, FABRIC, FORGE, NEOFORGE, QUILT, LITELOADER, BABRIC, BTA,
-    LEGACY_FABRIC, ORNITHE, RIFT, JAVA_AGENT, RISUGAMI, NILLOADER, OPTIFINE, FORBRIC
+    LEGACY_FABRIC, ORNITHE, RIFT, JAVA_AGENT, RISUGAMI, NILLOADER, OPTIFINE, FORBRIC, ECXP_FORBRIC
 }
 
 private data class LoaderGuideRow(
@@ -93,6 +93,7 @@ private fun LoaderChoiceGuideDialog(
         LoaderGuideRow(ModLoader.FORGE, "launch.loader_guide.forge_scene", "launch.loader_guide.forge_body", LoaderIconKind.FORGE, Color(0xFF1E4B8C)),
         LoaderGuideRow(ModLoader.NEOFORGE, "launch.loader_guide.neoforge_scene", "launch.loader_guide.neoforge_body", LoaderIconKind.NEOFORGE, Color(0xFFE36A1E)),
         LoaderGuideRow(ModLoader.FORBRIC, "launch.loader_guide.forbric_scene", "launch.loader_guide.forbric_body", LoaderIconKind.FORBRIC, Color(0xFF0F766E)),
+        LoaderGuideRow(ModLoader.ECXP_FORBRIC, "launch.loader_guide.ecxp_forbric_scene", "launch.loader_guide.ecxp_forbric_body", LoaderIconKind.ECXP_FORBRIC, Color(0xFF0369A1)),
         LoaderGuideRow(ModLoader.QUILT, "launch.loader_guide.quilt_scene", "launch.loader_guide.quilt_body", LoaderIconKind.QUILT, Color(0xFF8B5CF6)),
         LoaderGuideRow(null, "launch.loader_guide.vanilla_scene", "launch.loader_guide.vanilla_body", LoaderIconKind.VANILLA, Color(0xFF6B7280))
     )
@@ -186,6 +187,7 @@ fun installPromptLoaderEntries(): List<LoaderUiEntry> = listOf(
     LoaderUiEntry(ModLoader.FORGE, "Forge", Color(0xFF1E4B8C), LoaderIconKind.FORGE, true),
     LoaderUiEntry(ModLoader.NEOFORGE, "NeoForge", Color(0xFFE36A1E), LoaderIconKind.NEOFORGE, true),
     LoaderUiEntry(ModLoader.FORBRIC, "Forbric", Color(0xFF0F766E), LoaderIconKind.FORBRIC, true),
+    LoaderUiEntry(ModLoader.ECXP_FORBRIC, "ECXP-Forbric+", Color(0xFF0369A1), LoaderIconKind.ECXP_FORBRIC, true),
     LoaderUiEntry(ModLoader.BABRIC, "Babric", Color(0xFF6B7280), LoaderIconKind.BABRIC, false),
     LoaderUiEntry(ModLoader.BTA_BABRIC, "BTA (Babric)", Color(0xFF2F9E44), LoaderIconKind.BTA, false),
     LoaderUiEntry(ModLoader.JAVA_AGENT, "Java Agent", Color(0xFF6B7280), LoaderIconKind.JAVA_AGENT, false),
@@ -461,6 +463,7 @@ fun ModLoaderInstallPromptDialog(
                                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                         Text(
                                             if (selectedLoader == ModLoader.FORBRIC) I18n.t("download.forbric_hint")
+                                            else if (selectedLoader == ModLoader.ECXP_FORBRIC) I18n.t("download.ecxp_forbric_hint")
                                             else I18n.t("launch.no_loader_versions", gameVersion),
                                             color = MaterialTheme.colorScheme.outline,
                                             style = MaterialTheme.typography.bodyMedium
@@ -907,6 +910,18 @@ fun LoaderBrandIcon(
                 drawRoundRect(color, Offset(w * 0.22f, h * 0.22f), Size(w * 0.56f, h * 0.12f), CornerRadius(2f))
                 drawRoundRect(color, Offset(w * 0.22f, h * 0.44f), Size(w * 0.56f, h * 0.12f), CornerRadius(2f))
                 drawRoundRect(color, Offset(w * 0.22f, h * 0.66f), Size(w * 0.56f, h * 0.12f), CornerRadius(2f))
+            }
+            LoaderIconKind.ECXP_FORBRIC -> {
+                val h = size.height
+                val w = size.width
+                drawRoundRect(color, Offset(w * 0.10f, h * 0.22f), Size(w * 0.46f, h * 0.12f), CornerRadius(2f))
+                drawRoundRect(color, Offset(w * 0.10f, h * 0.44f), Size(w * 0.46f, h * 0.12f), CornerRadius(2f))
+                drawRoundRect(color, Offset(w * 0.10f, h * 0.66f), Size(w * 0.46f, h * 0.12f), CornerRadius(2f))
+                val cx = w * 0.78f
+                val cy = h * 0.50f
+                val arm = size.minDimension * 0.16f
+                drawLine(color, Offset(cx - arm, cy), Offset(cx + arm, cy), stroke.width)
+                drawLine(color, Offset(cx, cy - arm), Offset(cx, cy + arm), stroke.width)
             }
             LoaderIconKind.NILLOADER -> {
                 drawCircle(color, radius = size.minDimension * 0.32f, center = center, style = stroke)

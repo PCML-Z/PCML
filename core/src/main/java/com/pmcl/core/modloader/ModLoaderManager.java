@@ -45,6 +45,7 @@ public final class ModLoaderManager {
         installers.put(ModLoader.JAVA_AGENT, new JavaAgentInstaller(config, downloads, versionInstaller));
         installers.put(ModLoader.RISUGAMI, new RisugamiInstaller(config, downloads, versionInstaller));
         installers.put(ModLoader.FORBRIC, new ForbricInstaller(config, downloads));
+        installers.put(ModLoader.ECXP_FORBRIC, new EcxpForbricInstaller(config, downloads));
     }
 
     public ModLoaderInstaller get(ModLoader loader) {

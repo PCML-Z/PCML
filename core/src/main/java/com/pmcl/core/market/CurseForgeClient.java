@@ -133,10 +133,10 @@ public final class CurseForgeClient implements ModMarketClient {
     }
 
     private HttpUrl.Builder buildSearchUrl(MarketSearchQuery q, Integer classId) {
-        HttpUrl parsed = HttpUrl.parse(BASE + "/mods/search");
-        if (parsed == null) throw new RuntimeException("无效的 URL: " + BASE + "/mods/search");
-        HttpUrl.Builder ub = parsed.newBuilder()
-                .addQueryParameter("gameId", String.valueOf(MINECRAFT_GAME_ID))
+            HttpUrl parsed = HttpUrl.parse(BASE + "/mods/search");
+            if (parsed == null) throw new RuntimeException("无效的 URL: " + BASE + "/mods/search");
+            HttpUrl.Builder ub = parsed.newBuilder()
+                    .addQueryParameter("gameId", String.valueOf(MINECRAFT_GAME_ID))
                 .addQueryParameter("searchFilter", q.getQuery())
                 .addQueryParameter("pageSize", String.valueOf(q.getLimit()))
                 .addQueryParameter("index", String.valueOf(q.getOffset()))
@@ -452,22 +452,22 @@ public final class CurseForgeClient implements ModMarketClient {
                     ub.addQueryParameter("modLoaderType", String.valueOf(loaderType));
                 }
                 String url = ub.build().toString();
-                Request req = new Request.Builder().url(url)
-                        .header("X-API-Key", apiKey)
-                        .header("User-Agent", "PMCL/1.0").get().build();
+            Request req = new Request.Builder().url(url)
+                    .header("X-API-Key", apiKey)
+                    .header("User-Agent", "PMCL/1.0").get().build();
                 boolean pageOk = false;
-                for (int attempt = 0; attempt <= RETRY; attempt++) {
-                    try (Response resp = http.newCall(req).execute()) {
-                        String body = resp.body() != null ? resp.body().string() : "{}";
+            for (int attempt = 0; attempt <= RETRY; attempt++) {
+                try (Response resp = http.newCall(req).execute()) {
+                    String body = resp.body() != null ? resp.body().string() : "{}";
                         if (resp.code() == 429) {
                             sleepRetryAfter(resp);
                             continue;
                         }
                         if (!resp.isSuccessful()) {
-                            throw new IOException("HTTP " + resp.code() + ": " + body);
-                        }
-                        JsonObject root = JsonParser.parseString(body).getAsJsonObject();
-                        JsonArray data = root.has("data") ? root.getAsJsonArray("data") : new JsonArray();
+                        throw new IOException("HTTP " + resp.code() + ": " + body);
+                    }
+                    JsonObject root = JsonParser.parseString(body).getAsJsonObject();
+                    JsonArray data = root.has("data") ? root.getAsJsonArray("data") : new JsonArray();
                         if (total == null && root.has("pagination") && root.get("pagination").isJsonObject()) {
                             JsonObject pg = root.getAsJsonObject("pagination");
                             if (pg.has("totalCount") && !pg.get("totalCount").isJsonNull()) {
@@ -491,7 +491,7 @@ public final class CurseForgeClient implements ModMarketClient {
                                 Thread.sleep(RETRY_BASE_MS * (1L << attempt));
                             } catch (InterruptedException ie) {
                                 Thread.currentThread().interrupt();
-                                break;
+                                    break;
                             }
                         }
                     }
@@ -602,20 +602,20 @@ public final class CurseForgeClient implements ModMarketClient {
                 for (JsonElement e : data) {
                     if (!e.isJsonObject()) continue;
                     result.add(parseCfFile(e.getAsJsonObject(), ""));
-                }
-                return result;
-            } catch (Exception e) {
-                last = e;
-                if (attempt < RETRY) {
-                    try {
-                        Thread.sleep(RETRY_BASE_MS * (1L << attempt));
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        break;
+                    }
+                    return result;
+                } catch (Exception e) {
+                    last = e;
+                    if (attempt < RETRY) {
+                        try {
+                            Thread.sleep(RETRY_BASE_MS * (1L << attempt));
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                            break;
+                        }
                     }
                 }
             }
-        }
         throw new RuntimeException("CurseForge 批量文件查询失败："
                 + (last != null ? friendlyError(last.getMessage()) : "未知错误"), last);
     }

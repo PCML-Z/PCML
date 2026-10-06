@@ -14,7 +14,6 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -35,6 +34,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
 import com.pmcl.ui.navigation.NavDestination
+import com.pmcl.ui.navigation.PmclIcons
 import com.pmcl.ui.navigation.allDestinations
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import com.pmcl.ui.viewmodel.launch
@@ -95,7 +95,7 @@ fun buildSearchIndex(vm: LauncherViewModel): List<SearchItem> {
             add(SearchItem(
                 title = I18n.t("search.action.launch"),
                 subtitle = I18n.t("search.action.launch.desc"),
-                icon = Icons.Filled.PlayArrow,
+                icon = PmclIcons.Launch,
                 group = GROUP_ACTION,
                 keywords = listOf(I18n.t("cmd.kw.launch"), "launch", "play", I18n.t("cmd.kw.start")),
                 onSelect = {
@@ -114,7 +114,7 @@ fun buildSearchIndex(vm: LauncherViewModel): List<SearchItem> {
             add(SearchItem(
                 title = I18n.t("search.action.scan_mods"),
                 subtitle = I18n.t("search.action.scan_mods.desc"),
-                icon = Icons.Filled.Extension,
+                icon = PmclIcons.Plugins,
                 group = GROUP_ACTION,
                 keywords = listOf(I18n.t("cmd.kw.mod"), "mod", I18n.t("cmd.kw.scan"), "scan"),
                 onSelect = {
@@ -133,7 +133,7 @@ fun buildSearchIndex(vm: LauncherViewModel): List<SearchItem> {
             add(SearchItem(
                 title = I18n.t("search.action.settings"),
                 subtitle = I18n.t("search.action.settings.desc"),
-                icon = Icons.Filled.Settings,
+                icon = PmclIcons.Settings,
                 group = GROUP_ACTION,
                 keywords = listOf(I18n.t("cmd.kw.settings"), "settings", I18n.t("cmd.kw.preferences"), I18n.t("cmd.kw.config")),
                 onSelect = { vm.requestSecondaryNav("settings", "launcher") }
@@ -153,120 +153,123 @@ fun buildSearchIndex(vm: LauncherViewModel): List<SearchItem> {
             }
 
             // ===== Hub / 二级侧栏子页面 =====
-            add(SearchItem(I18n.t("nav.mods"), I18n.t("search.hub.mods"), Icons.Filled.Extension, GROUP_NAV, listOf("mod", "mods", I18n.t("cmd.kw.mod"))) {
+            add(SearchItem(I18n.t("nav.mods"), I18n.t("search.hub.mods"), PmclIcons.Plugins, GROUP_NAV, listOf("mod", "mods", I18n.t("cmd.kw.mod"))) {
                 vm.requestSecondaryNav("content", "mods")
             })
-            add(SearchItem(I18n.t("nav.modpacks"), I18n.t("search.hub.modpacks"), Icons.Filled.Inventory2, GROUP_NAV, listOf("modpack", I18n.t("cmd.kw.modpack"))) {
+            add(SearchItem(I18n.t("nav.modpacks"), I18n.t("search.hub.modpacks"), PmclIcons.Modpack, GROUP_NAV, listOf("modpack", I18n.t("cmd.kw.modpack"))) {
                 vm.requestSecondaryNav("content", "modpacks")
             })
-            add(SearchItem(I18n.t("nav.shaders"), I18n.t("search.hub.shaders"), Icons.Filled.WbSunny, GROUP_NAV, listOf("shader", I18n.t("cmd.kw.shader"), I18n.t("cmd.kw.shader_alt"))) {
+            add(SearchItem(I18n.t("nav.shaders"), I18n.t("search.hub.shaders"), PmclIcons.Sun, GROUP_NAV, listOf("shader", I18n.t("cmd.kw.shader"), I18n.t("cmd.kw.shader_alt"))) {
                 vm.requestSecondaryNav("content", "shaders")
             })
-            add(SearchItem(I18n.t("nav.projections"), I18n.t("search.hub.projections"), Icons.Filled.GridView, GROUP_NAV, listOf("schematic", "litematic", I18n.t("cmd.kw.projection"))) {
+            add(SearchItem(I18n.t("nav.projections"), I18n.t("search.hub.projections"), PmclIcons.Grid, GROUP_NAV, listOf("schematic", "litematic", I18n.t("cmd.kw.projection"))) {
                 vm.requestSecondaryNav("content", "projections")
             })
-            add(SearchItem(I18n.t("nav.resourcepacks"), I18n.t("search.hub.resourcepacks"), Icons.Filled.Palette, GROUP_NAV, listOf("resource", I18n.t("cmd.kw.resource_pack"), I18n.t("cmd.kw.texture"))) {
+            add(SearchItem(I18n.t("nav.resourcepacks"), I18n.t("search.hub.resourcepacks"), PmclIcons.Palette, GROUP_NAV, listOf("resource", I18n.t("cmd.kw.resource_pack"), I18n.t("cmd.kw.texture"))) {
                 vm.requestSecondaryNav("content", "resourcepacks")
             })
-            add(SearchItem(I18n.t("nav.datapacks"), I18n.t("search.hub.datapacks"), Icons.Filled.Dataset, GROUP_NAV, listOf("datapack", I18n.t("cmd.kw.datapack"))) {
+            add(SearchItem(I18n.t("nav.datapacks"), I18n.t("search.hub.datapacks"), PmclIcons.Dataset, GROUP_NAV, listOf("datapack", I18n.t("cmd.kw.datapack"))) {
                 vm.requestSecondaryNav("content", "datapacks")
             })
-            add(SearchItem(I18n.t("nav.configs"), I18n.t("search.hub.configs"), Icons.Filled.Edit, GROUP_NAV, listOf("config", I18n.t("cmd.kw.config"), I18n.t("cmd.kw.edit"))) {
+            add(SearchItem(I18n.t("nav.configs"), I18n.t("search.hub.configs"), PmclIcons.Edit, GROUP_NAV, listOf("config", I18n.t("cmd.kw.config"), I18n.t("cmd.kw.edit"))) {
                 vm.requestSecondaryNav("content", "configs")
             })
-            add(SearchItem(I18n.t("download.local_versions"), I18n.t("search.hub.local_versions"), Icons.Filled.Build, GROUP_NAV, listOf("version", I18n.t("cmd.kw.version"), I18n.t("cmd.kw.install"))) {
+            add(SearchItem(I18n.t("nav.offline_skins"), I18n.t("search.hub.offline_skins"), PmclIcons.Image, GROUP_NAV, listOf("skin", I18n.t("cmd.kw.offline_skin"))) {
+                vm.requestSecondaryNav("content", "skins")
+            })
+            add(SearchItem(I18n.t("download.local_versions"), I18n.t("search.hub.local_versions"), PmclIcons.Wrench, GROUP_NAV, listOf("version", I18n.t("cmd.kw.version"), I18n.t("cmd.kw.install"))) {
                 vm.requestSecondaryNav("download", "versions")
             })
-            add(SearchItem(I18n.t("nav.market"), I18n.t("search.hub.market"), Icons.Filled.Store, GROUP_NAV, listOf("market", I18n.t("cmd.kw.market"), I18n.t("cmd.kw.store"))) {
+            add(SearchItem(I18n.t("nav.market"), I18n.t("search.hub.market"), PmclIcons.Content, GROUP_NAV, listOf("market", I18n.t("cmd.kw.market"), I18n.t("cmd.kw.store"))) {
                 vm.requestSecondaryNav("download", "market")
             })
-            add(SearchItem(I18n.t("settings.curseforge_guide"), I18n.t("search.nav.settings"), Icons.Filled.Key, GROUP_NAV, listOf("curseforge", "api", "key", I18n.t("cmd.kw.settings"))) {
+            add(SearchItem(I18n.t("settings.curseforge_guide"), I18n.t("search.nav.settings"), PmclIcons.Key, GROUP_NAV, listOf("curseforge", "api", "key", I18n.t("cmd.kw.settings"))) {
                 vm.requestSecondaryNav("settings", "network")
             })
-            add(SearchItem(I18n.t("nav.queue"), I18n.t("search.hub.queue"), Icons.Filled.Download, GROUP_NAV, listOf("queue", I18n.t("cmd.kw.queue"), I18n.t("cmd.kw.download"))) {
+            add(SearchItem(I18n.t("nav.queue"), I18n.t("search.hub.queue"), PmclIcons.Download, GROUP_NAV, listOf("queue", I18n.t("cmd.kw.queue"), I18n.t("cmd.kw.download"))) {
                 vm.requestSecondaryNav("download", "queue")
             })
-            add(SearchItem(I18n.t("nav.wiki"), I18n.t("search.hub.wiki"), Icons.AutoMirrored.Filled.MenuBook, GROUP_NAV, listOf("wiki", I18n.t("cmd.kw.wiki"))) {
+            add(SearchItem(I18n.t("nav.wiki"), I18n.t("search.hub.wiki"), PmclIcons.Article, GROUP_NAV, listOf("wiki", I18n.t("cmd.kw.wiki"))) {
                 vm.requestSecondaryNav("download", "wiki")
             })
-            add(SearchItem(I18n.t("settings.section.java"), I18n.t("search.nav.settings"), Icons.Filled.Settings, GROUP_NAV, listOf("java", "jvm", "agent", "ime", "输入法", I18n.t("cmd.kw.settings"))) {
+            add(SearchItem(I18n.t("settings.section.java"), I18n.t("search.nav.settings"), PmclIcons.Terminal, GROUP_NAV, listOf("java", "jvm", "agent", "ime", "输入法", I18n.t("cmd.kw.settings"))) {
                 vm.requestSecondaryNav("settings", "java")
             })
-            add(SearchItem(I18n.t("settings.section.automation"), I18n.t("search.nav.settings"), Icons.Filled.Bolt, GROUP_NAV, listOf("automation", "kotlin", "java", "cpp", "go", I18n.t("cmd.kw.settings"))) {
+            add(SearchItem(I18n.t("settings.section.automation"), I18n.t("search.nav.settings"), PmclIcons.Bolt, GROUP_NAV, listOf("automation", "kotlin", "java", "cpp", "go", I18n.t("cmd.kw.settings"))) {
                 vm.requestSecondaryNav("settings", "automation")
             })
-            add(SearchItem(I18n.t("settings.section.theme"), I18n.t("search.nav.settings"), Icons.Filled.Palette, GROUP_NAV, listOf("theme", I18n.t("cmd.kw.theme"))) {
+            add(SearchItem(I18n.t("settings.section.theme"), I18n.t("search.nav.settings"), PmclIcons.Palette, GROUP_NAV, listOf("theme", I18n.t("cmd.kw.theme"))) {
                 vm.requestSecondaryNav("settings", "theme")
             })
-            add(SearchItem(I18n.t("settings.section.game"), I18n.t("search.nav.settings"), Icons.Filled.PlayArrow, GROUP_NAV, listOf("game", I18n.t("cmd.kw.settings"))) {
+            add(SearchItem(I18n.t("settings.section.game"), I18n.t("search.nav.settings"), PmclIcons.Launch, GROUP_NAV, listOf("game", I18n.t("cmd.kw.settings"))) {
                 vm.requestSecondaryNav("settings", "game")
             })
-            add(SearchItem(I18n.t("settings.section.compile"), I18n.t("search.nav.settings"), Icons.Filled.Build, GROUP_NAV, listOf("cargo", "cmake", "compile", "toolchain", I18n.t("cmd.kw.settings"))) {
+            add(SearchItem(I18n.t("settings.section.compile"), I18n.t("search.nav.settings"), PmclIcons.Wrench, GROUP_NAV, listOf("cargo", "cmake", "compile", "toolchain", I18n.t("cmd.kw.settings"))) {
                 vm.requestSecondaryNav("settings", "compile")
             })
             if (System.getProperty("os.name", "").lowercase().contains("mac")) {
-                add(SearchItem(I18n.t("settings.mac_game_mode"), I18n.t("search.nav.settings"), Icons.Filled.SportsEsports, GROUP_NAV, listOf("game mode", "gamemode", "macos", I18n.t("cmd.kw.settings"))) {
+                add(SearchItem(I18n.t("settings.mac_game_mode"), I18n.t("search.nav.settings"), PmclIcons.Launch, GROUP_NAV, listOf("game mode", "gamemode", "macos", I18n.t("cmd.kw.settings"))) {
                     vm.requestSecondaryNav("settings", "game")
                 })
             }
-            add(SearchItem(I18n.t("settings.section.mio"), I18n.t("search.nav.settings"), Icons.Filled.Speed, GROUP_NAV, listOf("mio", I18n.t("cmd.kw.settings"))) {
+            add(SearchItem(I18n.t("settings.section.mio"), I18n.t("search.nav.settings"), PmclIcons.Speed, GROUP_NAV, listOf("mio", I18n.t("cmd.kw.settings"))) {
                 vm.requestSecondaryNav("settings", "mio")
             })
-            add(SearchItem(I18n.t("settings.section.feedback"), I18n.t("search.nav.settings"), Icons.Filled.QrCode, GROUP_NAV, listOf("feedback", "issue", "qr", I18n.t("cmd.kw.feedback"))) {
+            add(SearchItem(I18n.t("settings.section.feedback"), I18n.t("search.nav.settings"), PmclIcons.Qr, GROUP_NAV, listOf("feedback", "issue", "qr", I18n.t("cmd.kw.feedback"))) {
                 vm.requestSecondaryNav("settings", "feedback")
             })
-            add(SearchItem(I18n.t("stats.section.performance"), I18n.t("search.nav.statistics"), Icons.Filled.Speed, GROUP_NAV, listOf("cpu", "perf", I18n.t("cmd.kw.stats"))) {
+            add(SearchItem(I18n.t("stats.section.performance"), I18n.t("search.nav.statistics"), PmclIcons.Speed, GROUP_NAV, listOf("cpu", "perf", I18n.t("cmd.kw.stats"))) {
                 vm.requestSecondaryNav("statistics", "performance")
             })
-            add(SearchItem(I18n.t("mp.section.room"), I18n.t("search.nav.multiplayer"), Icons.Filled.Share, GROUP_NAV, listOf("mp", I18n.t("cmd.kw.multiplayer"), "room")) {
+            add(SearchItem(I18n.t("mp.section.room"), I18n.t("search.nav.multiplayer"), PmclIcons.Multiplayer, GROUP_NAV, listOf("mp", I18n.t("cmd.kw.multiplayer"), "room")) {
                 vm.requestSecondaryNav("multiplayer", "room")
             })
-            add(SearchItem(I18n.t("mp.section.settings"), I18n.t("search.nav.multiplayer"), Icons.Filled.Settings, GROUP_NAV, listOf("mp", I18n.t("cmd.kw.multiplayer"), "connectx", "easytier")) {
+            add(SearchItem(I18n.t("mp.section.settings"), I18n.t("search.nav.multiplayer"), PmclIcons.Settings, GROUP_NAV, listOf("mp", I18n.t("cmd.kw.multiplayer"), "connectx", "easytier")) {
                 vm.requestSecondaryNav("multiplayer", "settings")
             })
-            add(SearchItem(I18n.t("mp.section.help"), I18n.t("search.nav.multiplayer"), Icons.Filled.Info, GROUP_NAV, listOf("mp", I18n.t("cmd.kw.multiplayer"), "help")) {
+            add(SearchItem(I18n.t("mp.section.help"), I18n.t("search.nav.multiplayer"), PmclIcons.News, GROUP_NAV, listOf("mp", I18n.t("cmd.kw.multiplayer"), "help")) {
                 vm.requestSecondaryNav("multiplayer", "help")
             })
-            add(SearchItem(I18n.t("accounts.section.list"), I18n.t("search.nav.accounts"), Icons.Filled.Person, GROUP_NAV, listOf("account", I18n.t("cmd.kw.account"))) {
+            add(SearchItem(I18n.t("accounts.section.list"), I18n.t("search.nav.accounts"), PmclIcons.Accounts, GROUP_NAV, listOf("account", I18n.t("cmd.kw.account"))) {
                 vm.requestSecondaryNav("accounts", "list")
             })
-            add(SearchItem(I18n.t("accounts.section.skin"), I18n.t("search.nav.accounts"), Icons.Filled.Palette, GROUP_NAV, listOf("skin", I18n.t("cmd.kw.account"))) {
+            add(SearchItem(I18n.t("accounts.section.skin"), I18n.t("search.nav.accounts"), PmclIcons.Palette, GROUP_NAV, listOf("skin", I18n.t("cmd.kw.account"))) {
                 vm.requestSecondaryNav("accounts", "skin")
             })
-            add(SearchItem(I18n.t("accounts.section.microsoft"), I18n.t("search.nav.accounts"), Icons.Filled.OpenInBrowser, GROUP_NAV, listOf("microsoft", I18n.t("cmd.kw.microsoft"), I18n.t("cmd.kw.login"))) {
+            add(SearchItem(I18n.t("accounts.section.microsoft"), I18n.t("search.nav.accounts"), PmclIcons.Browser, GROUP_NAV, listOf("microsoft", I18n.t("cmd.kw.microsoft"), I18n.t("cmd.kw.login"))) {
                 vm.requestSecondaryNav("accounts", "microsoft")
             })
-            add(SearchItem(I18n.t("accounts.section.offline"), I18n.t("search.nav.accounts"), Icons.Filled.Person, GROUP_NAV, listOf("offline", I18n.t("cmd.kw.login"))) {
+            add(SearchItem(I18n.t("accounts.section.offline"), I18n.t("search.nav.accounts"), PmclIcons.Friends, GROUP_NAV, listOf("offline", I18n.t("cmd.kw.login"))) {
                 vm.requestSecondaryNav("accounts", "offline")
             })
-            add(SearchItem(I18n.t("accounts.section.github"), I18n.t("search.nav.accounts"), Icons.Filled.Key, GROUP_NAV, listOf("github", I18n.t("cmd.kw.login"))) {
+            add(SearchItem(I18n.t("accounts.section.github"), I18n.t("search.nav.accounts"), PmclIcons.Key, GROUP_NAV, listOf("github", I18n.t("cmd.kw.login"))) {
                 vm.requestSecondaryNav("accounts", "github")
             })
-            add(SearchItem(I18n.t("accounts.section.yggdrasil"), I18n.t("search.nav.accounts"), Icons.Filled.Palette, GROUP_NAV, listOf("yggdrasil", "littleskin", I18n.t("cmd.kw.login"))) {
+            add(SearchItem(I18n.t("accounts.section.yggdrasil"), I18n.t("search.nav.accounts"), PmclIcons.Shield, GROUP_NAV, listOf("yggdrasil", "littleskin", I18n.t("cmd.kw.login"))) {
                 vm.requestSecondaryNav("accounts", "yggdrasil")
             })
-            add(SearchItem(I18n.t("nav.worlds"), I18n.t("search.hub.worlds"), Icons.Filled.Public, GROUP_NAV, listOf("world", I18n.t("cmd.kw.world"), I18n.t("cmd.kw.save"))) {
+            add(SearchItem(I18n.t("nav.worlds"), I18n.t("search.hub.worlds"), PmclIcons.Globe, GROUP_NAV, listOf("world", I18n.t("cmd.kw.world"), I18n.t("cmd.kw.save"))) {
                 vm.requestSecondaryNav("saves", "worlds")
             })
-            add(SearchItem(I18n.t("nav.screenshots"), I18n.t("search.hub.screenshots"), Icons.Filled.Image, GROUP_NAV, listOf("screenshot", I18n.t("cmd.kw.screenshot"))) {
+            add(SearchItem(I18n.t("nav.screenshots"), I18n.t("search.hub.screenshots"), PmclIcons.Image, GROUP_NAV, listOf("screenshot", I18n.t("cmd.kw.screenshot"))) {
                 vm.requestSecondaryNav("saves", "screenshots")
             })
-            add(SearchItem(I18n.t("plugins.section.installed"), I18n.t("search.nav.plugins"), Icons.Filled.Extension, GROUP_NAV, listOf("plugin", I18n.t("cmd.kw.plugin"))) {
+            add(SearchItem(I18n.t("plugins.section.installed"), I18n.t("search.nav.plugins"), PmclIcons.Plugins, GROUP_NAV, listOf("plugin", I18n.t("cmd.kw.plugin"))) {
                 vm.requestSecondaryNav("plugins", "installed")
             })
-            add(SearchItem(I18n.t("plugins.section.actions"), I18n.t("search.nav.plugins"), Icons.Filled.PlayArrow, GROUP_NAV, listOf("plugin", I18n.t("cmd.kw.plugin"), "action")) {
+            add(SearchItem(I18n.t("plugins.section.actions"), I18n.t("search.nav.plugins"), PmclIcons.Launch, GROUP_NAV, listOf("plugin", I18n.t("cmd.kw.plugin"), "action")) {
                 vm.requestSecondaryNav("plugins", "actions")
             })
-            add(SearchItem(I18n.t("plugins.section.install"), I18n.t("search.nav.plugins"), Icons.Filled.Add, GROUP_NAV, listOf("plugin", I18n.t("cmd.kw.plugin"), I18n.t("cmd.kw.install"))) {
+            add(SearchItem(I18n.t("plugins.section.install"), I18n.t("search.nav.plugins"), PmclIcons.Plus, GROUP_NAV, listOf("plugin", I18n.t("cmd.kw.plugin"), I18n.t("cmd.kw.install"))) {
                 vm.requestSecondaryNav("plugins", "install")
             })
-            add(SearchItem(I18n.t("music.section.player"), I18n.t("search.nav.music"), Icons.Filled.PlayArrow, GROUP_NAV, listOf("music", "audio", "player")) {
+            add(SearchItem(I18n.t("music.section.player"), I18n.t("search.nav.music"), PmclIcons.Music, GROUP_NAV, listOf("music", "audio", "player")) {
                 vm.requestSecondaryNav("music", "player")
             })
-            add(SearchItem(I18n.t("music.playlist"), I18n.t("search.nav.music"), Icons.Filled.LibraryMusic, GROUP_NAV, listOf("music", "audio", "playlist")) {
+            add(SearchItem(I18n.t("music.playlist"), I18n.t("search.nav.music"), PmclIcons.Playlist, GROUP_NAV, listOf("music", "audio", "playlist")) {
                 vm.requestSecondaryNav("music", "playlist")
             })
-            add(SearchItem(I18n.t("music.history"), I18n.t("search.nav.music"), Icons.Filled.History, GROUP_NAV, listOf("music", "audio", "history")) {
+            add(SearchItem(I18n.t("music.history"), I18n.t("search.nav.music"), PmclIcons.History, GROUP_NAV, listOf("music", "audio", "history")) {
                 vm.requestSecondaryNav("music", "history")
             })
             // ===== 本地已安装版本（可启动） =====
@@ -276,7 +279,7 @@ fun buildSearchIndex(vm: LauncherViewModel): List<SearchItem> {
                     title = vid,
                     subtitle = if (info.isLaunchable()) I18n.t("search.version.installed")
                     else I18n.t("search.version.not_installed"),
-                    icon = Icons.Filled.Build,
+                    icon = PmclIcons.Wrench,
                     group = GROUP_VERSION,
                     keywords = listOf("version", I18n.t("cmd.kw.version"), I18n.t("cmd.kw.launch"), "launch"),
                     onSelect = {
@@ -297,7 +300,7 @@ fun buildSearchIndex(vm: LauncherViewModel): List<SearchItem> {
                         mod.getVersion()?.let { append("v").append(it) }
                         if (mod.isDisabled()) append(" · " + I18n.t("search.mod.disabled"))
                     },
-                    icon = Icons.Filled.Extension,
+                    icon = PmclIcons.Plugins,
                     group = GROUP_MOD,
                     keywords = listOf("mod", I18n.t("cmd.kw.mod"), mod.getModId() ?: "", name),
                     onSelect = {
@@ -316,7 +319,7 @@ fun buildSearchIndex(vm: LauncherViewModel): List<SearchItem> {
                         append(inst.getBaseVersionId() ?: "")
                         inst.getLoader()?.let { if (it.isNotEmpty()) append(" · $it") }
                     },
-                    icon = Icons.Filled.Dashboard,
+                    icon = PmclIcons.Instances,
                     group = GROUP_INSTANCE,
                     keywords = listOf("instance", I18n.t("cmd.kw.instance"), instName, inst.getBaseVersionId() ?: ""),
                     onSelect = {

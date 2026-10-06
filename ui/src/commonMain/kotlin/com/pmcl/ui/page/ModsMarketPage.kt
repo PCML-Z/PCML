@@ -59,6 +59,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pmcl.core.i18n.I18n
+import com.pmcl.core.instance.InstanceInfo
 import com.pmcl.core.market.McmodCatalog
 import com.pmcl.core.market.ModFile
 import com.pmcl.core.market.ModProject
@@ -883,6 +884,7 @@ private fun marketModLoaderOptions(): List<Pair<String, String>> = listOf(
     "quilt" to "Quilt",
     "neoforge" to "NeoForge",
     "forbric" to "Forbric",
+    "ecxp-forbric" to "ECXP-Forbric+",
 )
 
 private fun marketShaderLoaderOptions(): List<Pair<String, String>> = listOf(
@@ -941,6 +943,7 @@ private fun loaderChipLabel(loader: String): String = when (loader.lowercase()) 
     "forge" -> "Forge"
     "quilt" -> "Quilt"
     "forbric" -> "Forbric"
+    "ecxp-forbric" -> "ECXP-Forbric+"
     else -> loader.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
 }
 
@@ -1887,17 +1890,6 @@ private fun ColumnScope.FileListPane(
     val modpackBusy by vm.modpackBusy.collectAsState()
     val modpack = contentKind == "modpack"
     var pendingDownload by remember { mutableStateOf<PendingModDownload?>(null) }
-    var pendingModpack by remember { mutableStateOf<ModFile?>(null) }
-    pendingModpack?.let { file ->
-        ModpackInstallDialog(
-            fileName = file.fileName ?: "",
-            onDismiss = { pendingModpack = null },
-            onConfirm = {
-                pendingModpack = null
-                vm.enqueueMarketModpack(file)
-            }
-        )
-    }
     pendingDownload?.let { pending ->
         ModDownloadTargetDialog(
             preferredGameVersion = pending.preferredGameVersion,
@@ -1905,26 +1897,30 @@ private fun ColumnScope.FileListPane(
             contentKind = contentKind,
             vm = vm,
             onDismiss = { pendingDownload = null },
-            onConfirm = { versionId, gameVersion ->
+            onConfirm = { versionId, gameVersion, instanceId ->
                 val file = pending.file
                 val rect = pending.flyRect
                 val deps = pending.withDeps
                 pendingDownload = null
-                if (contentKind == "shader" || contentKind == "resourcepack") {
-                    val enqueue = { vm.enqueueMarketContent(file, contentKind, versionId) }
-                    if (rect != null) {
-                        vm.triggerFlyAnimation(rect, file.getFileName() ?: I18n.t("market.download"), enqueue)
+                when (contentKind) {
+                    "modpack" -> vm.enqueueMarketModpack(file, instanceId)
+                    "shader", "resourcepack" -> {
+                        val enqueue = { vm.enqueueMarketContent(file, contentKind, versionId, instanceId) }
+                        if (rect != null) {
+                            vm.triggerFlyAnimation(rect, file.getFileName() ?: I18n.t("market.download"), enqueue)
+                        } else {
+                            enqueue()
+                        }
+                    }
+                    else -> if (!deps && rect != null) {
+                        vm.triggerFlyAnimation(rect, file.getFileName() ?: I18n.t("market.download")) {
+                            vm.enqueueModDownload(file, gameVersion, versionId, instanceId)
+                        }
+                    } else if (deps) {
+                        vm.installModWithDeps(file, gameVersion, versionId, instanceId)
                     } else {
-                        enqueue()
+                        vm.enqueueModDownload(file, gameVersion, versionId, instanceId)
                     }
-                } else if (!deps && rect != null) {
-                    vm.triggerFlyAnimation(rect, file.getFileName() ?: I18n.t("market.download")) {
-                        vm.enqueueModDownload(file, gameVersion, versionId)
-                    }
-                } else if (deps) {
-                    vm.installModWithDeps(file, gameVersion, versionId)
-                } else {
-                    vm.enqueueModDownload(file, gameVersion, versionId)
                 }
             }
         )
@@ -2040,14 +2036,10 @@ private fun ColumnScope.FileListPane(
                         modpackBusy = modpackBusy,
                         showDeps = contentKind == "mod"
                     ) { file, withDeps, rect ->
-                        if (modpack) {
-                            pendingModpack = file
-                        } else {
-                            val preferred = targetGameVersion.ifBlank {
-                                (file.getGameVersions() ?: emptyList()).firstOrNull().orEmpty()
-                            }
-                            pendingDownload = PendingModDownload(file, withDeps, preferred, rect)
+                        val preferred = targetGameVersion.ifBlank {
+                            (file.getGameVersions() ?: emptyList()).firstOrNull().orEmpty()
                         }
+                        pendingDownload = PendingModDownload(file, withDeps && !modpack, preferred, rect)
                     }
                 }
                 if (compatibleFiles.size > 15) {
@@ -2166,13 +2158,16 @@ private fun ModDownloadTargetDialog(
     contentKind: String,
     vm: LauncherViewModel,
     onDismiss: () -> Unit,
-    onConfirm: (versionId: String, gameVersion: String) -> Unit
+    onConfirm: (versionId: String, gameVersion: String, instanceId: String?) -> Unit
 ) {
     val localInfos by vm.localVersionInfos.collectAsState()
+    val instances by vm.instances.collectAsState()
     val selectedNow by vm.selectedVersion.collectAsState()
+    val selectedInstanceNow by vm.selectedInstanceId.collectAsState()
     var query by remember { mutableStateOf("") }
     LaunchedEffect(Unit) {
         if (localInfos.isEmpty()) vm.refreshLocalVersions()
+        if (instances.isEmpty()) vm.loadInstances()
     }
     val installed = remember(localInfos) {
         localInfos.filter { it.isLaunchable && !it.id.isNullOrBlank() }
@@ -2195,6 +2190,21 @@ private fun ModDownloadTargetDialog(
                 ?: ""
         )
     }
+    val selectedInfo = installed.firstOrNull { it.id == selected }
+    val selectedGame = selectedInfo?.let {
+        MinecraftVersionIds.gameVersion(it.id, it.inheritsFrom)
+    }.orEmpty()
+    val versionInstances = remember(instances, selectedInfo, selectedGame, contentKind) {
+        if (selectedInfo == null) emptyList()
+        else instances.filter { inst ->
+            instanceBelongsToVersion(inst, selectedInfo, selectedGame, contentKind, installed, vm)
+        }
+    }
+    var instancePick by remember(selected, versionInstances, selectedInstanceNow) {
+        mutableStateOf(
+            versionInstances.firstOrNull { it.instanceId == selectedInstanceNow }?.instanceId.orEmpty()
+        )
+    }
     androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
         Surface(
             shape = RoundedCornerShape(16.dp),
@@ -2204,8 +2214,8 @@ private fun ModDownloadTargetDialog(
         ) {
             Column(
                 Modifier
-                    .width(420.dp)
-                    .heightIn(min = 360.dp, max = 560.dp)
+                    .width(460.dp)
+                    .height(600.dp)
                     .padding(16.dp)
             ) {
                 Text(
@@ -2217,6 +2227,7 @@ private fun ModDownloadTargetDialog(
                     I18n.t(when (contentKind) {
                         "shader" -> "market.download_target_body.shader"
                         "resourcepack" -> "market.download_target_body.resourcepack"
+                        "modpack" -> "market.download_target_body.modpack"
                         else -> "market.download_target_body"
                     }),
                     style = MaterialTheme.typography.bodySmall,
@@ -2276,6 +2287,46 @@ private fun ModDownloadTargetDialog(
                         }
                     }
                 }
+                if (selected.isNotBlank()) {
+                    Text(
+                        I18n.t("market.download_target_instance"),
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.padding(top = 10.dp, bottom = 6.dp)
+                    )
+                    if (versionInstances.isEmpty()) {
+                        Text(
+                            I18n.t("market.download_target_instance_empty"),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline,
+                            modifier = Modifier.padding(bottom = 6.dp)
+                        )
+                    }
+                    PmclLazyColumn(
+                        modifier = Modifier.weight(0.85f).fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        item(key = "install-target-default") {
+                            MarketInstanceChoice(
+                                title = I18n.t(
+                                    if (contentKind == "modpack") "market.download_target_new_game"
+                                    else "market.download_target_version_only"
+                                ),
+                                subtitle = "",
+                                picked = instancePick.isBlank(),
+                                onClick = { instancePick = "" }
+                            )
+                        }
+                        items(versionInstances.size, key = { versionInstances[it].instanceId }) { index ->
+                            val inst = versionInstances[index]
+                            MarketInstanceChoice(
+                                title = inst.name?.ifBlank { inst.instanceId } ?: inst.instanceId,
+                                subtitle = inst.loader?.trim().orEmpty(),
+                                picked = instancePick == inst.instanceId,
+                                onClick = { instancePick = inst.instanceId }
+                            )
+                        }
+                    }
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
                     horizontalArrangement = Arrangement.End
@@ -2285,13 +2336,22 @@ private fun ModDownloadTargetDialog(
                     Button(
                         onClick = {
                             val info = installed.firstOrNull { it.id == selected } ?: return@Button
-                            onConfirm(info.id, MinecraftVersionIds.gameVersion(info.id, info.inheritsFrom))
+                            onConfirm(
+                                info.id,
+                                MinecraftVersionIds.gameVersion(info.id, info.inheritsFrom),
+                                instancePick.takeIf { it.isNotBlank() }
+                            )
                         },
                         enabled = selected.isNotBlank()
                     ) {
                         Text(
-                            if (withDeps) I18n.t("market.download_target_confirm_deps")
-                            else I18n.t("market.download_target_confirm")
+                            when {
+                                contentKind == "modpack" && instancePick.isNotBlank() ->
+                                    I18n.t("market.modpack_install_into")
+                                contentKind == "modpack" -> I18n.t("market.modpack_install")
+                                withDeps -> I18n.t("market.download_target_confirm_deps")
+                                else -> I18n.t("market.download_target_confirm")
+                            }
                         )
                     }
                 }
@@ -2301,56 +2361,65 @@ private fun ModDownloadTargetDialog(
 }
 
 @Composable
-private fun ModpackInstallDialog(
-    fileName: String,
-    onDismiss: () -> Unit,
-    onConfirm: () -> Unit
+private fun MarketInstanceChoice(
+    title: String,
+    subtitle: String,
+    picked: Boolean,
+    onClick: () -> Unit
 ) {
-    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
-        Surface(
-            shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.surface,
-            shadowElevation = 0.dp,
-            tonalElevation = 0.dp
-        ) {
-            Column(Modifier.width(420.dp).padding(16.dp)) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(8.dp),
+        color = if (picked) MaterialTheme.colorScheme.secondaryContainer
+        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+        shadowElevation = 0.dp,
+        tonalElevation = 0.dp,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = if (picked) FontWeight.Bold else FontWeight.Normal,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (subtitle.isNotBlank()) {
                 Text(
-                    I18n.t("market.modpack_install_title"),
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold
+                    subtitle,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
-                if (fileName.isNotBlank()) {
-                    Text(
-                        fileName,
-                        style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(top = 8.dp)
-                    )
-                }
-                Text(
-                    I18n.t("market.modpack_install_body"),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
-                Text(
-                    I18n.t("market.modpack_hint"),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 4.dp, bottom = 16.dp)
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    OutlinedButton(onClick = onDismiss) { Text(I18n.t("common.cancel")) }
-                    Spacer(Modifier.width(8.dp))
-                    Button(onClick = onConfirm) { Text(I18n.t("market.modpack_install")) }
-                }
             }
         }
     }
+}
+
+private fun instanceBelongsToVersion(
+    inst: InstanceInfo,
+    version: com.pmcl.core.version.VersionManager.LocalVersionInfo,
+    game: String,
+    contentKind: String,
+    installed: List<com.pmcl.core.version.VersionManager.LocalVersionInfo>,
+    vm: LauncherViewModel
+): Boolean {
+    if (!inst.isLaunchable) return false
+    val base = inst.baseVersionId ?: return false
+    if (base == version.id) return true
+    val baseInfo = installed.firstOrNull { it.id == base }
+    val instGame = if (baseInfo != null) {
+        MinecraftVersionIds.gameVersion(baseInfo.id, baseInfo.inheritsFrom)
+    } else {
+        MinecraftVersionIds.gameVersion(base)
+    }
+    val sameGame = game.isNotBlank() && (base == game || instGame.equals(game, ignoreCase = true))
+    if (!sameGame) return false
+    if (contentKind == "shader" || contentKind == "resourcepack" || contentKind == "modpack") return true
+    val versionLoader = ModLoaders.normalize(vm.deriveLoader(version))
+    val instLoader = ModLoaders.normalize(inst.loader)
+    return versionLoader.isEmpty() || instLoader.isEmpty() || instLoader == versionLoader
 }
 
 @Composable
@@ -2576,6 +2645,7 @@ private fun localGameChipLabel(
     val loaderName = when (loader) {
         "fabric" -> "Fabric"
         "forbric" -> "Forbric"
+        "ecxp-forbric" -> "ECXP-Forbric+"
         "forge" -> "Forge"
         "quilt" -> "Quilt"
         "neoforge" -> "NeoForge"
@@ -2740,7 +2810,7 @@ private fun fileMatchesMarketFilter(
     if (wanted.isNotEmpty()) {
         val loaders = file.getLoaders() ?: emptyList()
         val matches = if (shader) loaders.any { ShaderLoaders.normalize(it) == wanted }
-        else if (wanted == "forbric") loaders.any {
+        else if (wanted == "forbric" || wanted == "ecxp-forbric") loaders.any {
             val name = ModLoaders.normalize(it)
             name == "fabric" || name == "forge" || name == "neoforge"
         }
@@ -2762,6 +2832,7 @@ private fun LoaderDropdown(
         "quilt" to "Quilt",
         "neoforge" to "NeoForge",
         "forbric" to "Forbric",
+        "ecxp-forbric" to "ECXP-Forbric+",
         "" to I18n.t("market.all"),
     ),
     onSelect: (String) -> Unit
@@ -2842,6 +2913,7 @@ private fun categoryLabel(slug: String): String {
 private fun isLoaderTag(tag: String): Boolean {
     val s = tag.lowercase()
     return s == "fabric" || s == "forge" || s == "quilt" || s == "neoforge" || s == "forbric"
+            || s == "ecxp-forbric"
             || s == "rift" || s == "liteloader" || s == "datapack"
             || s == "iris" || s == "optifine" || s == "canvas" || s == "vanilla"
 }

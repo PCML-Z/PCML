@@ -7,6 +7,8 @@ import androidx.compose.ui.text.platform.Font
 import java.awt.GraphicsEnvironment
 import java.io.File
 
+private const val NEWS_PIXEL_FONT = "Assets/Font/ark-pixel-12px-proportional.otf"
+
 @OptIn(ExperimentalTextApi::class)
 actual fun launcherFontFamily(requested: String): FontFamily {
     if (requested.isNotBlank() && requested in installedNames()) {
@@ -36,6 +38,24 @@ private fun bundledDin(): FontFamily? {
     }
     val file = names.map { File(it) }.firstOrNull { it.isFile }
     return file?.let { FontFamily(Font(it, FontWeight.Normal)) }
+}
+
+@OptIn(ExperimentalTextApi::class)
+actual fun newsPixelFamily(): FontFamily = newsPixel
+
+@OptIn(ExperimentalTextApi::class)
+private val newsPixel: FontFamily by lazy {
+    val path = NEWS_PIXEL_FONT
+    val loader = Thread.currentThread().contextClassLoader
+    if (loader?.getResource(path) == null) return@lazy FontFamily.Monospace
+    val weights = listOf(
+        FontWeight.Normal,
+        FontWeight.Medium,
+        FontWeight.SemiBold,
+        FontWeight.Bold,
+        FontWeight.Black
+    )
+    FontFamily(weights.map { Font(path, it) })
 }
 
 @OptIn(ExperimentalTextApi::class)

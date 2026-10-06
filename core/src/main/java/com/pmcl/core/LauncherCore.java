@@ -35,6 +35,7 @@ import com.pmcl.core.gamecontent.RecordingManager;
 import com.pmcl.core.gamecontent.ResourcePackManager;
 import com.pmcl.core.gamecontent.ShaderPackManager;
 import com.pmcl.core.gamecontent.DatapackManager;
+import com.pmcl.core.gamecontent.OfflineSkinLibrary;
 import com.pmcl.core.i18n.I18n;
 import com.pmcl.core.metal.MetalRenderInstaller;
 import com.pmcl.core.install.IntegrityChecker;
@@ -82,6 +83,7 @@ public final class LauncherCore {
     private final ResourcePackManager resourcePackManager;
     private final ShaderPackManager shaderPackManager;
     private final DatapackManager datapackManager;
+    private final OfflineSkinLibrary offlineSkinLibrary;
     private final IntegrityChecker integrityChecker;
     private final CrashAnalyzer crashAnalyzer;
     private final ProcessMonitor processMonitor;
@@ -164,6 +166,7 @@ public final class LauncherCore {
         this.resourcePackManager = new ResourcePackManager(config.getWorkDir());
         this.shaderPackManager = new ShaderPackManager(config.getWorkDir());
         this.datapackManager = new DatapackManager();
+        this.offlineSkinLibrary = new OfflineSkinLibrary(config.getWorkDir());
         this.integrityChecker = new IntegrityChecker(config);
         this.crashAnalyzer = new CrashAnalyzer();
         this.processMonitor = new ProcessMonitor();
@@ -315,6 +318,8 @@ public final class LauncherCore {
 
     public DatapackManager datapacks() { return datapackManager; }
 
+    public OfflineSkinLibrary offlineSkins() { return offlineSkinLibrary; }
+
     public IntegrityChecker integrity() { return integrityChecker; }
 
     public CrashAnalyzer crashAnalyzer() { return crashAnalyzer; }
@@ -365,7 +370,7 @@ public final class LauncherCore {
     private static String currentLauncherVersion() {
         String version = LauncherCore.class.getPackage().getImplementationVersion();
         if (version == null || version.isBlank()) {
-            version = System.getProperty("pmcl.version", "2.1.11b");
+            version = System.getProperty("pmcl.version", "2.2a");
         }
         return version;
     }

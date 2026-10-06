@@ -19,6 +19,8 @@ class ModLoadersTest {
         assertEquals("", ModLoaders.fromVersion("1.21.1", null, "net.minecraft.client.main.Main"));
         assertEquals("forbric", ModLoaders.fromVersion(
                 "26.2-forbric", "26.2", "net.fabricmc.loader.impl.launch.knot.KnotClient"));
+        assertEquals("ecxp-forbric", ModLoaders.fromVersion(
+                "1.21.1-ecxp-forbric", "1.21.1", "net.forbric.kernel.boot.KernelClientLaunch"));
     }
 
     @Test

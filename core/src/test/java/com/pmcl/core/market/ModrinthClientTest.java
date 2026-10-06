@@ -37,6 +37,7 @@ class ModrinthClientTest {
     @Test
     void forbricSearchesFabricForgeAndNeoforgeTogether() {
         assertEquals(List.of("fabric", "forge", "neoforge"), ModrinthClient.loaderCategories("forbric"));
+        assertEquals(List.of("fabric", "forge", "neoforge"), ModrinthClient.loaderCategories("ecxp-forbric"));
         assertEquals(List.of("fabric"), ModrinthClient.loaderCategories("fabric"));
     }
 }

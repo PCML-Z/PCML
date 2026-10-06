@@ -45,6 +45,7 @@ import com.pmcl.core.gamecontent.ResourcePackManager
 import com.pmcl.core.gamecontent.ShaderPackManager
 import com.pmcl.core.gamecontent.ConfigFileManager
 import com.pmcl.core.gamecontent.DatapackManager
+import com.pmcl.core.gamecontent.OfflineSkinLibrary
 import com.pmcl.core.install.IntegrityChecker
 import com.pmcl.core.launch.CrashAnalyzer
 import com.pmcl.core.instance.InstanceInfo
@@ -1283,7 +1284,8 @@ class LauncherViewModel {
             val verLoader = deriveLoader(lvi)
             val want = modLoader.lowercase()
             val passLoader = !hasLoaderFilter || verLoader.equals(modLoader, ignoreCase = true)
-                    || (verLoader == "forbric" && (want == "fabric" || want == "forge" || want == "neoforge"))
+                    || ((verLoader == "forbric" || verLoader == "ecxp-forbric")
+                    && (want == "fabric" || want == "forge" || want == "neoforge" || want == "forbric"))
             passVersion && passLoader
         }
     }
@@ -1589,6 +1591,9 @@ class LauncherViewModel {
 
     @PublishedApi internal val _projections = MutableStateFlow<List<ManagedProjection>>(emptyList())
     val projections: StateFlow<List<ManagedProjection>> = _projections.asStateFlow()
+
+    @PublishedApi internal val _offlineSkins = MutableStateFlow<List<OfflineSkinLibrary.Skin>>(emptyList())
+    val offlineSkins: StateFlow<List<OfflineSkinLibrary.Skin>> = _offlineSkins.asStateFlow()
 
     @PublishedApi internal val _datapacks = MutableStateFlow<List<DatapackManager.Datapack>>(emptyList())
     val datapacks: StateFlow<List<DatapackManager.Datapack>> = _datapacks.asStateFlow()
@@ -2415,36 +2420,38 @@ class LauncherViewModel {
         return lastMeaningful?.takeIf { it.isNotBlank() } ?: I18n.t("common.unknown")
     }
 
-    fun listModLoaderVersions(loader: ModLoader, gameVersion: String) {
+    fun listModLoaderVersions(loader: ModLoader, gameVersion: String, forceRefresh: Boolean = false) {
         val cacheKey = "modloader_${loader}_${gameVersion}"
         scope.launch {
             _modLoaderVersions.value = emptyList()
             _modLoaderVersionsLoading.value = true
             try {
-                // 先读缓存
-                val cached = withContext(Dispatchers.IO) {
-                    DataCache.loadWithTimestamp(cacheKey, object : TypeToken<List<ModLoaderVersion>>() {})
-                }
-                if (cached != null) {
-                    @Suppress("UNCHECKED_CAST")
-                    val data = cached[0] as? List<ModLoaderVersion>
-                    val savedAt = cached[1] as? Long
-                    if (data != null && savedAt != null
-                        && !DataCache.isExpired(savedAt, 24 * 60 * 60 * 1000L)
-                    ) {
-                        _modLoaderVersions.value = data
-                        _status.value = I18n.t("status.loader_versions_loaded_cache", data.size, loader)
-                        return@launch
+                // 空列表不沿用：发行版发布前的一次成功拉取会把列表冻住 24 小时。
+                if (!forceRefresh) {
+                    val cached = withContext(Dispatchers.IO) {
+                        DataCache.loadWithTimestamp(cacheKey, object : TypeToken<List<ModLoaderVersion>>() {})
+                    }
+                    if (cached != null) {
+                        @Suppress("UNCHECKED_CAST")
+                        val data = cached[0] as? List<ModLoaderVersion>
+                        val savedAt = cached[1] as? Long
+                        if (data != null && data.isNotEmpty() && savedAt != null
+                            && !DataCache.isExpired(savedAt, 24 * 60 * 60 * 1000L)
+                        ) {
+                            _modLoaderVersions.value = data
+                            _status.value = I18n.t("status.loader_versions_loaded_cache", data.size, loader)
+                            return@launch
+                        }
                     }
                 }
-                // 缓存不存在/已过期：网络请求
                 _status.value = I18n.t("status.fetching_loader_versions", loader)
                 val list = withContext(Dispatchers.IO) {
                     core.modLoaders().get(loader).listVersions(gameVersion).join()
                 }
                 _modLoaderVersions.value = list
                 _status.value = I18n.t("status.loader_versions_loaded", list.size, loader)
-                DataCache.save(cacheKey, list)
+                if (list.isNotEmpty()) DataCache.save(cacheKey, list)
+                else DataCache.remove(cacheKey)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Throwable) {
@@ -2514,15 +2521,15 @@ class LauncherViewModel {
         }
     }
 
-    /** 从市场把整合包放进下载队列：先用下载器拉取压缩包，再导入为新游戏。 */
-    fun enqueueMarketModpack(file: ModFile) {
+    /** 从市场把整合包放进下载队列。指定实例时装进该实例，否则新建一个游戏。 */
+    fun enqueueMarketModpack(file: ModFile, instanceId: String? = null) {
         val url = file.downloadUrl
         if (url.isNullOrBlank()) {
             _status.value = I18n.t("status.modpack_import_failed", file.fileName ?: "")
             return
         }
         initDownloadQueue()
-        core.downloadQueue().submitMarketModpack(file) {
+        core.downloadQueue().submitMarketModpack(file, instanceId?.takeIf { it.isNotBlank() }) {
             _status.value = I18n.t("status.modpack_import_complete")
             refreshModpacks()
             refreshLocalVersions()
@@ -2719,12 +2726,25 @@ class LauncherViewModel {
         }
     }
 
+    /**
+     * 市场安装目标实例。显式传入时用它；没选版本时才跟着当前实例走。
+     * 选了版本但没选实例则返回 null，文件落在版本目录。
+     */
+    internal fun marketInstallInstance(versionId: String?, instanceId: String?): String? {
+        if (instanceId != null) return instanceId.takeIf { it.isNotBlank() }
+        return if (versionId == null) _selectedInstanceId.value else null
+    }
+
     /** 提交模组下载到队列 */
-    fun enqueueModDownload(modFile: ModFile, gameVersion: String, versionId: String? = null) {
+    fun enqueueModDownload(
+        modFile: ModFile,
+        gameVersion: String,
+        versionId: String? = null,
+        instanceId: String? = null
+    ) {
         val vid = versionId ?: _selectedVersion.value
-        // 指定了游戏就只写入该游戏，不再跟当前自定义实例走。
-        val instanceId = if (versionId == null) _selectedInstanceId.value else null
-        core.downloadQueue().submitModDownload(modFile, gameVersion, vid, instanceId)
+        val targetInstance = marketInstallInstance(versionId, instanceId)
+        core.downloadQueue().submitModDownload(modFile, gameVersion, vid, targetInstance)
         _status.value = I18n.t("status.queued_mod", modFile.fileName)
         // 若该模组有 API 声明的依赖，提醒用户可使用"带依赖下载"
         val deps = modFile.getDependencies()
@@ -2738,7 +2758,12 @@ class LauncherViewModel {
      * 市场光影或材质进入下载队列，写到所选游戏的 shaderpacks / resourcepacks。
      * kind 为 shader 或 resourcepack。
      */
-    fun enqueueMarketContent(file: ModFile, kind: String, versionId: String? = null) {
+    fun enqueueMarketContent(
+        file: ModFile,
+        kind: String,
+        versionId: String? = null,
+        instanceId: String? = null
+    ) {
         val folder = when (kind) {
             "shader" -> "shaderpacks"
             "resourcepack" -> "resourcepacks"
@@ -2749,8 +2774,8 @@ class LauncherViewModel {
         }
         initDownloadQueue()
         val vid = versionId ?: _selectedVersion.value
-        val instanceId = if (versionId == null) _selectedInstanceId.value else null
-        core.downloadQueue().submitMarketContent(file, folder, vid, instanceId) {
+        val targetInstance = marketInstallInstance(versionId, instanceId)
+        core.downloadQueue().submitMarketContent(file, folder, vid, targetInstance) {
             when (kind) {
                 "shader" -> refreshShaderPacks()
                 "resourcepack" -> refreshResourcePacks()

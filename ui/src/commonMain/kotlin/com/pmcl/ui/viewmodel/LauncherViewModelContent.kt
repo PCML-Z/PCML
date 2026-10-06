@@ -1,6 +1,8 @@
 package com.pmcl.ui.viewmodel
 
+import com.pmcl.core.auth.Account
 import com.pmcl.core.gamecontent.DatapackManager
+import com.pmcl.core.gamecontent.OfflineSkinLibrary
 import com.pmcl.core.gamecontent.VersionGameFiles
 import com.pmcl.ui.page.readProjection
 import com.pmcl.core.gamecontent.ResourcePackManager
@@ -1269,5 +1271,186 @@ fun LauncherViewModel.clearDatapackWorld() {
 /** 打开指定世界的 datapacks 目录 */
 fun LauncherViewModel.openDatapacksDir(world: WorldManager.WorldInfo) {
     openDir(world.dir.resolve("datapacks").toFile())
+}
+
+fun LauncherViewModel.refreshOfflineSkins() {
+    scope.launch {
+        try {
+            val list = withContext(Dispatchers.IO) { core.offlineSkins().list() }
+            _offlineSkins.value = list
+        } catch (e: Throwable) {
+            if (e is CancellationException) throw e
+            _status.value = offlineSkinStatus(e)
+        }
+    }
+}
+
+fun LauncherViewModel.offlineSkinFile(skin: OfflineSkinLibrary.Skin): String {
+    return try {
+        core.offlineSkins().pngFile(skin).toAbsolutePath().toString()
+    } catch (_: Throwable) {
+        ""
+    }
+}
+
+fun LauncherViewModel.openOfflineSkinsDir() {
+    scope.launch {
+        try {
+            val dir = withContext(Dispatchers.IO) { core.offlineSkins().directory().toFile() }
+            openDir(dir)
+        } catch (e: Throwable) {
+            if (e is CancellationException) throw e
+            _status.value = offlineSkinStatus(e)
+        }
+    }
+}
+
+fun LauncherViewModel.importOfflineSkin(file: Path) {
+    scope.launch {
+        try {
+            val skin = withContext(Dispatchers.IO) {
+                val raw = file.fileName?.toString().orEmpty()
+                val name = raw.substringBeforeLast('.').ifBlank { "skin" }
+                core.offlineSkins().importPng(file, name)
+            }
+            _status.value = I18n.t("status.offline_skin_imported", skin.name)
+            refreshOfflineSkins()
+        } catch (e: Throwable) {
+            if (e is CancellationException) throw e
+            _status.value = offlineSkinStatus(e)
+        }
+    }
+}
+
+fun LauncherViewModel.updateOfflineSkin(id: String, name: String, player: String, model: String) {
+    scope.launch {
+        try {
+            val skin = withContext(Dispatchers.IO) {
+                core.offlineSkins().update(id, name, player, model)
+            }
+            _status.value = I18n.t("status.offline_skin_saved", skin.name)
+            refreshOfflineSkins()
+        } catch (e: Throwable) {
+            if (e is CancellationException) throw e
+            _status.value = offlineSkinStatus(e)
+        }
+    }
+}
+
+fun LauncherViewModel.deleteOfflineSkin(id: String) {
+    scope.launch {
+        try {
+            withContext(Dispatchers.IO) { core.offlineSkins().delete(id) }
+            _status.value = I18n.t("status.offline_skin_deleted")
+            refreshOfflineSkins()
+        } catch (e: Throwable) {
+            if (e is CancellationException) throw e
+            _status.value = offlineSkinStatus(e)
+        }
+    }
+}
+
+fun LauncherViewModel.deployOfflineSkins() {
+    val target = offlineSkinTarget()
+    if (target == null) {
+        _status.value = I18n.t("status.offline_skin_no_version")
+        return
+    }
+    scope.launch {
+        try {
+            val result = withContext(Dispatchers.IO) { core.offlineSkins().deploy(target.first) }
+            _status.value = offlineSkinDeployStatus(result, target.second)
+        } catch (e: Throwable) {
+            if (e is CancellationException) throw e
+            _status.value = offlineSkinStatus(e)
+        }
+    }
+}
+
+fun LauncherViewModel.applyOfflineSkin(id: String, name: String, model: String) {
+    val current = _account.value
+    if (current == null) {
+        _status.value = I18n.t("status.login_first")
+        return
+    }
+    if (current.type != Account.AccountType.OFFLINE) {
+        _status.value = I18n.t("status.offline_skin_microsoft_unsupported")
+        return
+    }
+    scope.launch {
+        try {
+            val skin = withContext(Dispatchers.IO) {
+                core.offlineSkins().update(id, name, current.username, model)
+            }
+            setOfflineSkin(core.offlineSkins().pngFile(skin).toAbsolutePath().toString(), skin.model)
+            val target = offlineSkinTarget()
+            if (target == null) {
+                _status.value = I18n.t("status.offline_skin_applied_account", current.username)
+            } else {
+                val result = withContext(Dispatchers.IO) { core.offlineSkins().deploy(target.first) }
+                _status.value = if (result.profileAdded) {
+                    I18n.t(
+                        "status.offline_skin_applied",
+                        current.username,
+                        result.written.toString(),
+                        target.second
+                    )
+                } else {
+                    I18n.t(
+                        "status.offline_skin_applied_existing",
+                        current.username,
+                        result.written.toString(),
+                        target.second
+                    )
+                }
+            }
+            refreshOfflineSkins()
+        } catch (e: Throwable) {
+            if (e is CancellationException) throw e
+            _status.value = offlineSkinStatus(e)
+        }
+    }
+}
+
+private fun LauncherViewModel.offlineSkinTarget(): Pair<Path, String>? {
+    val inst = instances.value.find { it.instanceId == _selectedInstanceId.value }
+    val dir = inst?.instanceDir
+    if (dir != null) return dir to (inst.name?.ifBlank { null } ?: inst.instanceId)
+    val versionId = _selectedVersion.value
+    if (versionId.isNullOrBlank()) return null
+    return try {
+        core.profileBuilder().resolveGameDirectory(versionId) to versionId
+    } catch (_: Throwable) {
+        null
+    }
+}
+
+private fun offlineSkinDeployStatus(result: OfflineSkinLibrary.DeployResult, target: String): String {
+    if (result.written == 0) return I18n.t("status.offline_skin_none_bound")
+    return if (result.profileAdded) {
+        I18n.t("status.offline_skin_deployed", target, result.written.toString())
+    } else {
+        I18n.t("status.offline_skin_deployed_existing", target, result.written.toString())
+    }
+}
+
+private fun offlineSkinStatus(error: Throwable): String {
+    val failure = error as? OfflineSkinLibrary.Failure
+        ?: return I18n.t("status.offline_skin_failed", error.message ?: I18n.t("common.unknown"))
+    return when (failure.code()) {
+        OfflineSkinLibrary.Failure.Code.NOT_PNG -> I18n.t("status.offline_skin_not_png")
+        OfflineSkinLibrary.Failure.Code.TOO_SMALL -> I18n.t("status.offline_skin_too_small")
+        OfflineSkinLibrary.Failure.Code.TOO_LARGE -> I18n.t("status.offline_skin_too_large")
+        OfflineSkinLibrary.Failure.Code.BAD_MAGIC -> I18n.t("status.offline_skin_bad_magic")
+        OfflineSkinLibrary.Failure.Code.BAD_SIZE -> I18n.t("status.offline_skin_bad_size", failure.detail())
+        OfflineSkinLibrary.Failure.Code.BAD_PLAYER -> I18n.t("status.offline_skin_bad_player")
+        OfflineSkinLibrary.Failure.Code.DUPLICATE_PLAYER ->
+            I18n.t("status.offline_skin_duplicate_player", failure.detail())
+        OfflineSkinLibrary.Failure.Code.BAD_NAME -> I18n.t("status.offline_skin_bad_name")
+        OfflineSkinLibrary.Failure.Code.NOT_FOUND -> I18n.t("status.offline_skin_not_found")
+        OfflineSkinLibrary.Failure.Code.BAD_MODEL -> I18n.t("status.offline_skin_bad_model")
+        OfflineSkinLibrary.Failure.Code.NO_GAME_DIR -> I18n.t("status.offline_skin_no_game_dir")
+        OfflineSkinLibrary.Failure.Code.CONFIG_UNREADABLE -> I18n.t("status.offline_skin_config")
+    }
 }
 

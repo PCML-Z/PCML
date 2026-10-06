@@ -358,13 +358,18 @@ public final class DownloadQueueManager {
 
     /** 市场整合包：先校验下载压缩包，再在队列线程里导入为新游戏。 */
     public String submitMarketModpack(ModFile file, Runnable onInstalled) {
+        return submitMarketModpack(file, null, onInstalled);
+    }
+
+    /** instanceId 非空时把整合包装进该实例，否则新建一个游戏。 */
+    public String submitMarketModpack(ModFile file, String instanceId, Runnable onInstalled) {
         String displayName = file.getFileName() != null && !file.getFileName().isBlank()
                 ? file.getFileName() : "modpack";
         QueueTask task = new QueueTask(UUID.randomUUID().toString(), displayName, TaskType.MARKET_CONTENT);
         task.totalBytes = Math.max(0, file.getFileSize());
         task.message = "等待下载: " + displayName;
         addTask(task);
-        schedule(task, () -> runMarketModpack(task, file, onInstalled));
+        schedule(task, () -> runMarketModpack(task, file, instanceId, onInstalled));
         return task.id;
     }
 
@@ -903,8 +908,8 @@ public final class DownloadQueueManager {
         }
     }
 
-    private void runMarketModpack(QueueTask task, ModFile file, Runnable onInstalled) {
-        storeResumeWork(task.id, () -> runMarketModpack(task, file, onInstalled));
+    private void runMarketModpack(QueueTask task, ModFile file, String instanceId, Runnable onInstalled) {
+        storeResumeWork(task.id, () -> runMarketModpack(task, file, instanceId, onInstalled));
         Path zip = null;
         try {
             ModpackManager packs = modpackManager;
@@ -920,10 +925,15 @@ public final class DownloadQueueManager {
                 throwIfTaskInterrupted(task);
                 task.message = "正在安装整合包";
                 notifyProgress(task);
-                packs.importModpack(archive, progress -> {
+                var progress = (java.util.function.Consumer<InstallProgress>) p -> {
                     throwIfTaskInterrupted(task);
-                    applyInstallProgress(task, progress.getCompleted(), progress.getTotal(), progress.getMessage());
-                }).join();
+                    applyInstallProgress(task, p.getCompleted(), p.getTotal(), p.getMessage());
+                };
+                if (instanceId != null && !instanceId.isBlank()) {
+                    packs.importModpackIntoInstance(archive, instanceId, progress).join();
+                } else {
+                    packs.importModpack(archive, progress).join();
+                }
             }
             runInstalledCallback(onInstalled);
         } catch (Throwable e) {

@@ -307,7 +307,8 @@ public final class ModrinthClient implements ModMarketClient {
      * 其它加载器仍是原来的一个分类。
      */
     static java.util.List<String> loaderCategories(String loader) {
-        if (loader != null && "forbric".equalsIgnoreCase(loader)) {
+        if (loader != null && ("forbric".equalsIgnoreCase(loader)
+                || "ecxp-forbric".equalsIgnoreCase(loader))) {
             return java.util.List.of("fabric", "forge", "neoforge");
         }
         if (loader == null || loader.isEmpty()) return java.util.List.of();

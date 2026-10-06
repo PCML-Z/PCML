@@ -2,7 +2,7 @@ package com.pmcl.core.version;
 
 import java.util.Locale;
 
-/** 从版本号、父版本或实例记录里认出 Fabric、Forge、Quilt、NeoForge、Forbric。 */
+/** 从版本号、父版本或实例记录里认出 Fabric、Forge、Quilt、NeoForge、Forbric、ECXP-Forbric+。 */
 public final class ModLoaders {
 
     private ModLoaders() {}
@@ -16,6 +16,7 @@ public final class ModLoaders {
         if (raw == null) return "";
         String s = raw.trim().toLowerCase(Locale.ROOT);
         if (s.isEmpty()) return "";
+        if (s.contains("ecxp")) return "ecxp-forbric";
         if (s.contains("forbric")) return "forbric";
         if (s.contains("neoforge")) return "neoforge";
         if (s.contains("quilt")) return "quilt";

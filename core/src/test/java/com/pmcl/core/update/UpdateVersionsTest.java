@@ -26,6 +26,12 @@ class UpdateVersionsTest {
     }
 
     @Test
+    void twoPartLetterReleaseIsNewerThanThePreviousBuild() {
+        assertTrue(UpdateVersions.isNewer("2.2a", "2.1.11b"));
+        assertFalse(UpdateVersions.isNewer("2.1.11b", "2.2a"));
+    }
+
+    @Test
     void letterSuffixesCompareLexicographically() {
         assertTrue(UpdateVersions.isNewer("1.3.0c", "1.3.0a"));
         assertFalse(UpdateVersions.isNewer("1.3.0a", "1.3.0c"));

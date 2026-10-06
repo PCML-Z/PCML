@@ -293,7 +293,7 @@ public final class ModpackManager {
         // 半成品目录。用 try-catch 包住剩余全部步骤。
         boolean ok = false;
         try {
-            doImportInto(file, instanceDir, instanceId, manifest, progress);
+            doImportInto(file, instanceDir, instanceId, manifest, progress, null, null);
             ok = true;
         } finally {
             if (!ok) {
@@ -302,9 +302,54 @@ public final class ModpackManager {
         }
     }
 
-    /** 实际执行导入的各阶段；任何异常都会由调用方触发实例目录清理。 */
+    /**
+     * 把整合包装进已有实例。失败时保留实例目录，只留下已经写进去的文件。
+     */
+    public CompletableFuture<Void> importModpackIntoInstance(Path file, String instanceId,
+                                                             Consumer<InstallProgress> onProgress) {
+        return CompletableFuture.runAsync(() -> {
+            try {
+                if (instanceId == null || instanceId.isBlank()) {
+                    throw new IOException("未指定实例");
+                }
+                if (!Files.exists(file)) {
+                    throw new IOException("整合包文件不存在: " + file);
+                }
+                InstanceInfo existing = null;
+                if (instanceManager != null) {
+                    for (InstanceInfo info : instanceManager.listInstances()) {
+                        if (instanceId.equals(info.getInstanceId())) {
+                            existing = info;
+                            break;
+                        }
+                    }
+                }
+                if (existing == null || existing.getInstanceDir() == null
+                        || !Files.isDirectory(existing.getInstanceDir())) {
+                    throw new IOException("找不到实例: " + instanceId);
+                }
+                if (onProgress != null) onProgress.accept(new InstallProgress(
+                        InstallProgress.Stage.DOWNLOAD_VERSION_JSON, 0, 0, "正在解析整合包清单..."));
+                ParsedManifest manifest = parseManifest(file);
+                if (manifest.gameVersion == null || manifest.gameVersion.isBlank()) {
+                    throw new IOException("整合包未声明 Minecraft 版本");
+                }
+                doImportInto(file, existing.getInstanceDir(), existing.getInstanceId(), manifest, onProgress,
+                        existing.getName(), existing.getType());
+            } catch (Throwable e) {
+                if (onProgress != null) {
+                    onProgress.accept(new InstallProgress(InstallProgress.Stage.FAILED, 0, 0,
+                            "整合包导入失败: " + e.getMessage()));
+                }
+                throw new RuntimeException("整合包导入失败", e);
+            }
+        });
+    }
+
+    /** 实际执行导入的各阶段；新建实例时由调用方在失败后清理目录。 */
     private void doImportInto(Path file, Path instanceDir, String instanceId, ParsedManifest manifest,
-                              Consumer<InstallProgress> progress) throws Exception {
+                              Consumer<InstallProgress> progress, String preserveName,
+                              InstanceInfo.Type preserveType) throws Exception {
         for (String sub : new String[]{"mods", "saves", "config", "resourcepacks",
                 "shaderpacks", "screenshots", "logs"}) {
             Files.createDirectories(instanceDir.resolve(sub));
@@ -328,7 +373,7 @@ public final class ModpackManager {
         installDeclaredLoaders(manifest, progress);
         // 下载模组期间实例目录已经有 mods/。先写入正确的版本，避免被扫描成
         // 「版本号等于目录 UUID」的空实例。
-        saveInstanceInfo(instanceDir, instanceId, manifest);
+        saveInstanceInfo(instanceDir, instanceId, manifest, preserveName, preserveType);
 
         if ("curseforge".equals(manifest.format) && !manifest.files.isEmpty()) {
             prefetchCurseForgeFiles(manifest.files);
@@ -413,7 +458,7 @@ public final class ModpackManager {
         extractOverrides(file, instanceDir, manifest);
 
         // 6. 保存实例信息
-        saveInstanceInfo(instanceDir, instanceId, manifest);
+        saveInstanceInfo(instanceDir, instanceId, manifest, preserveName, preserveType);
 
         if (progress != null) progress.accept(new InstallProgress(
                 InstallProgress.Stage.DONE, 0, 0,
@@ -1521,7 +1566,7 @@ public final class ModpackManager {
         pmclMeta.addProperty("loader", loader);
         pmclMeta.addProperty("loaderVersion", loaderVersion);
         pmclMeta.addProperty("author", author);
-        pmclMeta.addProperty("pmclVersion", "2.1.11b");
+        pmclMeta.addProperty("pmclVersion", "2.2a");
         pmclMeta.addProperty("exportTime", java.time.Instant.now().toString());
         pmclMeta.add("mods", modsList);
 
@@ -2565,7 +2610,8 @@ public final class ModpackManager {
         return lower.contains("/");
     }
 
-    private void saveInstanceInfo(Path instanceDir, String instanceId, ParsedManifest manifest) throws IOException {
+    private void saveInstanceInfo(Path instanceDir, String instanceId, ParsedManifest manifest,
+                                  String preserveName, InstanceInfo.Type preserveType) throws IOException {
         String baseVersionId = manifest.resolvedVersionId != null && !manifest.resolvedVersionId.isBlank()
                 ? manifest.resolvedVersionId
                 : InstanceInfo.resolveInstalledBaseVersionId(
@@ -2587,11 +2633,25 @@ public final class ModpackManager {
         Files.writeString(instanceDir.resolve("modpack.json"),
                 info.toString(), java.nio.charset.StandardCharsets.UTF_8);
 
-        InstanceInfo inst = new InstanceInfo(instanceId, manifest.name, baseVersionId,
-                InstanceInfo.Type.MODPACK);
+        String instanceName = preserveName != null && !preserveName.isBlank()
+                ? preserveName : manifest.name;
+        InstanceInfo.Type instanceType = preserveType != null
+                ? preserveType : InstanceInfo.Type.MODPACK;
+        InstanceInfo inst = new InstanceInfo(instanceId, instanceName, baseVersionId, instanceType);
         inst.setLoader(manifest.loader != null ? manifest.loader : "");
         inst.setLoaderVersion(manifest.loaderVersion != null ? manifest.loaderVersion : "");
         if (manifest.author != null) inst.setDescription(manifest.author);
+        if (preserveName != null && instanceManager != null) {
+            for (InstanceInfo previous : instanceManager.listInstances()) {
+                if (!instanceId.equals(previous.getInstanceId())) continue;
+                inst.setBoundAccountUuid(previous.getBoundAccountUuid());
+                inst.setLastPlayedAt(previous.getLastPlayedAt());
+                inst.setTotalPlayTimeSeconds(previous.getTotalPlayTimeSeconds());
+                inst.setIconPath(previous.getIconPath());
+                if (manifest.author == null) inst.setDescription(previous.getDescription());
+                break;
+            }
+        }
         inst.setInstanceDir(instanceDir);
         if (instanceManager != null) {
             instanceManager.saveInstanceInfo(inst);
@@ -2733,6 +2793,7 @@ public final class ModpackManager {
         if (loader == null) return null;
         String s = loader.trim().toLowerCase(java.util.Locale.ROOT);
         if (s.isEmpty()) return "";
+        if (s.contains("ecxp")) return "ecxp-forbric";
         if (s.contains("forbric")) return "forbric";
         if (s.contains("neoforge")) return "neoforge";
         if (s.contains("fabric")) return "fabric";
@@ -2749,6 +2810,7 @@ public final class ModpackManager {
         String s = id.trim();
         String lower = s.toLowerCase(java.util.Locale.ROOT);
         String[][] prefixes = {
+                {"ecxp-forbric-", "ecxp-forbric"},
                 {"forbric-", "forbric"},
                 {"neoforge-", "neoforge"},
                 {"fabric-", "fabric"},
@@ -2786,6 +2848,7 @@ public final class ModpackManager {
             case "quilt" -> ModLoader.QUILT;
             case "neoforge" -> ModLoader.NEOFORGE;
             case "forbric" -> ModLoader.FORBRIC;
+            case "ecxp-forbric" -> ModLoader.ECXP_FORBRIC;
             case "optifine" -> ModLoader.OPTIFINE;
             case "liteloader" -> ModLoader.LITELOADER;
             default -> null;

@@ -30,7 +30,8 @@ import com.pmcl.ui.viewmodel.LauncherViewModel
 import com.pmcl.ui.widget.VersionTypeIcon
 
 private const val TAB_FORBRIC = 5
-private const val TAB_NATIVE = 6
+private const val TAB_ECXP = 6
+private const val TAB_NATIVE = 7
 
 private data class PendingLoaderInstall(
     val loader: ModLoader,
@@ -43,6 +44,7 @@ private fun downloadTabLoader(tab: Int): ModLoader = when (tab) {
     2 -> ModLoader.QUILT
     3 -> ModLoader.FORGE
     4 -> ModLoader.NEOFORGE
+    TAB_ECXP -> ModLoader.ECXP_FORBRIC
     else -> ModLoader.FORBRIC
 }
 
@@ -54,7 +56,7 @@ fun DownloadPage(vm: LauncherViewModel) {
     val status by vm.status.collectAsState()
     val modLoaderVersions by vm.modLoaderVersions.collectAsState()
 
-    var tab by remember { mutableStateOf(0) } // 0=Vanilla 1=Fabric 2=Quilt 3=Forge 4=NeoForge 5=Forbric
+    var tab by remember { mutableStateOf(0) } // 0=Vanilla 1=Fabric 2=Quilt 3=Forge 4=NeoForge 5=Forbric 6=ECXP-Forbric+
     var selectedGameVersion by remember { mutableStateOf("1.20.4") }
     var selectedLoaderVersion by remember { mutableStateOf<String?>(null) }
     var pendingLoader by remember { mutableStateOf<PendingLoaderInstall?>(null) }
@@ -86,16 +88,23 @@ fun DownloadPage(vm: LauncherViewModel) {
 
         // Tab 选择
         TabRow(selectedTabIndex = tab) {
-            listOf("Vanilla", "Fabric", "Quilt", "Forge", "NeoForge", "Forbric", I18n.t("native.tab")).forEachIndexed { i, label ->
+            listOf(
+                "Vanilla", "Fabric", "Quilt", "Forge", "NeoForge", "Forbric", "ECXP-Forbric+",
+                I18n.t("native.tab")
+            ).forEachIndexed { i, label ->
                 Tab(selected = tab == i, onClick = {
                     tab = i
                     selectedLoaderVersion = null
-                    if (i == TAB_FORBRIC) selectedGameVersion = "26.2"
-                    if (i in 1..TAB_FORBRIC) {
-                        val game = if (i == TAB_FORBRIC) "26.2" else selectedGameVersion
+                    if (i == TAB_FORBRIC || i == TAB_ECXP) selectedGameVersion = "26.2"
+                    if (i in 1..TAB_ECXP) {
+                        val game = when (i) {
+                            TAB_FORBRIC -> "26.2"
+                            TAB_ECXP -> selectedGameVersion
+                            else -> selectedGameVersion
+                        }
                         vm.listModLoaderVersions(downloadTabLoader(i), game)
                     }
-                }) { Text(label, Modifier.padding(12.dp)) }
+                }) { Text(label, Modifier.padding(12.dp), maxLines = 1) }
             }
         }
 
@@ -134,7 +143,7 @@ fun DownloadPage(vm: LauncherViewModel) {
             Spacer(Modifier.width(12.dp))
             if (tab > 0) {
                 Button(onClick = {
-                    vm.listModLoaderVersions(downloadTabLoader(tab), selectedGameVersion)
+                    vm.listModLoaderVersions(downloadTabLoader(tab), selectedGameVersion, forceRefresh = true)
                 }) { Text(I18n.t("download.fetch_versions")) }
             }
             Spacer(Modifier.weight(1f))
@@ -142,10 +151,10 @@ fun DownloadPage(vm: LauncherViewModel) {
                  color = MaterialTheme.colorScheme.outline)
         }
 
-        if (tab == TAB_FORBRIC) {
+        if (tab == TAB_FORBRIC || tab == TAB_ECXP) {
             Spacer(Modifier.height(8.dp))
             Text(
-                I18n.t("download.forbric_hint"),
+                I18n.t(if (tab == TAB_ECXP) "download.ecxp_forbric_hint" else "download.forbric_hint"),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

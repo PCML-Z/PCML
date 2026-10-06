@@ -6,9 +6,9 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material3.*
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -24,6 +24,7 @@ import com.pmcl.ui.animation.AnimatedPageSwitch
 import com.pmcl.ui.animation.EntranceAnimation
 import com.pmcl.ui.animation.SlideInFromStart
 import com.pmcl.ui.navigation.NavDestination
+import com.pmcl.ui.navigation.PmclIcons
 import com.pmcl.ui.navigation.SecondaryNavRail
 import com.pmcl.ui.navigation.SecondaryNavRailWidth
 import com.pmcl.ui.navigation.SecondaryNavRegistry
@@ -923,7 +924,7 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                                             val iconContent = @Composable {
                                                 when (target) {
                                                     is NavTarget.BuiltIn -> Icon(target.dest.icon, contentDescription = I18n.t(target.dest.labelKey))
-                                                    is NavTarget.PluginPage -> Icon(Icons.Filled.Extension, contentDescription = target.page.title)
+                                                    is NavTarget.PluginPage -> Icon(PmclIcons.Plugins, contentDescription = target.page.title)
                                                 }
                                             }
                                             if (!badgeText.isNullOrBlank()) {
@@ -935,10 +936,16 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                                             }
                                         },
                                         label = {
-                                            Text(when (target) {
-                                                is NavTarget.BuiltIn -> I18n.t(target.dest.labelKey)
-                                                is NavTarget.PluginPage -> target.page.title
-                                            })
+                                            Text(
+                                                when (target) {
+                                                    is NavTarget.BuiltIn -> I18n.t(target.dest.labelKey)
+                                                    is NavTarget.PluginPage -> target.page.title
+                                                },
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                textAlign = TextAlign.Center,
+                                                modifier = Modifier.fillMaxWidth()
+                                            )
                                         }
                                     )
                                 }

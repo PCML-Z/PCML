@@ -12,7 +12,7 @@ java {
     withSourcesJar()
 }
 
-val pmclVersion = providers.gradleProperty("pmcl.version").orElse("2.1.11b")
+val pmclVersion = providers.gradleProperty("pmcl.version").orElse("2.2a")
 tasks.withType<Jar>().configureEach {
     manifest {
         attributes("Implementation-Version" to pmclVersion.get())

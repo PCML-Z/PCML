@@ -1,41 +1,5 @@
 package com.pmcl.ui.navigation
 
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AccountCircle
-import androidx.compose.material.icons.filled.AccountTree
-import androidx.compose.material.icons.filled.Article
-import androidx.compose.material.icons.filled.BarChart
-import androidx.compose.material.icons.filled.Bolt
-import androidx.compose.material.icons.filled.Build
-import androidx.compose.material.icons.filled.Dataset
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Extension
-import androidx.compose.material.icons.filled.Gavel
-import androidx.compose.material.icons.filled.GridView
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Inventory2
-import androidx.compose.material.icons.filled.Key
-import androidx.compose.material.icons.filled.LibraryMusic
-import androidx.compose.material.icons.filled.OpenInBrowser
-import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.People
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Public
-import androidx.compose.material.icons.filled.QrCode
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Shield
-import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.SystemUpdate
-import androidx.compose.material.icons.filled.Terminal
-import androidx.compose.material.icons.filled.Videocam
-import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.ui.graphics.vector.ImageVector
 
 /** 二级侧栏中的一个子分区 */
@@ -57,23 +21,23 @@ object SecondaryNavRegistry {
         parentRoute = "settings",
         parentLabelKey = "nav.settings",
         sections = listOf(
-            SecondarySection("launcher", "settings.section.launcher", Icons.Filled.Settings),
-            SecondarySection("accounts", "settings.section.accounts", Icons.Filled.AccountCircle),
-            SecondarySection("theme", "settings.section.theme", Icons.Filled.Palette),
-            SecondarySection("java", "settings.section.java", Icons.Filled.Terminal),
-            SecondarySection("automation", "settings.section.automation", Icons.Filled.Bolt),
-            SecondarySection("game", "settings.section.game", Icons.Filled.PlayArrow),
-            SecondarySection("compile", "settings.section.compile", Icons.Filled.Build),
-            SecondarySection("mio", "settings.section.mio", Icons.Filled.Speed),
-            SecondarySection("network", "settings.section.network", Icons.Filled.Share),
-            SecondarySection("updates", "settings.section.updates", Icons.Filled.SystemUpdate),
-            SecondarySection("git-tree", "settings.section.git_tree", Icons.Filled.AccountTree),
-            SecondarySection("device", "settings.section.device", Icons.Filled.Shield),
-            SecondarySection("system", "settings.section.system", Icons.Filled.Info),
-            SecondarySection("about", "settings.section.about", Icons.Filled.Article),
-            SecondarySection("feedback", "settings.section.feedback", Icons.Filled.QrCode),
-            SecondarySection("licenses", "settings.section.licenses", Icons.Filled.Gavel),
-            SecondarySection("extensions", "settings.section.extensions", Icons.Filled.Extension),
+            SecondarySection("launcher", "settings.section.launcher", PmclIcons.Settings),
+            SecondarySection("accounts", "settings.section.accounts", PmclIcons.Accounts),
+            SecondarySection("theme", "settings.section.theme", PmclIcons.Palette),
+            SecondarySection("java", "settings.section.java", PmclIcons.Terminal),
+            SecondarySection("automation", "settings.section.automation", PmclIcons.Bolt),
+            SecondarySection("game", "settings.section.game", PmclIcons.Launch),
+            SecondarySection("compile", "settings.section.compile", PmclIcons.Wrench),
+            SecondarySection("mio", "settings.section.mio", PmclIcons.Speed),
+            SecondarySection("network", "settings.section.network", PmclIcons.Multiplayer),
+            SecondarySection("updates", "settings.section.updates", PmclIcons.Update),
+            SecondarySection("git-tree", "settings.section.git_tree", PmclIcons.Nbt),
+            SecondarySection("device", "settings.section.device", PmclIcons.Shield),
+            SecondarySection("system", "settings.section.system", PmclIcons.News),
+            SecondarySection("about", "settings.section.about", PmclIcons.Article),
+            SecondarySection("feedback", "settings.section.feedback", PmclIcons.Qr),
+            SecondarySection("licenses", "settings.section.licenses", PmclIcons.Gavel),
+            SecondarySection("extensions", "settings.section.extensions", PmclIcons.Plugins),
         )
     )
 
@@ -81,10 +45,10 @@ object SecondaryNavRegistry {
         parentRoute = "download",
         parentLabelKey = "nav.download",
         sections = listOf(
-            SecondarySection("versions", "download.local_versions", Icons.Filled.Build),
-            SecondarySection("market", "nav.market", Icons.Filled.Star),
-            SecondarySection("queue", "nav.queue", Icons.Filled.Download),
-            SecondarySection("wiki", "nav.wiki", Icons.Filled.Article),
+            SecondarySection("versions", "download.local_versions", PmclIcons.Wrench),
+            SecondarySection("market", "nav.market", PmclIcons.Content),
+            SecondarySection("queue", "nav.queue", PmclIcons.Download),
+            SecondarySection("wiki", "nav.wiki", PmclIcons.Article),
         )
     )
 
@@ -92,13 +56,14 @@ object SecondaryNavRegistry {
         parentRoute = "content",
         parentLabelKey = "nav.content",
         sections = listOf(
-            SecondarySection("mods", "nav.mods", Icons.Filled.Extension),
-            SecondarySection("modpacks", "nav.modpacks", Icons.Filled.Inventory2),
-            SecondarySection("shaders", "nav.shaders", Icons.Filled.WbSunny),
-            SecondarySection("projections", "nav.projections", Icons.Filled.GridView),
-            SecondarySection("resourcepacks", "nav.resourcepacks", Icons.Filled.Palette),
-            SecondarySection("datapacks", "nav.datapacks", Icons.Filled.Dataset),
-            SecondarySection("configs", "nav.configs", Icons.Filled.Edit),
+            SecondarySection("mods", "nav.mods", PmclIcons.Plugins),
+            SecondarySection("modpacks", "nav.modpacks", PmclIcons.Modpack),
+            SecondarySection("shaders", "nav.shaders", PmclIcons.Sun),
+            SecondarySection("projections", "nav.projections", PmclIcons.Grid),
+            SecondarySection("resourcepacks", "nav.resourcepacks", PmclIcons.Palette),
+            SecondarySection("datapacks", "nav.datapacks", PmclIcons.Dataset),
+            SecondarySection("configs", "nav.configs", PmclIcons.Edit),
+            SecondarySection("skins", "nav.offline_skins", PmclIcons.Image),
         )
     )
 
@@ -106,10 +71,10 @@ object SecondaryNavRegistry {
         parentRoute = "statistics",
         parentLabelKey = "nav.statistics",
         sections = listOf(
-            SecondarySection("performance", "stats.section.performance", Icons.Filled.Speed),
-            SecondarySection("overview", "stats.section.overview", Icons.Filled.BarChart),
-            SecondarySection("sessions", "stats.section.sessions", Icons.Filled.PlayArrow),
-            SecondarySection("breakdown", "stats.section.breakdown", Icons.Filled.Dataset),
+            SecondarySection("performance", "stats.section.performance", PmclIcons.Speed),
+            SecondarySection("overview", "stats.section.overview", PmclIcons.Statistics),
+            SecondarySection("sessions", "stats.section.sessions", PmclIcons.Launch),
+            SecondarySection("breakdown", "stats.section.breakdown", PmclIcons.Dataset),
         )
     )
 
@@ -117,9 +82,9 @@ object SecondaryNavRegistry {
         parentRoute = "multiplayer",
         parentLabelKey = "nav.multiplayer",
         sections = listOf(
-            SecondarySection("room", "mp.section.room", Icons.Filled.Share),
-            SecondarySection("settings", "mp.section.settings", Icons.Filled.Settings),
-            SecondarySection("help", "mp.section.help", Icons.Filled.Info),
+            SecondarySection("room", "mp.section.room", PmclIcons.Multiplayer),
+            SecondarySection("settings", "mp.section.settings", PmclIcons.Settings),
+            SecondarySection("help", "mp.section.help", PmclIcons.News),
         )
     )
 
@@ -127,12 +92,12 @@ object SecondaryNavRegistry {
         parentRoute = "accounts",
         parentLabelKey = "nav.accounts",
         sections = listOf(
-            SecondarySection("list", "accounts.section.list", Icons.Filled.Person),
-            SecondarySection("skin", "accounts.section.skin", Icons.Filled.Palette),
-            SecondarySection("offline", "accounts.section.offline", Icons.Filled.Person),
-            SecondarySection("microsoft", "accounts.section.microsoft", Icons.Filled.OpenInBrowser),
-            SecondarySection("github", "accounts.section.github", Icons.Filled.Key),
-            SecondarySection("yggdrasil", "accounts.section.yggdrasil", Icons.Filled.Palette),
+            SecondarySection("list", "accounts.section.list", PmclIcons.Accounts),
+            SecondarySection("skin", "accounts.section.skin", PmclIcons.Palette),
+            SecondarySection("offline", "accounts.section.offline", PmclIcons.Friends),
+            SecondarySection("microsoft", "accounts.section.microsoft", PmclIcons.Browser),
+            SecondarySection("github", "accounts.section.github", PmclIcons.Key),
+            SecondarySection("yggdrasil", "accounts.section.yggdrasil", PmclIcons.Shield),
         )
     )
 
@@ -140,10 +105,10 @@ object SecondaryNavRegistry {
         parentRoute = "saves",
         parentLabelKey = "nav.saves",
         sections = listOf(
-            SecondarySection("worlds", "nav.worlds", Icons.Filled.Public),
-            SecondarySection("timemachine", "nav.timemachine", Icons.Filled.History),
-            SecondarySection("screenshots", "nav.screenshots", Icons.Filled.Image),
-            SecondarySection("recordings", "nav.recordings", Icons.Filled.Videocam),
+            SecondarySection("worlds", "nav.worlds", PmclIcons.Globe),
+            SecondarySection("timemachine", "nav.timemachine", PmclIcons.History),
+            SecondarySection("screenshots", "nav.screenshots", PmclIcons.Image),
+            SecondarySection("recordings", "nav.recordings", PmclIcons.Video),
         )
     )
 
@@ -151,9 +116,9 @@ object SecondaryNavRegistry {
         parentRoute = "plugins",
         parentLabelKey = "nav.plugins",
         sections = listOf(
-            SecondarySection("installed", "plugins.section.installed", Icons.Filled.Extension),
-            SecondarySection("actions", "plugins.section.actions", Icons.Filled.PlayArrow),
-            SecondarySection("install", "plugins.section.install", Icons.Filled.Add),
+            SecondarySection("installed", "plugins.section.installed", PmclIcons.Plugins),
+            SecondarySection("actions", "plugins.section.actions", PmclIcons.Launch),
+            SecondarySection("install", "plugins.section.install", PmclIcons.Plus),
         )
     )
 
@@ -161,8 +126,8 @@ object SecondaryNavRegistry {
         parentRoute = "friends",
         parentLabelKey = "nav.friends",
         sections = listOf(
-            SecondarySection("chat", "friend.section.chat", Icons.Filled.People),
-            SecondarySection("rooms", "friend.section.rooms", Icons.Filled.Share),
+            SecondarySection("chat", "friend.section.chat", PmclIcons.Friends),
+            SecondarySection("rooms", "friend.section.rooms", PmclIcons.Multiplayer),
         )
     )
 
@@ -170,9 +135,9 @@ object SecondaryNavRegistry {
         parentRoute = "music",
         parentLabelKey = "nav.music",
         sections = listOf(
-            SecondarySection("player", "music.section.player", Icons.Filled.PlayArrow),
-            SecondarySection("playlist", "music.playlist", Icons.Filled.LibraryMusic),
-            SecondarySection("history", "music.history", Icons.Filled.History),
+            SecondarySection("player", "music.section.player", PmclIcons.Music),
+            SecondarySection("playlist", "music.playlist", PmclIcons.Playlist),
+            SecondarySection("history", "music.history", PmclIcons.History),
         )
     )
 

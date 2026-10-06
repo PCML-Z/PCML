@@ -1889,6 +1889,7 @@ private fun inferModLoader(info: VersionManager.LocalVersionInfo): String? {
     val inherits = info.getInheritsFrom() ?: ""
     val main = info.getMainClass() ?: ""
     return when {
+        id.contains("ecxp", ignoreCase = true) -> "ECXP-Forbric+"
         id.contains("forbric", ignoreCase = true) ||
             main.contains("forbric", ignoreCase = true) -> "Forbric"
         inherits.contains("forge", ignoreCase = true) ||

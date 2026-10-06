@@ -236,10 +236,10 @@ private fun PaletteResultRow(
     }
 }
 
-/** 默认条目图标按来源区分：插件动作用 PlayArrow，插件页面用 Extension。 */
+/** 默认条目图标按来源区分：插件动作用播放，插件页面用拼图。 */
 object PaletteIcons {
-    val ACTION = Icons.Filled.PlayArrow
-    val PLUGIN_PAGE = Icons.Filled.Extension
+    val ACTION = com.pmcl.ui.navigation.PmclIcons.Launch
+    val PLUGIN_PAGE = com.pmcl.ui.navigation.PmclIcons.Plugins
 }
 
 /** 空查询返回全量；否则按空格分词，每个词都必须命中至少一个字段。 */

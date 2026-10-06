@@ -266,7 +266,7 @@ private fun rememberScaledTypography(scale: Float, fontName: String): Typography
     }
 }
 
-private fun Typography.withFamily(family: FontFamily) = copy(
+internal fun Typography.withFamily(family: FontFamily) = copy(
     displayLarge = displayLarge.copy(fontFamily = family),
     displayMedium = displayMedium.copy(fontFamily = family),
     displaySmall = displaySmall.copy(fontFamily = family),
