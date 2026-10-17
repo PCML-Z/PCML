@@ -30,6 +30,7 @@ object SecondaryNavRegistry {
             SecondarySection("compile", "settings.section.compile", PmclIcons.Wrench),
             SecondarySection("mio", "settings.section.mio", PmclIcons.Speed),
             SecondarySection("network", "settings.section.network", PmclIcons.Multiplayer),
+            SecondarySection("cursor", "settings.section.cursor", PmclIcons.Key),
             SecondarySection("updates", "settings.section.updates", PmclIcons.Update),
             SecondarySection("git-tree", "settings.section.git_tree", PmclIcons.Nbt),
             SecondarySection("device", "settings.section.device", PmclIcons.Shield),
@@ -127,6 +128,7 @@ object SecondaryNavRegistry {
         parentLabelKey = "nav.friends",
         sections = listOf(
             SecondarySection("chat", "friend.section.chat", PmclIcons.Friends),
+            SecondarySection("mail", "friend.section.mail", PmclIcons.Mail),
             SecondarySection("rooms", "friend.section.rooms", PmclIcons.Multiplayer),
         )
     )

@@ -147,7 +147,8 @@ compose.desktop {
                 "jdk.crypto.ec",        // EC 曲线（TLS 1.3 / Xbox 认证）
                 "jdk.management",       // jdk.management.* 子包
                 "jdk.unsupported",      // sun.misc.Unsafe（部分 native / Netty 直接使用）
-                "jdk.security.auth"     // JAAS（部分认证流程）
+                "jdk.security.auth",    // JAAS（部分认证流程）
+                "jdk.httpserver"        // 本机 Cursor MCP
             )
 
             windows {

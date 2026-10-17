@@ -152,6 +152,15 @@ fun buildSearchIndex(vm: LauncherViewModel): List<SearchItem> {
                 ))
             }
 
+            add(SearchItem(
+                title = I18n.t("friend.section.mail"),
+                subtitle = I18n.t("friend.mail.hint"),
+                icon = PmclIcons.Mail,
+                group = GROUP_NAV,
+                keywords = listOf(I18n.t("cmd.kw.mail"), "mail", "email", "inbox"),
+                onSelect = { vm.requestSecondaryNav("friends", "mail") }
+            ))
+
             // ===== Hub / 二级侧栏子页面 =====
             add(SearchItem(I18n.t("nav.mods"), I18n.t("search.hub.mods"), PmclIcons.Plugins, GROUP_NAV, listOf("mod", "mods", I18n.t("cmd.kw.mod"))) {
                 vm.requestSecondaryNav("content", "mods")
@@ -206,6 +215,9 @@ fun buildSearchIndex(vm: LauncherViewModel): List<SearchItem> {
             })
             add(SearchItem(I18n.t("settings.section.compile"), I18n.t("search.nav.settings"), PmclIcons.Wrench, GROUP_NAV, listOf("cargo", "cmake", "compile", "toolchain", I18n.t("cmd.kw.settings"))) {
                 vm.requestSecondaryNav("settings", "compile")
+            })
+            add(SearchItem(I18n.t("settings.section.cursor"), I18n.t("search.nav.settings"), PmclIcons.Key, GROUP_NAV, listOf("cursor", "mcp", "agent", "智能体", I18n.t("cmd.kw.settings"))) {
+                vm.requestSecondaryNav("settings", "cursor")
             })
             if (System.getProperty("os.name", "").lowercase().contains("mac")) {
                 add(SearchItem(I18n.t("settings.mac_game_mode"), I18n.t("search.nav.settings"), PmclIcons.Launch, GROUP_NAV, listOf("game mode", "gamemode", "macos", I18n.t("cmd.kw.settings"))) {
@@ -358,7 +370,7 @@ private fun keywordsForRoute(route: String, label: String): List<String> = when 
     "tips" -> listOf(I18n.t("nav.tips"), "tips", "help", "manual")
     "multiplayer" -> listOf(I18n.t("cmd.kw.multiplayer"), I18n.t("cmd.kw.server"), "multiplayer", "server")
     "servers" -> listOf(I18n.t("cmd.kw.server"), "server", "servers")
-    "friends" -> listOf(I18n.t("cmd.kw.friend"), I18n.t("cmd.kw.chat"), "friend", "chat", I18n.t("cmd.kw.contact"), "contact", "QR", I18n.t("cmd.kw.qrcode"))
+    "friends" -> listOf(I18n.t("cmd.kw.friend"), I18n.t("cmd.kw.chat"), I18n.t("cmd.kw.mail"), "friend", "chat", "mail", "email", I18n.t("cmd.kw.contact"), "contact", "QR", I18n.t("cmd.kw.qrcode"))
     "download" -> listOf(I18n.t("cmd.kw.download"), "download", I18n.t("cmd.kw.install"))
     "content" -> listOf(I18n.t("cmd.kw.content"), "content", I18n.t("cmd.kw.resource"))
     "saves" -> listOf(I18n.t("cmd.kw.save"), "saves", "save")

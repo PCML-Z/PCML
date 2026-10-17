@@ -228,6 +228,7 @@ public final class InstanceManager {
         newInfo.setLoader(source.getLoader());
         newInfo.setLoaderVersion(source.getLoaderVersion());
         newInfo.setDescription(source.getDescription());
+        newInfo.setNativeClientId(source.getNativeClientId());
         newInfo.setInstanceDir(newDir);
         saveInstanceInfo(newInfo);
         return newInfo;
@@ -240,6 +241,30 @@ public final class InstanceManager {
         if (info == null) throw new IOException("实例不存在");
         info.setName(newName);
         saveInstanceInfo(info);
+    }
+
+    /**
+     * 把已安装的社区客户端记成实例。同一个客户端只保留一份。
+     *
+     * @return 已有或新建的实例
+     */
+    public InstanceInfo createCommunityInstance(String name, String clientId, String minecraftVersion, String tag)
+            throws IOException {
+        if (com.pmcl.core.nativeclient.NativeClientCatalog.find(clientId) == null) {
+            throw new IOException(com.pmcl.core.i18n.I18n.t("native.unknown"));
+        }
+        for (InstanceInfo existing : listInstances()) {
+            if (clientId.equals(existing.getNativeClientId())) return existing;
+        }
+        String display = name == null ? "" : name.trim().replaceAll("[\\p{Cntrl}]", "");
+        if (display.isEmpty()) display = clientId;
+        if (display.length() > 64) display = display.substring(0, 64).trim();
+        String version = minecraftVersion == null ? "" : minecraftVersion.trim();
+        InstanceInfo info = createInstance(display, version, "community", tag == null || tag.isBlank() ? null : tag.trim());
+        info.setNativeClientId(clientId);
+        info.setDescription(display);
+        saveInstanceInfo(info);
+        return info;
     }
 
     /** 更新实例元数据 */

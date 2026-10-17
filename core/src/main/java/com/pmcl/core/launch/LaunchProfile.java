@@ -29,6 +29,10 @@ public final class LaunchProfile {
     private List<String> javaAgents = new ArrayList<>();
     /** 额外环境变量（由插件 LaunchHook 贡献） */
     private final Map<String, String> env = new LinkedHashMap<>();
+    /** 生成命令前去掉其他回收器，只留 G1。 */
+    private boolean forceG1;
+    /** 游戏 Java 为 27 及以上时，按 Java 27 兼容方式改启动参数。 */
+    private boolean java27Compat;
     /** 实际 Minecraft 根目录（外部安装时为 ~/.minecraft，.pmcl 安装时为 config.getWorkDir()） */
     private java.nio.file.Path gameDir;
 
@@ -72,6 +76,18 @@ public final class LaunchProfile {
 
     public LaunchProfile addJvmArg(String arg) {
         jvmArgs.add(arg);
+        return this;
+    }
+
+    /** 打开后 {@link #buildCommand} 会去掉 ZGC 等回收器，并补上 {@code -XX:+UseG1GC}。 */
+    public LaunchProfile setForceG1(boolean force) {
+        this.forceG1 = force;
+        return this;
+    }
+
+    /** 打开后 {@link #buildCommand} 会按 Java 27 能启动模组的方式改参数。 */
+    public LaunchProfile setJava27Compat(boolean enabled) {
+        this.java27Compat = enabled;
         return this;
     }
 
@@ -147,6 +163,8 @@ public final class LaunchProfile {
         // 跨平台稳定性的基石：不同 JVM 构建（HotSpot/OpenJ9/不同 JDK 发行版）对 -XX 选项支持不同，
         // 不识别的 -XX:+ 选项默认会导致 JVM 拒绝启动（exit code 1）。
         cmd.add("-XX:+IgnoreUnrecognizedVMOptions");
+        if (forceG1) G1Force.apply(jvmArgs);
+        if (java27Compat) Java27Compat.apply(jvmArgs);
         cmd.addAll(jvmArgs);
 
         // classpath

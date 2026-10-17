@@ -89,12 +89,14 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
     var minMem by remember { mutableStateOf(pref.getMinMemoryMb().toString()) }
     var maxMem by remember { mutableStateOf(pref.getMaxMemoryMb().toString()) }
     var gcType by remember { mutableStateOf(pref.getGcType()) }
+    var forceG1 by remember { mutableStateOf(pref.isForceG1Gc()) }
     var useAikar by remember { mutableStateOf(pref.isUseAikarFlags()) }
     var customArgs by remember { mutableStateOf(pref.getCustomJvmArgs()) }
     var language by remember { mutableStateOf(pref.getLanguage()) }
     var borderless by remember { mutableStateOf(pref.isBorderlessWindow()) }
     var segmentedLaunch by remember { mutableStateOf(pref.isUseSegmentedLaunchLayout()) }
     var javaDowngrade by remember { mutableStateOf(pref.isJavaDowngradeFallback()) }
+    var java27Compat by remember { mutableStateOf(pref.isJava27Compat()) }
 
     // 插件主题包 / 设置分区（轮询 PluginManager.revision 变化时刷新）
     var pluginThemePacks by remember { mutableStateOf<List<com.pmcl.plugin.ThemePack>>(emptyList()) }
@@ -123,6 +125,7 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
         "compile" -> "settings.section.compile"
         "mio" -> "settings.section.mio"
         "network" -> "settings.section.network"
+        "cursor" -> "settings.section.cursor"
         "updates" -> "settings.section.updates"
         "git-tree" -> "settings.section.git_tree"
         "device" -> "settings.section.device"
@@ -227,6 +230,18 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
                     onSelect = { gcType = gcItems[it]; pref.setGcType(gcItems[it]) },
                     fillWidth = true
                 )
+
+                Spacer(Modifier.height(12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(checked = forceG1, onCheckedChange = { forceG1 = it; pref.setForceG1Gc(it) })
+                    Spacer(Modifier.width(8.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(I18n.t("settings.force_g1"))
+                        Text(I18n.t("settings.force_g1_desc"),
+                             style = MaterialTheme.typography.labelSmall,
+                             color = MaterialTheme.colorScheme.outline)
+                    }
+                }
 
                 Spacer(Modifier.height(12.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -983,6 +998,24 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
                      color = MaterialTheme.colorScheme.outline)
 
                 Spacer(Modifier.height(12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = java27Compat,
+                        onCheckedChange = { v ->
+                            java27Compat = v
+                            pref.setJava27Compat(v)
+                        }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(I18n.t("settings.java27_compat"), fontWeight = FontWeight.Medium)
+                        Text(I18n.t("settings.java27_compat_desc"),
+                             style = MaterialTheme.typography.labelSmall,
+                             color = MaterialTheme.colorScheme.outline)
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
                 HorizontalDivider()
                 Spacer(Modifier.height(12.dp))
 
@@ -1079,6 +1112,10 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
         CurseForgeGuideCard(vm, pref)
         Spacer(Modifier.height(12.dp))
         NetworkConfigCard(vm, pref)
+        }
+
+        if (sectionId == "cursor") {
+            CursorAgentSettings()
         }
 
         if (sectionId == "system") {
@@ -1885,7 +1922,7 @@ private fun FeatureColumn(
              color = MaterialTheme.colorScheme.primary)
         Spacer(Modifier.height(4.dp))
         items.forEach { f ->
-            Text("(=^ω^=)  $f",
+            Text("·  $f",
                  style = MaterialTheme.typography.bodySmall,
                  color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -2090,25 +2127,25 @@ private fun techStackDeps() = listOf(
         url = "https://kotlinlang.org/"
     ),
     TechDependency(
-        name = "Compose Multiplatform",
+        name = "Compose Multiplatform 1.7.0",
         copyright = "Copyright © JetBrains s.r.o. and contributors.",
         license = "Licensed under the Apache License 2.0.",
         url = "https://www.jetbrains.com/compose-multiplatform/"
     ),
     TechDependency(
-        name = "Java",
+        name = "Java 21",
         copyright = "Copyright © Oracle and/or its affiliates.",
         license = "GPL-2.0 + Classpath Exception",
         url = "https://openjdk.org/"
     ),
     TechDependency(
-        name = "JavaFX",
+        name = "JavaFX 21.0.7",
         copyright = "Copyright © Oracle and/or its affiliates, OpenJFX contributors.",
         license = "GPL-2.0 + Classpath Exception",
         url = "https://openjfx.io/"
     ),
     TechDependency(
-        name = "Gradle",
+        name = "Gradle 8.10",
         copyright = "Copyright © Gradle Inc.",
         license = "Licensed under the Apache License 2.0.",
         url = "https://gradle.org/"
@@ -2117,40 +2154,82 @@ private fun techStackDeps() = listOf(
 
 private fun openSourceDeps() = listOf(
     TechDependency(
-        name = "OkHttp",
+        name = "OkHttp 4.12.0",
         copyright = "Copyright © Square, Inc.",
         license = "Licensed under the Apache License 2.0.",
         url = "https://square.github.io/okhttp/"
     ),
     TechDependency(
-        name = "FFmpeg",
-        copyright = "Copyright © the FFmpeg developers.",
-        license = "LGPL / GPL (ByteDeco prebuilds often GPL)",
-        url = "https://ffmpeg.org/"
-    ),
-    TechDependency(
-        name = "JavaCV",
-        copyright = "Copyright © ByteDeco and contributors.",
-        license = "GPL-2.0 (or with Classpath Exception)",
-        url = "https://github.com/bytedeco/javacv"
-    ),
-    TechDependency(
-        name = "Gson",
+        name = "Gson 2.11.0",
         copyright = "Copyright © 2008 Google Inc.",
         license = "Licensed under the Apache License 2.0.",
         url = "https://github.com/google/gson"
     ),
     TechDependency(
-        name = "kotlinx-coroutines",
+        name = "kotlinx-coroutines 1.9.0",
         copyright = "Copyright © JetBrains s.r.o. and contributors.",
         license = "Licensed under the Apache License 2.0.",
         url = "https://github.com/Kotlin/kotlinx.coroutines"
     ),
     TechDependency(
-        name = "oshi",
+        name = "Kotlin Compiler 2.0.21",
+        copyright = "Copyright © JetBrains s.r.o. and contributors.",
+        license = "Licensed under the Apache License 2.0.",
+        url = "https://kotlinlang.org/"
+    ),
+    TechDependency(
+        name = "Ktor 3.0.3",
+        copyright = "Copyright © JetBrains s.r.o. and contributors.",
+        license = "Licensed under the Apache License 2.0.",
+        url = "https://ktor.io/"
+    ),
+    TechDependency(
+        name = "ZXing 3.5.3",
+        copyright = "Copyright © 2008 ZXing authors.",
+        license = "Licensed under the Apache License 2.0.",
+        url = "https://github.com/zxing/zxing"
+    ),
+    TechDependency(
+        name = "OSHI 6.6.5",
         copyright = "Copyright © The OSHI Project contributors.",
         license = "Licensed under the MIT License.",
         url = "https://github.com/oshi/oshi"
+    ),
+    TechDependency(
+        name = "SLF4J 2.0.16",
+        copyright = "Copyright © QOS.ch.",
+        license = "Licensed under the MIT License.",
+        url = "https://www.slf4j.org/"
+    ),
+    TechDependency(
+        name = "ASM 9.7",
+        copyright = "Copyright © 2000-2011 INRIA, France Telecom, and ASM contributors.",
+        license = "BSD 3-Clause",
+        url = "https://asm.ow2.io/"
+    ),
+    TechDependency(
+        name = "ice4j 3.2",
+        copyright = "Copyright © Jitsi.org and BlueJimp.",
+        license = "Licensed under the Apache License 2.0.",
+        url = "https://github.com/jitsi/ice4j"
+    ),
+    TechDependency(
+        name = "JavaCV 1.5.11",
+        copyright = "Copyright © ByteDeco and contributors.",
+        license = "Licensed under the Apache License 2.0.",
+        url = "https://github.com/bytedeco/javacv"
+    ),
+    TechDependency(
+        name = "FFmpeg 7.1",
+        copyright = "Copyright © the FFmpeg developers.",
+        license = "LGPL / GPL (ByteDeco prebuilds often GPL)",
+        url = "https://ffmpeg.org/"
+    ),
+    TechDependency(
+        name = "Ark Pixel Font",
+        copyright = "Copyright © 2021 TakWolf.",
+        license = "SIL Open Font License 1.1",
+        url = "https://github.com/TakWolf/ark-pixel-font"
     ),
     TechDependency(
         name = "EasyTier",
@@ -4934,7 +5013,7 @@ private fun licenseConflictDocument(): String = buildString {
     appendLine()
     appendLine("—— ${I18n.t("about.license.conflict_label")} ——")
     appendConflictItem("FFmpeg", "LGPL / GPL", "about.license.conflict.ffmpeg")
-    appendConflictItem("JavaCV", "GPL-2.0", "about.license.conflict.javacv")
+    appendConflictItem("JavaCV", "Apache-2.0", "about.license.conflict.javacv")
     appendConflictItem("EasyTier", "LGPL-3.0", "about.license.conflict.easytier")
     appendLine()
     appendLine("—— ${I18n.t("about.license.notice_label")} ——")

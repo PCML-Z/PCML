@@ -1,5 +1,6 @@
 package com.pmcl.core.nativeclient;
 
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.pmcl.core.download.DownloadManager;
 import com.pmcl.core.i18n.I18n;
@@ -11,6 +12,7 @@ import java.nio.channels.SeekableByteChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
@@ -54,8 +56,35 @@ public final class NativeClientCompiler {
         }
 
         private static String text(JsonObject object, String key) {
-            if (object == null || key == null || !object.has(key) || object.get(key).isJsonNull()) return "";
-            return object.get(key).getAsString();
+            return NativeClientCompiler.text(object, key);
+        }
+    }
+
+    /** 构建命令之外、编译时放到 PATH 上的配套工具。 */
+    static final List<String> COMPANIONS = List.of("GCC", "CLANG", "PYTHON", "NODE", "JAVA", "GRADLE");
+
+    /** 并行数、超时、发布或调试，以及每种构建工具的附加参数。 */
+    public static final class Options {
+        private final int jobs;
+        private final int timeoutMinutes;
+        private final String mode;
+        private final JsonObject args;
+
+        Options(int jobs, int timeoutMinutes, String mode, JsonObject args) {
+            this.jobs = jobs;
+            this.timeoutMinutes = timeoutMinutes;
+            this.mode = mode;
+            this.args = args == null ? new JsonObject() : args;
+        }
+
+        public int jobs() { return jobs; }
+        public int timeoutMinutes() { return timeoutMinutes; }
+        public String mode() { return mode; }
+        public boolean release() { return !"debug".equals(mode); }
+        public String args(String tool) { return text(args, tool); }
+
+        static Options defaults() {
+            return new Options(0, 45, "release", new JsonObject());
         }
     }
 
@@ -67,25 +96,67 @@ public final class NativeClientCompiler {
         for (NativeClientCatalog.BuildTool tool : NativeClientCatalog.BuildTool.values()) {
             detected.addProperty(tool.name(), detect(tool, System.getenv("PATH")));
         }
+        for (String companion : COMPANIONS) {
+            detected.addProperty(companion, detectKey(companion, System.getenv("PATH")));
+        }
         return new ToolPaths(saved, detected);
     }
 
+    public static Options options(Path pmclHome) {
+        JsonObject store = readStore(pmclHome);
+        if (!store.has("options") || !store.get("options").isJsonObject()) return Options.defaults();
+        JsonObject object = store.getAsJsonObject("options");
+        int jobs = clamped(object, "jobs", 0, 0, 64);
+        int timeout = clamped(object, "timeoutMinutes", 45, 5, 180);
+        String mode = "debug".equals(text(object, "mode")) ? "debug" : "release";
+        JsonObject args = object.has("args") && object.get("args").isJsonObject()
+                ? object.getAsJsonObject("args") : new JsonObject();
+        return new Options(jobs, timeout, mode, args);
+    }
+
+    public static void saveOptions(Path pmclHome, String jobsText, String timeoutText, String mode,
+                                   Map<String, String> extraArgs) throws IOException {
+        int jobs = parseJobs(jobsText);
+        int timeout = parseTimeout(timeoutText);
+        String selected = mode == null || mode.isBlank() ? "release" : mode.trim();
+        if (!"release".equals(selected) && !"debug".equals(selected)) {
+            throw new IOException(I18n.t("native.options_invalid"));
+        }
+        JsonObject args = new JsonObject();
+        if (extraArgs != null) {
+            for (Map.Entry<String, String> entry : extraArgs.entrySet()) {
+                String tool = canonicalTool(entry.getKey());
+                if (tool == null || COMPANIONS.contains(tool)) throw new IOException(I18n.t("native.unknown_tool"));
+                String cleaned = entry.getValue() == null ? "" : entry.getValue().trim();
+                if (cleaned.isEmpty()) continue;
+                splitArgs(cleaned);
+                args.addProperty(tool, cleaned);
+            }
+        }
+        JsonObject options = new JsonObject();
+        options.addProperty("jobs", jobs);
+        options.addProperty("timeoutMinutes", timeout);
+        options.addProperty("mode", selected);
+        options.add("args", args);
+        JsonObject store = readStore(pmclHome);
+        store.add("options", options);
+        writeStore(pmclHome, store);
+    }
+
     public static void save(Path pmclHome, String tool, String path) throws IOException {
-        NativeClientCatalog.BuildTool parsed = parseTool(tool);
-        if (parsed == null) throw new IOException(I18n.t("native.unknown_tool"));
+        String key = canonicalTool(tool);
+        if (key == null) throw new IOException(I18n.t("native.unknown_tool"));
         JsonObject store = readStore(pmclHome);
         String cleaned = path == null ? "" : path.trim();
         if (cleaned.isEmpty()) {
-            store.remove(parsed.name());
+            store.remove(key);
         } else {
             if (cleaned.indexOf('\0') >= 0 || cleaned.indexOf('\n') >= 0 || cleaned.indexOf('\r') >= 0) {
                 throw new IOException(I18n.t("native.toolchain_rejected"));
             }
-            store.addProperty(parsed.name(), Path.of(cleaned).toAbsolutePath().normalize().toString());
+            store.addProperty(key, Path.of(cleaned).toAbsolutePath().normalize().toString());
         }
-        Path file = storeFile(pmclHome);
-        Files.createDirectories(file.getParent());
-        Files.writeString(file, store.toString(), StandardCharsets.UTF_8);
+        writeStore(pmclHome, store);
     }
 
     public static String saved(Path pmclHome, NativeClientCatalog.BuildTool tool) {
@@ -93,8 +164,14 @@ public final class NativeClientCompiler {
     }
 
     static String detect(NativeClientCatalog.BuildTool tool, String pathEnv) {
-        if (tool == null || pathEnv == null || pathEnv.isBlank()) return "";
-        String[] names = binaryNames(tool);
+        if (tool == null) return "";
+        return detectKey(tool.name(), pathEnv);
+    }
+
+    static String detectKey(String key, String pathEnv) {
+        if (key == null || pathEnv == null || pathEnv.isBlank()) return "";
+        String[] names = namesFor(key);
+        if (names.length == 0) return "";
         for (String dir : pathEnv.split(java.io.File.pathSeparator)) {
             if (dir.isBlank()) continue;
             for (String name : names) {
@@ -105,18 +182,35 @@ public final class NativeClientCompiler {
         return "";
     }
 
-    static List<List<String>> commands(NativeClientCatalog.BuildTool tool, Path toolchain, Path project, String outputName) {
+    static List<List<String>> commands(NativeClientCatalog.BuildTool tool, Path toolchain, Path project, String outputName)
+            throws IOException {
+        return commands(tool, toolchain, project, outputName, Options.defaults());
+    }
+
+    static List<List<String>> commands(NativeClientCatalog.BuildTool tool, Path toolchain, Path project,
+                                       String outputName, Options options) throws IOException {
+        Options selected = options == null ? Options.defaults() : options;
         String bin = toolchain.toAbsolutePath().normalize().toString();
         String out = project.resolve(outputName).toAbsolutePath().normalize().toString();
+        List<String> extra = splitArgs(selected.args(tool.name()));
+        boolean release = selected.release();
+        String config = release ? "Release" : "Debug";
         return switch (tool) {
-            case CARGO -> List.of(List.of(bin, "build", "--release"));
-            case GO -> List.of(List.of(bin, "build", "-o", out, "."));
+            case CARGO -> List.of(withExtra(List.of(bin, "build"), release ? List.of("--release") : List.of(), extra));
+            case GO -> List.of(withExtra(List.of(bin, "build", "-o", out, "."), List.of(), extra));
             case CMAKE -> List.of(
-                    List.of(bin, "-S", ".", "-B", "build", "-DCMAKE_BUILD_TYPE=Release"),
-                    List.of(bin, "--build", "build", "--config", "Release"));
-            case MAKE -> List.of(List.of(bin));
-            case DOTNET -> List.of(List.of(bin, "build", "-c", "Release"));
-            case ZIG -> List.of(List.of(bin, "build", "-Doptimize=ReleaseFast"));
+                    withExtra(List.of(bin, "-S", ".", "-B", "build", "-DCMAKE_BUILD_TYPE=" + config), List.of(), extra),
+                    withExtra(List.of(bin, "--build", "build", "--config", config),
+                            selected.jobs() > 0 ? List.of("--parallel", Integer.toString(selected.jobs())) : List.of(),
+                            List.of()));
+            case MAKE -> List.of(withExtra(List.of(bin),
+                    selected.jobs() > 0 ? List.of("-j" + selected.jobs()) : List.of(), extra));
+            case DOTNET -> List.of(withExtra(List.of(bin, "build", "-c", config), List.of(), extra));
+            case ZIG -> List.of(withExtra(
+                    List.of(bin, "build"),
+                    selected.jobs() > 0 ? List.of("-j" + selected.jobs()) : List.of(),
+                    List.of("-Doptimize=" + (release ? "ReleaseFast" : "Debug")),
+                    extra));
         };
     }
 
@@ -149,9 +243,10 @@ public final class NativeClientCompiler {
         Path log = root.resolve("compile.log");
         Files.writeString(log, "", StandardCharsets.UTF_8);
         String outputName = outputName(spec);
-        for (List<String> command : commands(spec.buildTool, tool, project, outputName)) {
+        Options options = options(pmclHome);
+        for (List<String> command : commands(spec.buildTool, tool, project, outputName, options)) {
             if (status != null) status.accept(I18n.t("native.compiling", I18n.t(spec.nameKey)));
-            run(command, project, tool.getParent(), log);
+            run(command, project, tool.getParent(), log, options, pmclHome);
         }
         Path executable = NativeClientInstaller.findExecutable(project, spec.executableNames);
         if (executable == null) throw new IOException(I18n.t("native.no_executable"));
@@ -219,26 +314,17 @@ public final class NativeClientCompiler {
         return spec.executableNames[0];
     }
 
-    private static void run(List<String> command, Path project, Path toolchainDir, Path log) throws IOException {
+    private static void run(List<String> command, Path project, Path toolchainDir, Path log,
+                            Options options, Path pmclHome) throws IOException {
         ProcessBuilder builder = new ProcessBuilder(command);
         builder.directory(project.toFile());
         builder.redirectErrorStream(true);
         builder.redirectOutput(ProcessBuilder.Redirect.appendTo(log.toFile()));
-        Map<String, String> env = builder.environment();
-        String pathKey = "PATH";
-        for (String key : env.keySet()) {
-            if (key.equalsIgnoreCase("PATH")) {
-                pathKey = key;
-                break;
-            }
-        }
-        String current = env.getOrDefault(pathKey, "");
-        env.put(pathKey, toolchainDir.toAbsolutePath().normalize() + java.io.File.pathSeparator + current);
-        env.put("CARGO_TERM_COLOR", "never");
+        applyEnvironment(builder.environment(), toolchainDir, options, pmclHome);
         Process process;
         try {
             process = builder.start();
-            boolean finished = process.waitFor(45, TimeUnit.MINUTES);
+            boolean finished = process.waitFor(options.timeoutMinutes(), TimeUnit.MINUTES);
             if (!finished) {
                 process.destroyForcibly();
                 throw new IOException(I18n.t("native.build_timeout"));
@@ -268,14 +354,141 @@ public final class NativeClientCompiler {
     }
 
     private static String[] binaryNames(NativeClientCatalog.BuildTool tool) {
-        return switch (tool) {
-            case CARGO -> new String[]{"cargo", "cargo.exe"};
-            case GO -> new String[]{"go", "go.exe"};
-            case CMAKE -> new String[]{"cmake", "cmake.exe"};
-            case MAKE -> new String[]{"make", "mingw32-make.exe", "make.exe"};
-            case DOTNET -> new String[]{"dotnet", "dotnet.exe"};
-            case ZIG -> new String[]{"zig", "zig.exe"};
+        return namesFor(tool.name());
+    }
+
+    private static String[] namesFor(String key) {
+        return switch (key) {
+            case "CARGO" -> new String[]{"cargo", "cargo.exe"};
+            case "GO" -> new String[]{"go", "go.exe"};
+            case "CMAKE" -> new String[]{"cmake", "cmake.exe"};
+            case "MAKE" -> new String[]{"make", "mingw32-make.exe", "make.exe"};
+            case "DOTNET" -> new String[]{"dotnet", "dotnet.exe"};
+            case "ZIG" -> new String[]{"zig", "zig.exe"};
+            case "GCC" -> new String[]{"gcc", "gcc.exe"};
+            case "CLANG" -> new String[]{"clang", "clang.exe"};
+            case "PYTHON" -> new String[]{"python3", "python", "python.exe"};
+            case "NODE" -> new String[]{"node", "node.exe"};
+            case "JAVA" -> new String[]{"java", "java.exe"};
+            case "GRADLE" -> new String[]{"gradle", "gradle.bat", "gradle.exe"};
+            default -> new String[0];
         };
+    }
+
+    static List<String> splitArgs(String raw) throws IOException {
+        if (raw == null || raw.isBlank()) return List.of();
+        String[] parts = raw.trim().split("\\s+");
+        if (parts.length > 12) throw new IOException(I18n.t("native.options_invalid"));
+        List<String> out = new ArrayList<>();
+        for (String part : parts) {
+            if (part.length() > 80 || !part.matches("[\\p{L}\\p{N}_.+=,@:/-]+")) {
+                throw new IOException(I18n.t("native.options_invalid"));
+            }
+            out.add(part);
+        }
+        return List.copyOf(out);
+    }
+
+    private static List<String> withExtra(List<String> head, List<String>... more) {
+        List<String> out = new ArrayList<>(head);
+        for (List<String> part : more) out.addAll(part);
+        return List.copyOf(out);
+    }
+
+    private static void applyEnvironment(Map<String, String> env, Path toolchainDir, Options options, Path pmclHome) {
+        String pathKey = "PATH";
+        for (String key : env.keySet()) {
+            if (key.equalsIgnoreCase("PATH")) {
+                pathKey = key;
+                break;
+            }
+        }
+        String current = env.getOrDefault(pathKey, "");
+        StringBuilder prefix = new StringBuilder();
+        prefix.append(toolchainDir.toAbsolutePath().normalize());
+        JsonObject store = readStore(pmclHome);
+        for (String companion : COMPANIONS) {
+            String saved = text(store, companion);
+            if (saved.isEmpty()) continue;
+            Path file = Path.of(saved);
+            if (!Files.isRegularFile(file)) continue;
+            prefix.append(java.io.File.pathSeparator).append(file.getParent().toAbsolutePath().normalize());
+            if ("GCC".equals(companion) || ("CLANG".equals(companion) && text(store, "GCC").isEmpty())) {
+                env.put("CC", file.toAbsolutePath().normalize().toString());
+                Path cxx = cxxBeside(file);
+                if (cxx != null) env.put("CXX", cxx.toAbsolutePath().normalize().toString());
+            }
+        }
+        env.put(pathKey, prefix + java.io.File.pathSeparator + current);
+        env.put("CARGO_TERM_COLOR", "never");
+        if (options.jobs() > 0) {
+            env.put("CARGO_BUILD_JOBS", Integer.toString(options.jobs()));
+            env.put("GOMAXPROCS", Integer.toString(options.jobs()));
+        }
+    }
+
+    static Path cxxBeside(Path cc) {
+        String name = cc.getFileName().toString();
+        String next = switch (name) {
+            case "gcc" -> "g++";
+            case "gcc.exe" -> "g++.exe";
+            case "clang" -> "clang++";
+            case "clang.exe" -> "clang++.exe";
+            default -> "";
+        };
+        if (next.isEmpty()) return null;
+        Path sibling = cc.resolveSibling(next);
+        return Files.isRegularFile(sibling) ? sibling : null;
+    }
+
+    private static String canonicalTool(String tool) {
+        NativeClientCatalog.BuildTool parsed = parseTool(tool);
+        if (parsed != null) return parsed.name();
+        if (tool == null) return null;
+        String upper = tool.trim().toUpperCase(Locale.ROOT);
+        for (String companion : COMPANIONS) {
+            if (companion.equals(upper)) return companion;
+        }
+        return null;
+    }
+
+    private static int parseJobs(String text) throws IOException {
+        if (text == null || text.isBlank()) return 0;
+        try {
+            int jobs = Integer.parseInt(text.trim());
+            if (jobs < 0 || jobs > 64) throw new NumberFormatException();
+            return jobs;
+        } catch (NumberFormatException e) {
+            throw new IOException(I18n.t("native.options_invalid"));
+        }
+    }
+
+    private static int parseTimeout(String text) throws IOException {
+        if (text == null || text.isBlank()) return 45;
+        try {
+            int minutes = Integer.parseInt(text.trim());
+            if (minutes < 5 || minutes > 180) throw new NumberFormatException();
+            return minutes;
+        } catch (NumberFormatException e) {
+            throw new IOException(I18n.t("native.options_invalid"));
+        }
+    }
+
+    private static int clamped(JsonObject object, String key, int fallback, int min, int max) {
+        if (!object.has(key) || !object.get(key).isJsonPrimitive()) return fallback;
+        try {
+            int value = object.get(key).getAsInt();
+            if (value < min || value > max) return fallback;
+            return value;
+        } catch (RuntimeException e) {
+            return fallback;
+        }
+    }
+
+    private static void writeStore(Path pmclHome, JsonObject store) throws IOException {
+        Path file = storeFile(pmclHome);
+        Files.createDirectories(file.getParent());
+        Files.writeString(file, store.toString(), StandardCharsets.UTF_8);
     }
 
     private static NativeClientCatalog.BuildTool parseTool(String tool) {
@@ -303,8 +516,10 @@ public final class NativeClientCompiler {
     }
 
     private static String text(JsonObject object, String key) {
-        if (!object.has(key) || object.get(key).isJsonNull()) return "";
-        return object.get(key).getAsString();
+        if (object == null || key == null || !object.has(key) || object.get(key).isJsonNull()) return "";
+        JsonElement element = object.get(key);
+        if (!element.isJsonPrimitive() || !element.getAsJsonPrimitive().isString()) return "";
+        return element.getAsString();
     }
 
     private static void deleteTree(Path root) throws IOException {

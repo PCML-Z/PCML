@@ -842,6 +842,34 @@ class LauncherViewModel {
         _terminalWindows.update { ids -> ids.filter { it != id } }
     }
 
+    /** PMCL Studio 工作站窗口，可以多开，每个窗口一个递增 id */
+    private val _studioWindows = MutableStateFlow<List<Int>>(emptyList())
+    val studioWindows: StateFlow<List<Int>> = _studioWindows.asStateFlow()
+    private val studioWindowSeq = java.util.concurrent.atomic.AtomicInteger(0)
+    /** 要提到前台的窗口 id 和一个递增序号；序号变了才触发，重复聚焦同一个窗口也能生效 */
+    private val _studioFocus = MutableStateFlow(0 to 0)
+    val studioFocus: StateFlow<Pair<Int, Int>> = _studioFocus.asStateFlow()
+
+    /** 主界面入口：已有窗口就把最近打开的那个提到前台，否则新开一个 */
+    fun openStudio() {
+        val last = _studioWindows.value.lastOrNull()
+        if (last != null) focusStudio(last) else newStudioWindow()
+    }
+
+    fun newStudioWindow(): Int {
+        val id = studioWindowSeq.incrementAndGet()
+        _studioWindows.update { it + id }
+        return id
+    }
+
+    fun focusStudio(id: Int) {
+        _studioFocus.update { id to it.second + 1 }
+    }
+
+    fun closeStudio(id: Int) {
+        _studioWindows.update { ids -> ids.filter { it != id } }
+    }
+
     private val _musicOverlayVisible = MutableStateFlow(false)
     val musicOverlayVisible: StateFlow<Boolean> = _musicOverlayVisible.asStateFlow()
     private val _musicOverlayVideoEnabled = MutableStateFlow(preferences.isMusicOverlayVideo())
@@ -4025,9 +4053,21 @@ class LauncherViewModel {
         }
     }
 
+    /** 本机 Cursor 桥在启动实例前同步列表，避免实例页还没打开时被空列表吞掉。 */
+    fun syncInstancesForAgent(): List<InstanceInfo> {
+        val list = core.instances().listInstances()
+        _instances.value = list
+        return list
+    }
+
     /** 启动实例 */
     fun launchInstance(instanceId: String) {
         val info = _instances.value.find { it.getInstanceId() == instanceId } ?: return
+        if (info.nativeClientId.isNotBlank()) {
+            _selectedInstanceId.value = instanceId
+            launchNativeClient(info.nativeClientId)
+            return
+        }
         if (!info.isLaunchable()) {
             _instanceStatus.value = I18n.t("status.instance_missing_base_version", info.getName())
             return

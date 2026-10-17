@@ -208,6 +208,7 @@ fun LaunchPage(vm: LauncherViewModel) {
 
     var launchTab by remember { mutableStateOf(0) } // 0=启动 1=版本 2=账号 3=日志
     var materialLibrary by remember { mutableStateOf(false) }
+    val studioOnHome = LocalThemeState.current.materialTheme
     val openGameLog by vm.openGameLog.collectAsState()
     val javaInstallations by vm.javaInstallations.collectAsState()
     val javaScanning by vm.javaScanning.collectAsState()
@@ -666,6 +667,20 @@ fun LaunchPage(vm: LauncherViewModel) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(I18n.t("launch.start"), style = MaterialTheme.typography.headlineSmall,
                          fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    if (!studioOnHome) {
+                        Button(
+                            onClick = { vm.openStudio() },
+                            shape = androidx.compose.ui.graphics.RectangleShape,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = androidx.compose.ui.graphics.Color(0xFF2B579A),
+                                contentColor = androidx.compose.ui.graphics.Color.White
+                            ),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text(I18n.t("launch.try_studio"))
+                        }
+                        Spacer(Modifier.width(8.dp))
+                    }
                     OutlinedButton(
                         onClick = { vm.refreshLocalVersions() },
                         enabled = !scanning
@@ -1021,7 +1036,8 @@ fun LaunchPage(vm: LauncherViewModel) {
                 val id = selected ?: return@MaterialLaunchHome
                 if (downloadMode) vm.installVersion(id) else vm.launch()
             },
-            onOpenLibrary = { materialLibrary = true }
+            onOpenLibrary = { materialLibrary = true },
+            onOpenStudio = { vm.openStudio() }
         )
     } else {
     Column(Modifier.fillMaxSize()) {

@@ -53,6 +53,8 @@ public final class InstanceInfo {
     private long totalPlayTimeSeconds;
     /** 绑定的账户 UUID（空字符串 = 使用全局默认账户） */
     private String boundAccountUuid = "";
+    /** 社区客户端 id。非空时这个实例启动该客户端，而不是 Java 版。 */
+    private String nativeClientId = "";
     /** 实例目录绝对路径（运行时填充，不持久化） */
     private transient Path instanceDir;
 
@@ -93,6 +95,7 @@ public final class InstanceInfo {
         if (o.has("lastPlayedAt") && !o.get("lastPlayedAt").isJsonNull()) info.lastPlayedAt = o.get("lastPlayedAt").getAsLong();
         if (o.has("totalPlayTimeSeconds") && !o.get("totalPlayTimeSeconds").isJsonNull()) info.totalPlayTimeSeconds = o.get("totalPlayTimeSeconds").getAsLong();
         if (o.has("boundAccountUuid") && !o.get("boundAccountUuid").isJsonNull()) info.boundAccountUuid = o.get("boundAccountUuid").getAsString();
+        if (o.has("nativeClientId") && !o.get("nativeClientId").isJsonNull()) info.nativeClientId = o.get("nativeClientId").getAsString();
         info.instanceDir = instanceDir;
         return info;
     }
@@ -197,6 +200,7 @@ public final class InstanceInfo {
         o.addProperty("lastPlayedAt", lastPlayedAt);
         o.addProperty("totalPlayTimeSeconds", totalPlayTimeSeconds);
         if (boundAccountUuid != null && !boundAccountUuid.isEmpty()) o.addProperty("boundAccountUuid", boundAccountUuid);
+        if (nativeClientId != null && !nativeClientId.isEmpty()) o.addProperty("nativeClientId", nativeClientId);
         return o.toString();
     }
 
@@ -224,11 +228,14 @@ public final class InstanceInfo {
     public String getBoundAccountUuid() { return boundAccountUuid == null ? "" : boundAccountUuid; }
     /** 绑定账户（传 null 或空字符串清除绑定） */
     public void setBoundAccountUuid(String uuid) { this.boundAccountUuid = uuid == null ? "" : uuid; }
+    public String getNativeClientId() { return nativeClientId == null ? "" : nativeClientId; }
+    public void setNativeClientId(String id) { this.nativeClientId = id == null ? "" : id; }
     public Path getInstanceDir() { return instanceDir; }
     public void setInstanceDir(Path dir) { this.instanceDir = dir; }
 
-    /** 实例是否可启动（基础版本非空） */
+    /** 实例是否可启动。社区客户端不需要基础 Minecraft 版本。 */
     public boolean isLaunchable() {
+        if (getNativeClientId() != null && !getNativeClientId().isEmpty()) return true;
         return baseVersionId != null && !baseVersionId.isEmpty();
     }
 }

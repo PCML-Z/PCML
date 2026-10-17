@@ -57,6 +57,10 @@ import javax.swing.filechooser.FileNameExtensionFilter
 
 @Composable
 fun FriendPage(vm: LauncherViewModel, sectionId: String = "chat") {
+    if (sectionId == "mail") {
+        FriendMailPage(Modifier.fillMaxSize().padding(16.dp))
+        return
+    }
     val friendManager = remember { vm.core.friend() }
     if (friendManager == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

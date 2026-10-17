@@ -123,6 +123,36 @@ fun LauncherViewModel.restoreTimeMachine(
     }
 }
 
+fun LauncherViewModel.setTimeMachinePinned(snapshotId: String, pinned: Boolean) {
+    if (timeMachineBusy.value) return
+    scope.launch {
+        try {
+            withContext(Dispatchers.IO) { core.timeMachine().setPinned(snapshotId, pinned) }
+            timeMachineMessage.value = I18n.t(if (pinned) "backup.pinned_on" else "backup.pinned_off")
+            timeMachineGeneration.value = timeMachineGeneration.value + 1
+        } catch (e: Throwable) {
+            timeMachineMessage.value = if (e.message == "too many pins") {
+                I18n.t("backup.pin_limit", TimeMachine.MAX_PINS)
+            } else {
+                I18n.t("backup.failed", e.message ?: I18n.t("common.unknown"))
+            }
+        }
+    }
+}
+
+fun LauncherViewModel.setTimeMachineNote(snapshotId: String, note: String) {
+    if (timeMachineBusy.value) return
+    scope.launch {
+        try {
+            withContext(Dispatchers.IO) { core.timeMachine().setNote(snapshotId, note) }
+            timeMachineMessage.value = I18n.t("backup.note_saved")
+            timeMachineGeneration.value = timeMachineGeneration.value + 1
+        } catch (e: Throwable) {
+            timeMachineMessage.value = I18n.t("backup.failed", e.message ?: I18n.t("common.unknown"))
+        }
+    }
+}
+
 fun LauncherViewModel.deleteTimeMachineSnapshot(snapshotId: String) {
     if (timeMachineBusy.value) return
     timeMachineBusy.value = true

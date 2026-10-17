@@ -398,9 +398,11 @@ private fun InstanceCard(
                         onClick = {},
                         label = {
                             Text(
-                                if (info.getType() == InstanceInfo.Type.MODPACK)
-                                    I18n.t("instance.type_modpack")
-                                else I18n.t("instance.type_custom"),
+                                when {
+                                    info.nativeClientId.isNotBlank() -> I18n.t("instance.type_community")
+                                    info.getType() == InstanceInfo.Type.MODPACK -> I18n.t("instance.type_modpack")
+                                    else -> I18n.t("instance.type_custom")
+                                },
                                 style = MaterialTheme.typography.labelSmall
                             )
                         },
@@ -411,7 +413,13 @@ private fun InstanceCard(
                 // 版本与加载器
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     val baseVer = info.getBaseVersionId()
-                    if (baseVer.isNullOrEmpty()) {
+                    if (info.nativeClientId.isNotBlank() && baseVer.isNullOrEmpty()) {
+                        Text(
+                            I18n.t("instance.community_version"),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else if (baseVer.isNullOrEmpty()) {
                         Text(
                             I18n.t("instance.missing_version"),
                             style = MaterialTheme.typography.bodySmall,
@@ -529,7 +537,7 @@ private fun InstanceCard(
                     versionId = info.getBaseVersionId(),
                     instanceDir = info.getInstanceDir(),
                     defaultName = info.getName(),
-                    enabled = info.isLaunchable()
+                    enabled = info.isLaunchable() && info.nativeClientId.isBlank()
                 )
                 // 重命名
                 IconButton(onClick = onRename, modifier = Modifier.size(36.dp)) {

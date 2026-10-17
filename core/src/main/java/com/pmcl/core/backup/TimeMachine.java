@@ -36,9 +36,10 @@ import java.util.Set;
  * 启动器自己的时间机器。
  * <p>
  * 每一份快照只记录文件清单。文件内容按 SHA-256 放进仓库，没改过的文件不会再复制一份。
- * 账号、令牌和密钥文件不会进入快照。
+ * 账号、令牌和密钥文件不会进入快照。固定的快照不会被保留份数清掉。
  */
 public final class TimeMachine {
+    public static final int MAX_PINS = 40;
 
     private static final DateTimeFormatter ID_TIME = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
             .withZone(ZoneId.systemDefault());
@@ -46,7 +47,8 @@ public final class TimeMachine {
     private static final Set<String> SKIP_NAMES = Set.of(
             "session.lock", ".ds_store", "accounts.json", "auth-servers.json", ".keyfile",
             "opanel.json", "tokens.json", "credentials.json", "secrets.json", "auth.json",
-            "friends.json", "identity.json", "plugins.json", "trusted-signers.txt"
+            "friends.json", "identity.json", "mailbox.json", "mail-drafts.json",
+            "plugins.json", "trusted-signers.txt"
     );
     private static final Set<String> SKIP_DIRS = Set.of(
             "timemachine", "libraries", "assets", "runtimes", "logs", "crash-reports",
@@ -75,6 +77,8 @@ public final class TimeMachine {
         public boolean configs = true;
         public boolean resourcepacks = true;
         public boolean shaders = true;
+        public boolean screenshots = true;
+        public boolean skins = true;
         /** 启动器设置可能含代理凭据，默认不备份。 */
         public boolean launcher = false;
 
@@ -85,6 +89,8 @@ public final class TimeMachine {
                 case "configs" -> configs;
                 case "resourcepacks" -> resourcepacks;
                 case "shaders" -> shaders;
+                case "screenshots" -> screenshots;
+                case "skins" -> skins;
                 case "launcher" -> launcher;
                 default -> false;
             };
@@ -99,9 +105,12 @@ public final class TimeMachine {
         private final long logicalBytes;
         private final long storedBytes;
         private final int skipped;
+        private final boolean pinned;
+        private final String note;
 
         public Snapshot(String id, long createdAt, String label, int files,
-                        long logicalBytes, long storedBytes, int skipped) {
+                        long logicalBytes, long storedBytes, int skipped,
+                        boolean pinned, String note) {
             this.id = id;
             this.createdAt = createdAt;
             this.label = label;
@@ -109,6 +118,8 @@ public final class TimeMachine {
             this.logicalBytes = logicalBytes;
             this.storedBytes = storedBytes;
             this.skipped = skipped;
+            this.pinned = pinned;
+            this.note = note == null ? "" : note;
         }
 
         public String id() { return id; }
@@ -118,6 +129,38 @@ public final class TimeMachine {
         public long logicalBytes() { return logicalBytes; }
         public long storedBytes() { return storedBytes; }
         public int skipped() { return skipped; }
+        public boolean pinned() { return pinned; }
+        public String note() { return note; }
+    }
+
+    /** 同一个文件在时间线上的一次内容变化。entry 为空表示这一次起文件已经不在快照里。 */
+    public static final class Revision {
+        private final String snapshotId;
+        private final long createdAt;
+        private final String label;
+        private final String note;
+        private final boolean pinned;
+        private final String change;
+        private final Entry entry;
+
+        public Revision(String snapshotId, long createdAt, String label, String note,
+                        boolean pinned, String change, Entry entry) {
+            this.snapshotId = snapshotId;
+            this.createdAt = createdAt;
+            this.label = label;
+            this.note = note == null ? "" : note;
+            this.pinned = pinned;
+            this.change = change == null ? "" : change;
+            this.entry = entry;
+        }
+
+        public String snapshotId() { return snapshotId; }
+        public long createdAt() { return createdAt; }
+        public String label() { return label; }
+        public String note() { return note; }
+        public boolean pinned() { return pinned; }
+        public String change() { return change; }
+        public Entry entry() { return entry; }
     }
 
     public static final class Entry {
@@ -167,6 +210,8 @@ public final class TimeMachine {
             settings.configs = bool(obj, "configs", true);
             settings.resourcepacks = bool(obj, "resourcepacks", true);
             settings.shaders = bool(obj, "shaders", true);
+            settings.screenshots = bool(obj, "screenshots", true);
+            settings.skins = bool(obj, "skins", true);
             settings.launcher = bool(obj, "launcher", false);
         } catch (Exception ignored) {
             return new Settings();
@@ -184,6 +229,8 @@ public final class TimeMachine {
         obj.addProperty("configs", clean.configs);
         obj.addProperty("resourcepacks", clean.resourcepacks);
         obj.addProperty("shaders", clean.shaders);
+        obj.addProperty("screenshots", clean.screenshots);
+        obj.addProperty("skins", clean.skins);
         obj.addProperty("launcher", clean.launcher);
         writeJson(store.resolve("settings.json"), obj);
     }
@@ -241,17 +288,76 @@ public final class TimeMachine {
     }
 
     public boolean due(Settings settings, long nowMillis) {
-        Settings clean = sanitize(settings);
-        long interval = intervalMillis(clean.schedule);
+        long interval = intervalMillis(sanitize(settings).schedule);
         if (interval <= 0) return false;
-        long latest = 0L;
-        boolean any = false;
-        for (Snapshot snap : listSnapshots()) {
-            if ("before-restore".equals(snap.label())) continue;
-            any = true;
-            if (snap.createdAt() > latest) latest = snap.createdAt();
+        long latest = latestUseful();
+        if (latest < 0) return true;
+        return nowMillis - latest >= interval;
+    }
+
+    /** 0 表示没有自动备份。没有快照时返回 nowMillis，表示到点了。 */
+    public long nextBackupAt(Settings settings, long nowMillis) {
+        long interval = intervalMillis(sanitize(settings).schedule);
+        if (interval <= 0) return 0L;
+        long latest = latestUseful();
+        if (latest < 0) return nowMillis;
+        return latest + interval;
+    }
+
+    public void setPinned(String snapshotId, boolean pinned) throws IOException {
+        synchronized (lock) {
+            Snapshot snap = requireSnapshot(snapshotId);
+            if (pinned && !snap.pinned()) {
+                int count = 0;
+                for (Snapshot other : listSnapshots()) {
+                    if (other.pinned()) count++;
+                }
+                if (count >= MAX_PINS) throw new IOException("too many pins");
+            }
+            writeMeta(snap, pinned, snap.note());
         }
-        return any && nowMillis - latest >= interval;
+    }
+
+    public void setNote(String snapshotId, String note) throws IOException {
+        synchronized (lock) {
+            Snapshot snap = requireSnapshot(snapshotId);
+            writeMeta(snap, snap.pinned(), cleanNote(note));
+        }
+    }
+
+    /** 只列出内容发生变化或消失的时刻，不列出和上一份相同的快照。 */
+    public List<Revision> history(String root, String path) throws IOException {
+        String wantRoot = normalizeRoot(root);
+        String wantPath = safeRelative(path);
+        List<Snapshot> snaps = new ArrayList<>(listSnapshots());
+        snaps.sort(Comparator.comparingLong(Snapshot::createdAt));
+        String previous = null;
+        List<Revision> out = new ArrayList<>();
+        for (Snapshot snap : snaps) {
+            Entry found = null;
+            for (Entry entry : readEntries(snapshotDir(snap.id()))) {
+                try {
+                    if (wantRoot.equals(normalizeRoot(entry.root())) && wantPath.equals(safeRelative(entry.path()))) {
+                        found = entry;
+                        break;
+                    }
+                } catch (IllegalArgumentException ignored) {
+                }
+            }
+            if (found != null) {
+                String change = previous == null ? "added" : (previous.equals(found.sha256()) ? "unchanged" : "modified");
+                if (!"unchanged".equals(change)) {
+                    out.add(new Revision(snap.id(), snap.createdAt(), snap.label(), snap.note(),
+                            snap.pinned(), change, found));
+                }
+                previous = found.sha256();
+            } else if (previous != null) {
+                out.add(new Revision(snap.id(), snap.createdAt(), snap.label(), snap.note(),
+                        snap.pinned(), "removed", null));
+                previous = null;
+            }
+        }
+        return out;
     }
 
     public long storedSize() {
@@ -319,7 +425,7 @@ public final class TimeMachine {
             manifest.addProperty("label", useLabel);
             manifest.add("files", files);
             writeJson(dir.resolve("manifest.json"), manifest);
-            Snapshot snap = new Snapshot(id, now, useLabel, files.size(), logical, stored, skipped);
+            Snapshot snap = new Snapshot(id, now, useLabel, files.size(), logical, stored, skipped, false, "");
             writeJson(dir.resolve("meta.json"), metaJson(snap));
             pruneUnlocked(clean.keep);
             gcUnlocked();
@@ -490,7 +596,7 @@ public final class TimeMachine {
         manifest.addProperty("label", label);
         manifest.add("files", files);
         writeJson(dir.resolve("manifest.json"), manifest);
-        Snapshot snap = new Snapshot(id, manifest.get("createdAt").getAsLong(), label, files.size(), logical, 0L, skipped);
+        Snapshot snap = new Snapshot(id, manifest.get("createdAt").getAsLong(), label, files.size(), logical, 0L, skipped, false, "");
         writeJson(dir.resolve("meta.json"), metaJson(snap));
     }
 
@@ -535,6 +641,8 @@ public final class TimeMachine {
         }
         if (settings.resourcepacks) putTree(map, "resourcepacks", root.resolve("resourcepacks"));
         if (settings.shaders) putTree(map, "shaders", root.resolve("shaderpacks"));
+        if (settings.screenshots) putTree(map, "screenshots", root.resolve("screenshots"));
+        if (launcherHome && settings.skins) putTree(map, "skins", root.resolve("skins"));
         if (launcherHome && settings.launcher) putFiles(map, "launcher", root, "preferences.json");
     }
 
@@ -647,12 +755,37 @@ public final class TimeMachine {
     }
 
     private void pruneUnlocked(int keep) throws IOException {
-        List<Snapshot> snaps = listSnapshots();
-        if (snaps.size() <= keep) return;
-        List<Snapshot> oldest = new ArrayList<>(snaps);
-        oldest.sort(Comparator.comparingLong(Snapshot::createdAt));
-        int extra = oldest.size() - keep;
-        for (int i = 0; i < extra; i++) deleteTree(snapshotDir(oldest.get(i).id()));
+        List<Snapshot> unpinned = new ArrayList<>();
+        for (Snapshot snap : listSnapshots()) {
+            if (!snap.pinned()) unpinned.add(snap);
+        }
+        if (unpinned.size() <= keep) return;
+        unpinned.sort(Comparator.comparingLong(Snapshot::createdAt));
+        int extra = unpinned.size() - keep;
+        for (int i = 0; i < extra; i++) deleteTree(snapshotDir(unpinned.get(i).id()));
+    }
+
+    private long latestUseful() {
+        long latest = -1L;
+        for (Snapshot snap : listSnapshots()) {
+            if ("before-restore".equals(snap.label())) continue;
+            if (snap.createdAt() > latest) latest = snap.createdAt();
+        }
+        return latest;
+    }
+
+    private Snapshot requireSnapshot(String snapshotId) throws IOException {
+        requireId(snapshotId);
+        for (Snapshot snap : listSnapshots()) {
+            if (snap.id().equals(snapshotId)) return snap;
+        }
+        throw new IOException("snapshot not found");
+    }
+
+    private void writeMeta(Snapshot snap, boolean pinned, String note) throws IOException {
+        Snapshot next = new Snapshot(snap.id(), snap.createdAt(), snap.label(), snap.files(),
+                snap.logicalBytes(), snap.storedBytes(), snap.skipped(), pinned, note);
+        writeJson(snapshotDir(snap.id()).resolve("meta.json"), metaJson(next));
     }
 
     private void gcUnlocked() throws IOException {
@@ -698,7 +831,8 @@ public final class TimeMachine {
             return new Snapshot(id, obj.get("createdAt").getAsLong(), text(obj, "label", "now"),
                     obj.get("files").getAsInt(), obj.get("logicalBytes").getAsLong(),
                     obj.get("storedBytes").getAsLong(),
-                    obj.has("skipped") ? obj.get("skipped").getAsInt() : 0);
+                    obj.has("skipped") ? obj.get("skipped").getAsInt() : 0,
+                    flag(obj, "pinned"), cleanNote(text(obj, "note", "")));
         } catch (Exception e) {
             return null;
         }
@@ -735,6 +869,8 @@ public final class TimeMachine {
         obj.addProperty("logicalBytes", snap.logicalBytes());
         obj.addProperty("storedBytes", snap.storedBytes());
         obj.addProperty("skipped", snap.skipped());
+        obj.addProperty("pinned", snap.pinned());
+        obj.addProperty("note", snap.note());
         return obj;
     }
 
@@ -822,6 +958,26 @@ public final class TimeMachine {
         };
     }
 
+    static String cleanNote(String raw) {
+        if (raw == null || raw.isEmpty()) return "";
+        StringBuilder out = new StringBuilder();
+        int count = 0;
+        for (int i = 0; i < raw.length(); ) {
+            int cp = raw.codePointAt(i);
+            i += Character.charCount(cp);
+            if (cp < 32 || cp == 127) continue;
+            out.appendCodePoint(cp);
+            count++;
+            if (count >= 40) break;
+        }
+        return out.toString().trim();
+    }
+
+    private static boolean flag(JsonObject obj, String key) {
+        if (obj == null || !obj.has(key) || !obj.get(key).isJsonPrimitive()) return false;
+        return obj.get(key).getAsJsonPrimitive().isBoolean() && obj.get(key).getAsBoolean();
+    }
+
     private static String knownLabel(String label, String fallback) {
         if ("now".equals(label) || "auto".equals(label) || "before-restore".equals(label)) return label;
         return fallback;
@@ -902,7 +1058,8 @@ public final class TimeMachine {
     private static boolean extraRootAllowed(Path root) {
         String name = fileName(root).toLowerCase(Locale.ROOT);
         return name.equals("saves") || name.equals("mods") || name.equals("config")
-                || name.equals("resourcepacks") || name.equals("shaderpacks");
+                || name.equals("resourcepacks") || name.equals("shaderpacks")
+                || name.equals("screenshots") || name.equals("skins");
     }
 
     private static boolean isRealDir(Path dir) {

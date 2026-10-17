@@ -1710,11 +1710,13 @@ public final class PmclCli {
             System.out.println(SEP);
             System.out.println("  Game Settings:");
             System.out.printf("    Memory: %d - %d MB%n", pref.getMinMemoryMb(), pref.getMaxMemoryMb());
-            System.out.printf("    GC: %s (Aikar=%s)%n", pref.getGcType(), pref.isUseAikarFlags());
+            System.out.printf("    GC: %s (Aikar=%s, forceG1=%s)%n",
+                    pref.getGcType(), pref.isUseAikarFlags(), pref.isForceG1Gc());
             System.out.printf("    Window: %dx%d%s%n", pref.getGameWindowWidth(), pref.getGameWindowHeight(),
                     pref.isGameFullscreen() ? " fullscreen" : "");
             System.out.printf("    JVM args: %s%n", pref.getCustomJvmArgs().isEmpty() ? "(default)" : pref.getCustomJvmArgs());
             System.out.printf("    Java path: %s%n", pref.getJavaPath().isEmpty() ? "(auto)" : pref.getJavaPath());
+            System.out.printf("    Java 27 compat: %s%n", pref.isJava27Compat() ? "on" : "off");
             System.out.printf("    Renderer: %s%n", pref.getGameRenderer());
             System.out.println("  Download Settings:");
             System.out.printf("    Mirror: %s%s%n", pref.getMirrorType(),
@@ -1768,12 +1770,14 @@ public final class PmclCli {
             case "minmemory": case "minmemorymb": return String.valueOf(pref.getMinMemoryMb());
             case "maxmemory": case "maxmemorymb": return String.valueOf(pref.getMaxMemoryMb());
             case "gctype": case "gc": return pref.getGcType();
+            case "forceg1": case "forceg1gc": return String.valueOf(pref.isForceG1Gc());
             case "useaikarflags": case "aikar": return String.valueOf(pref.isUseAikarFlags());
             case "windowwidth": return String.valueOf(pref.getGameWindowWidth());
             case "windowheight": return String.valueOf(pref.getGameWindowHeight());
             case "fullscreen": return String.valueOf(pref.isGameFullscreen());
             case "customjvmargs": case "jvmargs": return pref.getCustomJvmArgs();
             case "javapath": case "java": return pref.getJavaPath();
+            case "java27compat": case "java27": return String.valueOf(pref.isJava27Compat());
             case "renderer": return pref.getGameRenderer();
             case "mirror": case "mirrortype": return pref.getMirrorType();
             case "custommirror": case "custommirrorbase": return pref.getCustomMirrorBase();
@@ -1799,12 +1803,14 @@ public final class PmclCli {
                 case "minmemory": case "minmemorymb": pref.setMinMemoryMb(Integer.parseInt(value)); return true;
                 case "maxmemory": case "maxmemorymb": pref.setMaxMemoryMb(Integer.parseInt(value)); return true;
                 case "gctype": case "gc": pref.setGcType(value); return true;
+                case "forceg1": case "forceg1gc": pref.setForceG1Gc(Boolean.parseBoolean(value)); return true;
                 case "useaikarflags": case "aikar": pref.setUseAikarFlags(Boolean.parseBoolean(value)); return true;
                 case "windowwidth": pref.setGameWindowWidth(Integer.parseInt(value)); return true;
                 case "windowheight": pref.setGameWindowHeight(Integer.parseInt(value)); return true;
                 case "fullscreen": pref.setGameFullscreen(Boolean.parseBoolean(value)); return true;
                 case "customjvmargs": case "jvmargs": pref.setCustomJvmArgs(value); return true;
                 case "javapath": case "java": pref.setJavaPath(value); return true;
+                case "java27compat": case "java27": pref.setJava27Compat(Boolean.parseBoolean(value)); return true;
                 case "renderer": pref.setGameRenderer(value); return true;
                 case "mirror": case "mirrortype": pref.setMirrorType(value); return true;
                 case "custommirror": case "custommirrorbase": pref.setCustomMirrorBase(value); return true;

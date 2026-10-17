@@ -9,6 +9,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -28,6 +29,7 @@ class TimeMachineTest {
         Path config = dir.resolve("config");
         Files.createDirectories(config);
         Files.writeString(config.resolve("accounts.json"), "token");
+        Files.writeString(config.resolve("mailbox.json"), "letter");
         Files.writeString(config.resolve("paper.toml"), "view=2");
         Path outside = dir.resolve("outside-secret.txt");
         Files.writeString(outside, "secret");
@@ -45,6 +47,7 @@ class TimeMachineTest {
                 + Files.size(config.resolve("paper.toml")), first.logicalBytes());
         assertTrue(first.storedBytes() < first.logicalBytes());
         assertTrue(machine.entries(first.id()).stream().noneMatch(e -> e.path().contains("accounts.json")));
+        assertTrue(machine.entries(first.id()).stream().noneMatch(e -> e.path().contains("mailbox.json")));
         assertTrue(machine.entries(first.id()).stream().noneMatch(e -> e.path().contains("linked")));
         assertTrue(machine.entries(first.id()).stream().noneMatch(e -> e.path().contains("session.lock")));
         assertTrue(machine.entries(first.id()).stream().noneMatch(e -> e.path().contains("lib.jar")));
@@ -144,7 +147,13 @@ class TimeMachineTest {
         Files.writeString(world.resolve("level.dat"), "one");
         TimeMachine machine = new TimeMachine(dir);
         TimeMachine.Settings settings = new TimeMachine.Settings();
-        assertFalse(machine.due(settings, System.currentTimeMillis()));
+        settings.schedule = "daily";
+        long now = System.currentTimeMillis();
+        assertTrue(machine.due(settings, now));
+        assertEquals(now, machine.nextBackupAt(settings, now));
+        settings.schedule = "manual";
+        assertFalse(machine.due(settings, now));
+        assertEquals(0L, machine.nextBackupAt(settings, now));
         machine.backup(settings, List.of(), "now", null);
         settings.schedule = "daily";
         assertFalse(machine.due(settings, System.currentTimeMillis()));
@@ -154,6 +163,73 @@ class TimeMachineTest {
         TimeMachine.Settings loaded = machine.loadSettings();
         assertEquals("manual", loaded.schedule);
         assertFalse(loaded.launcher);
+        assertTrue(loaded.screenshots);
+        assertTrue(loaded.skins);
+    }
+
+    @Test
+    void pinnedSnapshotSurvivesTheKeepLimitAndNoteStaysShort() throws Exception {
+        Path world = dir.resolve("saves").resolve("World");
+        Files.createDirectories(world);
+        Files.writeString(world.resolve("level.dat"), "one");
+        TimeMachine machine = new TimeMachine(dir);
+        TimeMachine.Settings settings = new TimeMachine.Settings();
+        settings.keep = 1;
+        TimeMachine.Snapshot first = machine.backup(settings, List.of(), "now", null);
+        machine.setPinned(first.id(), true);
+        machine.setNote(first.id(), "打完末地\n" + "x".repeat(80));
+        Files.writeString(world.resolve("level.dat"), "two");
+        machine.backup(settings, List.of(), "now", null);
+        assertEquals(2, machine.listSnapshots().size());
+        TimeMachine.Snapshot kept = machine.listSnapshots().stream()
+                .filter(s -> s.id().equals(first.id())).findFirst().orElseThrow();
+        assertTrue(kept.pinned());
+        assertEquals("打完末地" + "x".repeat(36), kept.note());
+        assertFalse(kept.note().contains("\n"));
+        machine.setPinned(first.id(), false);
+        Files.writeString(world.resolve("level.dat"), "three");
+        machine.backup(settings, List.of(), "now", null);
+        assertEquals(1, machine.listSnapshots().size());
+        assertFalse(machine.listSnapshots().get(0).id().equals(first.id()));
+    }
+
+    @Test
+    void historyShowsOnlyContentChanges() throws Exception {
+        Path world = dir.resolve("saves").resolve("World");
+        Files.createDirectories(world);
+        Path level = world.resolve("level.dat");
+        Files.writeString(level, "v1");
+        TimeMachine machine = new TimeMachine(dir);
+        TimeMachine.Settings settings = new TimeMachine.Settings();
+        TimeMachine.Snapshot first = machine.backup(settings, List.of(), "now", null);
+        machine.backup(settings, List.of(), "now", null);
+        Files.writeString(level, "v2");
+        machine.backup(settings, List.of(), "now", null);
+        Files.delete(level);
+        TimeMachine.Snapshot last = machine.backup(settings, List.of(), "now", null);
+        TimeMachine.Entry entry = machine.entries(first.id()).get(0);
+        List<TimeMachine.Revision> history = machine.history(entry.root(), entry.path());
+        assertEquals(List.of("added", "modified", "removed"),
+                history.stream().map(TimeMachine.Revision::change).toList());
+        assertEquals("v1", Files.readString(machine.storeDir().resolve("blobs")
+                .resolve(history.get(0).entry().sha256().substring(0, 2))
+                .resolve(history.get(0).entry().sha256())));
+        assertNull(history.get(2).entry());
+        assertEquals(last.id(), history.get(2).snapshotId());
+    }
+
+    @Test
+    void screenshotsAndSkinsAreKeptAndSecretNamesAreNot() throws Exception {
+        Files.createDirectories(dir.resolve("screenshots"));
+        Files.writeString(dir.resolve("screenshots").resolve("shot.png"), "png");
+        Files.writeString(dir.resolve("screenshots").resolve("accounts.json"), "nope");
+        Files.createDirectories(dir.resolve("skins").resolve("files"));
+        Files.writeString(dir.resolve("skins").resolve("files").resolve("face.png"), "face");
+        TimeMachine machine = new TimeMachine(dir);
+        TimeMachine.Snapshot snap = machine.backup(new TimeMachine.Settings(), List.of(), "now", null);
+        assertTrue(machine.entries(snap.id()).stream().anyMatch(e -> e.path().equals("shot.png") && "screenshots".equals(e.scope())));
+        assertTrue(machine.entries(snap.id()).stream().anyMatch(e -> e.path().endsWith("face.png") && "skins".equals(e.scope())));
+        assertTrue(machine.entries(snap.id()).stream().noneMatch(e -> e.path().contains("accounts.json")));
     }
 
     private static String blobText(TimeMachine machine, TimeMachine.Snapshot snapshot) throws Exception {

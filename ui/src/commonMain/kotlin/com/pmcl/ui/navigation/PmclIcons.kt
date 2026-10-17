@@ -573,6 +573,20 @@ object PmclIcons {
         }
     }
 
+    val Mail: ImageVector = icon("Mail") {
+        shade { roundRect(3.8f, 6.6f, 20.8f, 18.6f, 2.2f) }
+        ink(PathFillType.EvenOdd) {
+            roundRect(3.2f, 5.6f, 20.8f, 18.2f, 2.2f)
+            roundRect(5.4f, 9.2f, 18.6f, 16.2f, 1.1f)
+        }
+        ink {
+            moveTo(4.4f, 6.8f)
+            lineTo(12f, 12.2f)
+            lineTo(19.6f, 6.8f)
+            close()
+        }
+    }
+
     private fun icon(name: String, block: ImageVector.Builder.() -> Unit): ImageVector {
         return ImageVector.Builder(
             name = name,

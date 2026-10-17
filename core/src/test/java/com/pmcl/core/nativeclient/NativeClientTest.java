@@ -254,6 +254,59 @@ class NativeClientTest {
     }
 
     @Test
+    void compileOptionsChangeTheCommandAndStayOutOfPreferences() throws Exception {
+        Path project = dir.resolve("project");
+        Files.createDirectories(project);
+        NativeClientCompiler.Options debug = new NativeClientCompiler.Options(4, 30, "debug", args("CARGO", "--locked"));
+        List<String> cargo = NativeClientCompiler.commands(
+                NativeClientCatalog.BuildTool.CARGO, Path.of("/usr/bin/cargo"), project, "steven", debug).get(0);
+        assertFalse(cargo.contains("--release"));
+        assertEquals("--locked", cargo.get(cargo.size() - 1));
+
+        List<String> cmakeBuild = NativeClientCompiler.commands(
+                NativeClientCatalog.BuildTool.CMAKE, Path.of("/usr/bin/cmake"), project, "client",
+                new NativeClientCompiler.Options(4, 30, "release", new com.google.gson.JsonObject())).get(1);
+        assertTrue(cmakeBuild.contains("--parallel"));
+        assertTrue(cmakeBuild.contains("4"));
+
+        assertThrows(IOException.class, () -> NativeClientCompiler.splitArgs("echo && rm"));
+        NativeClientCompiler.saveOptions(dir, "4", "30", "debug", java.util.Map.of("CARGO", "--locked"));
+        NativeClientCompiler.Options stored = NativeClientCompiler.options(dir);
+        assertEquals(4, stored.jobs());
+        assertEquals(30, stored.timeoutMinutes());
+        assertEquals("debug", stored.mode());
+        assertEquals("--locked", stored.args("CARGO"));
+        assertFalse(Files.exists(dir.resolve("preferences.json")));
+        assertThrows(IOException.class, () -> NativeClientCompiler.saveOptions(dir, "99", "30", "release", java.util.Map.of()));
+    }
+
+    @Test
+    void communityClientBecomesOneInstance() throws Exception {
+        com.pmcl.core.instance.InstanceManager manager =
+                new com.pmcl.core.instance.InstanceManager(new com.pmcl.core.LauncherConfig(dir));
+        com.pmcl.core.instance.InstanceInfo first =
+                manager.createCommunityInstance("ClassiCube", "classicube", "", "1.3.8");
+        assertEquals("classicube", first.getNativeClientId());
+        assertTrue(first.isLaunchable());
+        com.pmcl.core.instance.InstanceInfo again =
+                manager.createCommunityInstance("ClassiCube", "classicube", "", "1.3.8");
+        assertEquals(first.getInstanceId(), again.getInstanceId());
+        assertEquals(1, manager.listInstances().size());
+        String json = Files.readString(first.getInstanceDir().resolve("instance.json"));
+        com.pmcl.core.instance.InstanceInfo loaded =
+                com.pmcl.core.instance.InstanceInfo.fromJson(json, first.getInstanceDir());
+        assertEquals("classicube", loaded.getNativeClientId());
+        assertEquals("community", loaded.getLoader());
+        assertThrows(IOException.class, () -> manager.createCommunityInstance("Nope", "../evil", "", ""));
+    }
+
+    private static com.google.gson.JsonObject args(String tool, String value) {
+        com.google.gson.JsonObject object = new com.google.gson.JsonObject();
+        object.addProperty(tool, value);
+        return object;
+    }
+
+    @Test
     void stagesPommeAssetsUnderTheVersionName() throws Exception {
         String hash = "ab0123456789abcdef0123456789abcdef012345";
         Path objects = dir.resolve("assets/objects/ab");

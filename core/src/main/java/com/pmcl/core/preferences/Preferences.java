@@ -80,6 +80,8 @@ public final class Preferences {
     private final java.util.List<AutomationCommand> automationCommands = new java.util.ArrayList<>();
     private static final int MAX_JAVA_AGENTS = 8;
     private String gcType = "G1GC";
+    /** 打开后启动命令里只保留 G1，其他回收器参数会被去掉。 */
+    private boolean forceG1Gc = false;
     private boolean useAikarFlags = true;
     private boolean useSegmentedLaunchLayout = false; // 启动页布局：false=最初分栏布局，true=底部滑块切换布局
     private int minMemoryMb = 512;
@@ -102,6 +104,12 @@ public final class Preferences {
      * 关闭则严格要求匹配 Java，缺失则报错或触发自动下载。
      */
     private boolean javaDowngradeFallback = false;
+
+    /**
+     * Java 27 兼容启动：游戏 Java 为 27 及以上时，允许改 final 字段、
+     * 关闭压缩对象头，并去掉该版本已删除的校验参数。
+     */
+    private boolean java27Compat = false;
 
     // 游戏通用行为
     private int gameWindowWidth = 854;       // 窗口初始宽度（--width）
@@ -531,6 +539,9 @@ public final class Preferences {
     public synchronized String getGcType() { return gcType; }
     public synchronized void setGcType(String v) { gcType = v == null ? "G1GC" : v; scheduleSave(); }
 
+    public synchronized boolean isForceG1Gc() { return forceG1Gc; }
+    public synchronized void setForceG1Gc(boolean v) { forceG1Gc = v; scheduleSave(); }
+
     public synchronized boolean isUseAikarFlags() { return useAikarFlags; }
     public synchronized void setUseAikarFlags(boolean v) { useAikarFlags = v; scheduleSave(); }
 
@@ -539,6 +550,9 @@ public final class Preferences {
 
     public synchronized boolean isJavaDowngradeFallback() { return javaDowngradeFallback; }
     public synchronized void setJavaDowngradeFallback(boolean v) { javaDowngradeFallback = v; scheduleSave(); }
+
+    public synchronized boolean isJava27Compat() { return java27Compat; }
+    public synchronized void setJava27Compat(boolean v) { java27Compat = v; scheduleSave(); }
 
     public synchronized int getMinMemoryMb() { return minMemoryMb; }
     public synchronized void setMinMemoryMb(int v) { if (v < 128) return; minMemoryMb = v; scheduleSave(); }
@@ -1243,6 +1257,7 @@ public final class Preferences {
             parseYoutube = loadBool(o, "parseYoutube", false);
             musicOverlayVideo = loadBool(o, "musicOverlayVideo", false);
             javaDowngradeFallback = loadBool(o, "javaDowngradeFallback", false);
+            java27Compat = loadBool(o, "java27Compat", false);
             showPerfHud = loadBool(o, "showPerfHud", false);
             parallaxBackground = loadBool(o, "parallaxBackground", true);
             launcherBgType = loadString(o, "launcherBgType", "none");
@@ -1348,6 +1363,7 @@ public final class Preferences {
                 }
             }
             gcType = loadString(o, "gcType", "G1GC");
+            forceG1Gc = loadBool(o, "forceG1Gc", false);
             javaPath = loadString(o, "javaPath", "");
             // 旧配置里已有手动路径时迁移到选择模式，保持升级前行为。
             javaSelectionMode = loadString(
@@ -1681,6 +1697,7 @@ public final class Preferences {
         o.addProperty("parseYoutube", parseYoutube);
         o.addProperty("musicOverlayVideo", musicOverlayVideo);
         o.addProperty("javaDowngradeFallback", javaDowngradeFallback);
+        o.addProperty("java27Compat", java27Compat);
         o.addProperty("showPerfHud", showPerfHud);
         o.addProperty("perfHudMetrics", perfHudMetrics);
         o.addProperty("uiScale", uiScale);
@@ -1737,6 +1754,7 @@ public final class Preferences {
         for (AutomationCommand command : automationCommands) automationArr.add(command.toJson());
         o.add("automationCommands", automationArr);
         o.addProperty("gcType", gcType);
+        o.addProperty("forceG1Gc", forceG1Gc);
         o.addProperty("useAikarFlags", useAikarFlags);
         o.addProperty("minMemoryMb", minMemoryMb);
         o.addProperty("maxMemoryMb", maxMemoryMb);

@@ -38,6 +38,8 @@ import com.pmcl.ui.viewmodel.LauncherViewModel
 import com.pmcl.ui.viewmodel.installNativeClient
 import com.pmcl.ui.viewmodel.launchNativeClient
 import com.pmcl.ui.viewmodel.refreshNativeClients
+import com.pmcl.ui.viewmodel.saveNativeClientAsInstance
+import com.pmcl.ui.viewmodel.saveNativeCompileOptions
 import com.pmcl.ui.viewmodel.saveNativeCompileRuntime
 import com.pmcl.ui.widget.PmclLazyColumn
 import java.awt.FileDialog
@@ -45,10 +47,19 @@ import java.awt.Frame
 import java.io.File
 
 private val COMPILE_TOOLS = listOf("CARGO", "GO", "CMAKE", "MAKE", "DOTNET", "ZIG")
+private val COMPANION_TOOLS = listOf("GCC", "CLANG", "PYTHON", "NODE", "JAVA", "GRADLE")
 
 @Composable
 fun NativeCompileRuntimeSettings(vm: LauncherViewModel) {
-    var tools by remember { mutableStateOf(NativeClientCompiler.tools(LauncherConfig.pmclHome())) }
+    val home = LauncherConfig.pmclHome()
+    var tools by remember { mutableStateOf(NativeClientCompiler.tools(home)) }
+    val stored = remember { NativeClientCompiler.options(home) }
+    var jobs by remember { mutableStateOf(if (stored.jobs() == 0) "" else stored.jobs().toString()) }
+    var timeout by remember { mutableStateOf(stored.timeoutMinutes().toString()) }
+    var mode by remember { mutableStateOf(stored.mode()) }
+    var extra by remember {
+        mutableStateOf(COMPILE_TOOLS.associateWith { stored.args(it) })
+    }
     Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
@@ -56,15 +67,71 @@ fun NativeCompileRuntimeSettings(vm: LauncherViewModel) {
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.outline
             )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = jobs,
+                    onValueChange = { jobs = it.filter { ch -> ch.isDigit() }.take(2) },
+                    singleLine = true,
+                    label = { Text(I18n.t("native.options_jobs")) },
+                    placeholder = { Text(I18n.t("native.options_jobs_auto")) },
+                    modifier = Modifier.weight(1f)
+                )
+                OutlinedTextField(
+                    value = timeout,
+                    onValueChange = { timeout = it.filter { ch -> ch.isDigit() }.take(3) },
+                    singleLine = true,
+                    label = { Text(I18n.t("native.options_timeout")) },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (mode == "debug") {
+                    OutlinedButton(onClick = { mode = "release" }) { Text(I18n.t("native.options_release")) }
+                } else {
+                    Button(onClick = { mode = "release" }) { Text(I18n.t("native.options_release")) }
+                }
+                Spacer(Modifier.width(8.dp))
+                if (mode == "debug") {
+                    Button(onClick = { mode = "debug" }) { Text(I18n.t("native.options_debug")) }
+                } else {
+                    OutlinedButton(onClick = { mode = "debug" }) { Text(I18n.t("native.options_debug")) }
+                }
+                Spacer(Modifier.weight(1f))
+                Button(onClick = {
+                    vm.saveNativeCompileOptions(jobs, timeout, mode, extra) {
+                        tools = NativeClientCompiler.tools(home)
+                    }
+                }) { Text(I18n.t("native.options_save")) }
+            }
             COMPILE_TOOLS.forEach { tool ->
                 CompileToolRow(
                     tool = tool,
                     saved = tools.saved(tool),
                     detected = tools.detected(tool),
-                    enabled = true,
+                    extra = extra[tool].orEmpty(),
+                    onExtra = { extra = extra + (tool to it) },
                     onPick = { path ->
                         vm.saveNativeCompileRuntime(tool, path) {
-                            tools = NativeClientCompiler.tools(LauncherConfig.pmclHome())
+                            tools = NativeClientCompiler.tools(home)
+                        }
+                    }
+                )
+            }
+            Text(
+                I18n.t("native.companions_hint"),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline
+            )
+            COMPANION_TOOLS.forEach { tool ->
+                CompileToolRow(
+                    tool = tool,
+                    saved = tools.saved(tool),
+                    detected = tools.detected(tool),
+                    extra = null,
+                    onExtra = {},
+                    onPick = { path ->
+                        vm.saveNativeCompileRuntime(tool, path) {
+                            tools = NativeClientCompiler.tools(home)
                         }
                     }
                 )
@@ -158,6 +225,11 @@ fun NativeClientDownloadPage(vm: LauncherViewModel, modifier: Modifier = Modifie
                                 onClick = { vm.launchNativeClient(client.id) },
                                 enabled = client.isInstalled && !working
                             ) { Text(I18n.t("native.launch")) }
+                            Spacer(Modifier.width(8.dp))
+                            OutlinedButton(
+                                onClick = { vm.saveNativeClientAsInstance(client.id) },
+                                enabled = client.isInstalled && !working
+                            ) { Text(I18n.t("native.save_instance")) }
                         }
                     }
                 }
@@ -171,35 +243,51 @@ private fun CompileToolRow(
     tool: String,
     saved: String,
     detected: String,
-    enabled: Boolean,
+    extra: String?,
+    onExtra: (String) -> Unit,
     onPick: (String) -> Unit
 ) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            I18n.t("native.tool." + tool.lowercase()),
-            style = MaterialTheme.typography.labelMedium,
-            modifier = Modifier.width(72.dp)
-        )
-        OutlinedTextField(
-            value = saved,
-            onValueChange = {},
-            readOnly = true,
-            singleLine = true,
-            placeholder = {
-                Text(
-                    detected.ifBlank { I18n.t("native.runtime_empty") },
-                    style = MaterialTheme.typography.labelSmall
-                )
-            },
-            textStyle = MaterialTheme.typography.labelSmall,
-            modifier = Modifier.weight(1f)
-        )
-        Spacer(Modifier.width(8.dp))
-        TextButton(onClick = { pickRuntime()?.let(onPick) }, enabled = enabled) {
-            Text(I18n.t("native.browse"))
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                I18n.t("native.tool." + tool.lowercase()),
+                style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier.width(88.dp)
+            )
+            OutlinedTextField(
+                value = saved,
+                onValueChange = {},
+                readOnly = true,
+                singleLine = true,
+                placeholder = {
+                    Text(
+                        detected.ifBlank { I18n.t("native.runtime_empty") },
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                },
+                textStyle = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.weight(1f)
+            )
+            Spacer(Modifier.width(8.dp))
+            TextButton(onClick = { pickRuntime()?.let(onPick) }) {
+                Text(I18n.t("native.browse"))
+            }
+            TextButton(onClick = { onPick(detected) }, enabled = detected.isNotBlank()) {
+                Text(I18n.t("native.use_detected"))
+            }
+            TextButton(onClick = { onPick("") }, enabled = saved.isNotBlank()) {
+                Text(I18n.t("native.clear"))
+            }
         }
-        TextButton(onClick = { onPick(detected) }, enabled = enabled && detected.isNotBlank()) {
-            Text(I18n.t("native.use_detected"))
+        if (extra != null) {
+            OutlinedTextField(
+                value = extra,
+                onValueChange = onExtra,
+                singleLine = true,
+                label = { Text(I18n.t("native.options_args")) },
+                textStyle = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
     }
 }

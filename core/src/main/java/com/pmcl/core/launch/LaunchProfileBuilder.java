@@ -281,6 +281,12 @@ public final class LaunchProfileBuilder {
         VersionJson vj = loadVersionJson(versionId);
 
         LaunchProfile profile = new LaunchProfile(config, account, versionId);
+        if (preferences != null && preferences.isForceG1Gc()) {
+            profile.setForceG1(true);
+        }
+        if (preferences != null && preferences.isJava27Compat() && javaMajorVersion >= 27) {
+            profile.setJava27Compat(true);
+        }
 
         if (vj.getMainClass() != null && !vj.getMainClass().isEmpty()) {
             profile.setMainClass(vj.getMainClass());
@@ -619,9 +625,10 @@ public final class LaunchProfileBuilder {
         profile.addJvmArg("-Xms" + versionSettings.memoryMin(preferences.getMinMemoryMb()) + "m");
         profile.addJvmArg("-Xmx" + versionSettings.memoryMax(preferences.getMaxMemoryMb()) + "m");
 
-        // GC 类型（仅未启用 Aikar Flags 时注入，避免冲突）
-        // 澪模式 ZGC 开启时也跳过（避免 -XX:+UseG1GC 与 ZGC 冲突）
-        boolean mioZgc = preferences.isMioModeEnabled() && preferences.isMioModeZgc();
+        // GC 类型。Aikar 或澪模式 ZGC 打开时不在这里再注入，避免两套回收器叠在一起。
+        // 强制 G1 时澪模式 ZGC 不再生效；版本和自定义参数里的其他回收器由 G1Force 在生成命令时去掉。
+        boolean mioZgc = preferences.isMioModeEnabled() && preferences.isMioModeZgc()
+                && !preferences.isForceG1Gc();
         if (!skipDefaultJvm && !preferences.isUseAikarFlags() && !mioZgc &&
             preferences.getGcType() != null && !preferences.getGcType().isEmpty()) {
             profile.addJvmArg("-XX:+Use" + preferences.getGcType());

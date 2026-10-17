@@ -191,6 +191,18 @@ fun main() = application {
         onDispose { hostServer.stop() }
     }
 
+    val cursorAgent = remember { com.pmcl.ui.cursor.CursorAgentServer(vm, pmclDir) }
+    DisposableEffect(Unit) {
+        com.pmcl.ui.cursor.CursorAgentHosts.host = cursorAgent
+        cursorAgent.startIfEnabled()
+        onDispose {
+            if (com.pmcl.ui.cursor.CursorAgentHosts.host === cursorAgent) {
+                com.pmcl.ui.cursor.CursorAgentHosts.host = null
+            }
+            cursorAgent.stop()
+        }
+    }
+
     val state = rememberWindowState(
         width = 1100.dp,
         height = 700.dp,
@@ -595,6 +607,13 @@ fun main() = application {
                 themeState = sharedThemeState,
                 onClose = { vm.closeTerminalWindow(id) }
             )
+        }
+    }
+
+    val studioWindows by vm.studioWindows.collectAsState()
+    studioWindows.forEach { id ->
+        key(id) {
+            com.pmcl.ui.studio.StudioWindow(vm, sharedThemeState, windowId = id, onClose = { vm.closeStudio(id) })
         }
     }
 }

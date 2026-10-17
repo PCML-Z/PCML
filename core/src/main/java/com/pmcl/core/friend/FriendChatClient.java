@@ -135,10 +135,13 @@ public final class FriendChatClient implements AutoCloseable {
         }
     }
 
-    public void send(String jsonLine) {
+    /** @return false when the outbound queue is full and the line was dropped */
+    public boolean send(String jsonLine) {
         if (!sendQueue.offer(jsonLine)) {
             System.err.println("[FriendChatClient] 发送队列已满，丢弃消息");
+            return false;
         }
+        return true;
     }
 
     public void sendText(String text) {
