@@ -1,6 +1,7 @@
 package com.pmcl.ui.viewmodel
 
 import com.pmcl.core.LauncherConfig
+import com.pmcl.core.compliance.DownloadCompliance
 import com.pmcl.core.i18n.I18n
 import com.pmcl.core.nativeclient.NativeClientInstaller
 import kotlinx.coroutines.Dispatchers
@@ -79,6 +80,11 @@ fun LauncherViewModel.saveNativeCompileRuntime(tool: String, path: String, onSav
 }
 
 fun LauncherViewModel.installNativeClient(id: String, compileRuntime: String = "") {
+    // 合规拦截：社区客户端同属受限下载服务。UI 已隐藏入口，这里再挡一层防插件绕过。
+    if (DownloadCompliance.isGameDownloadRestricted()) {
+        _status.value = I18n.t(DownloadCompliance.restrictionNoticeKey())
+        return
+    }
     initDownloadQueue()
     val name = _nativeClients.value.firstOrNull { it.id == id }?.name ?: id
     core.downloadQueue().submitNativeClient(LauncherConfig.pmclHome(), id, name, compileRuntime) {

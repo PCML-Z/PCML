@@ -118,12 +118,8 @@ fun DownloadPage(vm: LauncherViewModel) {
 
         Spacer(Modifier.height(16.dp))
 
-        if (tab == TAB_NATIVE) {
-            NativeClientDownloadPage(vm, Modifier.weight(1f))
-            return@Column
-        }
-
-        // 合规限制：受限地区不显示游戏版本列表，在原列表位置显示政策提示
+        // 合规限制：受限地区不提供游戏本体与社区客户端下载，在原列表位置显示政策提示
+        // 必须在 TAB_NATIVE 分支之前——社区客户端同样属于受限的下载服务
         if (restricted) {
             Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
@@ -142,6 +138,11 @@ fun DownloadPage(vm: LauncherViewModel) {
                     )
                 }
             }
+            return@Column
+        }
+
+        if (tab == TAB_NATIVE) {
+            NativeClientDownloadPage(vm, Modifier.weight(1f))
             return@Column
         }
 
