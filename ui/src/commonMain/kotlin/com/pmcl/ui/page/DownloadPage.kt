@@ -9,14 +9,18 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Error
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
+import com.pmcl.core.compliance.DownloadCompliance
 import com.pmcl.ui.animation.TypewriterTitle
 import com.pmcl.core.modloader.ModLoader
 import com.pmcl.core.version.MinecraftVersionIds
@@ -86,6 +90,16 @@ fun DownloadPage(vm: LauncherViewModel) {
         TypewriterTitle(I18n.t("download.page_title"))
         Spacer(Modifier.height(16.dp))
 
+        // 合规提示：受限地区版本列表区域改为显示政策提示（见下方 restricted 分支）
+        var restricted by remember { mutableStateOf(DownloadCompliance.isGameDownloadRestricted()) }
+        LaunchedEffect(Unit) {
+            // IP 归属查询是异步的：结果落地后修正（海外用户正常显示版本列表）
+            repeat(15) {
+                kotlinx.coroutines.delay(2000)
+                restricted = DownloadCompliance.isGameDownloadRestricted()
+            }
+        }
+
         // Tab 选择
         TabRow(selectedTabIndex = tab) {
             listOf(
@@ -112,6 +126,28 @@ fun DownloadPage(vm: LauncherViewModel) {
 
         if (tab == TAB_NATIVE) {
             NativeClientDownloadPage(vm, Modifier.weight(1f))
+            return@Column
+        }
+
+        // 合规限制：受限地区不显示游戏版本列表，在原列表位置显示政策提示
+        if (restricted) {
+            Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
+                    Icon(
+                        Icons.Filled.Error,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(48.dp)
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    Text(
+                        I18n.t(DownloadCompliance.restrictionNoticeKey()),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.error,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
             return@Column
         }
 

@@ -19,6 +19,8 @@ import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.SystemUpdateAlt
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.ui.graphics.graphicsLayer
@@ -42,6 +44,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.filled.AccountTree
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.AddToQueue
 import androidx.compose.material.icons.filled.WebAsset
 import androidx.compose.material.icons.filled.Apps
@@ -63,6 +66,7 @@ import androidx.compose.material.icons.filled.HealthAndSafety
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Minimize
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Poll
 import androidx.compose.material.icons.filled.Refresh
@@ -71,6 +75,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.ViewSidebar
+import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -137,10 +142,20 @@ fun StudioWindow(vm: LauncherViewModel, themeState: ThemeState, windowId: Int = 
     val focus by vm.studioFocus.collectAsState()
 
     var target by remember { mutableStateOf<StudioTarget?>(null) }
-    val tabs = remember { mutableStateListOf<StudioTab>() }
-    var activeKey by remember { mutableStateOf<String?>(null) }
-    val buffers = remember { mutableStateMapOf<String, FileBuffer>() }
     val stored = remember { StudioStore.load() }
+    // 会话恢复：上次退出时打开的标签（固定的排前面）和激活标签
+    val tabs = remember {
+        mutableStateListOf<StudioTab>().apply {
+            val restored = stored.openTabs.mapNotNull { decodeTab(it) }.distinctBy { it.key }
+            val pinnedFirst = restored.sortedByDescending { it.key in stored.pinnedTabs }
+            addAll(pinnedFirst)
+        }
+    }
+    var activeKey by remember {
+        mutableStateOf(stored.activeTab?.takeIf { key -> tabs.any { it.key == key } })
+    }
+    val pinned = remember { mutableStateListOf<String>().apply { addAll(stored.pinnedTabs) } }
+    val buffers = remember { mutableStateMapOf<String, FileBuffer>() }
     var leftTool by remember { mutableStateOf(stored.leftTool?.let { n -> LeftTool.entries.firstOrNull { it.name == n } }) }
     var bottomTool by remember { mutableStateOf(stored.bottomTool?.let { n -> BottomTool.entries.firstOrNull { it.name == n } }) }
     var rightOpen by remember { mutableStateOf(stored.rightOpen) }
@@ -150,6 +165,7 @@ fun StudioWindow(vm: LauncherViewModel, themeState: ThemeState, windowId: Int = 
     var ribbonTab by remember { mutableIntStateOf(0) }
     var ribbonOpen by remember { mutableStateOf(stored.ribbonOpen) }
     var dark by remember { mutableStateOf(stored.dark ?: themeState.useDark) }
+    var intro by remember { mutableStateOf(true) }
     val favorites = StudioShared.favorites
     val recent = StudioShared.recent
     val javaProjects = StudioShared.javaProjects
@@ -185,6 +201,9 @@ fun StudioWindow(vm: LauncherViewModel, themeState: ThemeState, windowId: Int = 
         leftTool = leftTool?.name,
         bottomTool = bottomTool?.name,
         rightOpen = rightOpen,
+        pinnedTabs = pinned.toList(),
+        openTabs = tabs.mapNotNull { encodeTab(it) },
+        activeTab = activeKey,
     )
     LaunchedEffect(settings) {
         if (settings == stored) return@LaunchedEffect
@@ -275,6 +294,39 @@ fun StudioWindow(vm: LauncherViewModel, themeState: ThemeState, windowId: Int = 
         target?.let { openTab(StudioTab.Configs(it)) }
     }
 
+    fun openLiveLog() {
+        target?.let { openTab(StudioTab.LiveLog(it)) }
+    }
+
+    fun openCrash() {
+        target?.let { openTab(StudioTab.Crash(it)) }
+    }
+
+    fun openModUpdates() {
+        target?.let { openTab(StudioTab.ModUpdates(it)) }
+    }
+
+    fun openOptions() {
+        target?.let { openTab(StudioTab.Options(it)) }
+    }
+
+    fun openExport() {
+        target?.let { openTab(StudioTab.Export(it)) }
+    }
+
+    /** 固定标签：固定的不能被关闭，重启后也最先恢复。 */
+    fun togglePin(tab: StudioTab) {
+        val key = tab.key
+        if (!pinned.remove(key)) {
+            pinned.add(key)
+            val index = tabs.indexOfFirst { it.key == key }
+            val firstUnpinned = tabs.indexOfFirst { it.key !in pinned }
+            if (index >= 0 && firstUnpinned >= 0 && index > firstUnpinned) {
+                tabs.add(firstUnpinned, tabs.removeAt(index))
+            }
+        }
+    }
+
     fun rememberJavaProject(path: Path) {
         val key = path.toAbsolutePath().normalize().toString()
         javaProjects.remove(key)
@@ -361,6 +413,7 @@ fun StudioWindow(vm: LauncherViewModel, themeState: ThemeState, windowId: Int = 
     }
 
     fun closeTab(tab: StudioTab) {
+        if (tab.key in pinned) return
         val doClose = {
             val index = tabs.indexOfFirst { it.key == tab.key }
             if (index >= 0) tabs.removeAt(index)
@@ -540,6 +593,11 @@ fun StudioWindow(vm: LauncherViewModel, themeState: ThemeState, windowId: Int = 
                                             CommandBlock(I18n.t("studio.diagnose"), Icons.Filled.HealthAndSafety, Tiles.Orange, { openDiagnose() }, enabled = has, active = active is StudioTab.Diagnose, index = n++)
                                             CommandBlock(I18n.t("studio.compare"), Icons.Filled.CompareArrows, Tiles.Navy, { openCompare() }, enabled = has, active = active is StudioTab.Compare, index = n++)
                                             CommandBlock(I18n.t("studio.configs"), Icons.Filled.Tune, Tiles.Graphite, { openConfigs() }, enabled = has, active = active is StudioTab.Configs, index = n++)
+                                            CommandBlock(I18n.t("studio.options_editor"), Icons.Filled.Tune, Tiles.Sky, { openOptions() }, enabled = has, active = active is StudioTab.Options, index = n++)
+                                            CommandBlock(I18n.t("studio.live_log"), Icons.AutoMirrored.Filled.Article, Tiles.Teal, { openLiveLog() }, enabled = has, active = active is StudioTab.LiveLog, index = n++)
+                                            CommandBlock(I18n.t("studio.crash"), Icons.Filled.BugReport, Tiles.Red, { openCrash() }, enabled = has, active = active is StudioTab.Crash, index = n++)
+                                            CommandBlock(I18n.t("studio.mod_updates"), Icons.Filled.SystemUpdateAlt, Tiles.Orange, { openModUpdates() }, enabled = has, active = active is StudioTab.ModUpdates, index = n++)
+                                            CommandBlock(I18n.t("studio.export"), Icons.Filled.Share, Tiles.Navy, { openExport() }, enabled = has, active = active is StudioTab.Export, index = n++)
                                             CommandBlock(I18n.t("studio.code"), Icons.Filled.Coffee, Tiles.Navy, { openJavaProject() }, active = active is StudioTab.CodeProject, index = n++)
                                             CommandBlock(I18n.t("studio.docs"), Icons.Filled.Description, Tiles.Blue, { openDocument() }, active = active is StudioTab.Document, index = n++)
                                             CommandBlock(I18n.t("studio.reveal_dir"), Icons.Filled.FolderOpen, Tiles.Gold, { gameDir?.let { reveal(it) } }, enabled = dirOk, index = n++)
@@ -638,7 +696,7 @@ fun StudioWindow(vm: LauncherViewModel, themeState: ThemeState, windowId: Int = 
                                     }
                                 }
                                 Column(Modifier.weight(1f).fillMaxHeight()) {
-                                    EditorTabs(tabs, activeKey, buffers, { activeKey = it }, ::closeTab)
+                                    EditorTabs(tabs, activeKey, buffers, pinned.toSet(), { activeKey = it }, ::closeTab, ::togglePin)
                                     // 按标签 key 淡入淡出：同一标签内切分类、换种类只换数据，不整页重建
                                     Crossfade(active?.key, Modifier.weight(1f).fillMaxWidth(), tween(180), label = "editor") { key ->
                                       val tab = if (key == null) null else tabs.firstOrNull { it.key == key }
@@ -675,9 +733,17 @@ fun StudioWindow(vm: LauncherViewModel, themeState: ThemeState, windowId: Int = 
                                                 onOpenDiagnose = { openTab(StudioTab.Diagnose(tab.target)) },
                                                 onOpenCompare = { openTab(StudioTab.Compare(tab.target)) },
                                                 onOpenConfigs = { openTab(StudioTab.Configs(tab.target)) },
+                                                onOpenExport = { openTab(StudioTab.Export(tab.target)) },
                                             )
                                             is StudioTab.VersionJson -> VersionJsonEditor(vm, tab.versionId)
-                                            is StudioTab.Content -> ContentEditor(vm, tab, onKind = { kind -> openTab(tab.copy(kind = kind)) }, onReveal = ::reveal)
+                                            is StudioTab.Content -> ContentEditor(
+                                                vm, tab,
+                                                onKind = { kind -> openTab(tab.copy(kind = kind)) },
+                                                onReveal = ::reveal,
+                                                onConfirm = { title, body, action ->
+                                                    confirm = ConfirmRequest(title, body, I18n.t("studio.m.restore"), Tiles.Orange, action)
+                                                }
+                                            )
                                             is StudioTab.FileTab -> {
                                                 val fallback = remember { FileBuffer() }
                                                 FileEditor(tab, buffers[tab.key] ?: fallback, onSave = { saveActive() })
@@ -694,6 +760,15 @@ fun StudioWindow(vm: LauncherViewModel, themeState: ThemeState, windowId: Int = 
                                                 }
                                             )
                                             is StudioTab.Configs -> ConfigsEditor(vm, tab.target, { root, file -> openFile(root, file) }, ::reveal)
+                                            is StudioTab.LiveLog -> LiveLogEditor(
+                                                vm, tab.target,
+                                                onOpenCrash = { openTab(StudioTab.Crash(tab.target)) },
+                                                onOpenMods = { openTab(StudioTab.Content(tab.target, ContentKind.MODS)) },
+                                            )
+                                            is StudioTab.Crash -> CrashReportsEditor(vm, tab.target, onOpenMods = { openTab(StudioTab.Content(tab.target, ContentKind.MODS)) })
+                                            is StudioTab.ModUpdates -> ModUpdatesEditor(vm, tab.target)
+                                            is StudioTab.Options -> OptionsEditor(vm, tab.target)
+                                            is StudioTab.Export -> ExportEditor(vm, tab.target, ::reveal)
                                             is StudioTab.CodeProject -> CodeProjectEditor(
                                                 tab.root,
                                                 onOpenFile = { root, file -> openFile(root, file) },
@@ -740,9 +815,12 @@ fun StudioWindow(vm: LauncherViewModel, themeState: ThemeState, windowId: Int = 
                                                     BottomTool.RUN -> RunLogPanel(vm)
                                                     BottomTool.SEARCH -> SearchPanel(gameDir) { root, file, line -> openFile(root, file, line = line) }
                                                     BottomTool.TERMINAL -> TerminalView(terminal, Modifier.fillMaxSize(), onExpand = { openTerminal() })
-                                                    BottomTool.PROBLEMS -> ProblemsPanel(vm, target) { tab ->
-                                                        openFile(tab.root, tab.file, tab.readOnly)
-                                                    }
+                                                    BottomTool.PROBLEMS -> ProblemsPanel(
+                                                        vm, target, gameDir,
+                                                        onOpen = { tab -> openFile(tab.root, tab.file, tab.readOnly) },
+                                                        onOpenAtLine = { root, file, line -> openFile(root, file, line = line) },
+                                                        onOpenTab = { openTab(it) },
+                                                    )
                                                 }
                                             }
                                         }
@@ -931,6 +1009,11 @@ private fun paletteItems(
         out += PaletteItem(I18n.t("studio.diagnose") + " · " + target.name, actions, Icons.Filled.HealthAndSafety, Tiles.Orange, action = onDiagnose)
         out += PaletteItem(I18n.t("studio.compare") + " · " + target.name, actions, Icons.Filled.CompareArrows, Tiles.Navy, action = onCompare)
         out += PaletteItem(I18n.t("studio.configs") + " · " + target.name, actions, Icons.Filled.Tune, Tiles.Graphite, action = onConfigs)
+        out += PaletteItem(I18n.t("studio.options_editor") + " · " + target.name, actions, Icons.Filled.Tune, Tiles.Sky) { onOpenTab(StudioTab.Options(target)) }
+        out += PaletteItem(I18n.t("studio.live_log") + " · " + target.name, actions, Icons.AutoMirrored.Filled.Article, Tiles.Teal) { onOpenTab(StudioTab.LiveLog(target)) }
+        out += PaletteItem(I18n.t("studio.crash") + " · " + target.name, actions, Icons.Filled.BugReport, Tiles.Red) { onOpenTab(StudioTab.Crash(target)) }
+        out += PaletteItem(I18n.t("studio.mod_updates") + " · " + target.name, actions, Icons.Filled.SystemUpdateAlt, Tiles.Orange) { onOpenTab(StudioTab.ModUpdates(target)) }
+        out += PaletteItem(I18n.t("studio.export") + " · " + target.name, actions, Icons.Filled.Share, Tiles.Navy) { onOpenTab(StudioTab.Export(target)) }
         out += PaletteItem(I18n.t("studio.run") + " " + target.name, actions, Icons.Filled.PlayArrow, Tiles.Forest, modKey + "R", onRun)
         out += PaletteItem(I18n.t("studio.overview") + " · " + target.name, actions, Icons.Filled.Dashboard, Tiles.Blue) { onOpenTab(StudioTab.Overview(target)) }
         out += PaletteItem(I18n.t("studio.version_json") + " · " + target.versionId, actions, Icons.Filled.Code, Tiles.Sky) { onOpenTab(StudioTab.VersionJson(target.versionId)) }
@@ -1009,8 +1092,10 @@ private fun EditorTabs(
     tabs: List<StudioTab>,
     activeKey: String?,
     buffers: Map<String, FileBuffer>,
+    pinned: Set<String>,
     onSelect: (String) -> Unit,
     onClose: (StudioTab) -> Unit,
+    onPin: (StudioTab) -> Unit,
 ) {
     val p = LocalStudio.current
     Row(
@@ -1019,6 +1104,7 @@ private fun EditorTabs(
     ) {
         tabs.forEach { tab ->
             val on = tab.key == activeKey
+            val isPinned = tab.key in pinned
             val color = tabColor(tab)
             Row(
                 Modifier
@@ -1032,10 +1118,23 @@ private fun EditorTabs(
                 FlatText(tabTitle(tab), color = if (on) Color.White else p.text, weight = if (on) FontWeight.SemiBold else FontWeight.Normal)
                 if (buffers[tab.key]?.dirty == true) FlatText("  ●", color = if (on) Color.White else p.accent)
                 Box(
-                    Modifier.size(32.dp).clickable { onClose(tab) },
+                    Modifier.size(28.dp).clickable { onPin(tab) },
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Filled.Close, contentDescription = I18n.t("studio.close_tab"), tint = if (on) Color.White else p.muted, modifier = Modifier.size(12.dp))
+                    Icon(
+                        if (isPinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
+                        contentDescription = I18n.t("studio.pin_tab"),
+                        tint = if (isPinned) (if (on) Color.White else p.accent) else (if (on) Color.White.copy(alpha = 0.55f) else p.muted.copy(alpha = 0.55f)),
+                        modifier = Modifier.size(12.dp)
+                    )
+                }
+                if (!isPinned) {
+                    Box(
+                        Modifier.size(28.dp).clickable { onClose(tab) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Filled.Close, contentDescription = I18n.t("studio.close_tab"), tint = if (on) Color.White else p.muted, modifier = Modifier.size(12.dp))
+                    }
                 }
             }
         }
@@ -1052,6 +1151,11 @@ internal fun tabTitle(tab: StudioTab): String = when (tab) {
     is StudioTab.Diagnose -> I18n.t("studio.diagnose") + " · " + tab.target.name
     is StudioTab.Compare -> I18n.t("studio.compare") + " · " + tab.target.name
     is StudioTab.Configs -> I18n.t("studio.configs") + " · " + tab.target.name
+    is StudioTab.LiveLog -> I18n.t("studio.live_log") + " · " + tab.target.name
+    is StudioTab.Crash -> I18n.t("studio.crash") + " · " + tab.target.name
+    is StudioTab.ModUpdates -> I18n.t("studio.mod_updates") + " · " + tab.target.name
+    is StudioTab.Options -> I18n.t("studio.options_editor") + " · " + tab.target.name
+    is StudioTab.Export -> I18n.t("studio.export") + " · " + tab.target.name
     is StudioTab.CodeProject -> {
         val name = runCatching { Paths.get(tab.root).fileName?.toString() }.getOrNull().orEmpty()
         I18n.t("studio.code") + if (name.isBlank()) "" else " · $name"
@@ -1072,6 +1176,11 @@ internal fun tabColor(tab: StudioTab): Color = when (tab) {
     is StudioTab.Diagnose -> Tiles.Orange
     is StudioTab.Compare -> Tiles.Navy
     is StudioTab.Configs -> Tiles.Graphite
+    is StudioTab.LiveLog -> Tiles.Teal
+    is StudioTab.Crash -> Tiles.Red
+    is StudioTab.ModUpdates -> Tiles.Orange
+    is StudioTab.Options -> Tiles.Sky
+    is StudioTab.Export -> Tiles.Navy
     is StudioTab.CodeProject -> Tiles.Navy
     is StudioTab.Document -> docKindOf(Paths.get(tab.file))?.let { docColor(it) } ?: Tiles.Blue
     is StudioTab.Settings -> Tiles.Slate

@@ -785,7 +785,7 @@ private fun Control(item: SettingItem, tick: Int, bump: () -> Unit, onConfirm: (
 }
 
 @Composable
-private fun FlatSwitch(checked: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit) {
+internal fun FlatSwitch(checked: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit) {
     val p = LocalStudio.current
     val track by animateColorAsState(if (checked) p.accent else p.field, tween(160), label = "switchTrack")
     val knob by animateDpAsState(if (checked) 22.dp else 0.dp, spring(0.62f, 700f), label = "switchKnob")
@@ -803,7 +803,7 @@ private fun FlatSwitch(checked: Boolean, enabled: Boolean, onChange: (Boolean) -
 }
 
 @Composable
-private fun FlatSlider(value: Float, range: ClosedFloatingPointRange<Float>, steps: Int, onChange: (Float) -> Unit, onCommit: (Float) -> Unit) {
+internal fun FlatSlider(value: Float, range: ClosedFloatingPointRange<Float>, steps: Int, onChange: (Float) -> Unit, onCommit: (Float) -> Unit) {
     val p = LocalStudio.current
     var width by remember { mutableIntStateOf(1) }
     val latest by rememberUpdatedState(onChange)

@@ -183,9 +183,13 @@ internal fun RunLogPanel(vm: LauncherViewModel) {
 internal fun ProblemsPanel(
     vm: LauncherViewModel,
     target: StudioTarget?,
+    gameDir: Path?,
     onOpen: (StudioTab.FileTab) -> Unit,
+    onOpenAtLine: (Path, Path, Int) -> Unit,
+    onOpenTab: (StudioTab) -> Unit,
 ) {
     val p = LocalStudio.current
+    val clipboardLog = LocalClipboardManager.current
     var reload by remember { mutableIntStateOf(0) }
     var picked by remember { mutableStateOf<Path?>(null) }
     val reports by produceState<List<CrashAnalyzer.CrashReport>?>(null, target?.versionId, reload) {
@@ -194,49 +198,108 @@ internal fun ProblemsPanel(
             try { vm.scanAllCrashReports(target?.versionId) } catch (_: Throwable) { emptyList() }
         }
     }
+    val logFile = gameDir?.resolve("logs")?.resolve("latest.log")
+    val logErrors by produceState<List<LogError>?>(null, logFile, reload) {
+        value = null
+        value = withContext(Dispatchers.IO) { scanLogErrors(logFile) }
+    }
     val fmt = remember { SimpleDateFormat("yyyy-MM-dd HH:mm") }
+    val crashes = reports.orEmpty()
+    val errors = logErrors.orEmpty()
+    val loaded = reports != null && logErrors != null
     Row(Modifier.fillMaxSize().background(p.editor)) {
         Column(Modifier.weight(0.45f).fillMaxHeight().background(p.panel)) {
             Row(Modifier.fillMaxWidth().height(30.dp).background(p.panelAlt), verticalAlignment = Alignment.CenterVertically) {
                 FlatText(
-                    reports?.let { I18n.t("studio.problems_n", it.size.toString()) } ?: I18n.t("studio.loading"),
+                    if (loaded) I18n.t("studio.problems_n", (crashes.size + errors.size).toString()) else I18n.t("studio.loading"),
                     color = p.muted,
                     size = 11,
                     modifier = Modifier.padding(horizontal = 10.dp).weight(1f)
                 )
+                if (target != null) {
+                    Block(
+                        I18n.t("studio.crash"),
+                        onClick = { onOpenTab(StudioTab.Crash(target)) },
+                        icon = Icons.Filled.BugReport,
+                        fill = if (crashes.isNotEmpty()) Tiles.Red else null,
+                        height = 30.dp
+                    )
+                }
                 Block("", onClick = { reload++ }, icon = Icons.Filled.Refresh, height = 30.dp)
             }
-            val list = reports.orEmpty()
-            if (reports != null && list.isEmpty()) {
+            if (loaded && crashes.isEmpty() && errors.isEmpty()) {
                 CenterNote(I18n.t("studio.problems_none"), p.ok)
                 return@Column
             }
             LazyColumn(Modifier.fillMaxSize()) {
-                itemsIndexed(list, key = { _, r -> r.file.toString() }) { index, report ->
-                    val selected = picked == report.file
-                    val modified = remember(report.file) {
-                        try { Files.getLastModifiedTime(report.file).toMillis() } catch (_: Throwable) { 0L }
-                    }
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .height(42.dp)
-                            .background(if (selected) Tiles.Blue else if (index % 2 == 0) p.panel else p.panelAlt)
-                            .clickable { picked = report.file },
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(Modifier.size(42.dp).background(if (selected) Tiles.Blue.lift(0.14f) else Tiles.Red.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
-                            Icon(Icons.Filled.ErrorOutline, contentDescription = null, tint = if (selected) Color.White else Tiles.Red, modifier = Modifier.size(16.dp))
+                if (crashes.isNotEmpty()) {
+                    item { LabelBar(I18n.t("studio.problems_crashes", crashes.size.toString()), Tiles.Red) }
+                    itemsIndexed(crashes, key = { _, r -> r.file.toString() }) { index, report ->
+                        val selected = picked == report.file
+                        val modified = remember(report.file) {
+                            try { Files.getLastModifiedTime(report.file).toMillis() } catch (_: Throwable) { 0L }
                         }
-                        val ink = if (selected) Color.White else p.text
-                        Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
-                            FlatText(report.file.fileName.toString(), color = ink)
-                            FlatText(
-                                (report.causes.firstOrNull() ?: I18n.t("studio.cause_unknown")) +
-                                    if (modified > 0) " · " + fmt.format(Date(modified)) else "",
-                                color = ink.copy(alpha = 0.7f),
-                                size = 11
-                            )
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .height(42.dp)
+                                .background(if (selected) Tiles.Blue else if (index % 2 == 0) p.panel else p.panelAlt)
+                                .clickable { picked = report.file },
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(Modifier.size(42.dp).background(if (selected) Tiles.Blue.lift(0.14f) else Tiles.Red.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
+                                Icon(Icons.Filled.ErrorOutline, contentDescription = null, tint = if (selected) Color.White else Tiles.Red, modifier = Modifier.size(16.dp))
+                            }
+                            val ink = if (selected) Color.White else p.text
+                            Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
+                                FlatText(report.file.fileName.toString(), color = ink)
+                                FlatText(
+                                    (report.causes.firstOrNull() ?: I18n.t("studio.cause_unknown")) +
+                                        if (modified > 0) " · " + fmt.format(Date(modified)) else "",
+                                    color = ink.copy(alpha = 0.7f),
+                                    size = 11
+                                )
+                            }
+                        }
+                    }
+                }
+                if (errors.isNotEmpty()) {
+                    item { LabelBar(I18n.t("studio.problems_log_errors", errors.size.toString()), Tiles.Orange) }
+                    itemsIndexed(errors, key = { _, e -> "log:" + e.line + ":" + e.text.hashCode() }) { index, e ->
+                        val color = when (e.level) {
+                            "FATAL" -> Tiles.Red
+                            "ERROR" -> Tiles.Orange
+                            else -> Tiles.Slate
+                        }
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .height(42.dp)
+                                .background(if (index % 2 == 0) p.panel else p.panelAlt)
+                                .clickable {
+                                    val dir = gameDir
+                                    if (dir != null && logFile != null) onOpenAtLine(dir, logFile, e.line)
+                                },
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(Modifier.size(42.dp).background(color.copy(alpha = 0.14f)), contentAlignment = Alignment.Center) {
+                                FlatText(e.level.take(1), color = color, size = 13, weight = FontWeight.SemiBold)
+                            }
+                            Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
+                                FlatText(e.text.take(160), color = p.text, size = 11, lines = 1)
+                                FlatText(
+                                    I18n.t("studio.problems_log_at", e.line.toString()) +
+                                        if (e.count > 1) " · ×" + e.count else "",
+                                    color = p.muted,
+                                    size = 10
+                                )
+                            }
+                            Box(
+                                Modifier.size(28.dp).clickable { clipboardLog.setText(AnnotatedString(e.text)) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Filled.ContentCopy, contentDescription = null, tint = p.muted, modifier = Modifier.size(12.dp))
+                            }
                         }
                     }
                 }
@@ -258,18 +321,76 @@ internal fun ProblemsPanel(
                     FlatText(it, lines = 4, modifier = Modifier.fillMaxWidth().background(Tiles.Blue.copy(alpha = 0.08f)).padding(horizontal = 12.dp, vertical = 6.dp))
                 }
             }
-            Block(
-                I18n.t("studio.open_report"),
-                onClick = {
-                    val file = report.file
-                    val parent = file.parent
-                    val root = if (parent?.fileName?.toString() == "crash-reports") parent.parent ?: parent else parent
-                    if (root != null) onOpen(StudioTab.FileTab(root, file, readOnly = true))
-                },
-                fill = p.accent,
-                modifier = Modifier.fillMaxWidth(),
-                height = 36.dp
-            )
+            Row(Modifier.fillMaxWidth()) {
+                Block(
+                    I18n.t("studio.open_report"),
+                    onClick = {
+                        val file = report.file
+                        val parent = file.parent
+                        val root = if (parent?.fileName?.toString() == "crash-reports") parent.parent ?: parent else parent
+                        if (root != null) onOpen(StudioTab.FileTab(root, file, readOnly = true))
+                    },
+                    fill = p.accent,
+                    modifier = Modifier.weight(1f),
+                    height = 36.dp
+                )
+                if (target != null) {
+                    Block(
+                        I18n.t("studio.crash"),
+                        onClick = { onOpenTab(StudioTab.Crash(target)) },
+                        icon = Icons.Filled.BugReport,
+                        fill = Tiles.Red,
+                        height = 36.dp
+                    )
+                }
+            }
         }
+    }
+}
+
+/** latest.log 里的一条错误；同样的文本合并成一条，记首次出现的行号和出现次数。 */
+private data class LogError(val line: Int, val text: String, val level: String, val count: Int)
+
+/** 只留最近若干条，超过 32MB 的日志直接不扫，免得拖垮面板。 */
+private const val LOG_SCAN_MAX_BYTES = 32L * 1024 * 1024
+private const val LOG_SCAN_MAX_HITS = 80
+
+private fun scanLogErrors(log: Path?): List<LogError> {
+    if (log == null || !Files.isRegularFile(log)) return emptyList()
+    return try {
+        if (Files.size(log) > LOG_SCAN_MAX_BYTES) return emptyList()
+        // LinkedHashMap 保证按首次出现顺序，重复文本合并计数
+        val hits = LinkedHashMap<String, LogError>()
+        log.toFile().bufferedReader(Charsets.UTF_8).use { reader ->
+            var n = 0
+            while (true) {
+                val raw = reader.readLine() ?: break
+                n++
+                val level = when {
+                    raw.contains("/FATAL]") || raw.contains("[FATAL]") -> "FATAL"
+                    raw.contains("/ERROR]") || raw.contains("[ERROR]") -> "ERROR"
+                    raw.contains("Exception") -> "EXC"
+                    else -> null
+                } ?: continue
+                val text = raw.trim()
+                val existing = hits[text]
+                if (existing == null) {
+                    hits[text] = LogError(n, text, level, 1)
+                } else {
+                    hits[text] = existing.copy(count = existing.count + 1)
+                }
+                if (hits.size > LOG_SCAN_MAX_HITS) {
+                    val it = hits.keys.iterator()
+                    if (it.hasNext()) {
+                        it.next()
+                        it.remove()
+                    }
+                }
+            }
+        }
+        // 最新的排前面
+        hits.values.sortedByDescending { it.line }
+    } catch (_: Throwable) {
+        emptyList()
     }
 }

@@ -85,6 +85,99 @@ internal sealed interface StudioTab {
     data class Module(val moduleId: String, val sectionId: String?) : StudioTab {
         override val key: String get() = "module:$moduleId"
     }
+
+    /** 实时日志查看器：tail 目标游戏目录的 logs/latest.log。 */
+    data class LiveLog(val target: StudioTarget) : StudioTab {
+        override val key: String get() = "livelog:${target.kind}:${target.id}"
+    }
+
+    /** 崩溃分析器：扫描 crash-reports/ 并给出修复建议。 */
+    data class Crash(val target: StudioTarget) : StudioTab {
+        override val key: String get() = "crash:${target.kind}:${target.id}"
+    }
+
+    /** 模组更新检查（Modrinth / CurseForge）。 */
+    data class ModUpdates(val target: StudioTarget) : StudioTab {
+        override val key: String get() = "updates:${target.kind}:${target.id}"
+    }
+
+    /** options.txt 图形化编辑。 */
+    data class Options(val target: StudioTarget) : StudioTab {
+        override val key: String get() = "options:${target.kind}:${target.id}"
+    }
+
+    /** 把目标实例/版本导出成可分享的压缩包。 */
+    data class Export(val target: StudioTarget) : StudioTab {
+        override val key: String get() = "export:${target.kind}:${target.id}"
+    }
+}
+
+// —— 标签页会话恢复编解码 ——
+// 每个字段 URL 编码后用 | 连接；目标对象展开成 kind/id/name/versionId/detail 五个字段。
+// 返回 null 表示这种标签不恢复（问卷等一次性的）。
+
+private fun enc(s: String): String = java.net.URLEncoder.encode(s, StandardCharsets.UTF_8)
+private fun dec(s: String): String = java.net.URLDecoder.decode(s, StandardCharsets.UTF_8)
+
+private fun encTarget(t: StudioTarget): String =
+    listOf(t.kind.name, t.id, t.name, t.versionId, t.detail).joinToString("|") { enc(it) }
+
+private fun decTarget(fields: List<String>, from: Int): StudioTarget? {
+    if (fields.size < from + 5) return null
+    val kind = runCatching { TargetKind.valueOf(dec(fields[from])) }.getOrNull() ?: return null
+    return StudioTarget(kind, dec(fields[from + 1]), dec(fields[from + 2]), dec(fields[from + 3]), dec(fields[from + 4]))
+}
+
+internal fun encodeTab(tab: StudioTab): String? = when (tab) {
+    is StudioTab.Overview -> "overview|" + encTarget(tab.target)
+    is StudioTab.VersionJson -> "json|" + enc(tab.versionId)
+    is StudioTab.Content -> "content|" + encTarget(tab.target) + "|" + tab.kind.name
+    is StudioTab.FileTab -> "file|" + enc(tab.root.toString()) + "|" + enc(tab.file.toString()) + "|" + (if (tab.readOnly) "1" else "0")
+    is StudioTab.Storage -> "storage|" + encTarget(tab.target)
+    is StudioTab.Settings -> "settings|" + enc(tab.category.orEmpty())
+    is StudioTab.Terminal -> "terminal"
+    is StudioTab.Survey -> null
+    is StudioTab.Diagnose -> "diagnose|" + encTarget(tab.target)
+    is StudioTab.Compare -> "compare|" + encTarget(tab.target) + "|" + enc(tab.otherKey.orEmpty())
+    is StudioTab.Configs -> "configs|" + encTarget(tab.target)
+    is StudioTab.CodeProject -> "code|" + enc(tab.root)
+    is StudioTab.Document -> "doc|" + enc(tab.file)
+    is StudioTab.Module -> "module|" + enc(tab.moduleId) + "|" + enc(tab.sectionId.orEmpty())
+    is StudioTab.LiveLog -> "livelog|" + encTarget(tab.target)
+    is StudioTab.Crash -> "crash|" + encTarget(tab.target)
+    is StudioTab.ModUpdates -> "updates|" + encTarget(tab.target)
+    is StudioTab.Options -> "options|" + encTarget(tab.target)
+    // 导出是一次性流程（进度、结果都不该跨会话复原），和问卷一样不恢复
+    is StudioTab.Export -> null
+}
+
+internal fun decodeTab(line: String): StudioTab? {
+    val f = line.split("|")
+    if (f.isEmpty()) return null
+    return runCatching {
+        when (f[0]) {
+            "overview" -> decTarget(f, 1)?.let { StudioTab.Overview(it) }
+            "json" -> StudioTab.VersionJson(dec(f[1]))
+            "content" -> decTarget(f, 1)?.let { t ->
+                StudioTab.Content(t, runCatching { ContentKind.valueOf(dec(f[6])) }.getOrNull() ?: ContentKind.MODS)
+            }
+            "file" -> StudioTab.FileTab(Path.of(dec(f[1])), Path.of(dec(f[2])), f.getOrNull(3) == "1")
+            "storage" -> decTarget(f, 1)?.let { StudioTab.Storage(it) }
+            "settings" -> StudioTab.Settings(dec(f[1]).ifBlank { null })
+            "terminal" -> StudioTab.Terminal
+            "diagnose" -> decTarget(f, 1)?.let { StudioTab.Diagnose(it) }
+            "compare" -> decTarget(f, 1)?.let { StudioTab.Compare(it, dec(f.getOrNull(6).orEmpty()).ifBlank { null }) }
+            "configs" -> decTarget(f, 1)?.let { StudioTab.Configs(it) }
+            "code" -> StudioTab.CodeProject(dec(f[1]))
+            "doc" -> StudioTab.Document(dec(f[1]))
+            "module" -> StudioTab.Module(dec(f[1]), dec(f.getOrNull(2).orEmpty()).ifBlank { null })
+            "livelog" -> decTarget(f, 1)?.let { StudioTab.LiveLog(it) }
+            "crash" -> decTarget(f, 1)?.let { StudioTab.Crash(it) }
+            "updates" -> decTarget(f, 1)?.let { StudioTab.ModUpdates(it) }
+            "options" -> decTarget(f, 1)?.let { StudioTab.Options(it) }
+            else -> null
+        }
+    }.getOrNull()
 }
 
 internal enum class ContentKind { MODS, RESOURCE_PACKS, SHADERS, WORLDS, SCREENSHOTS }

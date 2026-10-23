@@ -39,13 +39,16 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Icon
@@ -62,15 +65,28 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.pmcl.core.gamecontent.WorldManager
 import com.pmcl.core.i18n.I18n
 import com.pmcl.ui.viewmodel.LauncherViewModel
+import com.pmcl.ui.viewmodel.backupWorld
+import com.pmcl.ui.viewmodel.listBackups
+import com.pmcl.ui.viewmodel.refreshWorlds
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -116,6 +132,7 @@ internal fun ContentEditor(
     tab: StudioTab.Content,
     onKind: (ContentKind) -> Unit,
     onReveal: (Path) -> Unit,
+    onConfirm: (String, String, () -> Unit) -> Unit,
 ) {
     val p = LocalStudio.current
     var reload by remember { mutableIntStateOf(0) }
@@ -158,7 +175,11 @@ internal fun ContentEditor(
                 ContentKind.MODS -> ModsContent(gameDir, query, reload, onReveal)
                 ContentKind.RESOURCE_PACKS -> PacksContent(vm, gameDir, query, reload, shaders = false)
                 ContentKind.SHADERS -> PacksContent(vm, gameDir, query, reload, shaders = true)
-                ContentKind.WORLDS -> WorldsContent(gameDir, query, reload, onReveal)
+                ContentKind.WORLDS -> WorldsContent(
+                    vm, tab.target, gameDir, query, reload, onReveal,
+                    onReload = { reload++ },
+                    onConfirm = onConfirm,
+                )
                 ContentKind.SCREENSHOTS -> ScreenshotsContent(gameDir, query, reload, onReveal)
             }
         }
@@ -557,17 +578,44 @@ private fun PacksContent(vm: LauncherViewModel, gameDir: Path, query: String, re
     }
 }
 
+private fun worldModeLabel(mode: Int): String = when (mode) {
+    0 -> mt("mode_survival")
+    1 -> mt("mode_creative")
+    2 -> mt("mode_adventure")
+    3 -> mt("mode_spectator")
+    else -> ""
+}
+
+private fun worldDifficultyLabel(d: Int): String = when (d) {
+    0 -> mt("diff_peaceful")
+    1 -> mt("diff_easy")
+    2 -> mt("diff_normal")
+    3 -> mt("diff_hard")
+    else -> ""
+}
+
+/**
+ * 内容页的存档网格：按目标实例的 saves 目录作用域扫描。
+ * 数据源用 core 的 WorldManager，一次拿到 level.dat 里的种子/模式/难度/硬核，
+ * 备份与还原直接复用 VM 已有的 backupWorld / listBackups / restoreWorld。
+ */
 @Composable
-private fun WorldsContent(gameDir: Path, query: String, reload: Int, onReveal: (Path) -> Unit) {
-    val p = LocalStudio.current
-    val worlds by produceState<List<WorldInfo>?>(null, gameDir, reload) {
-        value = withContext(Dispatchers.IO) { listWorlds(gameDir) }
-    }
-    val sizes = remember(gameDir, reload) { mutableStateMapOf<Path, Long>() }
-    LaunchedEffect(worlds) {
-        for (w in worlds.orEmpty()) {
-            if (sizes.containsKey(w.dir)) continue
-            sizes[w.dir] = withContext(Dispatchers.IO) { dirSize(w.dir) }
+private fun WorldsContent(
+    vm: LauncherViewModel,
+    target: StudioTarget,
+    gameDir: Path,
+    query: String,
+    reload: Int,
+    onReveal: (Path) -> Unit,
+    onReload: () -> Unit,
+    onConfirm: (String, String, () -> Unit) -> Unit,
+) {
+    val clipboard = LocalClipboardManager.current
+    var busy by remember { mutableStateOf<Path?>(null) }
+    var restoreFor by remember { mutableStateOf<WorldManager.WorldInfo?>(null) }
+    val worlds by produceState<List<WorldManager.WorldInfo>?>(null, gameDir, reload) {
+        value = withContext(Dispatchers.IO) {
+            runCatching { vm.core.worlds().listWorlds(gameDir.resolve("saves"), target.name) }.getOrDefault(emptyList())
         }
     }
     val list = worlds
@@ -576,54 +624,258 @@ private fun WorldsContent(gameDir: Path, query: String, reload: Int, onReveal: (
         return
     }
     val q = query.trim()
-    val shown = list.filter { q.isEmpty() || it.name.contains(q, true) }
-    if (shown.isEmpty()) {
-        CenterNote(I18n.t("studio.worlds_empty"))
-        return
+    val shown = list.filter { w ->
+        q.isEmpty() ||
+            w.name.contains(q, true) ||
+            w.displayName.orEmpty().contains(q, true) ||
+            (w.seed != Long.MIN_VALUE && w.seed.toString().contains(q))
     }
     val fmt = remember { SimpleDateFormat("yyyy-MM-dd HH:mm") }
     val colors = listOf(Tiles.Blue, Tiles.Navy, Tiles.Teal, Tiles.Plum, Tiles.Slate, Tiles.Graphite)
-    LazyVerticalGrid(GridCells.Adaptive(300.dp), Modifier.fillMaxSize()) {
-        itemsIndexed(shown, key = { _, w -> w.dir.toString() }) { index, world ->
-            val color = colors[index % colors.size]
-            val source = remember { MutableInteractionSource() }
-            val hovered by source.collectIsHoveredAsState()
-            val icon by produceState<ImageBitmap?>(null, world.icon) {
-                value = world.icon?.let { withContext(Dispatchers.IO) { ThumbCache.load(it, 128) } }
-            }
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .height(104.dp)
-                    .entrance(index)
-                    .cardMotion(source, true, 1.02f)
-                    .background(if (hovered) color.lift(0.08f) else color)
-                    .hoverable(source)
-                    .clickable(interactionSource = source, indication = null) { onReveal(world.dir) },
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(Modifier.size(104.dp).background(color.lift(0.1f)), contentAlignment = Alignment.Center) {
-                    val bitmap = icon
-                    if (bitmap != null) Image(bitmap, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                    else Icon(Icons.Filled.Public, contentDescription = null, tint = Color.White, modifier = Modifier.size(34.dp))
+    Box(Modifier.fillMaxSize()) {
+        if (shown.isEmpty()) {
+            CenterNote(I18n.t("studio.worlds_empty"))
+        } else {
+            LazyVerticalGrid(GridCells.Adaptive(320.dp), Modifier.fillMaxSize()) {
+                itemsIndexed(shown, key = { _, w -> w.dir.toString() }) { index, world ->
+                    val color = if (world.isHardcore) Tiles.Red else colors[index % colors.size]
+                    val source = remember { MutableInteractionSource() }
+                    val copySource = remember { MutableInteractionSource() }
+                    val hovered by source.collectIsHoveredAsState()
+                    val icon = rememberThumb(if (world.hasIcon()) world.dir.resolve("icon.png") else null, 128)
+                    val isBusy = busy == world.dir
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(152.dp)
+                            .entrance(index)
+                            .cardMotion(source, true, 1.02f)
+                            .background(if (hovered) color.lift(0.08f) else color)
+                            .hoverable(source)
+                    ) {
+                        Row(Modifier.weight(1f).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                Modifier
+                                    .size(104.dp)
+                                    .background(color.lift(0.1f))
+                                    .clickable(interactionSource = source, indication = null) { onReveal(world.dir) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                val bitmap = icon
+                                if (bitmap != null) Image(bitmap, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                                else Icon(Icons.Filled.Public, contentDescription = null, tint = Color.White, modifier = Modifier.size(34.dp))
+                            }
+                            Column(
+                                Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .clickable(interactionSource = source, indication = null) { onReveal(world.dir) }
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
+                                FlatText(
+                                    world.displayName?.takeIf { it.isNotBlank() } ?: world.name,
+                                    color = Color.White,
+                                    size = 14,
+                                    weight = FontWeight.SemiBold
+                                )
+                                FlatText(
+                                    listOf(
+                                        worldModeLabel(world.gameType),
+                                        worldDifficultyLabel(world.difficulty),
+                                        if (world.isHardcore) mt("hardcore") else ""
+                                    ).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { "—" },
+                                    color = Color.White.copy(alpha = 0.85f),
+                                    size = 11
+                                )
+                                FlatText(
+                                    formatSize(world.sizeBytes) + " · " +
+                                        (if (world.lastModified > 0) fmt.format(Date(world.lastModified)) else "—"),
+                                    color = Color.White.copy(alpha = 0.85f),
+                                    size = 11
+                                )
+                                if (world.seed != Long.MIN_VALUE) {
+                                    Row(
+                                        Modifier.clickable(interactionSource = copySource, indication = null) {
+                                            clipboard.setText(AnnotatedString(world.seed.toString()))
+                                        },
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        FlatText(mt("seed") + "  " + world.seed, color = Color.White.copy(alpha = 0.75f), size = 10)
+                                        Spacer(Modifier.width(5.dp))
+                                        Icon(
+                                            Icons.Filled.ContentCopy,
+                                            contentDescription = null,
+                                            tint = Color.White.copy(alpha = 0.6f),
+                                            modifier = Modifier.size(11.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        Row(Modifier.fillMaxWidth().background(color.lift(0.14f)), verticalAlignment = Alignment.CenterVertically) {
+                            Block(
+                                if (isBusy) I18n.t("studio.loading") else mt("backup_now"),
+                                {
+                                    busy = world.dir
+                                    vm.backupWorld(world).invokeOnCompletion {
+                                        busy = null
+                                        onReload()
+                                    }
+                                },
+                                Modifier.weight(1f),
+                                Icons.Filled.Archive,
+                                enabled = busy == null,
+                                height = 34.dp
+                            )
+                            Block(
+                                mt("restore"),
+                                { restoreFor = world },
+                                Modifier.weight(1f),
+                                Icons.Filled.Restore,
+                                enabled = busy == null,
+                                height = 34.dp
+                            )
+                            Block(
+                                "",
+                                { onReveal(world.dir) },
+                                icon = Icons.Filled.FolderOpen,
+                                fill = color.lift(0.2f),
+                                height = 34.dp
+                            )
+                        }
+                    }
                 }
-                Column(Modifier.weight(1f).padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    FlatText(world.name, color = Color.White, size = 14, weight = FontWeight.SemiBold)
-                    FlatText(
-                        if (world.modified > 0) fmt.format(Date(world.modified)) else "—",
-                        color = Color.White.copy(alpha = 0.85f),
-                        size = 11
-                    )
-                    FlatText(
-                        listOfNotNull(
-                            sizes[world.dir]?.let { formatSize(it) },
-                            if (world.datapacks > 0) I18n.t("studio.datapacks_n", world.datapacks.toString()) else null
-                        ).joinToString(" · ").ifBlank { "…" },
-                        color = Color.White.copy(alpha = 0.85f),
-                        size = 11
-                    )
+            }
+        }
+        val restoring = restoreFor
+        if (restoring != null) {
+            WorldBackupsPanel(
+                vm = vm,
+                world = restoring,
+                busy = busy != null,
+                onBusy = { busy = it },
+                onReload = {
+                    onReload()
+                    restoreFor = null
+                },
+                onConfirm = onConfirm,
+                onClose = { restoreFor = null },
+            )
+        }
+    }
+}
+
+/** 某个世界的备份清单，右侧检查器形式；点还原走二次确认。 */
+@Composable
+private fun WorldBackupsPanel(
+    vm: LauncherViewModel,
+    world: WorldManager.WorldInfo,
+    busy: Boolean,
+    onBusy: (Path?) -> Unit,
+    onReload: () -> Unit,
+    onConfirm: (String, String, () -> Unit) -> Unit,
+    onClose: () -> Unit,
+) {
+    val p = LocalStudio.current
+    val scope = rememberCoroutineScope()
+    var tick by remember { mutableIntStateOf(0) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val backups by produceState<List<Path>?>(null, world.name, tick) {
+        value = withContext(Dispatchers.IO) { runCatching { vm.listBackups(world.name) }.getOrDefault(emptyList()) }
+    }
+    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f)).clickable(
+        indication = null,
+        interactionSource = remember { MutableInteractionSource() }
+    ) { onClose() }) {
+        Inspector(
+            world.displayName?.takeIf { it.isNotBlank() } ?: world.name,
+            Tiles.Teal,
+            onClose,
+            Modifier.width(360.dp).align(Alignment.CenterEnd).clickable(
+                indication = null,
+                interactionSource = remember { MutableInteractionSource() }
+            ) { }
+        ) {
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+                LabelBar(mt("world_backups", backups?.size ?: 0), Tiles.Teal) {
+                    Block("", { tick++ }, icon = Icons.Filled.Refresh, height = 30.dp)
+                }
+                FlatText(
+                    I18n.t("studio.world_restore_hint"),
+                    color = p.muted,
+                    size = 11,
+                    lines = 3,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                )
+                error?.let { msg ->
+                    FlatText(msg, color = p.error, size = 11, lines = 3, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
+                }
+                val list = backups
+                when {
+                    list == null -> FlatText(I18n.t("studio.loading"), color = p.muted, modifier = Modifier.padding(12.dp))
+                    list.isEmpty() -> FlatText(mt("no_backups"), color = p.muted, modifier = Modifier.padding(12.dp))
+                    else -> list.forEachIndexed { i, b ->
+                        val size = remember(b) { runCatching { b.toFile().length() }.getOrDefault(0L) }
+                        ItemRow(
+                            b.fileName.toString(),
+                            formatSize(size),
+                            Tiles.Slate,
+                            i,
+                            icon = Icons.Filled.Archive,
+                            height = 44.dp
+                        ) {
+                            RowButton(
+                                Icons.Filled.Restore,
+                                {
+                                    onConfirm(
+                                        mt("restore_world_title"),
+                                        mt("restore_world_body", world.name, b.fileName.toString())
+                                    ) {
+                                        // 直接调 core 的阻塞还原并等待完成，VM 的 restoreWorld 是 fire-and-forget，
+                                        // 用它的话刷新会跑在写盘之前，列表拿到的是旧状态。
+                                        scope.launch {
+                                            error = null
+                                            onBusy(b)
+                                            val result = withContext(Dispatchers.IO) {
+                                                runCatching { vm.core.worlds().restore(b, world.name) }
+                                            }
+                                            onBusy(null)
+                                            if (result.isSuccess) {
+                                                vm.refreshWorlds()
+                                                onReload()
+                                            } else {
+                                                error = I18n.t(
+                                                    "studio.world_restore_failed",
+                                                    result.exceptionOrNull()?.message ?: ""
+                                                )
+                                                tick++
+                                            }
+                                        }
+                                    }
+                                },
+                                Tiles.Orange,
+                                enabled = !busy
+                            )
+                        }
+                    }
                 }
             }
+            Block(
+                mt("backup_now"),
+                {
+                    onBusy(world.dir)
+                    vm.backupWorld(world).invokeOnCompletion {
+                        onBusy(null)
+                        tick++
+                    }
+                },
+                Modifier.fillMaxWidth().padding(10.dp),
+                Icons.Filled.Archive,
+                fill = Tiles.Teal,
+                enabled = !busy,
+                height = 36.dp
+            )
         }
     }
 }
@@ -631,6 +883,7 @@ private fun WorldsContent(gameDir: Path, query: String, reload: Int, onReveal: (
 @Composable
 private fun ScreenshotsContent(gameDir: Path, query: String, reload: Int, onReveal: (Path) -> Unit) {
     val p = LocalStudio.current
+    val clipboard = LocalClipboardManager.current
     var preview by remember { mutableStateOf<Path?>(null) }
     val shots by produceState<List<Path>?>(null, gameDir, reload) {
         value = withContext(Dispatchers.IO) { listScreenshots(gameDir) }
@@ -680,10 +933,45 @@ private fun ScreenshotsContent(gameDir: Path, query: String, reload: Int, onReve
             val full by produceState<ImageBitmap?>(null, current) {
                 value = withContext(Dispatchers.IO) { ThumbCache.load(current, 1920) }
             }
-            Column(Modifier.fillMaxSize().background(Color.Black)) {
+            val index = shown.indexOf(current)
+            val focus = remember { FocusRequester() }
+            // 覆盖层一出现就抢焦点，否则方向键会被底下的网格吃掉
+            LaunchedEffect(current) { runCatching { focus.requestFocus() } }
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .background(Color.Black)
+                    .focusRequester(focus)
+                    .onPreviewKeyEvent { e ->
+                        if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                        when (e.key) {
+                            Key.Escape -> {
+                                preview = null
+                                true
+                            }
+                            Key.DirectionLeft -> {
+                                shown.getOrNull(index - 1)?.let { preview = it }
+                                true
+                            }
+                            Key.DirectionRight -> {
+                                shown.getOrNull(index + 1)?.let { preview = it }
+                                true
+                            }
+                            Key.C -> if (e.isMetaPressed || e.isCtrlPressed) {
+                                clipboard.setText(AnnotatedString(current.toString()))
+                                true
+                            } else false
+                            else -> false
+                        }
+                    }
+            ) {
                 Row(Modifier.fillMaxWidth().height(36.dp).background(Tiles.Plum), verticalAlignment = Alignment.CenterVertically) {
-                    FlatText(current.fileName.toString(), color = Color.White, weight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 12.dp).weight(1f))
-                    val index = shown.indexOf(current)
+                    FlatText(
+                        (index + 1).toString() + " / " + shown.size + "  ·  " + current.fileName.toString(),
+                        color = Color.White,
+                        weight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(horizontal = 12.dp).weight(1f)
+                    )
                     Block("‹", onClick = { shown.getOrNull(index - 1)?.let { preview = it } }, fill = Tiles.Plum, enabled = index > 0, height = 36.dp)
                     Block("›", onClick = { shown.getOrNull(index + 1)?.let { preview = it } }, fill = Tiles.Plum, enabled = index < shown.size - 1, height = 36.dp)
                     Block(I18n.t("studio.reveal_dir"), onClick = { onReveal(current.parent) }, icon = Icons.Filled.FolderOpen, fill = Tiles.Gold, height = 36.dp)

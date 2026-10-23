@@ -562,6 +562,15 @@ object PmclIcons {
         }
     }
 
+    val Error: ImageVector = icon("Error") {
+        shade { circle(12.5f, 12.6f, 8.6f) }
+        ink(PathFillType.EvenOdd) {
+            circle(12f, 12f, 9f)
+            roundRect(10.8f, 6.8f, 13.2f, 14.4f, 1.15f)
+            circle(12f, 16.8f, 1.35f)
+        }
+    }
+
     val Playlist: ImageVector = icon("Playlist") {
         shade { circle(7.6f, 17f, 2.6f) }
         ink { circle(7.2f, 16.6f, 2.45f) }

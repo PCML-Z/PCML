@@ -73,6 +73,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.awt.Cursor
 import kotlinx.coroutines.delay
+
 import kotlin.math.roundToInt
 
 internal data class StudioPalette(

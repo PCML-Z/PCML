@@ -41,14 +41,6 @@ internal data class PackFile(
     val modified: Long,
 )
 
-internal data class WorldInfo(
-    val dir: Path,
-    val name: String,
-    val modified: Long,
-    val icon: Path?,
-    val datapacks: Int,
-)
-
 private const val MAX_META_BYTES = 1_000_000L
 private const val MAX_ICON_BYTES = 2_000_000L
 
@@ -424,27 +416,6 @@ internal fun listPacks(gameDir: Path?, sub: String): List<PackFile> {
         val modified = try { Files.getLastModifiedTime(path).toMillis() } catch (_: Throwable) { 0L }
         PackFile(path, name, size, directory, modified)
     }
-}
-
-internal fun listWorlds(gameDir: Path?): List<WorldInfo> {
-    val saves = gameDir?.resolve("saves") ?: return emptyList()
-    if (!Files.isDirectory(saves, LinkOption.NOFOLLOW_LINKS)) return emptyList()
-    return listChildren(saves).filter { Files.isDirectory(it) }.map { dir ->
-        val level = dir.resolve("level.dat")
-        val modified = try {
-            Files.getLastModifiedTime(if (Files.isRegularFile(level)) level else dir).toMillis()
-        } catch (_: Throwable) {
-            0L
-        }
-        val icon = dir.resolve("icon.png").takeIf { Files.isRegularFile(it) }
-        val datapacks = try {
-            val dp = dir.resolve("datapacks")
-            if (Files.isDirectory(dp)) Files.list(dp).use { it.count().toInt() } else 0
-        } catch (_: Throwable) {
-            0
-        }
-        WorldInfo(dir, dir.fileName.toString(), modified, icon, datapacks)
-    }.sortedByDescending { it.modified }
 }
 
 internal fun listScreenshots(gameDir: Path?): List<Path> {

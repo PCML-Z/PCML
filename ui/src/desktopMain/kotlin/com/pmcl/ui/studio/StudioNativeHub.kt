@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -32,6 +33,7 @@ import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.Folder
@@ -193,6 +195,18 @@ private fun VersionsSection(ctx: ModuleCtx) {
         (kind == "all" || v.type == kind || (kind == "old" && v.type.orEmpty().startsWith("old"))) && (q.isEmpty() || v.id.contains(q, true))
     }
     Column(Modifier.fillMaxSize()) {
+        // 合规限制：受限地区不显示游戏版本列表，在原列表位置显示政策提示
+        if (com.pmcl.core.compliance.DownloadCompliance.isGameDownloadRestricted()) {
+            ModuleHero(mt("versions_title"), "", Tiles.Red, PmclIcons.Download)
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
+                    Icon(Icons.Filled.Error, contentDescription = null, tint = Tiles.Red, modifier = Modifier.size(48.dp))
+                    Spacer(Modifier.height(16.dp))
+                    FlatText(I18n.t("download.restricted_notice"), color = Tiles.Red, size = 15, lines = 6)
+                }
+            }
+            return@Column
+        }
         ModuleHero(mt("versions_title"), mt("versions_sub", versions.size, locals.size), ctx.color, PmclIcons.Download) {
             HeroButton(mt("refresh"), Icons.Filled.Refresh, ctx.color, { vm.refreshVersions() }, enabled = !loading)
         }

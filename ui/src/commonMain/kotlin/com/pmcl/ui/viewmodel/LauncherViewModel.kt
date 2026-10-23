@@ -48,6 +48,7 @@ import com.pmcl.core.gamecontent.DatapackManager
 import com.pmcl.core.gamecontent.OfflineSkinLibrary
 import com.pmcl.core.install.IntegrityChecker
 import com.pmcl.core.launch.CrashAnalyzer
+import com.pmcl.core.compliance.DownloadCompliance
 import com.pmcl.core.instance.InstanceInfo
 import com.pmcl.core.instance.InstanceManager
 import com.pmcl.core.web.WikiBrowser
@@ -1892,6 +1893,8 @@ class LauncherViewModel {
     @PublishedApi internal val modScanCache = java.util.concurrent.ConcurrentHashMap<Path, ModScanCacheEntry>()
 
     init {
+        // 合规预取：启动即后台查询出口 IP 归属地，避免首次安装时才等待
+        DownloadCompliance.prefetchNetworkAsync()
         loadSavedAccount()
         // 加载已固定的版本磁贴 + 自定义名称 + 最近使用 + 最后游玩时间
         _pinnedVersions.value = preferences.getPinnedVersions()
@@ -2381,6 +2384,10 @@ class LauncherViewModel {
      * 此方法不立即开始下载，仅触发 [preInstallEvent] 事件。
      */
     fun installVersion(versionId: String) {
+        if (DownloadCompliance.isGameDownloadRestricted()) {
+            _status.value = I18n.t(DownloadCompliance.restrictionNoticeKey())
+            return
+        }
         _preInstallEvent.value = PreInstallEvent(versionId)
     }
 
@@ -2393,6 +2400,11 @@ class LauncherViewModel {
      * @param loaderVersion  加载器版本号，loader 非 null 时必须提供
      */
     fun proceedInstall(versionId: String, loader: ModLoader? = null, loaderVersion: String? = null) {
+        // 合规兜底：安装前弹窗确认后再次校验，防止弹窗挂起期间环境变化
+        if (DownloadCompliance.isGameDownloadRestricted()) {
+            _status.value = I18n.t(DownloadCompliance.restrictionNoticeKey())
+            return
+        }
         // 走下载队列：弹窗确认后入队，悬浮队列 / 下载队列页可看到进度与控制
         initDownloadQueue()
         val loaderName = loader?.name
@@ -2723,6 +2735,10 @@ class LauncherViewModel {
 
     /** 提交版本安装到队列 */
     fun enqueueVersionInstall(versionId: String) {
+        if (DownloadCompliance.isGameDownloadRestricted()) {
+            _status.value = I18n.t(DownloadCompliance.restrictionNoticeKey())
+            return
+        }
         core.downloadQueue().submitVersionInstall(versionId)
         _status.value = I18n.t("status.queued_minecraft_version", versionId)
         refreshQueue()
@@ -2730,6 +2746,10 @@ class LauncherViewModel {
 
     /** 提交模组加载器安装到队列 */
     fun enqueueModLoaderInstall(loaderName: String, gameVersion: String, loaderVersion: String) {
+        if (DownloadCompliance.isGameDownloadRestricted()) {
+            _status.value = I18n.t(DownloadCompliance.restrictionNoticeKey())
+            return
+        }
         initDownloadQueue()
         core.downloadQueue().submitModLoaderInstall(loaderName, gameVersion, loaderVersion)
         _status.value = I18n.t("status.queued_loader", loaderName, loaderVersion)
@@ -3720,6 +3740,10 @@ class LauncherViewModel {
 
     /** 重新安装版本：删除 versions/{id} 目录后触发安装 */
     fun reinstallVersion(versionId: String) {
+        if (DownloadCompliance.isGameDownloadRestricted()) {
+            _status.value = I18n.t(DownloadCompliance.restrictionNoticeKey())
+            return
+        }
         scope.launch {
             try {
                 withContext(Dispatchers.IO) {

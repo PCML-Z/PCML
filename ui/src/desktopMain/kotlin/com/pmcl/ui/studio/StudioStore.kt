@@ -23,6 +23,9 @@ internal data class StudioSettings(
     val leftTool: String? = "PROJECT",
     val bottomTool: String? = "RUN",
     val rightOpen: Boolean = true,
+    val pinnedTabs: List<String> = emptyList(),
+    val openTabs: List<String> = emptyList(),
+    val activeTab: String? = null,
 )
 
 internal fun favoriteKey(target: StudioTarget): String = (if (target.kind == TargetKind.VERSION) "V:" else "I:") + target.id
@@ -63,6 +66,9 @@ internal object StudioStore {
                 leftTool = loaded?.leftTool,
                 bottomTool = loaded?.bottomTool,
                 rightOpen = loaded?.rightOpen ?: true,
+                pinnedTabs = loaded?.pinnedTabs.orEmpty().filter { it.isNotBlank() },
+                openTabs = loaded?.openTabs.orEmpty().filter { it.isNotBlank() }.take(40),
+                activeTab = loaded?.activeTab,
             )
         }
     } catch (_: Throwable) {

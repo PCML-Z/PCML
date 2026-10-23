@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.CompareArrows
 import androidx.compose.material.icons.filled.Difference
 import androidx.compose.material.icons.filled.HealthAndSafety
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.FindReplace
@@ -125,6 +126,7 @@ internal fun OverviewEditor(
     onOpenDiagnose: () -> Unit = {},
     onOpenCompare: () -> Unit = {},
     onOpenConfigs: () -> Unit = {},
+    onOpenExport: () -> Unit = {},
 ) {
     val p = LocalStudio.current
     val javas by vm.javaInstallations.collectAsState()
@@ -203,6 +205,7 @@ internal fun OverviewEditor(
             TileSpec(I18n.t("studio.diagnose"), I18n.t("studio.diag_open"), Tiles.Orange, Icons.Filled.HealthAndSafety, onOpenDiagnose),
             TileSpec(I18n.t("studio.compare"), I18n.t("studio.compare_open"), Tiles.Navy, Icons.Filled.CompareArrows, onOpenCompare),
             TileSpec(I18n.t("studio.configs"), I18n.t("studio.configs_open"), Tiles.Graphite, Icons.Filled.Tune, if (f.gameDir != null) onOpenConfigs else null),
+            TileSpec(I18n.t("studio.export"), I18n.t("studio.export_open"), Tiles.Plum, Icons.Filled.Share, if (f.gameDir != null) onOpenExport else null),
         )
         tiles.chunked(4).forEachIndexed { r, row ->
             Row(Modifier.fillMaxWidth().height(96.dp)) {
@@ -344,26 +347,7 @@ internal fun LineViewer(
 
 @Composable
 internal fun VersionJsonEditor(vm: LauncherViewModel, versionId: String) {
-    val content by produceState<Pair<Path?, String?>>(null to null, versionId) {
-        value = withContext(Dispatchers.IO) {
-            val file = vm.versionJsonOf(versionId)
-            if (file == null) null to null
-            else try {
-                if (Files.size(file) > MAX_VIEW_BYTES) file to null
-                else file to String(Files.readAllBytes(file), StandardCharsets.UTF_8)
-            } catch (_: Throwable) {
-                file to null
-            }
-        }
-    }
-    val (file, text) = content
-    if (text == null) {
-        Box(Modifier.fillMaxSize().background(LocalStudio.current.editor)) {
-            CenterNote(if (file == null) I18n.t("studio.json_missing") else I18n.t("studio.json_unreadable"))
-        }
-    } else {
-        LineViewer(text, Syntax.JSON, Modifier.fillMaxSize(), banner = I18n.t("studio.read_only") + " · " + file?.fileName)
-    }
+    VersionJsonStructured(vm, versionId)
 }
 
 @Composable
