@@ -90,15 +90,9 @@ fun DownloadPage(vm: LauncherViewModel) {
         TypewriterTitle(I18n.t("download.page_title"))
         Spacer(Modifier.height(16.dp))
 
-        // 合规提示：受限地区版本列表区域改为显示政策提示（见下方 restricted 分支）
-        var restricted by remember { mutableStateOf(DownloadCompliance.isGameDownloadRestricted()) }
-        LaunchedEffect(Unit) {
-            // IP 归属查询是异步的：结果落地后修正（海外用户正常显示版本列表）
-            repeat(15) {
-                kotlinx.coroutines.delay(2000)
-                restricted = DownloadCompliance.isGameDownloadRestricted()
-            }
-        }
+        // 实时检测：进入页面即刷新当前网络归属（VM 后台亦持续刷新），结果经 StateFlow 推送
+        val restricted by vm.downloadRestricted.collectAsState()
+        LaunchedEffect(Unit) { vm.refreshCompliance() }
 
         // Tab 选择
         TabRow(selectedTabIndex = tab) {

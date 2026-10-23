@@ -7,6 +7,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.update
+import com.pmcl.core.compliance.DownloadCompliance
 import com.pmcl.core.i18n.I18n
 
 /**
@@ -493,6 +494,11 @@ fun LauncherViewModel.setDirectConnectServer(host: String, port: Int, token: Str
 fun LauncherViewModel.directConnectServer(
     name: String, host: String, port: Int, save: Boolean, token: String = ""
 ) {
+    // 中国大陆网络地址：不再提供服务器连接服务
+    if (DownloadCompliance.isServerConnectionRestricted()) {
+        _status.value = I18n.t("servers.connection_restricted_notice")
+        return
+    }
     val address = com.pmcl.core.gamecontent.GameServerList.parse(host, port) ?: run {
         _status.value = I18n.t("servers.bad_address")
         return

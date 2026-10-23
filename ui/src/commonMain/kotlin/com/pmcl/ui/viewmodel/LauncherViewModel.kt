@@ -1892,9 +1892,34 @@ class LauncherViewModel {
     @PublishedApi internal data class ModScanCacheEntry(val dirMtime: Long, val mods: List<ModMeta>)
     @PublishedApi internal val modScanCache = java.util.concurrent.ConcurrentHashMap<Path, ModScanCacheEntry>()
 
+    // —— 合规检测结果（实时刷新，反映当前网络；结果经 StateFlow 推送，UI 仅观察）——
+    /** 合规检测实时刷新间隔（毫秒）：持续反映当前网络归属，保证检测实时、准确。 */
+    private val COMPLIANCE_REFRESH_MS = 10_000L
+
+    /** 服务器连接合规：出口 IP 明确为大陆 → true；未知/非大陆 → false/null（避免误伤）。 */
+    private val _serverConnectionRestricted = MutableStateFlow<Boolean?>(null)
+    val serverConnectionRestricted: StateFlow<Boolean?> = _serverConnectionRestricted.asStateFlow()
+
+    /** 游戏下载合规：语言+时区匹配且 IP 非明确非大陆时受限（未知按受限，保守）。 */
+    private val _downloadRestricted = MutableStateFlow(DownloadCompliance.isGameDownloadRestrictedSync())
+    val downloadRestricted: StateFlow<Boolean> = _downloadRestricted.asStateFlow()
+
+    /** 实时刷新合规检测结果（反映当前网络），推送至 StateFlow 供 UI 观察。 */
+    fun refreshCompliance() {
+        DownloadCompliance.refreshNetworkAsync { result ->
+            _serverConnectionRestricted.value = (result == true)
+            _downloadRestricted.value = DownloadCompliance.isGameDownloadRestrictedSync()
+        }
+    }
+
     init {
-        // 合规预取：启动即后台查询出口 IP 归属地，避免首次安装时才等待
-        DownloadCompliance.prefetchNetworkAsync()
+        // 实时合规检测：持续刷新出口 IP 归属地，始终反映当前网络（而非启动时一次性快照）
+        scope.launch {
+            while (true) {
+                refreshCompliance()
+                kotlinx.coroutines.delay(COMPLIANCE_REFRESH_MS)
+            }
+        }
         loadSavedAccount()
         // 加载已固定的版本磁贴 + 自定义名称 + 最近使用 + 最后游玩时间
         _pinnedVersions.value = preferences.getPinnedVersions()

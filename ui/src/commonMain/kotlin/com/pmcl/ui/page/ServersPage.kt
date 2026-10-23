@@ -29,10 +29,12 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
 import com.pmcl.core.multiplayer.ServerPinger
+import com.pmcl.ui.navigation.PmclIcons
 import com.pmcl.ui.theme.glassCardBorder
 import com.pmcl.ui.theme.glassCardColors
 import com.pmcl.ui.theme.glassCardElevation
@@ -53,11 +55,18 @@ import java.util.Base64
 
 @Composable
 fun ServersPage(vm: LauncherViewModel) {
-    // 进入页面时加载服务器列表并自动 ping 全部
-    LaunchedEffect(Unit) {
-        vm.loadFavoriteServers()
-        vm.pingAllServersFull()
+    // 实时检测：进入页面即刷新当前网络归属（VM 后台亦持续刷新），结果经 StateFlow 推送
+    val restrictedState by vm.serverConnectionRestricted.collectAsState()
+    val restricted = restrictedState == true
+    LaunchedEffect(Unit) { vm.refreshCompliance() }
+    // 受限时不再加载/测速收藏服务器
+    LaunchedEffect(restricted) {
+        if (!restricted) {
+            vm.loadFavoriteServers()
+            vm.pingAllServersFull()
+        }
     }
+    var section by remember { mutableStateOf("list") }
 
     val servers by vm.favoriteServers.collectAsState()
     val statuses by vm.serverStatuses.collectAsState()
@@ -65,7 +74,6 @@ fun ServersPage(vm: LauncherViewModel) {
     var showAddDialog by remember { mutableStateOf(false) }
     var editIndex by remember { mutableStateOf<Int?>(null) }
     var deleteIndex by remember { mutableStateOf<Int?>(null) }
-    var section by remember { mutableStateOf("list") }
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -74,7 +82,7 @@ fun ServersPage(vm: LauncherViewModel) {
             Spacer(Modifier.weight(1f))
             TextButton(onClick = { section = "list" }) { Text(I18n.t("servers.title")) }
             TextButton(onClick = { section = "opanel" }) { Text(I18n.t("servers.section.opanel")) }
-            if (section == "list") {
+            if (section == "list" && !restricted) {
                 IconButton(
                     onClick = { vm.pingAllServersFull() },
                     enabled = servers.isNotEmpty()
@@ -88,14 +96,32 @@ fun ServersPage(vm: LauncherViewModel) {
                 }
             }
         }
-        Text(
-            if (section == "opanel") I18n.t("servers.opanel.hint") else I18n.t("servers.hint"),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.outline
-        )
-        Spacer(Modifier.height(10.dp))
+        // 受限且停留在「服务器列表」分页：用大字提示替换列表（OPanel 管理标签仍保留可点）
+        if (!(restricted && section == "list")) {
+            Text(
+                if (section == "opanel") I18n.t("servers.opanel.hint") else I18n.t("servers.hint"),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline
+            )
+            Spacer(Modifier.height(10.dp))
+        }
 
-        if (section == "opanel") {
+        if (restricted && section == "list") {
+            // 像下载界面一样：大字居中提示，主页面不提供服务器连接服务
+            Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
+                    Icon(PmclIcons.Error, null, tint = MaterialTheme.colorScheme.error,
+                         modifier = Modifier.size(48.dp))
+                    Spacer(Modifier.height(16.dp))
+                    Text(
+                        I18n.t("servers.connection_restricted_notice"),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.error,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        } else if (section == "opanel") {
             OPanelManagePage(vm, Modifier.weight(1f))
         } else if (servers.isEmpty()) {
             Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {

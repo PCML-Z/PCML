@@ -696,9 +696,32 @@ internal fun ServersModule(ctx: ModuleCtx) {
     val servers by vm.favoriteServers.collectAsState()
     val statuses by vm.serverStatuses.collectAsState()
     val pinging by vm.pingingServers.collectAsState()
-    LaunchedEffect(Unit) {
-        vm.loadFavoriteServers()
-        vm.pingAllServersFull()
+    // 实时检测：进入模块即刷新当前网络归属（VM 后台亦持续刷新）
+    val restrictedState by vm.serverConnectionRestricted.collectAsState()
+    val restricted = restrictedState == true
+    LaunchedEffect(Unit) { vm.refreshCompliance() }
+    LaunchedEffect(restricted) {
+        if (!restricted) {
+            vm.loadFavoriteServers()
+            vm.pingAllServersFull()
+        }
+    }
+    // 受限：只展示提示，不加载/测速/连接收藏服务器
+    if (restricted) {
+        Column(Modifier.fillMaxSize()) {
+            ModuleHero(mt("servers_title"), mt("servers_sub", 0, 0), ctx.color, PmclIcons.Servers) {}
+            Spacer(Modifier.height(12.dp))
+            Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(PmclIcons.Error, null, Modifier.size(20.dp), tint = Tiles.Red)
+                Spacer(Modifier.width(8.dp))
+                FlatText(
+                    I18n.t("servers.connection_restricted_notice"),
+                    color = Tiles.Red, size = 12, lines = 3,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+        return
     }
     var editing by remember { mutableStateOf<Int?>(null) }
     var name by remember { mutableStateOf("") }
