@@ -64,23 +64,30 @@ public final class DataCache {
     public static <T> void save(String key, T data) {
         Object lock = keyLocks.computeIfAbsent(key, k -> new Object());
         synchronized (lock) {
+            Path tmp = null;
             try {
                 Path file = resolveCacheFile(key);
                 Map<String, Object> wrapper = new HashMap<>();
                 wrapper.put("savedAt", Instant.now().toEpochMilli());
                 wrapper.put("data", data);
-                Path tmp = file.resolveSibling(file.getFileName() + ".tmp." + Thread.currentThread().getId());
+                tmp = file.resolveSibling(file.getFileName() + ".tmp." + Thread.currentThread().getId());
                 Files.writeString(tmp, GSON.toJson(wrapper), java.nio.charset.StandardCharsets.UTF_8);
                 try {
                     Files.move(tmp, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
                 } catch (java.nio.file.AtomicMoveNotSupportedException e) {
                     Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING);
                 }
+                tmp = null;
                 memCache.put(key, new CacheEntry<>(data, System.currentTimeMillis()));
             } catch (IllegalArgumentException e) {
                 System.err.println("[DataCache] " + e.getMessage());
             } catch (Exception e) {
                 System.err.println("[DataCache] save failed for " + key + ": " + e.getMessage());
+            } finally {
+                // 改名被拒时快照已经写出，不删就会在缓存目录里永久留下孤儿
+                if (tmp != null) {
+                    try { Files.deleteIfExists(tmp); } catch (Exception ignored) {}
+                }
             }
         }
     }

@@ -224,12 +224,52 @@ public final class Preferences {
     private transient volatile java.util.concurrent.ScheduledFuture<?> pendingSave = null;
     private static final long SAVE_DEBOUNCE_MS = 200;
 
+    // ===== 写盘失败处理 =====
+    // 失败原先按固定 200ms 无限重试：文件系统拒绝替换时会变成每秒 5 次的死循环，
+    // 用户端表现为「设置改了就丢，且毫无提示」。改为指数退避 + 放弃阈值。
+    private static final long SAVE_RETRY_MIN_MS = 200L;
+    private static final long SAVE_RETRY_MAX_MS = 30_000L;
+    /** 连续失败达此次数后停止自动重试（内存状态仍为 dirty，下次改设置或退出前 flush 会再试）。 */
+    private static final int SAVE_RETRY_MAX_ATTEMPTS = 8;
+
+    /** 孤儿快照的最短存活时间：早于此的必然是历次写盘失败留下的，删之安全。 */
+    private static final long ORPHAN_SNAPSHOT_MIN_AGE_MS = 10 * 60 * 1000L;
+    private static final String SNAPSHOT_TMP_INFIX = ".tmp.";
+
+    // guarded by this
+    private transient int consecutiveSaveFailures = 0;
+    // guarded by this：同一批失败只通知 UI 一次，避免每 30 秒闪一次提示
+    private transient boolean saveFailureReported = false;
+    private transient volatile SaveFailureListener saveFailureListener;
+
+    /**
+     * 配置落盘失败 / 恢复时的回调，供 UI 把「设置没能保存」显示到状态栏。
+     * 只在连续失败到阈值时触发一次，成功后触发恢复通知。
+     */
+    public interface SaveFailureListener {
+        /** 连续多次写盘失败，已停止自动重试，内存里的设置尚未落盘。 */
+        void onSaveFailed();
+
+        /** 之前未能落盘的修改已写成功。 */
+        void onSaveRecovered();
+    }
+
+    /** 注册写盘结果回调；传 null 取消。回调在锁外执行，可安全反查 Preferences。 */
+    public void setSaveFailureListener(SaveFailureListener listener) {
+        this.saveFailureListener = listener;
+    }
+
     public Preferences(Path file) {
         this.file = file;
         load();
         // M16 修复：JVM 退出时调用 shutdown() 而非 flush()，
         // 确保数据落盘 + 线程池被显式关闭
         Runtime.getRuntime().addShutdownHook(new Thread(this::shutdown, "pmcl-prefs-shutdown"));
+        // 启动后补扫历史孤儿快照，稍延后以免阻塞首帧
+        try {
+            saveExecutor.schedule(this::sweepOrphanSnapshots, 1500L, java.util.concurrent.TimeUnit.MILLISECONDS);
+        } catch (java.util.concurrent.RejectedExecutionException ignored) {
+        }
     }
 
     public synchronized boolean isUseDarkTheme() { return useDarkTheme; }
@@ -1642,19 +1682,33 @@ public final class Preferences {
     protected synchronized void scheduleSave() {
         dirty = true;
         // 若仅有已完成的任务，或尚无任务，则调度；正在执行的 doSave 结束后会再检查 dirty。
+        // 已达放弃阈值时也调度：用户主动改设置应当再给一次机会，间隔按当前退避值。
         if (pendingSave == null || pendingSave.isDone()) {
-            try {
-                pendingSave = saveExecutor.schedule(this::doSave, SAVE_DEBOUNCE_MS, java.util.concurrent.TimeUnit.MILLISECONDS);
-            } catch (java.util.concurrent.RejectedExecutionException e) {
-                // H29: shutdown 期间忽略，flush/shutdown 会落盘
-            }
+            scheduleSave(nextSaveDelayMs());
+        }
+    }
+
+    /** 下一次写盘的延迟：无失败历史时用防抖间隔，有则按连续失败次数指数退避。
+     *  必须在 synchronized 块内调用。 */
+    private long nextSaveDelayMs() {
+        if (consecutiveSaveFailures == 0) return SAVE_DEBOUNCE_MS;
+        long shift = SAVE_RETRY_MIN_MS << Math.min(consecutiveSaveFailures - 1, 16);
+        return Math.min(shift, SAVE_RETRY_MAX_MS);
+    }
+
+    private void scheduleSave(long delayMs) {
+        try {
+            pendingSave = saveExecutor.schedule(this::doSave, delayMs, java.util.concurrent.TimeUnit.MILLISECONDS);
+        } catch (java.util.concurrent.RejectedExecutionException e) {
+            // H29: shutdown 期间忽略，flush/shutdown 会落盘
         }
     }
 
     /** 后台线程执行的实际写盘操作，在 synchronized 块内构建 JSON 快照后异步写盘。
      *  采用 tmp + ATOMIC_MOVE 原子写入，防止崩溃导致配置文件损坏。
      *  M13 修复：磁盘写入通过 writeSnapshot() 在锁外执行，不阻塞 getter/setter。
-     *  C14：写盘期间 setter 置 dirty 时，结束后无条件再调度一轮，避免 pendingSave 未 done 导致漏写。 */
+     *  C14：写盘期间 setter 置 dirty 时，成功后再调度一轮，避免 pendingSave 未 done 导致漏写。
+     *  失败则指数退避重试，连续 {@value #SAVE_RETRY_MAX_ATTEMPTS} 次后放弃并通知 UI。 */
     private void doSave() {
         JsonObject snapshot;
         synchronized (this) {
@@ -1666,18 +1720,39 @@ public final class Preferences {
         synchronized (diskWriteLock) {
             ok = writeSnapshot(snapshot);
         }
+        Runnable notify;
         synchronized (this) {
-            if (!ok) dirty = true;
-            // C14: 无论 pendingSave 是否仍指向本任务，只要 dirty 就再调度
-            if (dirty) {
-                try {
-                    pendingSave = saveExecutor.schedule(this::doSave, SAVE_DEBOUNCE_MS,
-                            java.util.concurrent.TimeUnit.MILLISECONDS);
-                } catch (java.util.concurrent.RejectedExecutionException e) {
-                    // shutdown 中：留给 flush
-                }
+            notify = recordWriteResult(ok);
+            boolean retry;
+            if (ok) {
+                // C14: 写盘期间又有新的修改，无条件再调度一轮
+                retry = dirty;
+            } else {
+                dirty = true;
+                retry = consecutiveSaveFailures < SAVE_RETRY_MAX_ATTEMPTS;
             }
+            if (retry) scheduleSave(nextSaveDelayMs());
         }
+        // 回调放在锁外，UI 侧若要反查 Preferences 不会被这把锁挡住
+        if (notify != null) notify.run();
+    }
+
+    /**
+     * 记账一次写盘结果，更新退避计数与告警状态，返回需要在锁外执行的通知回调（无则 null）。
+     * 必须在 synchronized 块内调用。
+     */
+    private Runnable recordWriteResult(boolean ok) {
+        SaveFailureListener l = saveFailureListener;
+        if (ok) {
+            if (consecutiveSaveFailures == 0 && !saveFailureReported) return null;
+            consecutiveSaveFailures = 0;
+            saveFailureReported = false;
+            return l == null ? null : l::onSaveRecovered;
+        }
+        consecutiveSaveFailures++;
+        if (consecutiveSaveFailures < SAVE_RETRY_MAX_ATTEMPTS || saveFailureReported) return null;
+        saveFailureReported = true;
+        return l == null ? null : l::onSaveFailed;
     }
 
     /** 构建完整 JSON 快照（必须在 synchronized 块内调用） */
@@ -1888,13 +1963,13 @@ public final class Preferences {
     /** 串行化磁盘写入，避免 save/flush/doSave 争用同一 .tmp */
     private final Object diskWriteLock = new Object();
 
-    /** @return true 写入成功；失败时调用方应重新标记 dirty 并重试 */
+    /** @return true 写入成功；失败时调用方按退避策略重试 */
     private boolean writeSnapshot(JsonObject snapshot) {
         java.nio.file.Path tmp = null;
         try {
             java.nio.file.Path parent = file.getParent();
             if (parent != null) Files.createDirectories(parent);
-            String tmpName = file.getFileName() + ".tmp." + java.util.UUID.randomUUID();
+            String tmpName = file.getFileName() + SNAPSHOT_TMP_INFIX + java.util.UUID.randomUUID();
             tmp = parent == null
                     ? java.nio.file.Paths.get(tmpName)
                     : parent.resolve(tmpName);
@@ -1907,16 +1982,51 @@ public final class Preferences {
                 Files.move(tmp, file,
                         java.nio.file.StandardCopyOption.REPLACE_EXISTING);
             }
+            // 改名成功即不再关心 tmp，交由 finally 统一判空删除
+            tmp = null;
             // 加固文件权限：preferences.json 含代理凭据等敏感信息，限制为 0600
             com.pmcl.core.auth.TokenEncryptor.hardenFilePermissions(file);
-            tmp = null;
             return true;
         } catch (Exception e) {
-            System.err.println("[Preferences] 配置写入磁盘失败: " + e.getMessage());
+            System.err.println("[Preferences] 配置写入磁盘失败: " + e.getClass().getSimpleName() + ": " + e.getMessage());
+            return false;
+        } finally {
+            // tmp 清理放在 finally 而非 catch：改名被拒（macOS 对带 provenance 标记的文件返回
+            // EPERM）时快照已经落盘但永远没人删，一次失败重试就会在 ~/.pmcl 攒下一个孤儿。
             if (tmp != null) {
                 try { Files.deleteIfExists(tmp); } catch (Exception ignored) {}
             }
-            return false;
+        }
+    }
+
+    /**
+     * 清理本目录下遗留的 {@code preferences.json.tmp.*} 快照。
+     * <p>
+     * 只删改期早于 {@value #ORPHAN_SNAPSHOT_MIN_AGE_MS} 毫秒的：正在写入的快照总是刚创建的，
+     * 据此避开另一个实例的在途写入。启动时调度一次，把历史失败攒下的孤儿一次收干净。
+     */
+    private void sweepOrphanSnapshots() {
+        java.nio.file.Path parent = file.getParent();
+        if (parent == null) return;
+        String prefix = file.getFileName() + SNAPSHOT_TMP_INFIX;
+        long cutoff = System.currentTimeMillis() - ORPHAN_SNAPSHOT_MIN_AGE_MS;
+        try (java.util.stream.Stream<java.nio.file.Path> s = Files.list(parent)) {
+            s.filter(p -> p.getFileName().toString().startsWith(prefix))
+                    .filter(p -> {
+                        try {
+                            return Files.getLastModifiedTime(p).toMillis() < cutoff;
+                        } catch (Exception e) {
+                            return false;
+                        }
+                    })
+                    .forEach(p -> {
+                        try {
+                            Files.deleteIfExists(p);
+                        } catch (Exception ignored) {
+                        }
+                    });
+        } catch (Exception ignored) {
+            // 列目录失败不影响启动，下次再说
         }
     }
 
@@ -1936,12 +2046,13 @@ public final class Preferences {
         synchronized (diskWriteLock) {
             ok = writeSnapshot(snapshot);
         }
-        if (!ok) {
-            synchronized (this) {
-                dirty = true;
-            }
-            scheduleSave();
+        Runnable notify;
+        synchronized (this) {
+            notify = recordWriteResult(ok);
+            if (!ok) dirty = true;
         }
+        if (notify != null) notify.run();
+        if (!ok) scheduleSave();
     }
 
     /**

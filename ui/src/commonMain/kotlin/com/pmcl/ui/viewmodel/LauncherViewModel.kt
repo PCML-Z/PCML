@@ -1913,6 +1913,16 @@ class LauncherViewModel {
     }
 
     init {
+        // 配置写盘失败原先只打 stderr，用户端表现为「改了设置就丢、毫无提示」。接到状态栏。
+        preferences.setSaveFailureListener(object : Preferences.SaveFailureListener {
+            override fun onSaveFailed() {
+                _status.value = I18n.t("status.prefs_save_failed")
+            }
+
+            override fun onSaveRecovered() {
+                _status.value = I18n.t("status.prefs_save_recovered")
+            }
+        })
         // 实时合规检测：持续刷新出口 IP 归属地，始终反映当前网络（而非启动时一次性快照）
         scope.launch {
             while (true) {
