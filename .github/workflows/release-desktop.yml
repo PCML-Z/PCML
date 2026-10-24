@@ -116,7 +116,7 @@ jobs:
           done
           if [ -n "$notes_file" ]; then
             echo "使用更新说明 $notes_file"
-            echo "PMCL_UPDATE_NOTES_FILE=$notes_file" >> "$GITHUB_ENV"
+            export PMCL_UPDATE_NOTES_FILE="$notes_file"
           else
             echo "未找到更新说明，清单 notes 留空"
           fi
@@ -125,11 +125,25 @@ jobs:
           mandatory_target=$(sed -n 's/^pmcl\.mandatory\.update=//p' gradle.properties | tr -d '[:space:]')
           if [ -n "$mandatory_target" ] && [ "$mandatory_target" = "$version" ]; then
             echo "本次为强制更新：客户端更新框不可跳过"
-            echo "PMCL_UPDATE_MANDATORY=true" >> "$GITHUB_ENV"
+            export PMCL_UPDATE_MANDATORY=true
           fi
           java tools/BuildHotUpdateManifest.java pack \
             "ui/build/compose/binaries" \
             "$version" "$os_token" "$arch_token" "$RELEASE_TAG" "$GITHUB_REPOSITORY" dist
+          # 清单是发布方唯一能触达旧客户端的通道，静默降级等于没发——当场校验，不合格就别发布
+          manifest=$(find dist -maxdepth 1 -name 'pmcl-hotupdate-*.json' | head -1)
+          if [ -z "$manifest" ]; then
+            echo "未生成热更新清单"
+            exit 1
+          fi
+          if [ "${PMCL_UPDATE_MANDATORY:-}" = "true" ] && ! grep -q '"mandatory":true' "$manifest"; then
+            echo "清单未置 mandatory，强制更新不会生效"
+            exit 1
+          fi
+          if [ -n "$notes_file" ] && ! grep -q '"notes":"[^"]' "$manifest"; then
+            echo "清单 notes 为空，旧客户端的更新框里不会显示任何说明"
+            exit 1
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
