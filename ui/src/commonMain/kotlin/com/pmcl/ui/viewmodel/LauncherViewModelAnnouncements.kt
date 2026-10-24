@@ -8,6 +8,15 @@ import kotlinx.coroutines.withContext
 
 private const val ANNOUNCEMENT_CACHE_MS = 10 * 60 * 1000L
 
+/** 打开公告窗口。政策条目随应用内置，无需请求。 */
+fun LauncherViewModel.openAnnouncementWindow() {
+    _announcementWindowVisible.value = true
+}
+
+fun LauncherViewModel.closeAnnouncementWindow() {
+    _announcementWindowVisible.value = false
+}
+
 /**
  * 关于页打开时拉取 GitHub Releases 作为更新公告。
  * 十分钟内重复进入不重复请求；刷新按钮强制重拉。

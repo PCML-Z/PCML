@@ -1724,6 +1724,10 @@ class LauncherViewModel {
 
     @PublishedApi internal var releaseAnnouncementsFetchedAt = 0L
 
+    /** 独立的公告窗口是否打开。单实例：重复点击不再叠窗口。 */
+    @PublishedApi internal val _announcementWindowVisible = MutableStateFlow(false)
+    val announcementWindowVisible: StateFlow<Boolean> = _announcementWindowVisible.asStateFlow()
+
     @PublishedApi internal val _repoGitTree = MutableStateFlow<com.pmcl.core.update.RepoCommitGraph.Graph?>(null)
     val repoGitTree: StateFlow<com.pmcl.core.update.RepoCommitGraph.Graph?> = _repoGitTree.asStateFlow()
 

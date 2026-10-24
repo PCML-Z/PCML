@@ -28,11 +28,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.download.DownloadQueueManager
+import com.pmcl.core.i18n.I18n
 import com.pmcl.ui.theme.glassCardBorder
 import com.pmcl.ui.theme.glassCardColors
 import com.pmcl.ui.theme.glassCardElevation
 import com.pmcl.ui.theme.glassContainerColor
 import com.pmcl.ui.viewmodel.LauncherViewModel
+import com.pmcl.ui.viewmodel.PolicyChange
+import com.pmcl.ui.viewmodel.PolicyChangelog
+import com.pmcl.ui.viewmodel.openAnnouncementWindow
 import java.text.SimpleDateFormat
 import java.util.Date
 
@@ -233,6 +237,18 @@ fun TaskCenterPanel(
                 Modifier.weight(1f).fillMaxWidth(),
                 contentPadding = PaddingValues(vertical = 8.dp)
             ) {
+                // ===== 公告栏 =====
+                item { SectionHeader("公告栏", badgeCount = PolicyChangelog.entries.size) }
+                item {
+                    AnnouncementEntryRow(latest = PolicyChangelog.entries.firstOrNull()) {
+                        vm.openAnnouncementWindow()
+                        // 先收起抽屉，否则新窗口会被遮罩和面板挡住
+                        onDismiss()
+                    }
+                }
+                item { Spacer(Modifier.height(8.dp)) }
+                item { HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant) }
+
                 // ===== 下载队列 =====
                 item { SectionHeader("下载队列", badgeCount = queueTasks.size) }
                 if (queueTasks.isEmpty()) {
@@ -308,6 +324,61 @@ private fun SectionHeader(title: String, badgeCount: Int) {
                 )
             }
         }
+    }
+}
+
+/** 任务中心的公告栏入口：预览最新一条，点击在主窗口之外打开完整公告窗口。 */
+@Composable
+private fun AnnouncementEntryRow(
+    latest: PolicyChange?,
+    onClick: () -> Unit
+) {
+    val title = latest?.let { I18n.t("policy.entry.${it.id}.title") } ?: "暂无政策变动"
+    val subtitle = latest?.let { "${it.date} · v${it.version}" } ?: "点击打开公告窗口"
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            Modifier
+                .size(34.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(MaterialTheme.colorScheme.primaryContainer),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                Icons.Filled.Campaign,
+                null,
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Icon(
+            Icons.Filled.ChevronRight,
+            null,
+            tint = MaterialTheme.colorScheme.outline,
+            modifier = Modifier.size(18.dp)
+        )
     }
 }
 

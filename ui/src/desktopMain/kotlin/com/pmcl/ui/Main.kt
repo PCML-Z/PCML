@@ -18,9 +18,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.*
-import androidx.compose.ui.input.pointer.PointerEventType
-import androidx.compose.ui.input.pointer.isPrimaryPressed
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.FrameWindowScope
@@ -36,15 +33,15 @@ import com.pmcl.ui.theme.LauncherTheme
 import com.pmcl.ui.theme.MaterialField
 import com.pmcl.ui.theme.LocalThemeState
 import com.pmcl.ui.theme.ThemeState
+import com.pmcl.ui.theme.WindowBackdrop
 import com.pmcl.ui.widget.TaskCenterPanel
 import com.pmcl.ui.viewmodel.LauncherViewModel
+import com.pmcl.ui.viewmodel.closeAnnouncementWindow
 import com.pmcl.ui.viewmodel.playNextMusic
 import com.pmcl.ui.viewmodel.playPreviousMusic
 import com.pmcl.ui.viewmodel.stopMusic
 import com.pmcl.ui.viewmodel.toggleMusicPlayPause
 import java.awt.Frame
-import java.awt.MouseInfo
-import java.awt.Point
 import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
 import java.awt.geom.RoundRectangle2D
@@ -346,53 +343,18 @@ fun main() = application {
             // 优先级：自定义背景（图片/视频）> 视差背景
             val bgModifier = if (borderless && !isMaximized) Modifier.clip(RoundedCornerShape(14.dp))
                              else Modifier
-            // 壁纸毛玻璃：壁纸自己逐帧模糊，画面从玻璃里透出来。
-            // 材质主题开着时也走这条，霜面铺在玻璃上面，不再把壁纸先涂糊一层。
-            val videoOn = customBgType == "video" && customBgVideo.isNotBlank()
-            if (liveGlassOn) {
-                com.pmcl.ui.theme.LiveWallpaperGlass(
-                    modifier = Modifier.fillMaxSize().then(bgModifier),
-                    useDark = sharedThemeState.useDark,
-                    blurWallpaper = !videoOn
-                ) {
-                    if (customBgOn) {
-                        com.pmcl.ui.theme.CustomBackground(
-                            type = customBgType,
-                            imagePath = customBgImage,
-                            videoPath = customBgVideo,
-                            useDark = sharedThemeState.useDark,
-                            scrimAlpha = if (videoOn) 0f else 0.06f,
-                            frameBlur = videoOn
-                        )
-                    } else {
-                        com.pmcl.ui.theme.ParallaxBackground(
-                            useDark = sharedThemeState.useDark,
-                            scrim = false
-                        )
-                    }
-                }
-            } else {
-            // 材质主题：先模糊壁纸，再盖一层能透出颜色的薄霜，正中也是毛玻璃。
-            // 视频自己按帧模糊，不再套一层接不住新帧的 Modifier.blur。
-            val paintedBgModifier = if (materialOn && !videoOn) bgModifier.blur(22.dp) else bgModifier
-            if (customBgOn) {
-                com.pmcl.ui.theme.CustomBackground(
-                    type = customBgType,
-                    imagePath = customBgImage,
-                    videoPath = customBgVideo,
-                    useDark = sharedThemeState.useDark,
-                    modifier = paintedBgModifier,
-                    scrimAlpha = if (materialOn) 0.06f else 0.45f,
-                    frameBlur = materialOn && videoOn
-                )
-            } else if (parallaxBg || materialOn) {
-                com.pmcl.ui.theme.ParallaxBackground(
-                    modifier = paintedBgModifier,
-                    useDark = sharedThemeState.useDark,
-                    scrim = !materialOn
-                )
-            }
-            }
+            // 壁纸毛玻璃 / 材质霜面 / 自定义背景的具体绘制收在 WindowBackdrop 里，
+            // 独立窗口（如公告窗口）复用同一套，观感与主窗口一致。
+            WindowBackdrop(
+                themeState = sharedThemeState,
+                parallax = parallaxBg,
+                customType = customBgType,
+                customImage = customBgImage,
+                customVideo = customBgVideo,
+                materialOn = materialOn,
+                liveGlassOn = liveGlassOn,
+                modifier = bgModifier
+            )
             val windowDynamicScheme =
                 if (sharedThemeState.dynamicColor || sharedThemeState.customAccentColor != -1) {
                     sharedThemeState.dynamicColorScheme
@@ -598,6 +560,16 @@ fun main() = application {
         MusicOverlayWindow(vm, sharedThemeState, onClose = { vm.setMusicOverlayVisible(false) })
     }
 
+    // 公告窗口（任务中心「公告栏」点开；单实例，重复点击不再叠窗）
+    val showAnnouncementWindow by vm.announcementWindowVisible.collectAsState()
+    if (showAnnouncementWindow) {
+        com.pmcl.ui.page.AnnouncementWindow(
+            vm = vm,
+            themeState = sharedThemeState,
+            onClose = { vm.closeAnnouncementWindow() }
+        )
+    }
+
     val terminalWindows by vm.terminalWindows.collectAsState()
     terminalWindows.forEach { id ->
         key(id) {
@@ -644,50 +616,6 @@ private fun readDarkThemePref(path: String): Boolean {
         } else false
     } catch (_: Throwable) { false }
 }
-
-/**
- * 窗口拖拽修饰符：按住左键拖拽移动窗口（Compose 1.7 无 WindowDragArea，手动实现）。
- * 拖动开始/结束 时更新 isDragging 状态，用于切换透明/不透明渲染避免闪烁。
- *
- * 仅挂在标题栏空白区（标题文字 / Spacer），不要挂整行 Row，
- * 这样搜索框与按钮会先命中自身，不会整窗被拖走。
- *
- * 注意：不要用 Final pass + isConsumed 过滤——Compose Desktop 上许多事件在 Final
- * 时已被标记 consumed，会导致拖拽永远无法启动。
- */
-private fun WindowScope.windowDragModifier(isDragging: MutableState<Boolean>): Modifier =
-    Modifier.pointerInput(Unit) {
-        var initialMouse: Point? = null
-        var initialWindowLoc: Point? = null
-
-        awaitPointerEventScope {
-            while (true) {
-                val event = awaitPointerEvent()
-                val mouseLocation = MouseInfo.getPointerInfo()?.location
-
-                if (event.buttons.isPrimaryPressed) {
-                    if (initialMouse == null && mouseLocation != null) {
-                        initialMouse = mouseLocation
-                        initialWindowLoc = Point(window.x, window.y)
-                        isDragging.value = true
-                    }
-                    val im = initialMouse
-                    val iwl = initialWindowLoc
-                    if (event.type == PointerEventType.Move && im != null && iwl != null && mouseLocation != null) {
-                        val dx = mouseLocation.x - im.x
-                        val dy = mouseLocation.y - im.y
-                        window.setLocation(iwl.x + dx, iwl.y + dy)
-                    }
-                } else {
-                    if (initialMouse != null) {
-                        isDragging.value = false
-                    }
-                    initialMouse = null
-                    initialWindowLoc = null
-                }
-            }
-        }
-    }
 
 /**
  * 无边框窗口自定义标题栏：可拖拽 + 搜索框 + 最小化/最大化/关闭按钮。
