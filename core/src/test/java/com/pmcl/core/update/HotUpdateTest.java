@@ -32,6 +32,24 @@ class HotUpdateTest {
     }
 
     @Test
+    void mandatoryFlagIsNotPartOfSignedPayload() {
+        // 强制更新标记必须留在签名载荷之外：2.7 及更早客户端用同一规范串验签，
+        // 一旦把它算进去，旧客户端会验签失败、连本次更新都装不上。
+        List<HotUpdateManifest.FileEntry> files = List.of(
+                entry("app/a.dat", "aa", 2),
+                entry("app/b.dat", "bb", 2)
+        );
+        HotUpdateManifest optional = HotUpdateManifest.verified("2.7.1", "notes", "sig", files);
+        HotUpdateManifest forced = HotUpdateManifest.verified("2.7.1", "notes", "sig", true, files);
+
+        assertEquals(optional.canonical(), forced.canonical());
+        assertFalse(optional.mandatory());
+        assertTrue(forced.mandatory());
+        assertTrue(forced.toJson().contains("\"mandatory\":true"));
+        assertFalse(optional.toJson().contains("mandatory"));
+    }
+
+    @Test
     void unsignedOrUnsafeManifestIsRejected() {
         assertThrows(Exception.class, () -> HotUpdateManifest.parse("""
                 {"version":"1.0.0","signature":"AAAA","files":[

@@ -318,6 +318,8 @@ class LauncherViewModel {
     }
 
     fun clearHotUpdate() {
+        // 强制更新不允许关闭：旧版本仍在提供受监管限制的下载服务，必须升级到合规版本
+        if (_hotOffer.value?.first?.mandatory() == true) return
         _hotOffer.value = null
     }
 

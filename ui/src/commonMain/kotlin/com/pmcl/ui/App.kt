@@ -286,12 +286,23 @@ private fun HotUpdateDialog(vm: LauncherViewModel) {
     var downloadedBytes by remember(manifest.version()) { mutableLongStateOf(0L) }
     var downloading by remember(manifest.version()) { mutableStateOf(false) }
     val total = plan.downloadBytes().coerceAtLeast(1L)
+    val mandatory = manifest.mandatory()
 
     AlertDialog(
-        onDismissRequest = { if (!downloading) vm.clearHotUpdate() },
-        title = { Text(I18n.t("update.hot_title", manifest.version())) },
+        onDismissRequest = { if (!downloading && !mandatory) vm.clearHotUpdate() },
+        title = {
+            Text(I18n.t(if (mandatory) "update.hot_mandatory_title" else "update.hot_title", manifest.version()))
+        },
         text = {
             Column {
+                if (mandatory) {
+                    Text(
+                        I18n.t("update.hot_mandatory_body"),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                    Spacer(Modifier.height(8.dp))
+                }
                 Text(I18n.t("update.hot_body", plan.downloads().size, formatUpdateBytes(plan.downloadBytes())))
                 if (manifest.notes().isNotEmpty()) {
                     Spacer(Modifier.height(8.dp))
@@ -321,8 +332,10 @@ private fun HotUpdateDialog(vm: LauncherViewModel) {
             ) { Text(if (downloading) I18n.t("update.hot_working") else I18n.t("update.hot_confirm")) }
         },
         dismissButton = {
-            TextButton(enabled = !downloading, onClick = { vm.clearHotUpdate() }) {
-                Text(I18n.t("update.hot_later"))
+            if (!mandatory) {
+                TextButton(enabled = !downloading, onClick = { vm.clearHotUpdate() }) {
+                    Text(I18n.t("update.hot_later"))
+                }
             }
         }
     )

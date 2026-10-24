@@ -31,12 +31,15 @@ public final class HotUpdateManifest {
     private final String version;
     private final String notes;
     private final String signature;
+    private final boolean mandatory;
     private final List<FileEntry> files;
 
-    private HotUpdateManifest(String version, String notes, String signature, List<FileEntry> files) {
+    private HotUpdateManifest(String version, String notes, String signature, boolean mandatory,
+                              List<FileEntry> files) {
         this.version = version;
         this.notes = notes;
         this.signature = signature;
+        this.mandatory = mandatory;
         this.files = List.copyOf(files);
     }
 
@@ -44,6 +47,16 @@ public final class HotUpdateManifest {
     public String notes() { return notes; }
     public String signature() { return signature; }
     public List<FileEntry> files() { return files; }
+
+    /**
+     * 是否为强制更新：true 时 UI 不提供「稍后再说」，对话框不可关闭。
+     * <p>
+     * 刻意<b>不</b>纳入 {@link #canonical()} 签名载荷——旧客户端（2.7 及更早）用同一份
+     * 规范串验签，一旦把新字段算进去，它们会验签失败、连带拒绝安装本次更新，
+     * 强制升级反而把自己堵死。安全性不受影响：清单整体仍需通过 Ed25519 验签，
+     * 只有真正的发布方能让 mandatory 生效。旧客户端会忽略这个未知字段。
+     */
+    public boolean mandatory() { return mandatory; }
 
     public List<FileEntry> filesFor(Host host) {
         List<FileEntry> matched = new ArrayList<>();
@@ -87,16 +100,22 @@ public final class HotUpdateManifest {
                 throw new IOException("热更新清单路径重复: " + files.get(i).path());
             }
         }
-        HotUpdateManifest manifest = new HotUpdateManifest(version, notes, signature, files);
+        HotUpdateManifest manifest = new HotUpdateManifest(version, notes, signature,
+                bool(o, "mandatory"), files);
         UpdateSignatureVerifier.verifyHotUpdate(manifest.canonical(), signature);
         return manifest;
     }
 
     /** 已完成验签后的清单。测试和内存构造使用，发布通道必须走 {@link #parse}。 */
     static HotUpdateManifest verified(String version, String notes, String signature, List<FileEntry> files) {
+        return verified(version, notes, signature, false, files);
+    }
+
+    static HotUpdateManifest verified(String version, String notes, String signature, boolean mandatory,
+                                      List<FileEntry> files) {
         List<FileEntry> copy = new ArrayList<>(files);
         copy.sort(Comparator.comparing(FileEntry::path));
-        return new HotUpdateManifest(version, notes == null ? "" : notes, signature, copy);
+        return new HotUpdateManifest(version, notes == null ? "" : notes, signature, mandatory, copy);
     }
 
     public String canonical() {
@@ -120,6 +139,7 @@ public final class HotUpdateManifest {
         o.addProperty("version", version);
         o.addProperty("notes", notes);
         o.addProperty("signature", signature);
+        if (mandatory) o.addProperty("mandatory", true);
         JsonArray array = new JsonArray();
         for (FileEntry file : files) array.add(file.toJson());
         o.add("files", array);
@@ -140,6 +160,10 @@ public final class HotUpdateManifest {
 
     private static String text(JsonObject o, String key) {
         return o.has(key) && !o.get(key).isJsonNull() ? o.get(key).getAsString() : "";
+    }
+
+    private static boolean bool(JsonObject o, String key) {
+        return o.has(key) && !o.get(key).isJsonNull() && o.get(key).getAsBoolean();
     }
 
     public static final class FileEntry {

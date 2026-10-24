@@ -108,6 +108,25 @@ jobs:
             java tools/SignUpdateAsset.java "$version" "$url" "dist/$name"
           done
           [ "$found" -eq 1 ] || { echo "No release assets found"; exit 1; }
+          # 更新说明：release-notes/<tag>.md 若存在则写进清单 notes 与 Release body，
+          # 否则清单不带说明、Release 用 --generate-notes 兜底。
+          notes_file=""
+          for candidate in "release-notes/${RELEASE_TAG}.md" "release-notes/${version}.md"; do
+            if [ -f "$candidate" ]; then notes_file="$candidate"; break; fi
+          done
+          if [ -n "$notes_file" ]; then
+            echo "使用更新说明 $notes_file"
+            echo "PMCL_UPDATE_NOTES_FILE=$notes_file" >> "$GITHUB_ENV"
+          else
+            echo "未找到更新说明，清单 notes 留空"
+          fi
+          # 强制更新开关：gradle.properties 里 pmcl.mandatory.update 必须等于本次版本才生效，
+          # 免得忘了改回导致后续每个版本都被强制推送。
+          mandatory_target=$(sed -n 's/^pmcl\.mandatory\.update=//p' gradle.properties | tr -d '[:space:]')
+          if [ -n "$mandatory_target" ] && [ "$mandatory_target" = "$version" ]; then
+            echo "本次为强制更新：客户端更新框不可跳过"
+            echo "PMCL_UPDATE_MANDATORY=true" >> "$GITHUB_ENV"
+          fi
           java tools/BuildHotUpdateManifest.java pack \
             "ui/build/compose/binaries" \
             "$version" "$os_token" "$arch_token" "$RELEASE_TAG" "$GITHUB_REPOSITORY" dist
@@ -123,6 +142,12 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      # 取 release-notes/<tag>.md：2.7 及更早客户端的更新对话框只显示 Release body，
+      # 这是唯一能触达存量用户的自有文案通道，不能交给 --generate-notes 自动生成。
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
       - uses: actions/download-artifact@v4
         with:
           pattern: pmcl-*
@@ -135,10 +160,25 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+          version="${RELEASE_TAG#v}"
+          notes_file=""
+          for candidate in "release-notes/${RELEASE_TAG}.md" "release-notes/${version}.md"; do
+            if [ -f "$candidate" ]; then notes_file="$candidate"; break; fi
+          done
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            if [ -n "$notes_file" ]; then
+              gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --notes-file "$notes_file"
+            fi
+          elif [ -n "$notes_file" ]; then
+            echo "使用更新说明 $notes_file"
             gh release create "$RELEASE_TAG" \
               --repo "$GITHUB_REPOSITORY" \
-              --title "PMCL ${RELEASE_TAG#v}" \
+              --title "PMCL ${version}" \
+              --notes-file "$notes_file"
+          else
+            gh release create "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "PMCL ${version}" \
               --generate-notes
           fi
           shopt -s nullglob

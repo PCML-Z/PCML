@@ -21,6 +21,8 @@ import java.util.Locale;
  * Usage:
  *   java tools/BuildHotUpdateManifest.java pack <binaries-dir> <version> <os> <arch> <tag> <repo> <out-dir>
  * Env: PMCL_UPDATE_ED25519_PRIVATE_KEY = Base64 PKCS#8 Ed25519 private key.
+ *      PMCL_UPDATE_MANDATORY = "true" 时清单置 mandatory，客户端更新框不可跳过。
+ *      PMCL_UPDATE_NOTES_FILE = 更新说明文本文件，写入清单 notes（对话框展示，不进签名载荷）。
  */
 public final class BuildHotUpdateManifest {
     public static void main(String[] args) throws Exception {
@@ -66,8 +68,28 @@ public final class BuildHotUpdateManifest {
         rows.sort(Comparator.comparing(row -> row.path));
         String signature = sign(canonical(version, rows));
         String jsonName = "pmcl-hotupdate-" + os + "-" + arch + ".json";
-        Files.writeString(out.resolve(jsonName), toJson(version, signature, rows), StandardCharsets.UTF_8);
-        System.out.println("Wrote " + jsonName + " files=" + rows.size());
+        boolean mandatory = "true".equalsIgnoreCase(
+                System.getenv().getOrDefault("PMCL_UPDATE_MANDATORY", "").trim());
+        String notes = readNotes(System.getenv("PMCL_UPDATE_NOTES_FILE"));
+        Files.writeString(out.resolve(jsonName),
+                toJson(version, signature, rows, notes, mandatory), StandardCharsets.UTF_8);
+        System.out.println("Wrote " + jsonName + " files=" + rows.size()
+                + " mandatory=" + mandatory + " notesChars=" + notes.length());
+    }
+
+    /** 更新说明取本地文件（GitHub Release body 同源），读不到就留空——对话框不显示即可。 */
+    private static String readNotes(String path) {
+        if (path == null || path.isBlank()) return "";
+        try {
+            Path p = Path.of(path);
+            if (!Files.isRegularFile(p)) return "";
+            String text = Files.readString(p, StandardCharsets.UTF_8).trim();
+            // 客户端解析时会截断到 8000，这里先裁一次，避免清单无谓膨胀
+            return text.length() <= 8000 ? text : text.substring(0, 8000);
+        } catch (Exception e) {
+            System.out.println("Warning: could not read notes file " + path + ": " + e.getMessage());
+            return "";
+        }
     }
 
     static Path findAppDirectory(Path binaries) throws Exception {
@@ -122,11 +144,16 @@ public final class BuildHotUpdateManifest {
         return sb.toString();
     }
 
-    private static String toJson(String version, String signature, List<FileRow> rows) {
+    private static String toJson(String version, String signature, List<FileRow> rows,
+                                String notes, boolean mandatory) {
         StringBuilder sb = new StringBuilder();
         sb.append("{\"version\":\"").append(version)
-                .append("\",\"notes\":\"\",\"signature\":\"").append(signature)
-                .append("\",\"files\":[");
+                .append("\",\"notes\":").append(jsonString(notes))
+                .append(",\"signature\":\"").append(signature).append("\"");
+        // 不进 canonical() 签名载荷：旧客户端用同一规范串验签，加进去会让它们验签失败、
+        // 连本次更新都装不上。清单整体仍受 signature 保护，只有发布方能置 true。
+        if (mandatory) sb.append(",\"mandatory\":true");
+        sb.append(",\"files\":[");
         for (int i = 0; i < rows.size(); i++) {
             FileRow row = rows.get(i);
             if (i > 0) sb.append(',');
@@ -140,6 +167,27 @@ public final class BuildHotUpdateManifest {
         }
         sb.append("]}");
         return sb.toString();
+    }
+
+    /** 发布说明是任意文本，必须转义；path/url 等已受字符集校验，无需转义。 */
+    private static String jsonString(String raw) {
+        if (raw == null || raw.isEmpty()) return "\"\"";
+        StringBuilder sb = new StringBuilder(raw.length() + 16).append('"');
+        for (int i = 0; i < raw.length(); i++) {
+            char c = raw.charAt(i);
+            switch (c) {
+                case '"' -> sb.append("\\\"");
+                case '\\' -> sb.append("\\\\");
+                case '\n' -> sb.append("\\n");
+                case '\r' -> sb.append("\\r");
+                case '\t' -> sb.append("\\t");
+                default -> {
+                    if (c < 0x20) sb.append(String.format("\\u%04x", (int) c));
+                    else sb.append(c);
+                }
+            }
+        }
+        return sb.append('"').toString();
     }
 
     private static String sign(String payload) throws Exception {
