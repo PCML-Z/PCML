@@ -146,6 +146,16 @@ public final class DownloadCompliance {
         return isGameDownloadRestrictedSync();
     }
 
+    /**
+     * 是否应拦截游戏本体下载。
+     * <p>
+     * 持有已验证的正版账户时放行：游戏所有权优先于地区政策。交换条件是下载所得版本
+     * 只能用正版账户启动，由 {@link PremiumDownloads} 记录并在启动时校验。
+     */
+    public static boolean isGameDownloadRestrictedFor(boolean genuineAccountVerified) {
+        return !genuineAccountVerified && isGameDownloadRestricted();
+    }
+
     /** 受限提示文案的 i18n 键（恒定），便于 UI 统一展示。 */
     public static String restrictionNoticeKey() {
         return "download.restricted_notice";

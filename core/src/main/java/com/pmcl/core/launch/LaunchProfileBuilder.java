@@ -278,6 +278,13 @@ public final class LaunchProfileBuilder {
                         + "多人 online-mode / Realms / enforce-secure-profile 将失败，请改用微软账号。");
             }
         }
+        // 正版账户验证下下载的版本只能用正版账户启动——这是当初放行下载的交换条件。
+        // 放在建配置这一层，UI、CLI、插件等所有启动路径都会被拦下。
+        if (account != null && !account.isGenuine()
+                && com.pmcl.core.compliance.PremiumDownloads.isPremiumSourced(versionId)) {
+            throw new IOException("版本 " + versionId
+                    + " 是通过正版账户验证下载的，请改用微软正版账户启动");
+        }
         VersionJson vj = loadVersionJson(versionId);
 
         LaunchProfile profile = new LaunchProfile(config, account, versionId);

@@ -97,7 +97,7 @@ import com.pmcl.ui.viewmodel.predictAndPreheat
 import com.pmcl.ui.viewmodel.lastOfflineUsername
 import com.pmcl.ui.viewmodel.loginOffline
 import com.pmcl.ui.viewmodel.selectInstance
-import com.pmcl.ui.viewmodel.startMicrosoftLogin
+import com.pmcl.ui.viewmodel.requestMicrosoftLogin
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -2189,7 +2189,7 @@ private fun AccountCard(account: com.pmcl.core.auth.Account?, vm: LauncherViewMo
                 Button(onClick = { vm.loginOffline(username) }, enabled = username.isNotBlank()) {
                     Text(I18n.t("launch.offline_login"))
                 }
-                OutlinedButton(onClick = vm::startMicrosoftLogin) {
+                OutlinedButton(onClick = { vm.requestMicrosoftLogin() }) {
                     Text(I18n.t("launch.microsoft_login"))
                 }
                 OutlinedButton(onClick = { showAuthServer = !showAuthServer }) {

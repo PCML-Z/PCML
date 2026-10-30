@@ -1,6 +1,7 @@
 package com.pmcl.core.download;
 
 import com.pmcl.core.LauncherConfig;
+import com.pmcl.core.mods.ModDependencyResolver;
 import com.pmcl.core.install.InstallInterruptedException;
 import com.pmcl.core.install.InstallProgress;
 import com.pmcl.core.install.VersionInstaller;
@@ -102,6 +103,8 @@ public final class DownloadQueueManager {
         private volatile String eventModVersion;
         /** 社区客户端 id，用来避免同一个客户端重复进队列。 */
         private volatile String nativeClientId;
+        /** 「含依赖」任务完成后的依赖解析结果，UI 用来展示装了哪些依赖。 */
+        private volatile ModDependencyResolver.DependencyResult dependencyResult;
 
         public QueueTask(String id, String name, TaskType type) {
             this.id = id;
@@ -125,6 +128,7 @@ public final class DownloadQueueManager {
         public String getErrorMessage() { return errorMessage; }
         public long getCreatedAt() { return createdAt; }
         public long getFinishedAt() { return finishedAt; }
+        public ModDependencyResolver.DependencyResult getDependencyResult() { return dependencyResult; }
 
         /** 进度百分比 0~1 */
         public double progress() {
@@ -148,6 +152,8 @@ public final class DownloadQueueManager {
     private final Preferences preferences;
     /** 整合包导入。在 LauncherCore 里队列建好后注入，避免和 ModpackManager 循环构造。 */
     private volatile ModpackManager modpackManager;
+    /** 依赖解析器。同样后注入：它依赖 ModMarketManager，而队列又依赖它两者。 */
+    private volatile ModDependencyResolver modDependencyResolver;
     /** 同一时间只导入一个整合包，避免两个安装同时写版本目录。 */
     private final Object modpackImportLock = new Object();
 
@@ -207,6 +213,10 @@ public final class DownloadQueueManager {
 
     public void setModpackManager(ModpackManager modpackManager) {
         this.modpackManager = modpackManager;
+    }
+
+    public void setModDependencyResolver(ModDependencyResolver modDependencyResolver) {
+        this.modDependencyResolver = modDependencyResolver;
     }
 
     // ===== 任务提交 =====
@@ -314,6 +324,24 @@ public final class DownloadQueueManager {
         task.eventModVersion = modFile.getFileId() != null ? modFile.getFileId() : displayName;
         addTask(task);
         schedule(task, () -> runModDownload(task, modFile, gameVersion, versionId, instanceId));
+        return task.id;
+    }
+
+    /**
+     * 提交「模组 + 依赖」下载任务：主模组与递归依赖整条链都跑在队列线程里，
+     * 进度、暂停、取消、并发限制与普通模组任务一致（此前依赖链绕过了队列）。
+     */
+    public String submitModDownloadWithDeps(ModFile modFile, String gameVersion,
+                                            String versionId, String instanceId) {
+        String displayName = modFile.getFileName();
+        QueueTask task = new QueueTask(UUID.randomUUID().toString(),
+                displayName, TaskType.MOD_DOWNLOAD);
+        task.totalBytes = modFile.getFileSize();
+        task.message = "等待下载: " + displayName + "（含依赖）";
+        task.eventModName = modFile.getFileName();
+        task.eventModVersion = modFile.getFileId() != null ? modFile.getFileId() : displayName;
+        addTask(task);
+        schedule(task, () -> runModDownloadWithDeps(task, modFile, gameVersion, versionId, instanceId));
         return task.id;
     }
 
@@ -845,6 +873,35 @@ public final class DownloadQueueManager {
                 notifyProgress(task);
             }).join();
             task.completedBytes = task.totalBytes;
+        } catch (Throwable e) {
+            rethrowQueueFailure(e);
+        } finally {
+            if (!(task.pauseRequested || task.status == TaskStatus.PAUSED)) {
+                clearResumeWork(task.id);
+            }
+        }
+    }
+
+    /**
+     * 「模组 + 依赖」执行体：依赖解析器自身是单线程顺序安装，
+     * 这里只把整条链挂到队列线程上，进度文字透传解析器的状态回调。
+     */
+    private void runModDownloadWithDeps(QueueTask task, ModFile modFile,
+                                        String gameVersion, String versionId, String instanceId) {
+        storeResumeWork(task.id,
+                () -> runModDownloadWithDeps(task, modFile, gameVersion, versionId, instanceId));
+        try {
+            ModDependencyResolver.DependencyResult result = modDependencyResolver.installWithDependencies(
+                    modFile, gameVersion, versionId, instanceId, status -> {
+                        throwIfTaskInterrupted(task);
+                        task.message = status;
+                        notifyProgress(task);
+                    }).join();
+            task.dependencyResult = result;
+            task.completedBytes = Math.max(task.totalBytes, 1);
+            if (task.totalBytes <= 0) task.totalBytes = task.completedBytes;
+            task.message = "完成: " + result.summary();
+            notifyProgress(task, true);
         } catch (Throwable e) {
             rethrowQueueFailure(e);
         } finally {

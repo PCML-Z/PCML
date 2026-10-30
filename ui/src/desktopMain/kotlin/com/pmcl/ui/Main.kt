@@ -512,12 +512,11 @@ fun main() = application {
             // iOS 伴随 App 配对对话框（保持与主窗口主题一致）
             if (showCompanionDialog.value) {
                 com.pmcl.ui.companion.CompanionPairDialog(
+                    vm = vm,
                     pairing = pairingManager,
                     hostServer = hostServer,
-                    onDismiss = { showCompanionDialog.value = false },
-                    parallaxBg = bgLayerOn,
-                    glassOn = glassOn,
-                    useDark = sharedThemeState.useDark
+                    themeState = sharedThemeState,
+                    onDismiss = { showCompanionDialog.value = false }
                 )
             }
             // 任务中心：右侧滑入面板（内嵌，非独立窗口）

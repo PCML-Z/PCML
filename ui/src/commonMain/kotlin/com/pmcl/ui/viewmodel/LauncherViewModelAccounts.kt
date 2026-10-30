@@ -289,6 +289,32 @@ fun LauncherViewModel.resetYggdrasilSkin(password: String) {
     }
 }
 
+/**
+ * 微软登录的统一入口：未同意免责/授权协议时先弹协议，同意后再登录。
+ * 所有「微软登录」按钮都应走这里，而不是直接调用 [startMicrosoftLogin]。
+ */
+fun LauncherViewModel.isMicrosoftConsentAccepted(): Boolean = microsoftConsentAccepted
+
+fun LauncherViewModel.requestMicrosoftLogin() {
+    if (microsoftConsentAccepted) startMicrosoftLogin() else _microsoftConsentPending.value = true
+}
+
+/** 用户在协议弹窗里点「同意并继续」：记为已同意并继续登录。 */
+fun LauncherViewModel.acceptMicrosoftConsentThenLogin() {
+    microsoftConsentAccepted = true
+    _microsoftConsentPending.value = false
+    startMicrosoftLogin()
+}
+
+fun LauncherViewModel.dismissMicrosoftConsent() {
+    _microsoftConsentPending.value = false
+}
+
+/** 下载页已经走完三步协议时调用，避免在账号页重复弹窗。 */
+fun LauncherViewModel.markMicrosoftConsentAccepted() {
+    microsoftConsentAccepted = true
+}
+
 fun LauncherViewModel.startMicrosoftLogin() {
     scope.launch {
         _loggingIn.value = true

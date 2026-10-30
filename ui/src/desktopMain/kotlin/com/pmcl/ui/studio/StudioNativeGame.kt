@@ -75,6 +75,9 @@ import com.pmcl.core.i18n.I18n
 import com.pmcl.core.instance.InstanceInfo
 import com.pmcl.ui.navigation.PmclIcons
 import com.pmcl.ui.viewmodel.LauncherViewModel
+import com.pmcl.ui.page.PremiumConsentDialog
+import com.pmcl.ui.viewmodel.isMicrosoftConsentAccepted
+import com.pmcl.ui.viewmodel.acceptMicrosoftConsentThenLogin
 import com.pmcl.ui.viewmodel.addExternalAuthServer
 import com.pmcl.ui.viewmodel.addFavoriteServer
 import com.pmcl.ui.viewmodel.backupWorld
@@ -966,11 +969,19 @@ private fun DeviceLoginSection(ctx: ModuleCtx, github: Boolean) {
     val p = LocalStudio.current
     val code by vm.deviceCode.collectAsState()
     val loggingIn by vm.loggingIn.collectAsState()
+    // 进入微软登录前必须先完成三步协议；GitHub 登录不受此限制
+    var showConsent by remember { mutableStateOf(false) }
+    if (showConsent) {
+        PremiumConsentDialog(
+            onAccept = { showConsent = false; vm.acceptMicrosoftConsentThenLogin() },
+            onDismiss = { showConsent = false }
+        )
+    }
     val color = if (github) Tiles.Graphite else Tiles.Blue
     Column(Modifier.fillMaxSize()) {
         ModuleHero(if (github) mt("github_title") else mt("ms_title"), if (github) mt("github_sub") else mt("ms_sub"), color, Icons.AutoMirrored.Filled.Login) {
             HeroButton(if (loggingIn) I18n.t("studio.loading") else mt("start_login"), Icons.AutoMirrored.Filled.Login, color,
-                { if (github) vm.startGitHubLogin() else vm.startMicrosoftLogin() }, enabled = !loggingIn)
+                { if (github) vm.startGitHubLogin() else if (vm.isMicrosoftConsentAccepted()) vm.startMicrosoftLogin() else showConsent = true }, enabled = !loggingIn)
         }
         val c = code
         if (!github && c != null) {

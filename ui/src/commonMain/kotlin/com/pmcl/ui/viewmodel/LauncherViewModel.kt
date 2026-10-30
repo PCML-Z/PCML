@@ -1380,6 +1380,14 @@ class LauncherViewModel {
     @PublishedApi internal val _loggingIn = MutableStateFlow(false)
     val loggingIn: StateFlow<Boolean> = _loggingIn.asStateFlow()
 
+    /**
+     * 进入微软登录前是否已同意免责/授权协议（会话级，不持久化）。
+     * 下载页的正版验证与各处「微软登录」按钮共用同一状态，避免重复弹协议。
+     */
+    @PublishedApi internal var microsoftConsentAccepted = false
+    @PublishedApi internal val _microsoftConsentPending = MutableStateFlow(false)
+    val microsoftConsentPending: StateFlow<Boolean> = _microsoftConsentPending.asStateFlow()
+
     /** 皮肤管理器实例（懒加载，Accounts 扩展使用） */
     @PublishedApi internal val skinManager: com.pmcl.core.auth.SkinManager by lazy { com.pmcl.core.auth.SkinManager() }
 
@@ -2425,7 +2433,7 @@ class LauncherViewModel {
      * 此方法不立即开始下载，仅触发 [preInstallEvent] 事件。
      */
     fun installVersion(versionId: String) {
-        if (DownloadCompliance.isGameDownloadRestricted()) {
+        if (DownloadCompliance.isGameDownloadRestrictedFor(hasGenuineAccount())) {
             _status.value = I18n.t(DownloadCompliance.restrictionNoticeKey())
             return
         }
@@ -2442,10 +2450,13 @@ class LauncherViewModel {
      */
     fun proceedInstall(versionId: String, loader: ModLoader? = null, loaderVersion: String? = null) {
         // 合规兜底：安装前弹窗确认后再次校验，防止弹窗挂起期间环境变化
-        if (DownloadCompliance.isGameDownloadRestricted()) {
+        val restrictedRegion = DownloadCompliance.isGameDownloadRestricted()
+        if (DownloadCompliance.isGameDownloadRestrictedFor(hasGenuineAccount())) {
             _status.value = I18n.t(DownloadCompliance.restrictionNoticeKey())
             return
         }
+        // 受限地区凭正版账户放行的下载要记下来源，启动时只允许正版账户
+        if (restrictedRegion) com.pmcl.core.compliance.PremiumDownloads.record(versionId)
         // 走下载队列：弹窗确认后入队，悬浮队列 / 下载队列页可看到进度与控制
         initDownloadQueue()
         val loaderName = loader?.name
@@ -2776,10 +2787,12 @@ class LauncherViewModel {
 
     /** 提交版本安装到队列 */
     fun enqueueVersionInstall(versionId: String) {
-        if (DownloadCompliance.isGameDownloadRestricted()) {
+        val restrictedRegion = DownloadCompliance.isGameDownloadRestricted()
+        if (DownloadCompliance.isGameDownloadRestrictedFor(hasGenuineAccount())) {
             _status.value = I18n.t(DownloadCompliance.restrictionNoticeKey())
             return
         }
+        if (restrictedRegion) com.pmcl.core.compliance.PremiumDownloads.record(versionId)
         core.downloadQueue().submitVersionInstall(versionId)
         _status.value = I18n.t("status.queued_minecraft_version", versionId)
         refreshQueue()
@@ -2787,7 +2800,7 @@ class LauncherViewModel {
 
     /** 提交模组加载器安装到队列 */
     fun enqueueModLoaderInstall(loaderName: String, gameVersion: String, loaderVersion: String) {
-        if (DownloadCompliance.isGameDownloadRestricted()) {
+        if (DownloadCompliance.isGameDownloadRestrictedFor(hasGenuineAccount())) {
             _status.value = I18n.t(DownloadCompliance.restrictionNoticeKey())
             return
         }

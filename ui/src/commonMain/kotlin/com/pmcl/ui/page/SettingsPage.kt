@@ -74,7 +74,7 @@ import com.pmcl.ui.viewmodel.refreshRepoGitTree
 import com.pmcl.ui.viewmodel.switchAccount
 import com.pmcl.ui.viewmodel.removeAccount
 import com.pmcl.ui.viewmodel.loginOffline
-import com.pmcl.ui.viewmodel.startMicrosoftLogin
+import com.pmcl.ui.viewmodel.requestMicrosoftLogin
 import com.pmcl.ui.viewmodel.lastOfflineUsername
 import com.pmcl.ui.viewmodel.setVersionIsolation
 import kotlinx.coroutines.Dispatchers
@@ -1421,7 +1421,7 @@ private fun AccountManagementPage(
                     ) {
                         Text(I18n.t("launch.offline_login"))
                     }
-                    OutlinedButton(onClick = vm::startMicrosoftLogin) {
+                    OutlinedButton(onClick = { vm.requestMicrosoftLogin() }) {
                         Text(I18n.t("launch.microsoft_login"))
                     }
                     OutlinedButton(onClick = { showAuthServer = !showAuthServer }) {

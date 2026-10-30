@@ -20,6 +20,12 @@ import kotlinx.coroutines.flow.update
 
 // ============ 启动游戏 ============
 
+/**
+ * 当前账号是否已通过正版（微软）验证。
+ * 下载豁免与「正版渠道版本只能正版启动」的校验都以它为准。
+ */
+internal fun LauncherViewModel.hasGenuineAccount(): Boolean = account.value?.isGenuine == true
+
 // ===== 预判启动：进入启动页时预测最可能的版本并后台预热资源 =====
 
 /**
@@ -349,6 +355,14 @@ fun LauncherViewModel.launch(
     clearLaunchInstanceContext()
     if ((snapAccount ?: _account.value) == null) {
         _status.value = I18n.t("status.login_first")
+        return
+    }
+    // 凭正版账户验证下载的版本只能用正版账户启动，否则等于把正版下载物当破解版用
+    val pendingAccount = snapAccount ?: _account.value
+    if (pendingAccount != null && !pendingAccount.isGenuine
+        && com.pmcl.core.compliance.PremiumDownloads.isPremiumSourced(versionId)
+    ) {
+        _status.value = I18n.t("status.premium_account_required", versionId)
         return
     }
     // Companion 占用启动槽时禁止桌面再开，避免双开 MC / UI 状态分叉

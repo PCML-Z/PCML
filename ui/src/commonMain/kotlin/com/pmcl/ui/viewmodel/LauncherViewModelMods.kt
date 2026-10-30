@@ -5,6 +5,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
@@ -12,6 +13,7 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import com.google.gson.reflect.TypeToken
 import com.pmcl.core.cache.DataCache
+import com.pmcl.core.download.DownloadQueueManager
 import com.pmcl.core.i18n.I18n
 import com.pmcl.core.market.MarketSearchQuery
 import com.pmcl.core.market.McmodCatalog
@@ -23,6 +25,7 @@ import com.pmcl.ui.viewmodel.LauncherViewModel.ModScanCacheEntry
 import java.awt.Desktop
 import java.net.URI
 import java.nio.file.Path
+import kotlin.coroutines.resume
 
 /**
  * M29 拆分：模组市场 / 已安装模组域。
@@ -466,7 +469,8 @@ fun LauncherViewModel.installMod(file: ModFile, gameVersion: String) {
 
 /**
  * 安装模组并自动解析安装其依赖。
- * 下载主模组后解析 jar 内 depends 列表，自动搜索并安装未安装的依赖。
+ * 主模组与递归依赖整条链提交到下载队列执行（进度、暂停、取消、并发限制与单模组任务一致），
+ * 任务结束后回填依赖结果供弹窗展示。
  */
 fun LauncherViewModel.installModWithDeps(
     file: ModFile,
@@ -477,21 +481,29 @@ fun LauncherViewModel.installModWithDeps(
     if (_installingDeps.value) return
     _installingDeps.value = true
     _depInstallResult.value = null
+    initDownloadQueue()
+    val vid = versionId ?: _selectedVersion.value
+    val targetInstance = marketInstallInstance(versionId, instanceId)
+    val taskId = core.downloadQueue().submitModDownloadWithDeps(file, gameVersion, vid, targetInstance)
+    _status.value = I18n.t("status.queued_mod", file.getFileName())
+    refreshQueue()
     scope.launch {
-        _status.value = I18n.t("status.installing_mod_with_deps", file.getFileName())
         try {
-            val vid = versionId ?: _selectedVersion.value
-            val targetInstance = marketInstallInstance(versionId, instanceId)
-            val result = core.modDependencyResolver().installWithDependencies(
-                file, gameVersion, vid, targetInstance
-            ) { msg -> _status.value = msg }.join()
+            val task = withContext(Dispatchers.IO) { awaitQueueTaskFinish(taskId) }
+            val result = task.dependencyResult
             _depInstallResult.value = result
-            _status.value = if (result.hasInstalled()) {
-                I18n.t("status.mod_install_complete_with_deps", file.getFileName(), result.summary())
-            } else {
-                I18n.t("status.mod_install_complete_no_deps", file.getFileName())
+            _status.value = when (task.status) {
+                DownloadQueueManager.TaskStatus.DONE ->
+                    if (result != null && result.hasInstalled()) {
+                        I18n.t("status.mod_install_complete_with_deps", file.getFileName(), result.summary())
+                    } else {
+                        I18n.t("status.mod_install_complete_no_deps", file.getFileName())
+                    }
+                DownloadQueueManager.TaskStatus.CANCELLED ->
+                    I18n.t("status.mod_install_cancelled", file.getFileName())
+                else -> I18n.t("status.install_failed", task.errorMessage ?: I18n.t("common.unknown"))
             }
-            refreshInstalledMods()
+            if (task.status == DownloadQueueManager.TaskStatus.DONE) refreshInstalledMods()
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Throwable) {
@@ -501,6 +513,35 @@ fun LauncherViewModel.installModWithDeps(
         }
     }
 }
+
+/** 挂起直到队列任务进入终态（完成/失败/取消），暂停期间继续等待。 */
+private suspend fun LauncherViewModel.awaitQueueTaskFinish(
+    taskId: String
+): DownloadQueueManager.QueueTask = suspendCancellableCoroutine { cont ->
+    val queue = core.downloadQueue()
+    val resumed = java.util.concurrent.atomic.AtomicBoolean(false)
+    lateinit var listener: java.util.function.Consumer<List<DownloadQueueManager.QueueTask>>
+    val finish = { task: DownloadQueueManager.QueueTask ->
+        if (resumed.compareAndSet(false, true)) {
+            queue.removeListener(listener)
+            if (cont.isActive) cont.resume(task)
+        }
+    }
+    listener = java.util.function.Consumer { tasks ->
+        tasks.firstOrNull { it.id == taskId }?.let { task ->
+            if (isTerminalQueueStatus(task.status)) finish(task)
+        }
+    }
+    cont.invokeOnCancellation { queue.removeListener(listener) }
+    queue.addListener(listener)
+    // 注册后再查一次：任务可能已经在回调挂上之前结束
+    queue.tasks.firstOrNull { it.id == taskId && isTerminalQueueStatus(it.status) }?.let(finish)
+}
+
+private fun isTerminalQueueStatus(status: DownloadQueueManager.TaskStatus): Boolean =
+    status == DownloadQueueManager.TaskStatus.DONE
+        || status == DownloadQueueManager.TaskStatus.FAILED
+        || status == DownloadQueueManager.TaskStatus.CANCELLED
 
 /** 清除依赖安装结果 */
 fun LauncherViewModel.clearDepInstallResult() {

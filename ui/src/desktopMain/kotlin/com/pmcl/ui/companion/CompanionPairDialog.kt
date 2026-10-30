@@ -42,7 +42,12 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.WindowScope
 import androidx.compose.ui.window.rememberWindowState
-import com.pmcl.ui.theme.ParallaxBackground
+import com.pmcl.ui.viewmodel.LauncherViewModel
+import com.pmcl.ui.theme.WindowBackdrop
+import com.pmcl.ui.theme.ThemeState
+import com.pmcl.ui.theme.MaterialField
+import com.pmcl.ui.theme.LocalThemeState
+import com.pmcl.ui.theme.LauncherTheme
 import java.awt.MouseInfo
 import java.awt.Point
 import java.awt.event.ComponentAdapter
@@ -57,8 +62,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * 配对独立 Window 不在 [com.pmcl.ui.theme.LocalThemeState] 树内，
- * 不能调用 glassSurfaceVariantColor()（会抛 ThemeState not provided）。
+ * 配对窗口现在自带 [LauncherTheme] + [LocalThemeState]，与主窗口共用同一套配色与背景，
+ * 因此可以正常使用主题相关的颜色工具。
  */
 @Composable
 private fun companionSurfaceVariant(glassOn: Boolean, glassAlpha: Float = 0.4f): Color {
@@ -73,13 +78,29 @@ private fun companionSurfaceVariant(glassOn: Boolean, glassAlpha: Float = 0.4f):
  */
 @Composable
 fun CompanionPairDialog(
+    vm: LauncherViewModel,
     pairing: PairingManager,
     hostServer: PmclHostServer,
-    onDismiss: () -> Unit,
-    parallaxBg: Boolean = false,
-    glassOn: Boolean = false,
-    useDark: Boolean = false
+    themeState: ThemeState,
+    onDismiss: () -> Unit
 ) {
+    // 主题与背景全部取自全局 ThemeState / ViewModel，保证与主窗口一致
+    val parallaxBg by vm.parallaxBackground.collectAsState()
+    val bgType by vm.launcherBgType.collectAsState()
+    val bgImage by vm.launcherBgImagePath.collectAsState()
+    val bgVideo by vm.launcherBgVideoPath.collectAsState()
+    val materialOn by vm.materialTheme.collectAsState()
+    val liveGlassOn by vm.liveWallpaperGlass.collectAsState()
+    val customBgOn = (bgType == "image" && bgImage.isNotBlank()) ||
+        (bgType == "video" && bgVideo.isNotBlank())
+    val backdropOn = parallaxBg || customBgOn
+    val glassOn = themeState.glassTheme
+    val useDark = themeState.useDark
+    val scheme = if (themeState.dynamicColor || themeState.customAccentColor != -1) {
+        themeState.dynamicColorScheme
+    } else {
+        null
+    }
     // 本地可观察状态
     var pairingCode by remember { mutableStateOf(pairing.getPairingCode()) }
     var devices by remember { mutableStateOf(pairing.getDevices()) }
@@ -142,29 +163,33 @@ fun CompanionPairDialog(
             onDispose { window.removeComponentListener(listener) }
         }
 
-        // 分层渲染：底层视差背景 + 玻璃模糊层 + 上层透明 Surface 承载清晰内容
+        // 与主窗口共用同一套主题与背景：先铺背景层，再盖透明 Surface 承载内容
+        LauncherTheme(
+            useDarkTheme = useDark,
+            dynamicColorScheme = scheme,
+            uiScale = themeState.uiScale,
+            launcherFont = themeState.launcherFont,
+            themePreset = themeState.themePreset,
+            colorMode = themeState.colorMode,
+            customThemePack = themeState.customThemePack
+        ) {
+            CompositionLocalProvider(LocalThemeState provides themeState) {
         Box(Modifier.fillMaxSize().clip(RoundedCornerShape(14.dp))) {
-            // 视差背景层（与主窗口一致）
-            if (parallaxBg) {
-                ParallaxBackground(
-                    modifier = Modifier.fillMaxSize(),
-                    useDark = useDark
-                )
-            }
-            // 玻璃模糊层：独立节点被 blur，渲染毛玻璃质感
-            if (glassOn) {
-                Box(
-                    Modifier
-                        .matchParentSize()
-                        .blur(24.dp)
-                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
-                )
-            }
+            WindowBackdrop(
+                themeState = themeState,
+                parallax = parallaxBg,
+                customType = bgType,
+                customImage = bgImage,
+                customVideo = bgVideo,
+                materialOn = materialOn,
+                liveGlassOn = liveGlassOn
+            )
+            if (materialOn) MaterialField(Modifier.fillMaxSize(), linesOnly = liveGlassOn)
             // 上层透明 Surface：承载清晰内容
             Surface(
                 shape = RoundedCornerShape(14.dp),
-                color = if (parallaxBg || glassOn) Color.Transparent else MaterialTheme.colorScheme.surface,
-                tonalElevation = if (parallaxBg || glassOn) 0.dp else 6.dp,
+                color = if (backdropOn || materialOn || liveGlassOn) Color.Transparent else MaterialTheme.colorScheme.surface,
+                tonalElevation = if (backdropOn || materialOn || liveGlassOn) 0.dp else 6.dp,
                 modifier = Modifier.fillMaxSize()
             ) {
                 Column(Modifier.fillMaxSize()) {
@@ -567,11 +592,23 @@ fun CompanionPairDialog(
                 } // Column(Surface 内) 闭合
             } // Surface 闭合
         } // Box 闭合
+            } // CompositionLocalProvider 闭合
+        } // LauncherTheme 闭合
     } // Window lambda 闭合
 
-    // 重命名对话框
+    // 重命名对话框（独立 Dialog，同样套全局主题）
     val renaming = renamingDevice
     if (renaming != null) {
+        LauncherTheme(
+            useDarkTheme = useDark,
+            dynamicColorScheme = scheme,
+            uiScale = themeState.uiScale,
+            launcherFont = themeState.launcherFont,
+            themePreset = themeState.themePreset,
+            colorMode = themeState.colorMode,
+            customThemePack = themeState.customThemePack
+        ) {
+            CompositionLocalProvider(LocalThemeState provides themeState) {
         AlertDialog(
             onDismissRequest = { renamingDevice = null },
             title = { Text("重命名设备") },
@@ -606,6 +643,8 @@ fun CompanionPairDialog(
                 TextButton(onClick = { renamingDevice = null }) { Text("取消") }
             }
         )
+            } // CompositionLocalProvider 闭合
+        } // LauncherTheme 闭合
     }
 }
 

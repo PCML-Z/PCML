@@ -54,6 +54,9 @@ import com.pmcl.ui.theme.LauncherTheme
 import com.pmcl.ui.theme.LocalThemeState
 import com.pmcl.ui.theme.ThemeState
 import com.pmcl.ui.viewmodel.LauncherViewModel
+import com.pmcl.ui.page.PremiumConsentDialog
+import com.pmcl.ui.viewmodel.dismissMicrosoftConsent
+import com.pmcl.ui.viewmodel.acceptMicrosoftConsentThenLogin
 import com.pmcl.ui.viewmodel.pauseMusic
 import com.pmcl.ui.viewmodel.playNextMusic
 import com.pmcl.ui.viewmodel.playPreviousMusic
@@ -182,11 +185,24 @@ fun App(vm: LauncherViewModel, themeState: ThemeState) {
                     AppResourceProblemDialog(vm)
                     // P2-1: 账号 keyfile 丢失/损坏警告（任意页面都可见）
                     CorruptedAccountsDialog(vm)
+                    // 微软登录前的三步协议（下载页之外的入口统一在这里弹）
+                    MicrosoftConsentGateDialog(vm)
                     GameCrashPopup(vm)
                 }
             }
         }
     }
+}
+
+/** 微软登录前的三步协议确认：下载页之外的登录入口统一把请求汇集到这里。 */
+@Composable
+private fun MicrosoftConsentGateDialog(vm: LauncherViewModel) {
+    val pending by vm.microsoftConsentPending.collectAsState()
+    if (!pending) return
+    PremiumConsentDialog(
+        onAccept = { vm.acceptMicrosoftConsentThenLogin() },
+        onDismiss = { vm.dismissMicrosoftConsent() }
+    )
 }
 
 @Composable

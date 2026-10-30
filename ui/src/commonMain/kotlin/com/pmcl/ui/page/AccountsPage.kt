@@ -51,7 +51,7 @@ import com.pmcl.ui.viewmodel.resetMicrosoftSkin
 import com.pmcl.ui.viewmodel.resetYggdrasilSkin
 import com.pmcl.ui.viewmodel.setOfflineSkin
 import com.pmcl.ui.viewmodel.startGitHubLogin
-import com.pmcl.ui.viewmodel.startMicrosoftLogin
+import com.pmcl.ui.viewmodel.requestMicrosoftLogin
 import com.pmcl.ui.viewmodel.switchAccount
 import com.pmcl.ui.viewmodel.uploadMicrosoftSkin
 import com.pmcl.ui.viewmodel.uploadYggdrasilSkin
@@ -335,7 +335,7 @@ fun AccountsPage(vm: LauncherViewModel, sectionId: String = "list") {
                 } else {
                     Button(onClick = {
                         loginMode = "ms"
-                        vm.startMicrosoftLogin()
+                        vm.requestMicrosoftLogin()
                     }, enabled = !loggingIn) {
                         Icon(Icons.Filled.OpenInBrowser, null, Modifier.size(16.dp))
                         Spacer(Modifier.width(6.dp))

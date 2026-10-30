@@ -66,6 +66,15 @@ public final class Account {
     public String getUuid() { return uuid; }
     public String getAccessToken() { return accessToken; }
     public AccountType getType() { return type; }
+
+    /**
+     * 是否正版账户：微软账户在登录时已由 Mojang/Microsoft 认证，代表确实拥有该游戏。
+     * 离线、GitHub 与第三方皮肤站（YGGDRASIL）账户都不算。
+     */
+    public boolean isGenuine() {
+        return type == AccountType.MICROSOFT;
+    }
+
     public String getSkinUrl() { return skinUrl; }
     public String getSkinModel() { return skinModel; }
     /** 返回 Xbox Live userHash（uhs），仅微软账号有效，离线/GitHub 账号返回空字符串。 */

@@ -150,6 +150,7 @@ public final class LauncherCore {
         this.downloadQueue.setModpackManager(this.modpackManager);
         this.modUpdateChecker = new ModUpdateChecker(config, modMarketManager, preferences);
         this.modDependencyResolver = new ModDependencyResolver(config, modMarketManager, preferences);
+        this.downloadQueue.setModDependencyResolver(this.modDependencyResolver);
         this.metalRenderInstaller = new MetalRenderInstaller(
                 config, preferences, modMarketManager.getModrinthClient(), downloadManager);
         this.modTagStore = new com.pmcl.core.mods.ModTagStore(

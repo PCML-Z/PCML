@@ -11,6 +11,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -31,6 +32,7 @@ import com.pmcl.ui.theme.glassCardBorder
 import com.pmcl.ui.theme.glassCardColors
 import com.pmcl.ui.theme.glassCardElevation
 import com.pmcl.ui.viewmodel.LauncherViewModel
+import com.pmcl.ui.viewmodel.markMicrosoftConsentAccepted
 import com.pmcl.ui.widget.VersionTypeIcon
 
 private const val TAB_FORBRIC = 5
@@ -68,6 +70,20 @@ fun DownloadPage(vm: LauncherViewModel) {
     var versionCategory by remember { mutableStateOf(1) }
     // 版本搜索关键字
     var searchQuery by remember { mutableStateOf("") }
+    // 正版验证前的知情同意弹窗（两份协议各自滚到底并勾选）
+    var showPremiumConsent by remember { mutableStateOf(false) }
+
+    if (showPremiumConsent) {
+        PremiumConsentDialog(
+            onAccept = {
+                showPremiumConsent = false
+                // 三步协议已在下载页走完，账号页的微软登录不再重复弹窗
+                vm.markMicrosoftConsentAccepted()
+                vm.requestSecondaryNav("accounts", "microsoft")
+            },
+            onDismiss = { showPremiumConsent = false }
+        )
+    }
 
     LaunchedEffect(Unit) { if (versions.isEmpty()) vm.refreshVersions() }
 
@@ -92,6 +108,9 @@ fun DownloadPage(vm: LauncherViewModel) {
 
         // 实时检测：进入页面即刷新当前网络归属（VM 后台亦持续刷新），结果经 StateFlow 推送
         val restricted by vm.downloadRestricted.collectAsState()
+        val account by vm.account.collectAsState()
+        // 正版账户验证后可下载游戏本体；社区客户端不适用该豁免，仍按地区限制
+        val genuine = account?.isGenuine == true
         LaunchedEffect(Unit) { vm.refreshCompliance() }
 
         // Tab 选择
@@ -118,9 +137,10 @@ fun DownloadPage(vm: LauncherViewModel) {
 
         Spacer(Modifier.height(16.dp))
 
-        // 合规限制：受限地区不提供游戏本体与社区客户端下载，在原列表位置显示政策提示
+        // 合规限制：受限地区不提供游戏本体与社区客户端下载，在原列表位置显示政策提示。
+        // 例外：已用微软正版账户验证的用户可下载游戏本体（社区客户端不在豁免范围内）。
         // 必须在 TAB_NATIVE 分支之前——社区客户端同样属于受限的下载服务
-        if (restricted) {
+        if (restricted && (tab == TAB_NATIVE || !genuine)) {
             Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
                     Icon(
@@ -136,9 +156,49 @@ fun DownloadPage(vm: LauncherViewModel) {
                         color = MaterialTheme.colorScheme.error,
                         textAlign = TextAlign.Center
                     )
+                    if (tab != TAB_NATIVE) {
+                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            I18n.t("download.premium_unlock_hint"),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        // 先签免责与授权协议，同意后才跳到账号页的微软登录区
+                        Button(onClick = { showPremiumConsent = true }) {
+                            Icon(
+                                Icons.Filled.VerifiedUser,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(I18n.t("download.premium_verify_account"))
+                        }
+                    }
                 }
             }
             return@Column
+        }
+
+        if (restricted && genuine) {
+            Row(
+                Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Filled.VerifiedUser,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    I18n.t("download.premium_unlocked"),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
 
         if (tab == TAB_NATIVE) {
