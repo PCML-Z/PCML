@@ -25,7 +25,7 @@ jobs:
       matrix:
         include:
           - platform: macOS
-            os: macos-14
+            os: macos-15
             tasks: ":ui:packageReleasePkg :ui:fatJar"
             asset_globs: "ui/build/compose/binaries/main-release/pkg/*.pkg ui/build/libs/*-all.jar"
           - platform: Windows
