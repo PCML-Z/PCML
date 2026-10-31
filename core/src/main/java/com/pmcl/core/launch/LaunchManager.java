@@ -38,6 +38,9 @@ public final class LaunchManager {
     /** 活跃 MC 进程（应用退出时强制清理） */
     private final java.util.Set<Process> activeProcesses =
             java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<>());
+    /** 进程号对应的版本 id，内存页用来标出是哪一个游戏 */
+    private final java.util.concurrent.ConcurrentHashMap<Long, String> processVersions =
+            new java.util.concurrent.ConcurrentHashMap<>();
     /** 专用线程池：避免 process.waitFor() 长时间占用 ForkJoinPool.commonPool */
     private final java.util.concurrent.ExecutorService launchExecutor =
             java.util.concurrent.Executors.newCachedThreadPool(r -> {
@@ -216,6 +219,7 @@ public final class LaunchManager {
         }
         Process process = pb.start();
         activeProcesses.add(process);
+        noteVersion(process, profile.getVersionId());
         // 关闭 stdin：Redirect.DISCARD 只能用于 stdout/stderr（type=WRITE），
         // 用于 redirectInput 会抛 “Redirect invalid for reading: WRITE”。
         // 关闭管道写端等于向子进程送 EOF，避免无人写入的 PIPE 被误读阻塞。
@@ -434,6 +438,7 @@ public final class LaunchManager {
 
                 int code = process.waitFor();
                 activeProcesses.remove(process);
+                forgetVersion(process);
                 // 安全修复：进程退出后关闭其 stdout/stderr 流，强制 reader 线程收到 EOF，
                 // 防止子进程继承管道的 descendants 持有读端导致 readLine() 永久阻塞
                 try { process.getInputStream().close(); } catch (Exception ignored) {}
@@ -483,12 +488,16 @@ public final class LaunchManager {
                 // 确保插件 RuntimeException 也能触发进程清理，防止僵尸进程残留。
                 if (e instanceof InterruptedException) Thread.currentThread().interrupt();
                 if (leaveGamesRunning) {
-                    if (process != null) activeProcesses.remove(process);
+                    if (process != null) {
+                        activeProcesses.remove(process);
+                        forgetVersion(process);
+                    }
                     return EXIT_DETACHED;
                 }
                 // 异常路径：销毁可能已启动的进程，防止僵尸进程残留
                 if (process != null) {
                     activeProcesses.remove(process);
+                    forgetVersion(process);
                     if (process.isAlive()) {
                         try { process.destroyForcibly(); } catch (Exception ignored) {}
                     }
@@ -668,7 +677,57 @@ public final class LaunchManager {
 
     /** 取消跟踪外部进程（进程已退出时调用，避免集合无限增长） */
     public void untrackExternalProcess(Process process) {
-        if (process != null) activeProcesses.remove(process);
+        if (process != null) {
+            activeProcesses.remove(process);
+            forgetVersion(process);
+        }
+    }
+
+    /** 仍由本启动器跟踪、并且还活着的游戏进程。 */
+    public java.util.List<TrackedGame> trackedGames() {
+        java.util.List<TrackedGame> out = new java.util.ArrayList<>();
+        for (Process p : activeProcesses) {
+            if (p == null || !p.isAlive()) continue;
+            long pid;
+            try {
+                pid = p.pid();
+            } catch (Exception e) {
+                continue;
+            }
+            if (pid <= 0) continue;
+            out.add(new TrackedGame(pid, processVersions.getOrDefault(pid, "")));
+        }
+        return out;
+    }
+
+    private void noteVersion(Process process, String versionId) {
+        if (process == null || versionId == null || versionId.isEmpty()) return;
+        try {
+            processVersions.put(process.pid(), versionId);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void forgetVersion(Process process) {
+        if (process == null) return;
+        try {
+            processVersions.remove(process.pid());
+        } catch (Exception ignored) {
+        }
+    }
+
+    /** 一个正在运行的游戏进程。versionId 为空表示外部跟踪的进程，没有版本名。 */
+    public static final class TrackedGame {
+        private final long pid;
+        private final String versionId;
+
+        public TrackedGame(long pid, String versionId) {
+            this.pid = pid;
+            this.versionId = versionId == null ? "" : versionId;
+        }
+
+        public long getPid() { return pid; }
+        public String getVersionId() { return versionId; }
     }
 
     /** 是否仍有由本启动器跟踪且存活的游戏进程。 */
@@ -698,6 +757,7 @@ public final class LaunchManager {
             }
         }
         activeProcesses.clear();
+        processVersions.clear();
     }
 
     /** Returns all active process PIDs for plugin monitoring. */
@@ -718,6 +778,7 @@ public final class LaunchManager {
                 if (p != null && p.isAlive() && p.pid() == pid) {
                     p.destroyForcibly();
                     activeProcesses.remove(p);
+                    forgetVersion(p);
                     return true;
                 }
             }

@@ -190,4 +190,72 @@ public final class ProcessMonitor {
     public long getTotalSystemMemoryMb() {
         return memory.getTotal() / (1024 * 1024);
     }
+
+    public long totalSystemMemoryBytes() {
+        try {
+            return Math.max(0L, memory.getTotal());
+        } catch (Throwable t) {
+            return 0L;
+        }
+    }
+
+    public long availableSystemMemoryBytes() {
+        try {
+            return Math.max(0L, memory.getAvailable());
+        } catch (Throwable t) {
+            return 0L;
+        }
+    }
+
+    public long currentPid() {
+        try {
+            return ProcessHandle.current().pid();
+        } catch (Throwable t) {
+            return -1L;
+        }
+    }
+
+    /**
+     * 一次查出这几个进程的物理内存。查不到的 pid 不会出现在结果里。
+     */
+    public java.util.Map<Long, Usage> usageOf(java.util.Collection<Long> pids) {
+        java.util.Map<Long, Usage> out = new java.util.LinkedHashMap<>();
+        if (pids == null || pids.isEmpty()) return out;
+        java.util.List<Integer> ids = new java.util.ArrayList<>();
+        for (Long pid : pids) {
+            if (pid == null || pid <= 0 || pid > Integer.MAX_VALUE) continue;
+            ids.add(pid.intValue());
+        }
+        if (ids.isEmpty()) return out;
+        try {
+            java.util.List<OSProcess> list = os.getProcesses(ids);
+            if (list == null) return out;
+            for (OSProcess p : list) {
+                if (p == null) continue;
+                java.util.List<String> args;
+                try {
+                    args = p.getArguments();
+                } catch (Throwable ignored) {
+                    args = java.util.List.of();
+                }
+                out.put((long) p.getProcessID(), new Usage(Math.max(0L, p.getResidentSetSize()), args));
+            }
+        } catch (Throwable ignored) {
+        }
+        return out;
+    }
+
+    /** 某个进程当前占用的物理内存，以及启动参数（用来读 -Xmx）。 */
+    public static final class Usage {
+        private final long rssBytes;
+        private final java.util.List<String> arguments;
+
+        public Usage(long rssBytes, java.util.List<String> arguments) {
+            this.rssBytes = rssBytes;
+            this.arguments = arguments == null ? java.util.List.of() : arguments;
+        }
+
+        public long getRssBytes() { return rssBytes; }
+        public java.util.List<String> getArguments() { return arguments; }
+    }
 }

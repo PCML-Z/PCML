@@ -142,6 +142,7 @@ fun LauncherViewModel.createRoom() {
             _status.value = when (finalState) {
                 com.pmcl.core.multiplayer.MultiplayerManager.State.CONNECTED -> {
                     val friendWarn = startFriendSubsystemQuiet()
+                    rememberCurrentRoom()
                     val base = when (backend) {
                         com.pmcl.core.multiplayer.MultiplayerManager.Backend.TERRACOTTA ->
                             I18n.t("status.room_created_with_code", core.multiplayer().currentRoomCode)
@@ -240,6 +241,7 @@ fun LauncherViewModel.joinRoom(invitation: String) {
             _status.value = when (finalState) {
                 com.pmcl.core.multiplayer.MultiplayerManager.State.CONNECTED -> {
                     val friendWarn = startFriendSubsystemQuiet()
+                    rememberCurrentRoom()
                     if (isRedstone) {
                         val endpoint = com.pmcl.core.multiplayer.RedstoneClient.publicEndpoint(
                             core.multiplayer().currentRoomCode
@@ -405,6 +407,81 @@ fun LauncherViewModel.refreshMpState() {
     _mpInvitation.value = if (mgr.isInRoom) mgr.generateInvitation() else ""
     _mpLocalMcAddr.value = mgr.localMcAddr
     publishFriendMpSession()
+}
+
+// ============ 我的房间（房间存档列表） ============
+
+/** 刷新「我的房间」列表 */
+fun LauncherViewModel.refreshRooms() {
+    _mpRooms.value = core.roomStore().list()
+}
+
+/** 创建/加入成功后把当前房间写进存档，重连时可直接一键加入。 */
+private fun LauncherViewModel.rememberCurrentRoom() {
+    val mgr = core.multiplayer()
+    if (!mgr.isInRoom) return
+    val backend = mgr.backend.name
+    val invite = mgr.generateInvitation()
+    val address = if (backend == "REDSTONE") mgr.currentRoomCode else mgr.virtualIp
+    runCatching {
+        core.roomStore().remember(
+            backend, invite, address, preferences.getRedstoneMaxPlayers(),
+            roomDisplayName(backend)
+        )
+    }.onFailure { System.err.println("[LauncherVM] 保存联机房间失败: ${it.message}") }
+    refreshRooms()
+}
+
+/** 新建房间的缺省名：后端 + 创建时间；重连同名房间时存档保留用户改过的名字。 */
+private fun LauncherViewModel.roomDisplayName(backend: String): String {
+    val label = when (backend) {
+        "CONNECTX" -> "ConnectX"
+        "EASYTIER" -> "EasyTier"
+        "REDSTONE" -> I18n.t("mp.redstone")
+        else -> I18n.t("mp.terracotta_official")
+    }
+    val time = java.time.LocalDateTime.now()
+        .format(java.time.format.DateTimeFormatter.ofPattern("MM-dd HH:mm"))
+    return "$label · $time"
+}
+
+/** 从「我的房间」一键加入：先切到房间所属后端，再走普通加入流程。 */
+fun LauncherViewModel.joinSavedRoom(room: com.pmcl.core.multiplayer.RoomStore.Room) {
+    val mgr = core.multiplayer()
+    if (mgr.isInRoom || mgr.isBusy) {
+        _status.value = I18n.t("mp.rooms.leave_first")
+        return
+    }
+    val code = room.joinCode.ifBlank { room.address }
+    if (code.isBlank()) {
+        _status.value = I18n.t("status.enter_room_code_or_invitation")
+        return
+    }
+    setMpBackend(
+        when (room.backend) {
+            "CONNECTX" -> com.pmcl.core.multiplayer.MultiplayerManager.Backend.CONNECTX
+            "EASYTIER" -> com.pmcl.core.multiplayer.MultiplayerManager.Backend.EASYTIER
+            "REDSTONE" -> com.pmcl.core.multiplayer.MultiplayerManager.Backend.REDSTONE
+            else -> com.pmcl.core.multiplayer.MultiplayerManager.Backend.TERRACOTTA
+        }
+    )
+    joinRoom(code)
+}
+
+/** 重命名存档房间 */
+fun LauncherViewModel.renameRoom(id: String, name: String) {
+    if (name.isBlank()) return
+    core.roomStore().rename(id, name)
+    refreshRooms()
+    _status.value = I18n.t("mp.rooms.renamed")
+}
+
+/** 删除存档房间（不影响当前连接） */
+fun LauncherViewModel.removeRoom(id: String) {
+    val name = core.roomStore().find(id)?.name ?: ""
+    core.roomStore().remove(id)
+    refreshRooms()
+    _status.value = I18n.t("mp.rooms.deleted", name)
 }
 
 /** 复制邀请码到系统剪贴板 */

@@ -14,12 +14,14 @@ import com.pmcl.core.mods.ModUpdateChecker;
 import com.pmcl.core.mods.ModDependencyResolver;
 import com.pmcl.core.modpack.ModpackManager;
 import com.pmcl.core.multiplayer.MultiplayerManager;
+import com.pmcl.core.multiplayer.RoomStore;
 import com.pmcl.core.friend.FriendManager;
 import com.pmcl.core.migration.MigrationManager;
 import com.pmcl.core.news.NewsClient;
 import com.pmcl.core.instance.InstanceManager;
 import com.pmcl.core.plugin.PluginManager;
 import com.pmcl.core.preferences.Preferences;
+import com.pmcl.core.setup.AppearanceSetup;
 import com.pmcl.core.runtime.JavaRuntimeDownloader;
 import com.pmcl.core.runtime.RuntimeManager;
 import com.pmcl.core.stats.PlayTimeTracker;
@@ -91,6 +93,7 @@ public final class LauncherCore {
     private final GitHubReleaseSyncChecker githubSync;
     private final NewsClient newsClient;
     private final MultiplayerManager multiplayerManager;
+    private final RoomStore roomStore;
     private final FriendManager friendManager;
     private final MigrationManager migrationManager;
     private final PluginManager pluginManager;
@@ -105,6 +108,11 @@ public final class LauncherCore {
         this.config = config;
         this.preferences = new Preferences(
                 config.getWorkDir().resolve("preferences.json"));
+        try {
+            AppearanceSetup.consume(this.preferences, config.getWorkDir().resolve(AppearanceSetup.FILE_NAME));
+        } catch (Throwable t) {
+            System.err.println("[Appearance] " + (t.getMessage() == null ? t.toString() : t.getMessage()));
+        }
         this.instanceManager = new InstanceManager(config);
 
         this.versionManager = new VersionManager(config, preferences);
@@ -196,6 +204,7 @@ public final class LauncherCore {
                 () -> new NewsClient(downloadManager.httpClient()));
         this.multiplayerManager = initOptional("MultiplayerManager",
                 () -> new MultiplayerManager());
+        this.roomStore = new RoomStore(config.getWorkDir().resolve("mp-rooms.json"));
         this.friendManager = initOptional("FriendManager",
                 () -> {
                     FriendManager fm = new FriendManager();
@@ -336,6 +345,9 @@ public final class LauncherCore {
     public TranslateClient translate() { return translateClient; }
 
     public MultiplayerManager multiplayer() { return multiplayerManager; }
+
+    /** 联机房间存档（我的房间列表）。 */
+    public RoomStore roomStore() { return roomStore; }
     public FriendManager friend() { return friendManager; }
 
     public MigrationManager migration() { return migrationManager; }

@@ -1,5 +1,7 @@
 package com.pmcl.ui.navigation
 
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Memory
 import androidx.compose.ui.graphics.vector.ImageVector
 
 /** 二级侧栏中的一个子分区 */
@@ -65,6 +67,7 @@ object SecondaryNavRegistry {
             SecondarySection("datapacks", "nav.datapacks", PmclIcons.Dataset),
             SecondarySection("configs", "nav.configs", PmclIcons.Edit),
             SecondarySection("skins", "nav.offline_skins", PmclIcons.Image),
+            SecondarySection("memory", "nav.memory", Icons.Filled.Memory),
         )
     )
 

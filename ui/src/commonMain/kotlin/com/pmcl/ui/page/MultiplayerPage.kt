@@ -9,6 +9,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Warning
@@ -20,6 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
+import com.pmcl.core.multiplayer.RoomStore
 import com.pmcl.ui.animation.TypewriterTitle
 import com.pmcl.core.multiplayer.EasyTierManager
 import com.pmcl.core.multiplayer.MultiplayerManager
@@ -30,6 +33,10 @@ import com.pmcl.ui.viewmodel.setMpBackend
 import com.pmcl.ui.viewmodel.createRoom
 import com.pmcl.ui.viewmodel.joinRoom
 import com.pmcl.ui.viewmodel.leaveRoom
+import com.pmcl.ui.viewmodel.refreshRooms
+import com.pmcl.ui.viewmodel.joinSavedRoom
+import com.pmcl.ui.viewmodel.renameRoom
+import com.pmcl.ui.viewmodel.removeRoom
 import com.pmcl.ui.viewmodel.copyInvitation
 import com.pmcl.ui.viewmodel.copyToClipboard
 import com.pmcl.ui.viewmodel.syncConnectXConfig
@@ -359,6 +366,8 @@ private fun MpRoomSection(vm: LauncherViewModel) {
             }
         }
 
+        MpRoomList(vm, invitation = invitation, inRoom = inRoom)
+
         if (busy || progress.isNotEmpty()) {
             if (busy) {
                 LinearProgressIndicator(
@@ -674,3 +683,171 @@ private fun MpHelpSection(vm: LauncherViewModel) {
         }
     }
 }
+
+// ============ 我的房间 ============
+
+/**
+ * 房间存档列表：创建/加入过的房间保存在本地，可一键重连、复制邀请码、重命名、删除。
+ * 当前所在的房间会标记出来，不再显示「加入」。
+ */
+@Composable
+private fun MpRoomList(vm: LauncherViewModel, invitation: String, inRoom: Boolean) {
+    val rooms by vm.mpRooms.collectAsState()
+    LaunchedEffect(Unit) { vm.refreshRooms() }
+    var renameTarget by remember { mutableStateOf<RoomStore.Room?>(null) }
+
+    HorizontalDivider()
+    Text(
+        I18n.t("mp.rooms.title"),
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.SemiBold
+    )
+    if (rooms.isEmpty()) {
+        Text(
+            I18n.t("mp.rooms.empty"),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.outline
+        )
+    } else {
+        rooms.forEach { room ->
+            RoomCard(
+                vm = vm,
+                room = room,
+                isCurrent = inRoom && invitation.isNotBlank() && room.joinCode == invitation,
+                onRename = { renameTarget = room }
+            )
+        }
+    }
+    renameTarget?.let { room ->
+        RenameRoomDialog(vm, room, onDismiss = { renameTarget = null })
+    }
+}
+
+@Composable
+private fun RoomCard(
+    vm: LauncherViewModel,
+    room: RoomStore.Room,
+    isCurrent: Boolean,
+    onRename: () -> Unit
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        room.name,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Surface(
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text(
+                            roomBackendLabel(room.backend),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+                Text(
+                    roomMetaLine(room),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            val code = room.joinCode.ifBlank { room.address }
+            IconButton(onClick = { vm.copyToClipboard(code) }) {
+                Icon(Icons.Filled.ContentCopy, I18n.t("mp.copy_invite"), Modifier.size(16.dp))
+            }
+            IconButton(onClick = onRename) {
+                Icon(Icons.Filled.Edit, I18n.t("mp.rooms.rename"), Modifier.size(16.dp))
+            }
+            IconButton(onClick = { vm.removeRoom(room.id) }) {
+                Icon(Icons.Filled.Delete, I18n.t("mp.rooms.delete"), Modifier.size(16.dp))
+            }
+            if (isCurrent) {
+                Text(
+                    I18n.t("mp.rooms.current"),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(start = 4.dp)
+                )
+            } else {
+                TextButton(onClick = { vm.joinSavedRoom(room) }) {
+                    Text(I18n.t("mp.rooms.join"))
+                }
+            }
+        }
+    }
+    Spacer(Modifier.height(8.dp))
+}
+
+@Composable
+private fun RenameRoomDialog(vm: LauncherViewModel, room: RoomStore.Room, onDismiss: () -> Unit) {
+    var name by remember { mutableStateOf(room.name) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(I18n.t("mp.rooms.rename_title")) },
+        text = {
+            Column {
+                Text(
+                    I18n.t("mp.rooms.name_label"),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.outline
+                )
+                Spacer(Modifier.height(6.dp))
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp)
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                vm.renameRoom(room.id, name)
+                onDismiss()
+            }) { Text(I18n.t("common.save")) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(I18n.t("common.cancel")) }
+        }
+    )
+}
+
+private fun roomBackendLabel(backend: String): String = when (backend) {
+    "CONNECTX" -> "ConnectX"
+    "EASYTIER" -> "EasyTier"
+    "REDSTONE" -> I18n.t("mp.redstone")
+    else -> I18n.t("mp.terracotta_official")
+}
+
+private fun roomMetaLine(room: RoomStore.Room): String {
+    val code = room.joinCode.ifBlank { room.address }
+    val short = if (code.length > 24) code.take(24) + "…" else code
+    return listOfNotNull(
+        short.ifBlank { null },
+        I18n.t("mp.rooms.last_used", formatRoomTime(room.lastUsedAt))
+    ).joinToString(" · ")
+}
+
+private fun formatRoomTime(epochMilli: Long): String =
+    java.time.Instant.ofEpochMilli(epochMilli)
+        .atZone(java.time.ZoneId.systemDefault())
+        .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))

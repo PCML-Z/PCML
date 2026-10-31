@@ -280,6 +280,7 @@ public final class PmclCli {
             case "open": cmdOpen(rest); break;
             case "url": cmdUrl(rest); break;
             case "theme": cmdTheme(rest); break;
+            case "appearance": cmdAppearance(rest); break;
             case "exit": case "quit": System.out.println("Goodbye!"); System.exit(0); break;
             default:
                 // Check for plugin-registered commands: plugin:<pluginId>:<commandName>
@@ -392,6 +393,8 @@ public final class PmclCli {
         System.out.println("    open <dir>                Open directory in file manager");
         System.out.println("    url <url>                 Open URL in system browser");
         System.out.println("    theme <dark|light>        Quick switch theme");
+        System.out.println("    appearance catalog|apply|apply-file");
+        System.out.println("                              Theme, font, scale and language");
         System.out.println();
         System.out.println("  Plugin Management:");
         System.out.println("    plugin list               List loaded plugins");
@@ -1732,6 +1735,12 @@ public final class PmclCli {
             System.out.println("  Appearance:");
             System.out.printf("    Dark theme: %s | Dynamic color: %s | Language: %s%n",
                     pref.isUseDarkTheme() ? "on" : "off", pref.isDynamicColor() ? "on" : "off", pref.getLanguage());
+            System.out.printf("    Preset: %s | Color mode: %s | Scale: %s | Font: %s%n",
+                    pref.getThemePreset(), pref.getColorMode(), pref.getUiScale(),
+                    pref.getLauncherFont().isEmpty() ? "(auto)" : pref.getLauncherFont());
+            System.out.printf("    Glass: %s | Material: %s | Follow system: %s%n",
+                    pref.isGlassTheme() ? "on" : "off", pref.isMaterialTheme() ? "on" : "off",
+                    pref.isFollowSystemTheme() ? "on" : "off");
             System.out.println(SEP);
             System.out.println("Use 'config <key> <value>' to modify, e.g.:");
             System.out.println("  config maxMemory 4096");
@@ -1793,6 +1802,13 @@ public final class PmclCli {
             case "darktheme": return String.valueOf(pref.isUseDarkTheme());
             case "dynamiccolor": return String.valueOf(pref.isDynamicColor());
             case "language": case "lang": return pref.getLanguage();
+            case "themepreset": return pref.getThemePreset();
+            case "colormode": return pref.getColorMode();
+            case "uiscale": return String.valueOf(pref.getUiScale());
+            case "launcherfont": return pref.getLauncherFont();
+            case "glasstheme": return String.valueOf(pref.isGlassTheme());
+            case "materialtheme": return String.valueOf(pref.isMaterialTheme());
+            case "followsystem": return String.valueOf(pref.isFollowSystemTheme());
             default: return null;
         }
     }
@@ -1826,11 +1842,31 @@ public final class PmclCli {
                 case "darktheme": pref.setUseDarkTheme(Boolean.parseBoolean(value)); return true;
                 case "dynamiccolor": pref.setDynamicColor(Boolean.parseBoolean(value)); return true;
                 case "language": case "lang": pref.setLanguage(value); return true;
+                case "themepreset": new com.pmcl.core.setup.AppearanceSetup.Selection().theme(value).apply(pref); return true;
+                case "colormode": new com.pmcl.core.setup.AppearanceSetup.Selection().colorMode(value).apply(pref); return true;
+                case "uiscale": new com.pmcl.core.setup.AppearanceSetup.Selection().scale(Double.parseDouble(value)).apply(pref); return true;
+                case "launcherfont": new com.pmcl.core.setup.AppearanceSetup.Selection().font(value).apply(pref); return true;
+                case "glasstheme": new com.pmcl.core.setup.AppearanceSetup.Selection().glass(Boolean.parseBoolean(value)).apply(pref); return true;
+                case "materialtheme": new com.pmcl.core.setup.AppearanceSetup.Selection().material(Boolean.parseBoolean(value)).apply(pref); return true;
+                case "followsystem": new com.pmcl.core.setup.AppearanceSetup.Selection().followSystem(Boolean.parseBoolean(value)).apply(pref); return true;
                 default: return false;
             }
         } catch (NumberFormatException e) {
             System.err.println("Invalid number format: " + value);
             return false;
+        } catch (IllegalArgumentException e) {
+            System.err.println(e.getMessage());
+            return false;
+        }
+    }
+
+    private void cmdAppearance(String[] rest) {
+        try {
+            if (com.pmcl.core.setup.AppearanceSetup.command(rest, core.getPreferences())) {
+                core.getPreferences().save();
+            }
+        } catch (Exception e) {
+            System.err.println(e.getMessage() == null ? e.toString() : e.getMessage());
         }
     }
 

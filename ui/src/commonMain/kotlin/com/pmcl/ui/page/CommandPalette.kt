@@ -186,6 +186,9 @@ fun buildSearchIndex(vm: LauncherViewModel): List<SearchItem> {
             add(SearchItem(I18n.t("nav.offline_skins"), I18n.t("search.hub.offline_skins"), PmclIcons.Image, GROUP_NAV, listOf("skin", I18n.t("cmd.kw.offline_skin"))) {
                 vm.requestSecondaryNav("content", "skins")
             })
+            add(SearchItem(I18n.t("nav.memory"), I18n.t("search.hub.memory"), Icons.Filled.Memory, GROUP_NAV, listOf("memory", "ram", I18n.t("cmd.kw.memory"))) {
+                vm.requestSecondaryNav("content", "memory")
+            })
             add(SearchItem(I18n.t("download.local_versions"), I18n.t("search.hub.local_versions"), PmclIcons.Wrench, GROUP_NAV, listOf("version", I18n.t("cmd.kw.version"), I18n.t("cmd.kw.install"))) {
                 vm.requestSecondaryNav("download", "versions")
             })

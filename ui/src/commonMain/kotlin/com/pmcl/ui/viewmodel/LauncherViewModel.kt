@@ -1797,6 +1797,11 @@ class LauncherViewModel {
     @PublishedApi internal val _mpLocalMcAddr = MutableStateFlow("")
     val mpLocalMcAddr: StateFlow<String> = _mpLocalMcAddr.asStateFlow()
 
+    /** 「我的房间」存档列表（创建/加入过的房间），最近使用的排前面 */
+    @PublishedApi internal val _mpRooms =
+        MutableStateFlow<List<com.pmcl.core.multiplayer.RoomStore.Room>>(emptyList())
+    val mpRooms: StateFlow<List<com.pmcl.core.multiplayer.RoomStore.Room>> = _mpRooms.asStateFlow()
+
     // 陶瓦联机错误信息（供 UI 在失败时展示）
     val mpLastError: String get() = core.multiplayer().lastError
 

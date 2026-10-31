@@ -572,6 +572,7 @@ internal fun ContentModule(ctx: ModuleCtx) {
         "datapacks" -> DatapacksSection(ctx)
         "configs" -> ConfigFilesSection(ctx)
         "skins" -> OfflineSkinsSection(ctx)
+        "memory" -> MemorySection(ctx)
         else -> InstalledModsSection(ctx)
     }
 }
