@@ -48,6 +48,7 @@ import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Inventory2
+import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Pause
@@ -223,6 +224,8 @@ fun LaunchPage(vm: LauncherViewModel) {
 
     // 右侧详情面板内容提取为可复用 lambda，供分栏布局和最初分栏布局共用
     val rightDetailContent: @Composable () -> Unit = {
+            LocalMemoryCard(vm)
+            Spacer(Modifier.height(12.dp))
             // 当前选中版本提示
             selected?.let {
                 val hintColor = if (isInstalled) MaterialTheme.colorScheme.primaryContainer
@@ -2244,6 +2247,65 @@ private fun AvatarImage(url: String) {
         ) {
             Icon(Icons.Filled.Star, I18n.t("common.loading"), modifier = Modifier.padding(10.dp))
         }
+    }
+}
+
+/** 启动页上的本机物理内存。数字每秒变一次，点进去是完整的内存占用页。 */
+@Composable
+private fun LocalMemoryCard(vm: LauncherViewModel) {
+    val watch = rememberMemoryWatch(vm)
+    val launcher = if (watch.ready) formatMem(watch.launcherRss) else "—"
+    val game = when {
+        !watch.ready -> "—"
+        watch.games.isEmpty() -> I18n.t("content.memory.no_game")
+        else -> formatMem(watch.gamesRss)
+    }
+    Surface(
+        color = glassSurfaceVariantColor(glassAlpha = 0.4f),
+        shape = RoundedCornerShape(8.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { vm.requestSecondaryNav("content", "memory") }
+    ) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Filled.Memory,
+                    contentDescription = I18n.t("content.memory.open"),
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    I18n.t("content.memory.title"),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    I18n.t("content.memory.rss"),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                MemoryReadout(I18n.t("content.memory.launcher"), launcher, Modifier.weight(1f))
+                MemoryReadout(I18n.t("content.memory.game"), game, Modifier.weight(1f))
+            }
+            Text(
+                I18n.t("content.memory.local"),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun MemoryReadout(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(modifier) {
+        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1)
     }
 }
 

@@ -99,6 +99,8 @@ import com.pmcl.core.stats.PlayTimeTracker
 import com.pmcl.ui.navigation.PmclIcons
 import com.pmcl.ui.page.WikiWebController
 import com.pmcl.ui.page.WikiWebView
+import com.pmcl.ui.page.formatMem
+import com.pmcl.ui.page.rememberMemoryWatch
 import com.pmcl.ui.viewmodel.ManagedProjection
 import com.pmcl.ui.viewmodel.QueueTaskSnapshot
 import com.pmcl.ui.viewmodel.applyOfflineSkin
@@ -949,6 +951,7 @@ private fun PerformanceSection(ctx: ModuleCtx) {
         }
     }
     val s = sample
+    val memory = rememberMemoryWatch(ctx.vm)
     fun pct(v: Double?) = v?.let { "${(it * 100).toInt()}%" } ?: "—"
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         ModuleHero(mt("perf_title"), mt("perf_sub"), ctx.color, Icons.Filled.Speed)
@@ -957,6 +960,25 @@ private fun PerformanceSection(ctx: ModuleCtx) {
             ColorTile(mt("memory"), pct(s?.mem), if ((s?.mem ?: 0.0) > 0.9) Tiles.Orange else Tiles.Sky, Modifier.weight(1f).fillMaxHeight(), Icons.Filled.Storage, index = 1)
             ColorTile(mt("heap"), s?.let { "${it.heapUsed} / ${it.heapMax} MB" } ?: "—", Tiles.Blue, Modifier.weight(1.3f).fillMaxHeight(), valueSize = 16, index = 2)
             ColorTile(mt("threads"), s?.threads?.toString() ?: "—", Tiles.Slate, Modifier.weight(1f).fillMaxHeight(), index = 3)
+        }
+        LabelBar(I18n.t("content.memory.rss"), ctx.color)
+        TileRow {
+            ColorTile(
+                I18n.t("content.memory.launcher"),
+                if (memory.ready) formatMem(memory.launcherRss) else "—",
+                Tiles.Blue,
+                Modifier.weight(1f).fillMaxHeight(),
+                Icons.Filled.Memory,
+                index = 6
+            )
+            ColorTile(
+                I18n.t("content.memory.game"),
+                if (memory.ready) formatMem(memory.gamesRss) else "—",
+                Tiles.Forest,
+                Modifier.weight(1f).fillMaxHeight(),
+                Icons.Filled.Memory,
+                index = 7
+            )
         }
         TileRow(72.dp) {
             val d = s?.disk

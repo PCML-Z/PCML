@@ -187,7 +187,7 @@ fun StatisticsPage(vm: LauncherViewModel, sectionId: String = "performance") {
             }
             "sessions" -> SessionListCard(vm, entranceDelay = 0)
             "breakdown" -> BreakdownCard(vm, entranceDelay = 0)
-            else -> RealtimePerformanceCard(entranceDelay = 0)
+            else -> RealtimePerformanceCard(vm, entranceDelay = 0)
         }
     }
 }
@@ -232,7 +232,7 @@ private data class PeakRecords(
  * 每 1.5 秒采样一次，最多保留 40 个历史点用于绘制迷你折线图，同时记录峰值。
  */
 @Composable
-private fun RealtimePerformanceCard(entranceDelay: Int = 0) {
+private fun RealtimePerformanceCard(vm: LauncherViewModel, entranceDelay: Int = 0) {
     // NoClassDefFoundError 也要吞掉：运行中覆盖 fat jar 后首次进系统信息页会缺 oshi 嵌套类
     val runtime = remember {
         try {
@@ -251,6 +251,7 @@ private fun RealtimePerformanceCard(entranceDelay: Int = 0) {
 
     var sample by remember { mutableStateOf<PerformanceSample?>(null) }
     val peaks = remember { PeakRecords() }
+    val memory = rememberMemoryWatch(vm)
 
     LaunchedEffect(runtime) {
         val rm = runtime ?: return@LaunchedEffect
@@ -387,6 +388,36 @@ private fun RealtimePerformanceCard(entranceDelay: Int = 0) {
                     progress = ((s.netUpKbS + s.netDownKbS) / 1024.0).coerceIn(0.0, 1.0).toFloat(),
                     history = netHistory,
                     accent = Color(0xFF64D2FF),
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Spacer(Modifier.height(10.dp))
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                ApplePerfMetric(
+                    label = I18n.t("content.memory.launcher"),
+                    valueText = if (memory.ready) formatMem(memory.launcherRss) else "—",
+                    caption = I18n.t("content.memory.peak", if (memory.ready) formatMem(memory.launcherPeak) else "—"),
+                    detail = I18n.t("content.memory.rss"),
+                    progress = memFraction(memory.launcherRss, memory.systemTotal),
+                    history = memory.launcherHistory,
+                    accent = Color(0xFF2B579A),
+                    modifier = Modifier.weight(1f)
+                )
+                ApplePerfMetric(
+                    label = I18n.t("content.memory.game"),
+                    valueText = if (memory.ready) formatMem(memory.gamesRss) else "—",
+                    caption = if (!memory.ready || memory.games.isEmpty()) {
+                        I18n.t("content.memory.no_game")
+                    } else {
+                        I18n.t("content.memory.peak", formatMem(memory.gamesPeak))
+                    },
+                    detail = I18n.t("content.memory.rss"),
+                    progress = memFraction(memory.gamesRss, memory.systemTotal),
+                    history = memory.gameHistory,
+                    accent = Color(0xFF217346),
                     modifier = Modifier.weight(1f)
                 )
             }
