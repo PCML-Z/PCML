@@ -40,6 +40,7 @@ object SecondaryNavRegistry {
             SecondarySection("about", "settings.section.about", PmclIcons.Article),
             SecondarySection("feedback", "settings.section.feedback", PmclIcons.Qr),
             SecondarySection("licenses", "settings.section.licenses", PmclIcons.Gavel),
+            SecondarySection("kernels", "settings.section.kernels", PmclIcons.Kernel),
             SecondarySection("extensions", "settings.section.extensions", PmclIcons.Plugins),
         )
     )

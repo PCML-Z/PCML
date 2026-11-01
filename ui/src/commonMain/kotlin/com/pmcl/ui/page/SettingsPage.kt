@@ -133,6 +133,7 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
         "about" -> "settings.section.about"
         "feedback" -> "settings.section.feedback"
         "licenses" -> "settings.section.licenses"
+        "kernels" -> "settings.section.kernels"
         "extensions" -> "settings.section.extensions"
         else -> "settings.section.launcher"
     }
@@ -1176,6 +1177,10 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
 
         if (sectionId == "licenses") {
         LicensesAndAgreementsSection()
+        }
+
+        if (sectionId == "kernels") {
+            KernelSettingsSection(vm)
         }
 
         // 插件扩展设置分区

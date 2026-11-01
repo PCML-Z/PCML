@@ -9,7 +9,9 @@ import com.google.gson.JsonPrimitive
 import com.pmcl.core.auth.Account
 import com.pmcl.core.launch.JavaRuntimeFinder
 import com.pmcl.core.launch.ProcessMonitor
+import com.pmcl.ui.viewmodel.KernelChoice
 import com.pmcl.ui.viewmodel.LauncherViewModel
+import com.pmcl.ui.viewmodel.chooseKernelForLaunch
 import io.ktor.server.application.*
 import io.ktor.server.cio.CIO
 import io.ktor.server.engine.*
@@ -472,6 +474,10 @@ class PmclHostServer(
             return errorEnvelope(null, "launch", "auth_expired", "皮肤站令牌已失效，请重新登录")
         }
 
+        val picked = pickLaunchKernel(obj, versionId)
+        if (picked.error != null) return picked.error
+        val kernelId = picked.id
+
         val profile: com.pmcl.core.launch.LaunchProfile
         val javaExe: String
         synchronized(launchLock) {
@@ -559,7 +565,7 @@ class PmclHostServer(
         serverScope.launch {
             var proc: Process? = null
             try {
-                proc = vm.core.launch().launch(profile, javaExe, { }, null)
+                proc = vm.core.launch().launch(profile, javaExe, { }, null, kernelId)
                 synchronized(launchLock) {
                     currentProcess = proc
                 }
@@ -604,6 +610,40 @@ class PmclHostServer(
         }
 
         return okResponse(null)
+    }
+
+    private class KernelPick(val id: String, val error: JsonObject?)
+
+    /** 请求里带 kernel 就用它；没带且装了扩展内核时，弹出和桌面相同的选择窗。 */
+    private suspend fun pickLaunchKernel(obj: JsonObject, versionId: String): KernelPick {
+        val element = obj.get("kernel")
+        if (element != null && !element.isJsonNull) {
+            if (!element.isJsonPrimitive || !element.asJsonPrimitive.isString) {
+                return KernelPick("", errorEnvelope(null, "launch", "bad_request", "kernel 必须是字符串"))
+            }
+            val raw = element.asString.trim()
+            if (raw.isEmpty() || raw.equals("builtin", ignoreCase = true)) return KernelPick("", null)
+            if (!kernelInstalled(raw)) {
+                return KernelPick("", errorEnvelope(null, "launch", "unknown_kernel", "没有这个扩展内核"))
+            }
+            return KernelPick(raw, null)
+        }
+        return when (val chosen = vm.chooseKernelForLaunch(versionId)) {
+            KernelChoice.None -> KernelPick("", null)
+            KernelChoice.Busy -> KernelPick("", errorEnvelope(null, "launch", "kernel_choice_busy", "正在选择内核"))
+            KernelChoice.Cancelled -> KernelPick("", errorEnvelope(null, "launch", "kernel_choice_cancelled", "未选择内核"))
+            is KernelChoice.Selected -> {
+                if (chosen.id.isNotEmpty() && !kernelInstalled(chosen.id)) {
+                    KernelPick("", errorEnvelope(null, "launch", "unknown_kernel", "没有这个扩展内核"))
+                } else {
+                    KernelPick(chosen.id, null)
+                }
+            }
+        }
+    }
+
+    private suspend fun kernelInstalled(id: String): Boolean = withContext(Dispatchers.IO) {
+        vm.core.kernels().list().any { it.manifest.id == id }
     }
 
     private fun handleKill(): JsonObject {

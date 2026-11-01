@@ -208,6 +208,32 @@ object PmclIcons {
         ink { circle(11f, 6.5f, 2.5f) }
     }
 
+    /** 启动器内核：芯片主体、引脚，中间一颗菱形核。 */
+    val Kernel: ImageVector = icon("Kernel") {
+        shade { roundRect(6.7f, 6.8f, 18.3f, 18.4f, 2.5f) }
+        ink(PathFillType.EvenOdd) {
+            roundRect(6.2f, 6.2f, 17.8f, 17.8f, 2.5f)
+            roundRect(9.15f, 9.15f, 14.85f, 14.85f, 1.35f)
+        }
+        ink {
+            moveTo(12f, 10.05f)
+            lineTo(13.95f, 12f)
+            lineTo(12f, 13.95f)
+            lineTo(10.05f, 12f)
+            close()
+        }
+        ink(alpha = 0.5f) {
+            roundRect(3.2f, 8.55f, 6.2f, 10.25f, 0.45f)
+            roundRect(3.2f, 13.75f, 6.2f, 15.45f, 0.45f)
+            roundRect(17.8f, 8.55f, 20.8f, 10.25f, 0.45f)
+            roundRect(17.8f, 13.75f, 20.8f, 15.45f, 0.45f)
+            roundRect(8.55f, 3.2f, 10.25f, 6.2f, 0.45f)
+            roundRect(13.75f, 3.2f, 15.45f, 6.2f, 0.45f)
+            roundRect(8.55f, 17.8f, 10.25f, 20.8f, 0.45f)
+            roundRect(13.75f, 17.8f, 15.45f, 20.8f, 0.45f)
+        }
+    }
+
     val Instances: ImageVector = icon("Instances") {
         shade { roundRect(13.8f, 3.8f, 21.2f, 11.2f, 2.1f) }
         ink { roundRect(3.2f, 3.2f, 10.6f, 10.6f, 2.15f) }

@@ -218,7 +218,7 @@ internal val nativeSettingSections = mapOf(
 )
 
 private val classicSections = listOf(
-    "accounts", "automation", "compile", "cursor", "updates", "git-tree", "device", "about", "feedback", "licenses", "extensions"
+    "accounts", "automation", "compile", "cursor", "updates", "git-tree", "device", "about", "feedback", "licenses", "kernels", "extensions"
 )
 
 private val isMacOs = System.getProperty("os.name").orEmpty().lowercase(Locale.ROOT).contains("mac")

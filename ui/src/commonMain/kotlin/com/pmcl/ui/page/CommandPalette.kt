@@ -207,6 +207,9 @@ fun buildSearchIndex(vm: LauncherViewModel): List<SearchItem> {
             add(SearchItem(I18n.t("settings.section.java"), I18n.t("search.nav.settings"), PmclIcons.Terminal, GROUP_NAV, listOf("java", "jvm", "agent", "ime", "输入法", I18n.t("cmd.kw.settings"))) {
                 vm.requestSecondaryNav("settings", "java")
             })
+            add(SearchItem(I18n.t("settings.section.kernels"), I18n.t("search.nav.settings"), PmclIcons.Kernel, GROUP_NAV, listOf("kernel", "csharp", "rust", I18n.t("cmd.kw.kernel"), I18n.t("cmd.kw.settings"))) {
+                vm.requestSecondaryNav("settings", "kernels")
+            })
             add(SearchItem(I18n.t("settings.section.automation"), I18n.t("search.nav.settings"), PmclIcons.Bolt, GROUP_NAV, listOf("automation", "kotlin", "java", "cpp", "go", I18n.t("cmd.kw.settings"))) {
                 vm.requestSecondaryNav("settings", "automation")
             })

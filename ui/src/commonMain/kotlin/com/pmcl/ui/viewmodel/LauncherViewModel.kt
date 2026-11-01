@@ -1534,7 +1534,8 @@ class LauncherViewModel {
         versionId: String,
         instanceDir: java.nio.file.Path? = null,
         instanceInfo: InstanceInfo? = null,
-        accountOverride: Account? = null
+        accountOverride: Account? = null,
+        kernelId: String = ""
     ) {
         if (_javaDownloading.value) return
         dismissCompatOptions()
@@ -1577,7 +1578,7 @@ class LauncherViewModel {
                 }
                 _javaDownloadStatus.value = "完成：$found"
                 _javaDownloading.value = false
-                launchWithSpecificJava(versionId, found, maj, "x86_64", snapDir, snapInfo, snapAccount)
+                launchWithSpecificJava(versionId, found, maj, "x86_64", snapDir, snapInfo, snapAccount, kernelId)
             } catch (e: Throwable) {
                 val cause = e.cause?.message
                 val detail = when {
@@ -3023,7 +3024,8 @@ class LauncherViewModel {
         javaArch: String,
         instanceDir: java.nio.file.Path? = null,
         instanceInfo: InstanceInfo? = null,
-        accountOverride: Account? = null
+        accountOverride: Account? = null,
+        kernelId: String = ""
     ) {
         dismissCompatOptions()
         val snapDir = instanceDir ?: _pendingInstanceDir
@@ -3078,6 +3080,10 @@ class LauncherViewModel {
                     "[PMCL] Java 版本: $javaMajorVer 架构: $javaArch",
                     ""
                 )
+                if (kernelId.isNotEmpty()) {
+                    val name = core.kernels().list().firstOrNull { it.manifest.id == kernelId }?.manifest?.name ?: kernelId
+                    initLogs.add(I18n.t("kernel.launch_with", name))
+                }
                 instanceLogs[instanceId] = initLogs
                 setGameLogs(initLogs.toList())
                 _runningInstances.update { list ->
@@ -3159,7 +3165,8 @@ class LauncherViewModel {
                         } catch (_: Throwable) { }
                     },
                     instLogger,
-                    null
+                    null,
+                    kernelId.ifEmpty { null }
                 ) { onGameProcessStarted() }
                 launchPreparing.set(false)
                 val exitCode = awaitCancellableFuture(future)
@@ -4060,6 +4067,14 @@ class LauncherViewModel {
     // 实例启动上下文：launch() 读取此字段决定是否按实例模式启动
     @PublishedApi @Volatile internal var _pendingInstanceDir: java.nio.file.Path? = null
     @PublishedApi @Volatile internal var _pendingInstanceInfo: InstanceInfo? = null
+
+    /** 启动前等待用户选择内核。非空时弹出选择窗，确认后再真正启动。 */
+    @PublishedApi internal val _kernelLaunchRequest = MutableStateFlow<KernelLaunchRequest?>(null)
+    val kernelLaunchRequest: StateFlow<KernelLaunchRequest?> = _kernelLaunchRequest.asStateFlow()
+
+    /** Companion 等外部入口借用同一个选择窗时，用它把选中的内核 id 交回去。 */
+    @PublishedApi internal var kernelChoice: kotlinx.coroutines.CompletableDeferred<String?>? = null
+    @PublishedApi internal val kernelChoiceGate = Any()
 
     /** 加载实例列表 */
     fun loadInstances() {

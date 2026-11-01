@@ -1,6 +1,8 @@
 package com.pmcl.core.launch;
 
 import com.pmcl.core.LauncherConfig;
+import com.pmcl.core.kernel.KernelException;
+import com.pmcl.core.kernel.KernelManager;
 import com.pmcl.core.plugin.PluginManager;
 import com.pmcl.core.preferences.Preferences;
 import com.pmcl.plugin.GameLaunchedEvent;
@@ -35,6 +37,7 @@ public final class LaunchManager {
     private final LauncherConfig config;
     private final Preferences preferences;
     private PluginManager pluginManager;
+    private volatile KernelManager kernelManager;
     /** 活跃 MC 进程（应用退出时强制清理） */
     private final java.util.Set<Process> activeProcesses =
             java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<>());
@@ -63,6 +66,19 @@ public final class LaunchManager {
     /** Inject plugin manager for launch hooks and events. Called by LauncherCore. */
     public void setPluginManager(PluginManager pm) {
         this.pluginManager = pm;
+    }
+
+    /** 扩展内核。选中某个内核时，由它启动已经组装好的游戏命令。 */
+    public void setKernelManager(KernelManager kernels) {
+        this.kernelManager = kernels;
+    }
+
+    private static String kernelLaunchMessage(KernelException error) {
+        String key = "kernel.error." + error.code();
+        String text = com.pmcl.core.i18n.I18n.t(key);
+        if (text.equals(key)) text = error.code();
+        if (!error.detail().isEmpty()) text = text + " " + error.detail();
+        return text;
     }
 
     /**
@@ -137,7 +153,16 @@ public final class LaunchManager {
      */
     public Process launch(LaunchProfile profile, String javaExecutable,
                           Consumer<String> onLog, GameLogger logger) throws IOException {
-        return launch(profile, javaExecutable, onLog, logger, null);
+        return launch(profile, javaExecutable, onLog, logger, (Thread[]) null);
+    }
+
+    /**
+     * 同步启动。{@code kernelId} 为空时走 HCS X Pro 2，非空时把同一份启动命令交给该扩展内核。
+     */
+    public Process launch(LaunchProfile profile, String javaExecutable,
+                          Consumer<String> onLog, GameLogger logger,
+                          String kernelId) throws IOException {
+        return launch(profile, javaExecutable, onLog, logger, null, true, kernelId);
     }
 
     /**
@@ -149,7 +174,7 @@ public final class LaunchManager {
     Process launch(LaunchProfile profile, String javaExecutable,
                           Consumer<String> onLog, GameLogger logger,
                           Thread[] readerHolder) throws IOException {
-        return launch(profile, javaExecutable, onLog, logger, readerHolder, true);
+        return launch(profile, javaExecutable, onLog, logger, readerHolder, true, null);
     }
 
     /**
@@ -158,6 +183,15 @@ public final class LaunchManager {
     Process launch(LaunchProfile profile, String javaExecutable,
                           Consumer<String> onLog, GameLogger logger,
                           Thread[] readerHolder, boolean runVerify) throws IOException {
+        return launch(profile, javaExecutable, onLog, logger, readerHolder, runVerify, null);
+    }
+
+    /**
+     * @param kernelId 空则由 HCS X Pro 2 直接启动；非空则把命令交给这个扩展内核
+     */
+    Process launch(LaunchProfile profile, String javaExecutable,
+                          Consumer<String> onLog, GameLogger logger,
+                          Thread[] readerHolder, boolean runVerify, String kernelId) throws IOException {
         if (runVerify) {
             String deny = verifyBeforeLaunch(profile, onLog, logger);
             if (deny != null) {
@@ -196,28 +230,47 @@ public final class LaunchManager {
             if (onLog != null) onLog.accept(com.pmcl.core.i18n.I18n.t("launch.mic_request"));
             MacMicrophone.request(javaExecutable);
         }
-        ProcessBuilder pb = new ProcessBuilder(cmd);
-        // 用 profile 实际的 gameDir 作为进程工作目录（支持启动外部 Minecraft 安装）
-        pb.directory(profile.getGameDir().toFile());
-        // 插件贡献的环境变量（已在 applyLaunchContributions 中过滤危险键）
-        if (profile.getEnv() != null && !profile.getEnv().isEmpty()) {
-            pb.environment().putAll(profile.getEnv());
-        }
         boolean detachOutput = preferences != null && "CLOSE".equals(preferences.getLauncherAfterGame());
-        if (detachOutput) {
-            Path out = logger != null ? logger.getLogFile() : null;
-            if (logger != null) logger.close();
-            if (out != null) {
-                pb.redirectOutput(ProcessBuilder.Redirect.appendTo(out.toFile()));
-                pb.redirectErrorStream(true);
-            } else {
-                pb.redirectOutput(ProcessBuilder.Redirect.DISCARD);
-                pb.redirectError(ProcessBuilder.Redirect.DISCARD);
+        Path detachLog = null;
+        if (detachOutput && logger != null) {
+            detachLog = logger.getLogFile();
+            logger.close();
+        }
+        Process process;
+        if (kernelId != null && !kernelId.isBlank()) {
+            KernelManager kernels = kernelManager;
+            if (kernels == null) {
+                throw new IOException(com.pmcl.core.i18n.I18n.t("kernel.error.unknown_kernel"));
+            }
+            java.util.Map<String, String> env = profile.getEnv() == null
+                    ? java.util.Map.of() : profile.getEnv();
+            try {
+                process = kernels.launchGame(kernelId, cmd, profile.getGameDir(), env, detachLog,
+                        detachOutput && detachLog == null);
+            } catch (KernelException e) {
+                throw new IOException(kernelLaunchMessage(e), e);
             }
         } else {
-            pb.redirectErrorStream(true);
+            ProcessBuilder pb = new ProcessBuilder(cmd);
+            // 用 profile 实际的 gameDir 作为进程工作目录（支持启动外部 Minecraft 安装）
+            pb.directory(profile.getGameDir().toFile());
+            // 插件贡献的环境变量（已在 applyLaunchContributions 中过滤危险键）
+            if (profile.getEnv() != null && !profile.getEnv().isEmpty()) {
+                pb.environment().putAll(profile.getEnv());
+            }
+            if (detachOutput) {
+                if (detachLog != null) {
+                    pb.redirectOutput(ProcessBuilder.Redirect.appendTo(detachLog.toFile()));
+                    pb.redirectErrorStream(true);
+                } else {
+                    pb.redirectOutput(ProcessBuilder.Redirect.DISCARD);
+                    pb.redirectError(ProcessBuilder.Redirect.DISCARD);
+                }
+            } else {
+                pb.redirectErrorStream(true);
+            }
+            process = pb.start();
         }
-        Process process = pb.start();
         activeProcesses.add(process);
         noteVersion(process, profile.getVersionId());
         // 关闭 stdin：Redirect.DISCARD 只能用于 stdout/stderr（type=WRITE），
@@ -345,6 +398,19 @@ public final class LaunchManager {
                                                   GameLogger logger,
                                                   LaunchTracer tracer,
                                                   Runnable onStarted) {
+        return launchAsync(profile, javaExecutable, onLog, logger, tracer, null, onStarted);
+    }
+
+    /**
+     * @param kernelId 空则由 HCS X Pro 2 启动；非空则把这次游戏交给该扩展内核
+     */
+    public CompletableFuture<Integer> launchAsync(LaunchProfile profile,
+                                                  String javaExecutable,
+                                                  Consumer<String> onLog,
+                                                  GameLogger logger,
+                                                  LaunchTracer tracer,
+                                                  String kernelId,
+                                                  Runnable onStarted) {
         String versionId = profile.getVersionId();
         return CompletableFuture.supplyAsync(() -> {
             Process process = null;
@@ -363,7 +429,7 @@ public final class LaunchManager {
                 Consumer<String> tracedOnLog = tracer != null
                         ? line -> { tracer.detectMcMilestone(line); if (onLog != null) onLog.accept(line); }
                         : onLog;
-                process = launch(profile, javaExecutable, tracedOnLog, logger, readerHolder, false);
+                process = launch(profile, javaExecutable, tracedOnLog, logger, readerHolder, false, kernelId);
                 if (tracer != null) tracer.mark("process_started");
                 if (onStarted != null) {
                     try { onStarted.run(); } catch (Throwable ignored) {}

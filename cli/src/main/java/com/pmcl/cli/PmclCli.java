@@ -5,8 +5,10 @@ import com.pmcl.core.auth.Account;
 import com.pmcl.core.auth.DeviceCode;
 import com.pmcl.core.download.DownloadManager;
 import com.pmcl.core.gamecontent.DatapackManager;
+import com.pmcl.core.i18n.I18n;
 import com.pmcl.core.install.InstallProgress;
 import com.pmcl.core.install.IntegrityChecker;
+import com.pmcl.core.kernel.KernelManager;
 import com.pmcl.core.launch.CrashAnalyzer;
 import com.pmcl.core.launch.JavaRuntimeFinder;
 import com.pmcl.core.launch.LaunchProfile;
@@ -59,7 +61,7 @@ import java.util.concurrent.CompletableFuture;
  *   versions / vs              List locally installed versions
  *   remote [limit] / rm        List remote downloadable versions
  *   install <id> / i           Install a specific version
- *   launch <id> / play         Launch a specific version
+ *   launch <id> [--kernel id]  Launch a specific version
  *   integrity <id> / check     Verify version integrity
  *   mods                       List installed mods
  *   mod <action> <name>        Manage mods (disable/enable/delete)
@@ -347,7 +349,7 @@ public final class PmclCli {
         System.out.println("    versions / vs             List locally installed versions");
         System.out.println("    remote [limit] / rm       List remote downloadable versions (default 50)");
         System.out.println("    install <id> / i          Install a specific version");
-        System.out.println("    launch <id> / play        Launch a specific version");
+        System.out.println("    launch <id> [--kernel id] Launch a version. builtin is HCS X Pro 2");
         System.out.println("    integrity <id>            Verify version integrity");
         System.out.println("    pin <versionId>           Pin a version");
         System.out.println("    unpin <versionId>         Unpin a version");
@@ -497,10 +499,47 @@ public final class PmclCli {
 
     private void cmdLaunch(String[] rest) {
         if (rest.length == 0) {
-            System.err.println("Usage: launch <versionId>");
+            System.err.println(I18n.t("kernel.cli.usage"));
             return;
         }
         String versionId = rest[0];
+        String kernelToken = null;
+        for (int i = 1; i < rest.length; i++) {
+            if (!"--kernel".equals(rest[i]) || i + 1 >= rest.length) {
+                System.err.println(I18n.t("kernel.cli.usage"));
+                return;
+            }
+            kernelToken = rest[++i];
+        }
+        List<KernelManager.Installed> kernels = core.kernels().list();
+        String kernelId = null;
+        if (kernelToken == null) {
+            if (!kernels.isEmpty()) {
+                System.err.println(I18n.t("kernel.cli.choose"));
+                System.err.println("  builtin  " + I18n.t("kernel.builtin"));
+                for (KernelManager.Installed installed : kernels) {
+                    System.err.println("  " + installed.getManifest().getId()
+                            + "  " + installed.getManifest().getName());
+                }
+                System.err.println(I18n.t("kernel.cli.usage"));
+                return;
+            }
+        } else if (kernelToken.isBlank() || "builtin".equalsIgnoreCase(kernelToken)) {
+            kernelId = null;
+        } else {
+            boolean known = false;
+            for (KernelManager.Installed installed : kernels) {
+                if (kernelToken.equals(installed.getManifest().getId())) {
+                    known = true;
+                    break;
+                }
+            }
+            if (!known) {
+                System.err.println(I18n.t("kernel.error.unknown_kernel"));
+                return;
+            }
+            kernelId = kernelToken;
+        }
         if (currentAccount == null) {
             System.err.println("No account logged in. Use 'login offline <name>' first.");
             return;
@@ -545,7 +584,8 @@ public final class PmclCli {
                 line -> {
                     // GUI 捕获模式勿长时间打印到被重定向的 System.out（会撑爆缓冲区）
                     if (!captureMode) System.out.println("[game] " + line);
-                }
+                },
+                null, null, kernelId, null
             );
             if (captureMode) {
                 // GUI 终端：异步启动后立即返回，避免持有 System.out 重定向直到游戏退出

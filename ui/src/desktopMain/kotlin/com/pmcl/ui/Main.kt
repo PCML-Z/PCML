@@ -581,6 +581,11 @@ fun main() = application {
         }
     }
 
+    val kernelLaunchRequest by vm.kernelLaunchRequest.collectAsState()
+    kernelLaunchRequest?.let { request ->
+        com.pmcl.ui.page.KernelChoiceWindow(vm, request, sharedThemeState)
+    }
+
     val studioWindows by vm.studioWindows.collectAsState()
     studioWindows.forEach { id ->
         key(id) {

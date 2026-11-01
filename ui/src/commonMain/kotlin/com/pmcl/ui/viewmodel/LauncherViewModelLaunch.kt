@@ -337,11 +337,103 @@ internal suspend fun LauncherViewModel.ensureLaunchAccount(
     }
 }
 
+/** 一次尚未开始的启动，连同当时能选的内核。handoffOnly 时只交回内核 id，不在这里启动。 */
+data class KernelLaunchRequest(
+    val versionId: String,
+    val instanceDir: java.nio.file.Path?,
+    val instanceInfo: InstanceInfo?,
+    val account: com.pmcl.core.auth.Account?,
+    val kernels: List<com.pmcl.core.kernel.KernelManager.Installed>,
+    val handoffOnly: Boolean = false,
+)
+
+/** 没有扩展内核、选择窗正开着、用户取消，或已经选定。选定的空 id 是 HCS X Pro 2。 */
+sealed class KernelChoice {
+    data object None : KernelChoice()
+    data object Busy : KernelChoice()
+    data object Cancelled : KernelChoice()
+    data class Selected(val id: String) : KernelChoice()
+}
+
+/**
+ * 已安装扩展内核时弹出和桌面相同的选择窗，等用户选定。
+ * 没有扩展内核时直接返回 [KernelChoice.None]，调用方继续用 HCS X Pro 2。
+ */
+suspend fun LauncherViewModel.chooseKernelForLaunch(versionId: String): KernelChoice {
+    val kernels = withContext(Dispatchers.IO) {
+        runCatching { core.kernels().list() }.getOrDefault(emptyList())
+    }
+    if (kernels.isEmpty()) return KernelChoice.None
+    val deferred = kotlinx.coroutines.CompletableDeferred<String?>()
+    val opened = synchronized(kernelChoiceGate) {
+        if (_kernelLaunchRequest.value != null) {
+            false
+        } else {
+            kernelChoice = deferred
+            _kernelLaunchRequest.value = KernelLaunchRequest(
+                versionId, null, null, _account.value, kernels, handoffOnly = true
+            )
+            true
+        }
+    }
+    if (!opened) return KernelChoice.Busy
+    val chosen = try {
+        kotlinx.coroutines.withTimeoutOrNull(180_000) { deferred.await() }
+    } finally {
+        synchronized(kernelChoiceGate) {
+            if (kernelChoice === deferred) {
+                kernelChoice = null
+                if (_kernelLaunchRequest.value?.handoffOnly == true) {
+                    _kernelLaunchRequest.value = null
+                }
+            }
+        }
+    }
+    return if (chosen == null) KernelChoice.Cancelled else KernelChoice.Selected(chosen)
+}
+
+/** 用户在启动弹窗里选定内核。空 id 表示默认内核 HCS X Pro 2，非空则把这次启动交给该扩展内核。 */
+fun LauncherViewModel.confirmKernelLaunch(kernelId: String) {
+    val request = synchronized(kernelChoiceGate) {
+        val current = _kernelLaunchRequest.value ?: return
+        _kernelLaunchRequest.value = null
+        if (current.handoffOnly) {
+            val choice = kernelChoice
+            kernelChoice = null
+            if (choice != null && !choice.isCompleted) choice.complete(kernelId)
+        }
+        current
+    }
+    if (request.handoffOnly) return
+    launch(
+        forcedVersionId = request.versionId,
+        instanceDir = request.instanceDir,
+        instanceInfo = request.instanceInfo,
+        accountOverride = request.account,
+        skipKernelChoice = true,
+        kernelId = kernelId
+    )
+}
+
+fun LauncherViewModel.cancelKernelLaunch() {
+    synchronized(kernelChoiceGate) {
+        val current = _kernelLaunchRequest.value
+        _kernelLaunchRequest.value = null
+        if (current?.handoffOnly == true) {
+            val choice = kernelChoice
+            kernelChoice = null
+            if (choice != null && !choice.isCompleted) choice.complete(null)
+        }
+    }
+}
+
 fun LauncherViewModel.launch(
     forcedVersionId: String? = null,
     instanceDir: java.nio.file.Path? = null,
     instanceInfo: com.pmcl.core.instance.InstanceInfo? = null,
-    accountOverride: com.pmcl.core.auth.Account? = null
+    accountOverride: com.pmcl.core.auth.Account? = null,
+    skipKernelChoice: Boolean = false,
+    kernelId: String = ""
 ) {
     val versionId = forcedVersionId ?: _selectedVersion.value ?: run {
         _status.value = I18n.t("status.version_select_first")
@@ -369,6 +461,34 @@ fun LauncherViewModel.launch(
     if (isCompanionLaunchBusy()) {
         _status.value = I18n.t("status.launch_busy_companion")
         return
+    }
+    val kernelName = if (kernelId.isEmpty()) {
+        ""
+    } else {
+        val installed = runCatching { core.kernels().list() }.getOrDefault(emptyList())
+            .firstOrNull { it.manifest.id == kernelId }
+        if (installed == null) {
+            _status.value = I18n.t("kernel.error.unknown_kernel")
+            return
+        }
+        installed.manifest.name
+    }
+    if (!skipKernelChoice) {
+        val kernels = runCatching { core.kernels().list() }.getOrDefault(emptyList())
+        if (kernels.isNotEmpty()) {
+            val opened = synchronized(kernelChoiceGate) {
+                if (_kernelLaunchRequest.value != null) {
+                    false
+                } else {
+                    _kernelLaunchRequest.value = KernelLaunchRequest(
+                        versionId, snapDir, snapInfo, snapAccount, kernels
+                    )
+                    true
+                }
+            }
+            if (!opened) _status.value = I18n.t("status.launch_busy")
+            return
+        }
     }
     // 准备阶段互斥：双击不会并行构建两套 profile；进程启动后即释放，允许多开
     if (!launchPreparing.compareAndSet(false, true)) {
@@ -497,7 +617,7 @@ fun LauncherViewModel.launch(
                                     "若已安装 LATX 二进制翻译 + x86_64 Java，native 库可通过翻译层运行。\n游戏可能崩溃，请知悉风险。"
                                 else
                                     "MIPS64el 龙芯无 x86 二进制翻译能力，旧版本大概率无法运行。\n游戏可能崩溃，请知悉风险。",
-                        action = { launchWithSpecificJava(versionId, javaExe, javaMajorVer, javaArch, snapDir, snapInfo, snapAccount) }
+                        action = { launchWithSpecificJava(versionId, javaExe, javaMajorVer, javaArch, snapDir, snapInfo, snapAccount, kernelId) }
                     ))
 
                     // 选项2：安装龙芯版 JDK（打开龙芯开源社区）
@@ -540,7 +660,7 @@ fun LauncherViewModel.launch(
                         description = "RISC-V 64 上旧版本 Minecraft 的 LWJGL 2.x 原生库无 RISC-V 版本。\n" +
                                 "若已安装 QEMU 用户态翻译 + x86_64 Java，native 库可通过翻译层运行。\n" +
                                 "游戏可能崩溃或性能较差，请知悉风险。",
-                        action = { launchWithSpecificJava(versionId, javaExe, javaMajorVer, javaArch, snapDir, snapInfo, snapAccount) }
+                        action = { launchWithSpecificJava(versionId, javaExe, javaMajorVer, javaArch, snapDir, snapInfo, snapAccount, kernelId) }
                     ))
 
                     // 选项2：安装 RISC-V 版 JDK（打开 Adoptium）
@@ -614,7 +734,7 @@ fun LauncherViewModel.launch(
                                 + "原生启动 Classic～1.12，无需安装 x86 Java 8（Rosetta）",
                         action = {
                             preferences.setLegacyTranslationMode("ON")
-                            launchWithSpecificJava(versionId, javaExe, javaMajorVer, javaArch, snapDir, snapInfo, snapAccount)
+                            launchWithSpecificJava(versionId, javaExe, javaMajorVer, javaArch, snapDir, snapInfo, snapAccount, kernelId)
                         }
                     ))
                 }
@@ -626,7 +746,7 @@ fun LauncherViewModel.launch(
                         description = "路径: ${java.javaPath}\n"
                                 + "1.13–1.16 的 LWJGL natives 仅为 x86_64，须通过 Rosetta 运行",
                         action = {
-                            launchWithSpecificJava(versionId, java.javaPath, java.majorVersion, "x86_64", snapDir, snapInfo, snapAccount)
+                            launchWithSpecificJava(versionId, java.javaPath, java.majorVersion, "x86_64", snapDir, snapInfo, snapAccount, kernelId)
                         }
                     ))
                 }
@@ -636,7 +756,7 @@ fun LauncherViewModel.launch(
                     title = "自动下载 x86_64 Java 8（Rosetta）",
                     description = "通过 PMCL 下载官方清单中的 macOS x86_64 Java 8，\n"
                             + "并用现代 GLFW 修复后以 Rosetta 启动（适合 1.13–1.16）",
-                    action = { downloadX86Java8AndLaunch(versionId, snapDir, snapInfo, snapAccount) }
+                    action = { downloadX86Java8AndLaunch(versionId, snapDir, snapInfo, snapAccount, kernelId) }
                 ))
 
                 for (launcher in externalLaunchers) {
@@ -718,6 +838,7 @@ fun LauncherViewModel.launch(
                     ""
                 )
             } else mutableListOf()
+            if (kernelName.isNotEmpty()) initLogs.add(I18n.t("kernel.launch_with", kernelName))
             instanceLogs[instanceId] = initLogs
             setGameLogs(initLogs.toList())
 
@@ -850,7 +971,8 @@ fun LauncherViewModel.launch(
                     } catch (_: Throwable) { }
                 },
                 instLogger,
-                tracer
+                tracer,
+                kernelId.ifEmpty { null }
             ) { onGameProcessStarted() }
             // 进程已提交启动：释放准备锁，允许再开另一实例
             launchPreparing.set(false)

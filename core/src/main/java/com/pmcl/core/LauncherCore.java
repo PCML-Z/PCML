@@ -21,6 +21,7 @@ import com.pmcl.core.news.NewsClient;
 import com.pmcl.core.instance.InstanceManager;
 import com.pmcl.core.plugin.PluginManager;
 import com.pmcl.core.preferences.Preferences;
+import com.pmcl.core.kernel.KernelManager;
 import com.pmcl.core.setup.AppearanceSetup;
 import com.pmcl.core.runtime.JavaRuntimeDownloader;
 import com.pmcl.core.runtime.RuntimeManager;
@@ -97,6 +98,7 @@ public final class LauncherCore {
     private final FriendManager friendManager;
     private final MigrationManager migrationManager;
     private final PluginManager pluginManager;
+    private final KernelManager kernelManager;
     private final TranslateClient translateClient;
     private final InstanceManager instanceManager;
 
@@ -214,6 +216,17 @@ public final class LauncherCore {
         this.migrationManager = new MigrationManager(config.getWorkDir());
         this.pluginManager = initOptional("PluginManager",
                 () -> new PluginManager(this));
+        this.kernelManager = new KernelManager(config.getWorkDir().resolve("kernels"));
+        this.launchManager.setKernelManager(this.kernelManager);
+        Thread kernelThread = new Thread(() -> {
+            try {
+                kernelManager.activateEnabled();
+            } catch (Throwable t) {
+                System.err.println("[Kernel] " + (t.getMessage() == null ? t.toString() : t.getMessage()));
+            }
+        }, "pmcl-kernel");
+        kernelThread.setDaemon(true);
+        kernelThread.start();
         this.translateClient = initOptional("TranslateClient",
                 () -> new TranslateClient(downloadManager));
 
@@ -376,6 +389,9 @@ public final class LauncherCore {
 
     public PluginManager plugins() { return pluginManager; }
 
+    /** 用户导入的 Java、C#、Rust 启动器内核。 */
+    public KernelManager kernels() { return kernelManager; }
+
     public InstanceManager instances() { return instanceManager; }
     public String launcherVersion() { return currentLauncherVersion(); }
 
@@ -426,6 +442,9 @@ public final class LauncherCore {
         });
         safeShutdown("preferences", () -> {
             if (preferences != null) preferences.shutdown();
+        });
+        safeShutdown("kernels", () -> {
+            if (kernelManager != null) kernelManager.stopAll();
         });
         safeShutdown("plugins", () -> {
             if (pluginManager != null) pluginManager.close();
