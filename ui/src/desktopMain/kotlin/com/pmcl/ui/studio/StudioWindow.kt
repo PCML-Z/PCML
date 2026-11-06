@@ -110,6 +110,7 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.rememberWindowState
 import com.pmcl.core.i18n.I18n
+import com.pmcl.ui.widget.SlideToConfirm
 import com.pmcl.ui.theme.LauncherTheme
 import com.pmcl.ui.theme.LocalThemeState
 import com.pmcl.ui.theme.ThemeState
@@ -749,7 +750,7 @@ fun StudioWindow(vm: LauncherViewModel, themeState: ThemeState, windowId: Int = 
                                                 FileEditor(tab, buffers[tab.key] ?: fallback, onSave = { saveActive() })
                                             }
                                             is StudioTab.Storage -> StorageEditor(vm, tab.target, ::reveal) { title, body, action ->
-                                                confirm = ConfirmRequest(title, body, I18n.t("studio.clean"), Tiles.Red, action)
+                                                confirm = ConfirmRequest(title, body, I18n.t("studio.clean"), Tiles.Red, action, slide = true)
                                             }
                                             is StudioTab.Diagnose -> DiagnoseEditor(vm, tab.target, ::diagnoseAction)
                                             is StudioTab.Compare -> CompareEditor(
@@ -781,6 +782,9 @@ fun StudioWindow(vm: LauncherViewModel, themeState: ThemeState, windowId: Int = 
                                                 onSection = { section -> openTab(tab.copy(sectionId = section)) },
                                                 onConfirm = { title, body, action ->
                                                     confirm = ConfirmRequest(title, body, I18n.t("studio.m.confirm"), Tiles.Red, action)
+                                                },
+                                                onConfirmDanger = { title, body, action ->
+                                                    confirm = ConfirmRequest(title, body, I18n.t("studio.m.confirm"), Tiles.Red, action, slide = true)
                                                 }
                                             )
                                             is StudioTab.Settings -> SettingsEditor(
@@ -793,7 +797,7 @@ fun StudioWindow(vm: LauncherViewModel, themeState: ThemeState, windowId: Int = 
                                             )
                                             is StudioTab.Terminal -> TerminalView(terminal, Modifier.fillMaxSize())
                                             is StudioTab.Survey -> SurveyEditor(vm) { title, body, action ->
-                                                confirm = ConfirmRequest(title, body, I18n.t("studio.m.delete"), Tiles.Red, action)
+                                                confirm = ConfirmRequest(title, body, I18n.t("studio.m.delete"), Tiles.Red, action, slide = true)
                                             }
                                         }
                                       }
@@ -1365,6 +1369,7 @@ internal class ConfirmRequest(
     val confirmLabel: String,
     val color: Color,
     val action: () -> Unit,
+    val slide: Boolean = false,
 )
 
 @Composable
@@ -1401,7 +1406,19 @@ private fun ConfirmDialog(request: ConfirmRequest, onCancel: () -> Unit, onConfi
             FlatText(request.body, color = p.muted, lines = 4, modifier = Modifier.padding(18.dp))
             Row(Modifier.fillMaxWidth().height(42.dp)) {
                 Block(I18n.t("studio.cancel"), onClick = onCancel, fill = p.strip, modifier = Modifier.weight(1f), height = 42.dp)
-                Block(request.confirmLabel, onClick = onConfirm, fill = request.color, modifier = Modifier.weight(1f), height = 42.dp)
+                if (request.slide) {
+                    SlideToConfirm(
+                        onConfirmed = onConfirm,
+                        modifier = Modifier.weight(1.6f),
+                        height = 42.dp,
+                        square = true,
+                        trackColor = request.color.copy(alpha = 0.45f),
+                        knobColor = request.color,
+                        labelColor = Color.White,
+                    )
+                } else {
+                    Block(request.confirmLabel, onClick = onConfirm, fill = request.color, modifier = Modifier.weight(1f), height = 42.dp)
+                }
             }
         }
     }

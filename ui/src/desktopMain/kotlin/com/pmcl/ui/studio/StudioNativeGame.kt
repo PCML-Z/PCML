@@ -240,7 +240,7 @@ private fun InstanceInspector(ctx: ModuleCtx, info: InstanceInfo, canLaunch: Boo
                 pickSaveFile(mt("export"), info.name + ".zip")?.let { vm.exportInstance(info.instanceId, it) }
             }, Modifier.weight(1f), Icons.Filled.Archive, fill = Tiles.Slate, height = 36.dp)
             Block(mt("delete"), {
-                ctx.confirm(mt("delete_instance_title"), mt("delete_instance_body", info.name)) { vm.deleteInstance(info.instanceId); onClose() }
+                ctx.confirmDanger(mt("delete_instance_title"), mt("delete_instance_body", info.name)) { vm.deleteInstance(info.instanceId); onClose() }
             }, Modifier.weight(1f), Icons.Filled.Delete, fill = Tiles.Red, height = 36.dp)
         }
     }
@@ -390,7 +390,7 @@ private fun WorldInspector(ctx: ModuleCtx, w: WorldManager.WorldInfo, onClose: (
         Row(Modifier.fillMaxWidth()) {
             Block(mt("backup_now"), { vm.backupWorld(w).invokeOnCompletion { reload++ } }, Modifier.weight(1f), Icons.Filled.Archive, fill = ctx.color, height = 36.dp)
             Block(mt("delete"), {
-                ctx.confirm(mt("delete_world_title"), mt("delete_world_body", w.name)) { vm.deleteWorld(w); onClose() }
+                ctx.confirmDanger(mt("delete_world_title"), mt("delete_world_body", w.name)) { vm.deleteWorld(w); onClose() }
             }, Modifier.weight(1f), Icons.Filled.Delete, fill = Tiles.Red, height = 36.dp)
         }
     }
@@ -447,7 +447,7 @@ private fun ScreenshotInspector(ctx: ModuleCtx, s: ScreenshotManager.Screenshot,
         Row(Modifier.fillMaxWidth()) {
             Block(mt("copy"), { vm.copyScreenshotToClipboard(s) }, Modifier.weight(1f), Icons.Filled.ContentCopy, fill = Tiles.Navy, height = 36.dp)
             Block(mt("open_folder"), { vm.openScreenshotFolder(s) }, Modifier.weight(1f), Icons.Filled.FolderOpen, fill = Tiles.Slate, height = 36.dp)
-            Block(mt("delete"), { ctx.confirm(mt("delete_file_title"), mt("delete_file_body", s.name)) { vm.deleteScreenshot(s); onClose() } },
+            Block(mt("delete"), { ctx.confirmDanger(mt("delete_file_title"), mt("delete_file_body", s.name)) { vm.deleteScreenshot(s); onClose() } },
                 Modifier.weight(1f), Icons.Filled.Delete, fill = Tiles.Red, height = 36.dp)
         }
     }
@@ -474,7 +474,7 @@ private fun RecordingsSection(ctx: ModuleCtx) {
                     icon = Icons.Filled.Movie, onClick = { vm.openRecording(r) }) {
                     RowButton(Icons.Filled.PlayArrow, { vm.openRecording(r) }, Tiles.Forest)
                     RowButton(Icons.Filled.FolderOpen, { vm.openRecordingFolder(r) })
-                    RowButton(Icons.Filled.Delete, { ctx.confirm(mt("delete_file_title"), mt("delete_file_body", r.name)) { vm.deleteRecording(r) } })
+                    RowButton(Icons.Filled.Delete, { ctx.confirmDanger(mt("delete_file_title"), mt("delete_file_body", r.name)) { vm.deleteRecording(r) } })
                 }
             }
         }
@@ -649,7 +649,7 @@ private fun SnapshotInspector(ctx: ModuleCtx, s: TimeMachine.Snapshot, busy: Boo
             Block(if (s.pinned()) mt("unpin") else mt("pin"), { vm.setTimeMachinePinned(s.id(), !s.pinned()); onChanged() },
                 Modifier.weight(1f), Icons.Filled.PushPin, fill = Tiles.Navy, height = 36.dp)
             Block(mt("delete"), {
-                ctx.confirm(mt("delete_snapshot_title"), mt("delete_snapshot_body", fmtDate(s.createdAt()))) { vm.deleteTimeMachineSnapshot(s.id()); onClose() }
+                ctx.confirmDanger(mt("delete_snapshot_title"), mt("delete_snapshot_body", fmtDate(s.createdAt()))) { vm.deleteTimeMachineSnapshot(s.id()); onClose() }
             }, Modifier.weight(1f), Icons.Filled.Delete, fill = Tiles.Red, enabled = !busy, height = 36.dp)
         }
     }

@@ -87,6 +87,7 @@ import com.pmcl.core.gamecontent.ScreenshotManager
 import com.pmcl.core.gamecontent.ShaderPackManager
 import com.pmcl.core.gamecontent.VersionGameFiles
 import com.pmcl.core.i18n.I18n
+import com.pmcl.ui.widget.DangerConfirmDialog
 import com.pmcl.ui.widget.InstalledJavaPicker
 import com.pmcl.core.mods.ModManager
 import com.pmcl.core.mods.ModScanner
@@ -114,6 +115,12 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.text.SimpleDateFormat
 import java.util.Date
+
+private class DangerPrompt(
+    val title: String,
+    val body: String,
+    val run: () -> Unit,
+)
 
 private data class ModRow(
     val title: String,
@@ -244,6 +251,7 @@ fun VersionSettingsPage(vm: LauncherViewModel, versionId: String, onBack: () -> 
     var resolveDone by remember(versionId) { mutableStateOf(seeded.gameDir.isNotBlank()) }
     var section by remember(versionId) { mutableIntStateOf(0) }
     var library by remember(versionId) { mutableStateOf(VersionLibrary()) }
+    var danger by remember { mutableStateOf<DangerPrompt?>(null) }
     var managed by remember(versionId) { mutableStateOf<Path?>(null) }
     var filesNote by remember(versionId) { mutableStateOf("") }
     var actionError by remember(versionId) { mutableStateOf("") }
@@ -451,8 +459,10 @@ fun VersionSettingsPage(vm: LauncherViewModel, versionId: String, onBack: () -> 
                         onDelete = { row ->
                             val dir = managed ?: return@ModList
                             if (busy) return@ModList
-                            library = library.copy(mods = library.mods.filter { it.fileName != row.fileName })
-                            runAction { deleteMod(dir, row) }
+                            danger = DangerPrompt(I18n.t("mods.delete_title"), row.title.ifBlank { row.fileName }) {
+                                library = library.copy(mods = library.mods.filter { it.fileName != row.fileName })
+                                runAction { deleteMod(dir, row) }
+                            }
                         }
                     )
                 }
@@ -483,11 +493,13 @@ fun VersionSettingsPage(vm: LauncherViewModel, versionId: String, onBack: () -> 
                         onDelete = { row ->
                             val dir = managed ?: return@ShotGrid
                             if (busy) return@ShotGrid
-                            library = library.copy(shots = library.shots.filter { it.path != row.path })
-                            runAction {
-                                withContext(Dispatchers.IO) {
-                                    val fileName = Path.of(row.path).fileName?.toString() ?: row.title
-                                    VersionGameFiles.delete(dir, VersionGameFiles.SCREENSHOTS, fileName)
+                            danger = DangerPrompt(I18n.t("common.delete"), I18n.t("screenshot.delete_one", row.title)) {
+                                library = library.copy(shots = library.shots.filter { it.path != row.path })
+                                runAction {
+                                    withContext(Dispatchers.IO) {
+                                        val fileName = Path.of(row.path).fileName?.toString() ?: row.title
+                                        VersionGameFiles.delete(dir, VersionGameFiles.SCREENSHOTS, fileName)
+                                    }
                                 }
                             }
                         }
@@ -525,10 +537,12 @@ fun VersionSettingsPage(vm: LauncherViewModel, versionId: String, onBack: () -> 
                         onDelete = { row ->
                             val dir = managed ?: return@PackList
                             if (busy) return@PackList
-                            library = library.copy(packs = library.packs.filter { it.fileName != row.fileName })
-                            runAction {
-                                withContext(Dispatchers.IO) {
-                                    VersionGameFiles.delete(dir, VersionGameFiles.RESOURCE_PACKS, row.fileName)
+                            danger = DangerPrompt(I18n.t("resource.delete_title"), row.title.ifBlank { row.fileName }) {
+                                library = library.copy(packs = library.packs.filter { it.fileName != row.fileName })
+                                runAction {
+                                    withContext(Dispatchers.IO) {
+                                        VersionGameFiles.delete(dir, VersionGameFiles.RESOURCE_PACKS, row.fileName)
+                                    }
                                 }
                             }
                         }
@@ -588,10 +602,12 @@ fun VersionSettingsPage(vm: LauncherViewModel, versionId: String, onBack: () -> 
                         onDelete = { row ->
                             val dir = managed ?: return@ShaderList
                             if (busy) return@ShaderList
-                            library = library.copy(shaders = library.shaders.filter { it.fileName != row.fileName })
-                            runAction {
-                                withContext(Dispatchers.IO) {
-                                    VersionGameFiles.delete(dir, VersionGameFiles.SHADER_PACKS, row.fileName)
+                            danger = DangerPrompt(I18n.t("shader.delete_title"), row.title.ifBlank { row.fileName }) {
+                                library = library.copy(shaders = library.shaders.filter { it.fileName != row.fileName })
+                                runAction {
+                                    withContext(Dispatchers.IO) {
+                                        VersionGameFiles.delete(dir, VersionGameFiles.SHADER_PACKS, row.fileName)
+                                    }
                                 }
                             }
                         }
@@ -636,10 +652,12 @@ fun VersionSettingsPage(vm: LauncherViewModel, versionId: String, onBack: () -> 
                         onDelete = { row ->
                             val dir = managed ?: return@ProjectionList
                             if (busy) return@ProjectionList
-                            library = library.copy(projections = library.projections.filter { it.fileName != row.fileName })
-                            runAction {
-                                withContext(Dispatchers.IO) {
-                                    VersionGameFiles.deleteSchematic(dir, row.fileName)
+                            danger = DangerPrompt(I18n.t("content.projection.delete_title"), row.title.ifBlank { row.fileName }) {
+                                library = library.copy(projections = library.projections.filter { it.fileName != row.fileName })
+                                runAction {
+                                    withContext(Dispatchers.IO) {
+                                        VersionGameFiles.deleteSchematic(dir, row.fileName)
+                                    }
                                 }
                             }
                         }
@@ -737,6 +755,19 @@ fun VersionSettingsPage(vm: LauncherViewModel, versionId: String, onBack: () -> 
         coroutineContext.ensureActive()
         loadedPath = committed
         loading = false
+    }
+
+    danger?.let { prompt ->
+        DangerConfirmDialog(
+            title = prompt.title,
+            message = prompt.body,
+            onDismiss = { danger = null },
+            onConfirm = {
+                val run = prompt.run
+                danger = null
+                run()
+            }
+        )
     }
 }
 

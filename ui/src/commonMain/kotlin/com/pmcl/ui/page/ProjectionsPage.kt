@@ -43,6 +43,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
+import com.pmcl.ui.widget.DangerConfirmDialog
 import com.pmcl.ui.animation.TypewriterTitle
 import com.pmcl.ui.theme.glassCardBorder
 import com.pmcl.ui.theme.glassCardColors
@@ -168,18 +169,13 @@ fun ProjectionsPage(vm: LauncherViewModel) {
 
     val deleting = pendingDelete
     if (deleting != null) {
-        AlertDialog(
-            onDismissRequest = { pendingDelete = null },
-            title = { Text(I18n.t("content.projection.delete_title")) },
-            text = { Text(I18n.t("content.projection.delete_body", deleting.title)) },
-            confirmButton = {
-                TextButton(onClick = {
-                    vm.deleteProjection(deleting)
-                    pendingDelete = null
-                }) { Text(I18n.t("common.delete")) }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingDelete = null }) { Text(I18n.t("common.cancel")) }
+        DangerConfirmDialog(
+            title = I18n.t("content.projection.delete_title"),
+            message = I18n.t("content.projection.delete_body", deleting.title),
+            onDismiss = { pendingDelete = null },
+            onConfirm = {
+                vm.deleteProjection(deleting)
+                pendingDelete = null
             }
         )
     }

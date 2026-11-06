@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pmcl.core.gamecontent.ConfigFileManager
 import com.pmcl.core.i18n.I18n
+import com.pmcl.ui.widget.DangerConfirmDialog
 import com.pmcl.ui.animation.TypewriterTitle
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import com.pmcl.ui.viewmodel.refreshConfigFiles
@@ -331,23 +332,13 @@ fun ConfigEditorPage(vm: LauncherViewModel) {
 
     // 删除确认对话框
     showDeleteDialog?.let { path ->
-        AlertDialog(
-            onDismissRequest = { showDeleteDialog = null },
-            title = { Text(I18n.t("config.delete_title")) },
-            text = { Text(I18n.t("config.delete_confirm", path)) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        vm.deleteConfigFile(path)
-                        showDeleteDialog = null
-                    },
-                    colors = ButtonDefaults.textButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    )
-                ) { Text(I18n.t("common.delete")) }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteDialog = null }) { Text(I18n.t("common.cancel")) }
+        DangerConfirmDialog(
+            title = I18n.t("config.delete_title"),
+            message = I18n.t("config.delete_confirm", path),
+            onDismiss = { showDeleteDialog = null },
+            onConfirm = {
+                vm.deleteConfigFile(path)
+                showDeleteDialog = null
             }
         )
     }

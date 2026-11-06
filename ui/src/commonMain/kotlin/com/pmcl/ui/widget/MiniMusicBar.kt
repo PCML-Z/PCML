@@ -10,6 +10,9 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.VolumeDown
+import androidx.compose.material.icons.filled.VolumeOff
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -24,6 +27,8 @@ import com.pmcl.ui.theme.glassSurfaceVariantColor
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import com.pmcl.ui.viewmodel.playNextMusic
 import com.pmcl.ui.viewmodel.playPreviousMusic
+import com.pmcl.ui.viewmodel.setMusicVolume
+import com.pmcl.ui.viewmodel.toggleMusicMute
 import com.pmcl.ui.viewmodel.toggleMusicPlayPause
 
 /**
@@ -42,10 +47,12 @@ fun MiniMusicBar(
     val state by vm.musicPlaybackState.collectAsState()
     val currentMs by vm.musicCurrentMs.collectAsState()
     val durationMs by vm.musicDurationMs.collectAsState()
+    val volume by vm.musicVolume.collectAsState()
+    val muted by vm.musicMuted.collectAsState()
 
     val track = if (currentIndex in playlist.indices) playlist[currentIndex] else return
 
-    val barHeight = if (compact) 40.dp else 52.dp
+    val barHeight = if (compact) 40.dp else 56.dp
     val cover = if (compact) 28.dp else 40.dp
     val button = if (compact) 28.dp else 34.dp
     Surface(
@@ -136,6 +143,35 @@ fun MiniMusicBar(
                 IconButton(onClick = { vm.playNextMusic() }, modifier = Modifier.size(button)) {
                     Icon(Icons.Filled.SkipNext, contentDescription = I18n.t("music.next"), modifier = Modifier.size(if (compact) 16.dp else 18.dp))
                 }
+            }
+
+            Spacer(Modifier.width(4.dp))
+            IconButton(onClick = { vm.toggleMusicMute() }, modifier = Modifier.size(button)) {
+                Icon(
+                    when {
+                        muted || volume == 0 -> Icons.Filled.VolumeOff
+                        volume < 50 -> Icons.Filled.VolumeDown
+                        else -> Icons.Filled.VolumeUp
+                    },
+                    contentDescription = I18n.t("music.mute"),
+                    modifier = Modifier.size(if (compact) 16.dp else 18.dp)
+                )
+            }
+            if (!compact) {
+                Slider(
+                    value = if (muted) 0f else volume.toFloat(),
+                    onValueChange = { vm.setMusicVolume(it.toInt()) },
+                    valueRange = 0f..100f,
+                    modifier = Modifier.width(132.dp)
+                )
+                Text(
+                    if (muted) "0" else volume.toString(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.width(28.dp),
+                    maxLines = 1,
+                    softWrap = false
+                )
             }
         }
     }

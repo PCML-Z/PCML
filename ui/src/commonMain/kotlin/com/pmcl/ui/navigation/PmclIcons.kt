@@ -208,6 +208,21 @@ object PmclIcons {
         ink { circle(11f, 6.5f, 2.5f) }
     }
 
+    /** ECXP 应用：四块应用图块，右下一块浅一些。 */
+    val Ecxp: ImageVector = icon("Ecxp") {
+        shade {
+            roundRect(4.9f, 4.9f, 11.3f, 11.3f, 2f)
+            roundRect(13.3f, 4.9f, 19.7f, 11.3f, 2f)
+            roundRect(4.9f, 13.3f, 11.3f, 19.7f, 2f)
+        }
+        ink {
+            roundRect(4.2f, 4.2f, 10.6f, 10.6f, 2f)
+            roundRect(13.4f, 4.2f, 19.8f, 10.6f, 2f)
+            roundRect(4.2f, 13.4f, 10.6f, 19.8f, 2f)
+        }
+        ink(alpha = 0.45f) { roundRect(13.4f, 13.4f, 19.8f, 19.8f, 2f) }
+    }
+
     /** 启动器内核：芯片主体、引脚，中间一颗菱形核。 */
     val Kernel: ImageVector = icon("Kernel") {
         shade { roundRect(6.7f, 6.8f, 18.3f, 18.4f, 2.5f) }

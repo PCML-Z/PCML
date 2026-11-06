@@ -70,6 +70,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.backup.TimeMachine
 import com.pmcl.core.i18n.I18n
+import com.pmcl.ui.widget.DangerConfirmDialog
 import com.pmcl.ui.animation.AnimatedSegmentedSelector
 import com.pmcl.ui.animation.TypewriterTitle
 import com.pmcl.ui.navigation.PmclIcons
@@ -506,29 +507,26 @@ fun BackupPage(vm: LauncherViewModel) {
         )
     }
     if (confirmDelete && selectedId != null) {
-        AlertDialog(
-            onDismissRequest = { confirmDelete = false },
-            title = { Text(I18n.t("backup.delete_title")) },
-            text = {
-                Column {
-                    val snap = selectedSnapshot
-                    if (snap != null) {
-                        Text(backupTime.format(Instant.ofEpochMilli(snap.createdAt())), fontWeight = FontWeight.SemiBold)
-                        if (snap.note().isNotBlank()) Text(snap.note())
-                        Spacer(Modifier.height(8.dp))
-                    }
-                    Text(I18n.t("backup.delete_body"))
+        val snap = selectedSnapshot
+        val detail = buildString {
+            if (snap != null) {
+                append(backupTime.format(Instant.ofEpochMilli(snap.createdAt())))
+                if (snap.note().isNotBlank()) {
+                    append('\n')
+                    append(snap.note())
                 }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    val id = selectedId
-                    confirmDelete = false
-                    if (id != null) vm.deleteTimeMachineSnapshot(id)
-                }) { Text(I18n.t("common.delete")) }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmDelete = false }) { Text(I18n.t("common.cancel")) }
+                append('\n')
+            }
+            append(I18n.t("backup.delete_body"))
+        }
+        DangerConfirmDialog(
+            title = I18n.t("backup.delete_title"),
+            message = detail,
+            onDismiss = { confirmDelete = false },
+            onConfirm = {
+                val id = selectedId
+                confirmDelete = false
+                if (id != null) vm.deleteTimeMachineSnapshot(id)
             }
         )
     }

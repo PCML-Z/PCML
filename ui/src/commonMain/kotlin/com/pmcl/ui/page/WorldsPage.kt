@@ -37,6 +37,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.gamecontent.WorldManager
 import com.pmcl.core.i18n.I18n
+import com.pmcl.ui.widget.DangerConfirmDialog
 import com.pmcl.ui.animation.TypewriterTitle
 import com.pmcl.ui.animation.StaggeredAppear
 import com.pmcl.ui.theme.glassContainerColor
@@ -507,23 +508,13 @@ private fun WorldRow(
     }
 
     if (showDeleteDialog) {
-        AlertDialog(
-            onDismissRequest = { showDeleteDialog = false },
-            title = { Text(I18n.t("world.delete_title")) },
-            text = { Text(I18n.t("world.delete_confirm", world.name, world.dir)) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        scope.launch { vm.deleteWorld(world) }
-                        showDeleteDialog = false
-                    },
-                    colors = ButtonDefaults.textButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    )
-                ) { Text(I18n.t("common.delete")) }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteDialog = false }) { Text(I18n.t("common.cancel")) }
+        DangerConfirmDialog(
+            title = I18n.t("world.delete_title"),
+            message = I18n.t("world.delete_confirm", world.name, world.dir),
+            onDismiss = { showDeleteDialog = false },
+            onConfirm = {
+                scope.launch { vm.deleteWorld(world) }
+                showDeleteDialog = false
             }
         )
     }

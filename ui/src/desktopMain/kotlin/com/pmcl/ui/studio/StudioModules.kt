@@ -42,6 +42,7 @@ import com.pmcl.ui.page.AccountsPage
 import com.pmcl.ui.page.BackupPage
 import com.pmcl.ui.page.ContentHubPage
 import com.pmcl.ui.page.DownloadHubPage
+import com.pmcl.ui.page.EcxpPage
 import com.pmcl.ui.page.FriendPage
 import com.pmcl.ui.page.InstancesPage
 import com.pmcl.ui.page.MultiplayerPage
@@ -96,6 +97,7 @@ internal val studioModules: List<StudioModule> = listOf(
     StudioModule("plugins", "nav.plugins", PmclIcons.Plugins, Tiles.Slate, SecondaryNavRegistry.plugins.sections) { vm, s ->
         PluginPage(vm, s ?: SecondaryNavRegistry.plugins.sections.first().id)
     },
+    StudioModule("ecxp", "nav.ecxp", PmclIcons.Ecxp, Tiles.Teal, emptyList()) { vm, _ -> EcxpPage(vm) },
     StudioModule("music", "nav.music", PmclIcons.Music, Tiles.Plum, SecondaryNavRegistry.music.sections) { vm, s ->
         MusicPage(vm, s ?: SecondaryNavRegistry.music.sections.first().id)
     },
@@ -136,6 +138,7 @@ private fun NativeModule(ctx: ModuleCtx, moduleId: String) {
         "content" -> ContentModule(ctx)
         "statistics" -> StatisticsModule(ctx)
         "plugins" -> PluginsModule(ctx)
+        "ecxp" -> EcxpModule(ctx)
         "news" -> NewsModule(ctx)
         "multiplayer" -> MultiplayerModule(ctx)
         "friends" -> FriendsModule(ctx)
@@ -151,6 +154,7 @@ internal fun ModuleEditor(
     tab: StudioTab.Module,
     onSection: (String) -> Unit,
     onConfirm: (String, String, () -> Unit) -> Unit,
+    onConfirmDanger: (String, String, () -> Unit) -> Unit,
 ) {
     val p = LocalStudio.current
     val module = moduleOf(tab.moduleId)
@@ -161,7 +165,7 @@ internal fun ModuleEditor(
     val section = tab.sectionId ?: module.sections.firstOrNull()?.id
     val classicOnly = module.id in classicOnlyModules
     var classic by rememberSaveable(module.id) { mutableStateOf(false) }
-    val ctx = ModuleCtx(vm, module.color, section.orEmpty(), onConfirm, onSection)
+    val ctx = ModuleCtx(vm, module.color, section.orEmpty(), onConfirm, onConfirmDanger, onSection)
     Column(Modifier.fillMaxSize().background(p.editor)) {
         Row(Modifier.fillMaxWidth().height(38.dp).background(p.panelAlt), verticalAlignment = Alignment.CenterVertically) {
             Row(

@@ -19,6 +19,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
+import com.pmcl.ui.widget.DangerConfirmDialog
 import com.pmcl.core.install.InstallProgress
 import com.pmcl.core.modpack.ModpackManager
 import com.pmcl.ui.animation.TypewriterTitle
@@ -258,27 +259,16 @@ fun ModpacksPage(vm: LauncherViewModel) {
 
     // 批量删除确认对话框
     if (showBatchDeleteConfirm) {
-        AlertDialog(
-            onDismissRequest = { showBatchDeleteConfirm = false },
-            title = { Text(I18n.t("common.delete_all")) },
-            text = { Text(I18n.t("modpack.batch_delete_confirm", selectedModpacks.size)) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        val toDelete = selectedModpacks.toList()
-                        selectionMode = false
-                        selectedModpacks = emptySet()
-                        showBatchDeleteConfirm = false
-                        // 循环调用 vm.deleteModpack（VM 当前无批量方法）
-                        toDelete.forEach { name -> vm.deleteModpack(name) }
-                    },
-                    colors = ButtonDefaults.textButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    )
-                ) { Text(I18n.t("common.delete")) }
-            },
-            dismissButton = {
-                TextButton(onClick = { showBatchDeleteConfirm = false }) { Text(I18n.t("common.cancel")) }
+        DangerConfirmDialog(
+            title = I18n.t("common.delete_all"),
+            message = I18n.t("modpack.batch_delete_confirm", selectedModpacks.size),
+            onDismiss = { showBatchDeleteConfirm = false },
+            onConfirm = {
+                val toDelete = selectedModpacks.toList()
+                selectionMode = false
+                selectedModpacks = emptySet()
+                showBatchDeleteConfirm = false
+                toDelete.forEach { name -> vm.deleteModpack(name) }
             }
         )
     }
@@ -397,18 +387,13 @@ private fun ModpackCard(
     }
 
     if (showDeleteConfirm) {
-        AlertDialog(
-            onDismissRequest = { showDeleteConfirm = false },
-            title = { Text(I18n.t("modpack.delete_title")) },
-            text = { Text(I18n.t("modpack.delete_confirm", mp.name)) },
-            confirmButton = {
-                TextButton(onClick = {
-                    showDeleteConfirm = false
-                    vm.deleteModpack(mp.directoryName)
-                }) { Text(I18n.t("common.delete"), color = MaterialTheme.colorScheme.error) }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteConfirm = false }) { Text(I18n.t("common.cancel")) }
+        DangerConfirmDialog(
+            title = I18n.t("modpack.delete_title"),
+            message = I18n.t("modpack.delete_confirm", mp.name),
+            onDismiss = { showDeleteConfirm = false },
+            onConfirm = {
+                showDeleteConfirm = false
+                vm.deleteModpack(mp.directoryName)
             }
         )
     }

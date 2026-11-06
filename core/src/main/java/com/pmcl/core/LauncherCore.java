@@ -21,6 +21,7 @@ import com.pmcl.core.news.NewsClient;
 import com.pmcl.core.instance.InstanceManager;
 import com.pmcl.core.plugin.PluginManager;
 import com.pmcl.core.preferences.Preferences;
+import com.pmcl.core.ecxp.EcxpAppManager;
 import com.pmcl.core.kernel.KernelManager;
 import com.pmcl.core.setup.AppearanceSetup;
 import com.pmcl.core.runtime.JavaRuntimeDownloader;
@@ -99,6 +100,7 @@ public final class LauncherCore {
     private final MigrationManager migrationManager;
     private final PluginManager pluginManager;
     private final KernelManager kernelManager;
+    private final EcxpAppManager ecxpApps;
     private final TranslateClient translateClient;
     private final InstanceManager instanceManager;
 
@@ -217,6 +219,7 @@ public final class LauncherCore {
         this.pluginManager = initOptional("PluginManager",
                 () -> new PluginManager(this));
         this.kernelManager = new KernelManager(config.getWorkDir().resolve("kernels"));
+        this.ecxpApps = new EcxpAppManager(config.getWorkDir(), pluginManager, launcherVersion);
         this.launchManager.setKernelManager(this.kernelManager);
         Thread kernelThread = new Thread(() -> {
             try {
@@ -392,6 +395,9 @@ public final class LauncherCore {
     /** 用户导入的 Java、C#、Rust 启动器内核。 */
     public KernelManager kernels() { return kernelManager; }
 
+    /** ECXP：.NET 10 / 11 写的独立窗口应用。 */
+    public EcxpAppManager ecxp() { return ecxpApps; }
+
     public InstanceManager instances() { return instanceManager; }
     public String launcherVersion() { return currentLauncherVersion(); }
 
@@ -445,6 +451,9 @@ public final class LauncherCore {
         });
         safeShutdown("kernels", () -> {
             if (kernelManager != null) kernelManager.stopAll();
+        });
+        safeShutdown("ecxp", () -> {
+            if (ecxpApps != null) ecxpApps.stopAll();
         });
         safeShutdown("plugins", () -> {
             if (pluginManager != null) pluginManager.close();

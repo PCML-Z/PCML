@@ -23,6 +23,7 @@ sealed class NavDestination(val route: String, val labelKey: String, val icon: I
     data object Settings    : NavDestination("settings",    "nav.settings",    PmclIcons.Settings)
     data object Terminal    : NavDestination("terminal",    "nav.terminal",    PmclIcons.Terminal)
     data object Plugins     : NavDestination("plugins",     "nav.plugins",     PmclIcons.Plugins)
+    data object Ecxp        : NavDestination("ecxp",        "nav.ecxp",        PmclIcons.Ecxp)
     data object Instances   : NavDestination("instances",   "nav.instances",   PmclIcons.Instances)
     data object NbtEditor   : NavDestination("nbt",         "nav.nbt",         PmclIcons.Nbt)
     data object Music       : NavDestination("music",       "nav.music",       PmclIcons.Music)
@@ -43,6 +44,7 @@ val allDestinations = listOf(
     NavDestination.Settings,
     NavDestination.Terminal,
     NavDestination.Plugins,
+    NavDestination.Ecxp,
     NavDestination.Instances,
     NavDestination.NbtEditor,
     NavDestination.Music

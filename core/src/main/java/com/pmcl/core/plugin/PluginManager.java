@@ -1418,6 +1418,23 @@ public final class PluginManager {
 
     // ==================== Event System ====================
 
+    /** 宿主自己的监听器，不属于任何插件，卸载插件时不会被清掉。 */
+    public void addHostEventListener(EventListener listener) {
+        if (listener != null) eventListeners.add(listener);
+    }
+
+    public void removeHostEventListener(EventListener listener) {
+        eventListeners.remove(listener);
+    }
+
+    /**
+     * ECXP 应用用的上下文。应用不在已加载插件表里，权限只看 {@code permissions}，
+     * 数据目录由调用方给定。
+     */
+    public PluginContext appContext(String appId, Path dataDir, Set<String> permissions) {
+        return new PluginContextImpl(this, appId, dataDir, Set.copyOf(permissions));
+    }
+
     public void fireEvent(PmclEvent event) {
         // M24 修复：异步派发——快照 listeners，提交到线程池，避免慢 listener 阻塞调用方。
         if (eventExecutor.isShutdown()) return;
@@ -2216,10 +2233,18 @@ public final class PluginManager {
     public static class PluginContextImpl implements PluginContext {
         private final PluginManager manager;
         private final String pluginId;
+        private final Path dataDirOverride;
+        private final Set<String> grants;
 
         PluginContextImpl(PluginManager manager, String pluginId) {
+            this(manager, pluginId, null, null);
+        }
+
+        PluginContextImpl(PluginManager manager, String pluginId, Path dataDir, Set<String> grants) {
             this.manager = manager;
             this.pluginId = pluginId;
+            this.dataDirOverride = dataDir;
+            this.grants = grants;
         }
 
         @Override
@@ -2397,8 +2422,13 @@ public final class PluginManager {
         }
 
         private void requirePermission(String requiredPermission) {
-            PluginEntry entry = manager.loadedPlugins.get(pluginId);
-            List<String> perms = (entry != null) ? entry.getInfo().getPermissions() : Collections.emptyList();
+            java.util.Collection<String> perms;
+            if (grants != null) {
+                perms = grants;
+            } else {
+                PluginEntry entry = manager.loadedPlugins.get(pluginId);
+                perms = (entry != null) ? entry.getInfo().getPermissions() : Collections.emptyList();
+            }
             if (!perms.contains(requiredPermission)) {
                 System.err.println("[PluginManager] SECURITY: plugin '" + pluginId
                         + "' lacks permission " + requiredPermission);
@@ -2410,7 +2440,7 @@ public final class PluginManager {
 
         @Override
         public Path getDataDir() {
-            Path dir = manager.pluginsDir.resolve(pluginId).resolve("data");
+            Path dir = dataDirOverride != null ? dataDirOverride : manager.pluginsDir.resolve(pluginId).resolve("data");
             try {
                 Files.createDirectories(dir);
             } catch (IOException e) {

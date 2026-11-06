@@ -13,6 +13,7 @@ crash.properties
 datapack.properties
 download.properties
 drop_install.properties
+ecxp.properties
 friend.properties
 instance.properties
 integrity.properties

@@ -83,6 +83,7 @@ internal class ModuleCtx(
     val color: Color,
     val section: String,
     val confirm: (title: String, body: String, action: () -> Unit) -> Unit,
+    val confirmDanger: (title: String, body: String, action: () -> Unit) -> Unit,
     val openSection: (String) -> Unit,
 )
 

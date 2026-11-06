@@ -83,6 +83,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.gamecontent.WorldManager
 import com.pmcl.core.i18n.I18n
+import com.pmcl.ui.widget.DangerConfirmDialog
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import com.pmcl.ui.viewmodel.backupWorld
 import com.pmcl.ui.viewmodel.listBackups
@@ -203,6 +204,7 @@ private fun ModsContent(gameDir: Path, query: String, reload: Int, onReveal: (Pa
     var onlyDisabled by remember { mutableStateOf(false) }
     var showIssues by remember { mutableStateOf(false) }
     var copied by remember { mutableStateOf(false) }
+    var confirmDisabled by remember { mutableStateOf(false) }
     val clipboard = LocalClipboardManager.current
     val metas = remember(gameDir) { mutableStateMapOf<String, ModMeta?>() }
     val mods by produceState(emptyList<ModFile>(), gameDir, reload, localReload) {
@@ -300,21 +302,7 @@ private fun ModsContent(gameDir: Path, query: String, reload: Int, onReveal: (Pa
                 )
                 Block(
                     I18n.t("studio.mods_delete_disabled"),
-                    onClick = {
-                        scope.launch {
-                            message = try {
-                                val n = withContext(Dispatchers.IO) {
-                                    val dead = mods.filter { !it.enabled }
-                                    dead.forEach { deleteMod(it) }
-                                    dead.size
-                                }
-                                localReload++
-                                I18n.t("studio.mods_deleted", n.toString())
-                            } catch (e: Throwable) {
-                                I18n.t("studio.mod_toggle_failed", e.message ?: e.javaClass.simpleName)
-                            }
-                        }
-                    },
+                    onClick = { confirmDisabled = true },
                     fill = if (mods.any { !it.enabled }) Tiles.Red else null,
                     enabled = mods.any { !it.enabled },
                     height = 30.dp
@@ -414,6 +402,29 @@ private fun ModsContent(gameDir: Path, query: String, reload: Int, onReveal: (Pa
                 )
             }
         }
+    }
+    if (confirmDisabled) {
+        DangerConfirmDialog(
+            title = I18n.t("studio.mods_delete_disabled"),
+            message = I18n.t("common.delete_selected", mods.count { !it.enabled }),
+            onDismiss = { confirmDisabled = false },
+            onConfirm = {
+                confirmDisabled = false
+                scope.launch {
+                    message = try {
+                        val n = withContext(Dispatchers.IO) {
+                            val dead = mods.filter { !it.enabled }
+                            dead.forEach { deleteMod(it) }
+                            dead.size
+                        }
+                        localReload++
+                        I18n.t("studio.mods_deleted", n.toString())
+                    } catch (e: Throwable) {
+                        I18n.t("studio.mod_toggle_failed", e.message ?: e.javaClass.simpleName)
+                    }
+                }
+            }
+        )
     }
 }
 

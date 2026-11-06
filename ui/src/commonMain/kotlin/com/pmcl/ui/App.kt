@@ -34,6 +34,7 @@ import com.pmcl.ui.page.AccountsPage
 import com.pmcl.ui.page.AgreementGateDialog
 import com.pmcl.ui.page.ContentHubPage
 import com.pmcl.ui.page.DownloadHubPage
+import com.pmcl.ui.page.EcxpPage
 import com.pmcl.ui.page.GameCrashPopup
 import com.pmcl.ui.page.InstancesPage
 import com.pmcl.ui.page.LaunchPage
@@ -1093,6 +1094,7 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                                     vm,
                                     sectionId = sectionId ?: SecondaryNavRegistry.plugins.sections.first().id
                                 )
+                                NavDestination.Ecxp        -> EcxpPage(vm)
                                 NavDestination.Instances   -> InstancesPage(vm)
                                 NavDestination.NbtEditor   -> NbtEditorPage(vm)
                                 NavDestination.Music       -> MusicPage(
@@ -1192,8 +1194,8 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                     MiniMusicBar(
                         vm = vm,
                         modifier = Modifier
-                            .padding(start = 8.dp, bottom = 6.dp, top = 4.dp)
-                            .width(maxWidth / 2),
+                            .padding(start = 8.dp, end = 8.dp, bottom = 6.dp, top = 4.dp)
+                            .width((maxWidth - 16.dp).coerceAtLeast(0.dp)),
                         onOpenMusic = {
                             val target = NavTarget.BuiltIn(NavDestination.Music)
                             val oldIndex = navItems.indexOf(current)

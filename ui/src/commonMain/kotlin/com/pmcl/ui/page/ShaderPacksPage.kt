@@ -32,6 +32,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.gamecontent.ShaderPackManager
 import com.pmcl.core.i18n.I18n
+import com.pmcl.ui.widget.DangerConfirmDialog
 import com.pmcl.ui.animation.TypewriterTitle
 import com.pmcl.ui.animation.StaggeredAppear
 import com.pmcl.ui.theme.glassContainerColor
@@ -68,6 +69,7 @@ fun ShaderPacksPage(vm: LauncherViewModel) {
     // 批量选择模式
     var selectionMode by remember { mutableStateOf(false) }
     val selectedPacks = remember { mutableStateListOf<ShaderPackManager.ShaderPack>() }
+    var showBatchDelete by remember { mutableStateOf(false) }
 
     var showImportDialog by remember { mutableStateOf(false) }
 
@@ -188,11 +190,7 @@ fun ShaderPacksPage(vm: LauncherViewModel) {
                 }) { Text(I18n.t("common.disable_all")) }
                 Spacer(Modifier.width(4.dp))
                 TextButton(
-                    onClick = {
-                        vm.batchDeleteShaderPacks(selectedPacks.toList())
-                        selectedPacks.clear()
-                        selectionMode = false
-                    },
+                    onClick = { if (selectedPacks.isNotEmpty()) showBatchDelete = true },
                     colors = ButtonDefaults.textButtonColors(
                         contentColor = MaterialTheme.colorScheme.error
                     )
@@ -259,6 +257,21 @@ fun ShaderPacksPage(vm: LauncherViewModel) {
             onConfirm = { path ->
                 showImportDialog = false
                 vm.importShaderPack(path)
+            }
+        )
+    }
+
+    if (showBatchDelete) {
+        DangerConfirmDialog(
+            title = I18n.t("common.delete_all"),
+            message = I18n.t("common.delete_selected", selectedPacks.size),
+            onDismiss = { showBatchDelete = false },
+            onConfirm = {
+                val targets = selectedPacks.toList()
+                showBatchDelete = false
+                selectionMode = false
+                vm.batchDeleteShaderPacks(targets)
+                selectedPacks.clear()
             }
         )
     }
@@ -401,23 +414,13 @@ private fun ShaderPackRow(
     }
 
     if (showDeleteDialog) {
-        AlertDialog(
-            onDismissRequest = { showDeleteDialog = false },
-            title = { Text(I18n.t("shader.delete_title")) },
-            text = { Text(I18n.t("shader.delete_confirm", pack.name, pack.path)) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        vm.deleteShaderPack(pack)
-                        showDeleteDialog = false
-                    },
-                    colors = ButtonDefaults.textButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    )
-                ) { Text(I18n.t("common.delete")) }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteDialog = false }) { Text(I18n.t("common.cancel")) }
+        DangerConfirmDialog(
+            title = I18n.t("shader.delete_title"),
+            message = I18n.t("shader.delete_confirm", pack.name, pack.path),
+            onDismiss = { showDeleteDialog = false },
+            onConfirm = {
+                vm.deleteShaderPack(pack)
+                showDeleteDialog = false
             }
         )
     }

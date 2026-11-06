@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.gamecontent.OfflineSkinLibrary
 import com.pmcl.core.i18n.I18n
+import com.pmcl.ui.widget.DangerConfirmDialog
 import com.pmcl.ui.animation.TypewriterTitle
 import com.pmcl.ui.navigation.PmclIcons
 import com.pmcl.ui.theme.glassCardBorder
@@ -167,18 +168,13 @@ fun OfflineSkinsPage(vm: LauncherViewModel) {
 
     val deleting = pendingDelete
     if (deleting != null) {
-        AlertDialog(
-            onDismissRequest = { pendingDelete = null },
-            title = { Text(I18n.t("content.offline_skin.delete_title")) },
-            text = { Text(I18n.t("content.offline_skin.delete_body", deleting.name)) },
-            confirmButton = {
-                TextButton(onClick = {
-                    vm.deleteOfflineSkin(deleting.id)
-                    pendingDelete = null
-                }) { Text(I18n.t("common.delete")) }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingDelete = null }) { Text(I18n.t("common.cancel")) }
+        DangerConfirmDialog(
+            title = I18n.t("content.offline_skin.delete_title"),
+            message = I18n.t("content.offline_skin.delete_body", deleting.name),
+            onDismiss = { pendingDelete = null },
+            onConfirm = {
+                vm.deleteOfflineSkin(deleting.id)
+                pendingDelete = null
             }
         )
     }

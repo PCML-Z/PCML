@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import com.pmcl.core.gamecontent.DatapackManager
 import com.pmcl.core.gamecontent.WorldManager
 import com.pmcl.core.i18n.I18n
+import com.pmcl.ui.widget.DangerConfirmDialog
 import com.pmcl.ui.animation.TypewriterTitle
 import com.pmcl.ui.animation.StaggeredAppear
 import com.pmcl.ui.theme.glassContainerColor
@@ -70,6 +71,7 @@ fun DatapacksPage(vm: LauncherViewModel) {
     // 批量选择
     var selectionMode by remember { mutableStateOf(false) }
     val selectedPacks = remember { mutableStateListOf<DatapackManager.Datapack>() }
+    var showBatchDelete by remember { mutableStateOf(false) }
 
     // 导入 / 详情 对话框
     var showImportDialog by remember { mutableStateOf(false) }
@@ -243,10 +245,7 @@ fun DatapacksPage(vm: LauncherViewModel) {
                         selectedPacks.clear()
                     }) { Text(I18n.t("common.disable_all")) }
                     TextButton(
-                        onClick = {
-                            vm.batchDeleteDatapacks(selectedPacks.toList())
-                            selectedPacks.clear()
-                        },
+                        onClick = { if (selectedPacks.isNotEmpty()) showBatchDelete = true },
                         colors = ButtonDefaults.textButtonColors(
                             contentColor = MaterialTheme.colorScheme.error
                         )
@@ -317,6 +316,20 @@ fun DatapacksPage(vm: LauncherViewModel) {
             onConfirm = { path ->
                 showImportDialog = false
                 vm.importDatapack(path)
+            }
+        )
+    }
+
+    if (showBatchDelete) {
+        DangerConfirmDialog(
+            title = I18n.t("common.delete_all"),
+            message = I18n.t("common.delete_selected", selectedPacks.size),
+            onDismiss = { showBatchDelete = false },
+            onConfirm = {
+                val targets = selectedPacks.toList()
+                showBatchDelete = false
+                vm.batchDeleteDatapacks(targets)
+                selectedPacks.clear()
             }
         )
     }
@@ -452,25 +465,13 @@ private fun DatapackRow(
     }
 
     if (showDeleteDialog) {
-        AlertDialog(
-            onDismissRequest = { showDeleteDialog = false },
-            title = { Text(I18n.t("datapack.delete_title")) },
-            text = { Text(I18n.t("datapack.delete_confirm", pack.name)) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        vm.deleteDatapack(pack)
-                        showDeleteDialog = false
-                    },
-                    colors = ButtonDefaults.textButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    )
-                ) { Text(I18n.t("common.delete")) }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteDialog = false }) {
-                    Text(I18n.t("common.cancel"))
-                }
+        DangerConfirmDialog(
+            title = I18n.t("datapack.delete_title"),
+            message = I18n.t("datapack.delete_confirm", pack.name),
+            onDismiss = { showDeleteDialog = false },
+            onConfirm = {
+                vm.deleteDatapack(pack)
+                showDeleteDialog = false
             }
         )
     }

@@ -654,7 +654,7 @@ private fun InstalledModsSection(ctx: ModuleCtx) {
         ) {
             RowButton(if (m.isDisabled) Icons.Filled.Check else Icons.Filled.Block, { if (m.isDisabled) vm.enableMod(m) else vm.disableMod(m) },
                 label = if (m.isDisabled) mt("enable") else mt("disable"))
-            RowButton(Icons.Filled.Delete, { ctx.confirm(mt("delete_file_title"), mt("delete_file_body", m.jarFile)) { vm.deleteMod(m) } })
+            RowButton(Icons.Filled.Delete, { ctx.confirmDanger(mt("delete_file_title"), mt("delete_file_body", m.jarFile)) { vm.deleteMod(m) } })
         }
     }
 }
@@ -681,7 +681,7 @@ private fun ModpacksSection(ctx: ModuleCtx) {
         ItemRow(m.name, listOf(m.gameVersion.orEmpty(), listOfNotNull(m.loader, m.loaderVersion).joinToString(" "), mt("mods_n", m.modCount), m.source.orEmpty())
             .filter { it.isNotBlank() }.joinToString(" · "), ctx.color, i, icon = Icons.Filled.Inventory2) {
             RowButton(Icons.Filled.FolderOpen, { vm.openDir(m.instanceDir.toFile()) })
-            RowButton(Icons.Filled.Delete, { ctx.confirm(mt("delete_file_title"), mt("delete_file_body", m.name)) { vm.deleteModpack(m.directoryName) } })
+            RowButton(Icons.Filled.Delete, { ctx.confirmDanger(mt("delete_file_title"), mt("delete_file_body", m.name)) { vm.deleteModpack(m.directoryName) } })
         }
     }
 }
@@ -707,7 +707,7 @@ private fun ShadersSection(ctx: ModuleCtx) {
             .filter { it.isNotBlank() }.joinToString(" · "), if (s.isActive) Tiles.Blue else ctx.color, i, icon = Icons.Filled.WbSunny, dim = s.isDisabled) {
             RowButton(if (s.isDisabled) Icons.Filled.Check else Icons.Filled.Block, { if (s.isDisabled) vm.enableShaderPack(s) else vm.disableShaderPack(s) },
                 label = if (s.isDisabled) mt("enable") else mt("disable"))
-            RowButton(Icons.Filled.Delete, { ctx.confirm(mt("delete_file_title"), mt("delete_file_body", s.name)) { vm.deleteShaderPack(s) } })
+            RowButton(Icons.Filled.Delete, { ctx.confirmDanger(mt("delete_file_title"), mt("delete_file_body", s.name)) { vm.deleteShaderPack(s) } })
         }
     }
 }
@@ -731,7 +731,7 @@ private fun ResourcePacksSection(ctx: ModuleCtx) {
             ctx.color, i, icon = Icons.Filled.Palette, image = icon, dim = s.isDisabled) {
             RowButton(if (s.isDisabled) Icons.Filled.Check else Icons.Filled.Block, { if (s.isDisabled) vm.enableResourcePack(s) else vm.disableResourcePack(s) },
                 label = if (s.isDisabled) mt("enable") else mt("disable"))
-            RowButton(Icons.Filled.Delete, { ctx.confirm(mt("delete_file_title"), mt("delete_file_body", s.name)) { vm.deleteResourcePack(s) } })
+            RowButton(Icons.Filled.Delete, { ctx.confirmDanger(mt("delete_file_title"), mt("delete_file_body", s.name)) { vm.deleteResourcePack(s) } })
         }
     }
 }
@@ -763,7 +763,7 @@ private fun DatapacksSection(ctx: ModuleCtx) {
             ctx.color, i, icon = Icons.Filled.Storage, dim = s.isDisabled) {
             RowButton(if (s.isDisabled) Icons.Filled.Check else Icons.Filled.Block, { if (s.isDisabled) vm.enableDatapack(s) else vm.disableDatapack(s) },
                 label = if (s.isDisabled) mt("enable") else mt("disable"))
-            RowButton(Icons.Filled.Delete, { ctx.confirm(mt("delete_file_title"), mt("delete_file_body", s.name)) { vm.deleteDatapack(s) } })
+            RowButton(Icons.Filled.Delete, { ctx.confirmDanger(mt("delete_file_title"), mt("delete_file_body", s.name)) { vm.deleteDatapack(s) } })
         }
     }
 }
@@ -784,7 +784,7 @@ private fun ProjectionsSection(ctx: ModuleCtx) {
     ) { s, i ->
         ItemRow(s.title.ifBlank { s.fileName }, listOf(s.fileName, formatSize(s.size), fmtDate(s.modified), s.summary).filter { it.isNotBlank() }.joinToString(" · "),
             ctx.color, i, icon = Icons.Filled.Videocam) {
-            RowButton(Icons.Filled.Delete, { ctx.confirm(mt("delete_file_title"), mt("delete_file_body", s.fileName)) { vm.deleteProjection(s) } })
+            RowButton(Icons.Filled.Delete, { ctx.confirmDanger(mt("delete_file_title"), mt("delete_file_body", s.fileName)) { vm.deleteProjection(s) } })
         }
     }
 }
@@ -812,7 +812,7 @@ private fun OfflineSkinsSection(ctx: ModuleCtx) {
             ItemRow(s.name(), listOf(s.player().orEmpty().ifBlank { mt("any_player") }, if (s.model() == "slim") mt("model_slim") else mt("model_classic"), fmtDate(s.addedAt()))
                 .joinToString(" · "), ctx.color, i, icon = Icons.Filled.Person, image = face, onClick = { editing = s.id() }) {
                 RowButton(Icons.Filled.Check, { vm.applyOfflineSkin(s.id(), s.name(), s.model()) }, ctx.color, label = mt("apply"))
-                RowButton(Icons.Filled.Delete, { ctx.confirm(mt("delete_file_title"), mt("delete_file_body", s.name())) { vm.deleteOfflineSkin(s.id()) } })
+                RowButton(Icons.Filled.Delete, { ctx.confirmDanger(mt("delete_file_title"), mt("delete_file_body", s.name())) { vm.deleteOfflineSkin(s.id()) } })
             }
         }
     }
@@ -1187,7 +1187,7 @@ internal fun PluginsModule(ctx: ModuleCtx) {
                             RowButton(if (on) Icons.Filled.Block else Icons.Filled.Check, { work { if (on) pm.disablePlugin(info.id) else pm.enablePlugin(info.id) } },
                                 label = if (on) mt("disable") else mt("enable"))
                             RowButton(Icons.Filled.Refresh, { work { pm.reloadPlugin(info.id) } })
-                            RowButton(Icons.Filled.Delete, { ctx.confirm(mt("uninstall_title"), mt("uninstall_body", info.name)) { work { pm.uninstallPlugin(info.id) } } })
+                            RowButton(Icons.Filled.Delete, { ctx.confirmDanger(mt("uninstall_title"), mt("uninstall_body", info.name)) { work { pm.uninstallPlugin(info.id) } } })
                         }
                     }
                 }

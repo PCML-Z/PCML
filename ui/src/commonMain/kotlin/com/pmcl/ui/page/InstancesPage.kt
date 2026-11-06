@@ -19,6 +19,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
+import com.pmcl.ui.widget.DangerConfirmDialog
 import com.pmcl.core.instance.InstanceInfo
 import com.pmcl.ui.modloader.installPromptLoaderEntries
 import com.pmcl.ui.theme.glassCardBorder
@@ -226,29 +227,13 @@ fun InstancesPage(vm: LauncherViewModel) {
 
     // 删除确认对话框
     deleteTarget?.let { target ->
-        AlertDialog(
-            onDismissRequest = { deleteTarget = null },
-            title = { Text(I18n.t("instance.delete_title")) },
-            text = {
-                Text(I18n.t("instance.delete_confirm", arrayOf(target.getName())))
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        vm.deleteInstance(target.getInstanceId())
-                        deleteTarget = null
-                    },
-                    colors = ButtonDefaults.textButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    )
-                ) {
-                    Text(I18n.t("common.delete"))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { deleteTarget = null }) {
-                    Text(I18n.t("common.cancel"))
-                }
+        DangerConfirmDialog(
+            title = I18n.t("instance.delete_title"),
+            message = I18n.t("instance.delete_confirm", arrayOf(target.getName())),
+            onDismiss = { deleteTarget = null },
+            onConfirm = {
+                vm.deleteInstance(target.getInstanceId())
+                deleteTarget = null
             }
         )
     }

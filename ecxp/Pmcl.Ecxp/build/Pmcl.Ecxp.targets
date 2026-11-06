@@ -1,0 +1,88 @@
+<Project>
+
+  <!--
+    dotnet publish 之后写 pmcl-app.json，并把发布目录压成 .ecxp 安装包。
+    应用项目里设置：
+      PmclAppId           必填，小写字母、数字、点和短横线
+      PmclAppName         显示名，默认用程序集名
+      PmclAppDescription  一句话介绍
+      PmclAppAuthor       作者
+      PmclAppIcon         发布目录里的图标相对路径，例如 icon.png
+      PmclAppPermissions  用分号分隔的权限名；留空表示要全部启动器权限
+  -->
+
+  <PropertyGroup>
+    <PmclAppName Condition="'$(PmclAppName)' == ''">$(AssemblyName)</PmclAppName>
+    <PmclAppVersion Condition="'$(PmclAppVersion)' == ''">$(Version)</PmclAppVersion>
+    <PmclAppPackageDir Condition="'$(PmclAppPackageDir)' == ''">$(MSBuildProjectDirectory)/bin/ecxp</PmclAppPackageDir>
+  </PropertyGroup>
+
+  <UsingTask TaskName="PmclWriteManifest" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)/Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <File ParameterType="System.String" Required="true" />
+      <Id ParameterType="System.String" Required="true" />
+      <Name ParameterType="System.String" />
+      <Version ParameterType="System.String" />
+      <Author ParameterType="System.String" />
+      <Description ParameterType="System.String" />
+      <Framework ParameterType="System.String" Required="true" />
+      <Entry ParameterType="System.String" Required="true" />
+      <Icon ParameterType="System.String" />
+      <Permissions ParameterType="System.String" />
+    </ParameterGroup>
+    <Task>
+      <Using Namespace="System.Linq" />
+      <Using Namespace="System.Text" />
+      <Code Type="Fragment" Language="cs"><![CDATA[
+        System.Func<string, string> q = s =>
+        {
+            var b = new StringBuilder("\"");
+            foreach (var c in s ?? "")
+            {
+                if (c == '"' || c == '\\') b.Append('\\').Append(c);
+                else if (c < ' ') b.Append("\\u").Append(((int)c).ToString("x4"));
+                else b.Append(c);
+            }
+            return b.Append('"').ToString();
+        };
+        var perms = (Permissions ?? "").Split(new[] { ';', ',' }, System.StringSplitOptions.RemoveEmptyEntries)
+            .Select(p => q(p.Trim())).Where(p => p.Length > 2);
+        var json = new StringBuilder();
+        json.Append("{\n");
+        json.Append("  \"id\": ").Append(q(Id)).Append(",\n");
+        json.Append("  \"name\": ").Append(q(Name)).Append(",\n");
+        json.Append("  \"version\": ").Append(q(Version)).Append(",\n");
+        json.Append("  \"author\": ").Append(q(Author)).Append(",\n");
+        json.Append("  \"description\": ").Append(q(Description)).Append(",\n");
+        json.Append("  \"framework\": ").Append(q(Framework)).Append(",\n");
+        json.Append("  \"entry\": ").Append(q(Entry)).Append(",\n");
+        json.Append("  \"icon\": ").Append(q(Icon)).Append(",\n");
+        json.Append("  \"permissions\": [").Append(string.Join(", ", perms)).Append("]\n");
+        json.Append("}\n");
+        System.IO.File.WriteAllText(File, json.ToString(), new UTF8Encoding(false));
+      ]]></Code>
+    </Task>
+  </UsingTask>
+
+  <Target Name="PmclPackApp" AfterTargets="Publish" Condition="'$(PmclAppId)' != ''">
+    <PropertyGroup>
+      <_PmclPublish>$([System.IO.Path]::GetFullPath('$(PublishDir)'))</_PmclPublish>
+      <_PmclPackage>$(PmclAppPackageDir)/$(PmclAppId)-$(PmclAppVersion).ecxp</_PmclPackage>
+    </PropertyGroup>
+    <PmclWriteManifest
+        File="$(_PmclPublish)pmcl-app.json"
+        Id="$(PmclAppId)"
+        Name="$(PmclAppName)"
+        Version="$(PmclAppVersion)"
+        Author="$(PmclAppAuthor)"
+        Description="$(PmclAppDescription)"
+        Framework="$(TargetFramework)"
+        Entry="$(TargetFileName)"
+        Icon="$(PmclAppIcon)"
+        Permissions="$(PmclAppPermissions)" />
+    <MakeDir Directories="$(PmclAppPackageDir)" />
+    <ZipDirectory SourceDirectory="$(_PmclPublish)" DestinationFile="$(_PmclPackage)" Overwrite="true" />
+    <Message Importance="high" Text="ECXP package: $(_PmclPackage)" />
+  </Target>
+
+</Project>

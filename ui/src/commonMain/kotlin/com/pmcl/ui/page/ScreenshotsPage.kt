@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.pmcl.core.gamecontent.ScreenshotManager.Screenshot
 import com.pmcl.core.i18n.I18n
+import com.pmcl.ui.widget.DangerConfirmDialog
 import com.pmcl.ui.animation.TypewriterTitle
 import com.pmcl.ui.theme.glassCardBorder
 import com.pmcl.ui.theme.glassCardColors
@@ -84,6 +85,7 @@ fun ScreenshotsPage(vm: LauncherViewModel) {
     var selectedPaths by remember { mutableStateOf(setOf<String>()) }
     var previewPath by remember { mutableStateOf<String?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var pendingShot by remember { mutableStateOf<Screenshot?>(null) }
     val focusRequester = remember { FocusRequester() }
     val thumbCache = remember { LruImageCache() }
 
@@ -308,10 +310,7 @@ fun ScreenshotsPage(vm: LauncherViewModel) {
                         onPreview = { previewPath = key },
                         onCopy = { vm.copyScreenshotToClipboard(shot) },
                         onOpenFolder = { vm.openScreenshotFolder(shot) },
-                        onDelete = {
-                            selectedPaths = selectedPaths - key
-                            vm.deleteScreenshot(shot)
-                        }
+                        onDelete = { pendingShot = shot }
                     )
                 }
             }
@@ -342,27 +341,29 @@ fun ScreenshotsPage(vm: LauncherViewModel) {
     }
 
     if (confirmDelete) {
-        AlertDialog(
-            onDismissRequest = { confirmDelete = false },
-            title = { Text(I18n.t("screenshot.batch_delete")) },
-            text = { Text(I18n.t("screenshot.batch_delete_confirm", selectedPaths.size)) },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val toDelete = shots.filter { pathKey(it) in selectedPaths }
-                        confirmDelete = false
-                        selectedPaths = emptySet()
-                        vm.deleteScreenshots(toDelete)
-                    },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error
-                    )
-                ) { Text(I18n.t("common.delete")) }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmDelete = false }) {
-                    Text(I18n.t("common.cancel"))
-                }
+        DangerConfirmDialog(
+            title = I18n.t("screenshot.batch_delete"),
+            message = I18n.t("screenshot.batch_delete_confirm", selectedPaths.size),
+            onDismiss = { confirmDelete = false },
+            onConfirm = {
+                val toDelete = shots.filter { pathKey(it) in selectedPaths }
+                confirmDelete = false
+                selectedPaths = emptySet()
+                vm.deleteScreenshots(toDelete)
+            }
+        )
+    }
+
+    pendingShot?.let { shot ->
+        DangerConfirmDialog(
+            title = I18n.t("common.delete"),
+            message = I18n.t("screenshot.delete_one", shot.name),
+            onDismiss = { pendingShot = null },
+            onConfirm = {
+                val key = pathKey(shot)
+                pendingShot = null
+                selectedPaths = selectedPaths - key
+                vm.deleteScreenshot(shot)
             }
         )
     }

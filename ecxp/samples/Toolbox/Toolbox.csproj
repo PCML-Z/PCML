@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <TargetFramework Condition="!$([MSBuild]::VersionGreaterThanOrEquals('$(NETCoreSdkVersion)', '11.0'))">net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>Pmcl.Toolbox</AssemblyName>
+    <RootNamespace>Pmcl.Toolbox</RootNamespace>
+    <Version>1.0.0</Version>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+
+    <PmclAppId>pmcl.toolbox</PmclAppId>
+    <PmclAppName>ECXP Toolbox</PmclAppName>
+    <PmclAppAuthor>PMCL</PmclAppAuthor>
+    <PmclAppDescription>ECXP sample: browse instances, start games, stop processes, and watch launcher events.</PmclAppDescription>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.3.22" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.22" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.22" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../Pmcl.Ecxp/Pmcl.Ecxp.csproj" />
+  </ItemGroup>
+
+  <Import Project="../../Pmcl.Ecxp/build/Pmcl.Ecxp.targets" />
+
+</Project>
