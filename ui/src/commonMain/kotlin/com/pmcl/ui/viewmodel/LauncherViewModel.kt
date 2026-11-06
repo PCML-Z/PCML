@@ -943,6 +943,9 @@ class LauncherViewModel {
     @PublishedApi internal val _musicHistory = MutableStateFlow<List<MusicTrack>>(emptyList())
     val musicHistory: StateFlow<List<MusicTrack>> = _musicHistory.asStateFlow()
 
+    @PublishedApi internal val _musicFavorites = MutableStateFlow<List<MusicTrack>>(emptyList())
+    val musicFavorites: StateFlow<List<MusicTrack>> = _musicFavorites.asStateFlow()
+
     @PublishedApi internal val _musicLyrics = MutableStateFlow<List<com.pmcl.music.lyrics.LyricsLine>>(emptyList())
     val musicLyrics: StateFlow<List<com.pmcl.music.lyrics.LyricsLine>> = _musicLyrics.asStateFlow()
 

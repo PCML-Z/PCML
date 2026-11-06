@@ -235,6 +235,57 @@ public final class FriendIdentityManager {
     }
 
     /**
+     * 聊天组分享文本：{@code pmcl-group:组ID:组名:分享者ID}。
+     * 组名做百分号编码，避免冒号把字段拆开。名单不放进二维码。
+     */
+    public static String groupShareText(String groupId, String name, String sharerId) {
+        if (groupId == null || name == null || !FriendIdentity.isValid(sharerId)) return "";
+        String id;
+        try {
+            id = UUID.fromString(groupId.trim()).toString();
+        } catch (IllegalArgumentException e) {
+            return "";
+        }
+        String clean = name.trim();
+        if (clean.isEmpty() || clean.length() > 24) return "";
+        try {
+            return "pmcl-group:" + id + ":" + urlEncode(clean) + ":" + FriendIdentity.parse(sharerId).toString();
+        } catch (IllegalArgumentException e) {
+            return "";
+        }
+    }
+
+    /** 解析群分享文本。格式不对时返回 null，不能当成好友邀请。 */
+    public static GroupShare parseGroupShare(String text) {
+        if (text == null) return null;
+        String raw = text.trim();
+        if (!raw.startsWith("pmcl-group:")) return null;
+        String[] parts = raw.substring("pmcl-group:".length()).split(":", 3);
+        if (parts.length < 3 || !FriendIdentity.isValid(parts[2].trim())) return null;
+        String groupId;
+        try {
+            groupId = UUID.fromString(parts[0].trim()).toString();
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+        String name = urlDecode(parts[1]).trim();
+        if (name.isEmpty() || name.length() > 24) return null;
+        try {
+            return new GroupShare(groupId, name, FriendIdentity.parse(parts[2].trim()).toString());
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    /** 把任意文本画成 300px 的 PNG 二维码。 */
+    public static byte[] encodeQrPng(String text) throws WriterException, IOException {
+        if (text == null || text.isEmpty()) {
+            throw new IllegalArgumentException("empty qr text");
+        }
+        return matrixToPng(encodeMatrix(text));
+    }
+
+    /**
      * 从图片解码二维码内容。支持 PNG/JPG 等常见格式。
      * @param image 已解码的图片
      * @return 解码出的文本，失败返回 null
@@ -384,15 +435,7 @@ public final class FriendIdentityManager {
 
     private void generateQrCode() {
         try {
-            String text = getShareText();
-            Map<EncodeHintType, Object> hints = new EnumMap<>(EncodeHintType.class);
-            hints.put(EncodeHintType.ERROR_CORRECTION, ErrorCorrectionLevel.M);
-            hints.put(EncodeHintType.MARGIN, 2);
-            hints.put(EncodeHintType.CHARACTER_SET, "UTF-8");
-
-            BitMatrix matrix = new QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, 300, 300, hints);
-
-            // 提取矩阵数据
+            BitMatrix matrix = encodeMatrix(getShareText());
             int w = matrix.getWidth();
             int h = matrix.getHeight();
             this.qrSize = Math.max(w, h);
@@ -402,24 +445,35 @@ public final class FriendIdentityManager {
                     qrModules[y * qrSize + x] = matrix.get(x, y);
                 }
             }
-
-            // 同时生成 PNG（向后兼容）
-            BufferedImage image = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
-            for (int x = 0; x < w; x++) {
-                for (int y = 0; y < h; y++) {
-                    image.setRGB(x, y, matrix.get(x, y) ? Color.BLACK.getRGB() : Color.WHITE.getRGB());
-                }
-            }
-
-            ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            ImageIO.write(image, "PNG", baos);
-            this.qrCodeBytes = baos.toByteArray();
+            this.qrCodeBytes = matrixToPng(matrix);
         } catch (WriterException | IOException e) {
             System.err.println("[FriendIdentity] 二维码生成失败: " + e.getMessage());
             this.qrCodeBytes = new byte[0];
             this.qrModules = new boolean[0];
             this.qrSize = 0;
         }
+    }
+
+    private static BitMatrix encodeMatrix(String text) throws WriterException {
+        Map<EncodeHintType, Object> hints = new EnumMap<>(EncodeHintType.class);
+        hints.put(EncodeHintType.ERROR_CORRECTION, ErrorCorrectionLevel.M);
+        hints.put(EncodeHintType.MARGIN, 2);
+        hints.put(EncodeHintType.CHARACTER_SET, "UTF-8");
+        return new QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, 300, 300, hints);
+    }
+
+    private static byte[] matrixToPng(BitMatrix matrix) throws IOException {
+        int w = matrix.getWidth();
+        int h = matrix.getHeight();
+        BufferedImage image = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+        for (int x = 0; x < w; x++) {
+            for (int y = 0; y < h; y++) {
+                image.setRGB(x, y, matrix.get(x, y) ? Color.BLACK.getRGB() : Color.WHITE.getRGB());
+            }
+        }
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        ImageIO.write(image, "PNG", baos);
+        return baos.toByteArray();
     }
 
     private static String urlEncode(String s) {
@@ -450,6 +504,19 @@ public final class FriendIdentityManager {
     // ---------------------------------------------------------------------------
     // 内部类型
     // ---------------------------------------------------------------------------
+
+    /** 群二维码里的组号、组名和分享者。 */
+    public static final class GroupShare {
+        public final String groupId;
+        public final String name;
+        public final String sharerId;
+
+        GroupShare(String groupId, String name, String sharerId) {
+            this.groupId = groupId;
+            this.name = name;
+            this.sharerId = sharerId;
+        }
+    }
 
     /** 从分享文本解析出的好友信息（含可选长期公钥） */
     public static final class IdentityInfo {

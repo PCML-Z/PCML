@@ -287,6 +287,9 @@ fun buildSearchIndex(vm: LauncherViewModel): List<SearchItem> {
             add(SearchItem(I18n.t("music.playlist"), I18n.t("search.nav.music"), PmclIcons.Playlist, GROUP_NAV, listOf("music", "audio", "playlist")) {
                 vm.requestSecondaryNav("music", "playlist")
             })
+            add(SearchItem(I18n.t("music.favorites"), I18n.t("search.nav.music"), PmclIcons.Star, GROUP_NAV, listOf("music", "audio", "favorite", "star")) {
+                vm.requestSecondaryNav("music", "favorites")
+            })
             add(SearchItem(I18n.t("music.history"), I18n.t("search.nav.music"), PmclIcons.History, GROUP_NAV, listOf("music", "audio", "history")) {
                 vm.requestSecondaryNav("music", "history")
             })

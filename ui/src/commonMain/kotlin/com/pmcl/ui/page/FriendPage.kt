@@ -82,6 +82,8 @@ fun FriendPage(vm: LauncherViewModel, sectionId: String = "chat") {
     var selectedFriendId by remember { mutableStateOf<String?>(null) }
     var selectedGroupId by remember { mutableStateOf<String?>(null) }
     var showCreateGroup by remember { mutableStateOf(false) }
+    var shareGroup by remember { mutableStateOf<FriendStore.GroupEntry?>(null) }
+    var groupJoinNotice by remember { mutableStateOf<String?>(null) }
     var messages by remember { mutableStateOf<List<FriendStore.StoredMessage>>(emptyList()) }
     var inputText by remember { mutableStateOf("") }
     var showAddDialog by remember { mutableStateOf(false) }
@@ -227,6 +229,10 @@ fun FriendPage(vm: LauncherViewModel, sectionId: String = "chat") {
                             messages = friendManager.getMessages(currentId)
                         }
                     }
+                    FriendManager.FriendEvent.Type.GROUP_JOIN_RESULT -> {
+                        groupJoinNotice = groupJoinMessage(event.data as? String ?: "unknown")
+                        refresh()
+                    }
                     else -> {
                         refresh()
                     }
@@ -280,6 +286,24 @@ fun FriendPage(vm: LauncherViewModel, sectionId: String = "chat") {
             // 添加好友按钮
             IconButton(onClick = { showAddDialog = true }) {
                 Icon(Icons.Filled.PersonAdd, I18n.t("friend.add_friend"), tint = MaterialTheme.colorScheme.primary)
+            }
+        }
+
+        groupJoinNotice?.let { notice ->
+            Spacer(Modifier.height(8.dp))
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = MaterialTheme.colorScheme.secondaryContainer
+            ) {
+                Row(
+                    Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(notice, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                    IconButton(onClick = { groupJoinNotice = null }, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Filled.Close, I18n.t("common.close"), modifier = Modifier.size(16.dp))
+                    }
+                }
             }
         }
 
@@ -420,6 +444,7 @@ fun FriendPage(vm: LauncherViewModel, sectionId: String = "chat") {
                                 .replace("{0}", (activeGroup.members?.size ?: 0).toString()),
                             showVideo = false,
                             deleteDescription = I18n.t("friend.leave_group"),
+                            onShareGroup = { shareGroup = activeGroup },
                             messages = messages,
                             inputText = inputText,
                             onInputChange = { inputText = it },
@@ -553,6 +578,13 @@ fun FriendPage(vm: LauncherViewModel, sectionId: String = "chat") {
         }
     }
 
+    shareGroup?.let { group ->
+        val sharerId = identityManager.identity?.toString()
+        if (sharerId != null) {
+            GroupShareDialog(group, sharerId, onDismiss = { shareGroup = null })
+        }
+    }
+
     if (showCreateGroup) {
         CreateGroupDialog(
             friends = friends,
@@ -577,21 +609,34 @@ fun FriendPage(vm: LauncherViewModel, sectionId: String = "chat") {
             onCodeChange = { addFriendCode = it },
             onDismiss = { showAddDialog = false },
             onAdd = {
-                val info = FriendIdentityManager.parseInvite(addFriendCode)
-                if (info != null) {
-                    friendManager.sendFriendRequest(
-                        info.identity.toString(),
-                        info.displayName,
-                        "",
-                        0,
-                        info.ed25519Public,
-                        info.x25519Public
-                    )
-                    addFriendCode = ""
-                    addFriendError = null
-                    showAddDialog = false
+                val share = FriendIdentityManager.parseGroupShare(addFriendCode)
+                if (share != null) {
+                    val code = friendManager.requestJoinGroup(share.groupId, share.sharerId)
+                    if (code == "sent") {
+                        addFriendCode = ""
+                        addFriendError = null
+                        showAddDialog = false
+                        groupJoinNotice = groupJoinMessage(code)
+                    } else {
+                        addFriendError = groupJoinMessage(code)
+                    }
                 } else {
-                    addFriendError = I18n.t("friend.invalid_invite_code")
+                    val info = FriendIdentityManager.parseInvite(addFriendCode)
+                    if (info != null) {
+                        friendManager.sendFriendRequest(
+                            info.identity.toString(),
+                            info.displayName,
+                            "",
+                            0,
+                            info.ed25519Public,
+                            info.x25519Public
+                        )
+                        addFriendCode = ""
+                        addFriendError = null
+                        showAddDialog = false
+                    } else {
+                        addFriendError = I18n.t("friend.invalid_invite_code")
+                    }
                 }
             },
             onScanStart = {
@@ -612,12 +657,25 @@ fun FriendPage(vm: LauncherViewModel, sectionId: String = "chat") {
                     if (selectedFile != null) {
                         val decoded = FriendIdentityManager.decodeQrCode(selectedFile)
                         if (decoded != null) {
-                            val info = FriendIdentityManager.parseInvite(decoded)
-                            if (info != null) {
-                                addFriendCode = decoded
-                                addFriendError = null
+                            val share = FriendIdentityManager.parseGroupShare(decoded)
+                            if (share != null) {
+                                val code = friendManager.requestJoinGroup(share.groupId, share.sharerId)
+                                if (code == "sent") {
+                                    addFriendCode = ""
+                                    addFriendError = null
+                                    showAddDialog = false
+                                    groupJoinNotice = groupJoinMessage(code)
+                                } else {
+                                    addFriendError = groupJoinMessage(code)
+                                }
                             } else {
-                                addFriendError = I18n.t("friend.invalid_image_qr")
+                                val info = FriendIdentityManager.parseInvite(decoded)
+                                if (info != null) {
+                                    addFriendCode = decoded
+                                    addFriendError = null
+                                } else {
+                                    addFriendError = I18n.t("friend.invalid_image_qr")
+                                }
                             }
                         } else {
                             addFriendError = I18n.t("friend.no_qr_in_image")
@@ -640,12 +698,25 @@ fun FriendPage(vm: LauncherViewModel, sectionId: String = "chat") {
                             g.dispose()
                             val decoded = FriendIdentityManager.decodeQrCode(bufferedImg)
                             if (decoded != null) {
-                                val info = FriendIdentityManager.parseInvite(decoded)
-                                if (info != null) {
-                                    addFriendCode = decoded
-                                    addFriendError = null
+                                val share = FriendIdentityManager.parseGroupShare(decoded)
+                                if (share != null) {
+                                    val code = friendManager.requestJoinGroup(share.groupId, share.sharerId)
+                                    if (code == "sent") {
+                                        addFriendCode = ""
+                                        addFriendError = null
+                                        showAddDialog = false
+                                        groupJoinNotice = groupJoinMessage(code)
+                                    } else {
+                                        addFriendError = groupJoinMessage(code)
+                                    }
                                 } else {
-                                    addFriendError = I18n.t("friend.invalid_clipboard_qr")
+                                    val info = FriendIdentityManager.parseInvite(decoded)
+                                    if (info != null) {
+                                        addFriendCode = decoded
+                                        addFriendError = null
+                                    } else {
+                                        addFriendError = I18n.t("friend.invalid_clipboard_qr")
+                                    }
                                 }
                             } else {
                                 addFriendError = I18n.t("friend.no_qr_in_clipboard")
@@ -933,7 +1004,8 @@ private fun ChatView(
     statusText: String? = null,
     showVideo: Boolean = true,
     deleteDescription: String = I18n.t("friend.remove_friend"),
-    senderName: (FriendStore.StoredMessage) -> String? = { null }
+    senderName: (FriendStore.StoredMessage) -> String? = { null },
+    onShareGroup: (() -> Unit)? = null
 ) {
     val listState = rememberLazyListState()
     val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
@@ -968,6 +1040,13 @@ private fun ChatView(
                     color = if (statusText == null && friendOnline) Color(0xFF4CAF50)
                             else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                 )
+            }
+            if (onShareGroup != null) {
+                IconButton(onClick = onShareGroup, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Filled.QrCode2, I18n.t("friend.group_share"),
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.primary)
+                }
             }
             if (showVideo) {
             IconButton(onClick = onVideoCall, modifier = Modifier.size(32.dp), enabled = friendOnline) {
@@ -1162,6 +1241,77 @@ private fun GroupListItem(
             }
         }
     }
+}
+
+internal fun groupJoinMessage(code: String): String = when (code) {
+    "sent" -> I18n.t("friend.group_join_sent")
+    "ok" -> I18n.t("friend.group_join_ok")
+    "not_friend" -> I18n.t("friend.group_join_not_friend")
+    "already" -> I18n.t("friend.group_already")
+    "full" -> I18n.t("friend.group_full")
+    "unknown" -> I18n.t("friend.group_join_unknown")
+    "self" -> I18n.t("friend.group_join_self")
+    else -> I18n.t("friend.group_qr_invalid")
+}
+
+@Composable
+internal fun GroupShareDialog(
+    group: FriendStore.GroupEntry,
+    sharerId: String,
+    onDismiss: () -> Unit
+) {
+    val text = remember(group.id, group.name, sharerId) {
+        FriendIdentityManager.groupShareText(group.id, group.name ?: "", sharerId)
+    }
+    val bitmap = remember(text) {
+        if (text.isEmpty()) null
+        else runCatching { SkiaImage.makeFromEncoded(FriendIdentityManager.encodeQrPng(text)).toComposeImageBitmap() }.getOrNull()
+    }
+    var copied by remember(text) { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(I18n.t("friend.group_share_title"), fontWeight = FontWeight.Bold) },
+        text = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    I18n.t("friend.group_share_hint"),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(12.dp))
+                if (bitmap != null) {
+                    Image(
+                        bitmap = bitmap,
+                        contentDescription = I18n.t("friend.group_share"),
+                        modifier = Modifier.size(220.dp)
+                    )
+                } else {
+                    Text(I18n.t("friend.group_qr_invalid"), color = MaterialTheme.colorScheme.error)
+                }
+                if (text.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(text, style = MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    if (text.isEmpty()) return@TextButton
+                    try {
+                        java.awt.Toolkit.getDefaultToolkit().systemClipboard.setContents(
+                            java.awt.datatransfer.StringSelection(text), null)
+                        copied = true
+                    } catch (_: Exception) {
+                    }
+                },
+                enabled = text.isNotEmpty()
+            ) { Text(if (copied) I18n.t("friend.group_copied") else I18n.t("friend.group_copy")) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(I18n.t("common.close")) }
+        }
+    )
 }
 
 @Composable

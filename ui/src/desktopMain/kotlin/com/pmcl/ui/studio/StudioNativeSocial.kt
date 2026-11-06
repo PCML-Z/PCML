@@ -49,6 +49,7 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Repeat
@@ -60,6 +61,8 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Icon
@@ -89,6 +92,8 @@ import androidx.compose.ui.unit.sp
 import com.pmcl.core.friend.FriendIdentityManager
 import com.pmcl.core.friend.FriendManager
 import com.pmcl.core.friend.FriendStore
+import com.pmcl.ui.page.GroupShareDialog
+import com.pmcl.ui.page.groupJoinMessage
 import com.pmcl.core.i18n.I18n
 import com.pmcl.core.mail.MailAccount
 import com.pmcl.core.mail.MailAccountStore
@@ -103,6 +108,8 @@ import com.pmcl.ui.page.MusicTrack
 import com.pmcl.ui.viewmodel.addLocalMusicFiles
 import com.pmcl.ui.viewmodel.addLocalMusicFolder
 import com.pmcl.ui.viewmodel.addNbtChild
+import com.pmcl.ui.viewmodel.FAVORITES_PLAYLIST_ID
+import com.pmcl.ui.viewmodel.clearMusicFavorites
 import com.pmcl.ui.viewmodel.clearMusicHistory
 import com.pmcl.ui.viewmodel.clearMusicPlaylist
 import com.pmcl.ui.viewmodel.closeNbtFile
@@ -117,7 +124,9 @@ import com.pmcl.ui.viewmodel.joinFriendMultiplayer
 import com.pmcl.ui.viewmodel.joinRoom
 import com.pmcl.ui.viewmodel.leaveRoom
 import com.pmcl.ui.viewmodel.openNbtFile
+import com.pmcl.ui.viewmodel.musicPlaylistName
 import com.pmcl.ui.viewmodel.playMusicAt
+import com.pmcl.ui.viewmodel.playMusicFavoriteAt
 import com.pmcl.ui.viewmodel.playMusicFromHistory
 import com.pmcl.ui.viewmodel.playNextMusic
 import com.pmcl.ui.viewmodel.playPreviousMusic
@@ -141,6 +150,7 @@ import com.pmcl.ui.viewmodel.switchMusicPlaylist
 import com.pmcl.ui.viewmodel.syncConnectXConfig
 import com.pmcl.ui.viewmodel.syncEasyTierConfig
 import com.pmcl.ui.viewmodel.syncRedstoneConfig
+import com.pmcl.ui.viewmodel.toggleMusicFavorite
 import com.pmcl.ui.viewmodel.toggleMusicMute
 import com.pmcl.ui.viewmodel.toggleMusicPlayPause
 import com.pmcl.ui.viewmodel.toggleMusicShuffle
@@ -376,8 +386,20 @@ private fun FriendChatSection(ctx: ModuleCtx) {
     var input by remember { mutableStateOf("") }
     var invite by remember { mutableStateOf("") }
     var inviteError by remember { mutableStateOf("") }
+    var joinNotice by remember { mutableStateOf("") }
+    var shareGroup by remember { mutableStateOf<FriendStore.GroupEntry?>(null) }
+    val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
     LaunchedEffect(messages.size, selected) { if (messages.isNotEmpty()) listState.scrollToItem(messages.size - 1) }
+    DisposableEffect(fm) {
+        val listener = Consumer<FriendManager.FriendEvent> { event ->
+            if (event.type == FriendManager.FriendEvent.Type.GROUP_JOIN_RESULT) {
+                scope.launch { joinNotice = groupJoinMessage(event.data as? String ?: "unknown") }
+            }
+        }
+        fm.addListener(listener)
+        onDispose { fm.removeListener(listener) }
+    }
     val isGroup = selected?.startsWith("g:") == true
     val activeFriend = friends.firstOrNull { it.identity == selected }
     val activeGroup = groups.firstOrNull { FriendStore.groupKey(it.id) == selected }
@@ -395,15 +417,28 @@ private fun FriendChatSection(ctx: ModuleCtx) {
                 Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     InputBox(invite, { invite = it.trim(); inviteError = "" }, mt("invite_hint"), Modifier.weight(1f), mono = true)
                     Block("", {
-                        val info = FriendIdentityManager.parseInvite(invite)
-                        if (info == null) inviteError = I18n.t("friend.invalid_invite_code")
-                        else {
-                            runCatching { fm.sendFriendRequest(info.identity.toString(), info.displayName, "", 0, info.ed25519Public, info.x25519Public) }
-                            invite = ""
+                        val share = FriendIdentityManager.parseGroupShare(invite)
+                        if (share != null) {
+                            val code = fm.requestJoinGroup(share.groupId, share.sharerId)
+                            if (code == "sent") {
+                                invite = ""
+                                inviteError = ""
+                                joinNotice = groupJoinMessage(code)
+                            } else {
+                                inviteError = groupJoinMessage(code)
+                            }
+                        } else {
+                            val info = FriendIdentityManager.parseInvite(invite)
+                            if (info == null) inviteError = I18n.t("friend.invalid_invite_code")
+                            else {
+                                runCatching { fm.sendFriendRequest(info.identity.toString(), info.displayName, "", 0, info.ed25519Public, info.x25519Public) }
+                                invite = ""
+                            }
                         }
                     }, icon = Icons.Filled.PersonAdd, fill = ctx.color, enabled = invite.isNotBlank(), height = 30.dp)
                 }
                 if (inviteError.isNotBlank()) FlatText(inviteError, color = Tiles.Red, size = 11, modifier = Modifier.padding(horizontal = 10.dp))
+                if (joinNotice.isNotBlank()) FlatText(joinNotice, color = ctx.color, size = 11, modifier = Modifier.padding(horizontal = 10.dp))
                 LazyColumn(Modifier.weight(1f)) {
                     if (pending.isNotEmpty()) {
                         item { LabelBar(mt("requests_n", pending.size), Tiles.Orange) }
@@ -435,6 +470,9 @@ private fun FriendChatSection(ctx: ModuleCtx) {
                         FlatText(activeGroup?.name ?: activeFriend?.displayName.orEmpty(), weight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 12.dp))
                         if (activeFriend != null) FlatText(if (activeFriend.online) mt("online") else mt("offline"), color = p.muted, size = 11)
                         Spacer(Modifier.width(12.dp))
+                        if (isGroup && activeGroup != null) {
+                            Block(I18n.t("friend.group_share"), { shareGroup = activeGroup }, icon = Icons.Filled.QrCode2, height = 36.dp)
+                        }
                         Block(if (isGroup) mt("leave_group") else mt("remove_friend"), {
                             val name = activeGroup?.name ?: activeFriend?.displayName.orEmpty()
                             ctx.confirm(if (isGroup) mt("leave_group") else mt("remove_friend"), mt("remove_friend_body", name)) {
@@ -467,6 +505,11 @@ private fun FriendChatSection(ctx: ModuleCtx) {
                     }
                 }
             }
+        }
+        val sharing = shareGroup
+        val me = identity?.identity?.toString()
+        if (sharing != null && me != null) {
+            GroupShareDialog(sharing, me) { shareGroup = null }
         }
     }
 }
@@ -909,11 +952,12 @@ internal fun MusicModule(ctx: ModuleCtx) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when (ctx.section) {
                 "playlist" -> PlaylistSection(ctx)
+                "favorites" -> FavoritesSection(ctx)
                 "history" -> HistorySection(ctx)
                 else -> PlayerSection(ctx)
             }
         }
-        if (ctx.section == "playlist" || ctx.section == "history") MiniPlayer(ctx)
+        if (ctx.section == "playlist" || ctx.section == "favorites" || ctx.section == "history") MiniPlayer(ctx)
     }
 }
 
@@ -992,8 +1036,14 @@ private fun PlayerSection(ctx: ModuleCtx) {
             SeekBar(if (dur > 0) pos.toFloat() / dur else 0f, ctx.color, Modifier.weight(1f)) { if (dur > 0) vm.seekMusicTo((it * dur).toLong()) }
             FlatText(fmtMs(dur), color = p.muted, size = 11, modifier = Modifier.width(52.dp).padding(start = 8.dp))
         }
+        val favorites by vm.musicFavorites.collectAsState()
+        val current = track
+        val saved = current != null && favorites.any { it.sourceUrl == current.sourceUrl }
         Row(Modifier.fillMaxWidth().background(p.panel).padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             PlayerControls(ctx, big = true)
+            if (current != null) {
+                Block("", { vm.toggleMusicFavorite(current) }, icon = if (saved) Icons.Filled.Star else Icons.Filled.StarBorder, fill = if (saved) Tiles.Gold else null, height = 36.dp)
+            }
             Spacer(Modifier.weight(1f))
             VolumeControl(ctx)
         }
@@ -1027,8 +1077,11 @@ private fun MiniPlayer(ctx: ModuleCtx) {
 @Composable
 private fun TrackRow(ctx: ModuleCtx, t: MusicTrack, i: Int, playing: Boolean, onPlay: () -> Unit, onRemove: () -> Unit) {
     val cover = rememberUrlImage(t.coverUrl)
+    val favorites by ctx.vm.musicFavorites.collectAsState()
+    val saved = favorites.any { it.sourceUrl == t.sourceUrl }
     ItemRow(t.title, listOf(t.uploader, if (t.durationMs > 0) fmtMs(t.durationMs) else "", t.sourceType).filter { it.isNotBlank() }.joinToString(" · "),
         if (playing) Tiles.Forest else ctx.color, i, icon = if (playing) Icons.Filled.PlayArrow else Icons.Filled.MusicNote, image = cover, selected = playing, onClick = onPlay) {
+        RowButton(if (saved) Icons.Filled.Star else Icons.Filled.StarBorder, { ctx.vm.toggleMusicFavorite(t) }, color = if (saved) Tiles.Gold else null)
         RowButton(Icons.Filled.PlayArrow, onPlay)
         RowButton(Icons.Filled.Delete, onRemove)
     }
@@ -1044,7 +1097,7 @@ private fun PlaylistSection(ctx: ModuleCtx) {
     var newName by remember { mutableStateOf("") }
     var url by remember { mutableStateOf("") }
     Column(Modifier.fillMaxSize()) {
-        ModuleHero(lists.firstOrNull { it.id == activeId }?.name ?: mt("playlist"), mt("tracks_n", playlist.size, fmtMs(playlist.sumOf { it.durationMs })), ctx.color, PmclIcons.Music) {
+        ModuleHero(lists.firstOrNull { it.id == activeId }?.let { musicPlaylistName(it) } ?: mt("playlist"), mt("tracks_n", playlist.size, fmtMs(playlist.sumOf { it.durationMs })), ctx.color, PmclIcons.Music) {
             HeroButton(mt("add_files"), Icons.Filled.FileOpen, ctx.color, {
                 val files = pickFile(mt("add_files"), setOf("mp3", "flac", "wav", "ogg", "m4a", "aac", "opus"), multiple = true)
                 if (files.isNotEmpty()) vm.addLocalMusicFiles(files.map { it.toString() })
@@ -1053,11 +1106,11 @@ private fun PlaylistSection(ctx: ModuleCtx) {
             HeroButton(mt("clear"), Icons.Filled.Delete, ctx.color, { ctx.confirm(mt("clear"), mt("clear_playlist_body")) { vm.clearMusicPlaylist() } }, enabled = playlist.isNotEmpty())
         }
         Toolbar {
-            lists.forEach { l -> Block(l.name, { vm.switchMusicPlaylist(l.id) }, fill = if (l.id == activeId) ctx.color else null, height = 36.dp) }
+            lists.forEach { l -> Block(musicPlaylistName(l), { vm.switchMusicPlaylist(l.id) }, icon = if (l.id == FAVORITES_PLAYLIST_ID) Icons.Filled.Star else null, fill = if (l.id == activeId) ctx.color else null, height = 36.dp) }
             Spacer(Modifier.width(8.dp))
             InputBox(newName, { newName = it }, mt("new_playlist"), Modifier.width(160.dp), onSubmit = { if (newName.isNotBlank()) { vm.createMusicPlaylist(newName.trim()); newName = "" } })
             Block("", { vm.createMusicPlaylist(newName.trim()); newName = "" }, icon = Icons.Filled.Add, enabled = newName.isNotBlank(), height = 36.dp)
-            if (lists.size > 1) Block("", { ctx.confirm(mt("delete_playlist"), lists.firstOrNull { it.id == activeId }?.name.orEmpty()) { vm.deleteMusicPlaylist(activeId) } },
+            if (lists.size > 1 && activeId != FAVORITES_PLAYLIST_ID) Block("", { ctx.confirm(mt("delete_playlist"), lists.firstOrNull { it.id == activeId }?.let { musicPlaylistName(it) }.orEmpty()) { vm.deleteMusicPlaylist(activeId) } },
                 icon = Icons.Filled.Delete, height = 36.dp)
         }
         Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1068,6 +1121,26 @@ private fun PlaylistSection(ctx: ModuleCtx) {
         else LazyColumn(Modifier.fillMaxSize()) {
             itemsIndexed(playlist, key = { i, t -> "$i:${t.sourceUrl}" }) { i, t ->
                 TrackRow(ctx, t, i, i == index, { vm.playMusicAt(i) }, { vm.removeMusicTrack(i) })
+            }
+        }
+    }
+}
+
+@Composable
+private fun FavoritesSection(ctx: ModuleCtx) {
+    val vm = ctx.vm
+    val favorites by vm.musicFavorites.collectAsState()
+    val activeId by vm.musicActivePlaylistId.collectAsState()
+    val index by vm.musicCurrentIndex.collectAsState()
+    Column(Modifier.fillMaxSize()) {
+        ModuleHero(I18n.t("music.favorites"), mt("tracks_n", favorites.size, fmtMs(favorites.sumOf { it.durationMs })), ctx.color, PmclIcons.Star) {
+            HeroButton(mt("clear"), Icons.Filled.Delete, ctx.color, { ctx.confirm(mt("clear"), I18n.t("music.favorites_clear")) { vm.clearMusicFavorites() } }, enabled = favorites.isNotEmpty())
+        }
+        if (favorites.isEmpty()) EmptyState(I18n.t("music.favorites_empty"), PmclIcons.Star, color = ctx.color)
+        else LazyColumn(Modifier.fillMaxSize()) {
+            itemsIndexed(favorites, key = { i, t -> "$i:${t.sourceUrl}" }) { i, t ->
+                val playing = activeId == FAVORITES_PLAYLIST_ID && i == index
+                TrackRow(ctx, t, i, playing, { vm.playMusicFavoriteAt(i) }, { vm.toggleMusicFavorite(t) })
             }
         }
     }

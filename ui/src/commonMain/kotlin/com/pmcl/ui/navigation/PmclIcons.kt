@@ -597,6 +597,11 @@ object PmclIcons {
         }
     }
 
+    val Star: ImageVector = icon("Star") {
+        shade { star(12.5f, 13f, 8.2f, 3.4f) }
+        ink { star(12f, 12.2f, 8f, 3.3f) }
+    }
+
     val Playlist: ImageVector = icon("Playlist") {
         shade { circle(7.6f, 17f, 2.6f) }
         ink { circle(7.2f, 16.6f, 2.45f) }
@@ -685,6 +690,17 @@ object PmclIcons {
         arcTo(rx, ry, 0f, false, true, l, b - ry)
         lineTo(l, t + ry)
         arcTo(rx, ry, 0f, false, true, l + rx, t)
+        close()
+    }
+
+    private fun PathBuilder.star(cx: Float, cy: Float, outer: Float, inner: Float) {
+        for (i in 0 until 10) {
+            val ang = Math.toRadians(-90.0 + i * 36.0)
+            val rad = if (i % 2 == 0) outer else inner
+            val x = cx + cos(ang).toFloat() * rad
+            val y = cy + sin(ang).toFloat() * rad
+            if (i == 0) moveTo(x, y) else lineTo(x, y)
+        }
         close()
     }
 

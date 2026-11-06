@@ -152,6 +152,35 @@ public final class FriendProtocol {
         }
     }
 
+    /** 请求加入聊天组。只发给二维码上的分享者，成员名单仍走加密信道。 */
+    public static final class GroupJoin {
+        public String type = "group_join";
+        public String groupId;
+
+        public static GroupJoin fromJson(String json) {
+            return GSON.fromJson(json, GroupJoin.class);
+        }
+
+        public String toJson() {
+            return GSON.toJson(this);
+        }
+    }
+
+    /** 分享者对加入请求的回复。status 只取 ok、full、unknown。 */
+    public static final class GroupJoinResult {
+        public String type = "group_join_result";
+        public String groupId;
+        public String status;
+
+        public static GroupJoinResult fromJson(String json) {
+            return GSON.fromJson(json, GroupJoinResult.class);
+        }
+
+        public String toJson() {
+            return GSON.toJson(this);
+        }
+    }
+
     /** 好友请求 */
     public static final class FriendRequest {
         public String type = "friend_req";

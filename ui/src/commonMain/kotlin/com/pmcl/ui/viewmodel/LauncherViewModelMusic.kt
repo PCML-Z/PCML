@@ -26,6 +26,10 @@ import java.util.UUID
 
 private const val MUSIC_HISTORY_LIMIT = 50
 private const val DEFAULT_PLAYLIST_ID = "default"
+internal const val FAVORITES_PLAYLIST_ID = "favorites"
+
+internal fun musicPlaylistName(meta: MusicPlaylistMeta): String =
+    if (meta.id == FAVORITES_PLAYLIST_ID) I18n.t("music.favorites") else meta.name
 
 private fun LauncherViewModel.syncOptionalMusicSources() {
     val p = preferences
@@ -377,6 +381,72 @@ fun LauncherViewModel.clearMusicHistory() {
     persistMusicHistory()
 }
 
+/** 把一首曲子放进或移出收藏组。当前正在听别的列表时，不会把播放切走。 */
+fun LauncherViewModel.toggleMusicFavorite(track: MusicTrack) {
+    if (track.sourceUrl.isBlank()) return
+    if (_musicActivePlaylistId.value == FAVORITES_PLAYLIST_ID) {
+        val idx = _musicPlaylist.value.indexOfFirst { it.sourceUrl == track.sourceUrl }
+        if (idx >= 0) removeMusicTrack(idx) else {
+            _musicPlaylist.update { it + track }
+            persistMusicPlaylist()
+        }
+        return
+    }
+    val next = _musicFavorites.value.let { list ->
+        if (list.any { it.sourceUrl == track.sourceUrl }) list.filterNot { it.sourceUrl == track.sourceUrl }
+        else list + track
+    }
+    _musicFavorites.value = next
+    val snapshot = next
+    scope.launch {
+        try {
+            withContext(Dispatchers.IO) { writePlaylist(FAVORITES_PLAYLIST_ID, snapshot) }
+        } catch (t: Throwable) {
+            System.err.println("[VM] 保存收藏失败: ${t.message}")
+        }
+    }
+}
+
+/** 播放收藏组里的一首。如果当前队列不是收藏，就先把队列换成收藏组。 */
+fun LauncherViewModel.playMusicFavoriteAt(index: Int) {
+    val list = _musicFavorites.value
+    if (index !in list.indices) return
+    if (_musicActivePlaylistId.value != FAVORITES_PLAYLIST_ID) {
+        val previousId = _musicActivePlaylistId.value.ifBlank { DEFAULT_PLAYLIST_ID }
+        val previous = _musicPlaylist.value
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) { writePlaylist(previousId, previous) }
+            } catch (t: Throwable) {
+                System.err.println("[VM] 切换收藏前保存列表失败: ${t.message}")
+            }
+        }
+        stopMusic()
+        _musicCurrentIndex.value = -1
+        _musicLyrics.value = emptyList()
+        _musicActivePlaylistId.value = FAVORITES_PLAYLIST_ID
+        _musicPlaylist.value = list
+        persistMusicPrefs()
+        persistMusicPlaylist()
+    }
+    playMusicAt(index)
+}
+
+fun LauncherViewModel.clearMusicFavorites() {
+    if (_musicActivePlaylistId.value == FAVORITES_PLAYLIST_ID) {
+        clearMusicPlaylist()
+        return
+    }
+    _musicFavorites.value = emptyList()
+    scope.launch {
+        try {
+            withContext(Dispatchers.IO) { writePlaylist(FAVORITES_PLAYLIST_ID, emptyList()) }
+        } catch (t: Throwable) {
+            System.err.println("[VM] 清空收藏失败: ${t.message}")
+        }
+    }
+}
+
 fun LauncherViewModel.clearMusicCache() {
     scope.launch {
         try {
@@ -406,6 +476,7 @@ fun LauncherViewModel.createMusicPlaylist(name: String) {
 }
 
 fun LauncherViewModel.renameMusicPlaylist(id: String, name: String) {
+    if (id == FAVORITES_PLAYLIST_ID) return
     val n = name.trim()
     if (n.isEmpty()) return
     _musicPlaylistIndex.update { list ->
@@ -415,6 +486,10 @@ fun LauncherViewModel.renameMusicPlaylist(id: String, name: String) {
 }
 
 fun LauncherViewModel.deleteMusicPlaylist(id: String) {
+    if (id == FAVORITES_PLAYLIST_ID) {
+        _status.value = I18n.t("music.favorites_keep")
+        return
+    }
     if (_musicPlaylistIndex.value.size <= 1) {
         _status.value = I18n.t("music.playlist_keep_one")
         return
@@ -453,6 +528,7 @@ fun LauncherViewModel.switchMusicPlaylist(id: String) {
             // H46: 丢弃过期加载结果
             if (gen != musicPlaylistLoadGen.get() || id != _musicActivePlaylistId.value) return@launch
             _musicPlaylist.value = list
+            if (id == FAVORITES_PLAYLIST_ID) _musicFavorites.value = list
         } catch (t: Throwable) {
             if (gen != musicPlaylistLoadGen.get()) return@launch
             _musicPlaylist.value = emptyList()
@@ -546,9 +622,8 @@ internal fun LauncherViewModel.persistMusicPlaylist() {
 private fun LauncherViewModel.persistMusicPlaylistSync() {
     try {
         val id = _musicActivePlaylistId.value.ifBlank { DEFAULT_PLAYLIST_ID }
-        val file = playlistFile(id)
-        file.parentFile.mkdirs()
-        file.writeText(gson.toJson(_musicPlaylist.value))
+        writePlaylist(id, _musicPlaylist.value)
+        if (id == FAVORITES_PLAYLIST_ID) _musicFavorites.value = _musicPlaylist.value
         // 兼容旧路径
         File(musicDir(), "playlist.json").writeText(gson.toJson(_musicPlaylist.value))
     } catch (t: Throwable) {
@@ -630,22 +705,36 @@ internal fun LauncherViewModel.loadMusicPersistedState() {
                 if (indexFile.exists()) {
                     val index = gson.fromJson(indexFile.readText(), MusicPlaylistIndex::class.java)
                     if (index != null && index.playlists.isNotEmpty()) {
-                        _musicPlaylistIndex.value = index.playlists
-                        activeId = index.activeId.ifBlank { index.playlists.first().id }
+                        val normalized = withFavorites(index.playlists)
+                        _musicPlaylistIndex.value = normalized
+                        activeId = index.activeId.ifBlank { normalized.first().id }
+                        if (normalized != index.playlists) {
+                            indexFile.writeText(gson.toJson(MusicPlaylistIndex(activeId, normalized)))
+                        }
                     }
                 } else {
                     // 迁移旧 playlist.json
                     val legacy = File(musicDir(), "playlist.json")
                     val defaultMeta = MusicPlaylistMeta(DEFAULT_PLAYLIST_ID, I18n.t("music.playlist_default"))
-                    _musicPlaylistIndex.value = listOf(defaultMeta)
+                    val playlists = withFavorites(listOf(defaultMeta))
+                    _musicPlaylistIndex.value = playlists
                     if (legacy.exists()) {
                         playlistFile(DEFAULT_PLAYLIST_ID).writeText(legacy.readText())
                     } else {
                         playlistFile(DEFAULT_PLAYLIST_ID).writeText("[]")
                     }
+                    playlistFile(FAVORITES_PLAYLIST_ID).writeText("[]")
                     File(playlistsDir(), "index.json").writeText(
-                        gson.toJson(MusicPlaylistIndex(DEFAULT_PLAYLIST_ID, listOf(defaultMeta)))
+                        gson.toJson(MusicPlaylistIndex(DEFAULT_PLAYLIST_ID, playlists))
                     )
+                }
+                if (_musicPlaylistIndex.value.none { it.id == FAVORITES_PLAYLIST_ID }) {
+                    val base = _musicPlaylistIndex.value.ifEmpty {
+                        listOf(MusicPlaylistMeta(DEFAULT_PLAYLIST_ID, I18n.t("music.playlist_default")))
+                    }
+                    val playlists = withFavorites(base)
+                    _musicPlaylistIndex.value = playlists
+                    indexFile.writeText(gson.toJson(MusicPlaylistIndex(activeId, playlists)))
                 }
 
                 val prefsFile = File(musicDir(), "prefs.json")
@@ -683,6 +772,12 @@ internal fun LauncherViewModel.loadMusicPersistedState() {
                     }
                 }
 
+                _musicFavorites.value = if (activeId == FAVORITES_PLAYLIST_ID) {
+                    _musicPlaylist.value
+                } else {
+                    readPlaylist(FAVORITES_PLAYLIST_ID)
+                }
+
                 val historyFile = File(musicDir(), "history.json")
                 if (historyFile.exists()) {
                     val type = object : TypeToken<List<MusicTrack>>() {}.type
@@ -710,6 +805,27 @@ private fun musicDir(): File =
 private fun playlistsDir(): File = File(musicDir(), "playlists")
 
 private fun playlistFile(id: String): File = File(playlistsDir(), "$id.json")
+
+private fun LauncherViewModel.readPlaylist(id: String): List<MusicTrack> {
+    val file = playlistFile(id)
+    if (!file.exists()) return emptyList()
+    val type = object : TypeToken<List<MusicTrack>>() {}.type
+    return gson.fromJson<List<MusicTrack>>(file.readText(), type) ?: emptyList()
+}
+
+private fun LauncherViewModel.writePlaylist(id: String, tracks: List<MusicTrack>) {
+    val file = playlistFile(id)
+    file.parentFile.mkdirs()
+    file.writeText(gson.toJson(tracks))
+}
+
+private fun withFavorites(list: List<MusicPlaylistMeta>): List<MusicPlaylistMeta> {
+    val rest = list.filter { it.id != FAVORITES_PLAYLIST_ID }
+    val fav = MusicPlaylistMeta(FAVORITES_PLAYLIST_ID, I18n.t("music.favorites"))
+    val defaultIdx = rest.indexOfFirst { it.id == DEFAULT_PLAYLIST_ID }
+    if (defaultIdx < 0) return listOf(fav) + rest
+    return rest.toMutableList().apply { add(defaultIdx + 1, fav) }
+}
 
 private fun importedLyricsFile(track: MusicTrack): File {
     val id = track.originalId.ifBlank { track.sourceUrl }

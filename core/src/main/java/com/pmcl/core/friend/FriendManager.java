@@ -95,6 +95,7 @@ public final class FriendManager implements AutoCloseable {
             CALL_ICE_CANDIDATE,
             MP_SESSION,
             GROUP_CHANGED,
+            GROUP_JOIN_RESULT,
         }
 
         public final Type type;
@@ -117,6 +118,8 @@ public final class FriendManager implements AutoCloseable {
     private final Map<String, FriendChatClient> activeClients = new ConcurrentHashMap<>();
     /** 连接建立后待执行的操作队列（每个 identity 一个队列，防止 put 覆盖） */
     private final Map<String, Queue<Runnable>> pendingOnConnect = new ConcurrentHashMap<>();
+    /** 等待分享者回复的加入请求：groupId → 分享者身份。 */
+    private final Map<String, String> pendingGroupJoins = new ConcurrentHashMap<>();
     private final List<Consumer<FriendEvent>> eventListeners = new CopyOnWriteArrayList<>();
     /** 好友发来的联机房间，key = identity */
     private final Map<String, FriendProtocol.MpSession> peerSessions = new ConcurrentHashMap<>();
@@ -551,6 +554,31 @@ public final class FriendManager implements AutoCloseable {
         fireEvent(FriendEvent.Type.GROUP_CHANGED, groupId);
     }
 
+    /**
+     * 用群二维码向分享者请求加入。分享者必须已经是好友。
+     * @return sent、already、self、not_friend 或 invalid
+     */
+    public String requestJoinGroup(String groupId, String sharerId) {
+        String gid = canonicalGroupId(groupId);
+        if (gid == null || !FriendIdentity.isValid(sharerId)) return "invalid";
+        String sharer;
+        try {
+            sharer = FriendIdentity.parse(sharerId).toString();
+        } catch (IllegalArgumentException e) {
+            return "invalid";
+        }
+        String myId = identityManager.getIdentity().toString();
+        FriendStore.GroupEntry existing = store.getGroup(gid);
+        if (existing != null && existing.members != null && existing.members.contains(myId)) return "already";
+        if (sharer.equals(myId)) return "self";
+        if (!store.isFriend(sharer)) return "not_friend";
+        FriendProtocol.GroupJoin join = new FriendProtocol.GroupJoin();
+        join.groupId = gid;
+        pendingGroupJoins.put(gid, sharer);
+        sendToFriend(sharer, join.toJson());
+        return "sent";
+    }
+
     /** 向聊天组里其他好友发送一条消息。离线成员只在对方上线且连接恢复时收不到这条。 */
     public void sendGroupMessage(String groupId, String text) {
         FriendStore.GroupEntry group = store.getGroup(groupId);
@@ -650,6 +678,73 @@ public final class FriendManager implements AutoCloseable {
             store.putGroup(group);
             fireEvent(FriendEvent.Type.GROUP_CHANGED, group);
         }
+    }
+
+    private void handleGroupJoin(String channelIdentity, String jsonLine) {
+        if (!store.isFriend(channelIdentity)) return;
+        FriendProtocol.GroupJoin join = FriendProtocol.GroupJoin.fromJson(jsonLine);
+        String groupId = canonicalGroupId(join == null ? null : join.groupId);
+        if (groupId == null) return;
+        String myId = identityManager.getIdentity().toString();
+        FriendStore.GroupEntry group = store.getGroup(groupId);
+        if (group == null || group.members == null || !group.members.contains(myId)) {
+            replyJoin(channelIdentity, groupId, "unknown");
+            return;
+        }
+        String requester;
+        try {
+            requester = FriendIdentity.parse(channelIdentity).toString();
+        } catch (IllegalArgumentException e) {
+            return;
+        }
+        if (group.members.contains(requester)) {
+            broadcastGroup(group);
+            replyJoin(channelIdentity, groupId, "ok");
+            return;
+        }
+        if (group.members.size() >= 12) {
+            replyJoin(channelIdentity, groupId, "full");
+            return;
+        }
+        List<String> next = new ArrayList<>(group.members);
+        next.add(requester);
+        List<String> members = sanitizeMembers(next, myId, requester);
+        if (members == null) {
+            replyJoin(channelIdentity, groupId, "full");
+            return;
+        }
+        group.members = members;
+        store.putGroup(group);
+        broadcastGroup(group);
+        replyJoin(channelIdentity, groupId, "ok");
+        fireEvent(FriendEvent.Type.GROUP_CHANGED, group);
+    }
+
+    private void handleGroupJoinResult(String channelIdentity, String jsonLine) {
+        if (!store.isFriend(channelIdentity)) return;
+        FriendProtocol.GroupJoinResult result = FriendProtocol.GroupJoinResult.fromJson(jsonLine);
+        String groupId = canonicalGroupId(result == null ? null : result.groupId);
+        if (groupId == null || result.status == null) return;
+        String status = result.status;
+        if (!status.equals("ok") && !status.equals("full") && !status.equals("unknown")) return;
+        String expected = pendingGroupJoins.get(groupId);
+        if (expected == null) return;
+        try {
+            if (!FriendIdentity.parse(expected).toString().equals(FriendIdentity.parse(channelIdentity).toString())) {
+                return;
+            }
+        } catch (IllegalArgumentException e) {
+            return;
+        }
+        pendingGroupJoins.remove(groupId);
+        fireEvent(FriendEvent.Type.GROUP_JOIN_RESULT, status);
+    }
+
+    private void replyJoin(String identity, String groupId, String status) {
+        FriendProtocol.GroupJoinResult result = new FriendProtocol.GroupJoinResult();
+        result.groupId = groupId;
+        result.status = status;
+        sendToFriend(identity, result.toJson());
     }
 
     private static String canonicalGroupId(String id) {
@@ -952,6 +1047,8 @@ public final class FriendManager implements AutoCloseable {
             case "group_upsert" -> handleGroupUpsert(channelIdentity, jsonLine);
             case "group_msg" -> handleGroupMessage(channelIdentity, jsonLine);
             case "group_leave" -> handleGroupLeave(channelIdentity, jsonLine);
+            case "group_join" -> handleGroupJoin(channelIdentity, jsonLine);
+            case "group_join_result" -> handleGroupJoinResult(channelIdentity, jsonLine);
             case "msg" -> {
                 FriendProtocol.ChatMessage msg = FriendProtocol.ChatMessage.fromJson(jsonLine);
                 if (msg.text != null && msg.id != null && store.isFriend(channelIdentity)) {

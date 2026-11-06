@@ -69,9 +69,11 @@ fun MusicPage(vm: LauncherViewModel, sectionId: String = "player") {
     val lyrics by vm.musicLyrics.collectAsState()
     val playlistIndex by vm.musicPlaylistIndex.collectAsState()
     val activePlaylistId by vm.musicActivePlaylistId.collectAsState()
+    val favorites by vm.musicFavorites.collectAsState()
 
     var inputUrl by remember { mutableStateOf("") }
     var showClearDialog by remember { mutableStateOf(false) }
+    var showClearFavorites by remember { mutableStateOf(false) }
     var showClearHistoryDialog by remember { mutableStateOf(false) }
     var removeIndex by remember { mutableStateOf<Int?>(null) }
     var showCreatePlaylist by remember { mutableStateOf(false) }
@@ -80,6 +82,7 @@ fun MusicPage(vm: LauncherViewModel, sectionId: String = "player") {
 
     val sectionTitleKey = when (sectionId) {
         "playlist" -> "music.playlist"
+        "favorites" -> "music.favorites"
         "history" -> "music.history"
         else -> "music.section.player"
     }
@@ -114,8 +117,8 @@ fun MusicPage(vm: LauncherViewModel, sectionId: String = "player") {
                     Spacer(Modifier.width(8.dp))
                     Box {
                         OutlinedButton(onClick = { playlistMenuExpanded = true }) {
-                            val name = playlistIndex.firstOrNull { it.id == activePlaylistId }?.name
-                                ?: I18n.t("music.playlist_default")
+                            val current = playlistIndex.firstOrNull { it.id == activePlaylistId }
+                            val name = current?.let { musicPlaylistName(it) } ?: I18n.t("music.playlist_default")
                             Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Icon(Icons.Filled.ArrowDropDown, null)
                         }
@@ -125,7 +128,10 @@ fun MusicPage(vm: LauncherViewModel, sectionId: String = "player") {
                         ) {
                             playlistIndex.forEach { p ->
                                 DropdownMenuItem(
-                                    text = { Text(p.name) },
+                                    text = { Text(musicPlaylistName(p)) },
+                                    leadingIcon = if (p.id == FAVORITES_PLAYLIST_ID) {
+                                        { Icon(Icons.Filled.Star, null, tint = Color(0xFFF5A623)) }
+                                    } else null,
                                     onClick = {
                                         vm.switchMusicPlaylist(p.id)
                                         playlistMenuExpanded = false
@@ -141,7 +147,7 @@ fun MusicPage(vm: LauncherViewModel, sectionId: String = "player") {
                                     showCreatePlaylist = true
                                 }
                             )
-                            if (playlistIndex.size > 1) {
+                            if (playlistIndex.size > 1 && activePlaylistId != FAVORITES_PLAYLIST_ID) {
                                 DropdownMenuItem(
                                     text = { Text(I18n.t("music.playlist_delete")) },
                                     onClick = {
@@ -168,7 +174,53 @@ fun MusicPage(vm: LauncherViewModel, sectionId: String = "player") {
                                 isCurrent = index == currentIndex,
                                 isPlaying = index == currentIndex && state == PlaybackState.PLAYING,
                                 onPlay = { vm.playOrToggleMusicAt(index) },
-                                onRemove = { removeIndex = index }
+                                onRemove = { removeIndex = index },
+                                vm = vm
+                            )
+                        }
+                    }
+                }
+            }
+            "favorites" -> {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TypewriterTitle(
+                        I18n.t(sectionTitleKey),
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        I18n.t("music.track_count", favorites.size),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                    if (favorites.isNotEmpty()) {
+                        TextButton(onClick = { showClearFavorites = true }) {
+                            Icon(Icons.Filled.DeleteSweep, null, Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text(I18n.t("music.clear"))
+                        }
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                PmclLazyColumn(
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    if (favorites.isEmpty()) {
+                        item(key = "favorites-empty") { FavoritesEmptyState() }
+                    } else {
+                        itemsIndexed(favorites, key = { i, t -> "f-$i-${t.sourceUrl}" }) { index, track ->
+                            val playingHere = activePlaylistId == FAVORITES_PLAYLIST_ID && index == currentIndex
+                            PlaylistRow(
+                                index = index,
+                                track = track,
+                                isCurrent = playingHere,
+                                isPlaying = playingHere && state == PlaybackState.PLAYING,
+                                onPlay = { vm.playMusicFavoriteAt(index) },
+                                onRemove = { vm.toggleMusicFavorite(track) },
+                                vm = vm
                             )
                         }
                     }
@@ -209,7 +261,8 @@ fun MusicPage(vm: LauncherViewModel, sectionId: String = "player") {
                             HistoryRow(
                                 track = track,
                                 onPlay = { vm.playMusicFromHistory(track) },
-                                onRemove = { vm.removeMusicHistoryAt(index) }
+                                onRemove = { vm.removeMusicHistoryAt(index) },
+                                vm = vm
                             )
                         }
                     }
@@ -349,6 +402,23 @@ fun MusicPage(vm: LauncherViewModel, sectionId: String = "player") {
         )
     }
 
+    if (showClearFavorites) {
+        AlertDialog(
+            onDismissRequest = { showClearFavorites = false },
+            title = { Text(I18n.t("music.clear")) },
+            text = { Text(I18n.t("music.favorites_clear")) },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.clearMusicFavorites()
+                    showClearFavorites = false
+                }) { Text(I18n.t("common.confirm")) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearFavorites = false }) { Text(I18n.t("common.cancel")) }
+            }
+        )
+    }
+
     if (showClearDialog) {
         AlertDialog(
             onDismissRequest = { showClearDialog = false },
@@ -457,6 +527,8 @@ private fun NowPlayingCard(
                         }
                     }
                 }
+                FavoriteButton(track, vm, Modifier.size(36.dp))
+                Spacer(Modifier.width(4.dp))
                 val isPlaying = state == PlaybackState.PLAYING
                 val isLoading = state == PlaybackState.LOADING
                 FilledIconButton(
@@ -690,13 +762,49 @@ private fun HistoryEmptyState() {
 }
 
 @Composable
+private fun FavoritesEmptyState() {
+    Box(Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(
+                Icons.Filled.StarBorder,
+                contentDescription = null,
+                modifier = Modifier.size(48.dp),
+                tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                I18n.t("music.favorites_empty"),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.outline,
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
+@Composable
+private fun FavoriteButton(track: MusicTrack, vm: LauncherViewModel, modifier: Modifier = Modifier.size(32.dp)) {
+    val favorites by vm.musicFavorites.collectAsState()
+    val on = favorites.any { it.sourceUrl == track.sourceUrl }
+    IconButton(onClick = { vm.toggleMusicFavorite(track) }, modifier = modifier) {
+        Icon(
+            if (on) Icons.Filled.Star else Icons.Filled.StarBorder,
+            contentDescription = I18n.t(if (on) "music.favorite_remove" else "music.favorite_add"),
+            modifier = Modifier.size(18.dp),
+            tint = if (on) Color(0xFFF5A623) else MaterialTheme.colorScheme.outline
+        )
+    }
+}
+
+@Composable
 private fun PlaylistRow(
     index: Int,
     track: MusicTrack,
     isCurrent: Boolean,
     isPlaying: Boolean,
     onPlay: () -> Unit,
-    onRemove: () -> Unit
+    onRemove: () -> Unit,
+    vm: LauncherViewModel
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -761,6 +869,7 @@ private fun PlaylistRow(
                 }
             }
 
+            FavoriteButton(track, vm)
             IconButton(onClick = onPlay, modifier = Modifier.size(32.dp)) {
                 Icon(
                     if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
@@ -784,7 +893,8 @@ private fun PlaylistRow(
 private fun HistoryRow(
     track: MusicTrack,
     onPlay: () -> Unit,
-    onRemove: () -> Unit
+    onRemove: () -> Unit,
+    vm: LauncherViewModel
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -818,6 +928,7 @@ private fun HistoryRow(
                     SourceBadge(track.sourceType, compact = true)
                 }
             }
+            FavoriteButton(track, vm)
             IconButton(onClick = onPlay, modifier = Modifier.size(32.dp)) {
                 Icon(Icons.Filled.PlayArrow, contentDescription = I18n.t("music.play"), Modifier.size(18.dp))
             }

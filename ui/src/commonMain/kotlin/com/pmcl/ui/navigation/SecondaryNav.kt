@@ -143,6 +143,7 @@ object SecondaryNavRegistry {
         sections = listOf(
             SecondarySection("player", "music.section.player", PmclIcons.Music),
             SecondarySection("playlist", "music.playlist", PmclIcons.Playlist),
+            SecondarySection("favorites", "music.favorites", PmclIcons.Star),
             SecondarySection("history", "music.history", PmclIcons.History),
         )
     )
