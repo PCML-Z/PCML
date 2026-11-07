@@ -42,9 +42,14 @@ public final class LauncherBuildInfo {
         return runtimeOf(System.getProperty("os.name", ""), System.getProperty("os.arch", ""));
     }
 
-    /** {@code release} 或 {@code dev}。 */
+    /**
+     * {@code release} 或 {@code dev}。
+     * 发布包在构建时写入 release；没有这个标记的编译结果是 dev。
+     */
     public String channel() {
-        if (props.isEmpty()) return "dev";
+        String stamped = props.getProperty("channel", "").trim();
+        if ("release".equalsIgnoreCase(stamped)) return "release";
+        if ("dev".equalsIgnoreCase(stamped) || props.isEmpty()) return "dev";
         String version = binaryVersion().toLowerCase(Locale.ROOT);
         if (version.contains("snapshot") || version.contains("-dev")) return "dev";
         return "release";

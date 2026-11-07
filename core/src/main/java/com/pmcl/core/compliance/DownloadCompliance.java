@@ -31,6 +31,12 @@ public final class DownloadCompliance {
     private DownloadCompliance() {
     }
 
+    /**
+     * 正式发布包才启用游戏下载限制。开发者自己编译的版本（channel=dev）不限制。
+     */
+    private static final boolean RELEASE_BUILD =
+            "release".equals(com.pmcl.core.LauncherBuildInfo.load().channel());
+
     /** 三态网络归属：TRUE=大陆，FALSE=非大陆，null=未知（未完成/失败）。 */
     private static final AtomicReference<Boolean> MAINLAND_NETWORK = new AtomicReference<>();
     /** 上次成功探测时间戳（毫秒），用于判断缓存是否陈旧、保证实时性。 */
@@ -135,6 +141,7 @@ public final class DownloadCompliance {
      * 语言 + 时区都匹配，且 IP 未被明确判定为非大陆时返回 true（未知按受限，保守）。
      */
     public static boolean isGameDownloadRestrictedSync() {
+        if (!RELEASE_BUILD) return false;
         if (!isSimplifiedChineseLocale()) return false;
         if (!isMainlandTimezone()) return false;
         // 未知（null）或非大陆（false）：仅当明确为 false 才放行

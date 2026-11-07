@@ -13,6 +13,8 @@ java {
 }
 
 val pmclVersion = providers.gradleProperty("pmcl.version").orElse("2.2a")
+// 只有发布工作流传入 release。本地和 IDE 编译保持 dev，不套用正式版的游戏下载限制。
+val pmclChannel = providers.gradleProperty("pmcl.channel").orElse("dev")
 tasks.withType<Jar>().configureEach {
     manifest {
         attributes("Implementation-Version" to pmclVersion.get())
@@ -30,6 +32,7 @@ val generateBuildInfo = tasks.register("generateBuildInfo") {
         dir.resolve("build-info.properties").writeText(
             listOf(
                 "version=${pmclVersion.get()}",
+                "channel=${pmclChannel.get()}",
                 "buildTime=$time",
                 "kotlin=${libs.versions.kotlin.get()}",
                 "compose=${libs.versions.compose.multiplatform.get()}",

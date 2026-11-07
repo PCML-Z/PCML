@@ -1,5 +1,6 @@
 package com.pmcl.core.compliance;
 
+import com.pmcl.core.LauncherBuildInfo;
 import com.pmcl.core.auth.Account;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -50,6 +51,14 @@ class PremiumDownloadsTest {
         assertFalse(new Account("o", "u", "", Account.AccountType.OFFLINE).isGenuine());
         assertFalse(new Account("g", "u", "t", Account.AccountType.GITHUB).isGenuine());
         assertFalse(new Account("y", "u", "t", Account.AccountType.YGGDRASIL).isGenuine());
+    }
+
+    @Test
+    void developerBuildDoesNotRestrictGameDownloads() {
+        assertTrue("dev".equals(LauncherBuildInfo.load().channel()), "测试构建应是开发通道");
+        assertFalse(DownloadCompliance.isGameDownloadRestricted());
+        assertFalse(DownloadCompliance.isGameDownloadRestrictedSync());
+        assertFalse(DownloadCompliance.isGameDownloadRestrictedFor(false));
     }
 
     @Test
