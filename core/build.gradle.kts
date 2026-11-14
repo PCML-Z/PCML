@@ -1,5 +1,6 @@
 import java.time.Instant
 import java.time.temporal.ChronoUnit
+import org.gradle.language.jvm.tasks.ProcessResources
 
 plugins {
     `java-library`
@@ -201,8 +202,13 @@ sourceSets.named("test") {
 tasks.named<JavaCompile>("compileJava") {
     dependsOn(tasks.named("compileBindGateJava"))
 }
-tasks.named("processResources") {
+tasks.named<ProcessResources>("processResources") {
     dependsOn(syncGlfwAgentResource, syncImeAgentResource)
+    // 新建 ECXP 项目时把这一份 SDK 抄进用户目录，不依赖本仓库还在不在。
+    from(rootProject.file("ecxp/Pmcl.Ecxp")) {
+        include("Pmcl.Ecxp.csproj", "PmclApp.cs", "PmclApis.cs", "build/Pmcl.Ecxp.targets")
+        into("dev/ecxp-sdk")
+    }
 }
 tasks.named<Jar>("jar") {
     dependsOn(syncGlfwAgentResource, syncImeAgentResource, syncBindGateClasses)

@@ -45,6 +45,7 @@ import com.pmcl.ui.viewmodel.LauncherViewModel
 import com.pmcl.ui.viewmodel.joinFriendMultiplayer
 import com.pmcl.ui.widget.IdentityCard
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jetbrains.skia.Image as SkiaImage
@@ -603,11 +604,36 @@ fun FriendPage(vm: LauncherViewModel, sectionId: String = "chat") {
 
     // 添加好友弹窗
     if (showAddDialog) {
+        var nearby by remember { mutableStateOf(emptyList<FriendManager.NearbyPeer>()) }
+        LaunchedEffect(friendManager) {
+            withContext(Dispatchers.IO) { runCatching { friendManager.announcePresence() } }
+        }
+        LaunchedEffect(friendManager) {
+            while (true) {
+                nearby = friendManager.nearbyPeers()
+                delay(2000)
+            }
+        }
         AddFriendDialog(
             code = addFriendCode,
             error = addFriendError,
+            nearby = nearby,
             onCodeChange = { addFriendCode = it },
             onDismiss = { showAddDialog = false },
+            onAddNearby = { peer ->
+                friendManager.sendFriendRequest(
+                    peer.identity,
+                    peer.displayName,
+                    peer.ip,
+                    peer.port,
+                    peer.ed25519,
+                    peer.x25519
+                )
+                addFriendCode = ""
+                addFriendError = null
+                showAddDialog = false
+                refresh()
+            },
             onAdd = {
                 val share = FriendIdentityManager.parseGroupShare(addFriendCode)
                 if (share != null) {
@@ -1376,8 +1402,10 @@ private fun CreateGroupDialog(
 private fun AddFriendDialog(
     code: String,
     error: String?,
+    nearby: List<FriendManager.NearbyPeer>,
     onCodeChange: (String) -> Unit,
     onDismiss: () -> Unit,
+    onAddNearby: (FriendManager.NearbyPeer) -> Unit,
     onAdd: () -> Unit,
     onScanStart: () -> Unit,
     onScanClipboard: () -> Unit
@@ -1387,6 +1415,46 @@ private fun AddFriendDialog(
         title = { Text(I18n.t("friend.add_friend"), fontWeight = FontWeight.Bold) },
         text = {
             Column {
+                Text(I18n.t("friend.lan_title"),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(4.dp))
+                if (nearby.isEmpty()) {
+                    Text(I18n.t("friend.lan_empty"),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    Column(
+                        Modifier.heightIn(max = 160.dp).verticalScroll(rememberScrollState())
+                    ) {
+                        nearby.forEach { peer ->
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        peer.displayName.ifBlank { peer.identity },
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                    Text(
+                                        peer.ip,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                TextButton(onClick = { onAddNearby(peer) }) {
+                                    Text(I18n.t("friend.add"))
+                                }
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
                 Text(I18n.t("friend.add_friend_hint"),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)

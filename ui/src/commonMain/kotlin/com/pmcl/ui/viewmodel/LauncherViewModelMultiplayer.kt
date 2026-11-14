@@ -305,13 +305,7 @@ fun LauncherViewModel.leaveRoom() {
     }
     scope.launch {
         try {
-            // 停止好友系统网络服务
-            withContext(Dispatchers.IO) {
-                try { core.friend()?.stop() } catch (e: Exception) {
-                    if (e is kotlinx.coroutines.CancellationException) throw e
-                    System.err.println("[LauncherVM] 停止好友系统失败: ${e.message}")
-                }
-            }
+            // 好友发现继续开着，离开房间后同一局域网的人还能在添加好友里看到自己。
             withContext(Dispatchers.IO) { core.multiplayer().leaveRoom() }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e

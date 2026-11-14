@@ -109,6 +109,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.rememberWindowState
+import com.pmcl.core.dev.DevProjects
 import com.pmcl.core.i18n.I18n
 import com.pmcl.ui.widget.SlideToConfirm
 import com.pmcl.ui.theme.LauncherTheme
@@ -177,6 +178,7 @@ fun StudioWindow(vm: LauncherViewModel, themeState: ThemeState, windowId: Int = 
     val terminal = remember { StudioTerminalState(vm.core, scope) }
     val tabStates = rememberSaveableStateHolder()
     var paletteOpen by remember { mutableStateOf(false) }
+    var newProject by remember { mutableStateOf<DevProjects.Kind?>(null) }
     var gameDir by remember { mutableStateOf<Path?>(null) }
 
     LaunchedEffect(versions, instances, selectedVersion) {
@@ -681,6 +683,7 @@ fun StudioWindow(vm: LauncherViewModel, themeState: ThemeState, windowId: Int = 
                                                     javaProjects.toList(),
                                                     onOpen = { openJavaProject(it) },
                                                     onPick = { openJavaProject() },
+                                                    onCreate = { newProject = DevProjects.Kind.ECXP_STUDIO },
                                                     onRemove = { javaProjects.remove(it) }
                                                 )
                                                 LeftTool.DOCS -> DocsPanel(
@@ -722,6 +725,7 @@ fun StudioWindow(vm: LauncherViewModel, themeState: ThemeState, windowId: Int = 
                                                 onConfigs = { openConfigs() },
                                                 onJavaProject = { openJavaProject() },
                                                 onDocs = { openDocument() },
+                                                onNewProject = { newProject = it },
                                             )
                                             is StudioTab.Overview -> OverviewEditor(
                                                 vm, tab.target, reload,
@@ -909,6 +913,7 @@ fun StudioWindow(vm: LauncherViewModel, themeState: ThemeState, windowId: Int = 
                                     windows = windows,
                                     onNewWindow = { vm.newStudioWindow() },
                                     onFocusWindow = { vm.focusStudio(it) },
+                                    onNewProject = { newProject = it },
                                 )
                             ) { paletteOpen = false }
                         }
@@ -922,6 +927,17 @@ fun StudioWindow(vm: LauncherViewModel, themeState: ThemeState, windowId: Int = 
                         }
                         confirm?.let { request ->
                             ConfirmDialog(request, onCancel = { confirm = null }, onConfirm = { confirm = null; request.action() })
+                        }
+                        newProject?.let { kind ->
+                            NewProjectDialog(
+                                initial = kind,
+                                parentDir = vm.config.workDir.resolve("dev").toString(),
+                                onDismiss = { newProject = null },
+                                onOpenInStudio = { path ->
+                                    newProject = null
+                                    openJavaProject(path)
+                                }
+                            )
                         }
                     }
                 }
@@ -992,6 +1008,7 @@ private fun paletteItems(
     windows: List<Int>,
     onNewWindow: () -> Unit,
     onFocusWindow: (Int) -> Unit,
+    onNewProject: (DevProjects.Kind) -> Unit,
 ): List<PaletteItem> {
     val actions = I18n.t("studio.group_actions")
     val out = ArrayList<PaletteItem>()
@@ -1035,6 +1052,9 @@ private fun paletteItems(
     out += PaletteItem(I18n.t("studio.files"), actions, Icons.Filled.Folder, Tiles.Gold) { onLeft(LeftTool.FILES) }
     out += PaletteItem(I18n.t("studio.code"), actions, Icons.Filled.Coffee, Tiles.Navy) { onLeft(LeftTool.CODE) }
     out += PaletteItem(I18n.t("studio.code_open"), actions, Icons.Filled.FolderOpen, Tiles.Navy, action = onJavaProject)
+    out += PaletteItem(I18n.t("studio.new_ecxp_studio"), actions, Icons.Filled.Code, Tiles.Teal) { onNewProject(DevProjects.Kind.ECXP_STUDIO) }
+    out += PaletteItem(I18n.t("studio.new_ecxp_vscode"), actions, Icons.Filled.Terminal, Tiles.Blue) { onNewProject(DevProjects.Kind.ECXP_VSCODE) }
+    out += PaletteItem(I18n.t("studio.new_plugin_idea"), actions, Icons.Filled.AccountTree, Tiles.Navy) { onNewProject(DevProjects.Kind.PLUGIN_IDEA) }
     javaProjects.forEach { path ->
         val name = Paths.get(path).fileName?.toString() ?: path
         out += PaletteItem(name, I18n.t("studio.code_recent"), Icons.Filled.Coffee, Tiles.Navy, path) { onOpenJava(path) }
@@ -1211,6 +1231,7 @@ private fun Welcome(
     onConfigs: () -> Unit = {},
     onJavaProject: () -> Unit = {},
     onDocs: () -> Unit = {},
+    onNewProject: (DevProjects.Kind) -> Unit = {},
 ) {
     val p = LocalStudio.current
     val versions by vm.localVersionInfos.collectAsState()
@@ -1255,6 +1276,11 @@ private fun Welcome(
             ColorTile(I18n.t("studio.code"), "", Tiles.Navy, Modifier.weight(1f).fillMaxHeight(), Icons.Filled.Coffee, onJavaProject, index = 23)
             ColorTile(I18n.t("studio.docs"), "", Tiles.Blue, Modifier.weight(1f).fillMaxHeight(), Icons.Filled.Description, onDocs, index = 24)
             ColorTile(I18n.t("studio.palette"), "", Tiles.Slate, Modifier.weight(1f).fillMaxHeight(), Icons.Filled.Search, onPalette, index = 25)
+        }
+        Row(Modifier.fillMaxWidth().height(84.dp)) {
+            ColorTile(I18n.t("studio.new_ecxp_studio"), "", Tiles.Teal, Modifier.weight(1f).fillMaxHeight(), Icons.Filled.Code, { onNewProject(DevProjects.Kind.ECXP_STUDIO) }, index = 26)
+            ColorTile(I18n.t("studio.new_ecxp_vscode"), "", Tiles.Blue, Modifier.weight(1f).fillMaxHeight(), Icons.Filled.Terminal, { onNewProject(DevProjects.Kind.ECXP_VSCODE) }, index = 27)
+            ColorTile(I18n.t("studio.new_plugin_idea"), "", Tiles.Navy, Modifier.weight(1f).fillMaxHeight(), Icons.Filled.AccountTree, { onNewProject(DevProjects.Kind.PLUGIN_IDEA) }, index = 28)
         }
         if (pinned.isNotEmpty()) {
             SectionLabel(I18n.t("studio.favorites"), Icons.Filled.Star)

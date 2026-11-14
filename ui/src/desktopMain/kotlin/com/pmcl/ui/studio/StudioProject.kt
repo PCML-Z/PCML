@@ -76,7 +76,7 @@ import java.nio.file.Paths
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
-internal enum class CodeKind { GRADLE, MAVEN, JAVA, UNKNOWN }
+internal enum class CodeKind { GRADLE, MAVEN, DOTNET, JAVA, UNKNOWN }
 
 internal data class CodeTask(val id: String, val label: String, val args: List<String>)
 
@@ -120,7 +120,7 @@ internal class CodeRunner {
 
 private val skipDirs = setOf(
     ".git", ".gradle", ".idea", ".svn", "node_modules", "build", "out", "bin",
-    "target", ".kotlin", "caches", "native-image"
+    "obj", "target", ".kotlin", "caches", "native-image"
 )
 
 internal fun pickDirectory(title: String = ""): Path? = try {
@@ -146,7 +146,14 @@ internal fun detectCodeProject(root: Path): CodeInfo {
         Files.isRegularFile(abs.resolve("build.gradle.kts"))
     val hasMvnw = Files.isRegularFile(abs.resolve(if (win) "mvnw.cmd" else "mvnw"))
     val hasMaven = hasMvnw || Files.isRegularFile(abs.resolve("pom.xml"))
-    val javaFiles = countJavaFiles(abs)
+    val javaFiles = countSources(abs, ".java")
+    val csproj = try {
+        Files.list(abs).use { stream ->
+            stream.anyMatch { Files.isRegularFile(it) && it.fileName.toString().endsWith(".csproj", true) }
+        }
+    } catch (_: Throwable) {
+        false
+    }
     return when {
         hasGradle -> {
             val tool = if (hasGradlew) (if (win) "gradlew.bat" else "./gradlew") else "gradle"
@@ -179,6 +186,16 @@ internal fun detectCodeProject(root: Path): CodeInfo {
                 javaFiles, hasMvnw
             )
         }
+        csproj -> CodeInfo(
+            abs, CodeKind.DOTNET, name, "dotnet",
+            listOf(
+                CodeTask("build", I18n.t("studio.code_task_build"), listOf("build")),
+                CodeTask("run", I18n.t("studio.code_task_run"), listOf("run")),
+                CodeTask("publish", I18n.t("studio.code_task_publish"), listOf("publish", "-c", "Release")),
+                CodeTask("clean", I18n.t("studio.code_task_clean"), listOf("clean")),
+            ),
+            countSources(abs, ".cs"), false
+        )
         javaFiles > 0 -> CodeInfo(
             abs, CodeKind.JAVA, name, "javac/java",
             listOf(
@@ -192,12 +209,12 @@ internal fun detectCodeProject(root: Path): CodeInfo {
     }
 }
 
-private fun countJavaFiles(root: Path): Int {
+private fun countSources(root: Path, suffix: String): Int {
     var count = 0
     try {
         Files.walk(root).use { stream ->
             stream.filter { Files.isRegularFile(it) && !Files.isSymbolicLink(it) }
-                .filter { it.fileName.toString().endsWith(".java", true) }
+                .filter { it.fileName.toString().endsWith(suffix, true) }
                 .filter { path ->
                     val rel = root.relativize(path)
                     rel.none { it.toString().lowercase(Locale.ROOT) in skipDirs }
@@ -294,6 +311,7 @@ internal fun buildCommand(info: CodeInfo, task: CodeTask, custom: String, mainCl
             val args = if (customArgs.isNotEmpty()) customArgs else task.args
             base + args
         }
+        CodeKind.DOTNET -> listOf("dotnet") + (if (customArgs.isNotEmpty()) customArgs else task.args)
         CodeKind.MAVEN -> {
             val wrapper = if (win) info.root.resolve("mvnw.cmd") else info.root.resolve("mvnw")
             val base = if (info.hasWrapper && Files.isRegularFile(wrapper)) {
@@ -461,21 +479,32 @@ internal fun CodeProjectsPanel(
     projects: List<String>,
     onOpen: (Path) -> Unit,
     onPick: () -> Unit,
+    onCreate: () -> Unit,
     onRemove: (String) -> Unit,
 ) {
     val p = LocalStudio.current
     Column(Modifier.fillMaxSize().background(p.panel)) {
         PanelHeader(I18n.t("studio.code")) {
-            Block("", onClick = onPick, icon = Icons.Filled.CreateNewFolder, height = 32.dp)
+            Block("", onClick = onCreate, icon = Icons.Filled.CreateNewFolder, height = 32.dp)
         }
-        Block(
-            I18n.t("studio.code_open"),
-            onClick = onPick,
-            icon = Icons.Filled.FolderOpen,
-            fill = Tiles.Navy,
-            modifier = Modifier.fillMaxWidth(),
-            height = 40.dp
-        )
+        Row(Modifier.fillMaxWidth().height(40.dp)) {
+            Block(
+                I18n.t("studio.code_open"),
+                onClick = onPick,
+                icon = Icons.Filled.FolderOpen,
+                fill = Tiles.Navy,
+                modifier = Modifier.weight(1f),
+                height = 40.dp
+            )
+            Block(
+                I18n.t("studio.code_new"),
+                onClick = onCreate,
+                icon = Icons.Filled.CreateNewFolder,
+                fill = Tiles.Teal,
+                modifier = Modifier.weight(1f),
+                height = 40.dp
+            )
+        }
         if (projects.isEmpty()) {
             FlatText(I18n.t("studio.code_empty"), color = p.muted, lines = 4, modifier = Modifier.padding(12.dp))
             return@Column
@@ -541,15 +570,18 @@ internal fun CodeProjectEditor(
     val kindColor = when (project.kind) {
         CodeKind.GRADLE -> Tiles.Navy
         CodeKind.MAVEN -> Tiles.Orange
+        CodeKind.DOTNET -> Tiles.Teal
         CodeKind.JAVA -> Tiles.Teal
         CodeKind.UNKNOWN -> Tiles.Slate
     }
     val kindLabel = when (project.kind) {
         CodeKind.GRADLE -> "Gradle"
         CodeKind.MAVEN -> "Maven"
+        CodeKind.DOTNET -> ".NET"
         CodeKind.JAVA -> "Java"
         CodeKind.UNKNOWN -> I18n.t("studio.code_unknown")
     }
+    val filesLabel = if (project.kind == CodeKind.DOTNET) I18n.t("studio.code_cs") else I18n.t("studio.code_files")
     fun start(task: CodeTask) {
         if (runner.busy) return
         selectedTask = task.id
@@ -565,7 +597,7 @@ internal fun CodeProjectEditor(
     Column(Modifier.fillMaxSize().background(p.editor)) {
         Row(Modifier.fillMaxWidth().height(96.dp)) {
             ColorTile(project.name, kindLabel, kindColor, Modifier.weight(2f).fillMaxHeight(), Icons.Filled.Coffee, valueSize = 22, index = 0)
-            ColorTile(I18n.t("studio.code_files"), project.javaFiles.toString(), Tiles.Sky, Modifier.weight(1f).fillMaxHeight(), Icons.Filled.Build, index = 1)
+            ColorTile(filesLabel, project.javaFiles.toString(), Tiles.Sky, Modifier.weight(1f).fillMaxHeight(), Icons.Filled.Build, index = 1)
             ColorTile(I18n.t("studio.code_tool"), project.tool, Tiles.Slate, Modifier.weight(1f).fillMaxHeight(), Icons.Filled.Terminal, index = 2)
             ColorTile(
                 if (runner.busy) I18n.t("studio.code_running") else I18n.t("studio.code_idle"),

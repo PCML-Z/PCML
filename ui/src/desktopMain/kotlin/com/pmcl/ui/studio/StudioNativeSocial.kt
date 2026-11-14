@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -156,6 +157,7 @@ import com.pmcl.ui.viewmodel.toggleMusicPlayPause
 import com.pmcl.ui.viewmodel.toggleMusicShuffle
 import com.pmcl.ui.viewmodel.undoNbt
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -389,6 +391,17 @@ private fun FriendChatSection(ctx: ModuleCtx) {
     var joinNotice by remember { mutableStateOf("") }
     var shareGroup by remember { mutableStateOf<FriendStore.GroupEntry?>(null) }
     val scope = rememberCoroutineScope()
+    var lanPulse by remember { mutableIntStateOf(0) }
+    LaunchedEffect(fm) {
+        withContext(Dispatchers.IO) { runCatching { fm.announcePresence() } }
+    }
+    LaunchedEffect(fm) {
+        while (true) {
+            lanPulse++
+            delay(2500)
+        }
+    }
+    val nearby = remember(tick, lanPulse) { runCatching { fm.nearbyPeers() }.getOrDefault(emptyList()) }
     val listState = rememberLazyListState()
     LaunchedEffect(messages.size, selected) { if (messages.isNotEmpty()) listState.scrollToItem(messages.size - 1) }
     DisposableEffect(fm) {
@@ -439,6 +452,36 @@ private fun FriendChatSection(ctx: ModuleCtx) {
                 }
                 if (inviteError.isNotBlank()) FlatText(inviteError, color = Tiles.Red, size = 11, modifier = Modifier.padding(horizontal = 10.dp))
                 if (joinNotice.isNotBlank()) FlatText(joinNotice, color = ctx.color, size = 11, modifier = Modifier.padding(horizontal = 10.dp))
+                LabelBar(I18n.t("friend.lan_title"), ctx.color)
+                if (nearby.isEmpty()) {
+                    FlatText(I18n.t("friend.lan_empty"), color = p.muted, size = 11, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
+                } else {
+                    Column(Modifier.heightIn(max = 132.dp).verticalScroll(rememberScrollState())) {
+                        nearby.forEachIndexed { i, peer ->
+                            ItemRow(
+                                peer.displayName.ifBlank { peer.identity },
+                                peer.ip,
+                                ctx.color,
+                                i,
+                                icon = Icons.Filled.Person,
+                                height = 40.dp
+                            ) {
+                                RowButton(Icons.Filled.PersonAdd, {
+                                    runCatching {
+                                        fm.sendFriendRequest(
+                                            peer.identity,
+                                            peer.displayName,
+                                            peer.ip,
+                                            peer.port,
+                                            peer.ed25519,
+                                            peer.x25519
+                                        )
+                                    }
+                                }, ctx.color)
+                            }
+                        }
+                    }
+                }
                 LazyColumn(Modifier.weight(1f)) {
                     if (pending.isNotEmpty()) {
                         item { LabelBar(mt("requests_n", pending.size), Tiles.Orange) }

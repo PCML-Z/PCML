@@ -31,6 +31,7 @@ public final class FriendPeerDiscovery implements AutoCloseable {
     private int myChatPort;
     private volatile byte[] edPrivate;
     private volatile byte[] edPublic;
+    private volatile String xPublicB64;
 
     private final CopyOnWriteArrayList<PeerListener> listeners = new CopyOnWriteArrayList<>();
 
@@ -50,13 +51,22 @@ public final class FriendPeerDiscovery implements AutoCloseable {
         public final String displayName;
         public final String ip;
         public final int chatPort;
+        public final byte[] ed25519;
+        public final byte[] x25519;
         public final long discoveredAt;
 
         public DiscoveredPeer(FriendIdentity identity, String displayName, String ip, int chatPort) {
+            this(identity, displayName, ip, chatPort, null, null);
+        }
+
+        public DiscoveredPeer(FriendIdentity identity, String displayName, String ip, int chatPort,
+                              byte[] ed25519, byte[] x25519) {
             this.identity = identity;
             this.displayName = displayName;
             this.ip = ip;
             this.chatPort = chatPort;
+            this.ed25519 = ed25519;
+            this.x25519 = x25519;
             this.discoveredAt = System.currentTimeMillis();
         }
     }
@@ -80,6 +90,17 @@ public final class FriendPeerDiscovery implements AutoCloseable {
     public void setSigningKeys(byte[] ed25519PrivatePkcs8, byte[] ed25519PublicSpki) {
         this.edPrivate = ed25519PrivatePkcs8;
         this.edPublic = ed25519PublicSpki != null ? ed25519PublicSpki.clone() : null;
+    }
+
+    /** 局域网报文里带上 X25519 公钥，添加好友时不用再扫二维码。 */
+    public void setX25519Public(byte[] x25519PublicSpki) {
+        this.xPublicB64 = x25519PublicSpki == null ? null : FriendCrypto.b64(x25519PublicSpki);
+    }
+
+    /** 显示名变了就改下一次广播，不必把发现服务停掉。 */
+    public void updateLocal(String name, byte[] x25519PublicSpki) {
+        if (name != null && !name.isBlank()) this.myName = name;
+        if (x25519PublicSpki != null) setX25519Public(x25519PublicSpki);
     }
 
     /**
@@ -189,7 +210,9 @@ public final class FriendPeerDiscovery implements AutoCloseable {
                         peerId,
                         msg.name != null ? msg.name : msg.identity,
                         senderIp,
-                        msg.port
+                        msg.port,
+                        decodeKey(msg.ed),
+                        decodeKey(msg.x)
                 );
 
                 for (PeerListener listener : listeners) {
@@ -209,6 +232,15 @@ public final class FriendPeerDiscovery implements AutoCloseable {
         }
     }
 
+    private static byte[] decodeKey(String b64) {
+        if (b64 == null || b64.isBlank()) return null;
+        try {
+            return FriendCrypto.b64d(b64);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     private static boolean verifyDiscover(FriendProtocol.DiscoverMessage msg) {
         if (msg.ed == null || msg.ed.isBlank() || msg.sig == null || msg.sig.isBlank() || msg.ts == 0L) {
             return false; // unsigned / legacy → ignore
@@ -219,7 +251,7 @@ public final class FriendPeerDiscovery implements AutoCloseable {
         try {
             byte[] edPub = FriendCrypto.b64d(msg.ed);
             byte[] payload = FriendProtocol.DiscoverMessage.signingPayload(
-                    msg.identity, msg.name, msg.port, msg.ts);
+                    msg.identity, msg.name, msg.port, msg.ts, msg.x);
             return FriendCrypto.verifyEd25519(edPub, payload, FriendCrypto.b64d(msg.sig));
         } catch (Exception e) {
             return false;
@@ -248,8 +280,9 @@ public final class FriendPeerDiscovery implements AutoCloseable {
         msg.port = myChatPort;
         msg.ts = System.currentTimeMillis();
         msg.ed = FriendCrypto.b64(edPublic);
+        msg.x = xPublicB64;
         byte[] payload = FriendProtocol.DiscoverMessage.signingPayload(
-                msg.identity, msg.name, msg.port, msg.ts);
+                msg.identity, msg.name, msg.port, msg.ts, msg.x);
         msg.sig = FriendCrypto.b64(FriendCrypto.signEd25519(edPrivate, payload));
 
         byte[] data = msg.toJson().getBytes(StandardCharsets.UTF_8);

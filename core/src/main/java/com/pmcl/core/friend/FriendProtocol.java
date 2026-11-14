@@ -63,9 +63,11 @@ public final class FriendProtocol {
         public int port;
         /** Ed25519 公钥 Base64URL (SPKI) */
         public String ed;
+        /** X25519 公钥 Base64URL (SPKI)。旧报文没有这一项。 */
+        public String x;
         /** 签名时间戳（毫秒） */
         public long ts;
-        /** Ed25519 签名 Base64URL：PMCL-DISCOVER\\n id\\n name\\n port\\n ts */
+        /** Ed25519 签名 Base64URL：PMCL-DISCOVER\\n id\\n name\\n port\\n ts，有 X25519 时再加一行公钥。 */
         public String sig;
 
         public static DiscoverMessage fromJson(String json) {
@@ -76,11 +78,17 @@ public final class FriendProtocol {
             return GSON.toJson(this);
         }
 
-        /** Canonical bytes signed for discovery authenticity. */
+        /** 没有 X25519 的旧报文。 */
         public static byte[] signingPayload(String identity, String name, int port, long ts) {
+            return signingPayload(identity, name, port, ts, null);
+        }
+
+        /** 带 X25519 时把公钥放进签名，避免被人换掉。 */
+        public static byte[] signingPayload(String identity, String name, int port, long ts, String x) {
             String n = name != null ? name : "";
-            return ("PMCL-DISCOVER\n" + identity + "\n" + n + "\n" + port + "\n" + ts)
-                    .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            String body = "PMCL-DISCOVER\n" + identity + "\n" + n + "\n" + port + "\n" + ts;
+            if (x != null && !x.isBlank()) body = body + "\n" + x;
+            return body.getBytes(java.nio.charset.StandardCharsets.UTF_8);
         }
     }
 

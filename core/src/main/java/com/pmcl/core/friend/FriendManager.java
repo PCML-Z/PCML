@@ -77,6 +77,28 @@ public final class FriendManager implements AutoCloseable {
         }
     }
 
+    /** 同一局域网里打开着 PMCL、还没加为好友的人。 */
+    public static final class NearbyPeer {
+        public final String identity;
+        public final String displayName;
+        public final String ip;
+        public final int port;
+        public final byte[] ed25519;
+        public final byte[] x25519;
+        final long seenAt;
+
+        NearbyPeer(String identity, String displayName, String ip, int port,
+                   byte[] ed25519, byte[] x25519, long seenAt) {
+            this.identity = identity;
+            this.displayName = displayName;
+            this.ip = ip;
+            this.port = port;
+            this.ed25519 = ed25519;
+            this.x25519 = x25519;
+            this.seenAt = seenAt;
+        }
+    }
+
     /** 好友系统事件 */
     public static final class FriendEvent {
         public enum Type {
@@ -123,6 +145,9 @@ public final class FriendManager implements AutoCloseable {
     private final List<Consumer<FriendEvent>> eventListeners = new CopyOnWriteArrayList<>();
     /** 好友发来的联机房间，key = identity */
     private final Map<String, FriendProtocol.MpSession> peerSessions = new ConcurrentHashMap<>();
+    /** 同一局域网里还不是好友的 PMCL，超过一段时间没再广播就去掉。 */
+    private final Map<String, NearbyPeer> nearby = new ConcurrentHashMap<>();
+    private static final long NEARBY_TTL_MS = 20_000L;
     /** 本机正在分享的房间；空邀请码表示已离开 */
     private volatile FriendProtocol.MpSession localSession;
     private static final long MP_SESSION_TTL_MS = 90_000L;
@@ -196,6 +221,7 @@ public final class FriendManager implements AutoCloseable {
         discovery.addListener(peer -> {
             String peerId = peer.identity.toString();
             if (store.isFriend(peerId)) {
+                nearby.remove(peerId);
                 // 已有活跃客户端时跳过，避免同机器多源 IP（组播/回环）导致反复重连
                 if (activeClients.containsKey(peerId)) {
                     fireEvent(FriendEvent.Type.PEERS_UPDATED, peer);
@@ -210,6 +236,15 @@ public final class FriendManager implements AutoCloseable {
                 if (peer.ip != null && !peer.ip.isEmpty() && peer.chatPort > 0) {
                     getOrCreateClient(peerId, peer.ip, peer.chatPort);
                 }
+            } else {
+                nearby.put(peerId, new NearbyPeer(
+                        peerId,
+                        peer.displayName,
+                        peer.ip,
+                        peer.chatPort,
+                        peer.ed25519,
+                        peer.x25519,
+                        peer.discoveredAt));
             }
             fireEvent(FriendEvent.Type.PEERS_UPDATED, peer);
         });
@@ -235,6 +270,8 @@ public final class FriendManager implements AutoCloseable {
         // 身份未变，仅更新名称
         if (identityManager.getIdentity() != null && newId.equals(identityManager.getIdentity())) {
             identityManager.setDisplayName(displayName);
+            discovery.updateLocal(displayName, identityManager.getX25519Public());
+            ensureLan();
             return;
         }
 
@@ -256,6 +293,7 @@ public final class FriendManager implements AutoCloseable {
         activeClients.clear();
         pendingOnConnect.clear();
         peerSessions.clear();
+        nearby.clear();
         localSession = null;
 
         // 切换到新身份的数据目录
@@ -280,6 +318,7 @@ public final class FriendManager implements AutoCloseable {
                 System.err.println("[FriendManager] 切换账户后启动服务失败: " + e.getMessage());
             }
         }
+        ensureLan();
 
         fireEvent(FriendEvent.Type.STATE_CHANGED, state);
     }
@@ -301,6 +340,7 @@ public final class FriendManager implements AutoCloseable {
             discovery.setSigningKeys(
                     identityManager.getEd25519Private(),
                     identityManager.getEd25519Public());
+            discovery.setX25519Public(identityManager.getX25519Public());
             discovery.start(
                     identityManager.getIdentity().toString(),
                     identityManager.getDisplayName(),
@@ -316,6 +356,40 @@ public final class FriendManager implements AutoCloseable {
         fireEvent(FriendEvent.Type.STATE_CHANGED, state);
     }
 
+    /** 账号已经就绪就保持局域网在线，添加好友才能看到同一网络里的其他 PMCL。 */
+    private void ensureLan() {
+        if (identityManager.getIdentity() == null) return;
+        if (state == State.READY || state == State.STOPPED) {
+            try {
+                start();
+            } catch (IOException e) {
+                System.err.println("[FriendManager] 启动局域网发现失败: " + e.getMessage());
+            }
+        }
+    }
+
+    /** 立刻再广播一次，添加好友窗口打开时不用等下一轮。 */
+    public void announcePresence() {
+        if (state == State.RUNNING) discovery.broadcastNow();
+    }
+
+    /** 最近还在广播、并且还不是好友的人。 */
+    public List<NearbyPeer> nearbyPeers() {
+        long now = System.currentTimeMillis();
+        List<NearbyPeer> out = new ArrayList<>();
+        for (Map.Entry<String, NearbyPeer> entry : nearby.entrySet()) {
+            NearbyPeer peer = entry.getValue();
+            if (now - peer.seenAt > NEARBY_TTL_MS || store.isFriend(entry.getKey())) {
+                nearby.remove(entry.getKey());
+                continue;
+            }
+            out.add(peer);
+        }
+        out.sort(Comparator.comparing(peer -> peer.displayName == null
+                ? "" : peer.displayName.toLowerCase(Locale.ROOT)));
+        return List.copyOf(out);
+    }
+
     /** 离开联机网络时停止 */
     public void stop() {
         if (state != State.RUNNING) return;
@@ -329,6 +403,7 @@ public final class FriendManager implements AutoCloseable {
         }
         activeClients.clear();
         peerSessions.clear();
+        nearby.clear();
         localSession = null;
 
         // 关闭发现
@@ -430,6 +505,7 @@ public final class FriendManager implements AutoCloseable {
 
     public void sendFriendRequest(String identity, String displayName, String ip, int port,
                                   byte[] ed25519Pub, byte[] x25519Pub) {
+        nearby.remove(identity);
         store.addFriend(identity, displayName, ip, port);
         if (ed25519Pub != null && x25519Pub != null) {
             store.setPeerPublicKeys(identity, ed25519Pub, x25519Pub);
@@ -789,6 +865,7 @@ public final class FriendManager implements AutoCloseable {
     /** 接受好友请求 */
     public void acceptFriendRequest(PendingRequest request) {
         String peerId = request.identity.toString();
+        nearby.remove(peerId);
         store.addFriend(peerId, request.displayName, request.ip, request.port);
         if (request.ed25519Pub != null && request.x25519Pub != null) {
             store.setPeerPublicKeys(peerId, request.ed25519Pub, request.x25519Pub);
