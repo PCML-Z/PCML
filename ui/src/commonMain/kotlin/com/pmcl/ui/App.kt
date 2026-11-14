@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.unit.dp
+import com.pmcl.core.agent.AgentRoutes
 import com.pmcl.core.automation.AutomationCommand
 import com.pmcl.core.i18n.I18n
 import com.pmcl.core.plugin.PluginManager
@@ -23,6 +24,9 @@ import com.pmcl.ui.animation.AnimatedNavSidebar
 import com.pmcl.ui.animation.AnimatedPageSwitch
 import com.pmcl.ui.animation.EntranceAnimation
 import com.pmcl.ui.animation.SlideInFromStart
+import com.pmcl.ui.desktop.LocalDesktopBridgeOwner
+import com.pmcl.ui.desktop.LocalDesktopHost
+import com.pmcl.ui.desktop.PmclDesktops
 import com.pmcl.ui.navigation.NavDestination
 import com.pmcl.ui.navigation.PmclIcons
 import com.pmcl.ui.navigation.SecondaryNavRail
@@ -172,10 +176,14 @@ fun App(vm: LauncherViewModel, themeState: ThemeState) {
                                 onEnterMain = { enteredMain = true }
                             )
                         } else {
-                            MainWindowContent(vm)
+                            PmclDesktops(vm, onOpenSettings = {
+                                vm.requestSecondaryNav("settings", "launcher")
+                            }) { MainWindowContent(vm) }
                         }
                     } else {
-                        MainWindowContent(vm)
+                        PmclDesktops(vm, onOpenSettings = {
+                                vm.requestSecondaryNav("settings", "launcher")
+                            }) { MainWindowContent(vm) }
                     }
                     if (!agreementAccepted) {
                         AgreementGateDialog(vm)
@@ -420,8 +428,12 @@ private sealed class NavTarget {
     data class PluginPage(val page: PluginManager.RegisteredPage) : NavTarget()
 }
 
+private val pluginBootstrapDone = java.util.concurrent.atomic.AtomicBoolean(false)
+
 @Composable
 private fun MainWindowContent(vm: LauncherViewModel) {
+    val desktopHost = LocalDesktopHost.current
+    val bridgeOwner = LocalDesktopBridgeOwner.current
     val themeState = LocalThemeState.current
     var current by remember { mutableStateOf<NavTarget>(NavTarget.BuiltIn(NavDestination.Launch)) }
     // 导航方向：1=前进，-1=后退，0=初始
@@ -476,20 +488,25 @@ private fun MainWindowContent(vm: LauncherViewModel) {
     var hiddenNavRoutes by remember { mutableStateOf<Set<String>>(emptySet()) }
     var navBadgeMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var lastRevision by remember { mutableStateOf(-1L) }
-    LaunchedEffect("load-plugins") {
-        // 延迟 1.5 秒加载插件，让首屏 UI 先完成渲染（插件加载涉及 JAR 读取+ClassLoader+反射，开销大）
-        kotlinx.coroutines.delay(1500)
-        // M35 修复：discoverAndLoadAll 无超时，单个卡住的插件（如 JAR 读取死循环、
-        // 反射初始化阻塞）会让整个 LaunchedEffect 永不退出，后续 pluginPages 永不更新。
-        // 用 withTimeoutOrNull 包裹，30 秒后强制放弃加载剩余插件。
-        try {
-            kotlinx.coroutines.withTimeoutOrNull(30_000L) {
-                vm.core.plugins().discoverAndLoadAll()
-            } ?: run {
-                System.err.println("[App] Plugin discovery timed out after 30s, partial load only")
+    LaunchedEffect(desktopHost) {
+        if (!desktopHost) return@LaunchedEffect
+        // 插件只扫描一次。换桌面时直接读已经加载的列表，不再等 1.5 秒。
+        if (!pluginBootstrapDone.get()) {
+            // 延迟 1.5 秒加载插件，让首屏 UI 先完成渲染（插件加载涉及 JAR 读取+ClassLoader+反射，开销大）
+            kotlinx.coroutines.delay(1500)
+            // M35 修复：discoverAndLoadAll 无超时，单个卡住的插件（如 JAR 读取死循环、
+            // 反射初始化阻塞）会让整个 LaunchedEffect 永不退出，后续 pluginPages 永不更新。
+            // 用 withTimeoutOrNull 包裹，30 秒后强制放弃加载剩余插件。
+            try {
+                kotlinx.coroutines.withTimeoutOrNull(30_000L) {
+                    vm.core.plugins().discoverAndLoadAll()
+                } ?: run {
+                    System.err.println("[App] Plugin discovery timed out after 30s, partial load only")
+                }
+            } catch (e: Throwable) {
+                // Non-fatal: plugins are optional
             }
-        } catch (e: Throwable) {
-            // Non-fatal: plugins are optional
+            pluginBootstrapDone.set(true)
         }
         pluginPages = vm.core.plugins().getCustomPages()
         menuActions = try {
@@ -520,7 +537,8 @@ private fun MainWindowContent(vm: LauncherViewModel) {
         vm.reconcileCustomThemePack(themeState)
     }
     // Poll for plugin changes (install/uninstall/enable/disable via terminal)
-    LaunchedEffect("poll-plugin-revision") {
+    LaunchedEffect(desktopHost) {
+        if (!desktopHost) return@LaunchedEffect
         while (true) {
             kotlinx.coroutines.delay(1000)
             val rev = vm.core.plugins().getRevision()
@@ -563,10 +581,29 @@ private fun MainWindowContent(vm: LauncherViewModel) {
         builtIn + plugins
     }
 
+    fun go(route: String, section: String) {
+        val target = allDestinations.firstOrNull { it.route == route } ?: return
+        val newTarget = NavTarget.BuiltIn(target)
+        val oldIndex = navItems.indexOf(current)
+        val newIndex = navItems.indexOf(newTarget)
+        navDirection = when {
+            newIndex > oldIndex -> 1
+            newIndex < oldIndex -> -1
+            else -> 0
+        }
+        current = newTarget
+        val spec = SecondaryNavRegistry.specForRoute(route)
+        val wanted = section.takeIf { id -> spec?.sections?.any { it.id == id } == true }
+        secondarySectionDirection = 0
+        secondarySectionId = wanted ?: spec?.sections?.firstOrNull()?.id
+        drilledIn = spec != null
+    }
+
     // 崩溃恢复操作反馈消息（Snackbar）
     val recoveryMessage by vm.recoveryMessage.collectAsState()
     val snackbarHostState = remember { androidx.compose.material3.SnackbarHostState() }
-    LaunchedEffect(recoveryMessage) {
+    LaunchedEffect(desktopHost, recoveryMessage) {
+        if (!desktopHost) return@LaunchedEffect
         val msg = recoveryMessage ?: return@LaunchedEffect
         snackbarHostState.showSnackbar(msg)
         vm.clearRecoveryMessage()
@@ -582,41 +619,24 @@ private fun MainWindowContent(vm: LauncherViewModel) {
     val pendingFilePickers = remember { mutableListOf<com.pmcl.plugin.api.PluginFilePickerRequest>() }
     var activeFilePicker by remember { mutableStateOf<com.pmcl.plugin.api.PluginFilePickerRequest?>(null) }
     val pluginProgress = remember { mutableStateMapOf<String, com.pmcl.plugin.api.PluginProgressUpdate>() }
-    LaunchedEffect("plugin-ui-bridges") {
+    LaunchedEffect(desktopHost) {
+        if (!desktopHost) return@LaunchedEffect
+        val bridgeToken = Any()
+        bridgeOwner.token = bridgeToken
         val pm = vm.core.plugins()
         pm.setNavigationHandler { target ->
             pluginUiScope.launch {
-                when {
-                    target.startsWith("plugin:") -> {
-                        val parts = target.removePrefix("plugin:").split(":", limit = 2)
-                        if (parts.size == 2) {
-                            val page = pm.getCustomPages().firstOrNull {
-                                it.pluginId == parts[0] && it.id == parts[1]
-                            }
-                            if (page != null) {
-                                enterPrimary(NavTarget.PluginPage(page), 0)
-                            }
+                if (target.startsWith("plugin:")) {
+                    val parts = target.removePrefix("plugin:").split(":", limit = 2)
+                    if (parts.size == 2) {
+                        val page = pm.getCustomPages().firstOrNull {
+                            it.pluginId == parts[0] && it.id == parts[1]
                         }
+                        if (page != null) enterPrimary(NavTarget.PluginPage(page), 0)
                     }
-                    target.equals("settings", ignoreCase = true) ->
-                        enterPrimary(NavTarget.BuiltIn(NavDestination.Settings), 0)
-                    target.equals("plugins", ignoreCase = true) ->
-                        enterPrimary(NavTarget.BuiltIn(NavDestination.Plugins), 0)
-                    target.equals("home", ignoreCase = true) || target.equals("launch", ignoreCase = true) ->
-                        enterPrimary(NavTarget.BuiltIn(NavDestination.Launch), 0)
-                    target.equals("versions", ignoreCase = true) || target.equals("download", ignoreCase = true) ->
-                        enterPrimary(NavTarget.BuiltIn(NavDestination.Download), 0)
-                    target.equals("content", ignoreCase = true) ->
-                        enterPrimary(NavTarget.BuiltIn(NavDestination.Content), 0)
-                    target.equals("multiplayer", ignoreCase = true) || target.equals("mp", ignoreCase = true) ->
-                        enterPrimary(NavTarget.BuiltIn(NavDestination.Multiplayer), 0)
-                    target.equals("statistics", ignoreCase = true) || target.equals("stats", ignoreCase = true) ->
-                        enterPrimary(NavTarget.BuiltIn(NavDestination.Statistics), 0)
-                    target.equals("instances", ignoreCase = true) ->
-                        enterPrimary(NavTarget.BuiltIn(NavDestination.Instances), 0)
-                    target.equals("accounts", ignoreCase = true) ->
-                        enterPrimary(NavTarget.BuiltIn(NavDestination.Accounts), 0)
-                    else -> { /* ignore unknown */ }
+                } else {
+                    val dest = AgentRoutes.resolve(target, "") ?: return@launch
+                    go(dest.route(), dest.section())
                 }
             }
         }
@@ -709,14 +729,16 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                 }
             }
         } finally {
-            // Composition disposed / effect cancelled — drop UI bridges so plugins cannot
-            // call into a dead Compose tree or stale clipboard/Desktop handlers.
-            try { pm.setNavigationHandler(null) } catch (_: Throwable) {}
-            try { pm.setLaunchRequestHandler(null) } catch (_: Throwable) {}
-            try { pm.setLaunchInstanceRequestHandler(null) } catch (_: Throwable) {}
-            try { pm.setClipboardHandler(null) } catch (_: Throwable) {}
-            try { pm.setOpenUrlHandler(null) } catch (_: Throwable) {}
-            try { pm.setMusicBridge(null) } catch (_: Throwable) {}
+            // 后接手的桌面已经换过标记时，不能把新的插件桥清掉。
+            if (bridgeOwner.token === bridgeToken) {
+                bridgeOwner.token = null
+                try { pm.setNavigationHandler(null) } catch (_: Throwable) {}
+                try { pm.setLaunchRequestHandler(null) } catch (_: Throwable) {}
+                try { pm.setLaunchInstanceRequestHandler(null) } catch (_: Throwable) {}
+                try { pm.setClipboardHandler(null) } catch (_: Throwable) {}
+                try { pm.setOpenUrlHandler(null) } catch (_: Throwable) {}
+                try { pm.setMusicBridge(null) } catch (_: Throwable) {}
+            }
         }
     }
 
@@ -733,7 +755,7 @@ private fun MainWindowContent(vm: LauncherViewModel) {
         activeFilePicker = null
     }
 
-    if (pluginDialog != null) {
+    if (desktopHost && pluginDialog != null) {
         val dlg = pluginDialog!!
         val isConfirm = dlg.kind == com.pmcl.plugin.api.DialogKind.CONFIRM
         AlertDialog(
@@ -760,7 +782,7 @@ private fun MainWindowContent(vm: LauncherViewModel) {
         )
     }
 
-    if (pluginInputDialog != null) {
+    if (desktopHost && pluginInputDialog != null) {
         val dlg = pluginInputDialog!!
         var inputValue by remember(dlg.id) { mutableStateOf(dlg.defaultValue) }
         AlertDialog(
@@ -872,7 +894,8 @@ private fun MainWindowContent(vm: LauncherViewModel) {
     // 不能用 Compose onPreviewKeyEvent：窗口内没有任何组件持有焦点时
     // （如刚启动、点了不可聚焦区域），键盘事件不会分发进 Compose 树。
     // KeyboardFocusManager 的 dispatcher 在所有焦点目标之前拦截，恒定有效。
-    DisposableEffect(Unit) {
+    DisposableEffect(desktopHost) {
+        if (!desktopHost) return@DisposableEffect onDispose {}
         val held = HashSet<Int>()
         val dispatcher = java.awt.KeyEventDispatcher { e ->
             when (e.id) {
@@ -1019,6 +1042,7 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                     .weight(1f)
                     .fillMaxWidth()
                     .onGloballyPositioned { coords ->
+                        if (!desktopHost) return@onGloballyPositioned
                         // 队列卡片未显示时，用内容区右下角推算飞入目标，保证首次下载也有动画
                         if (!showQueue) {
                             val pos = coords.positionInWindow()
@@ -1134,8 +1158,8 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                             .padding(end = 16.dp, bottom = 16.dp)
                     )
                 }
-                DisposableEffect(Unit) {
-                    onDispose { vm.clearDownloadQueueRect() }
+                DisposableEffect(desktopHost) {
+                    onDispose { if (desktopHost) vm.clearDownloadQueueRect() }
                 }
 
                 // 下载飞入动画浮层（覆盖整个内容区）
@@ -1214,7 +1238,7 @@ private fun MainWindowContent(vm: LauncherViewModel) {
     } // close Row
 
         // 命令面板（Cmd/Ctrl+K）：覆盖在主内容之上
-        if (paletteVisible) {
+        if (desktopHost && paletteVisible) {
             CommandPaletteOverlay(
                 entries = paletteEntries,
                 onDismiss = { paletteVisible = false }
@@ -1225,7 +1249,7 @@ private fun MainWindowContent(vm: LauncherViewModel) {
     // ===== 全局：游戏安装前弹窗（询问是否同时安装模组加载器）=====
     // 放在全局层级，无论用户在哪个页面安装游戏都会触发弹窗，且避免多页面重复弹窗
     val preInstallEvent by vm.preInstallEvent.collectAsState()
-    preInstallEvent?.let { ev ->
+    if (desktopHost) preInstallEvent?.let { ev ->
         com.pmcl.ui.modloader.ModLoaderInstallPromptDialog(
             versionId = ev.versionId,
             vm = vm,
@@ -1235,53 +1259,38 @@ private fun MainWindowContent(vm: LauncherViewModel) {
 
     // ===== 全局：崩溃恢复 / 命令面板导航请求 =====
     val navigationRequest by vm.navigationRequest.collectAsState()
-    LaunchedEffect(navigationRequest) {
+    LaunchedEffect(desktopHost, navigationRequest) {
+        if (!desktopHost) return@LaunchedEffect
         val req = navigationRequest ?: return@LaunchedEffect
-        val target = allDestinations.firstOrNull { it.route == req }
-        if (target != null) {
-            val newTarget = NavTarget.BuiltIn(target)
-            val oldIndex = navItems.indexOf(current)
-            val newIndex = navItems.indexOf(newTarget)
-            val dir = when {
-                newIndex > oldIndex -> 1
-                newIndex < oldIndex -> -1
-                else -> 0
-            }
-            enterPrimary(newTarget, dir)
-        }
+        val dest = AgentRoutes.resolve(req, "")
+        if (dest != null) go(dest.route(), dest.section())
+        else if (allDestinations.any { it.route == req }) go(req, "")
         vm.clearNavigationRequest()
     }
 
     val secondaryNavRequest by vm.secondaryNavRequest.collectAsState()
-    LaunchedEffect(secondaryNavRequest) {
+    LaunchedEffect(desktopHost, secondaryNavRequest) {
+        if (!desktopHost) return@LaunchedEffect
         val req = secondaryNavRequest ?: return@LaunchedEffect
         val (route, sectionId) = req
-        val dest = allDestinations.firstOrNull { it.route == route }
         val spec = SecondaryNavRegistry.specForRoute(route)
-        if (dest != null && spec != null) {
-            val newTarget = NavTarget.BuiltIn(dest)
-            val oldIndex = navItems.indexOf(current)
-            val newIndex = navItems.indexOf(newTarget)
-            navDirection = when {
-                newIndex > oldIndex -> 1
-                newIndex < oldIndex -> -1
-                else -> 0
+        if (allDestinations.any { it.route == route }) {
+            val alias = AgentRoutes.resolve(sectionId, "")
+            val section = when {
+                spec == null -> ""
+                spec.sections.any { it.id == sectionId } -> sectionId
+                alias != null && alias.route() == route && spec.sections.any { it.id == alias.section() } -> alias.section()
+                else -> spec.sections.first().id
             }
-            current = newTarget
-            secondarySectionDirection = 0
-            secondarySectionId = if (spec.sections.any { it.id == sectionId }) {
-                sectionId
-            } else {
-                spec.sections.first().id
-            }
-            drilledIn = true
+            go(route, section)
         }
         vm.clearSecondaryNavRequest()
     }
 
     // 兼容旧 hubTabRequest：下载/内容/设置/统计/联机/账号/存档映射到二级 section
     val hubTabRequest by vm.hubTabRequest.collectAsState()
-    LaunchedEffect(hubTabRequest) {
+    LaunchedEffect(desktopHost, hubTabRequest) {
+        if (!desktopHost) return@LaunchedEffect
         val req = hubTabRequest ?: return@LaunchedEffect
         val (route, tabIndex) = req
         val sectionId = when (route) {

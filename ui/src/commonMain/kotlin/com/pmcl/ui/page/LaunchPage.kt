@@ -82,6 +82,8 @@ import com.pmcl.core.instance.InstanceInfo
 import com.pmcl.core.version.VersionManager
 import com.pmcl.core.i18n.I18n
 import com.pmcl.ui.animation.MotionTokens
+import com.pmcl.ui.desktop.LocalDesktopHost
+import com.pmcl.ui.desktop.swipeUpForMissionControl
 import com.pmcl.ui.animation.StaggeredAppear
 import com.pmcl.ui.animation.pressScale
 import com.pmcl.ui.theme.LocalThemeState
@@ -154,23 +156,26 @@ fun LaunchPage(vm: LauncherViewModel) {
     var renameTarget by remember { mutableStateOf<String?>(null) }
     var deleteTarget by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(Unit) {
+    val desktopHost = LocalDesktopHost.current
+    LaunchedEffect(desktopHost) {
+        if (!desktopHost) return@LaunchedEffect
         if (versions.isEmpty()) vm.refreshVersions()
         vm.loadInstances()
         // 进入启动页时触发预判启动（若用户在设置中开启了该功能）
         vm.predictAndPreheat()
     }
 
-    // 离开启动页时取消未采用的预热资源，清空预存 profile
-    DisposableEffect(Unit) {
+    // 离开前台启动页时取消未采用的预热资源。后台桌面不要把前台的预热清掉。
+    DisposableEffect(desktopHost) {
         onDispose {
-            vm.cancelPreheat()
+            if (desktopHost) vm.cancelPreheat()
         }
     }
 
     // 插件主页卡片（随 plugin revision 刷新）
     var pluginRev by remember { mutableStateOf(0L) }
-    LaunchedEffect("plugin-home-cards") {
+    LaunchedEffect(desktopHost) {
+        if (!desktopHost) return@LaunchedEffect
         while (true) {
             kotlinx.coroutines.delay(1000)
             pluginRev = try { vm.core.plugins().revision } catch (_: Throwable) { 0L }
@@ -213,9 +218,12 @@ fun LaunchPage(vm: LauncherViewModel) {
     val openGameLog by vm.openGameLog.collectAsState()
     val javaInstallations by vm.javaInstallations.collectAsState()
     val javaScanning by vm.javaScanning.collectAsState()
-    LaunchedEffect(Unit) { vm.scanJavaInstallations() }
-    LaunchedEffect(openGameLog) {
-        if (!openGameLog) return@LaunchedEffect
+    LaunchedEffect(desktopHost) {
+        if (!desktopHost) return@LaunchedEffect
+        vm.scanJavaInstallations()
+    }
+    LaunchedEffect(desktopHost, openGameLog) {
+        if (!desktopHost || !openGameLog) return@LaunchedEffect
         materialLibrary = true
         launchTab = 3
         vm.consumeOpenGameLog()
@@ -987,12 +995,12 @@ fun LaunchPage(vm: LauncherViewModel) {
             }
     }
 
-    Box(Modifier.fillMaxSize()) {
+    Box(Modifier.fillMaxSize().swipeUpForMissionControl()) {
     val theme = LocalThemeState.current
     val materialOn = theme.materialTheme
-    SideEffect { theme.materialHomeBar = materialOn && !materialLibrary }
-    DisposableEffect(Unit) {
-        onDispose { theme.materialHomeBar = false }
+    SideEffect { if (desktopHost) theme.materialHomeBar = materialOn && !materialLibrary }
+    DisposableEffect(desktopHost) {
+        onDispose { if (desktopHost) theme.materialHomeBar = false }
     }
     val showMaterialHome = materialOn && !materialLibrary
     AnimatedContent(
@@ -1243,7 +1251,7 @@ fun LaunchPage(vm: LauncherViewModel) {
                     Spacer(Modifier.width(4.dp))
                     Text(I18n.t("log.export"), style = MaterialTheme.typography.labelSmall)
                 }
-                if (showExportDialog) {
+                if (desktopHost && showExportDialog) {
                     val exportState = remember { mutableStateOf<Boolean?>(null) }
                     val exportScope = androidx.compose.runtime.rememberCoroutineScope()
                     AlertDialog(
@@ -1338,7 +1346,7 @@ fun LaunchPage(vm: LauncherViewModel) {
                 }
             }
             // 分享成功后弹出 URL 对话框
-            shareUrl?.let { url ->
+            if (desktopHost) shareUrl?.let { url ->
                 AlertDialog(
                     onDismissRequest = { vm.clearShareUrl() },
                     title = { Text(I18n.t("log.share_success")) },
@@ -1441,7 +1449,7 @@ fun LaunchPage(vm: LauncherViewModel) {
     }
 
     // ===== 磁贴重命名对话框 =====
-    renameTarget?.let { targetId ->
+    if (desktopHost) renameTarget?.let { targetId ->
         val currentLabel = pinnedLabels[targetId] ?: targetId
         RenameTileDialog(
             versionId = targetId,
@@ -1455,7 +1463,7 @@ fun LaunchPage(vm: LauncherViewModel) {
     }
 
     // ===== 磁贴删除确认对话框 =====
-    deleteTarget?.let { targetId ->
+    if (desktopHost) deleteTarget?.let { targetId ->
         val displayName = pinnedLabels[targetId] ?: targetId
         AlertDialog(
             onDismissRequest = { deleteTarget = null },
@@ -1483,7 +1491,7 @@ fun LaunchPage(vm: LauncherViewModel) {
     }
 
     // ===== 兼容性选项对话框 =====
-    if (compatOptions.isNotEmpty()) {
+    if (desktopHost && compatOptions.isNotEmpty()) {
         AlertDialog(
             onDismissRequest = { vm.dismissCompatOptions() },
             title = { Text(compatTitle) },
@@ -1522,7 +1530,7 @@ fun LaunchPage(vm: LauncherViewModel) {
     // ===== Java 运行时下载进度（兼容性自动下载等） =====
     val javaDownloading by vm.javaDownloading.collectAsState()
     val javaDownloadStatus by vm.javaDownloadStatus.collectAsState()
-    if (javaDownloading) {
+    if (desktopHost && javaDownloading) {
         AlertDialog(
             onDismissRequest = {},
             title = { Text("正在下载 Java 运行时") },

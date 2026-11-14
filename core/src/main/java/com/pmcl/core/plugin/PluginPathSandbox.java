@@ -1,5 +1,7 @@
 package com.pmcl.core.plugin;
 
+import com.pmcl.core.migration.GameDriveRelocation;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
@@ -15,7 +17,7 @@ import java.util.Set;
  *   <li>Plugin data directory is always allowed</li>
  *   <li>Launcher work directory requires {@code FILESYSTEM} (checked by caller)</li>
  *   <li>Sensitive host files under workDir are always denied</li>
- *   <li>Symlinks are rejected (no follow escapes)</li>
+ *   <li>Symlinks are rejected, except a game-drive link that stays inside its marked folder</li>
  * </ul>
  */
 final class PluginPathSandbox {
@@ -163,6 +165,38 @@ final class PluginPathSandbox {
         }
     }
 
+    /** 外置磁盘上的游戏目录不在 workDir 下面，敏感文件名仍然拒绝。 */
+    private static void denyDriveNames(Path real) {
+        String fileName = real.getFileName() != null
+                ? real.getFileName().toString().toLowerCase(Locale.ROOT) : "";
+        if (DENIED_FILE_NAMES.contains(fileName)
+                || fileName.startsWith("preferences.")
+                || fileName.startsWith("accounts.")
+                || fileName.startsWith("identity.")
+                || fileName.startsWith("friends.")
+                || fileName.startsWith("tokens.")
+                || fileName.endsWith(".keyfile")
+                || fileName.endsWith(".pem")
+                || fileName.endsWith(".p12")
+                || fileName.endsWith(".jks")) {
+            throw new SecurityException("Access to sensitive file denied: " + fileName);
+        }
+        for (Path part : real) {
+            String name = part.toString().toLowerCase(Locale.ROOT);
+            if (name.equals("friend-data") || name.equals("messages")
+                    || name.equals("tokens") || name.equals("secrets")
+                    || name.equals("credentials") || name.equals("auth")) {
+                throw new SecurityException("Access to sensitive path denied: " + name);
+            }
+        }
+    }
+
+    /** 只把工作目录和插件数据目录里面的符号链接当成逃逸。系统目录上的链接，例如 /var，不算。 */
+    private static boolean inside(Path path, Path root) {
+        if (path == null || root == null) return false;
+        return path.toAbsolutePath().normalize().startsWith(root.toAbsolutePath().normalize());
+    }
+
     private static Path normalize(Path path) {
         if (path == null) throw new IllegalArgumentException("path is null");
         return path.toAbsolutePath().normalize();
@@ -173,16 +207,20 @@ final class PluginPathSandbox {
             // Reject if any existing ancestor is a symlink
             Path cur = abs;
             while (cur != null) {
-                if (Files.exists(cur, LinkOption.NOFOLLOW_LINKS) && Files.isSymbolicLink(cur)) {
+                if (Files.exists(cur, LinkOption.NOFOLLOW_LINKS) && Files.isSymbolicLink(cur)
+                        && !GameDriveRelocation.isOwnedGameLink(cur, workDirOrNull)
+                        && (inside(cur, workDirOrNull) || inside(cur, dataDir))) {
                     throw new SecurityException("Symlink path rejected: " + cur);
                 }
                 cur = cur.getParent();
             }
             if (Files.exists(abs, LinkOption.NOFOLLOW_LINKS)) {
-                Path real = abs.toRealPath(LinkOption.NOFOLLOW_LINKS);
+                // 跟着解析：游戏目录链接的真实位置在外置盘，不跟的话会停在链接上，对不上工作目录。
+                Path real = abs.toRealPath();
                 Path dataReal = Files.exists(dataDir) ? dataDir.toRealPath() : dataDir.toAbsolutePath().normalize();
                 boolean underData = real.startsWith(dataReal);
                 boolean underWork = false;
+                boolean underDrive = GameDriveRelocation.containsOwnedTarget(real, workDirOrNull);
                 if (workDirOrNull != null) {
                     Path workReal = Files.exists(workDirOrNull)
                             ? workDirOrNull.toRealPath()
@@ -190,7 +228,8 @@ final class PluginPathSandbox {
                     underWork = real.startsWith(workReal);
                     if (underWork) denySensitive(workReal, real);
                 }
-                if (!underData && !underWork) {
+                if (underDrive) denyDriveNames(real);
+                if (!underData && !underWork && !underDrive) {
                     throw new SecurityException("Resolved path escapes sandbox: " + real);
                 }
                 return abs;
@@ -201,20 +240,23 @@ final class PluginPathSandbox {
                 parent = parent.getParent();
             }
             if (parent != null) {
-                if (Files.isSymbolicLink(parent)) {
+                if (Files.isSymbolicLink(parent) && !GameDriveRelocation.isOwnedGameLink(parent, workDirOrNull)
+                        && (inside(parent, workDirOrNull) || inside(parent, dataDir))) {
                     throw new SecurityException("Symlink parent rejected: " + parent);
                 }
                 Path realParent = parent.toRealPath();
                 Path dataReal = Files.exists(dataDir) ? dataDir.toRealPath() : dataDir.toAbsolutePath().normalize();
                 boolean underData = realParent.startsWith(dataReal);
                 boolean underWork = false;
+                boolean underDrive = GameDriveRelocation.containsOwnedTarget(realParent, workDirOrNull);
                 if (workDirOrNull != null) {
                     Path workReal = Files.exists(workDirOrNull)
                             ? workDirOrNull.toRealPath()
                             : workDirOrNull.toAbsolutePath().normalize();
                     underWork = realParent.startsWith(workReal);
                 }
-                if (!underData && !underWork) {
+                if (underDrive) denyDriveNames(realParent);
+                if (!underData && !underWork && !underDrive) {
                     throw new SecurityException("Parent path escapes sandbox: " + realParent);
                 }
             }

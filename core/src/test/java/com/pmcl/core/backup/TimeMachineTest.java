@@ -19,6 +19,17 @@ class TimeMachineTest {
     Path dir;
 
     @Test
+    void unownedDirectoryLinkIsNotBackedUp() throws Exception {
+        Path real = dir.resolve("real-saves").resolve("World");
+        Files.createDirectories(real);
+        Files.writeString(real.resolve("level.dat"), "secret-world");
+        Files.createSymbolicLink(dir.resolve("saves"), dir.resolve("real-saves"));
+
+        TimeMachine.Snapshot snapshot = new TimeMachine(dir).backup(new TimeMachine.Settings(), List.of(), "now", null);
+        assertTrue(new TimeMachine(dir).entries(snapshot.id()).stream().noneMatch(entry -> entry.path().contains("level.dat")));
+    }
+
+    @Test
     void secondBackupReusesUnchangedBytesAndSkipsSecrets() throws Exception {
         Path saves = dir.resolve("saves").resolve("World");
         Files.createDirectories(saves);

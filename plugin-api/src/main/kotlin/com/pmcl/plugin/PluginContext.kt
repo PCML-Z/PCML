@@ -3,6 +3,7 @@ package com.pmcl.plugin
 import androidx.compose.runtime.Composable
 import com.pmcl.plugin.api.AccountsApi
 import com.pmcl.plugin.api.ActionHandler
+import com.pmcl.plugin.api.BackupsApi
 import com.pmcl.plugin.api.CrashLogsApi
 import com.pmcl.plugin.api.DownloadQueueApi
 import com.pmcl.plugin.api.DownloadsApi
@@ -12,23 +13,34 @@ import com.pmcl.plugin.api.GameProcessApi
 import com.pmcl.plugin.api.HttpApi
 import com.pmcl.plugin.api.I18nApi
 import com.pmcl.plugin.api.InstancesApi
+import com.pmcl.plugin.api.IntegrityApi
 import com.pmcl.plugin.api.JavaRuntimesApi
+import com.pmcl.plugin.api.KernelsApi
 import com.pmcl.plugin.api.LaunchApi
 import com.pmcl.plugin.api.LoaderVersionsApi
+import com.pmcl.plugin.api.LoadersApi
+import com.pmcl.plugin.api.MigrationApi
 import com.pmcl.plugin.api.ModMarketApi
 import com.pmcl.plugin.api.ModpackApi
 import com.pmcl.plugin.api.ModsApi
 import com.pmcl.plugin.api.MusicApi
 import com.pmcl.plugin.api.NbtApi
 import com.pmcl.plugin.api.NewsApi
+import com.pmcl.plugin.api.PinsApi
+import com.pmcl.plugin.api.PlayApi
 import com.pmcl.plugin.api.PluginsApi
+import com.pmcl.plugin.api.PresetsApi
+import com.pmcl.plugin.api.RecordingsApi
 import com.pmcl.plugin.api.RoomsApi
 import com.pmcl.plugin.api.SchedulerApi
 import com.pmcl.plugin.api.ServersApi
 import com.pmcl.plugin.api.SettingsApi
+import com.pmcl.plugin.api.SkinsApi
 import com.pmcl.plugin.api.StatsApi
 import com.pmcl.plugin.api.UiApi
+import com.pmcl.plugin.api.VersionJavaApi
 import com.pmcl.plugin.api.VersionsApi
+import com.pmcl.plugin.api.WikiApi
 import java.nio.file.Path
 
 /**
@@ -69,6 +81,18 @@ interface PluginContext {
     fun scheduler(): SchedulerApi
     fun plugins(): PluginsApi
     fun http(): HttpApi
+    fun pins(): PinsApi
+    fun integrity(): IntegrityApi
+    fun backups(): BackupsApi
+    fun migration(): MigrationApi
+    fun kernels(): KernelsApi
+    fun skins(): SkinsApi
+    fun recordings(): RecordingsApi
+    fun play(): PlayApi
+    fun loaders(): LoadersApi
+    fun wiki(): WikiApi
+    fun presets(): PresetsApi
+    fun versionJava(): VersionJavaApi
 
     // ==================== Legacy services ====================
 

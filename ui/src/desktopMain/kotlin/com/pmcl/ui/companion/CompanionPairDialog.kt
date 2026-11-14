@@ -113,9 +113,14 @@ fun CompanionPairDialog(
     var renameText by remember { mutableStateOf("") }
     var renameError by remember { mutableStateOf(false) }
 
-    // 打开对话框时刷新配对码（反映最新 IP）
+    // 打开对话框时刷新配对码（反映最新 IP），并开始蓝牙广播给手表
     LaunchedEffect(Unit) {
         pairingCode = pairing.getPairingCode()
+    }
+    DisposableEffect(pairingCode, exposeLan) {
+        if (exposeLan) CompanionBleAdvertiser.start(pairingCode, pairing.getPort())
+        else CompanionBleAdvertiser.stop()
+        onDispose { CompanionBleAdvertiser.stop() }
     }
 
     // 由当前配对码异步生成二维码与一维码（配对码变化时重新生成）
@@ -502,6 +507,12 @@ fun CompanionPairDialog(
                             Icon(Icons.Filled.ContentCopy, "复制配对码")
                         }
                     }
+                    Text(
+                        if (exposeLan) "手表打开配对，会通过蓝牙看到这台电脑"
+                        else "打开局域网访问后，手表才能用蓝牙发现这台电脑",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
 
                     // 已配对设备
                     Row(verticalAlignment = Alignment.CenterVertically) {

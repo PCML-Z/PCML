@@ -2421,6 +2421,66 @@ public final class PluginManager {
             return PluginApiFacades.http(manager.core, manager, this::requirePermission);
         }
 
+        @Override
+        public com.pmcl.plugin.api.PinsApi pins() {
+            return ToolboxFacades.pins(manager.core, this::requirePermission);
+        }
+
+        @Override
+        public com.pmcl.plugin.api.IntegrityApi integrity() {
+            return ToolboxFacades.integrity(manager.core);
+        }
+
+        @Override
+        public com.pmcl.plugin.api.BackupsApi backups() {
+            return ToolboxFacades.backups(manager.core, this::requirePermission);
+        }
+
+        @Override
+        public com.pmcl.plugin.api.MigrationApi migration() {
+            return ToolboxFacades.migration(manager.core);
+        }
+
+        @Override
+        public com.pmcl.plugin.api.KernelsApi kernels() {
+            return ToolboxFacades.kernels(manager.core, this::requirePermission);
+        }
+
+        @Override
+        public com.pmcl.plugin.api.SkinsApi skins() {
+            return ToolboxFacades.skins(manager.core, this::requirePermission);
+        }
+
+        @Override
+        public com.pmcl.plugin.api.RecordingsApi recordings() {
+            return ToolboxFacades.recordings(manager.core, this::requirePermission);
+        }
+
+        @Override
+        public com.pmcl.plugin.api.PlayApi play() {
+            return ToolboxFacades.play(manager.core, this::requirePermission);
+        }
+
+        @Override
+        public com.pmcl.plugin.api.LoadersApi loaders() {
+            return ToolboxFacades.loaders(manager.core, this::requirePermission);
+        }
+
+        @Override
+        public com.pmcl.plugin.api.WikiApi wiki() {
+            return ToolboxFacades.wiki();
+        }
+
+        @Override
+        public com.pmcl.plugin.api.PresetsApi presets() {
+            return ToolboxFacades.presets(manager.core, this::requirePermission);
+        }
+
+        @Override
+        public com.pmcl.plugin.api.VersionJavaApi versionJava() {
+            return ToolboxFacades.versionJava(manager.core, this::requirePermission);
+        }
+
         private void requirePermission(String requiredPermission) {
             java.util.Collection<String> perms;
             if (grants != null) {

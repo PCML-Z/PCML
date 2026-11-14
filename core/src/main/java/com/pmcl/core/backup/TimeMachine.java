@@ -4,6 +4,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.pmcl.core.migration.GameDriveRelocation;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -534,15 +535,17 @@ public final class TimeMachine {
         int removed = 0;
         for (Map.Entry<String, Set<String>> rootEntry : keep.entrySet()) {
             Path root = Path.of(rootEntry.getKey());
-            if (!extraRootAllowed(root) || !Files.isDirectory(root) || Files.isSymbolicLink(root)) continue;
-            if (root.startsWith(store)) continue;
+            if (!extraRootAllowed(root)) continue;
+            if (Files.isSymbolicLink(root) && !GameDriveRelocation.isOwnedGameLink(root, workDir)) continue;
+            Path physical = GameDriveRelocation.followOwnedLink(root, workDir);
+            if (!Files.isDirectory(physical) || physical.startsWith(store)) continue;
             Set<String> present = rootEntry.getValue();
             List<Path> doomed = new ArrayList<>();
-            Files.walkFileTree(root, new SimpleFileVisitor<>() {
+            Files.walkFileTree(physical, new SimpleFileVisitor<>() {
                 @Override
                 public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
                     if (Files.isSymbolicLink(dir)) return FileVisitResult.SKIP_SUBTREE;
-                    if (!dir.equals(root) && skipDir(dir)) return FileVisitResult.SKIP_SUBTREE;
+                    if (!dir.equals(physical) && skipDir(dir)) return FileVisitResult.SKIP_SUBTREE;
                     return FileVisitResult.CONTINUE;
                 }
 
@@ -550,7 +553,7 @@ public final class TimeMachine {
                 public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
                     if (Files.isSymbolicLink(file) || !attrs.isRegularFile()) return FileVisitResult.CONTINUE;
                     if (skipFile(file)) return FileVisitResult.CONTINUE;
-                    String rel = root.relativize(file).toString().replace('\\', '/');
+                    String rel = physical.relativize(file).toString().replace('\\', '/');
                     if (!present.contains(rel)) doomed.add(file);
                     return FileVisitResult.CONTINUE;
                 }
@@ -561,7 +564,7 @@ public final class TimeMachine {
                 }
             });
             for (Path file : doomed) {
-                String rel = safeRelative(root.relativize(file).toString().replace('\\', '/'));
+                String rel = safeRelative(physical.relativize(file).toString().replace('\\', '/'));
                 String hash = sha256(file);
                 pre.add(new Entry(scopeOf.getOrDefault(root.toString(), ""), root.toString(), rel,
                         Files.size(file), hash, true, ""));
@@ -668,21 +671,23 @@ public final class TimeMachine {
     }
 
     private void walk(Source source, List<Pending> out) throws IOException {
+        Path logical = source.dir;
+        Path physical = GameDriveRelocation.followOwnedLink(logical, workDir);
         if (!source.tree) {
             for (String name : source.onlyNames) {
-                Path file = source.dir.resolve(name);
+                Path file = logical.resolve(name);
                 if (Files.isRegularFile(file) && !Files.isSymbolicLink(file) && !skipFile(file)) {
-                    out.add(new Pending(source.scope, source.dir, name, Files.size(file), false, file));
+                    out.add(new Pending(source.scope, logical, name, Files.size(file), false, file));
                 }
             }
             return;
         }
-        Files.walkFileTree(source.dir, new SimpleFileVisitor<>() {
+        Files.walkFileTree(physical, new SimpleFileVisitor<>() {
             @Override
             public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
                 if (Files.isSymbolicLink(dir)) return FileVisitResult.SKIP_SUBTREE;
                 if (dir.startsWith(store)) return FileVisitResult.SKIP_SUBTREE;
-                if (!dir.equals(source.dir) && skipDir(dir)) return FileVisitResult.SKIP_SUBTREE;
+                if (!dir.equals(physical) && skipDir(dir)) return FileVisitResult.SKIP_SUBTREE;
                 return FileVisitResult.CONTINUE;
             }
 
@@ -691,13 +696,13 @@ public final class TimeMachine {
                 if (Files.isSymbolicLink(file) || !attrs.isRegularFile() || skipFile(file)) {
                     return FileVisitResult.CONTINUE;
                 }
-                String rel = source.dir.relativize(file).toString().replace('\\', '/');
+                String rel = physical.relativize(file).toString().replace('\\', '/');
                 try {
                     rel = safeRelative(rel);
                 } catch (IllegalArgumentException e) {
                     return FileVisitResult.CONTINUE;
                 }
-                out.add(new Pending(source.scope, source.dir, rel, attrs.size(), true, file));
+                out.add(new Pending(source.scope, logical, rel, attrs.size(), true, file));
                 return FileVisitResult.CONTINUE;
             }
 
@@ -1062,8 +1067,9 @@ public final class TimeMachine {
                 || name.equals("screenshots") || name.equals("skins");
     }
 
-    private static boolean isRealDir(Path dir) {
-        return Files.isDirectory(dir) && !Files.isSymbolicLink(dir);
+    private boolean isRealDir(Path dir) {
+        if (dir != null && Files.isDirectory(dir) && !Files.isSymbolicLink(dir)) return true;
+        return GameDriveRelocation.isOwnedGameLink(dir, workDir);
     }
 
     private static String fileName(Path path) {

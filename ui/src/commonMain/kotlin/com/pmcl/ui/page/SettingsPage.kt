@@ -4,6 +4,8 @@ import com.pmcl.ui.widget.pmclVerticalScroll
 import com.pmcl.ui.widget.pmclHorizontalScroll
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -32,6 +34,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Gavel
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Person
@@ -59,7 +62,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import com.pmcl.core.agent.AgentModel
+import com.pmcl.core.agent.LocalModelScan
 import com.pmcl.core.i18n.I18n
+import com.pmcl.core.migration.GameDriveRelocation
 import com.pmcl.ui.animation.TypewriterTitle
 import com.pmcl.ui.theme.LocalThemeState
 import com.pmcl.ui.theme.installedLauncherFonts
@@ -85,12 +91,13 @@ import kotlinx.coroutines.withContext
 fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
     val pref = remember { vm.preferences }
     val themeState = LocalThemeState.current
+    val settingsPulse by vm.settingsPulse.collectAsState()
 
     var minMem by remember { mutableStateOf(pref.getMinMemoryMb().toString()) }
     var maxMem by remember { mutableStateOf(pref.getMaxMemoryMb().toString()) }
     var gcType by remember { mutableStateOf(pref.getGcType()) }
-    var forceG1 by remember { mutableStateOf(pref.isForceG1Gc()) }
-    var useAikar by remember { mutableStateOf(pref.isUseAikarFlags()) }
+    var forceG1 by remember(settingsPulse) { mutableStateOf(pref.isForceG1Gc()) }
+    var useAikar by remember(settingsPulse) { mutableStateOf(pref.isUseAikarFlags()) }
     var customArgs by remember { mutableStateOf(pref.getCustomJvmArgs()) }
     var language by remember { mutableStateOf(pref.getLanguage()) }
     var borderless by remember { mutableStateOf(pref.isBorderlessWindow()) }
@@ -233,7 +240,7 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
                 )
 
                 Spacer(Modifier.height(12.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.agentSettingAnchor(vm, "forceG1"), verticalAlignment = Alignment.CenterVertically) {
                     Switch(checked = forceG1, onCheckedChange = { forceG1 = it; pref.setForceG1Gc(it) })
                     Spacer(Modifier.width(8.dp))
                     Column(Modifier.weight(1f)) {
@@ -245,7 +252,7 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
                 }
 
                 Spacer(Modifier.height(12.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.agentSettingAnchor(vm, "aikar"), verticalAlignment = Alignment.CenterVertically) {
                     Switch(checked = useAikar, onCheckedChange = { useAikar = it; pref.setUseAikarFlags(it) })
                     Spacer(Modifier.width(8.dp))
                     Column {
@@ -276,7 +283,7 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
 
         Spacer(Modifier.height(16.dp))
 
-        ImeAgentCard(pref)
+        ImeAgentCard(vm, pref)
 
         Spacer(Modifier.height(16.dp))
 
@@ -309,6 +316,9 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
         MinecraftRootsCard(vm)
         Spacer(Modifier.height(16.dp))
 
+        GameDriveCard(vm)
+        Spacer(Modifier.height(16.dp))
+
         // Metal 渲染（仅 Apple Silicon Mac 显示；探测在 IO 线程执行）
         val metalSupported by vm.metalRenderSupported.collectAsState()
         if (metalSupported == true) {
@@ -323,12 +333,12 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
 
         if (sectionId == "mio") {
         // 澪模式
-        MioModeCard(pref)
+        key(settingsPulse) { MioModeCard(vm, pref) }
         }
 
         if (sectionId == "theme") {
         ThemeSectionCard(I18n.t("settings.theme.color")) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.agentSettingAnchor(vm, "followSystem"), verticalAlignment = Alignment.CenterVertically) {
                     Switch(
                         checked = themeState.followSystem,
                         onCheckedChange = { v -> vm.setFollowSystemTheme(v, themeState) }
@@ -342,7 +352,7 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
                      color = MaterialTheme.colorScheme.outline)
 
                 Spacer(Modifier.height(12.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.agentSettingAnchor(vm, "dark"), verticalAlignment = Alignment.CenterVertically) {
                     Switch(
                         checked = themeState.useDark,
                         enabled = !themeState.followSystem,
@@ -479,7 +489,7 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
 
         ThemeSectionCard(I18n.t("settings.theme.background")) {
                 val parallaxBg by vm.parallaxBackground.collectAsState()
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.agentSettingAnchor(vm, "parallax"), verticalAlignment = Alignment.CenterVertically) {
                     Switch(
                         checked = parallaxBg,
                         onCheckedChange = { v -> vm.setParallaxBackground(v) }
@@ -605,7 +615,7 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
 
         ThemeSectionCard(I18n.t("settings.theme.effects")) {
                 val materialOn by vm.materialTheme.collectAsState()
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.agentSettingAnchor(vm, "material"), verticalAlignment = Alignment.CenterVertically) {
                     Switch(
                         checked = materialOn,
                         onCheckedChange = { v -> vm.setMaterialTheme(v) }
@@ -672,7 +682,7 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
                 Spacer(Modifier.height(12.dp))
 
                 val liveGlassOn by vm.liveWallpaperGlass.collectAsState()
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.agentSettingAnchor(vm, "liveGlass"), verticalAlignment = Alignment.CenterVertically) {
                     Switch(
                         checked = liveGlassOn,
                         onCheckedChange = { v -> vm.setLiveWallpaperGlass(v) }
@@ -690,7 +700,7 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
                 Spacer(Modifier.height(12.dp))
 
                 val glassOn by vm.glassTheme.collectAsState()
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.agentSettingAnchor(vm, "glass"), verticalAlignment = Alignment.CenterVertically) {
                     Switch(
                         checked = glassOn,
                         onCheckedChange = { v -> vm.setGlassTheme(v) }
@@ -708,7 +718,7 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
                 Spacer(Modifier.height(12.dp))
 
                 val lockscreenOn by vm.lockscreenLaunchTheme.collectAsState()
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.agentSettingAnchor(vm, "lockscreen"), verticalAlignment = Alignment.CenterVertically) {
                     Switch(
                         checked = lockscreenOn,
                         onCheckedChange = { v -> vm.setLockscreenLaunchTheme(v) }
@@ -815,6 +825,8 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
         } // end sectionId == theme
 
         if (sectionId == "launcher") {
+        AgentModelSettingsCard(vm)
+        Spacer(Modifier.height(12.dp))
         // 启动器设置（语言 / 窗口 / 背景 / HUD 等）
         Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
             Column(Modifier.padding(16.dp)) {
@@ -2408,10 +2420,11 @@ private fun JavaAgentCard(pref: com.pmcl.core.preferences.Preferences) {
 }
 
 @Composable
-private fun ImeAgentCard(pref: com.pmcl.core.preferences.Preferences) {
-    var enabled by remember { mutableStateOf(pref.isImeFixAgent) }
+private fun ImeAgentCard(vm: LauncherViewModel, pref: com.pmcl.core.preferences.Preferences) {
+    val settingsPulse by vm.settingsPulse.collectAsState()
+    var enabled by remember(settingsPulse) { mutableStateOf(pref.isImeFixAgent) }
     Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.agentSettingAnchor(vm, "imeAgent").padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(I18n.t("settings.ime_agent"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(4.dp))
@@ -2568,7 +2581,7 @@ private fun MioOption(
 }
 
 @Composable
-private fun MioModeCard(pref: com.pmcl.core.preferences.Preferences) {
+private fun MioModeCard(vm: LauncherViewModel, pref: com.pmcl.core.preferences.Preferences) {
     var enabled by remember { mutableStateOf(pref.isMioModeEnabled()) }
     var l1Jvm by remember { mutableStateOf(pref.isMioModeJvm()) }
     var l1LargePages by remember { mutableStateOf(pref.isMioModeLargePages()) }
@@ -2624,7 +2637,7 @@ private fun MioModeCard(pref: com.pmcl.core.preferences.Preferences) {
         )
     }
 
-    Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
+    Card(Modifier.agentSettingAnchor(vm, "mio", prefix = true).fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(I18n.t("settings.perf.mei_mode"), style = MaterialTheme.typography.titleSmall,
@@ -3001,24 +3014,387 @@ private fun MinecraftRootsCard(vm: LauncherViewModel) {
 }
 
 @Composable
+private fun AgentModelSettingsCard(vm: LauncherViewModel) {
+    val scope = rememberCoroutineScope()
+    var base by remember { mutableStateOf("") }
+    var key by remember { mutableStateOf("") }
+    var model by remember { mutableStateOf("") }
+    var current by remember { mutableStateOf("") }
+    var status by remember { mutableStateOf("") }
+    var scanning by remember { mutableStateOf(false) }
+    var scanned by remember { mutableStateOf(false) }
+    var found by remember { mutableStateOf<List<LocalModelScan.Found>>(emptyList()) }
+    LaunchedEffect(Unit) {
+        val saved = withContext(Dispatchers.IO) { AgentModel.load(vm.config.workDir) }
+        base = saved.baseUrl
+        key = saved.apiKey
+        model = saved.model
+        current = if (saved.ready()) saved.model else ""
+    }
+    Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
+        Column(Modifier.padding(16.dp)) {
+            Text(I18n.t("settings.agent_title"), style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(4.dp))
+            Text(I18n.t("settings.agent_hint"),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                if (current.isEmpty()) I18n.t("settings.agent_none") else I18n.t("settings.agent_current", current),
+                style = MaterialTheme.typography.labelMedium
+            )
+            Spacer(Modifier.height(12.dp))
+            OutlinedTextField(
+                value = base,
+                onValueChange = { base = it },
+                label = { Text(I18n.t("launch.agent_base")) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = key,
+                onValueChange = { key = it },
+                label = { Text(I18n.t("launch.agent_key")) },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth()
+            )
+            Text(I18n.t("launch.agent_key_hint"),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline)
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = model,
+                onValueChange = { model = it },
+                label = { Text(I18n.t("launch.agent_model")) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Button(onClick = {
+                    scope.launch {
+                        val failure = withContext(Dispatchers.IO) {
+                            try {
+                                AgentModel.save(vm.config.workDir, base, key, model)
+                                null
+                            } catch (e: kotlinx.coroutines.CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                e.message ?: I18n.t("launch.agent_store")
+                            }
+                        }
+                        if (failure == null) {
+                            val saved = withContext(Dispatchers.IO) { AgentModel.load(vm.config.workDir) }
+                            base = saved.baseUrl
+                            key = saved.apiKey
+                            model = saved.model
+                            current = saved.model
+                            status = I18n.t("settings.agent_saved")
+                        } else {
+                            status = failure
+                        }
+                    }
+                }) { Text(I18n.t("launch.agent_save")) }
+                Spacer(Modifier.width(8.dp))
+                OutlinedButton(
+                    onClick = {
+                        scope.launch {
+                            scanning = true
+                            try {
+                                found = withContext(Dispatchers.IO) { LocalModelScan.scan() }
+                                scanned = true
+                            } finally {
+                                scanning = false
+                            }
+                        }
+                    },
+                    enabled = !scanning
+                ) { Text(if (scanning) I18n.t("settings.agent_scanning") else I18n.t("settings.agent_scan")) }
+                if (status.isNotEmpty()) {
+                    Spacer(Modifier.width(12.dp))
+                    Text(status, style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline)
+                }
+            }
+            if (scanned && found.isEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Text(I18n.t("settings.agent_scan_none"),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline)
+            }
+            found.forEach { item ->
+                TextButton(
+                    onClick = {
+                        model = item.model
+                        if (item.baseUrl.isNotEmpty()) {
+                            base = item.baseUrl
+                            key = ""
+                        }
+                        status = if (item.baseUrl.isEmpty()) I18n.t("settings.agent_scan_file")
+                        else I18n.t("settings.agent_scan_filled")
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.fillMaxWidth()) {
+                        Text(agentSource(item.source) + " · " + item.model)
+                        Text(item.where,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun agentSource(source: String): String = when (source) {
+    LocalModelScan.OLLAMA -> I18n.t("settings.agent_src_ollama")
+    LocalModelScan.LM_STUDIO -> I18n.t("settings.agent_src_lmstudio")
+    LocalModelScan.LLAMA -> I18n.t("settings.agent_src_llama")
+    LocalModelScan.GPT4ALL -> I18n.t("settings.agent_src_gpt4all")
+    LocalModelScan.HUGGINGFACE -> I18n.t("settings.agent_src_huggingface")
+    else -> source
+}
+
+@Composable
+private fun GameDriveCard(vm: LauncherViewModel) {
+    val epoch by vm.gameDriveEpoch.collectAsState()
+    val busy by vm.gameDriveBusy.collectAsState()
+    val progress by vm.gameDriveProgress.collectAsState()
+    val gameRunning by vm.gameRunning.collectAsState()
+    var placement by remember { mutableStateOf<GameDriveRelocation.Placement?>(null) }
+    var volumes by remember { mutableStateOf<List<GameDriveRelocation.Volume>>(emptyList()) }
+    var loaded by remember { mutableStateOf(false) }
+    var picking by remember { mutableStateOf(false) }
+    var confirm by remember { mutableStateOf<GameDriveRelocation.Volume?>(null) }
+    var confirmHome by remember { mutableStateOf(false) }
+
+    LaunchedEffect(epoch) {
+        loaded = false
+        val found = withContext(Dispatchers.IO) {
+            val tool = GameDriveRelocation(vm.config.workDir)
+            tool.inspect() to tool.externalVolumes()
+        }
+        placement = found.first
+        volumes = found.second
+        loaded = true
+    }
+
+    val place = placement
+    val choices = volumes.filter { volume ->
+        val current = place?.volumeRoot
+        val fullyMoved = (place?.localDirs ?: 0) == 0 && (place?.linkedDirs ?: 0) > 0
+        !fullyMoved || current == null || volume.root != current
+    }
+    val canMove = loaded && !busy && !gameRunning && place?.isAvailable != false && choices.isNotEmpty()
+            && ((place?.localDirs ?: 0) > 0 || (place?.linkedDirs ?: 0) > 0)
+    val canHome = loaded && !busy && !gameRunning && place != null && place.isAvailable && place.linkedDirs > 0
+
+    Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.Storage, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(6.dp))
+                Text(I18n.t("settings.game_drive"), style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold)
+            }
+            Spacer(Modifier.height(4.dp))
+            Text(I18n.t("settings.game_drive_hint"),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline)
+
+            Spacer(Modifier.height(12.dp))
+            Text(
+                when {
+                    !loaded -> I18n.t("settings.game_drive_measuring")
+                    place != null && place.linkedDirs > 0 && !place.isAvailable ->
+                        I18n.t("settings.game_drive_offline", place.volumeName ?: place.volumeRoot?.toString() ?: "")
+                    place != null && place.localDirs > 0 && place.linkedDirs > 0 ->
+                        I18n.t("settings.game_drive_partial", place.localDirs.toString(), place.linkedDirs.toString(),
+                            place.volumeName ?: "")
+                    place != null && place.isOnExternal ->
+                        I18n.t("settings.game_drive_external", place.volumeName ?: "", place.volumeRoot?.toString() ?: "")
+                    place != null -> I18n.t("settings.game_drive_local", GameDriveRelocation.formatBytes(place.bytes))
+                    else -> I18n.t("settings.game_drive_measuring")
+                },
+                style = MaterialTheme.typography.bodySmall
+            )
+
+            if (gameRunning) {
+                Spacer(Modifier.height(8.dp))
+                Text(I18n.t("settings.game_drive_running"),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error)
+            } else if (loaded && choices.isEmpty() && (place?.localDirs ?: 0) > 0) {
+                Spacer(Modifier.height(8.dp))
+                Text(I18n.t("settings.game_drive_none"),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline)
+            }
+
+            if (busy) {
+                val copied = progress?.copied ?: 0L
+                val total = progress?.total ?: 0L
+                val fraction = if (total <= 0L) 0f else (copied.toFloat() / total.toFloat()).coerceIn(0f, 1f)
+                Spacer(Modifier.height(12.dp))
+                LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    I18n.t("settings.game_drive_progress",
+                        GameDriveRelocation.formatBytes(copied),
+                        GameDriveRelocation.formatBytes(total),
+                        progress?.current ?: ""),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
+            }
+
+            Spacer(Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = {
+                        if (choices.size == 1) confirm = choices[0] else picking = true
+                    },
+                    enabled = canMove
+                ) {
+                    Text(when {
+                        (place?.localDirs ?: 0) > 0 && (place?.linkedDirs ?: 0) > 0 -> I18n.t("settings.game_drive_continue")
+                        (place?.linkedDirs ?: 0) > 0 -> I18n.t("settings.game_drive_switch")
+                        else -> I18n.t("settings.game_drive_move")
+                    })
+                }
+                if ((place?.linkedDirs ?: 0) > 0) {
+                    OutlinedButton(onClick = { confirmHome = true }, enabled = canHome) {
+                        Text(I18n.t("settings.game_drive_home"))
+                    }
+                }
+                if (busy) {
+                    TextButton(onClick = { vm.cancelGameDrive() }) {
+                        Text(I18n.t("common.cancel"))
+                    }
+                }
+            }
+        }
+    }
+
+    if (picking) {
+        AlertDialog(
+            onDismissRequest = { picking = false },
+            title = { Text(I18n.t("settings.game_drive_pick")) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    choices.forEach { volume ->
+                        TextButton(onClick = {
+                            picking = false
+                            confirm = volume
+                        }) {
+                            Column {
+                                Text(volume.name)
+                                Text(
+                                    volume.root.toString() + "  " + I18n.t("settings.game_drive_free",
+                                        GameDriveRelocation.formatBytes(volume.usableBytes)),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.outline
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { picking = false }) { Text(I18n.t("common.cancel")) }
+            }
+        )
+    }
+
+    val pending = confirm
+    if (pending != null && place != null) {
+        AlertDialog(
+            onDismissRequest = { confirm = null },
+            title = { Text(I18n.t("settings.game_drive_confirm_title", pending.name)) },
+            text = {
+                Text(I18n.t("settings.game_drive_confirm_body",
+                    GameDriveRelocation.formatBytes(place.bytes),
+                    pending.root.resolve("PMCL").toString(),
+                    GameDriveRelocation.formatBytes(pending.usableBytes)))
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val root = pending.root.toString()
+                    confirm = null
+                    vm.relocateGameTo(root)
+                }) { Text(I18n.t("settings.game_drive_start")) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirm = null }) { Text(I18n.t("common.cancel")) }
+            }
+        )
+    }
+
+    if (confirmHome && place != null) {
+        AlertDialog(
+            onDismissRequest = { confirmHome = false },
+            title = { Text(I18n.t("settings.game_drive_home_title")) },
+            text = {
+                Text(I18n.t("settings.game_drive_home_body",
+                    GameDriveRelocation.formatBytes(place.bytes),
+                    GameDriveRelocation.formatBytes(usableAt(vm.config.workDir))))
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmHome = false
+                    vm.relocateGameHome()
+                }) { Text(I18n.t("settings.game_drive_start")) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmHome = false }) { Text(I18n.t("common.cancel")) }
+            }
+        )
+    }
+}
+
+private fun usableAt(path: java.nio.file.Path): Long = try {
+    java.nio.file.Files.getFileStore(path).usableSpace
+} catch (_: Exception) {
+    0L
+}
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun Modifier.agentSettingAnchor(vm: LauncherViewModel, id: String, prefix: Boolean = false): Modifier {
+    val pulse by vm.settingsPulse.collectAsState()
+    val focus by vm.settingsFocus.collectAsState()
+    val bring = remember(id) { BringIntoViewRequester() }
+    LaunchedEffect(pulse, focus) {
+        val hit = focus == id || (prefix && id.isNotEmpty() && focus.startsWith(id))
+        if (pulse > 0 && hit) bring.bringIntoView()
+    }
+    return this.bringIntoViewRequester(bring)
+}
+
+@Composable
 private fun GameBehaviorCard(vm: LauncherViewModel, pref: com.pmcl.core.preferences.Preferences) {
+    val settingsPulse by vm.settingsPulse.collectAsState()
     var width by remember { mutableStateOf(pref.getGameWindowWidth().toString()) }
     var height by remember { mutableStateOf(pref.getGameWindowHeight().toString()) }
     var renderer by remember { mutableStateOf(pref.getGameRenderer()) }
-    var linuxZink by remember { mutableStateOf(pref.isLinuxZink()) }
-    var macMic by remember { mutableStateOf(pref.isMacMicrophoneRequest()) }
-    var macGameMode by remember { mutableStateOf(pref.isMacGameMode()) }
-    var preferUtf8 by remember { mutableStateOf(pref.isPreferUtf8()) }
-    var preferIpv4 by remember { mutableStateOf(pref.isPreferIPv4()) }
+    var linuxZink by remember(settingsPulse) { mutableStateOf(pref.isLinuxZink()) }
+    var macMic by remember(settingsPulse) { mutableStateOf(pref.isMacMicrophoneRequest()) }
+    var macGameMode by remember(settingsPulse) { mutableStateOf(pref.isMacGameMode()) }
+    var preferUtf8 by remember(settingsPulse) { mutableStateOf(pref.isPreferUtf8()) }
+    var preferIpv4 by remember(settingsPulse) { mutableStateOf(pref.isPreferIPv4()) }
     var repairRetries by remember { mutableStateOf(pref.getResourceRepairRetries().toString()) }
-    var fastCheck by remember { mutableStateOf(pref.isFastResourceCheck()) }
+    var fastCheck by remember(settingsPulse) { mutableStateOf(pref.isFastResourceCheck()) }
     var nativesStrategy by remember { mutableStateOf(pref.getNativesReplaceStrategy()) }
     var afterGame by remember { mutableStateOf(pref.getLauncherAfterGame()) }
     var checkParallel by remember { mutableStateOf(pref.getResourceCheckParallelism().toString()) }
-    var showOutput by remember { mutableStateOf(pref.isShowGameOutput()) }
+    var showOutput by remember(settingsPulse) { mutableStateOf(pref.isShowGameOutput()) }
     var logLevel by remember { mutableStateOf(pref.getLauncherLogLevel()) }
-    var fullscreen by remember { mutableStateOf(pref.isGameFullscreen()) }
-    var demo by remember { mutableStateOf(pref.isGameDemo()) }
+    var fullscreen by remember(settingsPulse) { mutableStateOf(pref.isGameFullscreen()) }
+    var demo by remember(settingsPulse) { mutableStateOf(pref.isGameDemo()) }
     var serverHost by remember { mutableStateOf(pref.getGameServerHost()) }
     var serverPort by remember { mutableStateOf(pref.getGameServerPort().toString()) }
     var serverToken by remember { mutableStateOf(pref.getGameServerToken()) }
@@ -3026,7 +3402,7 @@ private fun GameBehaviorCard(vm: LauncherViewModel, pref: com.pmcl.core.preferen
     var windowIconPath by remember { mutableStateOf(pref.getWindowIconPath()) }
     var menuBgVideoPath by remember { mutableStateOf(pref.getCustomMenuBackgroundVideo()) }
     var customNativesPath by remember { mutableStateOf(pref.getCustomNativesPath()) }
-    var versionIsolation by remember { mutableStateOf(pref.isVersionIsolation()) }
+    var versionIsolation by remember(settingsPulse) { mutableStateOf(pref.isVersionIsolation()) }
 
     Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
         Column(Modifier.padding(16.dp)) {
@@ -3038,7 +3414,7 @@ private fun GameBehaviorCard(vm: LauncherViewModel, pref: com.pmcl.core.preferen
                  color = MaterialTheme.colorScheme.outline)
 
             Spacer(Modifier.height(12.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.agentSettingAnchor(vm, "versionIsolation"), verticalAlignment = Alignment.CenterVertically) {
                 Switch(checked = versionIsolation, onCheckedChange = {
                     versionIsolation = it
                     vm.setVersionIsolation(it)
@@ -3107,7 +3483,7 @@ private fun GameBehaviorCard(vm: LauncherViewModel, pref: com.pmcl.core.preferen
             val isLinux = System.getProperty("os.name", "").lowercase().contains("linux")
             if (isLinux) {
                 Spacer(Modifier.height(12.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.agentSettingAnchor(vm, "linuxZink"), verticalAlignment = Alignment.CenterVertically) {
                     Switch(checked = linuxZink, onCheckedChange = {
                         linuxZink = it
                         pref.setLinuxZink(it)
@@ -3125,7 +3501,7 @@ private fun GameBehaviorCard(vm: LauncherViewModel, pref: com.pmcl.core.preferen
             val isMac = System.getProperty("os.name", "").lowercase().contains("mac")
             if (isMac) {
                 Spacer(Modifier.height(12.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.agentSettingAnchor(vm, "macMic"), verticalAlignment = Alignment.CenterVertically) {
                     Switch(checked = macMic, onCheckedChange = {
                         macMic = it
                         pref.setMacMicrophoneRequest(it)
@@ -3139,7 +3515,10 @@ private fun GameBehaviorCard(vm: LauncherViewModel, pref: com.pmcl.core.preferen
                     }
                 }
                 Spacer(Modifier.height(12.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    Modifier.agentSettingAnchor(vm, "macGameMode"),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Switch(checked = macGameMode, onCheckedChange = {
                         macGameMode = it
                         pref.setMacGameMode(it)
@@ -3155,7 +3534,7 @@ private fun GameBehaviorCard(vm: LauncherViewModel, pref: com.pmcl.core.preferen
             }
 
             Spacer(Modifier.height(12.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.agentSettingAnchor(vm, "preferUtf8"), verticalAlignment = Alignment.CenterVertically) {
                 Switch(checked = preferUtf8, onCheckedChange = {
                     preferUtf8 = it
                     pref.setPreferUtf8(it)
@@ -3170,7 +3549,7 @@ private fun GameBehaviorCard(vm: LauncherViewModel, pref: com.pmcl.core.preferen
             }
 
             Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.agentSettingAnchor(vm, "preferIpv4"), verticalAlignment = Alignment.CenterVertically) {
                 Switch(checked = preferIpv4, onCheckedChange = {
                     preferIpv4 = it
                     pref.setPreferIPv4(it)
@@ -3239,7 +3618,7 @@ private fun GameBehaviorCard(vm: LauncherViewModel, pref: com.pmcl.core.preferen
                  color = MaterialTheme.colorScheme.outline)
 
             Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.agentSettingAnchor(vm, "showOutput"), verticalAlignment = Alignment.CenterVertically) {
                 Switch(checked = showOutput, onCheckedChange = {
                     showOutput = it
                     pref.setShowGameOutput(it)
@@ -3278,7 +3657,7 @@ private fun GameBehaviorCard(vm: LauncherViewModel, pref: com.pmcl.core.preferen
                  color = MaterialTheme.colorScheme.outline)
 
             Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.agentSettingAnchor(vm, "fastCheck"), verticalAlignment = Alignment.CenterVertically) {
                 Switch(checked = fastCheck, onCheckedChange = {
                     fastCheck = it
                     pref.setFastResourceCheck(it)
@@ -3293,7 +3672,7 @@ private fun GameBehaviorCard(vm: LauncherViewModel, pref: com.pmcl.core.preferen
             }
 
             Spacer(Modifier.height(12.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.agentSettingAnchor(vm, "fullscreen"), verticalAlignment = Alignment.CenterVertically) {
                 Switch(checked = fullscreen, onCheckedChange = { fullscreen = it; pref.setGameFullscreen(it) })
                 Spacer(Modifier.width(8.dp))
                 Column {
@@ -3305,7 +3684,7 @@ private fun GameBehaviorCard(vm: LauncherViewModel, pref: com.pmcl.core.preferen
             }
 
             Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.agentSettingAnchor(vm, "demo"), verticalAlignment = Alignment.CenterVertically) {
                 Switch(checked = demo, onCheckedChange = { demo = it; pref.setGameDemo(it) })
                 Spacer(Modifier.width(8.dp))
                 Column {
@@ -3661,10 +4040,11 @@ private fun CurseForgeGuideCard(vm: LauncherViewModel, pref: com.pmcl.core.prefe
 
 @Composable
 private fun NetworkConfigCard(vm: LauncherViewModel, pref: com.pmcl.core.preferences.Preferences) {
+    val settingsPulse by vm.settingsPulse.collectAsState()
     val scope = rememberCoroutineScope()
     var mirrorType by remember { mutableStateOf(pref.getMirrorType()) }
     var customMirror by remember { mutableStateOf(pref.getCustomMirrorBase()) }
-    var useProxy by remember { mutableStateOf(pref.isUseProxy()) }
+    var useProxy by remember(settingsPulse) { mutableStateOf(pref.isUseProxy()) }
     var proxyType by remember { mutableStateOf(pref.getProxyType()) }
     var proxyHost by remember { mutableStateOf(pref.getProxyHost()) }
     var proxyPort by remember { mutableStateOf(pref.getProxyPort().toString()) }
@@ -3673,7 +4053,7 @@ private fun NetworkConfigCard(vm: LauncherViewModel, pref: com.pmcl.core.prefere
     var proxyPass by remember { mutableStateOf(pref.getProxyPassword()) }
     var speedLimit by remember { mutableStateOf(pref.getDownloadSpeedLimitKb().toString()) }
     var retryCount by remember { mutableStateOf(pref.getDownloadRetryCount().toString()) }
-    var enableResume by remember { mutableStateOf(pref.isEnableResume()) }
+    var enableResume by remember(settingsPulse) { mutableStateOf(pref.isEnableResume()) }
     var chunkedThreads by remember { mutableStateOf(pref.getChunkedDownloadThreads().toString()) }
     var proxyTesting by remember { mutableStateOf(false) }
     var proxyTestOk by remember { mutableStateOf<Boolean?>(null) }
@@ -3715,7 +4095,7 @@ private fun NetworkConfigCard(vm: LauncherViewModel, pref: com.pmcl.core.prefere
             }
 
             Spacer(Modifier.height(12.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.agentSettingAnchor(vm, "useProxy"), verticalAlignment = Alignment.CenterVertically) {
                 Switch(checked = useProxy, onCheckedChange = {
                     useProxy = it; pref.setUseProxy(it); vm.applyNetworkPreferences()
                 })
@@ -3866,7 +4246,7 @@ private fun NetworkConfigCard(vm: LauncherViewModel, pref: com.pmcl.core.prefere
                  color = MaterialTheme.colorScheme.outline)
 
             Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.agentSettingAnchor(vm, "resume"), verticalAlignment = Alignment.CenterVertically) {
                 Switch(checked = enableResume, onCheckedChange = {
                     enableResume = it; pref.setEnableResume(it); vm.applyNetworkPreferences()
                 })

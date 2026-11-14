@@ -1088,7 +1088,7 @@ public final class LaunchProfileBuilder {
         boolean needsStdlib = false;
         boolean runtimeAlreadyProvided = false;
         int scanned = 0;
-        try (var stream = java.nio.file.Files.walk(modsDir, 4)) {
+        try (var stream = com.pmcl.core.util.DirectoryLinks.walk(modsDir, 4)) {
             var jars = stream
                     .filter(p -> !java.nio.file.Files.isSymbolicLink(p))
                     .filter(p -> {

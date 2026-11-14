@@ -43,10 +43,14 @@ import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * ECXP 应用和启动器之间的本机通道。只监听 127.0.0.1，每行一条 JSON。
@@ -149,6 +153,29 @@ public final class EcxpBridge implements AutoCloseable {
     public void push(String appId, String event, JsonElement data) {
         for (Session s : sessions) {
             if (s.grant.manifest.getId().equals(appId)) s.push(event, data);
+        }
+    }
+
+    /**
+     * 进程内调用插件接口。方法名是 “接口.方法”，参数按位置放在数组里。
+     * 不打开套接字，也不接受回调参数。返回 CompletableFuture 的方法会等到结果。
+     */
+    public static JsonElement call(PluginContext context, String method, JsonArray params) throws Failure {
+        if (context == null) throw new Failure("api_unavailable", "plugin system is not running");
+        if (method == null || method.isBlank()) throw new Failure("unknown_method", "");
+        JsonArray args = params == null ? new JsonArray() : params;
+        try {
+            return dispatchApi(context, null, method, args);
+        } catch (InvocationTargetException e) {
+            Throwable cause = e.getCause() == null ? e : e.getCause();
+            String code = cause instanceof SecurityException ? "permission_denied" : "failed";
+            throw new Failure(code, String.valueOf(cause.getMessage() == null ? cause : cause.getMessage()));
+        } catch (BridgeError e) {
+            throw new Failure(e.code, e.getMessage());
+        } catch (SecurityException e) {
+            throw new Failure("permission_denied", String.valueOf(e.getMessage()));
+        } catch (RuntimeException | ReflectiveOperationException e) {
+            throw new Failure("failed", String.valueOf(e.getMessage() == null ? e : e.getMessage()));
         }
     }
 
@@ -290,11 +317,15 @@ public final class EcxpBridge implements AutoCloseable {
             }
             default -> { }
         }
+        return dispatchApi(session.grant.context, session, method, params);
+    }
+
+    private static JsonElement dispatchApi(PluginContext context, Session session, String method, JsonArray params)
+            throws ReflectiveOperationException, BridgeError {
         int dot = method.indexOf('.');
         if (dot <= 0 || dot == method.length() - 1) throw new BridgeError("unknown_method", method);
         Method accessor = APIS.get(method.substring(0, dot));
         if (accessor == null) throw new BridgeError("unknown_method", method);
-        PluginContext context = session.grant.context;
         if (context == null) throw new BridgeError("api_unavailable", "plugin system is not running");
         Object api = accessor.invoke(context);
         if (api == null) throw new BridgeError("api_unavailable", method);
@@ -315,12 +346,28 @@ public final class EcxpBridge implements AutoCloseable {
                 continue;
             }
             Object value = m.invoke(api, args);
-            return m.getReturnType() == void.class ? JsonNull.INSTANCE : GSON.toJsonTree(value);
+            if (value instanceof CompletionStage<?> stage) value = await(stage);
+            return value == null || m.getReturnType() == void.class ? JsonNull.INSTANCE : GSON.toJsonTree(value);
         }
         throw new BridgeError("bad_params", mismatch == null ? method : String.valueOf(mismatch.getMessage()));
     }
 
-    private Object[] convertArgs(Session session, Method m, JsonArray params) {
+    private static Object await(CompletionStage<?> stage) throws BridgeError {
+        try {
+            return stage.toCompletableFuture().get(20, TimeUnit.SECONDS);
+        } catch (TimeoutException e) {
+            throw new BridgeError("failed", "timed out");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new BridgeError("failed", "interrupted");
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause() == null ? e : e.getCause();
+            if (cause instanceof RuntimeException runtime) throw runtime;
+            throw new BridgeError("failed", String.valueOf(cause.getMessage() == null ? cause : cause.getMessage()));
+        }
+    }
+
+    private static Object[] convertArgs(Session session, Method m, JsonArray params) {
         Type[] types = m.getGenericParameterTypes();
         Class<?>[] raws = m.getParameterTypes();
         Object[] args = new Object[types.length];
@@ -331,6 +378,7 @@ public final class EcxpBridge implements AutoCloseable {
                 if (raw.isPrimitive()) throw new IllegalArgumentException("argument " + i + " is required");
                 args[i] = null;
             } else if (isCallback(raw)) {
+                if (session == null) throw new IllegalArgumentException("callback is not available");
                 String cb = el.isJsonObject() && el.getAsJsonObject().has("$callback")
                         ? el.getAsJsonObject().get("$callback").getAsString() : el.getAsString();
                 args[i] = callbackProxy(raw, session, cb);
@@ -524,6 +572,20 @@ public final class EcxpBridge implements AutoCloseable {
                 socket.close();
             } catch (IOException ignored) {
             }
+        }
+    }
+
+    /** 进程内调用失败。code 与套接字通道上的 error.code 相同。 */
+    public static final class Failure extends Exception {
+        private final String code;
+
+        public Failure(String code, String message) {
+            super(message == null ? "" : message);
+            this.code = code == null || code.isBlank() ? "failed" : code;
+        }
+
+        public String code() {
+            return code;
         }
     }
 

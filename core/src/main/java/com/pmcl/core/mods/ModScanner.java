@@ -4,6 +4,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.pmcl.core.util.DirectoryLinks;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -62,7 +63,7 @@ public final class ModScanner {
         List<ModMeta> result = new ArrayList<>();
         if (!Files.isDirectory(modsDir)) return result;
         Path base = modsDir.toAbsolutePath().normalize();
-        try (Stream<Path> stream = Files.walk(modsDir, SCAN_MAX_DEPTH)) {
+        try (Stream<Path> stream = DirectoryLinks.walk(modsDir, SCAN_MAX_DEPTH)) {
             stream.forEach(p -> {
                 if (result.size() >= SCAN_MAX_JARS) return;
                 try {
@@ -93,7 +94,7 @@ public final class ModScanner {
     public static long directoryFingerprint(Path modsDir) {
         if (modsDir == null || !Files.isDirectory(modsDir)) return 0L;
         long[] max = {0L};
-        try (Stream<Path> stream = Files.walk(modsDir, SCAN_MAX_DEPTH)) {
+        try (Stream<Path> stream = DirectoryLinks.walk(modsDir, SCAN_MAX_DEPTH)) {
             stream.forEach(p -> {
                 try {
                     long t = Files.getLastModifiedTime(p).toMillis();

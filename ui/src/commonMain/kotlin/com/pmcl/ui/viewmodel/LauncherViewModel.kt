@@ -13,6 +13,7 @@ import com.pmcl.core.launch.GameLogger
 import com.pmcl.core.launch.JavaRuntimeFinder
 import com.pmcl.core.launch.ExternalLauncherDetector
 import com.pmcl.core.market.ModFile
+import com.pmcl.core.migration.GameDriveRelocation
 import com.pmcl.core.market.ModProject
 import com.pmcl.core.modloader.ModLoader
 import com.pmcl.core.modloader.ModLoaderVersion
@@ -1447,6 +1448,74 @@ class LauncherViewModel {
     }
     val gameRunning: StateFlow<Boolean> = _gameRunning.asStateFlow()
 
+    private val _gameDriveBusy = MutableStateFlow(false)
+    val gameDriveBusy: StateFlow<Boolean> = _gameDriveBusy.asStateFlow()
+    private val _gameDriveProgress = MutableStateFlow<GameDriveRelocation.Progress?>(null)
+    val gameDriveProgress: StateFlow<GameDriveRelocation.Progress?> = _gameDriveProgress.asStateFlow()
+    private val _gameDriveEpoch = MutableStateFlow(0)
+    val gameDriveEpoch: StateFlow<Int> = _gameDriveEpoch.asStateFlow()
+    private var gameDriveJob: Job? = null
+
+    fun cancelGameDrive() {
+        gameDriveJob?.cancel()
+    }
+
+    fun relocateGameTo(root: String) {
+        startGameDrive(false, root)
+    }
+
+    fun relocateGameHome() {
+        startGameDrive(true, null)
+    }
+
+    private fun startGameDrive(home: Boolean, root: String?) {
+        if (_gameDriveBusy.value) return
+        if (_gameRunning.value || _runningInstances.value.isNotEmpty()) {
+            _status.value = I18n.t("status.game_drive_busy_game")
+            return
+        }
+        val downloading = try {
+            core.downloadQueue().tasks.any {
+                it.isActive || it.status == com.pmcl.core.download.DownloadQueueManager.TaskStatus.PAUSED
+            }
+        } catch (_: Throwable) {
+            false
+        }
+        if (downloading) {
+            _status.value = I18n.t("status.game_drive_busy_download")
+            return
+        }
+        gameDriveJob = scope.launch {
+            _gameDriveBusy.value = true
+            _gameDriveProgress.value = null
+            try {
+                withContext(Dispatchers.IO) {
+                    val tool = GameDriveRelocation(config.workDir)
+                    if (home) {
+                        tool.moveHome { progress -> _gameDriveProgress.value = progress }
+                    } else {
+                        val target = root ?: throw IllegalArgumentException("missing disk")
+                        tool.moveTo(java.nio.file.Path.of(target)) { progress -> _gameDriveProgress.value = progress }
+                    }
+                }
+                _status.value = I18n.t(if (home) "status.game_drive_home_done" else "status.game_drive_done")
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                _status.value = I18n.t("drive.cancelled")
+                throw e
+            } catch (e: Throwable) {
+                _status.value = if (e is GameDriveRelocation.Cancelled) {
+                    e.message ?: I18n.t("drive.cancelled")
+                } else {
+                    I18n.t("status.game_drive_failed", e.message ?: I18n.t("common.unknown"))
+                }
+            } finally {
+                _gameDriveBusy.value = false
+                _gameDriveProgress.value = null
+                _gameDriveEpoch.value = _gameDriveEpoch.value + 1
+            }
+        }
+    }
+
     /** 启动准备互斥：防双击并行构建两套 profile；进程已启动后释放以允许多开 */
     @PublishedApi internal val launchPreparing = java.util.concurrent.atomic.AtomicBoolean(false)
 
@@ -1706,6 +1775,16 @@ class LauncherViewModel {
         _secondaryNavRequest.value = route to sectionId
     }
     fun clearSecondaryNavRequest() { _secondaryNavRequest.value = null }
+
+    /** 智能体改了某项设置后加一，让已经打开的设置页跟着变。 */
+    private val _settingsPulse = MutableStateFlow(0)
+    val settingsPulse: StateFlow<Int> = _settingsPulse.asStateFlow()
+    private val _settingsFocus = MutableStateFlow("")
+    val settingsFocus: StateFlow<String> = _settingsFocus.asStateFlow()
+    fun noteSettingsChanged(focus: String = "") {
+        _settingsFocus.value = focus
+        _settingsPulse.value = _settingsPulse.value + 1
+    }
 
     // ===== 游戏安装前询问事件（用于弹窗询问是否同时安装模组加载器）=====
     /**
