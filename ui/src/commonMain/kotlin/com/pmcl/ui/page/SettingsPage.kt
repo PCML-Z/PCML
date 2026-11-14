@@ -2254,6 +2254,18 @@ private fun openSourceDeps() = listOf(
         license = "LGPL-3.0",
         url = "https://github.com/EasyTier/EasyTier"
     ),
+    TechDependency(
+        name = "Axolotl Launcher",
+        copyright = "Copyright © 2026 Garbage Human Studio. Original backend Copyright © Rinth, Inc. and contributors.",
+        license = "GPL-3.0-only",
+        url = "https://github.com/Axolotl-Launcher/Axolotl"
+    ),
+    TechDependency(
+        name = "LogShare",
+        copyright = "Copyright © Aternos GmbH & ZeinkLab (2018–2024).",
+        license = "Licensed under the MIT License.",
+        url = "https://github.com/anylyralabs/LogShare"
+    ),
 )
 
 /** 关于卡片中的依赖列表（技术栈 / 引用开源项目共用） */
@@ -5400,6 +5412,7 @@ private fun licenseConflictDocument(): String = buildString {
     appendConflictItem("FFmpeg", "LGPL / GPL", "about.license.conflict.ffmpeg")
     appendConflictItem("JavaCV", "Apache-2.0", "about.license.conflict.javacv")
     appendConflictItem("EasyTier", "LGPL-3.0", "about.license.conflict.easytier")
+    appendConflictItem("Axolotl Launcher", "GPL-3.0-only", "about.license.conflict.axolotl")
     appendLine()
     appendLine("—— ${I18n.t("about.license.notice_label")} ——")
     appendConflictItem("Java / OpenJDK", "GPL-2.0 + Classpath Exception", "about.license.conflict.java")
