@@ -193,6 +193,7 @@ sourceSets.named("main") {
     output.dir(mapOf("builtBy" to "syncBindGateClasses"), bindGateForMain)
     resources.srcDir(layout.buildDirectory.dir("generated/glfwAgentResource"))
     resources.srcDir(layout.buildDirectory.dir("generated/imeAgentResource"))
+    resources.srcDir(layout.buildDirectory.dir("generated/logagentResource"))
 }
 sourceSets.named("test") {
     compileClasspath += bindGate.output
@@ -210,19 +211,59 @@ tasks.named<ProcessResources>("processResources") {
         into("dev/ecxp-sdk")
     }
 }
+val logAgentOsName = System.getProperty("os.name").lowercase()
+val logAgentArchName = System.getProperty("os.arch").lowercase()
+val logAgentFamily = when {
+    logAgentOsName.contains("mac") -> "darwin"
+    logAgentOsName.contains("win") -> "windows"
+    else -> "linux"
+}
+val logAgentCpu = if (logAgentArchName.contains("aarch64") || logAgentArchName.contains("arm64")) "aarch64" else "x86_64"
+val logAgentLibrary = when (logAgentFamily) {
+    "windows" -> "pmcllogagent.dll"
+    "darwin" -> "libpmcllogagent.dylib"
+    else -> "libpmcllogagent.so"
+}
+val logAgentCrate = rootProject.file("native/logagent")
+val logAgentBuilt = logAgentCrate.resolve("target/release/$logAgentLibrary")
+val buildLogAgent by tasks.registering(Exec::class) {
+    group = "build"
+    description = "用 cargo 编译 Axolotl 诊断引擎"
+    workingDir(logAgentCrate)
+    commandLine("cargo", "build", "--release", "--manifest-path", logAgentCrate.resolve("Cargo.toml").absolutePath)
+    environment("CARGO_TARGET_DIR", logAgentCrate.resolve("target").absolutePath)
+    val javaHome = System.getenv("JAVA_HOME")
+        ?: "/Library/Java/JavaVirtualMachines/jdk-21.jdk/Contents/Home"
+    environment("JAVA_HOME", javaHome)
+    inputs.dir(logAgentCrate.resolve("src"))
+    inputs.file(logAgentCrate.resolve("Cargo.toml"))
+    inputs.file(logAgentCrate.resolve("Cargo.lock"))
+    outputs.file(logAgentBuilt)
+}
+val syncLogAgent by tasks.registering(Copy::class) {
+    dependsOn(buildLogAgent)
+    from(logAgentBuilt)
+    into(layout.buildDirectory.dir("generated/logagentResource/native/$logAgentFamily-$logAgentCpu"))
+}
+tasks.named<ProcessResources>("processResources") {
+    dependsOn(syncLogAgent)
+}
+
 tasks.named<Jar>("jar") {
-    dependsOn(syncGlfwAgentResource, syncImeAgentResource, syncBindGateClasses)
+    dependsOn(syncGlfwAgentResource, syncImeAgentResource, syncBindGateClasses, syncLogAgent)
 }
 
 // sourcesJar（withSourcesJar 生成）会包含 main 资源集，而 main 资源集已把
 // generated/glfwAgentResource 纳入 srcDir，故必须显式依赖生成任务，否则 Gradle 8.x
 // 配置校验会报 "uses output without declaring dependency" 导致 assemble 失败。
 tasks.named<Jar>("sourcesJar") {
-    dependsOn(syncGlfwAgentResource, syncImeAgentResource)
+    dependsOn(syncGlfwAgentResource, syncImeAgentResource, syncLogAgent)
 }
 
 tasks.test {
     useJUnitPlatform()
+    dependsOn(syncLogAgent)
+    systemProperty("pmcl.logagent.lib", logAgentBuilt.absolutePath)
     // 隔离 user.home：LauncherCore 构造会初始化 FriendManager 等直接读写
     // <user.home>/.pmcl 的组件；重定向到 build 目录避免测试污染真实用户数据
     val testHome = layout.buildDirectory.dir("test-home")

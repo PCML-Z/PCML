@@ -302,6 +302,9 @@ private fun CrashAiRepair(
                         vm.config.workDir.resolve("crash-repair"),
                         AgentApi.permissions()
                     )
+                    val modsArgs = JsonArray()
+                    modsArgs.add(versionId)
+                    val modsDir = modsDirectory(AgentApi.invoke(context, "mods.resolveModsDir", modsArgs))
                     CrashRepair.investigate(endpoint, versionId, report, logs, object : CrashRepair.Hooks {
                         override fun cancelled(): Boolean = cancelled.get()
                         override fun progress(text: String) {
@@ -310,7 +313,7 @@ private fun CrashAiRepair(
                         override fun call(method: String, args: JsonArray): String {
                             return AgentApi.invoke(context, method, args)
                         }
-                    })
+                    }, modsDir)
                 }
                 if (cancelled.get()) return@launch
                 busy = false
@@ -333,6 +336,7 @@ private fun CrashAiRepair(
         result.status == "need" -> I18n.t("crash.ai.need")
         result.status == "empty" -> I18n.t("crash.ai.empty")
         result.status == "failed" -> I18n.t("crash.ai.failed", result.detail.ifBlank { I18n.t("common.unknown") })
+        result.status == "engine" -> I18n.t("crash.ai.engine", result.detail.ifBlank { I18n.t("common.unknown") })
         else -> ""
     }
     if (note.isNotBlank()) {
@@ -380,11 +384,25 @@ private fun CrashAiRepair(
                     Text("· $step", style = MaterialTheme.typography.labelSmall, color = CrashOnRed, maxLines = 2)
                 }
             }
+            insight.evidence.take(4).forEach { line ->
+                Text("· $line", style = MaterialTheme.typography.labelSmall, color = CrashOnRed, maxLines = 2)
+            }
             result.applied.forEach { line ->
                 Text(line, style = MaterialTheme.typography.labelSmall, color = CrashOnRed, maxLines = 2)
             }
         }
     }
+}
+
+private fun modsDirectory(raw: String): String? {
+    val text = raw.trim()
+    if (text.isEmpty() || text == "null" || text.startsWith("不能") || text.startsWith("failed")) return null
+    val path = if (text.length >= 2 && text.startsWith("\"") && text.endsWith("\"")) {
+        text.substring(1, text.length - 1)
+    } else {
+        text
+    }
+    return path.takeIf { it.isNotBlank() && !it.startsWith("不能") }
 }
 
 private fun crashReportText(lines: List<String>): String {

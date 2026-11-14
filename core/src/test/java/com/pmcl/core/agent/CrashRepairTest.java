@@ -1,7 +1,6 @@
 package com.pmcl.core.agent;
 
 import com.google.gson.JsonArray;
-import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.junit.jupiter.api.Test;
 
@@ -19,69 +18,22 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class CrashRepairTest {
 
     @Test
-    void grepKeepsOriginalLinesAndMergesContext() {
-        CrashLogTools.LogFile file = new CrashLogTools.LogFile(
-                "log-1", "latest.log", "minecraft_log", 200, true,
-                List.of("start", "ERROR one", "cause", "error two", "end"));
-        JsonObject request = new JsonObject();
-        request.addProperty("name", "grep_log_file");
-        request.addProperty("file_id", "log-1");
-        request.addProperty("query", "error");
-        request.addProperty("context", 1);
-        JsonObject result = CrashLogTools.execute(List.of(file), request);
-        assertEquals(5, result.getAsJsonArray("lines").size());
-        assertEquals(200, result.getAsJsonArray("lines").get(0).getAsJsonObject().get("line").getAsInt());
-        assertEquals(204, result.getAsJsonArray("lines").get(4).getAsJsonObject().get("line").getAsInt());
-    }
-
-    @Test
-    void rejectsPathsAndBoundsLongLines() {
-        CrashLogTools.LogFile file = new CrashLogTools.LogFile(
-                "log-1", "latest.log", "minecraft_log", 200, false, List.of("字".repeat(20000)));
-        JsonObject request = new JsonObject();
-        request.addProperty("name", "read_log_file");
-        request.addProperty("file_id", "../../secret");
-        request.addProperty("start_line", 200);
-        request.addProperty("end_line", Integer.MAX_VALUE);
-        assertTrue(CrashLogTools.execute(List.of(file), request).has("error"));
-        request.addProperty("file_id", "log-1");
-        JsonObject result = CrashLogTools.execute(List.of(file), request);
-        String text = result.getAsJsonArray("lines").get(0).getAsJsonObject().get("text").getAsString();
-        assertEquals(2000, text.codePointCount(0, text.length()));
-        assertTrue(result.get("truncated").getAsBoolean());
-        request.addProperty("start_line", Integer.MAX_VALUE);
-        assertEquals(0, CrashLogTools.execute(List.of(file), request).getAsJsonArray("lines").size());
-    }
-
-    @Test
-    void snapshotHidesHomeAndListOmitsLineText() {
-        String home = System.getProperty("user.home");
-        List<CrashLogTools.LogFile> files = CrashLogTools.snapshot("boom " + home + "\nCaused by: bad", "");
-        JsonObject list = new JsonObject();
-        list.addProperty("name", "list_log_files");
-        String listed = CrashLogTools.execute(files, list).toString();
-        assertFalse(listed.contains("boom"));
-        assertFalse(listed.contains(home));
-        JsonObject read = new JsonObject();
-        read.addProperty("name", "read_log_file");
-        read.addProperty("file_id", "log-1");
-        read.addProperty("start_line", 1);
-        read.addProperty("end_line", 5);
-        String body = CrashLogTools.execute(files, read).toString();
-        assertTrue(body.contains("{HOME}"));
-        assertFalse(body.contains(home));
-    }
-
-    @Test
-    void initialWindowStartsAtTheCrashReport() {
-        CrashLogTools.LogFile crash = new CrashLogTools.LogFile(
-                "log-1", "crash-report.txt", "crash_report", 1, false,
-                List.of("header", "Caused by: sodium"));
-        CrashLogTools.LogFile log = new CrashLogTools.LogFile(
-                "log-2", "latest.log", "minecraft_log", 1, false, List.of("hello"));
-        String window = CrashLogTools.initialWindow(List.of(log, crash));
-        assertTrue(window.indexOf("log-1") < window.indexOf("log-2"));
-        assertTrue(window.contains("Caused by: sodium"));
+    void nativeEngineFindsOutOfMemoryAndRejectsPaths() {
+        long session = LogAgentNative.open();
+        try {
+            LogAgentNative.addFile(session, "latest.log", "minecraft_log",
+                    "start\njava.lang.OutOfMemoryError: Java heap space\nend");
+            String context = LogAgentNative.context(session);
+            assertTrue(context.contains("out_of_memory"));
+            String denied = LogAgentNative.tool(session,
+                    "{\"name\":\"read_log_file\",\"file_id\":\"../../secret\",\"start_line\":1}");
+            assertTrue(denied.contains("Unknown file_id"));
+            CrashRepair.Insight rules = CrashRepair.fromRules(context);
+            assertTrue(rules.rootCause.contains("OutOfMemoryError"));
+            assertEquals(0.9, rules.confidence, 0.001);
+        } finally {
+            LogAgentNative.close(session);
+        }
     }
 
     @Test
@@ -162,8 +114,8 @@ class CrashRepairTest {
         AgentModel.ToolCall call = new AgentModel.ToolCall("1", "call_api",
                 "{\"method\":\"settings.getJavaPath\",\"args\":[]}");
         LinkedHashSet<String> seen = new LinkedHashSet<>();
-        CrashRepair.use(List.of(), seen, "1.20.1", call, api, new ArrayList<>());
-        String second = CrashRepair.use(List.of(), seen, "1.20.1", call, api, new ArrayList<>());
+        CrashRepair.use(0, seen, "1.20.1", call, api, new ArrayList<>());
+        String second = CrashRepair.use(0, seen, "1.20.1", call, api, new ArrayList<>());
         assertEquals(1, calls.get());
         assertTrue(second.contains("已经看过"));
     }
@@ -197,6 +149,12 @@ class CrashRepairTest {
         assertEquals("empty", CrashRepair.investigate(null, "1.20.1", " ", "", hooks).status);
         assertEquals("need", CrashRepair.investigate(
                 new AgentModel.Endpoint("", "", ""), "1.20.1", "crash", "", hooks).status);
+        CrashRepair.Outcome rules = CrashRepair.investigate(
+                new AgentModel.Endpoint("", "", ""), "1.20.1", "",
+                "java.lang.OutOfMemoryError: Java heap space", hooks);
+        assertEquals("ready", rules.status);
+        assertTrue(rules.insight.rootCause.contains("OutOfMemoryError"));
+        assertEquals(0.9, rules.insight.confidence, 0.001);
         CrashRepair.Hooks stop = new CrashRepair.Hooks() {
             @Override public boolean cancelled() { return true; }
             @Override public void progress(String text) {}
