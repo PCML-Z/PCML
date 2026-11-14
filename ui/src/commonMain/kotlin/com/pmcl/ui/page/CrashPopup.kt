@@ -27,10 +27,14 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -39,12 +43,21 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.google.gson.JsonArray
+import com.pmcl.core.agent.AgentApi
+import com.pmcl.core.agent.AgentModel
+import com.pmcl.core.agent.CrashRepair
 import com.pmcl.core.i18n.I18n
 import com.pmcl.core.launch.CrashAnalyzer
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import com.pmcl.ui.viewmodel.generateSupportPack
 import com.pmcl.ui.viewmodel.openCrashHelp
+import com.pmcl.ui.viewmodel.refreshInstalledMods
 import com.pmcl.ui.viewmodel.relaunchAfterCrash
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicBoolean
 import java.awt.FileDialog
 import java.awt.Frame
 import java.text.SimpleDateFormat
@@ -179,6 +192,12 @@ fun GameCrashPopup(vm: LauncherViewModel) {
                         }
                     }
                 }
+                CrashAiRepair(
+                    vm = vm,
+                    versionId = ev.versionId,
+                    report = ev.report?.content?.takeIf { it.isNotBlank() && !ev.live } ?: "",
+                    logs = ev.recentLogs.joinToString("\n")
+                )
                 if (packPath != null) {
                     Spacer(Modifier.height(6.dp))
                     Text(
@@ -242,6 +261,127 @@ fun GameCrashPopup(vm: LauncherViewModel) {
                         Text(I18n.t("crash.popup.close"), color = CrashOnRed)
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CrashAiRepair(
+    vm: LauncherViewModel,
+    versionId: String,
+    report: String,
+    logs: String
+) {
+    val scope = rememberCoroutineScope()
+    val cancelled = remember(versionId, report, logs) { AtomicBoolean(false) }
+    var busy by remember(versionId, report, logs) { mutableStateOf(false) }
+    var status by remember(versionId, report, logs) { mutableStateOf("") }
+    var outcome by remember(versionId, report, logs) { mutableStateOf<CrashRepair.Outcome?>(null) }
+    DisposableEffect(versionId, report, logs) {
+        onDispose { cancelled.set(true) }
+    }
+    val outline = ButtonDefaults.outlinedButtonColors(contentColor = CrashOnRed)
+    OutlinedButton(
+        onClick = {
+            if (busy) {
+                cancelled.set(true)
+                busy = false
+                status = ""
+                return@OutlinedButton
+            }
+            cancelled.set(false)
+            busy = true
+            status = I18n.t("crash.ai.working")
+            outcome = null
+            scope.launch {
+                val result = withContext(Dispatchers.IO) {
+                    val endpoint = AgentModel.load(vm.config.workDir)
+                    val context = vm.core.plugins().appContext(
+                        "pmcl.crash-repair",
+                        vm.config.workDir.resolve("crash-repair"),
+                        AgentApi.permissions()
+                    )
+                    CrashRepair.investigate(endpoint, versionId, report, logs, object : CrashRepair.Hooks {
+                        override fun cancelled(): Boolean = cancelled.get()
+                        override fun progress(text: String) {
+                            scope.launch { status = text }
+                        }
+                        override fun call(method: String, args: JsonArray): String {
+                            return AgentApi.invoke(context, method, args)
+                        }
+                    })
+                }
+                if (cancelled.get()) return@launch
+                busy = false
+                status = ""
+                outcome = result
+                if (result.applied.isNotEmpty()) vm.refreshInstalledMods()
+            }
+        },
+        enabled = true,
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        colors = outline,
+        border = BorderStroke(1.dp, CrashOnRed.copy(alpha = 0.75f))
+    ) {
+        Text(if (busy) I18n.t("crash.ai.stop") else I18n.t("crash.ai.button"))
+    }
+    val result = outcome
+    val note = when {
+        status.isNotBlank() -> status
+        result == null -> ""
+        result.status == "need" -> I18n.t("crash.ai.need")
+        result.status == "empty" -> I18n.t("crash.ai.empty")
+        result.status == "failed" -> I18n.t("crash.ai.failed", result.detail.ifBlank { I18n.t("common.unknown") })
+        else -> ""
+    }
+    if (note.isNotBlank()) {
+        Text(
+            note,
+            style = MaterialTheme.typography.labelSmall,
+            color = CrashOnRed,
+            maxLines = 2,
+            modifier = Modifier.padding(top = 4.dp)
+        )
+    }
+    val insight = result?.insight
+    if (result != null && result.status == "ready" && insight != null) {
+        Column(
+            Modifier.fillMaxWidth().heightIn(max = 160.dp).padding(top = 4.dp).pmclVerticalScroll(rememberScrollState())
+        ) {
+            if (insight.prose.isNotBlank()) {
+                Text(insight.prose, style = MaterialTheme.typography.bodySmall, color = CrashOnRed, maxLines = 4)
+            }
+            if (insight.rootCause.isNotBlank()) {
+                Text(
+                    I18n.t("crash.ai.cause") + "：" + insight.rootCause,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = CrashOnRed,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+            val confidence = insight.confidence
+            if (confidence != null) {
+                Text(
+                    I18n.t("crash.ai.confidence", (confidence * 100).toInt()),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = CrashOnRed.copy(alpha = 0.85f)
+                )
+            }
+            if (insight.steps.isNotEmpty()) {
+                Text(
+                    I18n.t("crash.ai.steps"),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = CrashOnRed,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+                insight.steps.take(6).forEach { step ->
+                    Text("· $step", style = MaterialTheme.typography.labelSmall, color = CrashOnRed, maxLines = 2)
+                }
+            }
+            result.applied.forEach { line ->
+                Text(line, style = MaterialTheme.typography.labelSmall, color = CrashOnRed, maxLines = 2)
             }
         }
     }

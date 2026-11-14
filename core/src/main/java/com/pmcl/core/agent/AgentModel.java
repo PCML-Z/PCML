@@ -185,6 +185,13 @@ public final class AgentModel {
 
     /** 带工具的一轮。thought 是这一步的想法，calls 由调用方执行后再继续 step。 */
     public static Step step(Endpoint endpoint, List<Exchange> history, String toolsJson) throws IOException {
+        return step(endpoint, history, toolsJson, null);
+    }
+
+    /**
+     * 同 {@link #step(Endpoint, List, String)}。system 只给崩溃修复换提示词，空则仍用调度中心里的提示词。
+     */
+    public static Step step(Endpoint endpoint, List<Exchange> history, String toolsJson, String system) throws IOException {
         if (endpoint == null || !endpoint.ready()) throw new IOException(I18n.t("launch.agent_need"));
         int port = loopbackPort(endpoint.baseUrl);
         boolean woke = false;
@@ -193,19 +200,19 @@ public final class AgentModel {
             woke = true;
         }
         try {
-            return complete(endpoint, history, toolsJson);
+            return complete(endpoint, history, toolsJson, system);
         } catch (IOException first) {
             if (port != 1234 || woke || !canWake(first)) throw friendly(port, first);
             wakeLmStudio(port, cleanModel(endpoint.model));
             try {
-                return complete(endpoint, history, toolsJson);
+                return complete(endpoint, history, toolsJson, system);
             } catch (IOException second) {
                 throw friendly(port, second);
             }
         }
     }
 
-    private static Step complete(Endpoint endpoint, List<Exchange> history, String toolsJson) throws IOException {
+    private static Step complete(Endpoint endpoint, List<Exchange> history, String toolsJson, String systemPrompt) throws IOException {
         String url = chatUrl(endpoint.baseUrl);
         JsonObject body = new JsonObject();
         body.addProperty("model", cleanModel(endpoint.model));
@@ -218,7 +225,7 @@ public final class AgentModel {
         JsonArray messages = new JsonArray();
         JsonObject system = new JsonObject();
         system.addProperty("role", "system");
-        system.addProperty("content", SYSTEM);
+        system.addProperty("content", systemPrompt == null || systemPrompt.isBlank() ? SYSTEM : systemPrompt);
         messages.add(system);
         List<Exchange> kept = history == null ? List.of() : history;
         int from = Math.max(0, kept.size() - MAX_TURNS);
