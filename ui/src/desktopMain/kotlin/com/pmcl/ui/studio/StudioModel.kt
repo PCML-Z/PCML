@@ -214,7 +214,16 @@ internal const val MAX_CHILDREN = 600
 private val textExtensions = setOf(
     "txt", "json", "json5", "toml", "cfg", "conf", "properties", "yml", "yaml", "ini",
     "snbt", "mcmeta", "js", "zs", "lang", "log", "md", "csv", "xml", "mcfunction",
-    "java", "kt", "kts", "gradle", "groovy", "pom"
+    "java", "kt", "kts", "gradle", "groovy", "pom",
+    "cs", "csproj", "sln", "fs", "fsproj", "vb", "vbproj", "razor", "cshtml",
+    "resx", "xaml", "axaml", "props", "targets", "pubxml", "config",
+    "py", "sh", "ps1", "bat", "cmd", "html", "css", "scss"
+)
+
+private val binaryExtensions = setOf(
+    "jar", "zip", "class", "dll", "exe", "so", "dylib", "png", "jpg", "jpeg", "gif",
+    "webp", "ico", "icns", "pdf", "ttf", "otf", "woff", "woff2", "mp3", "ogg", "wav",
+    "mp4", "bin", "dat", "pak", "gz", "7z", "rar", "pdb", "nbt"
 )
 
 private val refusedNames = setOf(
@@ -509,8 +518,22 @@ internal fun LauncherViewModel.diagnoseOf(target: StudioTarget): List<DiagnoseIt
 
 internal fun isTextFile(path: Path): Boolean {
     val name = path.fileName?.toString()?.lowercase(Locale.ROOT) ?: return false
-    val ext = name.substringAfterLast('.', "")
-    return ext in textExtensions
+    val dot = name.lastIndexOf('.')
+    val ext = if (dot <= 0) "" else name.substring(dot + 1)
+    if (ext in textExtensions) return true
+    if (ext in binaryExtensions) return false
+    return !looksBinary(path)
+}
+
+/** 扩展名不认识时看前一段有没有空字节。ECXP 工程里的源文件不能被当成二进制。 */
+private fun looksBinary(path: Path): Boolean = try {
+    Files.newInputStream(path).use { input ->
+        val buf = ByteArray(4096)
+        val n = input.read(buf)
+        if (n <= 0) false else buf.take(n).any { it == 0.toByte() }
+    }
+} catch (_: Throwable) {
+    false
 }
 
 internal fun isRefused(path: Path): Boolean {

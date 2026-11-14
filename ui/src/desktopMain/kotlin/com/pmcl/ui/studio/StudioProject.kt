@@ -750,10 +750,10 @@ private fun CodeTree(root: Path, onOpen: (Path) -> Unit) {
 private fun fileTint(path: Path): Color {
     val name = path.fileName?.toString()?.lowercase(Locale.ROOT).orEmpty()
     return when {
-        name.endsWith(".java") || name.endsWith(".kt") -> Tiles.Teal
+        name.endsWith(".java") || name.endsWith(".kt") || name.endsWith(".cs") -> Tiles.Teal
         name.endsWith(".gradle") || name.endsWith(".kts") -> Tiles.Navy
-        name == "pom.xml" -> Tiles.Orange
-        name.endsWith(".xml") || name.endsWith(".properties") -> Tiles.Sky
+        name == "pom.xml" || name.endsWith(".csproj") || name.endsWith(".sln") -> Tiles.Orange
+        name.endsWith(".xml") || name.endsWith(".properties") || name.endsWith(".axaml") || name.endsWith(".targets") -> Tiles.Sky
         else -> LocalStudioFallback
     }
 }
