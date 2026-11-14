@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -36,8 +37,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.google.gson.GsonBuilder
@@ -54,8 +58,29 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 
-/** version.json 超过这个大小就不做结构化解析，直接给只读原文。 */
+/** 超过这个大小不读进编辑器。结构化解析和整页原文都会把界面停在加载中。 */
 private const val MAX_VERSION_JSON_BYTES = 4L * 1024 * 1024
+
+/** 加载有终态。null 不能同时表示“还在读”和“读不了”。 */
+private sealed interface VersionLoad {
+    data object Loading : VersionLoad
+    data object Missing : VersionLoad
+    data class TooLarge(val file: Path, val size: Long) : VersionLoad
+    data class ReadFailed(val message: String) : VersionLoad
+    data class Ready(val file: Path, val text: String, val parsed: Pair<VersionEdit, VersionFacts>?) : VersionLoad
+}
+
+private fun readVersionFile(vm: LauncherViewModel, versionId: String): VersionLoad {
+    val file = vm.versionJsonOf(versionId) ?: return VersionLoad.Missing
+    return try {
+        val size = Files.size(file)
+        if (size > MAX_VERSION_JSON_BYTES) return VersionLoad.TooLarge(file, size)
+        val text = String(Files.readAllBytes(file), StandardCharsets.UTF_8)
+        VersionLoad.Ready(file, text, parseVersion(text))
+    } catch (e: Throwable) {
+        VersionLoad.ReadFailed(e.message ?: e.javaClass.simpleName)
+    }
+}
 
 /**
  * 可编辑字段。base 是原始解析结果，保存时以它为基底只覆盖改过的键，
@@ -203,6 +228,40 @@ private fun validateVersion(edit: VersionEdit, versionsDir: Path?): List<Version
     return out
 }
 
+@Composable
+private fun VersionLoadNotice(
+    title: String,
+    color: Color,
+    icon: ImageVector,
+    detail: String? = null,
+    onReload: () -> Unit,
+    actions: @Composable RowScope.() -> Unit = {},
+) {
+    val p = LocalStudio.current
+    Column(Modifier.fillMaxSize().background(p.editor)) {
+        Row(
+            Modifier.fillMaxWidth().height(40.dp).background(p.panelAlt),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Spacer(Modifier.width(12.dp))
+            Icon(icon, null, tint = color, modifier = Modifier.size(15.dp))
+            Spacer(Modifier.width(8.dp))
+            FlatText(title, color = color, size = 12, lines = 2, modifier = Modifier.weight(1f))
+            actions()
+            Block("", onClick = onReload, icon = Icons.Filled.Refresh, height = 40.dp)
+        }
+        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
+                FlatText(title, color = color, lines = 4)
+                if (!detail.isNullOrBlank()) {
+                    Spacer(Modifier.height(8.dp))
+                    FlatText(detail, color = p.error, size = 11, lines = 3)
+                }
+            }
+        }
+    }
+}
+
 /**
  * version.json 结构化编辑器：分区表单编辑常用字段，其余键（libraries/downloads/logging…）
  * 保存时原样保留。保存会按 Gson 的两格缩进重排整个文件，键顺序不变。
@@ -215,37 +274,67 @@ internal fun VersionJsonStructured(vm: LauncherViewModel, versionId: String) {
     var rawMode by rememberSaveable(versionId) { mutableStateOf(false) }
     var dirty by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<VersionIssue?>(null) }
+    var openError by remember { mutableStateOf<String?>(null) }
 
-    val loaded by produceState<Triple<Path, String, Pair<VersionEdit, VersionFacts>?>?>(null, versionId, reload) {
-        value = withContext(Dispatchers.IO) {
-            val file = vm.versionJsonOf(versionId) ?: return@withContext null
-            val text = try {
-                if (Files.size(file) > MAX_VERSION_JSON_BYTES) null
-                else String(Files.readAllBytes(file), StandardCharsets.UTF_8)
-            } catch (_: Throwable) {
-                null
-            } ?: return@withContext null
-            Triple(file, text, parseVersion(text))
-        }
+    val loaded by produceState<VersionLoad>(VersionLoad.Loading, versionId, reload) {
+        value = VersionLoad.Loading
+        value = withContext(Dispatchers.IO) { readVersionFile(vm, versionId) }
     }
 
     var edit by remember { mutableStateOf<VersionEdit?>(null) }
     // 加载完成后填进编辑器；用户改过以后不再覆盖，避免打字打到一半被冲掉
     androidx.compose.runtime.LaunchedEffect(loaded) {
+        val ready = loaded as? VersionLoad.Ready
         if (!dirty) {
-            edit = loaded?.third?.first
+            edit = ready?.parsed?.first
             message = null
+            openError = null
         }
     }
 
-    val data = loaded
-    if (data == null) {
-        Box(Modifier.fillMaxSize().background(p.editor)) {
-            CenterNote(I18n.t("studio.loading"))
+    when (val data = loaded) {
+        VersionLoad.Loading -> {
+            Box(Modifier.fillMaxSize().background(p.editor)) {
+                CenterNote(I18n.t("studio.loading"))
+            }
+            return
         }
-        return
+        VersionLoad.Missing -> {
+            VersionLoadNotice(I18n.t("studio.vjson_missing"), p.error, Icons.Filled.ErrorOutline, onReload = { reload++ })
+            return
+        }
+        is VersionLoad.ReadFailed -> {
+            VersionLoadNotice(
+                I18n.t("studio.vjson_read_failed", data.message),
+                p.error,
+                Icons.Filled.ErrorOutline,
+                onReload = { reload++ }
+            )
+            return
+        }
+        is VersionLoad.TooLarge -> {
+            VersionLoadNotice(
+                I18n.t("studio.vjson_too_large", formatSize(data.size)),
+                p.warn,
+                Icons.Filled.Warning,
+                detail = openError,
+                onReload = { reload++ }
+            ) {
+                Block(I18n.t("studio.vjson_open_external"), onClick = {
+                    openError = openExternally(data.file)
+                }, icon = Icons.AutoMirrored.Filled.OpenInNew, height = 40.dp)
+                Block(I18n.t("studio.reveal_dir"), onClick = {
+                    vm.openDir(data.file.parent?.toFile() ?: data.file.toFile())
+                }, icon = Icons.Filled.FolderOpen, height = 40.dp)
+            }
+            return
+        }
+        is VersionLoad.Ready -> Unit
     }
-    val (file, text, parsed) = data
+    val ready = loaded as VersionLoad.Ready
+    val file = ready.file
+    val text = ready.text
+    val parsed = ready.parsed
     if (parsed == null) {
         // 解析不了就退回只读原文，至少还能看
         Column(Modifier.fillMaxSize().background(p.editor)) {
